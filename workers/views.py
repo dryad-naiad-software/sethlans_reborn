@@ -22,6 +22,47 @@
 # Project: sethlans_reborn
 #
 
-from django.shortcuts import render
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Worker
+from .serializers import WorkerSerializer
+from django.utils import timezone
 
-# Create your views here.
+class WorkerHeartbeatAPIView(APIView):
+    """
+    API endpoint for workers to send heartbeats and register themselves.
+    Handles both registration (creation) and updates (heartbeat).
+    """
+    def post(self, request, *args, **kwargs):
+        hostname = request.data.get('hostname')
+        ip_address = request.data.get('ip_address')
+        os_info = request.data.get('os')
+
+        if not hostname:
+            return Response({"detail": "Hostname is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Use get_or_create to find an existing worker or create a new one
+        worker, created = Worker.objects.get_or_create(hostname=hostname)
+
+        # Update worker details. Only update if the data is provided in the request.
+        if ip_address:
+            worker.ip_address = ip_address
+        if os_info:
+            worker.os = os_info
+
+        # Update last_seen and set active status on every heartbeat
+        worker.last_seen = timezone.now() # Use timezone.now() for timezone-aware datetimes
+        worker.is_active = True # Worker is active if it sends a heartbeat
+        worker.save()
+
+        serializer = WorkerSerializer(worker)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def get(self, request, *args, **kwargs):
+        """
+        Optional: For debugging/admin purposes, list all registered workers.
+        """
+        workers = Worker.objects.all()
+        serializer = WorkerSerializer(workers, many=True) # many=True for a list of objects
+        return Response(serializer.data)

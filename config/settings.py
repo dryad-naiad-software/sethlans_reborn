@@ -62,10 +62,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # Third-party apps (we will add rest_framework later if not already there)
-    # 'rest_framework', # Temporarily comment out or skip if you haven't done DRF yet.
+    # Third-party apps
+    'rest_framework',
     # Your custom apps here
-    'workers',  # <-- Make sure this line is here
+    'workers',
 ]
 
 MIDDLEWARE = [

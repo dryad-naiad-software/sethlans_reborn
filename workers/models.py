@@ -23,6 +23,7 @@
 #
 
 from django.db import models
+from django.utils import timezone
 
 class Worker(models.Model):
     hostname = models.CharField(max_length=255, unique=True)
@@ -36,3 +37,54 @@ class Worker(models.Model):
 
     class Meta:
         ordering = ['hostname']
+
+# Define choices for job status
+class JobStatus(models.TextChoices):
+    QUEUED = 'QUEUED', 'Queued'
+    RENDERING = 'RENDERING', 'Rendering'
+    DONE = 'DONE', 'Done'
+    ERROR = 'ERROR', 'Error'
+    CANCELED = 'CANCELED', 'Canceled'
+
+
+class Job(models.Model):
+    name = models.CharField(max_length=255, unique=True, help_text="A unique name for the render job.")
+    blend_file_path = models.CharField(max_length=1024, help_text="Absolute path to the Blender file.")
+    output_file_pattern = models.CharField(max_length=1024, help_text="Output file path pattern (e.g., //render/#.png)")
+    start_frame = models.IntegerField(default=1)
+    end_frame = models.IntegerField(default=1)
+    # Use a CharField with choices for status
+    status = models.CharField(
+        max_length=50,
+        choices=JobStatus.choices,
+        default=JobStatus.QUEUED
+    )
+
+    # Link to the Worker that's assigned this job (optional initially)
+    assigned_worker = models.ForeignKey(
+        'Worker',
+        on_delete=models.SET_NULL, # If a worker is deleted, don't delete the job, just nullify this field
+        null=True,
+        blank=True,
+        related_name='jobs' # Allows access from Worker.jobs.all()
+    )
+
+    submitted_at = models.DateTimeField(default=timezone.now)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    # We'll use a string for blender_version for now. Later we can make this more robust.
+    blender_version = models.CharField(max_length=100, default="4.5", help_text="e.g., '4.5' or 'blender-4.5.0-windows-x64'")
+    render_engine = models.CharField(max_length=100, default="CYCLES", help_text="e.g., 'CYCLES' or 'BLENDER_EEVEE'")
+
+    # Store basic output from Blender process (for debugging/status)
+    last_output = models.TextField(blank=True, default='')
+    error_message = models.TextField(blank=True, default='')
+
+    def __str__(self):
+        return f"{self.name} ({self.status})"
+
+    class Meta:
+        ordering = ['-submitted_at'] # Order by most recently submitted first
+        verbose_name = "Render Job"
+        verbose_name_plural = "Render Jobs"
