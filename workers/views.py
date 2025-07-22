@@ -31,6 +31,11 @@ from django.utils import timezone
 from rest_framework import viewsets  # Already imported
 from rest_framework.permissions import IsAuthenticatedOrReadOnly  # Optional: uncomment if auth is needed
 
+# New Imports for Filtering:
+from django_filters.rest_framework import DjangoFilterBackend # <-- New import
+from rest_framework import filters # <-- New import (not strictly needed for DjangoFilterBackend, but common)
+
+
 
 # Changed from APIView to ViewSet. 'list' method handles GET, 'create' handles POST.
 class WorkerHeartbeatViewSet(viewsets.ViewSet):
@@ -76,19 +81,18 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
 class JobViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows render jobs to be viewed or created.
-    GET /api/jobs/ : List all jobs.
-    POST /api/jobs/ : Create a new job.
-    GET /api/jobs/{id}/ : Retrieve a specific job.
-    PUT /api/jobs/{id}/ : Update a specific job.
-    PATCH /api/jobs/{id}/ : Partially update a specific job.
-    DELETE /api/jobs/{id}/ : Delete a specific job.
     """
     queryset = Job.objects.all()
     serializer_class = JobSerializer
-
     # permission_classes = [IsAuthenticatedOrReadOnly] # Uncomment if you enable user authentication
 
+    # Add filtering backends and fields for the API
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter] # <-- Add this line
+    filterset_fields = ['status', 'assigned_worker'] # <-- Allow filtering by status and assigned_worker
+    search_fields = ['name', 'blend_file_path'] # <-- Allow searching
+    ordering_fields = ['submitted_at', 'status', 'name'] # <-- Allow ordering
+
+
     def perform_create(self, serializer):
-        # When a new job is created via POST, set its initial status and submitted_at
         job = serializer.save(status=JobStatus.QUEUED, submitted_at=timezone.now())
         print(f"New job '{job.name}' created with status {job.status}")

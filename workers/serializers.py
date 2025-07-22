@@ -28,7 +28,7 @@ from .models import Worker, Job, JobStatus # Import Job and JobStatus
 class WorkerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Worker
-        fields = ['hostname', 'ip_address', 'os', 'last_seen', 'is_active']
+        fields = ['id', 'hostname', 'ip_address', 'os', 'last_seen', 'is_active'] # <-- Added 'id'
         read_only_fields = ['last_seen']
 
 class JobSerializer(serializers.ModelSerializer):
