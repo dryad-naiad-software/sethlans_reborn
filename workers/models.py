@@ -21,3 +21,18 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+
+from django.db import models
+
+class Worker(models.Model):
+    hostname = models.CharField(max_length=255, unique=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    os = models.CharField(max_length=100, blank=True, default='')
+    last_seen = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.hostname
+
+    class Meta:
+        ordering = ['hostname']

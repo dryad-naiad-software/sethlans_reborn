@@ -21,3 +21,7 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+
+from django.test import TestCase
+
+# Create your tests here.

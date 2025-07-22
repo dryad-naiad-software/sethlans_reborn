@@ -21,3 +21,13 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+
+from django.contrib import admin
+from .models import Worker
+
+@admin.register(Worker)
+class WorkerAdmin(admin.ModelAdmin):
+    list_display = ('hostname', 'ip_address', 'os', 'last_seen', 'is_active')
+    list_filter = ('os', 'is_active')
+    search_fields = ('hostname', 'ip_address')
+    ordering = ('hostname',)
