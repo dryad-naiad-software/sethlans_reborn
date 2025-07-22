@@ -21,11 +21,50 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+
 from rest_framework import serializers
-from .models import Worker
+from .models import Worker, Job, JobStatus # Import Job and JobStatus
 
 class WorkerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Worker
         fields = ['hostname', 'ip_address', 'os', 'last_seen', 'is_active']
-        read_only_fields = ['last_seen'] # 'last_seen' is auto_now, so it's read-only from API
+        read_only_fields = ['last_seen']
+
+class JobSerializer(serializers.ModelSerializer):
+    # Display the assigned worker's hostname directly, rather than its ID
+    assigned_worker_hostname = serializers.CharField(source='assigned_worker.hostname', read_only=True)
+    # Human-readable status display (e.g., "Queued" instead of "QUEUED")
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Job
+        fields = [
+            'id', # Include ID for Angular to reference specific jobs
+            'name',
+            'blend_file_path',
+            'output_file_pattern',
+            'start_frame',
+            'end_frame',
+            'status',
+            'status_display',
+            'assigned_worker', # This will be the worker's ID for POST/PATCH
+            'assigned_worker_hostname',
+            'submitted_at',
+            'started_at',
+            'completed_at',
+            'blender_version',
+            'render_engine',
+            'last_output',
+            'error_message',
+        ]
+        read_only_fields = [
+            'submitted_at', 'started_at', 'completed_at',
+            'last_output', 'error_message',
+            'status_display', 'assigned_worker_hostname',
+        ]
+        # These fields are set by backend logic/defaults, not required from client on creation
+        extra_kwargs = {
+            'status': {'required': False},
+            'assigned_worker': {'required': False},
+        }

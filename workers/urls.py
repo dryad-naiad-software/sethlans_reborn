@@ -21,10 +21,19 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-from django.urls import path
-from .views import WorkerHeartbeatAPIView # <-- Only WorkerHeartbeatAPIView remains
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+
+from .views import WorkerHeartbeatViewSet, JobViewSet # <-- Updated import: WorkerHeartbeatViewSet
+
+# Create a router instance
+router = DefaultRouter()
+# Register your ViewSets with the router.
+router.register(r'jobs', JobViewSet, basename='job')
+router.register(r'heartbeat', WorkerHeartbeatViewSet, basename='heartbeat') # <-- New registration for heartbeat
 
 urlpatterns = [
-    # Endpoint for workers to send heartbeats (POST) and list workers (GET for debug)
-    path('heartbeat/', WorkerHeartbeatAPIView.as_view(), name='worker_heartbeat'),
+    # Include all router URLs at the root of /api/
+    path('', include(router.urls)),
 ]
