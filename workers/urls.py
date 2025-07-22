@@ -22,7 +22,7 @@
 # Project: sethlans_reborn
 #
 from django.urls import path
-from .views import WorkerHeartbeatAPIView
+from .views import WorkerHeartbeatAPIView # <-- Only WorkerHeartbeatAPIView remains
 
 urlpatterns = [
     # Endpoint for workers to send heartbeats (POST) and list workers (GET for debug)
