@@ -1,0 +1,46 @@
+# Virtual environment
+venv/
+*.env
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+.Python/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.ipynb
+.mypy_cache/
+.pytest_cache/
+.venv/
+Pipfile.lock
+
+# Django specific
+*.sqlite3
+/media/
+/static/
+*.log
+
+# PyCharm specific
+.idea/
+*.iml
+
+# OS generated files
+.DS_Store
+.Trashes
+Thumbs.db
