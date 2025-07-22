@@ -1,5 +1,7 @@
 # Virtual environment
 venv/
+.venv/          # Added by some tools, good to ignore
+venv_worker/    # <-- Add this line for the worker agent's venv
 *.env
 .env
 
