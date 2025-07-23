@@ -1,4 +1,26 @@
-# sethlans_worker_agent/config.py
+#
+# Copyright (c) 2025 Dryad and Naiad Software LLC
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#
+# Created by Mario Estrella on 07/22/2025.
+# Dryad and Naiad Software LLC
+# mestrella@dryadandnaiad.com
+# Project: sethlans_reborn
+#
 
 import os
 import sys
@@ -58,7 +80,7 @@ PLATFORM_BLENDER_MAP = {
     ('Darwin', 'arm64'): {
         'download_suffix': 'macos-arm64',
         'download_ext': '.dmg',
-        'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'
+        'executable_path_in_in_folder': 'blender.app/Contents/MacOS/blender'
     }
 }
 
@@ -66,12 +88,28 @@ CURRENT_PLATFORM_BLENDER_DETAILS = PLATFORM_BLENDER_MAP.get((platform.system(), 
 if not CURRENT_PLATFORM_BLENDER_DETAILS:
     print(f"[WARNING] Unsupported OS/Architecture for Blender management: ({platform.system()}, {platform.machine().lower()}). Auto-download may not work.")
 
-# --- NEW: Logging Configuration ---
-LOGGING_LEVEL = logging.DEBUG # Set default logging level (e.g., DEBUG, INFO, WARNING, ERROR)
+# --- NEW: Centralized Logging Configuration Function ---
+def configure_worker_logging(log_level=logging.INFO):
+    """
+    Configures the basic logging for the worker agent.
+    This should be called once at startup.
+    """
+    # Ensure handlers are not duplicated if called multiple times (e.g., in tests)
+    if not logging.root.handlers:
+        logging.basicConfig(
+            level=log_level,
+            format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        # Set specific loggers to DEBUG if the root level is DEBUG
+        if log_level == logging.DEBUG:
+            logging.getLogger('sethlans_worker_agent.utils.blender_release_parser').setLevel(logging.DEBUG)
+            # Add other specific loggers here if you want them at DEBUG
+            logging.getLogger('sethlans_worker_agent.tool_manager').setLevel(logging.DEBUG)
+            logging.getLogger('sethlans_worker_agent.job_processor').setLevel(logging.DEBUG)
+            logging.getLogger('sethlans_worker_agent.system_monitor').setLevel(logging.DEBUG)
+            logging.getLogger('sethlans_worker_agent.utils.file_hasher').setLevel(logging.DEBUG)
+            logging.getLogger('sethlans_worker_agent.utils.file_operations').setLevel(logging.DEBUG)
 
-# Basic configuration to output to console
-logging.basicConfig(
-    level=LOGGING_LEVEL,
-    format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+# Call logging configuration when config.py is loaded
+configure_worker_logging(log_level=logging.INFO) # Default to INFO for normal operation

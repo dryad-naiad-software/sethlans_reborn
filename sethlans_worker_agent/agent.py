@@ -21,44 +21,39 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-
 import time
-import logging  # <-- NEW IMPORT
+import logging
 
 # Import the new modules
 from . import config
 from . import system_monitor
 from . import job_processor
 
+# Ensure logging is configured (calls the function in config.py)
+# config.configure_worker_logging(logging.DEBUG) # You can override level here for debug runs
+
 # Get a logger for this module
 logger = logging.getLogger(__name__)
 
 # Global variable to store worker's own info once registered
-# This object is managed by system_monitor.py but accessed via module.
 WORKER_INFO = {}
 
 if __name__ == "__main__":
     # This initial print is for immediate visibility before logging takes over fully
     print("Sethlans Reborn Worker Agent Starting...")
+
     # Ensure the Django Manager (sethlans_reborn project) is running at http://127.0.0.1:8000/!
 
     # Initial system info for the first heartbeat
     initial_system_info = system_monitor.get_system_info()
 
-    # Send initial heartbeat to ensure worker is registered and get its ID
-    # This populates system_monitor.WORKER_INFO
     system_monitor.send_heartbeat(initial_system_info)
 
-    # --- Explicit READY message ---
-    # This signals that the worker has performed its initial setup before polling for jobs.
     logger.info("Worker Agent READY.")
 
     while True:
-        # Send subsequent heartbeats using only hostname for efficiency
         system_monitor.send_heartbeat({'hostname': system_monitor.WORKER_INFO['hostname']})
 
-        # Job polling and processing
         job_processor.get_and_claim_job()
 
-        # Sleep for the minimum of heartbeat and job polling intervals to keep responsive
         time.sleep(min(config.HEARTBEAT_INTERVAL_SECONDS, config.JOB_POLLING_INTERVAL_SECONDS))

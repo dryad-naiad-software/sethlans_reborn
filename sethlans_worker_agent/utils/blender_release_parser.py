@@ -1,3 +1,4 @@
+# sethlans_worker_agent/utils/blender_release_parser.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -26,13 +27,13 @@ import requests
 import re
 import datetime
 from urllib.parse import urljoin
-import logging  # <-- NEW IMPORT
+import logging
 
 from bs4 import BeautifulSoup
 
 from sethlans_worker_agent import config
+from .hash_parser import parse_sha256_content_for_file  # <-- NEW IMPORT
 
-# Get a logger for this module
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +45,6 @@ def fetch_page_soup(url, timeout=10):
         logger.debug(f"Fetching page: {url}")
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
-        # No change here, we're assuming requests.Response.content is correctly provided.
         return BeautifulSoup(response.content, 'html.parser')
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to fetch URL {url}: {e}")
@@ -56,11 +56,8 @@ def parse_major_version_directories(soup):
     major_version_dir_urls = []
     for link in soup.find_all('a', href=True):
         href = link['href']
-        # CORRECTED REGEX: Explicitly match the full href pattern for directories
-        # ^/release/Blender(\d+\.\d+(?:\.\d+)?)/$: Matches "/release/BlenderX.Y/" or "/release/BlenderX.Y.Z/"
-        major_minor_dir_match = re.match(r'^/release/Blender(\d+\.\d+(?:\.\d+)?)/$', href)  # <-- REFINED REGEX
-
-        logger.debug(f"Checking href: '{href}' with regex. Match: {bool(major_minor_dir_match)}")  # <-- NEW DEBUG
+        major_minor_dir_match = re.match(r'^/release/Blender(\d+\.\d+(?:\.\d+)?)/$', href)
+        logger.debug(f"Checking href: '{href}' with regex. Match: {bool(major_minor_dir_match)}")
 
         if major_minor_dir_match:
             version_prefix = major_minor_dir_match.group(1)
@@ -74,8 +71,8 @@ def parse_major_version_directories(soup):
                 logger.warning(f"Could not parse major version from directory '{href}'. Skipping.")
                 continue
             major_version_dir_urls.append(urljoin(config.BLENDER_RELEASES_URL, href))
-        else:  # <-- NEW DEBUG
-            logger.debug(f"Href '{href}' did not match Blender major version directory pattern.")  # <-- NEW DEBUG
+        else:
+            logger.debug(f"Href '{href}' did not match Blender major version directory pattern.")
     return major_version_dir_urls
 
 
@@ -85,13 +82,11 @@ def get_sha256_hash_for_zip(sha256_url, expected_zip_filename):
     try:
         hash_response = requests.get(sha256_url, timeout=5)
         hash_response.raise_for_status()
-        for line in hash_response.text.splitlines():
-            if expected_zip_filename in line:
-                hash_line_match = re.match(r'([a-f0-9]{64})\s+', line)
-                if hash_line_match:
-                    file_hash = hash_line_match.group(1).lower()
-                    logger.debug(f"  Found hash for {expected_zip_filename}: {file_hash}")
-                    break
+
+        # --- NEW: Call the new hash_parser utility ---
+        file_hash = parse_sha256_content_for_file(hash_response.text, expected_zip_filename)
+        # --- END NEW ---
+
         if not file_hash:
             logger.warning(f"Hash for {expected_zip_filename} not found in {sha256_url}.")
     except requests.exceptions.RequestException as req_e:

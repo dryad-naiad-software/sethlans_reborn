@@ -21,15 +21,14 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-
 import os
 import re
 import requests
 import json
 import datetime
 import platform
-import hashlib
-import logging  # <-- NEW IMPORT
+import logging # This should be there
+
 
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -38,10 +37,11 @@ from . import config
 from .utils.file_hasher import calculate_file_sha256
 from .utils.file_operations import download_file, extract_zip_file
 from .utils.blender_release_parser import fetch_page_soup, parse_major_version_directories, \
-    get_sha256_hash_for_zip, collect_blender_version_details
+                                         get_sha256_hash_for_zip, collect_blender_version_details
+
 
 # Get a logger for this module
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__) # This should be present
 
 
 # Class to encapsulate tool management logic and its cache
