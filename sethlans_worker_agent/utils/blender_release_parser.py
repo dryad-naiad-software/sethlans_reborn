@@ -29,7 +29,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from sethlans_worker_agent import config  # <-- CORRECTED IMPORT: Use absolute import
+from sethlans_worker_agent import config
 
 
 # --- Blender Release Parsing Functions ---
@@ -95,10 +95,11 @@ def get_sha256_hash_for_zip(sha256_url, expected_zip_filename):
 
 def collect_blender_version_details(major_version_dir_url_blender_org):
     """
-    Fetches a major version directory page, parses it for Windows x64 zip details,
+    Fetches a major version directory page, parses it for ALL relevant platform/architecture zip details,
     and constructs primary/mirror URLs and fetches hashes.
+    Returns a list of dictionaries, one for each platform-specific download found.
     """
-    versions_in_dir_windows_x64_zip = []
+    all_platform_versions_found_in_dir = []
     dir_soup = fetch_page_soup(major_version_dir_url_blender_org)
     if not dir_soup:
         return []
@@ -107,9 +108,14 @@ def collect_blender_version_details(major_version_dir_url_blender_org):
         f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Parsing details from: {major_version_dir_url_blender_org}")
     for file_link in dir_soup.find_all('a', href=True):
         file_href = file_link['href']
-        blender_zip_match = re.match(r'blender-(\d+\.\d+\.\d+)-windows-x64\.zip$', file_href)
-        if blender_zip_match:
-            full_version = blender_zip_match.group(1)
+        # --- NEW: More generic regex to capture version, platform suffix, and extension for all supported OS/Arch ---
+        # e.g., blender-X.Y.Z-windows-x64.zip, blender-X.Y.Z-macos-arm64.dmg, blender-X.Y.Z-linux-x64.tar.xz
+        blender_file_match = re.match(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg)$', file_href)
+        if blender_file_match:
+            full_version = blender_file_match.group(1)
+            platform_suffix = blender_file_match.group(2)  # e.g., 'windows-x64', 'macos-arm64'
+            file_extension = blender_file_match.group(3)  # e.g., 'zip', 'tar.xz', 'dmg'
+
             try:
                 file_major_version = int(full_version.split('.')[0])
                 if file_major_version < 4:
@@ -117,8 +123,10 @@ def collect_blender_version_details(major_version_dir_url_blender_org):
             except ValueError:
                 continue
 
+            # Fetch SHA256 hash file content for this version
+            # The hash file URL is still blender-X.Y.Z.sha256 regardless of platform
             sha256_url = urljoin(major_version_dir_url_blender_org, f"blender-{full_version}.sha256")
-            expected_zip_filename_in_hash_file = f"blender-{full_version}-windows-x64.zip"
+            expected_zip_filename_in_hash_file = file_href  # The exact filename from the link (e.g., blender-X.Y.Z-platform.zip)
             file_hash = get_sha256_hash_for_zip(sha256_url, expected_zip_filename_in_hash_file)
 
             primary_download_url = urljoin(major_version_dir_url_blender_org, file_href)
@@ -128,11 +136,13 @@ def collect_blender_version_details(major_version_dir_url_blender_org):
                 mirror_url = primary_download_url.replace(config.BLENDER_RELEASES_URL, mirror_base)
                 mirrors_for_version.append(mirror_url)
 
-            versions_in_dir_windows_x64_zip.append({
+            all_platform_versions_found_in_dir.append({
                 "releaseName": f"Blender {full_version}",
                 "version": full_version,
+                "platform_suffix": platform_suffix,  # Store platform suffix (e.g., 'windows-x64', 'macos-arm64')
+                "file_extension": file_extension,  # Store file extension (e.g., 'zip', 'tar.xz', 'dmg')
                 "hash": file_hash,
                 "url": primary_download_url,
                 "mirrors": mirrors_for_version
             })
-    return versions_in_dir_windows_x64_zip
+    return all_platform_versions_found_in_dir

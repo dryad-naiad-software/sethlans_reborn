@@ -31,7 +31,7 @@ import os
 
 from . import config
 from . import system_monitor
-from .tool_manager import tool_manager_instance  # <-- NEW IMPORT: Import the instance
+from .tool_manager import tool_manager_instance
 
 
 # --- Job Processing Functions ---
@@ -61,11 +61,10 @@ def execute_blender_job(job_data):
         print(f"  Requested Blender Version: {blender_version_req}")
 
     # --- Determine which Blender executable to use ---
-    blender_to_use = config.SYSTEM_BLENDER_EXECUTABLE  # Default to system-wide Blender from config
-    if blender_version_req:
+    blender_to_use = config.SYSTEM_BLENDER_EXECUTABLE  # Default to None now if not specified in config
+    if blender_version_req:  # If a specific version is requested, try to manage it
         print(
             f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Attempting to ensure Blender version {blender_version_req} is available...")
-        # CORRECTED CALL: Use tool_manager_instance.ensure_blender_version_available
         managed_blender_path = tool_manager_instance.ensure_blender_version_available(blender_version_req)
         if managed_blender_path:
             blender_to_use = managed_blender_path
@@ -73,7 +72,26 @@ def execute_blender_job(job_data):
                 f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Using managed Blender version from: {blender_to_use}")
         else:
             print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] WARNING: Requested Blender version {blender_version_req} not available/downloadable. Falling back to default system Blender: {blender_to_use}")
+                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] WARNING: Requested Blender version {blender_version_req} not available/downloadable via management system.")
+            # If a specific version was requested and not managed, and no system fallback is defined, then we cannot proceed.
+            if not config.SYSTEM_BLENDER_EXECUTABLE:  # If no fallback is defined
+                error_message = f"Requested Blender version {blender_version_req} not available, and no system fallback defined. Aborting render for job '{job_name}'."
+                print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: {error_message}")
+                return False, "", "", error_message
+            else:  # Fallback to system Blender if defined
+                blender_to_use = config.SYSTEM_BLENDER_EXECUTABLE
+                print(
+                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Falling back to default system Blender: {blender_to_use}")
+    elif not config.SYSTEM_BLENDER_EXECUTABLE:  # No specific version requested, and no system fallback defined
+        error_message = f"No Blender version requested and no system fallback defined. Aborting render for job '{job_name}'."
+        print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: {error_message}")
+        return False, "", "", error_message
+
+    # Final check: If after all logic, blender_to_use is still None, something is wrong
+    if not blender_to_use:
+        error_message = f"Failed to determine any Blender executable path. Aborting render for job '{job_name}'."
+        print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: {error_message}")
+        return False, "", "", error_message
 
     # Ensure output directory exists before rendering
     output_dir = os.path.dirname(output_file_pattern)
