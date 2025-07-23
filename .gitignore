@@ -46,3 +46,7 @@ Pipfile.lock
 .DS_Store
 .Trashes
 Thumbs.db
+
+
+/render_test_output/
+/sethlans_worker_agent/managed_tools/
