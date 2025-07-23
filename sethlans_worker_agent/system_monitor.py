@@ -1,26 +1,6 @@
-#
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-#
-#
-# Created by Mario Estrella on 07/22/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
+# sethlans_worker_agent/system_monitor.py
+
+# ... (Your existing header) ...
 
 import platform
 import socket
@@ -29,7 +9,11 @@ import requests
 import json
 
 from . import config
-from .tool_manager import tool_manager_instance  # Import the tool_manager instance
+from .tool_manager import tool_manager_instance
+
+import logging  # <-- NEW IMPORT
+
+logger = logging.getLogger(__name__)  # <-- Get a logger for this module
 
 # Global variable to store worker's own info once registered
 WORKER_INFO = {}
@@ -52,8 +36,7 @@ def get_system_info():
     elif os_info == 'Linux':
         os_info += f" {platform.version()}"
 
-    # New: Scan for available Blender versions (using tool_manager_instance)
-    available_tools = tool_manager_instance.scan_for_blender_versions()  # Call method on instance
+    available_tools = tool_manager_instance.scan_for_blender_versions()
 
     return {
         "hostname": hostname,
@@ -71,28 +54,23 @@ def send_heartbeat(system_info):
     global WORKER_INFO
     heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
     try:
-        print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Sending heartbeat to {heartbeat_url}...")
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Heartbeat payload: {json.dumps(system_info, indent=2)}")
+        logger.info(f"Sending heartbeat to {heartbeat_url}...")  # <-- Changed print to logger.info
+        logger.debug(f"Heartbeat payload: {json.dumps(system_info, indent=2)}")  # <-- Changed print to logger.debug
 
         response = requests.post(heartbeat_url, json=system_info, timeout=5)
         response.raise_for_status()
 
         response_data = response.json()
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Heartbeat successful: HTTP {response.status_code}")
+        logger.info(f"Heartbeat successful: HTTP {response.status_code}")  # <-- Changed print to logger.info
         WORKER_INFO = response_data
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Worker registered as ID: {WORKER_INFO.get('id')}, Hostname: {WORKER_INFO.get('hostname')}")
+        logger.info(
+            f"Worker registered as ID: {WORKER_INFO.get('id')}, Hostname: {WORKER_INFO.get('hostname')}")  # <-- Changed print to logger.info
 
     except requests.exceptions.Timeout:
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Heartbeat timed out after 5 seconds.")
+        logger.error("Heartbeat timed out after 5 seconds.")  # <-- Changed print to logger.error
     except requests.exceptions.RequestException as e:
-        print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Heartbeat failed - {e}")
+        logger.error(f"Heartbeat failed - {e}")  # <-- Changed print to logger.error
     except json.JSONDecodeError:
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Failed to decode JSON response from heartbeat.")
+        logger.error("Failed to decode JSON response from heartbeat.")  # <-- Changed print to logger.error
     except Exception as e:
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] An unexpected error occurred during heartbeat: {e}")
+        logger.error(f"An unexpected error occurred during heartbeat: {e}")  # <-- Changed print to logger.error

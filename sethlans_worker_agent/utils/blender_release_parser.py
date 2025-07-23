@@ -1,26 +1,6 @@
-#
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-#
-#
-# Created by Mario Estrella on 07/22/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
+# sethlans_worker_agent/utils/blender_release_parser.py
+
+# ... (Your existing header) ...
 
 import requests
 import re
@@ -31,19 +11,21 @@ from bs4 import BeautifulSoup
 
 from sethlans_worker_agent import config
 
+import logging  # <-- NEW IMPORT
+
+logger = logging.getLogger(__name__)  # <-- Get a logger for this module
+
 
 # --- Blender Release Parsing Functions ---
-# These are standalone functions that handle the web scraping and parsing.
-
 def fetch_page_soup(url, timeout=10):
     """Helper to fetch a URL and return a BeautifulSoup object."""
     try:
-        print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Fetching page: {url}")
+        logger.debug(f"Fetching page: {url}")  # <-- Changed print to logger.debug
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
         return BeautifulSoup(response.text, 'html.parser')
     except requests.exceptions.RequestException as e:
-        print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Failed to fetch URL {url}: {e}")
+        logger.error(f"Failed to fetch URL {url}: {e}")  # <-- Changed print to logger.error
         return None
 
 
@@ -59,12 +41,12 @@ def parse_major_version_directories(soup):
             try:
                 major_version_num = int(major_version_str)
                 if major_version_num < 4:
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Skipping Blender major version < 4: {version_prefix}")
+                    logger.debug(
+                        f"Skipping Blender major version < 4: {version_prefix}")  # <-- Changed print to logger.debug
                     continue
             except ValueError:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Could not parse major version from directory '{href}'. Skipping.")
+                logger.warning(
+                    f"Could not parse major version from directory '{href}'. Skipping.")  # <-- Changed print to logger.warning
                 continue
             major_version_dir_urls.append(urljoin(config.BLENDER_RELEASES_URL, href))
     return major_version_dir_urls
@@ -81,15 +63,15 @@ def get_sha256_hash_for_zip(sha256_url, expected_zip_filename):
                 hash_line_match = re.match(r'([a-f0-9]{64})\s+', line)
                 if hash_line_match:
                     file_hash = hash_line_match.group(1).lower()
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Found hash for {expected_zip_filename}: {file_hash}")
+                    logger.debug(
+                        f"  Found hash for {expected_zip_filename}: {file_hash}")  # <-- Changed print to logger.debug
                     break
         if not file_hash:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Hash for {expected_zip_filename} not found in {sha256_url}.")
+            logger.warning(
+                f"Hash for {expected_zip_filename} not found in {sha256_url}.")  # <-- Changed print to logger.warning
     except requests.exceptions.RequestException as req_e:
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Failed to fetch SHA256 for {expected_zip_filename} from {sha256_url} ({req_e})")
+        logger.warning(
+            f"Failed to fetch SHA256 for {expected_zip_filename} from {sha256_url} ({req_e})")  # <-- Changed print to logger.warning
     return file_hash
 
 
@@ -104,17 +86,14 @@ def collect_blender_version_details(major_version_dir_url_blender_org):
     if not dir_soup:
         return []
 
-    print(
-        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Parsing details from: {major_version_dir_url_blender_org}")
+    logger.debug(f"  Parsing details from: {major_version_dir_url_blender_org}")  # <-- Changed print to logger.debug
     for file_link in dir_soup.find_all('a', href=True):
         file_href = file_link['href']
-        # --- NEW: More generic regex to capture version, platform suffix, and extension for all supported OS/Arch ---
-        # e.g., blender-X.Y.Z-windows-x64.zip, blender-X.Y.Z-macos-arm64.dmg, blender-X.Y.Z-linux-x64.tar.xz
         blender_file_match = re.match(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg)$', file_href)
         if blender_file_match:
             full_version = blender_file_match.group(1)
-            platform_suffix = blender_file_match.group(2)  # e.g., 'windows-x64', 'macos-arm64'
-            file_extension = blender_file_match.group(3)  # e.g., 'zip', 'tar.xz', 'dmg'
+            platform_suffix = blender_file_match.group(2)
+            file_extension = blender_file_match.group(3)
 
             try:
                 file_major_version = int(full_version.split('.')[0])
@@ -123,10 +102,8 @@ def collect_blender_version_details(major_version_dir_url_blender_org):
             except ValueError:
                 continue
 
-            # Fetch SHA256 hash file content for this version
-            # The hash file URL is still blender-X.Y.Z.sha256 regardless of platform
             sha256_url = urljoin(major_version_dir_url_blender_org, f"blender-{full_version}.sha256")
-            expected_zip_filename_in_hash_file = file_href  # The exact filename from the link (e.g., blender-X.Y.Z-platform.zip)
+            expected_zip_filename_in_hash_file = file_href
             file_hash = get_sha256_hash_for_zip(sha256_url, expected_zip_filename_in_hash_file)
 
             primary_download_url = urljoin(major_version_dir_url_blender_org, file_href)
@@ -139,8 +116,8 @@ def collect_blender_version_details(major_version_dir_url_blender_org):
             all_platform_versions_found_in_dir.append({
                 "releaseName": f"Blender {full_version}",
                 "version": full_version,
-                "platform_suffix": platform_suffix,  # Store platform suffix (e.g., 'windows-x64', 'macos-arm64')
-                "file_extension": file_extension,  # Store file extension (e.g., 'zip', 'tar.xz', 'dmg')
+                "platform_suffix": platform_suffix,
+                "file_extension": file_extension,
                 "hash": file_hash,
                 "url": primary_download_url,
                 "mirrors": mirrors_for_version
