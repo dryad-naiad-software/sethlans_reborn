@@ -13,6 +13,7 @@ pluggy==1.6.0
 Pygments==2.19.2
 pytest==8.4.1
 pytest-django==4.11.1
+pytest-mock==3.14.1
 requests==2.32.4
 sqlparse==0.5.3
 tzdata==2025.2
