@@ -1,31 +1,53 @@
-# sethlans_worker_agent/utils/blender_release_parser.py
-
-# ... (Your existing header) ...
+#
+# Copyright (c) 2025 Dryad and Naiad Software LLC
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#
+# Created by Mario Estrella on 07/22/2025.
+# Dryad and Naiad Software LLC
+# mestrella@dryadandnaiad.com
+# Project: sethlans_reborn
+#
 
 import requests
 import re
 import datetime
 from urllib.parse import urljoin
+import logging  # <-- NEW IMPORT
 
 from bs4 import BeautifulSoup
 
 from sethlans_worker_agent import config
 
-import logging  # <-- NEW IMPORT
-
-logger = logging.getLogger(__name__)  # <-- Get a logger for this module
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 
 # --- Blender Release Parsing Functions ---
+
 def fetch_page_soup(url, timeout=10):
     """Helper to fetch a URL and return a BeautifulSoup object."""
     try:
-        logger.debug(f"Fetching page: {url}")  # <-- Changed print to logger.debug
+        logger.debug(f"Fetching page: {url}")
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
-        return BeautifulSoup(response.text, 'html.parser')
+        # No change here, we're assuming requests.Response.content is correctly provided.
+        return BeautifulSoup(response.content, 'html.parser')
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to fetch URL {url}: {e}")  # <-- Changed print to logger.error
+        logger.error(f"Failed to fetch URL {url}: {e}")
         return None
 
 
@@ -34,21 +56,26 @@ def parse_major_version_directories(soup):
     major_version_dir_urls = []
     for link in soup.find_all('a', href=True):
         href = link['href']
-        major_minor_dir_match = re.match(r'Blender(\d+\.\d+(?:\.\d+)?)/$', href)
+        # CORRECTED REGEX: Explicitly match the full href pattern for directories
+        # ^/release/Blender(\d+\.\d+(?:\.\d+)?)/$: Matches "/release/BlenderX.Y/" or "/release/BlenderX.Y.Z/"
+        major_minor_dir_match = re.match(r'^/release/Blender(\d+\.\d+(?:\.\d+)?)/$', href)  # <-- REFINED REGEX
+
+        logger.debug(f"Checking href: '{href}' with regex. Match: {bool(major_minor_dir_match)}")  # <-- NEW DEBUG
+
         if major_minor_dir_match:
             version_prefix = major_minor_dir_match.group(1)
             major_version_str = version_prefix.split('.')[0]
             try:
                 major_version_num = int(major_version_str)
                 if major_version_num < 4:
-                    logger.debug(
-                        f"Skipping Blender major version < 4: {version_prefix}")  # <-- Changed print to logger.debug
+                    logger.debug(f"Skipping Blender major version < 4: {version_prefix}")
                     continue
             except ValueError:
-                logger.warning(
-                    f"Could not parse major version from directory '{href}'. Skipping.")  # <-- Changed print to logger.warning
+                logger.warning(f"Could not parse major version from directory '{href}'. Skipping.")
                 continue
             major_version_dir_urls.append(urljoin(config.BLENDER_RELEASES_URL, href))
+        else:  # <-- NEW DEBUG
+            logger.debug(f"Href '{href}' did not match Blender major version directory pattern.")  # <-- NEW DEBUG
     return major_version_dir_urls
 
 
@@ -63,15 +90,12 @@ def get_sha256_hash_for_zip(sha256_url, expected_zip_filename):
                 hash_line_match = re.match(r'([a-f0-9]{64})\s+', line)
                 if hash_line_match:
                     file_hash = hash_line_match.group(1).lower()
-                    logger.debug(
-                        f"  Found hash for {expected_zip_filename}: {file_hash}")  # <-- Changed print to logger.debug
+                    logger.debug(f"  Found hash for {expected_zip_filename}: {file_hash}")
                     break
         if not file_hash:
-            logger.warning(
-                f"Hash for {expected_zip_filename} not found in {sha256_url}.")  # <-- Changed print to logger.warning
+            logger.warning(f"Hash for {expected_zip_filename} not found in {sha256_url}.")
     except requests.exceptions.RequestException as req_e:
-        logger.warning(
-            f"Failed to fetch SHA256 for {expected_zip_filename} from {sha256_url} ({req_e})")  # <-- Changed print to logger.warning
+        logger.warning(f"Failed to fetch SHA256 for {expected_zip_filename} from {sha256_url} ({req_e})")
     return file_hash
 
 
@@ -86,7 +110,7 @@ def collect_blender_version_details(major_version_dir_url_blender_org):
     if not dir_soup:
         return []
 
-    logger.debug(f"  Parsing details from: {major_version_dir_url_blender_org}")  # <-- Changed print to logger.debug
+    logger.debug(f"  Parsing details from: {major_version_dir_url_blender_org}")
     for file_link in dir_soup.find_all('a', href=True):
         file_href = file_link['href']
         blender_file_match = re.match(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg)$', file_href)
