@@ -23,28 +23,39 @@
 #
 
 import time
+import logging  # <-- NEW IMPORT
 
 # Import the new modules
 from . import config
 from . import system_monitor
 from . import job_processor
 
+# Get a logger for this module
+logger = logging.getLogger(__name__)
+
+# Global variable to store worker's own info once registered
+# This object is managed by system_monitor.py but accessed via module.
+WORKER_INFO = {}
+
 if __name__ == "__main__":
+    # This initial print is for immediate visibility before logging takes over fully
     print("Sethlans Reborn Worker Agent Starting...")
     # Ensure the Django Manager (sethlans_reborn project) is running at http://127.0.0.1:8000/!
 
     # Initial system info for the first heartbeat
-    # This call also triggers initial scan/generation of Blender info through system_monitor -> tool_manager
     initial_system_info = system_monitor.get_system_info()
 
+    # Send initial heartbeat to ensure worker is registered and get its ID
+    # This populates system_monitor.WORKER_INFO
+    system_monitor.send_heartbeat(initial_system_info)
+
+    # --- Explicit READY message ---
+    # This signals that the worker has performed its initial setup before polling for jobs.
+    logger.info("Worker Agent READY.")
+
     while True:
-        # Send heartbeat. Use full system info for initial registration, then just hostname for updates.
-        if not system_monitor.WORKER_INFO:  # Check WORKER_INFO from system_monitor module
-            system_monitor.send_heartbeat(initial_system_info)
-        else:
-            # For subsequent heartbeats, only need to send enough to update 'last_seen'
-            # The manager recognizes the worker by hostname and updates its record.
-            system_monitor.send_heartbeat({'hostname': system_monitor.WORKER_INFO['hostname']})
+        # Send subsequent heartbeats using only hostname for efficiency
+        system_monitor.send_heartbeat({'hostname': system_monitor.WORKER_INFO['hostname']})
 
         # Job polling and processing
         job_processor.get_and_claim_job()
