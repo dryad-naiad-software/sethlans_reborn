@@ -35,6 +35,7 @@ from sethlans_worker_agent import config
 
 logger = logging.getLogger(__name__)
 
+
 # --- Test Case 1: scan_for_blender_versions_success_windows_x64 ---
 
 def test_scan_for_blender_versions_success_windows_x64(mocker):
@@ -100,7 +101,7 @@ def test_scan_for_blender_versions_success_windows_x64(mocker):
     # Verify calls to the internal helper _get_managed_blender_executable_full_path
     # It is called for all folders matching 'blender-X.Y.Z-platform' AND the current OS suffix
     # So, 4.0.0, 4.1.0, 4.1.1, 3.6.0 (all windows-x64 matches)
-    assert mock_get_executable_path_helper.call_count == 4 # CORRECTED COUNT TO 4
+    assert mock_get_executable_path_helper.call_count == 4
 
     mock_get_executable_path_helper.assert_any_call("blender-3.6.0-windows-x64")
     mock_get_executable_path_helper.assert_any_call("blender-4.0.0-windows-x64")
@@ -108,3 +109,95 @@ def test_scan_for_blender_versions_success_windows_x64(mocker):
     mock_get_executable_path_helper.assert_any_call("blender-4.1.1-windows-x64")
 
     print(f"\n[UNIT TEST] scan_for_blender_versions_success_windows_x64 passed.")
+
+
+# --- Test Case 2: get_blender_executable_path_windows_x64_success ---
+
+def test_get_blender_executable_path_windows_x64_success(mocker):
+    """
+    Test Case: get_blender_executable_path_windows_x64_success
+    Purpose: Verify that get_blender_executable_path returns the correct absolute path
+             to the Blender executable for a Windows x64 system.
+    Asserts:
+        - The returned path is correct.
+        - os.path.exists is called to check for the executable.
+    """
+    # Define dummy values
+    test_version = "4.2.12"
+    mock_managed_tools_dir = "/mock/managed_tools_root"
+    mock_expected_exe_subpath = "blender.exe"
+    mock_full_exe_path = os.path.join(mock_managed_tools_dir, "blender", f"blender-{test_version}-windows-x64",
+                                      mock_expected_exe_subpath)
+
+    # Mock config.MANAGED_TOOLS_DIR
+    mocker.patch.object(config, 'MANAGED_TOOLS_DIR', mock_managed_tools_dir)
+
+    # Mock config.CURRENT_PLATFORM_BLENDER_DETAILS for a Windows x64 worker
+    mock_config_platform_details = {
+        'download_suffix': 'windows-x64',
+        'executable_path_in_folder': mock_expected_exe_subpath
+    }
+    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_config_platform_details)
+
+    # Mock os.path.exists to simulate the executable existing
+    mock_os_path_exists = mocker.patch('os.path.exists', return_value=True)
+
+    # Run the method under test
+    returned_path = tool_manager_instance.get_blender_executable_path(test_version)
+
+    # Assertions
+    assert returned_path == mock_full_exe_path, \
+        f"Expected path {mock_full_exe_path}, but got {returned_path}."
+
+    # Assert os.path.exists was called once with the correct full path
+    mock_os_path_exists.assert_called_once_with(mock_full_exe_path)
+
+    print(f"\n[UNIT TEST] get_blender_executable_path_windows_x64_success passed.")
+
+
+# --- Test Case 3: test_get_blender_executable_path_not_found ---
+
+def test_get_blender_executable_path_not_found(mocker):
+    """
+    Test Case: test_get_blender_executable_path_not_found
+    Purpose: Verify that get_blender_executable_path returns None
+             if the Blender executable file does not exist.
+    Asserts:
+        - The returned path is None.
+        - os.path.exists is called exactly once with the expected path for the current OS.
+    """
+    # Define dummy values
+    test_version = "4.2.12"
+    mock_managed_tools_dir = "/mock/managed_tools_root"
+    # Note: mock_expected_exe_subpath is 'blender.exe' from current_platform_details mock
+    mock_full_exe_path_win = os.path.join(mock_managed_tools_dir, "blender", f"blender-{test_version}-windows-x64",
+                                          "blender.exe")
+    # mock_full_exe_path_linux = os.path.join(mock_managed_tools_dir, "blender", f"blender-{test_version}-windows-x64", "blender")
+    # mock_full_exe_path_mac = os.path.join(mock_managed_tools_dir, "blender", f"blender-{test_version}-windows-x64", "blender.app", "Contents", "MacOS", "blender")
+
+    # Mock config.MANAGED_TOOLS_DIR
+    mocker.patch.object(config, 'MANAGED_TOOLS_DIR', mock_managed_tools_dir)
+
+    # Mock config.CURRENT_PLATFORM_BLENDER_DETAILS for a Windows x64 worker
+    mock_config_platform_details = {
+        'download_suffix': 'windows-x64',
+        'executable_path_in_folder': 'blender.exe'  # It will try this first
+    }
+    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_config_platform_details)
+
+    # Mock os.path.exists to simulate the executable NOT existing
+    mock_os_path_exists = mocker.patch('os.path.exists', return_value=False)  # Will always return False
+
+    # Run the method under test
+    returned_path = tool_manager_instance.get_blender_executable_path(test_version)
+
+    # Assertions
+    assert returned_path is None, \
+        "Expected path to be None when executable does not exist."
+
+    # Assert os.path.exists was called exactly once with the correct expected path for Windows
+    assert mock_os_path_exists.call_count == 1, \
+        f"Expected os.path.exists to be called 1 time, but got {mock_os_path_exists.call_count}."
+    mock_os_path_exists.assert_called_once_with(mock_full_exe_path_win)
+
+    print(f"\n[UNIT TEST] get_blender_executable_path_not_found passed.")
