@@ -28,6 +28,8 @@ import requests
 import json
 import datetime
 import platform
+import hashlib
+import logging  # <-- NEW IMPORT
 
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -38,16 +40,19 @@ from .utils.file_operations import download_file, extract_zip_file
 from .utils.blender_release_parser import fetch_page_soup, parse_major_version_directories, \
     get_sha256_hash_for_zip, collect_blender_version_details
 
+# Get a logger for this module
+logger = logging.getLogger(__name__)
+
 
 # Class to encapsulate tool management logic and its cache
 class ToolManager:
-    _instance = None
+    _instance = None  # Singleton instance to ensure only one ToolManager object
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ToolManager, cls).__new__(cls)
-            cls._instance.CACHED_BLENDER_DOWNLOAD_INFO = []
-            print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Initializing ToolManager instance.")
+            cls._instance.CACHED_BLENDER_DOWNLOAD_INFO = []  # Initialize cache on the instance
+            logger.info("Initializing ToolManager instance.")  # <-- Changed print to logger.info
         return cls._instance
 
     def scan_for_blender_versions(self):
@@ -63,8 +68,7 @@ class ToolManager:
             'download_suffix') if config.CURRENT_PLATFORM_BLENDER_DETAILS else None
 
         if os.path.exists(blender_path) and os.path.isdir(blender_path):
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Scanning for local Blender versions in: {blender_path}")
+            logger.debug(f"Scanning for local Blender versions in: {blender_path}")  # <-- Changed print to logger.debug
             for item_name in os.listdir(blender_path):
                 full_path = os.path.join(blender_path, item_name)
 
@@ -82,26 +86,25 @@ class ToolManager:
                                     major_version = int(version_str.split('.')[0])
                                     if major_version >= 4:
                                         blender_versions_found.append(version_str)
-                                        print(
-                                            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Found managed Blender version: {version_str} for {platform_suffix_found} at {full_path}")
+                                        logger.info(
+                                            f"  Found managed Blender version: {version_str} for {platform_suffix_found} at {full_path}")  # <-- Changed print to logger.info
                                     else:
-                                        print(
-                                            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Skipping managed Blender version < 4.x: {version_str}")
+                                        logger.debug(
+                                            f"Skipping managed Blender version < 4.x: {version_str}")  # <-- Changed print to logger.debug
                                 except ValueError:
-                                    print(
-                                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Could not parse major version from '{version_str}'. Skipping.")
+                                    logger.warning(
+                                        f"Could not parse major version from '{version_str}'. Skipping.")  # <-- Changed print to logger.warning
                             else:
-                                print(
-                                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Skipping folder '{item_name}': No recognized blender executable found for current OS.")
+                                logger.warning(
+                                    f"Skipping folder '{item_name}': No recognized blender executable found for current OS.")  # <-- Changed print to logger.warning
                         else:
-                            print(
-                                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Skipping managed Blender folder '{item_name}': Platform suffix '{platform_suffix_found}' does not match current OS '{current_os_download_suffix}'.")
+                            logger.debug(
+                                f"Skipping managed Blender folder '{item_name}': Platform suffix '{platform_suffix_found}' does not match current OS '{current_os_download_suffix}'.")  # <-- Changed print to logger.debug
                     else:
-                        print(
-                            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Could not extract version/platform from folder name '{item_name}'. Skipping.")
+                        logger.warning(
+                            f"Could not extract version/platform from folder name '{item_name}'. Skipping.")  # <-- Changed print to logger.warning
                 else:
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Skipping item '{item_name}': Not a directory.")
+                    logger.debug(f"Skipping item '{item_name}': Not a directory.")  # <-- Changed print to logger.debug
 
         blender_versions_found.sort()
 
@@ -109,8 +112,8 @@ class ToolManager:
         if blender_versions_found:
             available_tools['blender'] = blender_versions_found
         else:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] No Blender versions 4.x+ found for {platform.system()} {platform.machine().lower()} in {blender_path}.")
+            logger.info(
+                f"No Blender versions 4.x+ found for {platform.system()} {platform.machine().lower()} in {blender_path}.")  # <-- Changed print to logger.info
 
         return available_tools
 
@@ -121,16 +124,17 @@ class ToolManager:
                 with open(config.BLENDER_VERSIONS_CACHE_FILE, 'r') as f:
                     loaded_data_list = json.load(f)
                     self.CACHED_BLENDER_DOWNLOAD_INFO = loaded_data_list
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Loaded Blender download info from local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")
+                    logger.info(
+                        f"Loaded Blender download info from local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")  # <-- Changed print to logger.info
                     return True
             except json.JSONDecodeError:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Blender versions cache file corrupted. Will re-generate.")
+                logger.warning(
+                    f"Blender versions cache file corrupted. Will re-generate.")  # <-- Changed print to logger.warning
                 self.CACHED_BLENDER_DOWNLOAD_INFO = []
             except Exception as e:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Failed to load Blender versions cache: {e}. Will re-generate.")
+                logger.warning(
+                    f"Failed to load Blender versions cache: {e}. Will re-generate.")  # <-- Changed print to logger.warning
+                self.CACHED_BLENDER_DOWNLOAD_INFO = []
         return False
 
     def _save_blender_cache(self, data_list):
@@ -138,12 +142,11 @@ class ToolManager:
         try:
             os.makedirs(os.path.dirname(config.BLENDER_VERSIONS_CACHE_FILE), exist_ok=True)
             json.dump(data_list, open(config.BLENDER_VERSIONS_CACHE_FILE, 'w'), indent=4)
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Saved generated Blender download info to local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")
+            logger.info(
+                f"Saved generated Blender download info to local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")  # <-- Changed print to logger.info
             return True
         except Exception as e:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Failed to save Blender versions cache: {e}")
+            logger.error(f"Failed to save Blender versions cache: {e}")  # <-- Changed print to logger.error
             return False
 
     def _filter_and_process_major_minor_versions(self, versions_by_major_minor_raw):
@@ -169,11 +172,11 @@ class ToolManager:
                 if versions_list_for_platform:
                     latest_version_for_platform = versions_list_for_platform[0]
                     final_list_of_versions.append(latest_version_for_platform)
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Selected latest for {major_minor_key} series and platform '{platform_suffix_key}': {latest_version_for_platform['version']}")
+                    logger.info(
+                        f"  Selected latest for {major_minor_key} series and platform '{platform_suffix_key}': {latest_version_for_platform['version']}")  # <-- Changed print to logger.info
                 else:
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] No versions found for {major_minor_key} series and platform '{platform_suffix_key}'.")
+                    logger.debug(
+                        f"No versions found for {major_minor_key} series and platform '{platform_suffix_key}'.")  # <-- Changed print to logger.debug
 
         return final_list_of_versions
 
@@ -184,34 +187,34 @@ class ToolManager:
         Returns a dictionary mapping version string to its download info dictionary.
         This dict will be filtered for the CURRENT OS, for easier lookup by ensure_blender_version_available().
         """
+        # Try to load from cache file first
         if self._load_blender_cache():
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Using in-memory cache for Blender download info (loaded from file).")
-
+            logger.info(
+                "Using in-memory cache for Blender download info (loaded from file).")  # <-- Changed print to logger.info
+            # Filter the loaded cache to only include entries for the current OS
             current_platform_suffix = config.CURRENT_PLATFORM_BLENDER_DETAILS.get(
                 'download_suffix') if config.CURRENT_PLATFORM_BLENDER_DETAILS else None
             if not current_platform_suffix:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Cannot filter cache for unsupported OS: {platform.system()} {platform.machine().lower()}.")
+                logger.error(
+                    f"Cannot filter cache for unsupported OS: {platform.system()} {platform.machine().lower()}.")  # <-- Changed print to logger.error
                 return {}
 
             filtered_cache_for_current_os = {}
-            for entry in self.CACHED_BLENDER_DOWNLOAD_INFO:  # Iterate through the list
+            for entry in self.CACHED_BLENDER_DOWNLOAD_INFO:
                 if entry.get('platform_suffix') == current_platform_suffix:
                     filtered_cache_for_current_os[entry['version']] = entry
-            self.CACHED_BLENDER_DOWNLOAD_INFO = filtered_cache_for_current_os  # Update instance cache to filtered dict
+            self.CACHED_BLENDER_DOWNLOAD_INFO = filtered_cache_for_current_os
             return self.CACHED_BLENDER_DOWNLOAD_INFO
 
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Performing dynamic Blender download info generation (4.x+ only) with mirrors...")
+        logger.info(
+            "Performing dynamic Blender download info generation (4.x+ only) with mirrors...")  # <-- Changed print to logger.info
 
         versions_by_major_minor = {}
 
         try:
             main_soup = fetch_page_soup(config.BLENDER_RELEASES_URL)
             if not main_soup:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Could not fetch main Blender releases page.")
+                logger.error("Could not fetch main Blender releases page.")  # <-- Changed print to logger.error
                 return {}
 
             major_version_dir_urls = parse_major_version_directories(main_soup)
@@ -226,33 +229,32 @@ class ToolManager:
                     versions_by_major_minor[major_minor_key].append(version_data)
 
                 if not versions_from_dir:
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] No 4.x+ zip/tar.xz/dmg files found in {major_version_dir_url_blender_org}")
+                    logger.info(
+                        f"No 4.x+ zip/tar.xz/dmg files found in {major_version_dir_url_blender_org}")  # <-- Changed print to logger.info
 
         except Exception as e:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] An unexpected error occurred during URL discovery/generation: {e}")
+            logger.error(
+                f"An unexpected error occurred during URL discovery/generation: {e}")  # <-- Changed print to logger.error
             return {}
 
         generated_info_list_all_platforms = self._filter_and_process_major_minor_versions(versions_by_major_minor)
 
         self._save_blender_cache(generated_info_list_all_platforms)
 
-        # Now, filter for the CURRENT platform to update instance cache and return.
         current_platform_suffix = config.CURRENT_PLATFORM_BLENDER_DETAILS.get(
             'download_suffix') if config.CURRENT_PLATFORM_BLENDER_DETAILS else None
 
         if not current_platform_suffix:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Cannot filter generated info for unsupported OS: {platform.system()} {platform.machine().lower()}.")
+            logger.error(
+                f"Cannot filter generated info for unsupported OS: {platform.system()} {platform.machine().lower()}.")  # <-- Changed print to logger.error
             return {}
 
         final_info_for_current_os = {}
-        for entry_data in generated_info_list_all_platforms:  # Iterate through the list
+        for entry_data in generated_info_list_all_platforms:
             if entry_data.get('platform_suffix') == current_platform_suffix:
                 final_info_for_current_os[entry_data['version']] = entry_data
 
-        self.CACHED_BLENDER_DOWNLOAD_INFO = final_info_for_current_os  # Update instance cache with filtered dict
+        self.CACHED_BLENDER_DOWNLOAD_INFO = final_info_for_current_os
         return final_info_for_current_os
 
     def _get_managed_blender_executable_full_path(self, folder_name):
@@ -262,8 +264,8 @@ class ToolManager:
         Returns the absolute path to the executable (e.g., 'C:/.../blender.exe') or None if not found.
         """
         if not config.CURRENT_PLATFORM_BLENDER_DETAILS:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Cannot determine executable path for unsupported OS: {platform.system()} {platform.machine().lower()}")
+            logger.error(
+                f"Cannot determine executable path for unsupported OS: {platform.system()} {platform.machine().lower()}")  # <-- Changed print to logger.error
             return None
 
         base_path = os.path.join(config.MANAGED_TOOLS_DIR, 'blender', folder_name)
@@ -274,15 +276,15 @@ class ToolManager:
         if os.path.exists(full_exe_path):
             return full_exe_path
         else:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Blender executable not found for managed folder '{folder_name}' at expected path: {full_exe_path}. Double check platform mapping or extraction.")
+            logger.error(
+                f"Blender executable not found for managed folder '{folder_name}' at expected path: {full_exe_path}. Double check platform mapping or extraction.")  # <-- Changed print to logger.error
             blender_exe_win = os.path.join(base_path, 'blender.exe')
             blender_exe_linux = os.path.join(base_path, 'blender')
             blender_exe_mac = os.path.join(base_path, 'blender.app', 'Contents', 'MacOS', 'blender')
 
             if os.path.exists(blender_exe_win) or os.path.exists(blender_exe_linux) or os.path.exists(blender_exe_mac):
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Executable for managed folder '{folder_name}' found, but not at expected path for {platform.system()} {platform.machine().lower()}. Expected: {expected_exe_subpath}. Found: Windows={os.path.exists(blender_exe_win)}, Linux={os.path.exists(blender_exe_linux)}, MacOS={os.path.exists(blender_exe_mac)}")
+                logger.warning(
+                    f"Executable for managed folder '{folder_name}' found, but not at expected path for {platform.system()} {platform.machine().lower()}. Expected: {expected_exe_subpath}. Found: Windows={os.path.exists(blender_exe_win)}, Linux={os.path.exists(blender_exe_linux)}, MacOS={os.path.exists(blender_exe_mac)}")  # <-- Changed print to logger.warning
             return None
 
     def get_blender_executable_path(self, version_string):
@@ -291,8 +293,8 @@ class ToolManager:
         This method is called externally (e.g., by job_processor).
         """
         if not config.CURRENT_PLATFORM_BLENDER_DETAILS:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Cannot get Blender executable path for unsupported OS: {platform.system()} {platform.machine().lower()}")
+            logger.error(
+                f"Cannot get Blender executable path for unsupported OS: {platform.system()} {platform.machine().lower()}")  # <-- Changed print to logger.error
             return None
 
         platform_suffix = config.CURRENT_PLATFORM_BLENDER_DETAILS['download_suffix']
@@ -306,19 +308,19 @@ class ToolManager:
         Uses the generated local JSON info for download URLs, trying mirrors if primary fails.
         Returns the path to the executable if successful, None otherwise.
         """
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Checking for Blender version {required_version} availability.")
+        logger.info(
+            f"Checking for Blender version {required_version} availability.")  # <-- Changed print to logger.info
 
         if not config.CURRENT_PLATFORM_BLENDER_DETAILS:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Cannot manage Blender versions for unsupported OS: {platform.system()} {platform.machine().lower()}")
+            logger.error(
+                f"Cannot manage Blender versions for unsupported OS: {platform.system()} {platform.machine().lower()}")  # <-- Changed print to logger.error
             return None
 
         # First, check if the required version is already present and correctly identified by scanner
         available_tools = self.scan_for_blender_versions()
         if 'blender' in available_tools and required_version in available_tools['blender']:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Blender version {required_version} already available locally. Path: {self.get_blender_executable_path(required_version)}")
+            logger.info(
+                f"Blender version {required_version} already available locally. Path: {self.get_blender_executable_path(required_version)}")  # <-- Changed print to logger.info
             return self.get_blender_executable_path(required_version)
 
         # If not available locally, try to discover and download it using generated info
@@ -334,8 +336,8 @@ class ToolManager:
             platform_suffix_from_entry = version_entry_for_current_os.get('platform_suffix')
 
             if not download_ext:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Missing download extension for {required_version} in cache. Cannot download.")
+                logger.error(
+                    f"Missing download extension for {required_version} in cache. Cannot download.")  # <-- Changed print to logger.error
                 return None
 
             download_urls_to_try = [primary_url] + mirrors
@@ -358,28 +360,28 @@ class ToolManager:
                     final_download_url = url_to_try
                     break
                 else:
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Failed to download from primary/mirror URL: {url_to_try}. Trying next...")
+                    logger.warning(
+                        f"Failed to download from primary/mirror URL: {url_to_try}. Trying next...")  # <-- Changed print to logger.warning
 
             if downloaded_successfully:
                 success, actual_extract_path = extract_zip_file(zip_path=temp_file_path,
                                                                 extract_to_path=extract_to_path)
                 if success:
                     os.remove(temp_file_path)
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Cleaned up temporary download file: {temp_file_path}")
+                    logger.info(
+                        f"Cleaned up temporary download file: {temp_file_path}")  # <-- Changed print to logger.info
                     return self.get_blender_executable_path(required_version)
                 else:
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] FAILED to extract Blender {required_version} from {final_download_url}.")
+                    logger.error(
+                        f"FAILED to extract Blender {required_version} from {final_download_url}.")  # <-- Changed print to logger.error
                     return None
             else:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Failed to download Blender {required_version} for {platform.system()} {platform.machine().lower()} from any available URL.")
+                logger.error(
+                    f"Failed to download Blender {required_version} for {platform.system()} {platform.machine().lower()} from any available URL.")  # <-- Changed print to logger.error
                 return None
         else:  # No entry found for the required_version and current_platform_suffix
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Requested Blender version {required_version} for {platform.system()} {platform.machine().lower()} not found in generated download info (blender_versions_cache.json) or is not 4.x+.")
+            logger.error(
+                f"Requested Blender version {required_version} for {platform.system()} {platform.machine().lower()} not found in generated download info (blender_versions_cache.json) or is not 4.x+.")  # <-- Changed print to logger.error
             return None
 
 
