@@ -57,6 +57,7 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         hostname = request.data.get('hostname')
         ip_address = request.data.get('ip_address')
         os_info = request.data.get('os')
+        available_tools = request.data.get('available_tools', {}) # <-- New: Get available_tools
 
         if not hostname:
             return Response({"detail": "Hostname is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -69,9 +70,13 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         if os_info:
             worker.os = os_info
 
+        # New: Update available_tools
+        if available_tools: # Only update if data is sent
+            worker.available_tools = available_tools
+
         # Update last_seen and set active status on every heartbeat
         worker.last_seen = timezone.now()
-        worker.is_active = True  # Worker is active if it sends a heartbeat
+        worker.is_active = True
         worker.save()
 
         serializer = WorkerSerializer(worker)

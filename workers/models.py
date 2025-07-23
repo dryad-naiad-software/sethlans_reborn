@@ -24,6 +24,7 @@
 
 from django.db import models
 from django.utils import timezone
+from django.db.models import JSONField
 
 class Worker(models.Model):
     hostname = models.CharField(max_length=255, unique=True)
@@ -31,6 +32,11 @@ class Worker(models.Model):
     os = models.CharField(max_length=100, blank=True, default='')
     last_seen = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
+
+    # New field to store available tools and their versions on this worker
+    # Example: {'blender': ['4.0.0', '4.1.0'], 'ffmpeg': ['6.0']}
+    available_tools = JSONField(default=dict, blank=True)
+
 
     def __str__(self):
         return self.hostname
