@@ -28,11 +28,10 @@ import requests
 import json
 import datetime
 
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 
+from utils.blender_release_parser import fetch_page_soup, parse_major_version_directories, \
+    collect_blender_version_details
 from . import config
-from .utils.file_hasher import calculate_file_sha256
 from .utils.file_operations import download_file, extract_zip_file
 
 
@@ -75,16 +74,16 @@ class ToolManager:
                                     blender_versions_found.append(version_str)
                                     print(
                                         f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Found managed Blender version: {version_str} at {full_path}")
-                                else:
+                                else:  # <-- CORRECTED INDENTATION
                                     print(
                                         f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Skipping managed Blender version < 4.x: {version_str}")
-                            except ValueError:
+                            except ValueError:  # <-- CORRECTED INDENTATION
                                 print(
                                     f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Could not parse major version from '{version_str}'. Skipping.")
-                        else:
+                        else:  # <-- CORRECTED INDENTATION
                             print(
                                 f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Could not extract version from folder name '{item_name}'. Skipping.")
-                else:
+                else:  # <-- CORRECTED INDENTATION
                     print(
                         f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Skipping folder '{item_name}': No blender executable found inside.")
 
@@ -97,89 +96,7 @@ class ToolManager:
             print(
                 f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] No Blender versions 4.x+ found in {blender_path}.")
 
-        return available_tools
-
-    def generate_and_cache_blender_download_info(self):
-        """
-        Generates a comprehensive list of Blender download info (primary URL + mirrors),
-        filters for 4.x+, keeps only the latest patch for each minor/major,
-        and caches it to BLENDER_VERSIONS_CACHE_FILE.
-        Returns a dictionary mapping version string to its download info dictionary.
-        """
-        # Use instance cache
-        if self.CACHED_BLENDER_DOWNLOAD_INFO:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Using in-memory cache for Blender download info.")
-            return self.CACHED_BLENDER_DOWNLOAD_INFO
-
-        # Try to load from file cache first
-        if os.path.exists(config.BLENDER_VERSIONS_CACHE_FILE):
-            try:
-                with open(config.BLENDER_VERSIONS_CACHE_FILE, 'r') as f:
-                    loaded_data_list = json.load(f)
-                    self.CACHED_BLENDER_DOWNLOAD_INFO = {entry['version']: entry for entry in loaded_data_list if
-                                                         'version' in entry}
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Loaded Blender download info from local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")
-                    return self.CACHED_BLENDER_DOWNLOAD_INFO
-            except json.JSONDecodeError:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Blender versions cache file corrupted. Re-generating.")
-                self.CACHED_BLENDER_DOWNLOAD_INFO = {}
-            except Exception as e:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Failed to load Blender versions cache: {e}. Re-generating.")
-                self.CACHED_BLENDER_DOWNLOAD_INFO = {}
-
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Performing dynamic Blender download info generation (4.x+ only) with mirrors...")
-
-        versions_by_major_minor = {}  # Key: "Major.Minor" (e.g., "4.1"), Value: List of version info dicts for that series
-        generated_info = {}  # Initialize this here, it will hold the final filtered info
-
-        try:
-            main_soup = self._fetch_page_soup(config.BLENDER_RELEASES_URL)
-            if not main_soup:
-                return {}
-
-            major_version_dir_urls = self._parse_major_version_directories(main_soup)
-
-            for major_version_dir_url_blender_org in major_version_dir_urls:
-                versions_in_dir_windows_x64_zip = self._collect_blender_version_details(
-                    major_version_dir_url_blender_org)
-
-                versions_in_dir_windows_x64_zip.sort(key=lambda x: [int(v) for v in x['version'].split('.')],
-                                                     reverse=True)
-                if versions_in_dir_windows_x64_zip:
-                    latest_version_info = versions_in_dir_windows_x64_zip[0]
-
-                    major_minor_key = ".".join(latest_version_info['version'].split('.')[:2])
-                    if major_minor_key not in versions_by_major_minor:
-                        versions_by_major_minor[major_minor_key] = []
-                    versions_by_major_minor[major_minor_key].append(latest_version_info)
-                else:
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] No 4.x+ Windows x64 zip files found in {major_version_dir_url_blender_org}")
-
-        except Exception as e:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] An unexpected error occurred during URL discovery/generation: {e}")
-
-        # Final filtering: Ensure only ONE latest version per Major.Minor is in the generated_info
-        # Use the already initialized generated_info dictionary
-        for major_minor_key, versions_list in versions_by_major_minor.items():
-            versions_list.sort(key=lambda x: [int(v) for v in x['version'].split('.')], reverse=True)
-            if versions_list:
-                latest_version_overall = versions_list[0]
-                generated_info[
-                    latest_version_overall['version']] = latest_version_overall  # <-- CORRECTED: Use generated_info
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Selected latest for {major_minor_key} series: {latest_version_overall['version']}")
-
-        self._save_blender_cache(generated_info)  # Use helper
-
-        self.CACHED_BLENDER_DOWNLOAD_INFO = generated_info
-        return generated_info
+        return available_tools  # <-- CORRECTED INDENTATION
 
     def _load_blender_cache(self):
         """Helper to load Blender download info from the local JSON cache file."""
@@ -207,111 +124,12 @@ class ToolManager:
             json_output_list = list(data_dict.values())
             json.dump(json_output_list, open(config.BLENDER_VERSIONS_CACHE_FILE, 'w'), indent=4)
             print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %d %H:%M:%S %Y')}] Saved generated Blender download info to local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")
+                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Saved generated Blender download info to local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")
             return True
         except Exception as e:
             print(
                 f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Failed to save Blender versions cache: {e}")
             return False
-
-    def _fetch_page_soup(self, url, timeout=10):
-        """Helper to fetch a URL and return a BeautifulSoup object."""
-        try:
-            print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Fetching page: {url}")  # <-- NEW DEBUG
-            response = requests.get(url, timeout=timeout)
-            response.raise_for_status()
-            return BeautifulSoup(response.text, 'html.parser')
-        except requests.exceptions.RequestException as e:
-            print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] ERROR: Failed to fetch URL {url}: {e}")
-            return None
-
-    def _parse_major_version_directories(self, soup):
-        """Parses the main releases page soup for Blender major version directory URLs (4.x+ only)."""
-        major_version_dir_urls = []
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            major_minor_dir_match = re.match(r'Blender(\d+\.\d+(?:\.\d+)?)/$', href)
-            if major_minor_dir_match:
-                version_prefix = major_minor_dir_match.group(1)
-                major_version_str = version_prefix.split('.')[0]
-                try:
-                    major_version_num = int(major_version_str)
-                    if major_version_num < 4:
-                        print(
-                            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Skipping Blender major version < 4: {version_prefix}")
-                        continue
-                except ValueError:
-                    print(
-                        f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Could not parse major version from directory '{href}'. Skipping.")
-                    continue
-                major_version_dir_urls.append(urljoin(config.BLENDER_RELEASES_URL, href))
-        return major_version_dir_urls
-
-    def _get_sha256_hash_for_zip(self, sha256_url, expected_zip_filename):
-        """Fetches a .sha256 file and extracts the hash for a specific zip filename."""
-        file_hash = None
-        try:
-            hash_response = requests.get(sha256_url, timeout=5)
-            hash_response.raise_for_status()
-            for line in hash_response.text.splitlines():
-                if expected_zip_filename in line:
-                    hash_line_match = re.match(r'([a-f0-9]{64})\s+', line)
-                    if hash_line_match:
-                        file_hash = hash_line_match.group(1).lower()
-                        print(
-                            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Found hash for {expected_zip_filename}: {file_hash}")
-                        break
-            if not file_hash:
-                print(
-                    f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Hash for {expected_zip_filename} not found in {sha256_url}.")
-        except requests.exceptions.RequestException as req_e:
-            print(
-                f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Warning: Failed to fetch SHA256 for {expected_zip_filename} from {sha256_url} ({req_e})")
-        return file_hash
-
-    def _collect_blender_version_details(self, major_version_dir_url_blender_org):
-        """
-        Fetches a major version directory page, parses it for Windows x64 zip details,
-        and constructs primary/mirror URLs and fetches hashes.
-        """
-        versions_in_dir_windows_x64_zip = []
-        dir_soup = self._fetch_page_soup(major_version_dir_url_blender_org)
-        if not dir_soup:
-            return []
-
-        print(
-            f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}]   Parsing details from: {major_version_dir_url_blender_org}")
-        for file_link in dir_soup.find_all('a', href=True):
-            file_href = file_link['href']
-            blender_zip_match = re.match(r'blender-(\d+\.\d+\.\d+)-windows-x64\.zip$', file_href)
-            if blender_zip_match:
-                full_version = blender_zip_match.group(1)
-                try:
-                    file_major_version = int(full_version.split('.')[0])
-                    if file_major_version < 4:
-                        continue
-                except ValueError:
-                    continue
-
-                sha256_url = urljoin(major_version_dir_url_blender_org, f"blender-{full_version}.sha256")
-                expected_zip_filename_in_hash_file = f"blender-{full_version}-windows-x64.zip"
-                file_hash = self._get_sha256_hash_for_zip(sha256_url, expected_zip_filename_in_hash_file)
-
-                primary_download_url = urljoin(major_version_dir_url_blender_org, file_href)
-
-                mirrors_for_version = []
-                for mirror_base in config.BLENDER_MIRROR_BASE_URLS:
-                    mirror_url = primary_download_url.replace(config.BLENDER_RELEASES_URL, mirror_base)
-                    mirrors_for_version.append(mirror_url)
-
-                versions_in_dir_windows_x64_zip.append({
-                    "releaseName": f"Blender {full_version}",
-                    "version": full_version,
-                    "hash": file_hash,
-                    "url": primary_download_url,
-                    "mirrors": mirrors_for_version
-                })
-        return versions_in_dir_windows_x64_zip
 
     def _filter_and_process_major_minor_versions(self, versions_by_major_minor_raw):
         """
@@ -343,20 +161,19 @@ class ToolManager:
         print(
             f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Performing dynamic Blender download info generation (4.x+ only) with mirrors...")
 
-        versions_by_major_minor = {}
+        versions_by_major_minor = {}  # Key: "Major.Minor" (e.g., "4.1"), Value: List of version info dicts for that series
+        generated_info = {}  # Initialize this here, it will hold the final filtered info
 
         try:
-            main_soup = self._fetch_page_soup(config.BLENDER_RELEASES_URL)
+            main_soup = fetch_page_soup(config.BLENDER_RELEASES_URL)
             if not main_soup:
                 return {}
 
-            major_version_dir_urls = self._parse_major_version_directories(main_soup)
+            major_version_dir_urls = parse_major_version_directories(main_soup)
 
             for major_version_dir_url_blender_org in major_version_dir_urls:
-                versions_in_dir_windows_x64_zip = self._collect_blender_version_details(
-                    major_version_dir_url_blender_org)
+                versions_in_dir_windows_x64_zip = collect_blender_version_details(major_version_dir_url_blender_org)
 
-                # Add collected versions to the raw dictionary grouped by major.minor
                 for version_data in versions_in_dir_windows_x64_zip:
                     major_minor_key = ".".join(version_data['version'].split('.')[:2])
                     if major_minor_key not in versions_by_major_minor:
@@ -371,10 +188,9 @@ class ToolManager:
             print(
                 f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] An unexpected error occurred during URL discovery/generation: {e}")
 
-        # Final filtering: Ensure only ONE latest version per Major.Minor is in the generated_info
-        generated_info = self._filter_and_process_major_minor_versions(versions_by_major_minor)  # Use helper
+        generated_info = self._filter_and_process_major_minor_versions(versions_by_major_minor)
 
-        self._save_blender_cache(generated_info)  # Use helper
+        self._save_blender_cache(generated_info)
 
         self.CACHED_BLENDER_DOWNLOAD_INFO = generated_info
         return generated_info
