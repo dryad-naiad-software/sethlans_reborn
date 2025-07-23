@@ -25,13 +25,13 @@
 import requests
 import json
 import datetime
-import time  # For time.ctime() in prints
+import time
 import subprocess
 import os
 
-from . import config  # Import config module
-from . import system_monitor  # Import system_monitor for WORKER_INFO
-from .tool_manager import ensure_blender_version_available  # Import tool_manager function
+from . import config
+from . import system_monitor
+from .tool_manager import tool_manager_instance  # <-- NEW IMPORT: Import the instance
 
 
 # --- Job Processing Functions ---
@@ -65,7 +65,8 @@ def execute_blender_job(job_data):
     if blender_version_req:
         print(
             f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Attempting to ensure Blender version {blender_version_req} is available...")
-        managed_blender_path = ensure_blender_version_available(blender_version_req)  # Call from tool_manager
+        # CORRECTED CALL: Use tool_manager_instance.ensure_blender_version_available
+        managed_blender_path = tool_manager_instance.ensure_blender_version_available(blender_version_req)
         if managed_blender_path:
             blender_to_use = managed_blender_path
             print(
@@ -73,8 +74,6 @@ def execute_blender_job(job_data):
         else:
             print(
                 f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] WARNING: Requested Blender version {blender_version_req} not available/downloadable. Falling back to default system Blender: {blender_to_use}")
-            # In a production environment, you might want to mark the job as ERROR if the specific version isn't found
-            # and fallback is not desired.
 
     # Ensure output directory exists before rendering
     output_dir = os.path.dirname(output_file_pattern)
@@ -116,7 +115,7 @@ def execute_blender_job(job_data):
             capture_output=True,
             text=True,
             check=False,
-            cwd=config.PROJECT_ROOT_FOR_WORKER  # Use path from config
+            cwd=config.PROJECT_ROOT_FOR_WORKER
         )
 
         stdout_output = process.stdout
@@ -149,12 +148,12 @@ def execute_blender_job(job_data):
 
 def get_and_claim_job():
     """Polls the manager for available jobs and attempts to claim one. If claimed, executes the job."""
-    if not system_monitor.WORKER_INFO.get('id'):  # Use WORKER_INFO from system_monitor
+    if not system_monitor.WORKER_INFO.get('id'):
         print(
             f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Worker ID not yet known. Skipping job poll.")
         return
 
-    jobs_url = f"{config.MANAGER_API_URL}jobs/"  # Use URL from config
+    jobs_url = f"{config.MANAGER_API_URL}jobs/"
     try:
         print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Polling for jobs from {jobs_url}...")
         response = requests.get(jobs_url, params={'status': 'QUEUED', 'assigned_worker__isnull': 'true'}, timeout=10)
@@ -175,7 +174,7 @@ def get_and_claim_job():
             claim_url = f"{jobs_url}{job_id}/"
             claim_payload = {
                 "status": "RENDERING",
-                "assigned_worker": system_monitor.WORKER_INFO['id']  # Use WORKER_INFO from system_monitor
+                "assigned_worker": system_monitor.WORKER_INFO['id']
             }
             claim_response = requests.patch(claim_url, json=claim_payload, timeout=5)
             claim_response.raise_for_status()

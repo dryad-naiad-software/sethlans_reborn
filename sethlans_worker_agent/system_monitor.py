@@ -28,11 +28,11 @@ import datetime
 import requests
 import json
 
-from . import config  # Import config module for settings
-from .tool_manager import scan_for_blender_versions  # Import scanner from tool_manager
+from . import config
+from .tool_manager import tool_manager_instance  # Import the tool_manager instance
 
 # Global variable to store worker's own info once registered
-WORKER_INFO = {}  # This object will be updated here and accessed by other modules
+WORKER_INFO = {}
 
 
 def get_system_info():
@@ -52,7 +52,8 @@ def get_system_info():
     elif os_info == 'Linux':
         os_info += f" {platform.version()}"
 
-    available_tools = scan_for_blender_versions()
+    # New: Scan for available Blender versions (using tool_manager_instance)
+    available_tools = tool_manager_instance.scan_for_blender_versions()  # Call method on instance
 
     return {
         "hostname": hostname,
@@ -68,7 +69,7 @@ def send_heartbeat(system_info):
     Updates the global WORKER_INFO with the worker's ID received from the manager.
     """
     global WORKER_INFO
-    heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"  # Use URL from config
+    heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
     try:
         print(f"[{datetime.datetime.now().strftime('%a %b %d %H:%M:%S %Y')}] Sending heartbeat to {heartbeat_url}...")
         print(

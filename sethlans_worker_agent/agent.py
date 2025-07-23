@@ -27,7 +27,7 @@ import time
 # Import the new modules
 from . import config
 from . import system_monitor
-from . import job_processor # We'll uncomment this call once job_processor is ready
+from . import job_processor
 
 if __name__ == "__main__":
     print("Sethlans Reborn Worker Agent Starting...")
@@ -39,15 +39,15 @@ if __name__ == "__main__":
 
     while True:
         # Send heartbeat. Use full system info for initial registration, then just hostname for updates.
-        if not system_monitor.WORKER_INFO: # Check WORKER_INFO from system_monitor module
+        if not system_monitor.WORKER_INFO:  # Check WORKER_INFO from system_monitor module
             system_monitor.send_heartbeat(initial_system_info)
         else:
             # For subsequent heartbeats, only need to send enough to update 'last_seen'
             # The manager recognizes the worker by hostname and updates its record.
             system_monitor.send_heartbeat({'hostname': system_monitor.WORKER_INFO['hostname']})
 
-        # --- Job polling and processing goes here ---
-        job_processor.get_and_claim_job() # <-- Now call from job_processor
+        # Job polling and processing
+        job_processor.get_and_claim_job()
 
         # Sleep for the minimum of heartbeat and job polling intervals to keep responsive
         time.sleep(min(config.HEARTBEAT_INTERVAL_SECONDS, config.JOB_POLLING_INTERVAL_SECONDS))
