@@ -30,8 +30,8 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
-
 from sethlans_worker_agent import config
+
 from .hash_parser import parse_sha256_content_for_file
 
 logger = logging.getLogger(__name__)
