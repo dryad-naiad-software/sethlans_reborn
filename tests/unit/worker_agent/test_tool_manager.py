@@ -660,3 +660,112 @@ def test_load_blender_cache_corrupt_json(mocker):
     assert tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO == []
 
     print(f"\n[UNIT TEST] _load_blender_cache_corrupt_json passed.")
+
+
+# --- Test Case 13: generate_and_cache_blender_download_info_from_existing_cache ---
+
+def test_generate_and_cache_blender_download_info_from_existing_cache(mocker):
+    """
+    Test Case: generate_and_cache_blender_download_info_from_existing_cache
+    Purpose: Verify the function correctly uses data from a pre-existing cache file,
+             filters it for the current OS, and avoids any network activity.
+    Asserts:
+        - The returned dictionary contains only data for the mocked OS.
+        - The cache loading function is called, but the dynamic generation functions are not.
+    """
+    # --- Mock Data and Config ---
+    # 1. Mock the platform details for filtering
+    mock_platform_details = {'download_suffix': 'windows-x64'}
+    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_platform_details)
+
+    # 2. This is the raw, multi-platform data that we pretend is loaded from the cache file
+    raw_cache_data = [
+        {"version": "4.2.0", "platform_suffix": "windows-x64", "url": "..."},
+        {"version": "4.1.0", "platform_suffix": "linux-x64", "url": "..."},
+        {"version": "4.0.0", "platform_suffix": "windows-x64", "url": "..."}
+    ]
+
+    # --- Mock Function Calls ---
+    # 3. Mock _load_blender_cache to return True and pre-populate the instance's cache attribute
+    mocker.patch.object(tool_manager_instance, '_load_blender_cache', return_value=True)
+    tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO = raw_cache_data
+
+    # 4. Mock the network/generation functions to ensure they are NOT called
+    mock_fetch_soup = mocker.patch('sethlans_worker_agent.tool_manager.fetch_page_soup')
+
+    # Run the method under test
+    result = tool_manager_instance.generate_and_cache_blender_download_info()
+
+    # --- Assertions ---
+    # 5. The result should be a dictionary keyed by version, containing ONLY the windows versions
+    assert len(result) == 2
+    assert "4.2.0" in result
+    assert "4.0.0" in result
+    assert "4.1.0" not in result  # The linux version should be filtered out
+    assert result["4.2.0"]["platform_suffix"] == "windows-x64"
+
+    # 6. Verify that no network or dynamic generation occurred
+    mock_fetch_soup.assert_not_called()
+
+    print(f"\n[UNIT TEST] generate_and_cache_blender_download_info_from_existing_cache passed.")
+
+
+# --- Test Case 14: generate_and_cache_blender_download_info_dynamic_generation ---
+
+def test_generate_and_cache_blender_download_info_dynamic_generation(mocker):
+    """
+    Test Case: generate_and_cache_blender_download_info_dynamic_generation
+    Purpose: Verify the full dynamic workflow: web scraping, data processing,
+             filtering, caching, and returning the final filtered data.
+    Asserts:
+        - All helper functions are called in the correct sequence.
+        - The final returned dictionary is correctly filtered for the current OS.
+    """
+    # --- Mock Data and Config ---
+    # 1. Mock the current platform that the final result will be filtered for.
+    mock_platform_details = {'download_suffix': 'linux-x64'}
+    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_platform_details)
+
+    # --- Mock Function Calls Step-by-Step through the Workflow ---
+
+    # 2. Start by having _load_blender_cache fail, to trigger this path.
+    mocker.patch.object(tool_manager_instance, '_load_blender_cache', return_value=False)
+
+    # 3. Mock the web scraping functions. We don't need real HTML.
+    mocker.patch('sethlans_worker_agent.tool_manager.fetch_page_soup', return_value="dummy_soup")
+    mock_parse_dirs = mocker.patch('sethlans_worker_agent.tool_manager.parse_major_version_directories',
+                                   return_value=['http://.../Blender4.1/'])
+
+    # 4. Mock the data collector to return some sample data for the one URL.
+    mock_collected_data = [
+        {"version": "4.1.1", "platform_suffix": "linux-x64"},
+        {"version": "4.1.0", "platform_suffix": "windows-x64"}
+    ]
+    mock_collect_details = mocker.patch('sethlans_worker_agent.tool_manager.collect_blender_version_details',
+                                        return_value=mock_collected_data)
+
+    # 5. Mock the internal filtering and saving functions.
+    # _filter_and_process_major_minor_versions would just return the same list in this simple case.
+    mock_filter_process = mocker.patch.object(tool_manager_instance, '_filter_and_process_major_minor_versions',
+                                              return_value=mock_collected_data)
+    mock_save_cache = mocker.patch.object(tool_manager_instance, '_save_blender_cache', return_value=True)
+
+    # Run the method under test
+    result = tool_manager_instance.generate_and_cache_blender_download_info()
+
+    # --- Assertions ---
+    # 6. Assert the final, OS-filtered result is correct.
+    assert len(result) == 1
+    assert "4.1.1" in result
+    assert result["4.1.1"]["platform_suffix"] == "linux-x64"
+
+    # 7. Assert the entire chain of functions was called correctly.
+    tool_manager_instance._load_blender_cache.assert_called_once()
+    mock_parse_dirs.assert_called_once_with("dummy_soup")
+    mock_collect_details.assert_called_once_with('http://.../Blender4.1/')
+    # The raw data is grouped by major.minor before being passed to the filter function
+    expected_filter_arg = {'4.1': mock_collected_data}
+    mock_filter_process.assert_called_once_with(expected_filter_arg)
+    mock_save_cache.assert_called_once_with(mock_collected_data)
+
+    print(f"\n[UNIT TEST] generate_and_cache_blender_download_info_dynamic_generation passed.")
