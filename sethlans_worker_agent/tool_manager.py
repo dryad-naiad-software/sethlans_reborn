@@ -312,9 +312,12 @@ class ToolManager:
         # First, check if the required version is already present and correctly identified by scanner
         available_tools = self.scan_for_blender_versions()
         if 'blender' in available_tools and required_version in available_tools['blender']:
+            # --- FIX STARTS HERE ---
+            executable_path = self.get_blender_executable_path(required_version)
             logger.info(
-                f"Blender version {required_version} already available locally. Path: {self.get_blender_executable_path(required_version)}")
-            return self.get_blender_executable_path(required_version)
+                f"Blender version {required_version} already available locally. Path: {executable_path}")
+            return executable_path
+            # --- FIX ENDS HERE ---
 
         # If not available locally, try to discover and download it using generated info
         # This returns the filtered dict for the CURRENT OS, keyed by version.

@@ -1,0 +1,90 @@
+--- START OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---
+Timestamp: 2025-07-24 01:13:11
+
+**INSTRUCTIONS FOR PROCESSING THIS CODEBASE:**
+1. **READ THIS MANIFEST FIRST.** It provides an overview and list of chunks.
+2. **ACKNOWLEDGE RECEIPT OF THIS MANIFEST.** Confirm you understand the process.
+3. **REQUEST CHUNKS SEQUENTIALLY.** After acknowledging, ask for the content of 'project_code_chunk_01.txt', then 'project_code_chunk_02.txt', and so on, until all chunks listed below have been provided.
+4. **CONFIRM RECEIPT OF EACH CHUNK.** After each chunk is provided, please acknowledge that you have received and processed its content before requesting the next.
+
+**PROJECT OVERVIEW:**
+Project Name: Sethlans Reborn - Distributed Blender Rendering System
+Core Goal: Leverage multiple worker machines for Blender rendering jobs.
+Architecture: Consists of a Django Manager (Backend) and Python Worker Agents (Clients).
+Development Focus: Currently focusing on building out and unit testing the **backend functionality**. The **frontend will eventually be written in Angular**.
+
+**CURRENT CODEBASE STATE:**
+This dump contains all .py, .ini, and .txt files from the project as of the timestamp above.
+The unit test suite for the 'sethlans_worker_agent' components is partially complete and currently stable (passing 6 tests in test_tool_manager.py and others).
+The last complex test we were working on ('generate_and_cache_blender_download_info' in tool_manager.py) was paused due to intricate mocking issues, so that test (Test 7 in test_tool_manager.py) is NOT expected to pass in the current code, but is stable in the previous commit. We will revisit it later.
+
+--- END OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---
+
+--- START OF DIRECTORY LISTING ---
+Project Root: \
+|-- config\
+  |-- __init__.py
+  |-- asgi.py
+  |-- settings.py
+  |-- urls.py
+  |-- wsgi.py
+|-- sethlans_worker_agent\
+  |-- utils\
+    |-- __init__.py
+    |-- blender_release_parser.py
+    |-- file_hasher.py
+    |-- file_operations.py
+    |-- hash_parser.py
+  |-- __init__.py
+  |-- agent.py
+  |-- config.py
+  |-- job_processor.py
+  |-- requirements_worker.txt
+  |-- system_monitor.py
+  |-- tool_manager.py
+|-- tests\
+  |-- e2e\
+    |-- __init__.py
+  |-- unit\
+    |-- worker_agent\
+      |-- test_data\
+        |-- blender-4.2.12.sha256
+      |-- __init__.py
+      |-- test_blender_release_parser.py
+      |-- test_file_hasher.py
+      |-- test_file_operations.py
+      |-- test_hash_parser.py
+      |-- test_system_monitor.py
+      |-- test_tool_manager.py
+    |-- __init__.py
+  |-- __init__.py
+|-- workers\
+  |-- migrations\
+    |-- __init__.py
+    |-- 0001_initial.py
+    |-- 0002_job.py
+    |-- 0003_worker_available_tools.py
+  |-- __init__.py
+  |-- admin.py
+  |-- apps.py
+  |-- models.py
+  |-- serializers.py
+  |-- tests.py
+  |-- urls.py
+  |-- views.py
+|-- .gitignore
+|-- db.sqlite3
+|-- dump_project_code.ps1
+|-- manage.py
+|-- pytest.ini
+|-- requirements.txt
+|-- test_scene.blend
+--- END OF DIRECTORY LISTING ---
+
+
+**CODE CHUNKS TO PROVIDE (in order):**
+project_code_chunk_12d.txt
+project_code_chunk_22d.txt
+project_code_chunk_32d.txt
+
+--- END OF PROJECT CODE DUMP ---
