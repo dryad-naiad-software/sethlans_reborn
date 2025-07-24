@@ -121,4 +121,3 @@ def test_parse_major_version_directories_filters_below_4_x():
         "Blender3.6/ should have been filtered out."
 
     print(f"\n[UNIT TEST] parse_major_version_directories_filters_below_4_x passed.")
-

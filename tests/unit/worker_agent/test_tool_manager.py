@@ -23,17 +23,13 @@
 # Project: sethlans_reborn
 #
 
-import pytest
+import json
 import logging
 import os
-import platform
-from unittest.mock import patch, MagicMock, call
 
-import json
-
+from sethlans_worker_agent import config
 # Import the ToolManager instance and config for testing
 from sethlans_worker_agent.tool_manager import tool_manager_instance
-from sethlans_worker_agent import config
 
 logger = logging.getLogger(__name__)
 
@@ -311,3 +307,68 @@ def test_save_blender_cache_success(mocker):
         "The content written to the cache file should match the expected JSON output."
 
     print(f"\n[UNIT TEST] _save_blender_cache_success passed.")
+
+
+# --- Test Case 6: test_filter_and_process_major_minor_versions_success ---
+
+def test_filter_and_process_major_minor_versions_success(mocker):
+    """
+    Test Case: test_filter_and_process_major_minor_versions_success
+    Purpose: Verify that _filter_and_process_major_minor_versions correctly selects
+             the latest patch version for each (major.minor, platform_suffix) group.
+    Asserts:
+        - The returned list contains the correct, filtered versions.
+        - The count of filtered versions is correct.
+    """
+    # Raw data as _filter_and_process_major_minor_versions expects it:
+    # Keyed by "Major.Minor", Value is a list of version info dicts for that series and all platforms
+    raw_versions_data = {
+        "4.0": [
+            {"version": "4.0.0", "platform_suffix": "windows-x64", "url": "win400", "hash": "h1"},
+            {"version": "4.0.1", "platform_suffix": "linux-x64", "url": "lin401", "hash": "h2"},
+            {"version": "4.0.2", "platform_suffix": "windows-x64", "url": "win402", "hash": "h3"},
+            # Latest win-x64 for 4.0
+            {"version": "4.0.0", "platform_suffix": "macos-x64", "url": "mac400", "hash": "h4"},
+            # Latest mac-x64 for 4.0
+            {"version": "4.0.3", "platform_suffix": "linux-x64", "url": "lin403", "hash": "h5"},
+            # Latest linux-x64 for 4.0
+        ],
+        "4.1": [
+            {"version": "4.1.0", "platform_suffix": "windows-x64", "url": "win410", "hash": "h6"},
+            # Latest win-x64 for 4.1
+            {"version": "4.1.1", "platform_suffix": "macos-arm64", "url": "macarm411", "hash": "h7"},
+            # Latest mac-arm64 for 4.1
+        ],
+        "3.6": [  # This should still be processed by _filter_and_process_major_minor_versions if passed,
+            # as its responsibility is *not* to filter by major version < 4.x
+            {"version": "3.6.0", "platform_suffix": "windows-x64", "url": "win360", "hash": "h8"}
+            # Latest win-x64 for 3.6
+        ]
+    }
+
+    # Expected output (list of latest versions per (major.minor, platform_suffix) )
+    # This list should reflect what _filter_and_process_major_minor_versions *itself* produces,
+    # including the 3.6.0 version, as the 4.x+ filter is done at a higher level (generate_and_cache_blender_download_info).
+    expected_filtered_list = [
+        {"version": "3.6.0", "platform_suffix": "windows-x64", "url": "win360", "hash": "h8"},  # Included for 3.6.0
+        {"version": "4.0.0", "platform_suffix": "macos-x64", "url": "mac400", "hash": "h4"},
+        {"version": "4.0.2", "platform_suffix": "windows-x64", "url": "win402", "hash": "h3"},
+        {"version": "4.0.3", "platform_suffix": "linux-x64", "url": "lin403", "hash": "h5"},
+        {"version": "4.1.0", "platform_suffix": "windows-x64", "url": "win410", "hash": "h6"},
+        {"version": "4.1.1", "platform_suffix": "macos-arm64", "url": "macarm411", "hash": "h7"},
+    ]
+
+    # Run the method under test
+    filtered_versions = tool_manager_instance._filter_and_process_major_minor_versions(raw_versions_data)
+
+    # Sort both lists for consistent comparison, as order of appending might vary by dict iteration
+    filtered_versions.sort(key=lambda x: (x['version'], x['platform_suffix']))
+    expected_filtered_list.sort(key=lambda x: (x['version'], x['platform_suffix']))
+
+    # Assertions
+    assert len(filtered_versions) == len(expected_filtered_list), \
+        f"Expected {len(expected_filtered_list)} filtered versions, but got {len(filtered_versions)}."
+    assert filtered_versions == expected_filtered_list, \
+        "The filtered versions list does not match the expected list."
+
+    print(f"\n[UNIT TEST] _filter_and_process_major_minor_versions_success passed.")
