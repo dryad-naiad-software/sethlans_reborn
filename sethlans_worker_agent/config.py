@@ -26,7 +26,7 @@
 import os
 import sys
 import platform
-import logging # <-- NEW IMPORT
+import logging
 
 # --- Manager API Configuration ---
 MANAGER_API_URL = "http://127.0.0.1:8000/api/"
@@ -87,30 +87,22 @@ PLATFORM_BLENDER_MAP = {
 
 CURRENT_PLATFORM_BLENDER_DETAILS = PLATFORM_BLENDER_MAP.get((platform.system(), platform.machine().lower()))
 if not CURRENT_PLATFORM_BLENDER_DETAILS:
-    print(f"[WARNING] Unsupported OS/Architecture for Blender management: ({platform.system()}, {platform.machine().lower()}). Auto-download may not work.")
+    print(
+        f"[WARNING] Unsupported OS/Architecture for Blender management: ({platform.system()}, {platform.machine().lower()}). Auto-download may not work.")
 
-# --- NEW: Centralized Logging Configuration Function ---
-def configure_worker_logging(log_level=logging.INFO):
+
+def configure_worker_logging(log_level_str="INFO"):
     """
     Configures the basic logging for the worker agent.
     This should be called once at startup.
     """
-    # Ensure handlers are not duplicated if called multiple times (e.g., in tests)
+    # Map the string name to the actual logging level constant
+    log_level = getattr(logging, log_level_str.upper(), logging.INFO)
+
+    # Ensure handlers are not duplicated if called multiple times
     if not logging.root.handlers:
         logging.basicConfig(
             level=log_level,
             format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
-        # Set specific loggers to DEBUG if the root level is DEBUG
-        if log_level == logging.DEBUG:
-            logging.getLogger('sethlans_worker_agent.utils.blender_release_parser').setLevel(logging.DEBUG)
-            # Add other specific loggers here if you want them at DEBUG
-            logging.getLogger('sethlans_worker_agent.tool_manager').setLevel(logging.DEBUG)
-            logging.getLogger('sethlans_worker_agent.job_processor').setLevel(logging.DEBUG)
-            logging.getLogger('sethlans_worker_agent.system_monitor').setLevel(logging.DEBUG)
-            logging.getLogger('sethlans_worker_agent.utils.file_hasher').setLevel(logging.DEBUG)
-            logging.getLogger('sethlans_worker_agent.utils.file_operations').setLevel(logging.DEBUG)
-
-# Call logging configuration when config.py is loaded
-configure_worker_logging(log_level=logging.INFO)

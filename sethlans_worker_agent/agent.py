@@ -21,16 +21,15 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/agent.py
+
 import time
 import logging
+import argparse  # <-- ADD THIS IMPORT
 
-# Import the new modules
 from . import config
 from . import system_monitor
 from . import job_processor
-
-# Ensure logging is configured (calls the function in config.py)
-# config.configure_worker_logging(logging.DEBUG) # You can override level here for debug runs
 
 # Get a logger for this module
 logger = logging.getLogger(__name__)
@@ -39,33 +38,39 @@ logger = logging.getLogger(__name__)
 WORKER_INFO = {}
 
 if __name__ == "__main__":
-    # This initial print is for immediate visibility before logging takes over fully
+    # --- START OF MODIFIED BLOCK ---
+    # 1. Set up argument parser
+    parser = argparse.ArgumentParser(description="Sethlans Reborn Worker Agent")
+    parser.add_argument(
+        "--loglevel",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set the logging level for the worker agent."
+    )
+    args = parser.parse_args()
+
+    # 2. Configure logging using the parsed argument
+    config.configure_worker_logging(args.loglevel)
+    # --- END OF MODIFIED BLOCK ---
+
     print("Sethlans Reborn Worker Agent Starting...")
     logger.info("Worker Agent starting main loop...")
 
     # The main loop will now handle registration and polling
     while True:
-        # Check if the worker is registered (i.e., has an ID from the manager)
         if not system_monitor.WORKER_INFO.get('id'):
             logger.warning("Worker not registered with Manager. Attempting registration heartbeat...")
 
-            # Re-gather full system info for a registration attempt
             full_system_info = system_monitor.get_system_info()
             system_monitor.send_heartbeat(full_system_info)
 
-            # If registration fails, we'll sleep and try again in the next loop iteration
             if not system_monitor.WORKER_INFO.get('id'):
                 logger.error("Registration failed. Will retry after a delay.")
         else:
-            # If we are registered, perform normal duties
             logger.info(f"Worker registered as ID {system_monitor.WORKER_INFO['id']}. Polling for jobs...")
 
-            # Send a simple, lightweight heartbeat
             system_monitor.send_heartbeat({'hostname': system_monitor.WORKER_INFO['hostname']})
-
-            # Poll for and process jobs
             job_processor.get_and_claim_job()
 
-        # Sleep at the end of every loop iteration to prevent spamming the manager
         logger.debug(f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds.")
         time.sleep(config.JOB_POLLING_INTERVAL_SECONDS)
