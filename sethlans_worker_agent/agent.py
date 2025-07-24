@@ -41,19 +41,31 @@ WORKER_INFO = {}
 if __name__ == "__main__":
     # This initial print is for immediate visibility before logging takes over fully
     print("Sethlans Reborn Worker Agent Starting...")
+    logger.info("Worker Agent starting main loop...")
 
-    # Ensure the Django Manager (sethlans_reborn project) is running at http://127.0.0.1:8000/!
-
-    # Initial system info for the first heartbeat
-    initial_system_info = system_monitor.get_system_info()
-
-    system_monitor.send_heartbeat(initial_system_info)
-
-    logger.info("Worker Agent READY.")
-
+    # The main loop will now handle registration and polling
     while True:
-        system_monitor.send_heartbeat({'hostname': system_monitor.WORKER_INFO['hostname']})
+        # Check if the worker is registered (i.e., has an ID from the manager)
+        if not system_monitor.WORKER_INFO.get('id'):
+            logger.warning("Worker not registered with Manager. Attempting registration heartbeat...")
 
-        job_processor.get_and_claim_job()
+            # Re-gather full system info for a registration attempt
+            full_system_info = system_monitor.get_system_info()
+            system_monitor.send_heartbeat(full_system_info)
 
-        time.sleep(min(config.HEARTBEAT_INTERVAL_SECONDS, config.JOB_POLLING_INTERVAL_SECONDS))
+            # If registration fails, we'll sleep and try again in the next loop iteration
+            if not system_monitor.WORKER_INFO.get('id'):
+                logger.error("Registration failed. Will retry after a delay.")
+        else:
+            # If we are registered, perform normal duties
+            logger.info(f"Worker registered as ID {system_monitor.WORKER_INFO['id']}. Polling for jobs...")
+
+            # Send a simple, lightweight heartbeat
+            system_monitor.send_heartbeat({'hostname': system_monitor.WORKER_INFO['hostname']})
+
+            # Poll for and process jobs
+            job_processor.get_and_claim_job()
+
+        # Sleep at the end of every loop iteration to prevent spamming the manager
+        logger.debug(f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds.")
+        time.sleep(config.JOB_POLLING_INTERVAL_SECONDS)
