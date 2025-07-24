@@ -22,6 +22,7 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/utils/blender_release_parser.py
 
 import logging
 import re
@@ -31,7 +32,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from sethlans_worker_agent import config
-from .hash_parser import parse_sha256_content_for_file  # <-- NEW IMPORT
+from .hash_parser import parse_sha256_content_for_file
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ def fetch_page_soup(url, timeout=10):
         logger.debug(f"Fetching page: {url}")
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
+
+        logger.debug(f"Fetched HTML content (first 500 chars): {response.text[:500]}")
+
         return BeautifulSoup(response.content, 'html.parser')
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to fetch URL {url}: {e}")
@@ -55,7 +59,8 @@ def parse_major_version_directories(soup):
     major_version_dir_urls = []
     for link in soup.find_all('a', href=True):
         href = link['href']
-        major_minor_dir_match = re.match(r'^/release/Blender(\d+\.\d+(?:\.\d+)?)/$', href)
+        # --- FINAL FIX: Removed the '/release/' part to match relative URLs ---
+        major_minor_dir_match = re.match(r'^Blender(\d+\.\d+(?:\.\d+)?)/?$', href)
         logger.debug(f"Checking href: '{href}' with regex. Match: {bool(major_minor_dir_match)}")
 
         if major_minor_dir_match:
@@ -69,6 +74,7 @@ def parse_major_version_directories(soup):
             except ValueError:
                 logger.warning(f"Could not parse major version from directory '{href}'. Skipping.")
                 continue
+
             major_version_dir_urls.append(urljoin(config.BLENDER_RELEASES_URL, href))
         else:
             logger.debug(f"Href '{href}' did not match Blender major version directory pattern.")
@@ -82,9 +88,7 @@ def get_sha256_hash_for_zip(sha256_url, expected_zip_filename):
         hash_response = requests.get(sha256_url, timeout=5)
         hash_response.raise_for_status()
 
-        # --- NEW: Call the new hash_parser utility ---
         file_hash = parse_sha256_content_for_file(hash_response.text, expected_zip_filename)
-        # --- END NEW ---
 
         if not file_hash:
             logger.warning(f"Hash for {expected_zip_filename} not found in {sha256_url}.")
@@ -135,7 +139,7 @@ def collect_blender_version_details(major_version_dir_url_blender_org):
                 "releaseName": f"Blender {full_version}",
                 "version": full_version,
                 "platform_suffix": platform_suffix,
-                "file_extension": file_extension,
+                "file_extension": f".{file_extension}",
                 "hash": file_hash,
                 "url": primary_download_url,
                 "mirrors": mirrors_for_version

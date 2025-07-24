@@ -93,10 +93,13 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Use environment variable for DB name, otherwise default to db.sqlite3
+DB_NAME = os.getenv('SETHLANS_DB_NAME', BASE_DIR / 'db.sqlite3')
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': DB_NAME, # Use the new variable here
     }
 }
 

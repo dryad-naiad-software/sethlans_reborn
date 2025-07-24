@@ -1,0 +1,388 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0
+django: version: 5.2.4, settings: config.settings (from ini)
+rootdir: C:\Users\mestrella\Projects\sethlans_reborn
+configfile: pytest.ini
+plugins: django-4.11.1, mock-3.14.1
+collected 1 item
+
+tests/e2e/test_full_workflow.py::test_full_render_workflow 
+-------------------------------- live log call --------------------------------
+[2025-07-24 11:17:14] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:14] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "POST /api/jobs/ HTTP/1.1" 201 485
+[2025-07-24 11:17:16] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:16] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:18] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:18] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:20] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:20] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:22] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:22] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:24] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:24] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:26] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:26] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:28] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:28] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:30] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:30] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:32] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:32] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:34] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:34] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+FAILED                                                                   [100%]
+
+================================== FAILURES ===================================
+__________________________ test_full_render_workflow __________________________
+
+    def test_full_render_workflow():
+        """
+        Tests the full end-to-end workflow using a mock Blender executable.
+        """
+        manager_process = None
+        worker_process = None
+    
+        # --- Define paths for our mock Blender setup ---
+        blender_version = "4.1.1"
+        platform_details = worker_config.CURRENT_PLATFORM_BLENDER_DETAILS
+        platform_suffix = platform_details['download_suffix']
+        exe_path_in_folder = platform_details['executable_path_in_folder']
+    
+        mock_blender_folder = Path(
+            worker_config.MANAGED_TOOLS_DIR) / "blender" / f"blender-{blender_version}-{platform_suffix}"
+        mock_blender_exe = mock_blender_folder / exe_path_in_folder
+    
+        test_env = os.environ.copy()
+        test_env["SETHLANS_DB_NAME"] = TEST_DB_NAME
+    
+        try:
+            # --- 0. SETUP: Create mock Blender and run migrations ---
+            print("\nSetting up mock Blender executable...")
+            mock_blender_folder.mkdir(parents=True, exist_ok=True)
+    
+            # Create a simple script that acts as the blender executable
+            if sys.platform == "win32":
+                # Windows can execute a .bat script even if it's named .exe
+                mock_blender_exe.write_text("@echo off\nexit 0")
+            else:
+                mock_blender_exe.write_text("#!/bin/bash\nexit 0")
+                mock_blender_exe.chmod(0o755)
+    
+            if os.path.exists(TEST_DB_NAME):
+                os.remove(TEST_DB_NAME)
+    
+            print("Running migrations on test database...")
+            migrate_command = [sys.executable, "manage.py", "migrate"]
+            subprocess.run(migrate_command, cwd=PROJECT_ROOT, env=test_env, check=True)
+    
+            # --- 1. START SERVICES ---
+            print("Starting Django manager...")
+            manager_command = [sys.executable, "manage.py", "runserver", "--noreload"]
+            manager_process = subprocess.Popen(manager_command, cwd=PROJECT_ROOT, env=test_env)
+            time.sleep(5)
+    
+            print("Starting Worker Agent...")
+            worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent"]
+            worker_process = subprocess.Popen(worker_command, cwd=PROJECT_ROOT, env=test_env)
+            time.sleep(5)
+    
+            # --- 2. ACTION: Submit Job ---
+            print("Submitting new render job via API...")
+            job_payload = {
+                "name": "E2E Test Job",
+                "blend_file_path": os.path.join(PROJECT_ROOT, "test_scene.blend"),
+                "output_file_pattern": os.path.join(PROJECT_ROOT, "test_output", "e2e_render_####"),
+                "start_frame": 1,
+                "end_frame": 1,
+                "blender_version": blender_version
+            }
+            create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
+            assert create_response.status_code == 201
+            job_id = create_response.json()['id']
+            print(f"Job submitted successfully with ID: {job_id}")
+    
+            # --- 3. VERIFICATION ---
+            print("Waiting for worker to complete the job (up to 20 seconds)...")
+            final_status = ""
+            for _ in range(10):
+                time.sleep(2)
+                try:
+                    check_response = requests.get(f"{MANAGER_URL}/jobs/{job_id}/")
+                    if check_response.status_code == 200:
+                        current_status = check_response.json()['status']
+                        print(f"  Current job status: {current_status}")
+                        if current_status == "DONE":
+                            final_status = current_status
+                            break
+                except requests.ConnectionError:
+                    continue
+    
+>           assert final_status == "DONE", "Job did not complete successfully in time."
+E           AssertionError: Job did not complete successfully in time.
+E           assert '' == 'DONE'
+E             
+E             - DONE
+
+tests\e2e\test_full_workflow.py:100: AssertionError
+---------------------------- Captured stdout call -----------------------------
+
+Setting up mock Blender executable...
+Running migrations on test database...
+Operations to perform:
+
+  Apply all migrations: admin, auth, contenttypes, sessions, workers
+
+Running migrations:
+
+  Applying contenttypes.0001_initial... OK
+
+  Applying auth.0001_initial... OK
+
+  Applying admin.0001_initial... OK
+
+  Applying admin.0002_logentry_remove_auto_add... OK
+
+  Applying admin.0003_logentry_add_action_flag_choices... OK
+
+  Applying contenttypes.0002_remove_content_type_name... OK
+
+  Applying auth.0002_alter_permission_name_max_length... OK
+
+  Applying auth.0003_alter_user_email_max_length... OK
+
+  Applying auth.0004_alter_user_username_opts... OK
+
+  Applying auth.0005_alter_user_last_login_null... OK
+
+  Applying auth.0006_require_contenttypes_0002... OK
+
+  Applying auth.0007_alter_validators_add_error_messages... OK
+
+  Applying auth.0008_alter_user_username_max_length... OK
+
+  Applying auth.0009_alter_user_last_name_max_length... OK
+
+  Applying auth.0010_alter_group_name_max_length... OK
+
+  Applying auth.0011_update_proxy_permissions... OK
+
+  Applying auth.0012_alter_user_first_name_max_length... OK
+
+  Applying sessions.0001_initial... OK
+
+  Applying workers.0001_initial... OK
+
+  Applying workers.0002_job... OK
+
+  Applying workers.0003_worker_available_tools... OK
+
+Starting Django manager...
+Starting Worker Agent...
+Submitting new render job via API...
+Job submitted successfully with ID: 1
+Waiting for worker to complete the job (up to 20 seconds)...
+  Current job status: ERROR
+  Current job status: ERROR
+  Current job status: ERROR
+  Current job status: ERROR
+  Current job status: ERROR
+  Current job status: ERROR
+  Current job status: ERROR
+  Current job status: ERROR
+  Current job status: ERROR
+  Current job status: ERROR
+Tearing down processes...
+Teardown complete.
+---------------------------- Captured stderr call -----------------------------
+[2025-07-24 11:17:09] [INFO] [sethlans_worker_agent.tool_manager] Initializing ToolManager instance.
+
+[2025-07-24 11:17:09] [INFO] [__main__] Worker Agent starting main loop...
+
+[2025-07-24 11:17:09] [WARNING] [__main__] Worker not registered with Manager. Attempting registration heartbeat...
+
+[2025-07-24 11:17:09] [INFO] [sethlans_worker_agent.tool_manager] Blender tools directory does not exist, nothing to scan: C:\Users\mestrella\Projects\sethlans_reborn\sethlans_worker_agent\managed_tools\blender
+
+[2025-07-24 11:17:09] [INFO] [sethlans_worker_agent.system_monitor] Sending heartbeat to http://127.0.0.1:8000/api/heartbeat/...
+
+[2025-07-24 11:17:09] [INFO] [workers.views] Worker heartbeat/registration successful. Hostname: GAMMA, ID: 1, Created: True, Tools: {'blender': []}
+
+[2025-07-24 11:17:09] [INFO] [django.server] "POST /api/heartbeat/ HTTP/1.1" 200 165
+
+[2025-07-24 11:17:09] [INFO] [sethlans_worker_agent.system_monitor] Heartbeat successful: HTTP 200
+
+[2025-07-24 11:17:09] [INFO] [sethlans_worker_agent.system_monitor] Worker registered as ID: 1, Hostname: GAMMA
+
+[2025-07-24 11:17:14] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:14] [INFO] [workers.views] New job 'E2E Test Job' (ID: 1) created with status QUEUED.
+
+[2025-07-24 11:17:14] [INFO] [django.server] "POST /api/jobs/ HTTP/1.1" 201 485
+
+[2025-07-24 11:17:14] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "POST /api/jobs/ HTTP/1.1" 201 485
+[2025-07-24 11:17:14] [INFO] [__main__] Worker registered as ID 1. Polling for jobs...
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.system_monitor] Sending heartbeat to http://127.0.0.1:8000/api/heartbeat/...
+
+[2025-07-24 11:17:14] [INFO] [workers.views] Worker heartbeat/registration successful. Hostname: GAMMA, ID: 1, Created: False, Tools: {}
+
+[2025-07-24 11:17:14] [INFO] [django.server] "POST /api/heartbeat/ HTTP/1.1" 200 165
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.system_monitor] Heartbeat successful: HTTP 200
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.system_monitor] Worker registered as ID: 1, Hostname: GAMMA
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.job_processor] Polling for jobs from http://127.0.0.1:8000/api/jobs/...
+
+[2025-07-24 11:17:14] [INFO] [django.server] "GET /api/jobs/?status=QUEUED&assigned_worker__isnull=true HTTP/1.1" 200 487
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.job_processor] Found 1 available job(s).
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.job_processor] Attempting to claim job 'E2E Test Job' (ID: 1)...
+
+[2025-07-24 11:17:14] [INFO] [django.server] "PATCH /api/jobs/1/ HTTP/1.1" 200 523
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.job_processor] Successfully claimed job 'E2E Test Job'! Starting render...
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.job_processor] Starting render for job 'E2E Test Job'...
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.job_processor] Attempting to ensure Blender version 4.1.1 is available...
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.tool_manager] Checking for Blender version 4.1.1 availability.
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.tool_manager] Blender tools directory does not exist, nothing to scan: C:\Users\mestrella\Projects\sethlans_reborn\sethlans_worker_agent\managed_tools\blender
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.tool_manager] Loaded Blender download info from local cache: C:\Users\mestrella\Projects\sethlans_reborn\sethlans_worker_agent\managed_tools\blender_versions_cache.json.
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.tool_manager] Using in-memory cache for Blender download info (loaded from file).
+
+[2025-07-24 11:17:14] [ERROR] [sethlans_worker_agent.tool_manager] Requested Blender version 4.1.1 for Windows amd64 not found in generated download info (blender_versions_cache.json) or is not 4.x+.
+
+[2025-07-24 11:17:14] [WARNING] [sethlans_worker_agent.job_processor] Requested Blender version 4.1.1 not available/downloadable via management system.
+
+[2025-07-24 11:17:14] [ERROR] [sethlans_worker_agent.job_processor] Requested Blender version 4.1.1 not available, and no system fallback defined. Aborting render for job 'E2E Test Job'.
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.job_processor] Reporting job 'E2E Test Job' status 'ERROR' back to manager...
+
+[2025-07-24 11:17:14] [INFO] [django.server] "PATCH /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:14] [INFO] [sethlans_worker_agent.job_processor] Job 'E2E Test Job' status report successful.
+
+[2025-07-24 11:17:16] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:16] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:16] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:18] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:18] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:18] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:19] [INFO] [__main__] Worker registered as ID 1. Polling for jobs...
+
+[2025-07-24 11:17:19] [INFO] [sethlans_worker_agent.system_monitor] Sending heartbeat to http://127.0.0.1:8000/api/heartbeat/...
+
+[2025-07-24 11:17:19] [INFO] [workers.views] Worker heartbeat/registration successful. Hostname: GAMMA, ID: 1, Created: False, Tools: {}
+
+[2025-07-24 11:17:19] [INFO] [django.server] "POST /api/heartbeat/ HTTP/1.1" 200 165
+
+[2025-07-24 11:17:19] [INFO] [sethlans_worker_agent.system_monitor] Heartbeat successful: HTTP 200
+
+[2025-07-24 11:17:19] [INFO] [sethlans_worker_agent.system_monitor] Worker registered as ID: 1, Hostname: GAMMA
+
+[2025-07-24 11:17:19] [INFO] [sethlans_worker_agent.job_processor] Polling for jobs from http://127.0.0.1:8000/api/jobs/...
+
+[2025-07-24 11:17:19] [INFO] [django.server] "GET /api/jobs/?status=QUEUED&assigned_worker__isnull=true HTTP/1.1" 200 2
+
+[2025-07-24 11:17:19] [INFO] [sethlans_worker_agent.job_processor] No QUEUED jobs available.
+
+[2025-07-24 11:17:20] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:20] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:20] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:22] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:22] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:22] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:24] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:24] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:24] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:24] [INFO] [__main__] Worker registered as ID 1. Polling for jobs...
+
+[2025-07-24 11:17:24] [INFO] [sethlans_worker_agent.system_monitor] Sending heartbeat to http://127.0.0.1:8000/api/heartbeat/...
+
+[2025-07-24 11:17:24] [INFO] [workers.views] Worker heartbeat/registration successful. Hostname: GAMMA, ID: 1, Created: False, Tools: {}
+
+[2025-07-24 11:17:24] [INFO] [django.server] "POST /api/heartbeat/ HTTP/1.1" 200 165
+
+[2025-07-24 11:17:24] [INFO] [sethlans_worker_agent.system_monitor] Heartbeat successful: HTTP 200
+
+[2025-07-24 11:17:24] [INFO] [sethlans_worker_agent.system_monitor] Worker registered as ID: 1, Hostname: GAMMA
+
+[2025-07-24 11:17:24] [INFO] [sethlans_worker_agent.job_processor] Polling for jobs from http://127.0.0.1:8000/api/jobs/...
+
+[2025-07-24 11:17:25] [INFO] [django.server] "GET /api/jobs/?status=QUEUED&assigned_worker__isnull=true HTTP/1.1" 200 2
+
+[2025-07-24 11:17:25] [INFO] [sethlans_worker_agent.job_processor] No QUEUED jobs available.
+
+[2025-07-24 11:17:26] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:26] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:26] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:28] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:28] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:28] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:30] [INFO] [__main__] Worker registered as ID 1. Polling for jobs...
+
+[2025-07-24 11:17:30] [INFO] [sethlans_worker_agent.system_monitor] Sending heartbeat to http://127.0.0.1:8000/api/heartbeat/...
+
+[2025-07-24 11:17:30] [INFO] [workers.views] Worker heartbeat/registration successful. Hostname: GAMMA, ID: 1, Created: False, Tools: {}
+
+[2025-07-24 11:17:30] [INFO] [django.server] "POST /api/heartbeat/ HTTP/1.1" 200 165
+
+[2025-07-24 11:17:30] [INFO] [sethlans_worker_agent.system_monitor] Heartbeat successful: HTTP 200
+
+[2025-07-24 11:17:30] [INFO] [sethlans_worker_agent.system_monitor] Worker registered as ID: 1, Hostname: GAMMA
+
+[2025-07-24 11:17:30] [INFO] [sethlans_worker_agent.job_processor] Polling for jobs from http://127.0.0.1:8000/api/jobs/...
+
+[2025-07-24 11:17:30] [INFO] [django.server] "GET /api/jobs/?status=QUEUED&assigned_worker__isnull=true HTTP/1.1" 200 2
+
+[2025-07-24 11:17:30] [INFO] [sethlans_worker_agent.job_processor] No QUEUED jobs available.
+
+[2025-07-24 11:17:30] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:30] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:30] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:32] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:32] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:32] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+[2025-07-24 11:17:34] [DEBUG] [urllib3.connectionpool] Starting new HTTP connection (1): 127.0.0.1:8000
+[2025-07-24 11:17:34] [INFO] [django.server] "GET /api/jobs/1/ HTTP/1.1" 200 515
+
+[2025-07-24 11:17:34] [DEBUG] [urllib3.connectionpool] http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+------------------------------ Captured log call ------------------------------
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "POST /api/jobs/ HTTP/1.1" 201 485
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+DEBUG    urllib3.connectionpool:connectionpool.py:241 Starting new HTTP connection (1): 127.0.0.1:8000
+DEBUG    urllib3.connectionpool:connectionpool.py:544 http://127.0.0.1:8000 "GET /api/jobs/1/ HTTP/1.1" 200 515
+=========================== short test summary info ===========================
+FAILED tests/e2e/test_full_workflow.py::test_full_render_workflow - Assertion...
+============================= 1 failed in 31.63s ==============================

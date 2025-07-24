@@ -21,6 +21,7 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/config.py
 
 import os
 import sys
@@ -112,4 +113,4 @@ def configure_worker_logging(log_level=logging.INFO):
             logging.getLogger('sethlans_worker_agent.utils.file_operations').setLevel(logging.DEBUG)
 
 # Call logging configuration when config.py is loaded
-configure_worker_logging(log_level=logging.INFO) # Default to INFO for normal operation
+configure_worker_logging(log_level=logging.INFO)

@@ -21,6 +21,7 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/tool_manager.py
 
 import json
 import logging
@@ -128,7 +129,14 @@ class ToolManager:
         if os.path.exists(config.BLENDER_VERSIONS_CACHE_FILE):
             try:
                 with open(config.BLENDER_VERSIONS_CACHE_FILE, 'r') as f:
-                    loaded_data_list = json.load(f)
+                    # Handle empty file case
+                    content = f.read()
+                    if not content:
+                        logger.warning("Blender versions cache file is empty. Will re-generate.")
+                        self.CACHED_BLENDER_DOWNLOAD_INFO = []
+                        return False  # Treat empty file as a cache miss
+
+                    loaded_data_list = json.loads(content)
                     self.CACHED_BLENDER_DOWNLOAD_INFO = loaded_data_list
                     logger.info(f"Loaded Blender download info from local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")
                     return True
@@ -182,80 +190,62 @@ class ToolManager:
 
         return final_list_of_versions
 
-    def generate_and_cache_blender_download_info(self):
+    def generate_and_cache_blender_download_info(self, force_refresh=False):
         """
         Orchestrates the generation of comprehensive Blender download info.
         Tries to load from cache, otherwise performs dynamic discovery, filters, and saves.
         Returns a dictionary mapping version string to its download info dictionary.
         This dict will be filtered for the CURRENT OS, for easier lookup by ensure_blender_version_available().
         """
-        # Try to load from cache file first
-        if self._load_blender_cache():
+        # --- START OF MODIFIED BLOCK ---
+        # Try to load from cache file first, unless a refresh is forced
+        if not force_refresh and self._load_blender_cache():
             logger.info(f"Using in-memory cache for Blender download info (loaded from file).")
+        else:
+            logger.info(f"Performing dynamic Blender download info generation (4.x+ only)...")
+            versions_by_major_minor = {}
+            try:
+                main_soup = fetch_page_soup(config.BLENDER_RELEASES_URL)
+                if not main_soup:
+                    logger.error(f"Could not fetch main Blender releases page.")
+                    self.CACHED_BLENDER_DOWNLOAD_INFO = []
+                else:
+                    major_version_dir_urls = parse_major_version_directories(main_soup)
+                    for major_version_dir_url_blender_org in major_version_dir_urls:
+                        versions_from_dir = collect_blender_version_details(
+                            major_version_dir_url_blender_org)
+                        for version_data in versions_from_dir:
+                            major_minor_key = ".".join(version_data['version'].split('.')[:2])
+                            if major_minor_key not in versions_by_major_minor:
+                                versions_by_major_minor[major_minor_key] = []
+                            versions_by_major_minor[major_minor_key].append(version_data)
 
-            current_platform_suffix = config.CURRENT_PLATFORM_BLENDER_DETAILS.get(
-                'download_suffix') if config.CURRENT_PLATFORM_BLENDER_DETAILS else None
-            if not current_platform_suffix:
-                logger.error(
-                    f"Cannot filter cache for unsupported OS: {platform.system()} {platform.machine().lower()}.")
-                return {}
+                    generated_info_list_all_platforms = self._filter_and_process_major_minor_versions(
+                        versions_by_major_minor)
+                    self._save_blender_cache(generated_info_list_all_platforms)
+                    # This now holds the fresh, complete list for all platforms
+                    self.CACHED_BLENDER_DOWNLOAD_INFO = generated_info_list_all_platforms
+            except Exception as e:
+                logger.error(f"An unexpected error occurred during URL discovery/generation: {e}")
+                self.CACHED_BLENDER_DOWNLOAD_INFO = []
 
-            filtered_cache_for_current_os = {}
-            for entry in self.CACHED_BLENDER_DOWNLOAD_INFO:
-                if entry.get('platform_suffix') == current_platform_suffix:
-                    filtered_cache_for_current_os[entry['version']] = entry
-            self.CACHED_BLENDER_DOWNLOAD_INFO = filtered_cache_for_current_os
-            return self.CACHED_BLENDER_DOWNLOAD_INFO
-
-        logger.info(f"Performing dynamic Blender download info generation (4.x+ only) with mirrors...")
-
-        versions_by_major_minor = {}
-
-        try:
-            main_soup = fetch_page_soup(config.BLENDER_RELEASES_URL)
-            if not main_soup:
-                logger.error(f"Could not fetch main Blender releases page.")
-                return {}
-
-            major_version_dir_urls = parse_major_version_directories(main_soup)
-
-            for major_version_dir_url_blender_org in major_version_dir_urls:
-                versions_from_dir = collect_blender_version_details(
-                    major_version_dir_url_blender_org)
-
-                for version_data in versions_from_dir:
-                    major_minor_key = ".".join(version_data['version'].split('.')[:2])
-                    if major_minor_key not in versions_by_major_minor:
-                        versions_by_major_minor[major_minor_key] = []
-                    versions_by_major_minor[major_minor_key].append(version_data)
-
-                if not versions_from_dir:
-                    logger.info(
-                        f"No 4.x+ zip/tar.xz/dmg files found in {major_version_dir_url_blender_org}")
-
-        except Exception as e:
-            logger.error(f"An unexpected error occurred during URL discovery/generation: {e}")
-            return {}
-
-        generated_info_list_all_platforms = self._filter_and_process_major_minor_versions(versions_by_major_minor)
-
-        self._save_blender_cache(generated_info_list_all_platforms)
-
+        # --- Filter the (now populated) cache for the current OS and return ---
         current_platform_suffix = config.CURRENT_PLATFORM_BLENDER_DETAILS.get(
             'download_suffix') if config.CURRENT_PLATFORM_BLENDER_DETAILS else None
 
         if not current_platform_suffix:
             logger.error(
-                f"Cannot filter generated info for unsupported OS: {platform.system()} {platform.machine().lower()}.")
+                f"Cannot filter cache for unsupported OS: {platform.system()} {platform.machine().lower()}.")
             return {}
 
         final_info_for_current_os = {}
-        for entry_data in generated_info_list_all_platforms:
+        # self.CACHED_BLENDER_DOWNLOAD_INFO is a LIST of dicts
+        for entry_data in self.CACHED_BLENDER_DOWNLOAD_INFO:
             if entry_data.get('platform_suffix') == current_platform_suffix:
                 final_info_for_current_os[entry_data['version']] = entry_data
 
-        self.CACHED_BLENDER_DOWNLOAD_INFO = final_info_for_current_os
         return final_info_for_current_os
+        # --- END OF MODIFIED BLOCK ---
 
     def _get_managed_blender_executable_full_path(self, folder_name):
         """
@@ -312,17 +302,22 @@ class ToolManager:
         # First, check if the required version is already present and correctly identified by scanner
         available_tools = self.scan_for_blender_versions()
         if 'blender' in available_tools and required_version in available_tools['blender']:
-            # --- FIX STARTS HERE ---
             executable_path = self.get_blender_executable_path(required_version)
             logger.info(
                 f"Blender version {required_version} already available locally. Path: {executable_path}")
             return executable_path
-            # --- FIX ENDS HERE ---
 
-        # If not available locally, try to discover and download it using generated info
-        # This returns the filtered dict for the CURRENT OS, keyed by version.
+        # --- START OF MODIFIED BLOCK ---
+        # If not available locally, try to discover it.
         blender_download_info = self.generate_and_cache_blender_download_info()
         version_entry_for_current_os = blender_download_info.get(required_version)
+
+        # If it's still not found, force a refresh from the web and try one last time.
+        if not version_entry_for_current_os:
+            logger.warning(f"Version {required_version} not in local cache. Forcing a refresh from the web.")
+            blender_download_info = self.generate_and_cache_blender_download_info(force_refresh=True)
+            version_entry_for_current_os = blender_download_info.get(required_version)
+        # --- END OF MODIFIED BLOCK ---
 
         if version_entry_for_current_os:
             primary_url = version_entry_for_current_os.get('url')
@@ -399,7 +394,7 @@ class ToolManager:
                 return None
         else:
             logger.error(
-                f"Requested Blender version {required_version} for {platform.system()} {platform.machine().lower()} not found in generated download info (blender_versions_cache.json) or is not 4.x+.")
+                f"Requested Blender version {required_version} for {platform.system()} {platform.machine().lower()} not found in generated download info (blender_versions_cache.json) even after a refresh.")
             return None
 
 
