@@ -22,30 +22,23 @@
 # Project: sethlans_reborn
 #
 
-import os
-import re
-import requests
 import json
-import datetime
-import platform
 import logging
-
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+import os
+import platform
+import re
 
 from . import config
-from .utils.file_hasher import calculate_file_sha256
-from .utils.file_operations import download_file, extract_zip_file
 from .utils.blender_release_parser import fetch_page_soup, parse_major_version_directories, \
-                                         get_sha256_hash_for_zip, collect_blender_version_details
-
+    collect_blender_version_details
+from .utils.file_operations import download_file, extract_zip_file
 
 logger = logging.getLogger(__name__)
 
 
 # Class to encapsulate tool management logic and its cache
 class ToolManager:
-    _instance = None # Singleton instance to ensure only one ToolManager object
+    _instance = None  # Singleton instance to ensure only one ToolManager object
 
     def __new__(cls):
         if cls._instance is None:
@@ -62,8 +55,7 @@ class ToolManager:
             if not self.is_supported_platform:
                 logger.critical(
                     f"ToolManager initialized on an unsupported platform: {platform.system()} {platform.machine().lower()}. Most functionality will be disabled.")
-            self._initialized = True # Set flag after first initialization
-
+            self._initialized = True  # Set flag after first initialization
 
     def scan_for_blender_versions(self):
         """
@@ -214,7 +206,6 @@ class ToolManager:
                     filtered_cache_for_current_os[entry['version']] = entry
             self.CACHED_BLENDER_DOWNLOAD_INFO = filtered_cache_for_current_os
             return self.CACHED_BLENDER_DOWNLOAD_INFO
-
 
         logger.info(f"Performing dynamic Blender download info generation (4.x+ only) with mirrors...")
 
@@ -377,21 +368,24 @@ class ToolManager:
                     # --- This is the new robust part ---
                     # If the extracted folder name is not what we expect, rename it.
                     if actual_extract_path and actual_extract_path != expected_final_path:
-                        logger.info(f"Standardizing extracted folder name from '{os.path.basename(actual_extract_path)}' to '{expected_folder_name}'.")
+                        logger.info(
+                            f"Standardizing extracted folder name from '{os.path.basename(actual_extract_path)}' to '{expected_folder_name}'.")
                         try:
                             os.rename(actual_extract_path, expected_final_path)
                         except OSError as e:
                             logger.error(f"Failed to rename extracted folder: {e}")
-                            return None # Can't proceed if rename fails
+                            return None  # Can't proceed if rename fails
 
                     # Now we can be certain the executable path will be found
                     executable_path = self.get_blender_executable_path(required_version)
                     if executable_path:
-                        logger.info(f"Successfully downloaded and extracted Blender {required_version}. Path: {executable_path}")
+                        logger.info(
+                            f"Successfully downloaded and extracted Blender {required_version}. Path: {executable_path}")
                         return executable_path
                     else:
                         # This case would indicate a problem with the config or archive contents
-                        logger.error(f"Extraction seemed successful, but could not find the executable for {required_version}.")
+                        logger.error(
+                            f"Extraction seemed successful, but could not find the executable for {required_version}.")
                         return None
                 else:
                     logger.error(f"FAILED to extract Blender {required_version} from {final_download_url}.")

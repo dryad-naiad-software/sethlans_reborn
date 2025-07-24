@@ -23,12 +23,11 @@
 # Project: sethlans_reborn
 #
 
-import requests
-import re
-import datetime
-from urllib.parse import urljoin
 import logging
+import re
+from urllib.parse import urljoin
 
+import requests
 from bs4 import BeautifulSoup
 
 from sethlans_worker_agent import config
