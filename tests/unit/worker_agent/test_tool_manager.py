@@ -201,3 +201,63 @@ def test_get_blender_executable_path_not_found(mocker):
     mock_os_path_exists.assert_called_once_with(mock_full_exe_path_win)
 
     print(f"\n[UNIT TEST] get_blender_executable_path_not_found passed.")
+
+    # --- Test Case 4: test_load_blender_cache_success ---
+
+    def test_load_blender_cache_success(mocker):
+        """
+        Test Case: test_load_blender_cache_success
+        Purpose: Verify that _load_blender_cache successfully loads valid JSON data
+                 from a mocked cache file and populates self.CACHED_BLENDER_DOWNLOAD_INFO.
+        Asserts:
+            - The method returns True on success.
+            - self.CACHED_BLENDER_DOWNLOAD_INFO is correctly populated with the loaded data.
+        """
+        # Dummy cache file content
+        dummy_cache_content = [
+            {"version": "4.2.12", "platform_suffix": "windows-x64", "url": "http://example.com/win.zip",
+             "hash": "winhash"},
+            {"version": "4.1.1", "platform_suffix": "linux-x64", "url": "http://example.com/linux.tar.xz",
+             "hash": "linuxhash"}
+        ]
+        expected_cached_info = {
+            "4.2.12": {"version": "4.2.12", "platform_suffix": "windows-x64", "url": "http://example.com/win.zip",
+                       "hash": "winhash"},
+            "4.1.1": {"version": "4.1.1", "platform_suffix": "linux-x64", "url": "http://example.com/linux.tar.xz",
+                      "hash": "linuxhash"}
+        }
+
+        # Mock os.path.exists to simulate cache file existing
+        mocker.patch('os.path.exists', return_value=True)
+
+        # Mock built-in open() to return a mock file object with our dummy content
+        mock_open = mocker.mock_open(read_data=json.dumps(dummy_cache_content))
+        mocker.patch('builtins.open', mock_open)
+
+        # Mock config.BLENDER_VERSIONS_CACHE_FILE
+        mocker.patch.object(config, 'BLENDER_VERSIONS_CACHE_FILE', "/mock/cache/blender_versions_cache.json")
+
+        # Mock CURRENT_PLATFORM_BLENDER_DETAILS so the filtering in _load_blender_cache doesn't cause errors
+        mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', {'download_suffix': 'windows-x64'})
+
+        # Reset instance cache before test
+        tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO = []
+
+        # Run the method under test
+        success = tool_manager_instance._load_blender_cache()
+
+        # Assertions
+        assert success is True, "_load_blender_cache should return True on successful load."
+
+        # Assert open() was called correctly
+        mock_open.assert_called_once_with(config.BLENDER_VERSIONS_CACHE_FILE, 'r')
+
+        # Assert CACHED_BLENDER_DOWNLOAD_INFO is populated and correctly filtered (by this test's platform)
+        # The _load_blender_cache loads all platforms and then generate_and_cache_blender_download_info filters it for current OS
+        # So, here we assert it loads what it reads, then filtered later.
+        # It should load the full list, not the filtered dict.
+        # Let's adjust the test to assert what _load_blender_cache *actually* does: loads the raw list.
+        assert tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO == dummy_cache_content, \
+            "CACHED_BLENDER_DOWNLOAD_INFO should be populated with the full raw data list."
+
+        print(f"\n[UNIT TEST] _load_blender_cache_success passed.")
