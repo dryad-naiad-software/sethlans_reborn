@@ -310,3 +310,94 @@ def test_get_and_claim_job_claim_fails(mocker):
     mock_execute.assert_not_called()
 
     print(f"\n[UNIT TEST] test_get_and_claim_job_claim_fails passed.")
+
+def test_execute_blender_job_animation_command(mocker):
+    """
+    Test Case: test_execute_blender_job_animation_command
+    Purpose: Verify the function constructs the correct command for a multi-frame
+             animation sequence.
+    Asserts:
+        - The subprocess.run command contains -s, -e, and -a flags.
+    """
+    # --- Mock Job Data for an animation ---
+    mock_job_data = {
+        'name': 'Test Animation',
+        'blend_file_path': '/path/to/scene.blend',
+        'output_file_pattern': '/path/to/output/frame_####',
+        'start_frame': 10,
+        'end_frame': 20, # Different start and end frames
+        'blender_version': '4.2.0',
+        'render_engine': 'CYCLES'
+    }
+    mock_blender_executable = "/mock/tools/blender-4.2.0/blender"
+
+    # --- Mock Dependencies ---
+    mocker.patch.object(
+        tool_manager_instance,
+        'ensure_blender_version_available',
+        return_value=mock_blender_executable
+    )
+    mock_completed_process = MagicMock(spec=subprocess.CompletedProcess, returncode=0)
+    mock_subprocess_run = mocker.patch('subprocess.run', return_value=mock_completed_process)
+    mocker.patch('os.path.exists', return_value=True)
+
+    # --- Run the function under test ---
+    job_processor.execute_blender_job(mock_job_data)
+
+    # --- Assertions ---
+    # Assert the command was constructed correctly for an animation
+    expected_command = [
+        mock_blender_executable,
+        '-b', mock_job_data['blend_file_path'],
+        '-o', '/path/to/output/frame_#',
+        '-F', 'PNG',
+        '-E', 'CYCLES',
+        '-s', '10', # Start frame
+        '-e', '20', # End frame
+        '-a'      # Render animation
+    ]
+    mock_subprocess_run.assert_called_once()
+    assert mock_subprocess_run.call_args.args[0] == expected_command
+
+    print(f"\n[UNIT TEST] test_execute_blender_job_animation_command passed.")
+
+
+def test_execute_blender_job_tool_unavailable(mocker):
+    """
+    Test Case: test_execute_blender_job_tool_unavailable
+    Purpose: Verify the function fails gracefully if the required Blender
+             executable cannot be found by the tool manager.
+    Asserts:
+        - The function returns a failure tuple with a descriptive error.
+        - No subprocess is ever run.
+    """
+    # --- Mock Job Data ---
+    mock_job_data = {
+        'name': 'Tool Fail Render',
+        'blender_version': '4.99.0',  # A version that won't be found
+        'blend_file_path': '/path/to/scene.blend',
+        'output_file_pattern': '/path/to/output/frame_####',
+        'start_frame': 1,
+        'end_frame': 1
+    }
+
+    # --- Mock Dependencies ---
+    # 1. Mock the tool manager to fail finding the tool
+    mocker.patch.object(
+        tool_manager_instance,
+        'ensure_blender_version_available',
+        return_value=None
+    )
+
+    # 2. Mock subprocess.run to ensure it's not called
+    mock_subprocess_run = mocker.patch('subprocess.run')
+
+    # --- Run the function under test ---
+    success, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+
+    # --- Assertions ---
+    assert success is False
+    assert "Requested Blender version 4.99.0 not available" in error_message
+    mock_subprocess_run.assert_not_called()
+
+    print(f"\n[UNIT TEST] test_execute_blender_job_tool_unavailable passed.")

@@ -147,3 +147,40 @@ def test_send_heartbeat_success(mocker, mock_requests_post):
     assert system_monitor.WORKER_INFO.get('hostname') == "TEST-HOST-2"
 
     print(f"\n[UNIT TEST] send_heartbeat_success passed.")
+
+
+# In tests/unit/worker_agent/test_system_monitor.py
+import requests  # Make sure this import is at the top
+
+
+# ... (rest of file)
+
+def test_send_heartbeat_network_failure(mocker):
+    """
+    Test Case: test_send_heartbeat_network_failure
+    Purpose: Verify the function handles a network exception when sending a heartbeat.
+    Asserts:
+        - The function does not crash.
+        - The global WORKER_INFO is not updated.
+        - requests.post is called.
+    """
+    # --- Mock Initial State ---
+    # Store the state of WORKER_INFO before the call
+    from sethlans_worker_agent import system_monitor
+    system_monitor.WORKER_INFO = {}
+    test_system_info = {"hostname": "test-host"}
+
+    # --- Mock Dependencies ---
+    mock_post = mocker.patch(
+        'requests.post',
+        side_effect=requests.exceptions.RequestException("Manager is down")
+    )
+
+    # --- Run the function under test ---
+    system_monitor.send_heartbeat(test_system_info)
+
+    # --- Assertions ---
+    assert system_monitor.WORKER_INFO == {}  # Should remain empty
+    mock_post.assert_called_once()
+
+    print(f"\n[UNIT TEST] test_send_heartbeat_network_failure passed.")
