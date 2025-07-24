@@ -98,8 +98,8 @@ def test_full_render_workflow():
         print("Submitting new render job via API...")
         job_payload = {
             "name": "E2E Monitored Test",
-            "blend_file_path": os.path.join(PROJECT_ROOT, "test_scene.blend"),
-            "output_file_pattern": os.path.join(PROJECT_ROOT, "test_output", "e2e_render_####"),
+            "blend_file_path": worker_config.TEST_BLEND_FILE_PATH,
+            "output_file_pattern": os.path.join(worker_config.TEST_OUTPUT_DIR, "e2e_render_####"),
             "start_frame": 1,
             "end_frame": 1,
             "blender_version": "4.1.1"
@@ -114,30 +114,48 @@ def test_full_render_workflow():
         # =================================================================
         print("Waiting for worker to download and start rendering...")
 
-        # Stage 1: Read the worker's log until we see it start the render
-        render_started = False
-        for _ in range(60):  # Max wait of 2 minutes for download
+        # Define the sequence of logs we expect to see for a first-time run
+        expected_log_stages = {
+            "DOWNLOAD": "Downloading http",
+            "EXTRACT": "Extracting",
+            "RENDER": "Running Blender command"
+        }
+        found_stages = {key: False for key in expected_log_stages}
+
+        # Increased timeout to 5 minutes (300 seconds) to accommodate slow downloads
+        max_wait_seconds = 300
+        start_time = time.time()
+
+        # Monitor the worker's stdout in a single, more robust loop
+        while time.time() - start_time < max_wait_seconds:
             line = worker_process.stdout.readline()
             if not line:
-                time.sleep(2)
+                time.sleep(1)
                 continue
 
             print(f"  [WORKER LOG] {line.strip()}")
-            if "Running Blender command" in line:
-                print("Worker has started the render command!")
-                render_started = True
+
+            # Check for each stage
+            for stage_name, log_text in expected_log_stages.items():
+                if not found_stages[stage_name] and log_text in line:
+                    print(f"✅ Worker has reached stage: {stage_name}")
+                    found_stages[stage_name] = True
+
+            # If all stages are found, we can break early
+            if all(found_stages.values()):
                 break
 
-        assert render_started, "Worker never started the render command."
+        # Assert that the full first-time setup and render launch was successful
+        assert all(found_stages.values()), f"Worker did not complete all expected stages. Status: {found_stages}"
 
         # Stage 2: Now that the render has started, poll for the DONE status
         print("Render started. Polling API for DONE status...")
         final_status = ""
-        for i in range(10):  # Max wait of 20 seconds for render
+        for i in range(15):  # Max wait of 30 seconds for the actual render
             check_response = requests.get(f"{MANAGER_URL}/jobs/{job_id}/")
             if check_response.status_code == 200:
                 current_status = check_response.json()['status']
-                print(f"  Attempt {i + 1}/10: Current job status is {current_status}")
+                print(f"  Attempt {i + 1}/15: Current job status is {current_status}")
                 if current_status in ["DONE", "ERROR"]:
                     final_status = current_status
                     break
@@ -145,7 +163,6 @@ def test_full_render_workflow():
 
         assert final_status == "DONE", f"Job finished with status '{final_status}', expected 'DONE'."
         print("✅ E2E Test Passed!")
-
     finally:
         # =================================================================
         # 5. TEARDOWN
@@ -153,19 +170,41 @@ def test_full_render_workflow():
         print("--- TEARDOWN ---")
         if worker_process:
             print("Stopping worker process...")
+            if worker_process.stdout:
+                worker_process.stdout.close()
             worker_process.terminate()
-            worker_process.wait()
+            try:
+                worker_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print("Worker process did not terminate gracefully, killing.")
+                worker_process.kill()
+
         if manager_process:
             print("Stopping manager process...")
             manager_process.terminate()
-            manager_process.wait()
+            try:
+                manager_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print("Manager process did not terminate gracefully, killing.")
+                manager_process.kill()
 
+        # Cleanup generated files and directories
         if os.path.exists(TEST_DB_NAME):
-            print("Removing test database...")
+            print(f"Removing test database: {TEST_DB_NAME}")
             os.remove(TEST_DB_NAME)
 
+        test_output_dir = Path(worker_config.TEST_OUTPUT_DIR)
+        if test_output_dir.exists():
+            print(f"Removing test output directory: {test_output_dir}")
+            shutil.rmtree(test_output_dir, ignore_errors=True)
+
         if MOCK_TOOLS_DIR.exists():
-            print("Removing mock tools directory...")
-            shutil.rmtree(MOCK_TOOLS_DIR)
+            print(f"Removing managed tools directory: {MOCK_TOOLS_DIR}")
+            shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
+
+        # Also remove the cache file in case it wasn't in the managed_tools dir
+        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE):
+            print(f"Removing Blender versions cache file: {worker_config.BLENDER_VERSIONS_CACHE_FILE}")
+            os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
 
         print("Teardown complete.")

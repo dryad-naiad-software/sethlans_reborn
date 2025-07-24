@@ -25,6 +25,8 @@ $ExcludeNames = @(
     "venv_worker",
     ".pytest_cache",
     "__pycache__",
+    "managed_tools",    # New exclusion
+    "render_test_output", # New exclusion
     "project_code_dump_chunks" # Exclude the output directory itself
 )
 
@@ -75,9 +77,10 @@ function Get-TreeListing {
     $indent = "  " * $Depth
     Get-ChildItem -Path $Path | ForEach-Object {
         $relativePath = $_.FullName.Replace($ProjectRoot.ToString() + "\", "")
+
+        # Check if the current item (directory or file) itself, or any of its parent directories, is excluded
         if (Test-PathContainsExcludedDir $_.FullName) {
-            # Skip this item and its children if its full path contains an excluded dir
-            return
+            return # Skip this item and its children
         }
 
         if ($_.PSIsContainer) {

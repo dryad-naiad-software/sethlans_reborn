@@ -27,6 +27,8 @@ import os
 import sys
 import platform
 import logging
+from pathlib import Path
+
 
 # --- Manager API Configuration ---
 MANAGER_API_URL = "http://127.0.0.1:8000/api/"
@@ -36,14 +38,14 @@ HEARTBEAT_INTERVAL_SECONDS = 30
 JOB_POLLING_INTERVAL_SECONDS = 5
 
 # --- Worker Agent Paths ---
-PROJECT_ROOT_FOR_WORKER = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), '..'))
+PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parent.parent
 
 SYSTEM_BLENDER_EXECUTABLE = None
 
 MANAGED_TOOLS_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'sethlans_worker_agent', 'managed_tools')
 
 TEST_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'test_scene.blend')
-TEST_OUTPUT_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'render_test_output')
+TEST_OUTPUT_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'test_output')
 
 # --- Tool Discovery & Download Configuration ---
 BLENDER_RELEASES_URL = "https://download.blender.org/release/"
