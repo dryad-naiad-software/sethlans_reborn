@@ -488,3 +488,175 @@ def test_ensure_blender_version_available_download_success(mocker):
     tool_manager_instance.get_blender_executable_path.assert_called_once_with(required_version)
 
     print(f"\\n[UNIT TEST] ensure_blender_version_available_download_success passed.")
+
+
+# --- Test Case 9: ensure_blender_version_available_download_fails ---
+
+def test_ensure_blender_version_available_download_fails(mocker):
+    """
+    Test Case: ensure_blender_version_available_download_fails
+    Purpose: Verify that the function returns None if the download_file utility fails.
+    Asserts:
+        - The function returns None.
+        - The scan and cache generation are called, but extraction is not.
+    """
+    required_version = "4.3.0"
+    mock_platform_suffix = "linux-x64"
+    mock_download_url = f"http://mirror.example.com/blender-{required_version}-{mock_platform_suffix}.tar.xz"
+    mock_hash = "b" * 64
+
+    # --- Mock the sequence of calls ---
+
+    # 1. scan_for_blender_versions reports the version is NOT available
+    mocker.patch.object(tool_manager_instance, 'scan_for_blender_versions', return_value={'blender': []})
+
+    # 2. generate_and_cache_blender_download_info returns valid data to attempt the download
+    mock_cache_data = {
+        required_version: {
+            "version": required_version,
+            "platform_suffix": mock_platform_suffix,
+            "file_extension": ".tar.xz",
+            "hash": mock_hash,
+            "url": mock_download_url,
+            "mirrors": []
+        }
+    }
+    mocker.patch.object(tool_manager_instance, 'generate_and_cache_blender_download_info', return_value=mock_cache_data)
+
+    # 3. file_operations.download_file simulates a FAILED download
+    mock_download = mocker.patch('sethlans_worker_agent.tool_manager.download_file', return_value=False)
+
+    # 4. The following functions should NOT be called
+    mock_extract = mocker.patch('sethlans_worker_agent.tool_manager.extract_zip_file')
+    mock_remove = mocker.patch('os.remove')
+    mock_rename = mocker.patch('os.rename')
+
+    # Run the method under test
+    result_path = tool_manager_instance.ensure_blender_version_available(required_version)
+
+    # Assertions
+    assert result_path is None
+
+    # Verify the sequence of calls
+    tool_manager_instance.scan_for_blender_versions.assert_called_once()
+    tool_manager_instance.generate_and_cache_blender_download_info.assert_called_once()
+    mock_download.assert_called_once()
+
+    # Assert that the workflow stopped after the failed download
+    mock_extract.assert_not_called()
+    mock_remove.assert_not_called()
+    mock_rename.assert_not_called()
+
+    print(f"\n[UNIT TEST] ensure_blender_version_available_download_fails passed.")
+
+
+# --- Test Case 10: ensure_blender_version_available_undiscoverable ---
+
+def test_ensure_blender_version_available_undiscoverable(mocker):
+    """
+    Test Case: ensure_blender_version_available_undiscoverable
+    Purpose: Verify the function returns None if the required version cannot be
+             found in the generated download cache.
+    Asserts:
+        - The function returns None.
+        - The download and extract functions are never called.
+    """
+    required_version = "99.9.9"  # A version we know won't be in the cache
+
+    # --- Mock the sequence of calls ---
+
+    # 1. scan_for_blender_versions reports the version is NOT available
+    mocker.patch.object(tool_manager_instance, 'scan_for_blender_versions', return_value={'blender': []})
+
+    # 2. generate_and_cache_blender_download_info returns an empty dictionary
+    mocker.patch.object(tool_manager_instance, 'generate_and_cache_blender_download_info', return_value={})
+
+    # 3. The download/extract workflow should NOT be triggered
+    mock_download = mocker.patch('sethlans_worker_agent.tool_manager.download_file')
+    mock_extract = mocker.patch('sethlans_worker_agent.tool_manager.extract_zip_file')
+
+    # Run the method under test
+    result_path = tool_manager_instance.ensure_blender_version_available(required_version)
+
+    # Assertions
+    assert result_path is None
+
+    # Verify the sequence of calls
+    tool_manager_instance.scan_for_blender_versions.assert_called_once()
+    tool_manager_instance.generate_and_cache_blender_download_info.assert_called_once()
+
+    # Assert that the download workflow was never started
+    mock_download.assert_not_called()
+    mock_extract.assert_not_called()
+
+    print(f"\n[UNIT TEST] ensure_blender_version_available_undiscoverable passed.")
+
+# In tests/unit/worker_agent/test_tool_manager.py
+
+# --- Test Case 11: _load_blender_cache_file_not_found ---
+
+def test_load_blender_cache_file_not_found(mocker):
+    """
+    Test Case: _load_blender_cache_file_not_found
+    Purpose: Verify that _load_blender_cache handles a non-existent cache
+             file gracefully by returning False.
+    Asserts:
+        - The method returns False.
+        - The internal cache list remains empty.
+        - The 'open' function is never called.
+    """
+    # Mock config to use a predictable path
+    mocker.patch.object(config, 'BLENDER_VERSIONS_CACHE_FILE', "/mock/cache/non_existent_cache.json")
+
+    # Mock os.path.exists to simulate the file not existing
+    mock_exists = mocker.patch('os.path.exists', return_value=False)
+
+    # Mock built-in open to ensure it's not called
+    mock_open = mocker.patch('builtins.open')
+
+    # Reset the instance's cache before the test
+    tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO = []
+
+    # Run the method under test
+    success = tool_manager_instance._load_blender_cache()
+
+    # Assertions
+    assert success is False
+    assert tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO == []
+    mock_exists.assert_called_once_with("/mock/cache/non_existent_cache.json")
+    mock_open.assert_not_called()
+
+    print(f"\n[UNIT TEST] _load_blender_cache_file_not_found passed.")
+
+# --- Test Case 12: _load_blender_cache_corrupt_json ---
+
+def test_load_blender_cache_corrupt_json(mocker):
+    """
+    Test Case: _load_blender_cache_corrupt_json
+    Purpose: Verify that _load_blender_cache handles a corrupt (invalid JSON)
+             cache file by returning False and resetting the internal cache.
+    Asserts:
+        - The method returns False.
+        - The internal cache list is reset to empty.
+    """
+    # Mock config to use a predictable path
+    mocker.patch.object(config, 'BLENDER_VERSIONS_CACHE_FILE', "/mock/cache/corrupt_cache.json")
+
+    # Mock os.path.exists to simulate the file existing
+    mocker.patch('os.path.exists', return_value=True)
+
+    # Mock the open function to return corrupt data
+    corrupt_json_data = "this is not valid json"
+    mocker.patch('builtins.open', mocker.mock_open(read_data=corrupt_json_data))
+
+    # Pre-fill the cache to ensure it gets cleared
+    tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO = ["some", "old", "data"]
+
+    # Run the method under test
+    success = tool_manager_instance._load_blender_cache()
+
+    # Assertions
+    assert success is False
+    assert tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO == []
+
+    print(f"\n[UNIT TEST] _load_blender_cache_corrupt_json passed.")
