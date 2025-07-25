@@ -44,7 +44,7 @@ SYSTEM_BLENDER_EXECUTABLE = None
 
 MANAGED_TOOLS_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'sethlans_worker_agent', 'managed_tools')
 
-TEST_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'test_scene.blend')
+TEST_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'test_scene.blend')
 TEST_OUTPUT_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'test_output')
 
 # --- Tool Discovery & Download Configuration ---
