@@ -94,7 +94,8 @@ def _stream_reader(stream, output_list):
 
 def execute_blender_job(job_data):
     """
-    Executes a Blender render job based on the pre-configured worker model.
+    Executes a Blender render job, monitoring for cancellation and reading output via threads.
+    Returns (success: bool, was_canceled: bool, stdout: str, stderr: str, error_message: str)
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
@@ -122,31 +123,38 @@ def execute_blender_job(job_data):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # --- UPDATED LOGIC ---
-    # Build the base command.
+    # Build the base command, always using --factory-startup for a clean slate
     command = [
-        blender_to_use,
-        "-b", blend_file_path,
+        blender_to_use, "--factory-startup", "-b", blend_file_path,
         "-o", output_file_pattern.replace('####', '#'),
         "-F", "PNG", "-E", render_engine,
     ]
-
-    # For CPU jobs, add --factory-startup to guarantee it resets to CPU.
-    # For GPU jobs, we OMIT --factory-startup to use the worker's saved preferences.
-    if render_device == 'CPU':
-        command.insert(1, "--factory-startup")
 
     if start_frame == end_frame:
         command.extend(["-f", str(start_frame)])
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
 
+    # --- NEW LOGIC ---
+    # If a GPU render is requested for Cycles, inject a python script to enable it.
+    if render_device == 'GPU' and render_engine == 'CYCLES':
+        logger.info("GPU rendering requested. Dynamically configuring Blender Cycles device...")
+        py_command = (
+            "import bpy; "
+            "bpy.context.scene.cycles.device='GPU'; "
+            "prefs = bpy.context.preferences.addons['cycles'].preferences; "
+            "prefs.get_devices(); "
+            "for dev in prefs.devices: "
+            "    if dev.type == 'CPU': dev.use = False; "
+            "    else: dev.use = True; "
+        )
+        command.extend(["--python-expr", py_command])
+
     if isinstance(render_settings, dict):
         for key_path, value in render_settings.items():
             py_value = f"'{value}'" if isinstance(value, str) else value
             py_command = f"import bpy; bpy.context.scene.{key_path} = {py_value}"
             command.extend(["--python-expr", py_command])
-    # --- END UPDATED LOGIC ---
 
     logger.info(f"Running Command: {' '.join(command)}")
 
