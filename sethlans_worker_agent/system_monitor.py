@@ -1,3 +1,26 @@
+#
+# Copyright (c) 2025 Dryad and Naiad Software LLC
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#
+# Created by Mario Estrella on 07/22/2025.
+# Dryad and Naiad Software LLC
+# mestrella@dryadandnaiad.com
+# Project: sethlans_reborn
+#
 # sethlans_worker_agent/system_monitor.py
 
 import logging
@@ -22,7 +45,7 @@ OS_INFO = f"{platform.system()} {platform.release()}"
 
 def detect_gpu_devices():
     """
-    Uses Blender to detect available Cycles GPU rendering devices based on saved preferences.
+    Dynamically detects available Cycles GPU rendering devices by actively testing each backend.
     """
     logger.info("Detecting available GPU devices using Blender...")
 
@@ -39,25 +62,38 @@ def detect_gpu_devices():
         logger.error(f"Could not get executable path for Blender {latest_version}.")
         return []
 
-    # This script now simply reads the pre-configured state.
+    # --- FINAL SCRIPT ---
+    # This script is fully dynamic and requires no pre-configuration on the worker.
     py_script = """
 import bpy
 import sys
 
 try:
-    found_device_types = set()
+    found_backends = set()
     prefs = bpy.context.preferences.addons['cycles'].preferences
 
-    # Check the actual devices Blender has discovered based on saved preferences
-    for device in prefs.devices:
-        if device.use and device.type != 'CPU':
-            # Report the backend type (e.g. 'HIP', 'CUDA') for the active GPU device
-            found_device_types.add(prefs.compute_device_type)
+    # Get all possible backend types Blender was compiled with
+    possible_backends = [b[0] for b in prefs.get_device_types(bpy.context) if b[0] != 'CPU']
 
-    print(','.join(sorted(list(found_device_types))))
+    for backend in possible_backends:
+        try:
+            # Attempt to set the compute backend
+            prefs.compute_device_type = backend
+        except TypeError:
+            # This backend is not supported on the system (e.g. no drivers), so skip it
+            continue
+
+        # Force a scan for devices for this specific backend
+        prefs.get_devices()
+
+        # Crucially, check if any of the devices Blender just found match the backend we set.
+        if any(d.type == backend for d in prefs.devices):
+            found_backends.add(backend)
+
+    print(','.join(sorted(list(found_backends))))
 
 except Exception as e:
-    print(f"Error during GPU detection script: {e}", file=sys.stderr)
+    print(f"Error in GPU detection script: {e}", file=sys.stderr)
 """
 
     temp_script_path = None
@@ -66,8 +102,9 @@ except Exception as e:
             temp_script_path = f.name
             f.write(py_script)
 
-        # REMOVED '--factory-startup' to allow Blender to load saved user preferences
-        command = [blender_exe, '--background', '--python', temp_script_path]
+        # We now use --factory-startup again because our script is fully dynamic
+        # and we want a clean slate, ignoring any saved user preferences.
+        command = [blender_exe, '--background', '--factory-startup', '--python', temp_script_path]
         result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=90)
 
         logger.debug(f"Blender GPU detection stdout:\n{result.stdout}")
@@ -76,6 +113,7 @@ except Exception as e:
         gpu_devices = []
         output_lines = result.stdout.strip().splitlines()
         for line in output_lines:
+            # A valid line will not contain spaces and will contain a backend name
             if ' ' not in line and any(device in line for device in ['CUDA', 'OPTIX', 'HIP', 'METAL', 'ONEAPI']):
                 gpu_devices = line.strip().split(',')
                 break

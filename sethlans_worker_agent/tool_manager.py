@@ -21,7 +21,6 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-# sethlans_worker_agent/tool_manager.py
 
 # sethlans_worker_agent/tool_manager.py
 
