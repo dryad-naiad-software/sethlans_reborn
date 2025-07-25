@@ -129,6 +129,7 @@ def execute_blender_job(job_data):
     blender_version_req = job_data.get('blender_version')
     render_engine = job_data.get('render_engine', 'CYCLES')
     render_settings = job_data.get('render_settings', {})
+    render_device = job_data.get('render_device', 'CPU')
     temp_script_path = None
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
@@ -154,6 +155,20 @@ def execute_blender_job(job_data):
         command.extend(["-f", str(start_frame)])
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
+
+    # ** THE FIX IS HERE: This logic block is now correctly placed **
+    if render_device == 'GPU' and render_engine == 'CYCLES':
+        logger.info("GPU rendering requested. Configuring Blender Cycles device...")
+        py_command = (
+            "import bpy; "
+            "bpy.context.scene.cycles.device='GPU'; "
+            "prefs = bpy.context.preferences.addons['cycles'].preferences; "
+            "prefs.get_devices(); "
+            "for dev in prefs.devices: "
+            "    if dev.type == 'CPU': dev.use = False; "
+            "    else: dev.use = True; "
+        )
+        command.extend(["--python-expr", py_command])
 
     if isinstance(render_settings, dict):
         for key_path, value in render_settings.items():

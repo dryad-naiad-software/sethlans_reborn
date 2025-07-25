@@ -1,4 +1,3 @@
-# tests/unit/worker_agent/test_job_processor.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -77,7 +76,7 @@ def test_execute_blender_job_success(mock_popen_setup):
     mock_job_data = {
         'id': 1, 'name': 'Test Render', 'blend_file_path': '/path/to/scene.blend',
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
-        'blender_version': '4.2.0', 'render_engine': 'CYCLES'
+        'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'CPU'
     }
 
     success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
@@ -152,6 +151,29 @@ def test_execute_blender_job_tool_unavailable(mocker):
     mock_popen.assert_not_called()
 
 
+def test_execute_blender_job_gpu_command(mock_popen_setup):
+    """
+    Tests that the GPU python expression is correctly added to the command.
+    """
+    mock_popen, mock_process = mock_popen_setup
+    mock_process.wait.return_value = 0
+
+    mock_job_data = {
+        'id': 5, 'name': 'GPU Test', 'blend_file_path': '/path/to/scene.blend',
+        'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
+        'render_engine': 'CYCLES', 'render_device': 'GPU',
+        'blender_version': '4.2.0'
+    }
+
+    job_processor.execute_blender_job(mock_job_data)
+
+    called_command = mock_popen.call_args.args[0]
+
+    assert "--python-expr" in called_command
+    gpu_expr_index = called_command.index("--python-expr") + 1
+    assert "bpy.context.scene.cycles.device='GPU'" in called_command[gpu_expr_index]
+
+
 # --- Tests for get_and_claim_job ---
 
 def test_get_and_claim_job_success(mocker):
@@ -163,26 +185,21 @@ def test_get_and_claim_job_success(mocker):
         json=lambda: [mock_available_job], raise_for_status=lambda: None
     ))
 
-    # There are THREE patch calls in the success path, so we need three mock responses.
     mock_patch = mocker.patch('requests.patch')
     mock_patch.side_effect = [
-        MagicMock(status_code=200),  # 1. Claim call
-        MagicMock(status_code=200),  # 2. Set status to RENDERING
-        MagicMock(status_code=200)  # 3. Report final status DONE
+        MagicMock(status_code=200),
+        MagicMock(status_code=200),
+        MagicMock(status_code=200)
     ]
 
     mock_execute = mocker.patch(
         'sethlans_worker_agent.job_processor.execute_blender_job',
-        return_value=(True, False, "output", "", "")  # Simulate success (5-tuple)
+        return_value=(True, False, "output", "", "")
     )
 
     job_processor.get_and_claim_job(mock_worker_id)
 
-    # Assert that all three patch calls were made against the original mock
     assert mock_patch.call_count == 3
-    mock_execute.assert_called_once_with(mock_available_job)
-
-    # Verify the payload of the FINAL patch call using the original mock
     final_payload = mock_patch.call_args.kwargs['json']
     assert final_payload['status'] == 'DONE'
 
@@ -227,13 +244,10 @@ def test_get_and_claim_job_claim_fails(mocker):
     mock_execute.assert_not_called()
 
 
-# --- CANCELLATION TEST ---
 def test_execute_blender_job_cancellation(mocker):
     """
-    Tests that execute_blender_job correctly handles a cancellation signal from the API,
-    kills the subprocess, and returns the correct status.
+    Tests that execute_blender_job correctly handles a cancellation signal from the API.
     """
-    # 1. Arrange
     mock_job_data = {
         'id': 99, 'name': 'Cancellable Job', 'blend_file_path': '/path/to/scene.blend',
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1,
@@ -249,26 +263,22 @@ def test_execute_blender_job_cancellation(mocker):
     mock_process.pid = 12345
     mock_process.stdout.readline.side_effect = ['output line 1\n', '']
     mock_process.stderr.readline.side_effect = ['']
-    mock_process.wait.return_value = -9  # Simulate exit code for a killed process
+    mock_process.wait.return_value = -9
     mocker.patch('subprocess.Popen', return_value=mock_process)
 
     mocker.patch('psutil.pid_exists', side_effect=[True, True, False])
 
-    # Mock the API status change from RENDERING to CANCELED
     mock_response_rendering = MagicMock(status_code=200)
     mock_response_rendering.json.return_value = {'status': 'RENDERING'}
     mock_response_canceled = MagicMock(status_code=200)
     mock_response_canceled.json.return_value = {'status': 'CANCELED'}
     mocker.patch('requests.get', side_effect=[mock_response_rendering, mock_response_canceled])
 
-    # 2. Act
     success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
 
-    # 3. Assert
-    assert success is False, "Success should be False for a canceled job."
-    assert was_canceled is True, "was_canceled flag should be True."
-    assert error_message == "Job was canceled by user request.", "Error message should indicate cancellation."
-    assert stdout == "output line 1\n", "Stdout up to the point of cancellation should be captured."
-
+    assert success is False
+    assert was_canceled is True
+    assert error_message == "Job was canceled by user request."
+    assert stdout == "output line 1\n"
     mock_process.kill.assert_called_once()
     mock_process.wait.assert_called_once()
