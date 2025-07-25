@@ -1,26 +1,3 @@
-#
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-#
-#
-# Created by Mario Estrella on 07/22/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
 # sethlans_worker_agent/job_processor.py
 
 import datetime
@@ -117,8 +94,7 @@ def _stream_reader(stream, output_list):
 
 def execute_blender_job(job_data):
     """
-    Executes a Blender render job, monitoring for cancellation and reading output via threads.
-    Returns (success: bool, was_canceled: bool, stdout: str, stderr: str, error_message: str)
+    Executes a Blender render job based on the pre-configured worker model.
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
@@ -146,35 +122,31 @@ def execute_blender_job(job_data):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # --- UPDATED LOGIC ---
+    # Build the base command.
     command = [
-        blender_to_use, "--factory-startup", "-b", blend_file_path,
+        blender_to_use,
+        "-b", blend_file_path,
         "-o", output_file_pattern.replace('####', '#'),
         "-F", "PNG", "-E", render_engine,
     ]
+
+    # For CPU jobs, add --factory-startup to guarantee it resets to CPU.
+    # For GPU jobs, we OMIT --factory-startup to use the worker's saved preferences.
+    if render_device == 'CPU':
+        command.insert(1, "--factory-startup")
+
     if start_frame == end_frame:
         command.extend(["-f", str(start_frame)])
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
-
-    # ** THE FIX IS HERE: This logic block is now correctly placed **
-    if render_device == 'GPU' and render_engine == 'CYCLES':
-        logger.info("GPU rendering requested. Configuring Blender Cycles device...")
-        py_command = (
-            "import bpy; "
-            "bpy.context.scene.cycles.device='GPU'; "
-            "prefs = bpy.context.preferences.addons['cycles'].preferences; "
-            "prefs.get_devices(); "
-            "for dev in prefs.devices: "
-            "    if dev.type == 'CPU': dev.use = False; "
-            "    else: dev.use = True; "
-        )
-        command.extend(["--python-expr", py_command])
 
     if isinstance(render_settings, dict):
         for key_path, value in render_settings.items():
             py_value = f"'{value}'" if isinstance(value, str) else value
             py_command = f"import bpy; bpy.context.scene.{key_path} = {py_value}"
             command.extend(["--python-expr", py_command])
+    # --- END UPDATED LOGIC ---
 
     logger.info(f"Running Command: {' '.join(command)}")
 

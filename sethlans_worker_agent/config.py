@@ -58,6 +58,12 @@ BLENDER_MIRROR_BASE_URLS = [
 
 BLENDER_VERSIONS_CACHE_FILE = os.path.join(MANAGED_TOOLS_DIR, 'blender_versions_cache.json')
 
+# --- NEW CONSTANT ---
+# The major.minor version series for the current Blender Long-Term Support release.
+# The worker will ensure the latest patch of this version is downloaded at startup.
+REQUIRED_LTS_VERSION_SERIES = "4.5"
+
+
 # --- Platform and Architecture-specific Blender Download/Executable Mappings ---
 PLATFORM_BLENDER_MAP = {
     ('Windows', 'amd64'): {

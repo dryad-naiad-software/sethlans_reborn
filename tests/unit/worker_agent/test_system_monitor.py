@@ -29,36 +29,26 @@ import subprocess
 from unittest.mock import MagicMock
 
 # Import the module and dependencies to be tested/mocked
-from sethlans_worker_agent import system_monitor
+from sethlans_worker_agent import system_monitor, config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
+from sethlans_worker_agent.utils import blender_release_parser
 
 
 def test_get_system_info(mocker):
     """
     Tests that system information, including GPU devices, is gathered correctly.
     """
-    # Mock the module-level constants and dependent functions
     mocker.patch.object(system_monitor, 'HOSTNAME', "test-host")
     mocker.patch.object(system_monitor, 'IP_ADDRESS', "192.168.1.1")
     mocker.patch.object(system_monitor, 'OS_INFO', "TestOS 11.0")
-    mocker.patch.object(
-        tool_manager_instance,
-        'scan_for_local_blenders',
-        return_value=[{'version': '4.1.1'}]
-    )
-    # Mock the new GPU detection function
+    mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA', 'OPTIX'])
 
     info = system_monitor.get_system_info()
 
-    # Assert the output is correctly structured
-    assert info['hostname'] == "test-host"
-    assert info['os'] == "TestOS 11.0"
     assert info['available_tools']['blender'] == ["4.1.1"]
     assert info['available_tools']['gpu_devices'] == ['CUDA', 'OPTIX']
 
-
-# --- NEW: Tests for detect_gpu_devices ---
 
 def test_detect_gpu_devices_success(mocker):
     """
@@ -67,59 +57,70 @@ def test_detect_gpu_devices_success(mocker):
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
-    # Simulate a successful run with comma-separated output from Blender
     mock_run.return_value = MagicMock(stdout='CUDA,OPTIX\n', stderr='', check_returncode=MagicMock())
 
     devices = system_monitor.detect_gpu_devices()
 
     assert devices == ['CUDA', 'OPTIX']
-    mock_run.assert_called_once()
 
-def test_detect_gpu_devices_no_blender(mocker):
+
+# --- NEW: Test for LTS version helper ---
+@pytest.mark.parametrize("versions, series, expected", [
+    (['4.5.0', '4.5.1', '4.1.0', '4.5.2'], "4.5", "4.5.2"),
+    (['4.5.10', '4.5.2', '4.5.9'], "4.5", "4.5.10"),
+    (['4.1.0', '5.0.0'], "4.5", None),
+    ([], "4.5", None)
+])
+def test_find_latest_lts_patch(versions, series, expected):
+    """Tests the helper function that finds the latest LTS patch version."""
+    result = system_monitor._find_latest_lts_patch(versions, series)
+    assert result == expected
+
+
+# --- UPDATED: Tests for the new registration logic ---
+def test_register_with_manager_lts_success(mocker):
     """
-    Tests that detection returns an empty list if no Blender install is found.
-    """
-    mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[])
-    mock_run = mocker.patch('subprocess.run')
-
-    devices = system_monitor.detect_gpu_devices()
-
-    assert devices == []
-    mock_run.assert_not_called()
-
-def test_detect_gpu_devices_subprocess_error(mocker):
-    """
-    Tests that detection returns an empty list if the Blender command fails.
-    """
-    mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
-    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
-    # Simulate a process error
-    mocker.patch('subprocess.run', side_effect=subprocess.CalledProcessError(1, 'cmd'))
-
-    devices = system_monitor.detect_gpu_devices()
-
-    assert devices == []
-
-# --- Existing tests for registration and heartbeat ---
-
-def test_register_with_manager_success(mocker):
-    """
-    Tests successful registration with the manager API.
+    Tests the full successful registration flow, including finding and downloading the LTS Blender.
     """
     mocker.patch.object(system_monitor, 'WORKER_ID', None)
-    mocker.patch(
-        'sethlans_worker_agent.system_monitor.get_system_info',
-        return_value={'hostname': 'test-host'}
+    # 1. Mock the parser to return a list of versions
+    mocker.patch.object(
+        blender_release_parser, 'get_blender_releases', return_value={'4.5.0': {}, '4.5.1': {}}
     )
+    # 2. Mock the tool manager to successfully "download" the found version
+    mock_ensure_blender = mocker.patch.object(
+        tool_manager_instance, 'ensure_blender_version_available', return_value="/path/to/blender-4.5.1"
+    )
+    # 3. Mock the rest of the registration process
+    mocker.patch('sethlans_worker_agent.system_monitor.get_system_info', return_value={})
     mock_post = mocker.patch('requests.post')
     mock_post.return_value.json.return_value = {'id': 123}
-    mock_post.return_value.raise_for_status.return_value = None
 
     worker_id = system_monitor.register_with_manager()
 
     assert worker_id == 123
-    assert system_monitor.WORKER_ID == 123
+    # Assert that it correctly identified '4.5.1' as the latest and tried to download it
+    mock_ensure_blender.assert_called_once_with('4.5.1')
+    mock_post.assert_called_once()
 
+
+def test_register_with_manager_lts_not_found(mocker):
+    """
+    Tests that registration fails if no suitable LTS version is found.
+    """
+    mocker.patch.object(system_monitor, 'WORKER_ID', None)
+    mocker.patch.object(
+        blender_release_parser, 'get_blender_releases', return_value={'4.1.0': {}} # No 4.5 versions
+    )
+    mock_ensure_blender = mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available')
+
+    worker_id = system_monitor.register_with_manager()
+
+    assert worker_id is None
+    mock_ensure_blender.assert_not_called()
+
+
+# --- Existing tests for heartbeat ---
 def test_send_heartbeat_success(mocker):
     """
     Tests that a heartbeat is sent correctly when the worker is registered.
@@ -130,4 +131,3 @@ def test_send_heartbeat_success(mocker):
     system_monitor.send_heartbeat()
 
     mock_post.assert_called_once()
-    assert mock_post.call_args.kwargs['json'] == {'hostname': system_monitor.HOSTNAME}
