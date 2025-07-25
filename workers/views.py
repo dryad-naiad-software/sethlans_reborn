@@ -24,16 +24,14 @@
 
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Worker, Job, JobStatus
-from .serializers import WorkerSerializer, JobSerializer
+from .models import Worker, Job, JobStatus, Animation # Import Animation
+from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer # Import AnimationSerializer
 from django.utils import timezone
 
 from rest_framework import viewsets
 from rest_framework.decorators import action
-# from rest_framework.permissions import IsAuthenticatedOrReadOnly
-
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters  # <-- ADDED THIS IMPORT!
+from rest_framework import filters
 
 import logging
 
@@ -43,113 +41,83 @@ logger = logging.getLogger(__name__)
 class WorkerHeartbeatViewSet(viewsets.ViewSet):
     """
     API endpoint for workers to send heartbeats and register themselves.
-    Handles both registration (creation) and listing of workers (for debugging/admin).
-    GET /api/heartbeat/ : List all registered workers.
-    POST /api/heartbeat/ : Receive heartbeat/registration from a worker.
     """
-
     def list(self, request):
         workers = Worker.objects.all()
         serializer = WorkerSerializer(workers, many=True)
-        logger.debug("Listing all registered workers.")
         return Response(serializer.data)
 
     def create(self, request):
         hostname = request.data.get('hostname')
-        ip_address = request.data.get('ip_address')
-        os_info = request.data.get('os')
-        available_tools = request.data.get('available_tools', {})
-
         if not hostname:
-            logger.error("Heartbeat: Hostname is required for worker registration.")
             return Response({"detail": "Hostname is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        worker, created = Worker.objects.get_or_create(hostname=hostname)
+        worker, created = Worker.objects.update_or_create(
+            hostname=hostname,
+            defaults={
+                'ip_address': request.data.get('ip_address'),
+                'os': request.data.get('os'),
+                'available_tools': request.data.get('available_tools', {}),
+                'last_seen': timezone.now(),
+                'is_active': True
+            }
+        )
 
-        if ip_address:
-            worker.ip_address = ip_address
-        if os_info:
-            worker.os = os_info
-
-        if available_tools:
-            worker.available_tools = available_tools
-
-        worker.last_seen = timezone.now()
-        worker.is_active = True
-        worker.save()
-
-        logger.info(
-            f"Worker heartbeat/registration successful. Hostname: {worker.hostname}, ID: {worker.id}, Created: {created}, Tools: {available_tools}")
-
+        logger.info(f"Worker heartbeat. Hostname: {worker.hostname}, Created: {created}")
         serializer = WorkerSerializer(worker)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+class AnimationViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for creating and viewing Animation jobs.
+    Creating an Animation will automatically spawn child frame Jobs.
+    """
+    queryset = Animation.objects.all().order_by('-submitted_at')
+    serializer_class = AnimationSerializer
+
+    def perform_create(self, serializer):
+        # 1. Create the parent Animation object
+        animation = serializer.save(status='QUEUED')
+        logger.info(f"Created new animation '{animation.name}' (ID: {animation.id}). Spawning frame jobs...")
+
+        # 2. Loop through the frame range and create a child Job for each frame
+        jobs_to_create = []
+        for frame_num in range(animation.start_frame, animation.end_frame + 1):
+            job = Job(
+                animation=animation,
+                name=f"{animation.name}_Frame_{frame_num:04d}",
+                blend_file_path=animation.blend_file_path,
+                output_file_pattern=animation.output_file_pattern,
+                start_frame=frame_num,
+                end_frame=frame_num,
+                blender_version=animation.blender_version,
+                render_engine=animation.render_engine,
+                render_device=animation.render_device, # <-- THE FIX IS HERE
+            )
+            jobs_to_create.append(job)
+
+        Job.objects.bulk_create(jobs_to_create)
+        logger.info(f"Successfully spawned {len(jobs_to_create)} frame jobs for animation ID {animation.id}.")
 
 class JobViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows render jobs to be viewed or created.
-    GET /api/jobs/ : List all jobs.
-    POST /api/jobs/ : Create a new job.
-    GET /api/jobs/{id}/ : Retrieve a specific job.
-    PUT /api/jobs/{id}/ : Update a specific job.
-    PATCH /api/jobs/{id}/ : Partially update a specific job.
-    DELETE /api/jobs/{id}/ : Delete a specific job.
     """
     queryset = Job.objects.all()
     serializer_class = JobSerializer
-    # permission_classes = [IsAuthenticatedOrReadOnly]
-
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'assigned_worker']
+    filterset_fields = ['status', 'assigned_worker', 'animation']
     search_fields = ['name', 'blend_file_path']
     ordering_fields = ['submitted_at', 'status', 'name']
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
-        """
-        Custom action to cancel a job.
-        """
         job = self.get_object()
         old_status = job.status
         job.status = JobStatus.CANCELED
-
-        # Also set the completed_at timestamp when canceling
         if not job.completed_at:
             job.completed_at = timezone.now()
-
         job.save()
-
-        logger.info(
-            f"Job '{job.name}' (ID: {job.id}) CANCELED via API. Status changed from {old_status} to {job.status}.")
-
+        logger.info(f"Job '{job.name}' (ID: {job.id}) CANCELED. Status: {old_status} -> {job.status}.")
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-    # --- NEW: Add this method for debugging ---
-    def partial_update(self, request, *args, **kwargs):
-        """
-        Overrides the default PATCH method to add debug logging.
-        """
-        print(f"\n--- DJANGO DEBUG: Received PATCH request for Job {kwargs.get('pk')} ---")
-        print(f"--- DJANGO DEBUG: Request data: {request.data}")
-
-        response = super().partial_update(request, *args, **kwargs)
-
-        print(f"--- DJANGO DEBUG: Response status code: {response.status_code}")
-        if response.status_code != 200:
-            print(f"--- DJANGO DEBUG: Response data (error): {response.data}")
-        print(f"--- DJANGO DEBUG: End of PATCH request ---\n")
-
-        return response
-
-    def perform_create(self, serializer):
-        job = serializer.save(status=JobStatus.QUEUED, submitted_at=timezone.now())
-        logger.info(f"New job '{job.name}' (ID: {job.id}) created with status {job.status}.")
-
-    def list(self, request, *args, **kwargs):
-        logger.debug("API: Listing jobs.")
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        logger.debug(f"API: Retrieving job {kwargs.get('pk')}.")
-        return super().retrieve(request, *args, **kwargs)

@@ -23,7 +23,7 @@
 #
 
 from django.contrib import admin
-from .models import Worker, Job
+from .models import Worker, Job, Animation # Import Animation
 
 
 @admin.register(Worker)
@@ -33,15 +33,24 @@ class WorkerAdmin(admin.ModelAdmin):
     search_fields = ('hostname', 'ip_address')
     ordering = ('hostname',)
 
-@admin.register(Job) #
+@admin.register(Job)
 class JobAdmin(admin.ModelAdmin):
     list_display = (
         'name', 'status', 'assigned_worker', 'submitted_at',
-        'start_frame', 'end_frame', 'blender_version', 'render_engine'
+        'start_frame', 'end_frame', 'blender_version', 'animation' # Added animation
     )
-    list_filter = ('status', 'assigned_worker', 'blender_version', 'render_engine')
+    list_filter = ('status', 'assigned_worker', 'blender_version', 'animation')
     search_fields = ('name', 'blend_file_path')
-    date_hierarchy = 'submitted_at' # Adds date drill-down options
+    date_hierarchy = 'submitted_at'
     ordering = ('-submitted_at',)
-    # Make certain fields read-only in the admin if they should only be set programmatically
     readonly_fields = ('submitted_at', 'started_at', 'completed_at', 'last_output', 'error_message')
+
+# --- NEW: Register Animation model ---
+@admin.register(Animation)
+class AnimationAdmin(admin.ModelAdmin):
+    list_display = ('name', 'status', 'start_frame', 'end_frame', 'submitted_at', 'completed_at')
+    list_filter = ('status',)
+    search_fields = ('name',)
+    date_hierarchy = 'submitted_at'
+    ordering = ('-submitted_at',)
+    readonly_fields = ('submitted_at', 'completed_at')

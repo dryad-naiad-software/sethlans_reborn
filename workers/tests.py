@@ -25,7 +25,7 @@
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Job, Worker, JobStatus
+from .models import Job, Worker, JobStatus, Animation # Import Animation
 
 
 
@@ -134,7 +134,8 @@ class JobViewSetTests(APITestCase):
             "blend_file_path": "/path/to/my_scene.blend",
             "output_file_pattern": "//renders/final_shot_####",
             "start_frame": 1,
-            "end_frame": 100
+            "end_frame": 100,
+            "render_device": "GPU" # Test setting the new field
         }
 
         # Make the API call to the create endpoint
@@ -148,7 +149,8 @@ class JobViewSetTests(APITestCase):
         # Verify the created job's details
         new_job = Job.objects.get()
         self.assertEqual(new_job.name, job_data['name'])
-        self.assertEqual(new_job.status, 'QUEUED')  # Check default status
+        self.assertEqual(new_job.status, 'QUEUED')
+        self.assertEqual(new_job.render_device, 'GPU') # Assert new field was saved
 
     def test_update_job_status(self):
         """
@@ -191,12 +193,57 @@ class JobViewSetTests(APITestCase):
         response = self.client.post(url, format='json')
 
         # ASSERT
-        # 1. Check for a successful response
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # 2. Refresh the object from the database to see the change
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatus.CANCELED)
-
-        # 3. Check that the response data also reflects the change
         self.assertEqual(response.data['status'], JobStatus.CANCELED)
+
+
+class AnimationViewSetTests(APITestCase):
+    """Test suite for the new AnimationViewSet."""
+
+    def test_create_animation_spawns_jobs(self):
+        """
+        Ensure POSTing to /api/animations/ creates a parent Animation
+        and the correct number of child Job objects with correct properties.
+        """
+        animation_data = {
+            "name": "My Test Animation",
+            "blend_file_path": "/path/to/animation.blend",
+            "output_file_pattern": "//renders/anim_####",
+            "start_frame": 1,
+            "end_frame": 5,
+            "blender_version": "4.1.1",
+            "render_device": "GPU" # Test setting the new field
+        }
+        url = "/api/animations/"
+
+        response = self.client.post(url, animation_data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Animation.objects.count(), 1)
+        self.assertEqual(Job.objects.count(), 5)
+
+        parent_animation = Animation.objects.first()
+        self.assertEqual(parent_animation.render_device, "GPU") # Assert parent has correct device
+
+        first_job = Job.objects.order_by('start_frame').first()
+        self.assertEqual(first_job.render_device, "GPU") # Assert child jobs inherit the device
+
+    def test_animation_progress_tracking(self):
+        """
+        Ensure the serializer correctly calculates and reports progress.
+        """
+        anim = Animation.objects.create(name="Progress Test", start_frame=1, end_frame=10)
+        for i in range(1, 11):
+            Job.objects.create(animation=anim, name=f"Job_{i}", start_frame=i, end_frame=i)
+
+        Job.objects.filter(animation=anim, start_frame__in=[1, 2, 3]).update(status=JobStatus.DONE)
+
+        url = f"/api/animations/{anim.id}/"
+        response = self.client.get(url, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['total_frames'], 10)
+        self.assertEqual(response.data['completed_frames'], 3)
+        self.assertEqual(response.data['progress'], "3 of 10 frames complete")
