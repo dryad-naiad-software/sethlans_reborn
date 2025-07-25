@@ -1,5 +1,3 @@
-# sethlans_worker_agent/job_processor.py
-
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -23,30 +21,106 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/job_processor.py
 
-import requests
-import json
 import datetime
-import time
-import subprocess
+import logging
 import os
+import requests
+import subprocess
+import time
+import platform
+import threading
+import psutil
 
-from . import config
-from . import system_monitor
-from .tool_manager import tool_manager_instance
+from sethlans_worker_agent import config
+from sethlans_worker_agent.tool_manager import tool_manager_instance
 
-import logging # This should be there
-logger = logging.getLogger(__name__) # Get a logger for this module
+logger = logging.getLogger(__name__)
 
 
+def update_job_status(job_url, payload):
+    """Updates the job status via the API."""
+    try:
+        response = requests.patch(job_url, json=payload, timeout=5)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to update job status at {job_url}: {e}")
 
-# --- Job Processing Functions ---
+
+def get_and_claim_job(worker_id):
+    """Polls the manager for a job, claims it, and processes it."""
+    poll_url = f"{config.MANAGER_API_URL}jobs/"
+    params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+
+    try:
+        response = requests.get(poll_url, params=params, timeout=10)
+        response.raise_for_status()
+        available_jobs = response.json()
+
+        if available_jobs:
+            job_to_claim = available_jobs[0]
+            job_id = job_to_claim.get('id')
+            job_name = job_to_claim.get('name', 'Unnamed Job')
+            claim_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
+
+            logger.info(f"Found {len(available_jobs)} available job(s).")
+            logger.info(f"Attempting to claim job '{job_name}' (ID: {job_id})...")
+
+            claim_response = requests.patch(claim_url, json={"assigned_worker": worker_id}, timeout=5)
+
+            if claim_response.status_code == 200:
+                logger.info(f"Successfully claimed job '{job_name}'! Starting render...")
+                update_job_status(claim_url, {"status": "RENDERING"})
+
+                success, was_canceled, stdout, stderr, blender_error_msg = execute_blender_job(job_to_claim)
+
+                job_update_payload = {
+                    "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+                    "last_output": stdout,
+                    "error_message": blender_error_msg,
+                }
+
+                if success:
+                    job_update_payload["status"] = "DONE"
+                elif was_canceled:
+                    job_update_payload["status"] = "CANCELED"
+                else:
+                    job_update_payload["status"] = "ERROR"
+
+                report_response = requests.patch(claim_url, json=job_update_payload, timeout=5)
+
+                if report_response.status_code == 200:
+                    logger.info(
+                        f"Successfully reported final status '{job_update_payload['status']}' for job {job_id}.")
+                else:
+                    logger.error(
+                        f"Failed to report final status for job {job_id}. Server responded with {report_response.status_code}.")
+
+            elif claim_response.status_code == 409:
+                logger.warning(f"Job {job_id} was claimed by another worker. Looking for another job.")
+            else:
+                logger.error(
+                    f"Failed to claim job {job_id}. Status: {claim_response.status_code}, Response: {claim_response.text}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Could not poll for jobs: {e}")
+
+
+def _stream_reader(stream, output_list):
+    """Helper function to read a stream line by line into a list."""
+    try:
+        for line in iter(stream.readline, ''):
+            output_list.append(line)
+    finally:
+        stream.close()
+
 
 def execute_blender_job(job_data):
     """
-    Executes a Blender render job using subprocess.
-    Returns (success: bool, stdout: str, stderr: str, error_message: str)
+    Executes a Blender render job, monitoring for cancellation and reading output via threads.
+    Returns (success: bool, was_canceled: bool, stdout: str, stderr: str, error_message: str)
     """
+    job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
     blend_file_path = job_data.get('blend_file_path')
     output_file_pattern = job_data.get('output_file_pattern')
@@ -54,183 +128,107 @@ def execute_blender_job(job_data):
     end_frame = job_data.get('end_frame', 1)
     blender_version_req = job_data.get('blender_version')
     render_engine = job_data.get('render_engine', 'CYCLES')
+    render_settings = job_data.get('render_settings', {})
+    temp_script_path = None
 
-    logger.info(f"Starting render for job '{job_name}'...")  # <-- Changed print to logger.info
-    logger.debug(f"  Blend File: {blend_file_path}")  # <-- Changed print to logger.debug
-    logger.debug(f"  Output Pattern: {output_file_pattern}")
-    logger.debug(f"  Frames: {start_frame}-{end_frame}")
-    logger.debug(f"  Engine: {render_engine}")
-    if blender_version_req:
-        logger.debug(f"  Requested Blender Version: {blender_version_req}")
+    logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
 
-    # --- Determine which Blender executable to use ---
-    blender_to_use = config.SYSTEM_BLENDER_EXECUTABLE
-    if blender_version_req:
-        logger.info(
-            f"Attempting to ensure Blender version {blender_version_req} is available...")  # <-- Changed print to logger.info
-        managed_blender_path = tool_manager_instance.ensure_blender_version_available(blender_version_req)
-        if managed_blender_path:
-            blender_to_use = managed_blender_path
-            logger.info(f"Using managed Blender version from: {blender_to_use}")  # <-- Changed print to logger.info
-        else:
-            logger.warning(
-                f"Requested Blender version {blender_version_req} not available/downloadable via management system.")  # <-- Changed print to logger.warning
-            if not config.SYSTEM_BLENDER_EXECUTABLE:
-                error_message = f"Requested Blender version {blender_version_req} not available, and no system fallback defined. Aborting render for job '{job_name}'."
-                logger.error(error_message)  # <-- Changed print to logger.error
-                return False, "", "", error_message
-            else:
-                blender_to_use = config.SYSTEM_BLENDER_EXECUTABLE
-                logger.info(
-                    f"Falling back to default system Blender: {blender_to_use}")  # <-- Changed print to logger.info
-    elif not config.SYSTEM_BLENDER_EXECUTABLE:
-        error_message = f"No Blender version requested and no system fallback defined. Aborting render for job '{job_name}'."
-        logger.error(error_message)  # <-- Changed print to logger.error
-        return False, "", "", error_message
-
+    blender_to_use = tool_manager_instance.ensure_blender_version_available(
+        blender_version_req) if blender_version_req else config.SYSTEM_BLENDER_EXECUTABLE
     if not blender_to_use:
-        error_message = f"Failed to determine any Blender executable path. Aborting render for job '{job_name}'."
-        logger.error(error_message)  # <-- Changed print to logger.error
-        return False, "", "", error_message
+        error_message = f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job."
+        return False, False, "", "", error_message
 
-    # Ensure output directory exists before rendering
+    logger.info(f"Using Blender executable: {blender_to_use}")
+
     output_dir = os.path.dirname(output_file_pattern)
     if not os.path.exists(output_dir):
-        try:
-            os.makedirs(output_dir)
-            logger.info(f"Created output directory: {output_dir}")  # <-- Changed print to logger.info
-        except OSError as e:
-            err_msg = f"Failed to create output directory {output_dir}: {e}"
-            logger.error(f"Failed to create output directory: {err_msg}")  # <-- Changed print to logger.error
-            return False, "", "", err_msg
+        os.makedirs(output_dir)
 
     command = [
-        blender_to_use,
-        "-b",
-        blend_file_path,
+        blender_to_use, "--factory-startup", "-b", blend_file_path,
         "-o", output_file_pattern.replace('####', '#'),
-        "-F", "PNG",
-        "-E", render_engine,
+        "-F", "PNG", "-E", render_engine,
     ]
-
     if start_frame == end_frame:
         command.extend(["-f", str(start_frame)])
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
 
-    logger.info(f"Running Blender command: {' '.join(command)}")  # <-- Changed print to logger.info
+    if isinstance(render_settings, dict):
+        for key_path, value in render_settings.items():
+            py_value = f"'{value}'" if isinstance(value, str) else value
+            py_command = f"import bpy; bpy.context.scene.{key_path} = {py_value}"
+            command.extend(["--python-expr", py_command])
 
-    stdout_output = ""
-    stderr_output = ""
-    error_message = ""
+    logger.info(f"Running Command: {' '.join(command)}")
+
+    process = None
     success = False
+    stdout_lines, stderr_lines, error_message = [], [], ""
+    stdout_output, stderr_output = "", ""
+    was_canceled = False
+    final_return_code = -1
 
     try:
-        process = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=config.PROJECT_ROOT_FOR_WORKER
-        )
+        popen_kwargs = {
+            "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+            "encoding": 'utf-8', "errors": 'surrogateescape',
+            "cwd": config.PROJECT_ROOT_FOR_WORKER
+        }
+        if platform.system() == "Windows":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        stdout_output = process.stdout
-        stderr_output = process.stderr
+        process = subprocess.Popen(command, **popen_kwargs)
 
-        if process.returncode == 0:
-            logger.info("Blender render command exited successfully.")  # <-- Changed print to logger.info
-            success = True
-        else:
-            error_message = f"Blender exited with code {process.returncode}. STDERR: {stderr_output[:500]}..."
-            logger.error(f"Blender command failed: {error_message}")  # <-- Changed print to logger.error
-            success = False
+        stdout_thread = threading.Thread(target=_stream_reader, args=(process.stdout, stdout_lines))
+        stderr_thread = threading.Thread(target=_stream_reader, args=(process.stderr, stderr_lines))
+        stdout_thread.start()
+        stderr_thread.start()
 
-        logger.debug("--- Blender STDOUT (last 1000 chars) ---")  # <-- Changed print to logger.debug
-        logger.debug(stdout_output[-1000:])
-        logger.debug("--- Blender STDERR (last 1000 chars) ---")
-        logger.debug(stderr_output[-1000:])
+        job_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
-    except FileNotFoundError:
-        error_message = f"Blender executable not found at '{blender_to_use}'. Please check the path/download."
-        logger.error(error_message)  # <-- Changed print to logger.error
+        while psutil.pid_exists(process.pid):
+            try:
+                response = requests.get(job_url, timeout=5)
+                if response.status_code == 200 and response.json().get('status') == 'CANCELED':
+                    logger.warning(f"Cancellation signal received for job ID {job_id}. Killing Blender process...")
+                    process.kill()
+                    was_canceled = True
+                    break
+            except requests.exceptions.RequestException as e:
+                logger.error(f"API error while checking for cancellation: {e}")
+            time.sleep(2)
+
+        final_return_code = process.wait()
+        stdout_thread.join()
+        stderr_thread.join()
+
     except Exception as e:
         error_message = f"An unexpected error occurred during Blender execution: {e}"
-        logger.error(error_message)  # <-- Changed print to logger.error
+        success = False
+        was_canceled = False
+        final_return_code = -1
 
-    return success, stdout_output, stderr_output, error_message
+    stdout_output = "".join(stdout_lines)
+    stderr_output = "".join(stderr_lines)
 
+    if was_canceled:
+        error_message = "Job was canceled by user request."
+        success = False
+    elif final_return_code == 0:
+        logger.info("Render command completed successfully.")
+        error_message = ""
+        success = True
+    elif 'error_message' not in locals() or not error_message:
+        error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
+        error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"
+        success = False
 
-def get_and_claim_job():
-    """Polls the manager for available jobs and attempts to claim one. If claimed, executes the job."""
-    if not system_monitor.WORKER_INFO.get('id'):
-        logger.info("Worker ID not yet known. Skipping job poll.")  # <-- Changed print to logger.info
-        return
+    logger.debug(f"--- STDOUT ---\n{stdout_output[-1000:]}")
+    logger.debug(f"--- STDERR ---\n{stderr_output}")
 
-    jobs_url = f"{config.MANAGER_API_URL}jobs/"
-    try:
-        logger.info(f"Polling for jobs from {jobs_url}...")  # <-- Changed print to logger.info
-        response = requests.get(jobs_url, params={'status': 'QUEUED', 'assigned_worker__isnull': 'true'}, timeout=10)
-        response.raise_for_status()
-        available_jobs = response.json()
+    if temp_script_path and os.path.exists(temp_script_path):
+        os.remove(temp_script_path)
 
-        if available_jobs:
-            logger.info(f"Found {len(available_jobs)} available job(s).")  # <-- Changed print to logger.info
-            job_to_claim = available_jobs[0]
-            job_id = job_to_claim.get('id')
-            job_name = job_to_claim.get('name')
-
-            logger.info(f"Attempting to claim job '{job_name}' (ID: {job_id})...")  # <-- Changed print to logger.info
-
-            claim_url = f"{jobs_url}{job_id}/"
-            claim_payload = {
-                "status": "RENDERING",
-                "assigned_worker": system_monitor.WORKER_INFO['id']
-            }
-            claim_response = requests.patch(claim_url, json=claim_payload, timeout=5)
-            claim_response.raise_for_status()
-
-            claimed_job_data = claim_response.json()
-            if claimed_job_data.get('status') == 'RENDERING' and claimed_job_data.get('assigned_worker') == \
-                    system_monitor.WORKER_INFO['id']:
-                logger.info(
-                    f"Successfully claimed job '{job_name}'! Starting render...")  # <-- Changed print to logger.info
-
-                success, stdout, stderr, blender_error_msg = execute_blender_job(job_to_claim)
-
-                job_update_payload = {
-                    "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
-                    "last_output": stdout,
-                    "error_message": blender_error_msg if blender_error_msg else stderr,
-                }
-
-                if success:
-                    job_update_payload["status"] = "DONE"
-                else:
-                    job_update_payload["status"] = "ERROR"
-
-                try:
-                    logger.info(
-                        f"Reporting job '{job_name}' status '{job_update_payload['status']}' back to manager...")  # <-- Changed print to logger.info
-                    report_response = requests.patch(claim_url, json=job_update_payload, timeout=5)
-                    report_response.raise_for_status()
-                    logger.info(f"Job '{job_name}' status report successful.")  # <-- Changed print to logger.info
-                except requests.exceptions.RequestException as e:
-                    logger.error(
-                        f"Failed to report job status for '{job_name}' - {e}")  # <-- Changed print to logger.error
-
-                return job_to_claim
-            else:
-                logger.error(
-                    f"Claim failed or manager response was unexpected. Job status: {claimed_job_data.get('status')}. Worker assigned: {claimed_job_data.get('assigned_worker')}")  # <-- Changed print to logger.error
-        else:
-            logger.info("No QUEUED jobs available.")  # <-- Changed print to logger.info
-
-    except requests.exceptions.Timeout:
-        logger.error("Job polling or claiming timed out.")  # <-- Changed print to logger.error
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Job polling or claiming failed - {e}")  # <-- Changed print to logger.error
-    except json.JSONDecodeError:
-        logger.error("Failed to decode JSON response from job API.")  # <-- Changed print to logger.error
-    except Exception as e:
-        logger.error(
-            f"An unexpected error occurred during job polling/claiming: {e}")  # <-- Changed print to logger.error
+    return success, was_canceled, stdout_output, stderr_output, error_message

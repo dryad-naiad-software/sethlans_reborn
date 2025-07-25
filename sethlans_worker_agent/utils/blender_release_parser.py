@@ -1,4 +1,3 @@
-# sethlans_worker_agent/utils/blender_release_parser.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -17,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
-# Created by Mario Estrella on 07/22/2025.
+# Created by Mario Estrella on 07/23/2025.
 # Dryad and Naiad Software LLC
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
@@ -25,123 +24,92 @@
 # sethlans_worker_agent/utils/blender_release_parser.py
 
 import logging
-import re
-from urllib.parse import urljoin
-
 import requests
+import re
 from bs4 import BeautifulSoup
-from sethlans_worker_agent import config
-
-from .hash_parser import parse_sha256_content_for_file
+from . import hash_parser
 
 logger = logging.getLogger(__name__)
 
+BASE_URL = "https://download.blender.org/release/"
+VERSION_REGEX = re.compile(r'^Blender(\d+\.\d+)/$')
+FILE_REGEX = re.compile(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg|msi|msix)')
 
-# --- Blender Release Parsing Functions ---
 
-def fetch_page_soup(url, timeout=10):
-    """Helper to fetch a URL and return a BeautifulSoup object."""
+def get_blender_releases():
+    """
+    Scrapes the Blender download page to get all official release URLs.
+    """
+    releases = {}
+    logger.info("Performing dynamic Blender download info generation (4.x+ only)...")
     try:
-        logger.debug(f"Fetching page: {url}")
-        response = requests.get(url, timeout=timeout)
+        response = requests.get(BASE_URL, timeout=10)
         response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
 
-        logger.debug(f"Fetched HTML content (first 500 chars): {response.text[:500]}")
+        for a_tag in soup.find_all('a'):
+            href = a_tag.get('href')
+            match = VERSION_REGEX.match(href)
+            if not match:
+                continue
 
-        return BeautifulSoup(response.content, 'html.parser')
+            major_version_str = match.group(1)
+            if float(major_version_str) < 4.0:
+                continue
+
+            version_url = f"{BASE_URL}{href}"
+            logger.debug(f"Parsing major version page: {version_url}")
+            parse_version_page(version_url, releases)
+
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to fetch URL {url}: {e}")
-        return None
+        logger.error(f"Failed to fetch Blender release index: {e}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while parsing Blender releases: {e}", exc_info=True)
+
+    # Log the latest patch found for each minor version
+    latest_patches = {}
+    for version in releases:
+        major_minor = ".".join(version.split('.')[:2])
+        if major_minor not in latest_patches or version > latest_patches[major_minor]:
+            latest_patches[major_minor] = version
+
+    for version, latest_patch in latest_patches.items():
+        logger.info(f"  Selected latest for {version} series: {latest_patch}")
+
+    return releases
 
 
-def parse_major_version_directories(soup):
-    """Parses the main releases page soup for Blender major version directory URLs (4.x+ only)."""
-    major_version_dir_urls = []
-    for link in soup.find_all('a', href=True):
-        href = link['href']
-        # --- FINAL FIX: Removed the '/release/' part to match relative URLs ---
-        major_minor_dir_match = re.match(r'^Blender(\d+\.\d+(?:\.\d+)?)/?$', href)
-        logger.debug(f"Checking href: '{href}' with regex. Match: {bool(major_minor_dir_match)}")
-
-        if major_minor_dir_match:
-            version_prefix = major_minor_dir_match.group(1)
-            major_version_str = version_prefix.split('.')[0]
-            try:
-                major_version_num = int(major_version_str)
-                if major_version_num < 4:
-                    logger.debug(f"Skipping Blender major version < 4: {version_prefix}")
-                    continue
-            except ValueError:
-                logger.warning(f"Could not parse major version from directory '{href}'. Skipping.")
-                continue
-
-            major_version_dir_urls.append(urljoin(config.BLENDER_RELEASES_URL, href))
-        else:
-            logger.debug(f"Href '{href}' did not match Blender major version directory pattern.")
-    return major_version_dir_urls
-
-
-def get_sha256_hash_for_zip(sha256_url, expected_zip_filename):
-    """Fetches a .sha256 file and extracts the hash for a specific zip filename."""
-    file_hash = None
+def parse_version_page(url, releases):
+    """Parses a specific version page (e.g., /Blender4.1/) for download links."""
     try:
-        hash_response = requests.get(sha256_url, timeout=5)
-        hash_response.raise_for_status()
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
 
-        file_hash = parse_sha256_content_for_file(hash_response.text, expected_zip_filename)
+        # Pre-fetch all hashes for this version page
+        version_from_url = url.strip('/').split('/')[-1].replace('Blender', '')
+        sha_files = [a.get('href') for a in soup.find_all('a') if '.sha256' in a.get('href', '')]
+        all_hashes = {}
+        for sha_file in sha_files:
+            sha_url = f"{url}{sha_file}"
+            all_hashes.update(hash_parser.get_all_hashes_from_url(sha_url))
 
-        if not file_hash:
-            logger.warning(f"Hash for {expected_zip_filename} not found in {sha256_url}.")
-    except requests.exceptions.RequestException as req_e:
-        logger.warning(f"Failed to fetch SHA256 for {expected_zip_filename} from {sha256_url} ({req_e})")
-    return file_hash
-
-
-def collect_blender_version_details(major_version_dir_url_blender_org):
-    """
-    Fetches a major version directory page, parses it for ALL relevant platform/architecture zip details,
-    and constructs primary/mirror URLs and fetches hashes.
-    Returns a list of dictionaries, one for each platform-specific download found.
-    """
-    all_platform_versions_found_in_dir = []
-    dir_soup = fetch_page_soup(major_version_dir_url_blender_org)
-    if not dir_soup:
-        return []
-
-    logger.debug(f"  Parsing details from: {major_version_dir_url_blender_org}")
-    for file_link in dir_soup.find_all('a', href=True):
-        file_href = file_link['href']
-        blender_file_match = re.match(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg)$', file_href)
-        if blender_file_match:
-            full_version = blender_file_match.group(1)
-            platform_suffix = blender_file_match.group(2)
-            file_extension = blender_file_match.group(3)
-
-            try:
-                file_major_version = int(full_version.split('.')[0])
-                if file_major_version < 4:
-                    continue
-            except ValueError:
+        # Find download links and match them with pre-fetched hashes
+        for a_tag in soup.find_all('a'):
+            href = a_tag.get('href')
+            file_match = FILE_REGEX.match(href)
+            if not file_match:
                 continue
 
-            sha256_url = urljoin(major_version_dir_url_blender_org, f"blender-{full_version}.sha256")
-            expected_zip_filename_in_hash_file = file_href
-            file_hash = get_sha256_hash_for_zip(sha256_url, expected_zip_filename_in_hash_file)
+            version = file_match.group(1)
+            platform = file_match.group(2)
 
-            primary_download_url = urljoin(major_version_dir_url_blender_org, file_href)
+            if version not in releases:
+                releases[version] = {}
 
-            mirrors_for_version = []
-            for mirror_base in config.BLENDER_MIRROR_BASE_URLS:
-                mirror_url = primary_download_url.replace(config.BLENDER_RELEASES_URL, mirror_base)
-                mirrors_for_version.append(mirror_url)
-
-            all_platform_versions_found_in_dir.append({
-                "releaseName": f"Blender {full_version}",
-                "version": full_version,
-                "platform_suffix": platform_suffix,
-                "file_extension": f".{file_extension}",
-                "hash": file_hash,
-                "url": primary_download_url,
-                "mirrors": mirrors_for_version
-            })
-    return all_platform_versions_found_in_dir
+            releases[version][platform] = {
+                'url': f"{url}{href}",
+                'sha256': all_hashes.get(href)  # Look up the hash
+            }
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Could not parse version page {url}: {e}")

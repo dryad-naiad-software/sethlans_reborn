@@ -25,8 +25,8 @@
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Job
-from .models import Worker
+from .models import Job, Worker, JobStatus
+
 
 
 class WorkerHeartbeatTests(APITestCase):
@@ -174,3 +174,29 @@ class JobViewSetTests(APITestCase):
         # Refresh the object from the database to get the updated value
         job.refresh_from_db()
         self.assertEqual(job.status, 'RENDERING')
+
+    def test_cancel_job_action(self):
+        """
+        Ensure a POST to the /cancel/ endpoint sets the job status to CANCELED.
+        """
+        # ARRANGE: Create a job that is in a state that can be canceled (e.g., RENDERING)
+        job = Job.objects.create(
+            name="Job to be Canceled",
+            blend_file_path="/path/cancel_me.blend",
+            status=JobStatus.RENDERING
+        )
+
+        # ACT: Make the API call to the new 'cancel' action endpoint
+        url = f"/api/jobs/{job.id}/cancel/"
+        response = self.client.post(url, format='json')
+
+        # ASSERT
+        # 1. Check for a successful response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # 2. Refresh the object from the database to see the change
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatus.CANCELED)
+
+        # 3. Check that the response data also reflects the change
+        self.assertEqual(response.data['status'], JobStatus.CANCELED)

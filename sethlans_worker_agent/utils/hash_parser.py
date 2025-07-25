@@ -1,4 +1,3 @@
-# sethlans_worker_agent/utils/hash_parser.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -22,37 +21,28 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/utils/hash_parser.py
 
-import re
 import logging
-import datetime  # For logging timestamps
+import requests
 
 logger = logging.getLogger(__name__)
 
 
-def parse_sha256_content_for_file(sha256_content_string, expected_filename):
+def get_all_hashes_from_url(sha_url):
     """
-    Parses a string containing SHA256 hash lines to find the hash for a specific filename.
-    Assumes format: HASH_VALUE  FILENAME (two or more spaces between hash and filename).
-    Args:
-        sha256_content_string (str): The entire content of the .sha256 file as a string.
-        expected_filename (str): The specific filename (e.g., "blender-4.2.12-windows-x64.zip")
-                                 whose hash is to be extracted.
-    Returns:
-        str: The extracted SHA256 hash (lowercase), or None if not found.
+    Fetches a .sha256 file and returns a dictionary of all hashes.
+    e.g., {'blender-4.1.1-windows-x64.zip': 'hash_string', ...}
     """
-    if not sha256_content_string:
-        logger.debug(f"SHA256 content string is empty for filename '{expected_filename}'.")
-        return None
-
-    for line in sha256_content_string.splitlines():
-        # Look for 64 hex chars, followed by two or more whitespace chars, then the escaped filename
-        # Using re.match ensures it's at the beginning of the line
-        hash_line_match = re.match(rf'([a-f0-9]{{64}})\s{{2,}}{re.escape(expected_filename)}', line)
-        if hash_line_match:
-            file_hash = hash_line_match.group(1).lower()
-            logger.debug(f"Found hash '{file_hash}' for '{expected_filename}' in line: '{line}'.")
-            return file_hash
-
-    logger.debug(f"Hash for '{expected_filename}' not found in provided SHA256 content.")
-    return None
+    hashes = {}
+    try:
+        response = requests.get(sha_url, timeout=5)
+        response.raise_for_status()
+        for line in response.text.splitlines():
+            parts = line.strip().split()
+            if len(parts) == 2:
+                hash_value, filename = parts
+                hashes[filename] = hash_value
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Could not fetch or parse hash file {sha_url}: {e}")
+    return hashes

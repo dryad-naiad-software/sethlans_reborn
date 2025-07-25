@@ -26,378 +26,249 @@
 import pytest
 import requests
 import subprocess
+import psutil
+import time
 from unittest.mock import MagicMock
 
 # Import the function to be tested and its dependencies
 from sethlans_worker_agent import job_processor
-from sethlans_worker_agent import system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 
-# --- Test Case 1: execute_blender_job_success ---
-
-def test_execute_blender_job_success(mocker):
+@pytest.fixture
+def mock_popen_setup(mocker):
     """
-    Test Case: execute_blender_job_success
-    Purpose: Verify the function correctly constructs and executes a Blender
-             command for a successful render job.
-    Asserts:
-        - The function returns a success tuple.
-        - The subprocess.run command is called with the correct arguments.
-        - Tool manager is called to ensure the correct Blender version is available.
+    A fixture to provide a standard, complex mock setup for subprocess.Popen,
+    psutil, and requests for testing execute_blender_job.
     """
-    # --- Mock Job Data ---
-    mock_job_data = {
-        'name': 'Test Render',
-        'blend_file_path': '/path/to/scene.blend',
-        'output_file_pattern': '/path/to/output/frame_####',
-        'start_frame': 1,
-        'end_frame': 1,
-        'blender_version': '4.2.0',
-        'render_engine': 'CYCLES'
-    }
-    mock_blender_executable = "/mock/tools/blender-4.2.0/blender"
+    # Mock Popen and the process it returns
+    mock_process = MagicMock()
+    mock_process.pid = 12345
+    mock_process.stdout.readline.side_effect = ['Blender render complete.\n', '']
+    mock_process.stderr.readline.side_effect = ['']
+    mocker.patch('time.sleep')  # Prevent delays
 
-    # --- Mock Dependencies ---
-    # 1. Mock the tool manager to provide the path to the Blender executable
-    mocker.patch.object(
-        tool_manager_instance,
-        'ensure_blender_version_available',
-        return_value=mock_blender_executable
-    )
+    mock_popen = mocker.patch('subprocess.Popen', return_value=mock_process)
 
-    # 2. Mock the subprocess call to avoid running a real command
-    mock_completed_process = MagicMock(spec=subprocess.CompletedProcess)
-    mock_completed_process.returncode = 0
-    mock_completed_process.stdout = "Blender render complete."
-    mock_completed_process.stderr = ""
-    mock_subprocess_run = mocker.patch('subprocess.run', return_value=mock_completed_process)
+    # Mock psutil to control the 'while pid_exists' loop
+    # Let it run once, then terminate the loop
+    mocker.patch('psutil.pid_exists', side_effect=[True, False])
 
-    # 3. Mock filesystem checks for the output directory
+    # Mock the API check to prevent cancellation logic from triggering
+    mock_response_rendering = MagicMock(status_code=200)
+    mock_response_rendering.json.return_value = {'status': 'RENDERING'}
+    mocker.patch('requests.get', return_value=mock_response_rendering)
+
+    # Mock filesystem and tool manager
+    mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value="/mock/tools/blender")
     mocker.patch('os.path.exists', return_value=True)
-    mock_makedirs = mocker.patch('os.makedirs')
+    mocker.patch('os.makedirs')
 
-    # --- Run the function under test ---
-    success, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+    return mock_popen, mock_process
 
-    # --- Assertions ---
+
+# --- Tests for execute_blender_job ---
+
+def test_execute_blender_job_success(mock_popen_setup):
+    """Tests a standard successful render job execution."""
+    mock_popen, mock_process = mock_popen_setup
+    mock_process.wait.return_value = 0  # Simulate successful exit code
+
+    mock_job_data = {
+        'id': 1, 'name': 'Test Render', 'blend_file_path': '/path/to/scene.blend',
+        'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
+        'blender_version': '4.2.0', 'render_engine': 'CYCLES'
+    }
+
+    success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+
     assert success is True
-    assert stdout == "Blender render complete."
+    assert was_canceled is False
+    assert stdout.strip() == "Blender render complete."
     assert error_message == ""
-
-    # Assert the correct Blender executable was requested and used
-    tool_manager_instance.ensure_blender_version_available.assert_called_once_with('4.2.0')
-
-    # Assert the command was constructed correctly
-    expected_command = [
-        mock_blender_executable,
-        '-b', mock_job_data['blend_file_path'],
-        '-o', '/path/to/output/frame_#',  # Note: '####' is replaced with '#'
-        '-F', 'PNG',
-        '-E', 'CYCLES',
-        '-f', '1'
-    ]
-    mock_subprocess_run.assert_called_once()
-    assert mock_subprocess_run.call_args.args[0] == expected_command
-
-    # Assert that makedirs was not called since os.path.exists was True
-    mock_makedirs.assert_not_called()
+    mock_popen.assert_called_once()
+    mock_process.wait.assert_called_once()
 
 
-# --- Test Case 2: execute_blender_job_failure ---
+def test_execute_blender_job_failure(mock_popen_setup):
+    """Tests a failed render job execution (non-zero exit code)."""
+    mock_popen, mock_process = mock_popen_setup
+    mock_process.wait.return_value = 1  # Simulate error exit code
+    mock_process.stderr.readline.side_effect = ['Error: Something went wrong.\n', '']
 
-def test_execute_blender_job_failure(mocker):
-    """
-    Test Case: execute_blender_job_failure
-    Purpose: Verify the function correctly handles a non-zero exit code
-             from the Blender subprocess.
-    Asserts:
-        - The function returns a failure tuple.
-        - The returned error message contains the exit code and stderr.
-    """
-    # --- Mock Job Data ---
     mock_job_data = {
-        'name': 'Failed Render',
-        'blender_version': '4.2.0',
-        'blend_file_path': '/path/to/scene.blend',
-        'output_file_pattern': '/path/to/output/frame_####',
-        'start_frame': 1,
-        'end_frame': 1
+        'id': 2, 'name': 'Failed Render', 'blend_file_path': '/path/to/scene.blend',
+        'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
+        'blender_version': '4.2.0'
     }
-    mock_blender_executable = "/mock/tools/blender-4.2.0/blender"
 
-    # --- Mock Dependencies ---
-    mocker.patch.object(
-        tool_manager_instance,
-        'ensure_blender_version_available',
-        return_value=mock_blender_executable
-    )
+    success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
 
-    # 2. Mock the subprocess to simulate a FAILED run
-    mock_completed_process = MagicMock(spec=subprocess.CompletedProcess)
-    mock_completed_process.returncode = 1  # Non-zero exit code
-    mock_completed_process.stdout = ""
-    mock_completed_process.stderr = "Error: Something went wrong in Blender."
-    mocker.patch('subprocess.run', return_value=mock_completed_process)
-
-    mocker.patch('os.path.exists', return_value=True)
-
-    # --- Run the function under test ---
-    success, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
-
-    # --- Assertions ---
     assert success is False
+    assert was_canceled is False
     assert "Blender exited with code 1" in error_message
-    assert "Something went wrong in Blender" in error_message
-
-    print(f"\n[UNIT TEST] execute_blender_job_failure passed.")
-
-
-# --- Test Case 3: get_and_claim_job_success ---
-
-def test_get_and_claim_job_success(mocker):
-    """
-    Test Case: test_get_and_claim_job_success
-    Purpose: Verify the full workflow of finding, claiming, executing,
-             and reporting a job successfully.
-    Asserts:
-        - All API calls (GET and two PATCHes) are made correctly.
-        - The internal execute_blender_job function is called.
-    """
-    # --- Mock Initial State & API Data ---
-    # 1. Set the worker ID so the function doesn't skip
-    mocker.patch.dict(system_monitor.WORKER_INFO, {'id': 123, 'hostname': 'test-worker'})
-
-    # 2. Data for the various API responses
-    mock_available_job = {'id': 1, 'name': 'Claim Me'}
-    mock_claimed_job_response = {'id': 1, 'status': 'RENDERING', 'assigned_worker': 123}
-    mock_final_report_response = {'id': 1, 'status': 'DONE'}
-
-    # --- Mock Dependencies ---
-    # 3. Mock the API calls
-    mock_get = mocker.patch('requests.get')
-    mock_get.return_value.json.return_value = [mock_available_job]
-    mock_get.return_value.raise_for_status.return_value = None
-
-    mock_patch = mocker.patch('requests.patch')
-    # Use side_effect to return different responses for the two PATCH calls
-    mock_patch.side_effect = [
-        MagicMock(json=lambda: mock_claimed_job_response, raise_for_status=lambda: None),  # Claim call
-        MagicMock(json=lambda: mock_final_report_response, raise_for_status=lambda: None)  # Report call
-    ]
-
-    # 4. Mock the already-tested blender execution function
-    mock_execute = mocker.patch(
-        'sethlans_worker_agent.job_processor.execute_blender_job',
-        return_value=(True, "output", "", "")  # Simulate success
-    )
-
-    # --- Run function under test ---
-    job_processor.get_and_claim_job()
-
-    # --- Assertions ---
-    # 5. Verify all functions and API calls were made correctly
-    mock_get.assert_called_once()
-    assert mock_patch.call_count == 2
-    mock_execute.assert_called_once_with(mock_available_job)
-
-    # Check the payload of the final status report
-    final_payload = mock_patch.call_args.kwargs['json']
-    assert final_payload['status'] == 'DONE'
-
-    print(f"\n[UNIT TEST] get_and_claim_job_success passed.")
-
-def test_get_and_claim_job_no_jobs_available(mocker):
-    """
-    Test Case: test_get_and_claim_job_no_jobs_available
-    Purpose: Verify the function handles the case where no queued jobs are
-             returned by the manager.
-    Asserts:
-        - Only the initial GET request is made.
-        - No PATCH or job execution calls are made.
-    """
-    # --- Mock Initial State ---
-    mocker.patch.dict(system_monitor.WORKER_INFO, {'id': 123, 'hostname': 'test-worker'})
-
-    # --- Mock Dependencies ---
-    # 1. Mock the GET request to return an empty list
-    mock_get = mocker.patch('requests.get')
-    mock_get.return_value.json.return_value = [] # No jobs available
-    mock_get.return_value.raise_for_status.return_value = None
-
-    # 2. Mock other functions to ensure they are NOT called
-    mock_patch = mocker.patch('requests.patch')
-    mock_execute = mocker.patch('sethlans_worker_agent.job_processor.execute_blender_job')
-
-    # --- Run function under test ---
-    job_processor.get_and_claim_job()
-
-    # --- Assertions ---
-    mock_get.assert_called_once()
-    mock_patch.assert_not_called()
-    mock_execute.assert_not_called()
-
-    print(f"\n[UNIT TEST] test_get_and_claim_job_no_jobs_available passed.")
+    assert "Something went wrong" in error_message
+    mock_process.wait.assert_called_once()
 
 
-def test_get_and_claim_job_api_get_fails(mocker):
-    """
-    Test Case: test_get_and_claim_job_api_get_fails
-    Purpose: Verify the function handles a network exception when polling for jobs.
-    Asserts:
-        - The initial GET request is attempted.
-        - No subsequent API calls or job executions are made.
-    """
-    # --- Mock Initial State ---
-    mocker.patch.dict(system_monitor.WORKER_INFO, {'id': 123})
+def test_execute_blender_job_animation_command(mock_popen_setup):
+    """Tests that the command for an animation is constructed correctly."""
+    mock_popen, mock_process = mock_popen_setup
+    mock_process.wait.return_value = 0
 
-    # --- Mock Dependencies ---
-    # 1. Mock the GET request to raise a network exception
-    mock_get = mocker.patch(
-        'requests.get',
-        side_effect=requests.exceptions.RequestException("Connection error")
-    )
-
-    # 2. Mock other functions to ensure they are NOT called
-    mock_patch = mocker.patch('requests.patch')
-    mock_execute = mocker.patch('sethlans_worker_agent.job_processor.execute_blender_job')
-
-    # --- Run function under test ---
-    job_processor.get_and_claim_job()
-
-    # --- Assertions ---
-    mock_get.assert_called_once()
-    mock_patch.assert_not_called()
-    mock_execute.assert_not_called()
-
-    print(f"\n[UNIT TEST] test_get_and_claim_job_api_get_fails passed.")
-
-# In tests/unit/worker_agent/test_job_processor.py
-
-def test_get_and_claim_job_claim_fails(mocker):
-    """
-    Test Case: test_get_and_claim_job_claim_fails
-    Purpose: Verify the function handles an error when trying to claim a job.
-    Asserts:
-        - The GET and PATCH requests are attempted.
-        - The job execution function is never called.
-    """
-    # --- Mock Initial State & API Data ---
-    mocker.patch.dict(system_monitor.WORKER_INFO, {'id': 123})
-    mock_available_job = {'id': 1, 'name': 'Claim Me'}
-
-    # --- Mock Dependencies ---
-    # 1. Mock the GET request to successfully find a job
-    mock_get = mocker.patch('requests.get')
-    mock_get.return_value.json.return_value = [mock_available_job]
-    mock_get.return_value.raise_for_status.return_value = None
-
-    # 2. Mock the PATCH request to fail
-    mock_patch = mocker.patch(
-        'requests.patch',
-        side_effect=requests.exceptions.RequestException("Claim failed")
-    )
-
-    # 3. Mock the job execution function to ensure it is NOT called
-    mock_execute = mocker.patch('sethlans_worker_agent.job_processor.execute_blender_job')
-
-    # --- Run function under test ---
-    job_processor.get_and_claim_job()
-
-    # --- Assertions ---
-    mock_get.assert_called_once()
-    mock_patch.assert_called_once() # It should try to claim the job once
-    mock_execute.assert_not_called()
-
-    print(f"\n[UNIT TEST] test_get_and_claim_job_claim_fails passed.")
-
-def test_execute_blender_job_animation_command(mocker):
-    """
-    Test Case: test_execute_blender_job_animation_command
-    Purpose: Verify the function constructs the correct command for a multi-frame
-             animation sequence.
-    Asserts:
-        - The subprocess.run command contains -s, -e, and -a flags.
-    """
-    # --- Mock Job Data for an animation ---
     mock_job_data = {
-        'name': 'Test Animation',
-        'blend_file_path': '/path/to/scene.blend',
-        'output_file_pattern': '/path/to/output/frame_####',
-        'start_frame': 10,
-        'end_frame': 20, # Different start and end frames
-        'blender_version': '4.2.0',
-        'render_engine': 'CYCLES'
+        'id': 3, 'name': 'Test Animation', 'blend_file_path': '/path/to/scene.blend',
+        'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 10, 'end_frame': 20,
+        'blender_version': '4.2.0', 'render_engine': 'CYCLES'
     }
-    mock_blender_executable = "/mock/tools/blender-4.2.0/blender"
 
-    # --- Mock Dependencies ---
-    mocker.patch.object(
-        tool_manager_instance,
-        'ensure_blender_version_available',
-        return_value=mock_blender_executable
-    )
-    mock_completed_process = MagicMock(spec=subprocess.CompletedProcess, returncode=0)
-    mock_subprocess_run = mocker.patch('subprocess.run', return_value=mock_completed_process)
-    mocker.patch('os.path.exists', return_value=True)
-
-    # --- Run the function under test ---
     job_processor.execute_blender_job(mock_job_data)
 
-    # --- Assertions ---
-    # Assert the command was constructed correctly for an animation
     expected_command = [
-        mock_blender_executable,
-        '-b', mock_job_data['blend_file_path'],
-        '-o', '/path/to/output/frame_#',
-        '-F', 'PNG',
-        '-E', 'CYCLES',
-        '-s', '10', # Start frame
-        '-e', '20', # End frame
-        '-a'      # Render animation
+        "/mock/tools/blender", '--factory-startup', '-b', '/path/to/scene.blend',
+        '-o', '/path/to/output/frame_#', '-F', 'PNG', '-E', 'CYCLES',
+        '-s', '10', '-e', '20', '-a'
     ]
-    mock_subprocess_run.assert_called_once()
-    assert mock_subprocess_run.call_args.args[0] == expected_command
 
-    print(f"\n[UNIT TEST] test_execute_blender_job_animation_command passed.")
+    called_command = mock_popen.call_args.args[0]
+    assert called_command == expected_command
 
 
 def test_execute_blender_job_tool_unavailable(mocker):
-    """
-    Test Case: test_execute_blender_job_tool_unavailable
-    Purpose: Verify the function fails gracefully if the required Blender
-             executable cannot be found by the tool manager.
-    Asserts:
-        - The function returns a failure tuple with a descriptive error.
-        - No subprocess is ever run.
-    """
-    # --- Mock Job Data ---
+    """Tests that the job fails if the requested Blender version is not found."""
+    mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value=None)
+    mock_popen = mocker.patch('subprocess.Popen')
+
     mock_job_data = {
-        'name': 'Tool Fail Render',
-        'blender_version': '4.99.0',  # A version that won't be found
-        'blend_file_path': '/path/to/scene.blend',
-        'output_file_pattern': '/path/to/output/frame_####',
-        'start_frame': 1,
-        'end_frame': 1
+        'id': 4, 'name': 'Tool Fail Render', 'blender_version': '4.99.0',
+        'blend_file_path': '/path/to/scene.blend', 'output_file_pattern': '/path/to/output/frame_####'
     }
 
-    # --- Mock Dependencies ---
-    # 1. Mock the tool manager to fail finding the tool
-    mocker.patch.object(
-        tool_manager_instance,
-        'ensure_blender_version_available',
-        return_value=None
+    success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+
+    assert success is False
+    assert was_canceled is False
+    assert "Could not find or acquire Blender version '4.99.0'" in error_message
+    mock_popen.assert_not_called()
+
+
+# --- Tests for get_and_claim_job ---
+
+def test_get_and_claim_job_success(mocker):
+    """Tests the full success workflow: find, claim, execute, and report job."""
+    mock_worker_id = 123
+    mock_available_job = {'id': 1, 'name': 'Claim Me'}
+
+    mocker.patch('requests.get', return_value=MagicMock(
+        json=lambda: [mock_available_job], raise_for_status=lambda: None
+    ))
+
+    # There are THREE patch calls in the success path, so we need three mock responses.
+    mock_patch = mocker.patch('requests.patch')
+    mock_patch.side_effect = [
+        MagicMock(status_code=200),  # 1. Claim call
+        MagicMock(status_code=200),  # 2. Set status to RENDERING
+        MagicMock(status_code=200)  # 3. Report final status DONE
+    ]
+
+    mock_execute = mocker.patch(
+        'sethlans_worker_agent.job_processor.execute_blender_job',
+        return_value=(True, False, "output", "", "")  # Simulate success (5-tuple)
     )
 
-    # 2. Mock subprocess.run to ensure it's not called
-    mock_subprocess_run = mocker.patch('subprocess.run')
+    job_processor.get_and_claim_job(mock_worker_id)
 
-    # --- Run the function under test ---
-    success, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+    # Assert that all three patch calls were made against the original mock
+    assert mock_patch.call_count == 3
+    mock_execute.assert_called_once_with(mock_available_job)
 
-    # --- Assertions ---
-    assert success is False
-    assert "Requested Blender version 4.99.0 not available" in error_message
-    mock_subprocess_run.assert_not_called()
+    # Verify the payload of the FINAL patch call using the original mock
+    final_payload = mock_patch.call_args.kwargs['json']
+    assert final_payload['status'] == 'DONE'
 
-    print(f"\n[UNIT TEST] test_execute_blender_job_tool_unavailable passed.")
+
+def test_get_and_claim_job_no_jobs_available(mocker):
+    """Tests that nothing happens if no jobs are available."""
+    mock_worker_id = 123
+    mocker.patch('requests.get', return_value=MagicMock(json=lambda: [], raise_for_status=lambda: None))
+    mock_patch = mocker.patch('requests.patch')
+    mock_execute = mocker.patch('sethlans_worker_agent.job_processor.execute_blender_job')
+
+    job_processor.get_and_claim_job(mock_worker_id)
+
+    mock_patch.assert_not_called()
+    mock_execute.assert_not_called()
+
+
+def test_get_and_claim_job_api_get_fails(mocker):
+    """Tests that the function handles a network error when polling for jobs."""
+    mock_worker_id = 123
+    mocker.patch('requests.get', side_effect=requests.exceptions.RequestException("Connection error"))
+    mock_patch = mocker.patch('requests.patch')
+    mock_execute = mocker.patch('sethlans_worker_agent.job_processor.execute_blender_job')
+
+    job_processor.get_and_claim_job(mock_worker_id)
+
+    mock_patch.assert_not_called()
+    mock_execute.assert_not_called()
+
+
+def test_get_and_claim_job_claim_fails(mocker):
+    """Tests that job execution does not proceed if the API claim fails."""
+    mock_worker_id = 123
+    mock_available_job = {'id': 1, 'name': 'Claim Me'}
+    mocker.patch('requests.get',
+                 return_value=MagicMock(json=lambda: [mock_available_job], raise_for_status=lambda: None))
+    mocker.patch('requests.patch', side_effect=requests.exceptions.RequestException("Claim failed"))
+    mock_execute = mocker.patch('sethlans_worker_agent.job_processor.execute_blender_job')
+
+    job_processor.get_and_claim_job(mock_worker_id)
+
+    mock_execute.assert_not_called()
+
+
+# --- CANCELLATION TEST ---
+def test_execute_blender_job_cancellation(mocker):
+    """
+    Tests that execute_blender_job correctly handles a cancellation signal from the API,
+    kills the subprocess, and returns the correct status.
+    """
+    # 1. Arrange
+    mock_job_data = {
+        'id': 99, 'name': 'Cancellable Job', 'blend_file_path': '/path/to/scene.blend',
+        'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1,
+        'end_frame': 1, 'blender_version': '4.1.1'
+    }
+
+    mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value="/mock/blender")
+    mocker.patch('os.path.exists', return_value=True)
+    mocker.patch('os.makedirs')
+    mocker.patch('time.sleep')
+
+    mock_process = MagicMock()
+    mock_process.pid = 12345
+    mock_process.stdout.readline.side_effect = ['output line 1\n', '']
+    mock_process.stderr.readline.side_effect = ['']
+    mock_process.wait.return_value = -9  # Simulate exit code for a killed process
+    mocker.patch('subprocess.Popen', return_value=mock_process)
+
+    mocker.patch('psutil.pid_exists', side_effect=[True, True, False])
+
+    # Mock the API status change from RENDERING to CANCELED
+    mock_response_rendering = MagicMock(status_code=200)
+    mock_response_rendering.json.return_value = {'status': 'RENDERING'}
+    mock_response_canceled = MagicMock(status_code=200)
+    mock_response_canceled.json.return_value = {'status': 'CANCELED'}
+    mocker.patch('requests.get', side_effect=[mock_response_rendering, mock_response_canceled])
+
+    # 2. Act
+    success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+
+    # 3. Assert
+    assert success is False, "Success should be False for a canceled job."
+    assert was_canceled is True, "was_canceled flag should be True."
+    assert error_message == "Job was canceled by user request.", "Error message should indicate cancellation."
+    assert stdout == "output line 1\n", "Stdout up to the point of cancellation should be captured."
+
+    mock_process.kill.assert_called_once()
+    mock_process.wait.assert_called_once()

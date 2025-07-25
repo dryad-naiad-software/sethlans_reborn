@@ -24,75 +24,79 @@
 # Project: sethlans_reborn
 #
 
+# sethlans_worker_agent/system_monitor.py
+
+import logging
 import platform
 import socket
-import datetime
 import requests
-import json
+from sethlans_worker_agent import config
 
-from . import config
-from .tool_manager import tool_manager_instance
+logger = logging.getLogger(__name__)
 
-import logging # This should be there
-logger = logging.getLogger(__name__) # Get a logger for this module
-
-
-# Global variable to store worker's own info once registered
-WORKER_INFO = {}
+# Module-level state
+WORKER_ID = None
+HOSTNAME = socket.gethostname()
+IP_ADDRESS = socket.gethostbyname(HOSTNAME)
+OS_INFO = f"{platform.system()} {platform.release()}"
 
 
 def get_system_info():
-    """
-    Gathers basic system information and available managed tools for the heartbeat.
-    """
-    hostname = socket.gethostname()
-    ip_address = None
-    try:
-        ip_address = socket.gethostbyname(hostname)
-    except socket.gaierror:
-        pass
-
-    os_info = platform.system()
-    if os_info == 'Windows':
-        os_info += f" {platform.release()}"
-    elif os_info == 'Linux':
-        os_info += f" {platform.version()}"
-
-    available_tools = tool_manager_instance.scan_for_blender_versions()
+    """Gathers basic system information."""
+    from sethlans_worker_agent.tool_manager import tool_manager_instance
+    available_tools = tool_manager_instance.scan_for_local_blenders()
 
     return {
-        "hostname": hostname,
-        "ip_address": ip_address,
-        "os": os_info,
-        "available_tools": available_tools
+        "hostname": HOSTNAME,
+        "ip_address": IP_ADDRESS,
+        "os": OS_INFO,
+        "available_tools": {
+            "blender": [v['version'] for v in available_tools]
+        }
     }
 
 
-def send_heartbeat(system_info):
+def register_with_manager():
     """
-    Sends a heartbeat to the Django Manager's heartbeat API endpoint.
-    Updates the global WORKER_INFO with the worker's ID received from the manager.
+    Registers the worker with the manager and retrieves the worker ID.
+    Returns the worker ID on success, None on failure.
     """
-    global WORKER_INFO
+    global WORKER_ID
     heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
-    try:
-        logger.info(f"Sending heartbeat to {heartbeat_url}...")  # <-- Changed print to logger.info
-        logger.debug(f"Heartbeat payload: {json.dumps(system_info, indent=2)}")  # <-- Changed print to logger.debug
+    payload = get_system_info()
 
-        response = requests.post(heartbeat_url, json=system_info, timeout=5)
+    logger.info(f"Sending registration heartbeat to {heartbeat_url}...")
+    try:
+        response = requests.post(heartbeat_url, json=payload, timeout=10)
         response.raise_for_status()
 
-        response_data = response.json()
-        logger.info(f"Heartbeat successful: HTTP {response.status_code}")  # <-- Changed print to logger.info
-        WORKER_INFO = response_data
-        logger.info(
-            f"Worker registered as ID: {WORKER_INFO.get('id')}, Hostname: {WORKER_INFO.get('hostname')}")  # <-- Changed print to logger.info
+        data = response.json()
+        WORKER_ID = data.get('id')
 
-    except requests.exceptions.Timeout:
-        logger.error("Heartbeat timed out after 5 seconds.")  # <-- Changed print to logger.error
+        if WORKER_ID:
+            logger.info(f"Heartbeat successful. Worker is registered as ID: {WORKER_ID}")
+            return WORKER_ID
+        else:
+            logger.error("Heartbeat response did not include a worker ID.")
+            return None
+
     except requests.exceptions.RequestException as e:
-        logger.error(f"Heartbeat failed - {e}")  # <-- Changed print to logger.error
-    except json.JSONDecodeError:
-        logger.error("Failed to decode JSON response from heartbeat.")  # <-- Changed print to logger.error
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during heartbeat: {e}")  # <-- Changed print to logger.error
+        logger.error(f"Could not send registration heartbeat: {e}")
+        return None
+
+
+def send_heartbeat():
+    """Sends a periodic heartbeat to the manager to show the worker is alive."""
+    if not WORKER_ID:
+        logger.warning("Cannot send heartbeat, worker is not registered.")
+        return
+
+    heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
+    payload = {"hostname": HOSTNAME}  # Subsequent heartbeats are simpler
+
+    try:
+        response = requests.post(heartbeat_url, json=payload, timeout=5)
+        response.raise_for_status()
+        logger.debug("Periodic heartbeat successful.")
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Could not send periodic heartbeat: {e}")

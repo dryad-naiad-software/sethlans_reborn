@@ -23,749 +23,171 @@
 # Project: sethlans_reborn
 #
 
-import json
-import logging
-import os
+import pytest
+from unittest.mock import MagicMock
 
-from sethlans_worker_agent import config
-# Import the ToolManager instance and config for testing
+# Import the ToolManager instance and its dependencies for mocking
 from sethlans_worker_agent.tool_manager import tool_manager_instance
+from sethlans_worker_agent import config
+from sethlans_worker_agent.utils import file_operations, blender_release_parser
 
-logger = logging.getLogger(__name__)
 
+# --- Tests for scan_for_local_blenders ---
 
-# --- Test Case 1: scan_for_blender_versions_success_windows_x64 ---
-
-def test_scan_for_blender_versions_success_windows_x64(mocker):
+def test_scan_for_local_blenders(mocker):
     """
-    Test Case: scan_for_blender_versions_success_windows_x64
-    Purpose: Verify that scan_for_blender_versions correctly identifies and filters
-             locally installed Blender versions for a Windows x64 system.
-    Asserts:
-        - The returned dictionary contains the correct Blender versions for Windows x64.
-        - Correct os and config calls are made.
+    Tests that the scanner correctly identifies directories that represent
+    valid, executable Blender installations.
     """
-    # Mock config.MANAGED_TOOLS_DIR to point to a predictable test path
-    mocker.patch.object(config, 'MANAGED_TOOLS_DIR', "/tmp/managed_tools_test")
+    mock_dir_valid = MagicMock()
+    mock_dir_valid.name = "blender-4.1.1-windows-x64"
+    mock_dir_valid.is_dir.return_value = True
 
-    # Mock os.path.exists and os.path.isdir to simulate directory structure
-    # and os.listdir to simulate folder contents
-    mock_os_path_exists = mocker.patch('os.path.exists')
-    mock_os_path_isdir = mocker.patch('os.path.isdir')
-    mock_os_listdir = mocker.patch('os.listdir')
+    # This mock should be skipped by the code's logic
+    mock_dir_invalid_name = MagicMock()
+    mock_dir_invalid_name.name = "not-blender-folder"
+    mock_dir_invalid_name.is_dir.return_value = True
 
-    # Mock config.CURRENT_PLATFORM_BLENDER_DETAILS for a Windows x64 worker
-    mock_config_platform_details = {
-        'download_suffix': 'windows-x64',
-        'executable_path_in_folder': 'blender.exe'
-    }
-    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_config_platform_details)
+    # Patch the methods on the Path class, not an instance
+    mocker.patch('pathlib.Path.exists', return_value=True)
+    mocker.patch('pathlib.Path.iterdir', return_value=[mock_dir_valid, mock_dir_invalid_name])
+    mocker.patch('pathlib.Path.is_file', return_value=True)
+    mocker.patch.object(tool_manager_instance, '_get_executable_path_for_install')
 
-    # Mock _get_managed_blender_executable_full_path as it's an internal helper call
-    # It should return a path if the executable is "found" in the simulated folder
-    mock_get_executable_path_helper = mocker.patch.object(
-        tool_manager_instance, '_get_managed_blender_executable_full_path', return_value="/mock/path/blender.exe"
-    )
+    found = tool_manager_instance.scan_for_local_blenders()
 
-    # --- Simulate directory and file existence ---
-    # managed_tools_test/blender/
-    # ├── blender-3.6.0-windows-x64/ (should be skipped due to < 4.x in final output, but helper is called)
-    # ├── blender-4.0.0-windows-x64/
-    # ├── blender-4.1.0-windows-x64/
-    # ├── blender-4.1.1-windows-x64/
-    # ├── blender-4.1.1-linux-x64/ (should be skipped due to platform mismatch, helper not called)
-    # └── other_folder/ (not blender- prefix, helper not called)
-
-    mock_blender_path = os.path.join(config.MANAGED_TOOLS_DIR, 'blender')
-    mock_os_path_exists.side_effect = lambda path: True if path == mock_blender_path else False
-    mock_os_path_isdir.side_effect = lambda path: True if path.startswith(mock_blender_path) else False
-    mock_os_listdir.return_value = [
-        "blender-3.6.0-windows-x64",
-        "blender-4.0.0-windows-x64",
-        "blender-4.1.0-windows-x64",
-        "blender-4.1.1-windows-x64",
-        "blender-4.1.1-linux-x64",
-        "other_folder"
-    ]
-
-    # Run the method under test
-    available_tools = tool_manager_instance.scan_for_blender_versions()
-
-    # Assertions
-    # Only 4.x+ Windows x64 versions should be returned in final output
-    assert available_tools == {'blender': ['4.0.0', '4.1.0', '4.1.1']}
-    mock_os_listdir.assert_called_once_with(mock_blender_path)
-
-    # Verify calls to the internal helper _get_managed_blender_executable_full_path
-    # It is called for all folders matching 'blender-X.Y.Z-platform' AND the current OS suffix
-    # So, 4.0.0, 4.1.0, 4.1.1, 3.6.0 (all windows-x64 matches)
-    assert mock_get_executable_path_helper.call_count == 4
-
-    mock_get_executable_path_helper.assert_any_call("blender-3.6.0-windows-x64")
-    mock_get_executable_path_helper.assert_any_call("blender-4.0.0-windows-x64")
-    mock_get_executable_path_helper.assert_any_call("blender-4.1.0-windows-x64")
-    mock_get_executable_path_helper.assert_any_call("blender-4.1.1-windows-x64")
-
-    print(f"\n[UNIT TEST] scan_for_blender_versions_success_windows_x64 passed.")
+    assert len(found) == 1
+    assert found[0]['version'] == "4.1.1"
 
 
-# --- Test Case 2: get_blender_executable_path_windows_x64_success ---
+# --- Tests for get_blender_executable_path ---
 
-def test_get_blender_executable_path_windows_x64_success(mocker):
-    """
-    Test Case: get_blender_executable_path_windows_x64_success
-    Purpose: Verify that get_blender_executable_path returns the correct absolute path
-             to the Blender executable for a Windows x64 system.
-    Asserts:
-        - The returned path is correct.
-        - os.path.exists is called to check for the executable.
-    """
-    # Define dummy values
-    test_version = "4.2.12"
-    mock_managed_tools_dir = "/mock/managed_tools_root"
-    mock_expected_exe_subpath = "blender.exe"
-    mock_full_exe_path = os.path.join(mock_managed_tools_dir, "blender", f"blender-{test_version}-windows-x64",
-                                      mock_expected_exe_subpath)
+def test_get_blender_executable_path_success(mocker):
+    """Tests that the correct executable path is returned when it exists."""
+    mocker.patch.object(tool_manager_instance, '_get_platform_identifier', return_value="windows-x64")
+    mocker.patch.object(tool_manager_instance, '_get_executable_path_for_install',
+                        return_value="C:/expected/path/blender.exe")
+    mocker.patch('pathlib.Path.is_file', return_value=True)
 
-    # Mock config.MANAGED_TOOLS_DIR
-    mocker.patch.object(config, 'MANAGED_TOOLS_DIR', mock_managed_tools_dir)
+    result = tool_manager_instance.get_blender_executable_path("4.1.1")
 
-    # Mock config.CURRENT_PLATFORM_BLENDER_DETAILS for a Windows x64 worker
-    mock_config_platform_details = {
-        'download_suffix': 'windows-x64',
-        'executable_path_in_folder': 'blender.exe'
-    }
-    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_config_platform_details)
+    assert result == "C:/expected/path/blender.exe"
 
-    # Mock os.path.exists to simulate the executable existing
-    mock_os_path_exists = mocker.patch('os.path.exists', return_value=True)
-
-    # Run the method under test
-    returned_path = tool_manager_instance.get_blender_executable_path(test_version)
-
-    # Assertions
-    assert returned_path == mock_full_exe_path, \
-        f"Expected path {mock_full_exe_path}, but got {returned_path}."
-
-    # Assert os.path.exists was called once with the correct full path
-    mock_os_path_exists.assert_called_once_with(mock_full_exe_path)
-
-    print(f"\n[UNIT TEST] get_blender_executable_path_windows_x64_success passed.")
-
-
-# --- Test Case 3: test_get_blender_executable_path_not_found ---
 
 def test_get_blender_executable_path_not_found(mocker):
-    """
-    Test Case: test_get_blender_executable_path_not_found
-    Purpose: Verify that get_blender_executable_path returns None
-             if the Blender executable file does not exist.
-    Asserts:
-        - The returned path is None.
-        - os.path.exists is called exactly once with the expected path for the current OS.
-    """
-    # Define dummy values
-    test_version = "4.2.12"
-    mock_managed_tools_dir = "/mock/managed_tools_root"
-    mock_full_exe_path_win = os.path.join(mock_managed_tools_dir, "blender", f"blender-{test_version}-windows-x64",
-                                          "blender.exe")
+    """Tests that None is returned when the executable file does not exist."""
+    mocker.patch.object(tool_manager_instance, '_get_platform_identifier', return_value="windows-x64")
+    mocker.patch.object(tool_manager_instance, '_get_executable_path_for_install',
+                        return_value="C:/expected/path/blender.exe")
+    mocker.patch('pathlib.Path.is_file', return_value=False)
 
-    # Mock config.MANAGED_TOOLS_DIR
-    mocker.patch.object(config, 'MANAGED_TOOLS_DIR', mock_managed_tools_dir)
+    result = tool_manager_instance.get_blender_executable_path("4.1.1")
 
-    # Mock config.CURRENT_PLATFORM_BLENDER_DETAILS for a Windows x64 worker
-    mock_config_platform_details = {
-        'download_suffix': 'windows-x64',
-        'executable_path_in_folder': 'blender.exe'
-    }
-    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_config_platform_details)
+    assert result is None
 
-    # Mock os.path.exists to simulate the executable NOT existing
-    mock_os_path_exists = mocker.patch('os.path.exists', return_value=False)
 
-    # Run the method under test
-    returned_path = tool_manager_instance.get_blender_executable_path(test_version)
+# --- Tests for _get_blender_download_info ---
 
-    # Assertions
-    assert returned_path is None, \
-        "Expected path to be None when executable does not exist."
-
-    # Assert os.path.exists was called exactly once with the correct expected path for Windows
-    assert mock_os_path_exists.call_count == 1, \
-        f"Expected os.path.exists to be called 1 time, but got {mock_os_path_exists.call_count}."
-    mock_os_path_exists.assert_called_once_with(mock_full_exe_path_win)
-
-    print(f"\n[UNIT TEST] get_blender_executable_path_not_found passed.")
-
-
-# --- Test Case 4: test_load_blender_cache_success ---
-
-def test_load_blender_cache_success(mocker):
-    """
-    Test Case: test_load_blender_cache_success
-    Purpose: Verify that _load_blender_cache successfully loads valid JSON data
-             from a mocked cache file and populates self.CACHED_BLENDER_DOWNLOAD_INFO.
-    Asserts:
-        - The method returns True on successful load.
-        - The cache is correctly populated with the raw loaded data.
-        - Correct os.path.exists and open() calls are made.
-    """
-    # Dummy cache file content that _load_blender_cache expects to read
-    dummy_cache_content = [
-        {"version": "4.2.12", "platform_suffix": "windows-x64", "url": "http://example.com/win.zip",
-         "hash": "winhash_4.2.12"},
-        {"version": "4.1.1", "platform_suffix": "linux-x64", "url": "http://example.com/linux.tar.xz",
-         "hash": "linuxhash_4.1.1"},
-        {"version": "4.0.0", "platform_suffix": "macos-arm64", "url": "http://example.com/mac.dmg",
-         "hash": "machash_4.0.0"}
-    ]
-
-    # Mock config.BLENDER_VERSIONS_CACHE_FILE
-    mocker.patch.object(config, 'BLENDER_VERSIONS_CACHE_FILE', "/mock/cache/blender_versions_cache.json")
-
-    # Mock os.path.exists to simulate cache file existing
-    mock_os_path_exists = mocker.patch('os.path.exists', return_value=True)
-
-    # Mock built-in open() to return a mock file object with our dummy content
-    mock_file = mocker.mock_open(read_data=json.dumps(dummy_cache_content))
-    mocker.patch('builtins.open', mock_file)
-
-    # Reset instance cache before test (Important for singletons in tests)
-    # When _load_blender_cache is called by a test, tool_manager_instance is already created.
-    # The _initialized flag ensures __init__ logic runs only once.
-    # We just need to ensure CACHED_BLENDER_DOWNLOAD_INFO is clean for this specific test.
-    tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO = []
-
-    # Run the method under test
-    success = tool_manager_instance._load_blender_cache()
-
-    # Assertions
-    assert success is True, "_load_blender_cache should return True on successful load."
-
-    # Assert open() was called correctly
-    mock_file.assert_called_once_with(config.BLENDER_VERSIONS_CACHE_FILE, 'r')
-    mock_file.return_value.read.assert_called_once()  # Ensure content was read
-
-    # Assert os.path.exists was called
-    mock_os_path_exists.assert_called_once_with(config.BLENDER_VERSIONS_CACHE_FILE)
-
-    # Assert CACHED_BLENDER_DOWNLOAD_INFO is populated with the full raw data list
-    assert tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO == dummy_cache_content, \
-        "CACHED_BLENDER_DOWNLOAD_INFO should be populated with the full raw data list."
-
-    print(f"\n[UNIT TEST] _load_blender_cache_success passed.")
-
-
-# --- Test Case 5: test_save_blender_cache_success ---
-
-def test_save_blender_cache_success(mocker):
-    """
-    Test Case: test_save_blender_cache_success
-    Purpose: Verify that _save_blender_cache successfully saves a list of dictionaries
-             to a mocked cache file.
-    Asserts:
-        - The method returns True on successful save.
-        - os.makedirs is called correctly.
-        - The content written to the mock file matches the expected JSON string.
-    """
-    # Dummy data to be saved to the cache file
-    dummy_data_to_save = [
-        {"version": "4.2.12", "platform_suffix": "windows-x64", "url": "http://example.com/win.zip"},
-        {"version": "4.1.1", "platform_suffix": "linux-x64", "url": "http://example.com/linux.tar.xz"}
-    ]
-
-    # Expected JSON string that would be written by json.dump
-    expected_json_output = json.dumps(dummy_data_to_save, indent=4)  # REMOVED + "\n"
-
-    # Mock config.BLENDER_VERSIONS_CACHE_FILE
-    mock_cache_file_path = "/mock/cache/blender_versions_cache.json"
-    mocker.patch.object(config, 'BLENDER_VERSIONS_CACHE_FILE', mock_cache_file_path)
-
-    # Mock os.makedirs (ensure it's called, but doesn't do anything real)
-    mock_os_makedirs = mocker.patch('os.makedirs')
-
-    # Mock built-in open() for writing
-    mock_file = mocker.mock_open()  # Creates a mock file object
-    mocker.patch('builtins.open', mock_file)
-
-    # Run the method under test
-    success = tool_manager_instance._save_blender_cache(dummy_data_to_save)
-
-    # Assertions
-    assert success is True, "_save_blender_cache should return True on successful save."
-
-    # Assert os.makedirs was called correctly
-    mock_os_makedirs.assert_called_once_with(os.path.dirname(mock_cache_file_path), exist_ok=True)
-
-    # Assert open() was called with correct path and mode
-    mock_file.assert_called_once_with(mock_cache_file_path, 'w')
-
-    # Assert the content written to the mock file handle's 'write' method
-    # json.dump writes in chunks, so we collect all the write calls and join them
-    written_content = "".join(call_arg.args[0] for call_arg in mock_file().write.call_args_list)
-    assert written_content == expected_json_output, \
-        "The content written to the cache file should match the expected JSON output."
-
-    print(f"\n[UNIT TEST] _save_blender_cache_success passed.")
-
-
-# --- Test Case 6: test_filter_and_process_major_minor_versions_success ---
-
-def test_filter_and_process_major_minor_versions_success(mocker):
-    """
-    Test Case: test_filter_and_process_major_minor_versions_success
-    Purpose: Verify that _filter_and_process_major_minor_versions correctly selects
-             the latest patch version for each (major.minor, platform_suffix) group.
-    Asserts:
-        - The returned list contains the correct, filtered versions.
-        - The count of filtered versions is correct.
-    """
-    # Raw data as _filter_and_process_major_minor_versions expects it:
-    # Keyed by "Major.Minor", Value is a list of version info dicts for that series and all platforms
-    raw_versions_data = {
-        "4.0": [
-            {"version": "4.0.0", "platform_suffix": "windows-x64", "url": "win400", "hash": "h1"},
-            {"version": "4.0.1", "platform_suffix": "linux-x64", "url": "lin401", "hash": "h2"},
-            {"version": "4.0.2", "platform_suffix": "windows-x64", "url": "win402", "hash": "h3"},
-            # Latest win-x64 for 4.0
-            {"version": "4.0.0", "platform_suffix": "macos-x64", "url": "mac400", "hash": "h4"},
-            # Latest mac-x64 for 4.0
-            {"version": "4.0.3", "platform_suffix": "linux-x64", "url": "lin403", "hash": "h5"},
-            # Latest linux-x64 for 4.0
-        ],
-        "4.1": [
-            {"version": "4.1.0", "platform_suffix": "windows-x64", "url": "win410", "hash": "h6"},
-            # Latest win-x64 for 4.1
-            {"version": "4.1.1", "platform_suffix": "macos-arm64", "url": "macarm411", "hash": "h7"},
-            # Latest mac-arm64 for 4.1
-        ],
-        "3.6": [  # This should still be processed by _filter_and_process_major_minor_versions if passed,
-            # as its responsibility is *not* to filter by major version < 4.x
-            {"version": "3.6.0", "platform_suffix": "windows-x64", "url": "win360", "hash": "h8"}
-            # Latest win-x64 for 3.6
-        ]
-    }
-
-    # Expected output (list of latest versions per (major.minor, platform_suffix) )
-    # This list should reflect what _filter_and_process_major_minor_versions *itself* produces,
-    # including the 3.6.0 version, as the 4.x+ filter is done at a higher level (generate_and_cache_blender_download_info).
-    expected_filtered_list = [
-        {"version": "3.6.0", "platform_suffix": "windows-x64", "url": "win360", "hash": "h8"},  # Included for 3.6.0
-        {"version": "4.0.0", "platform_suffix": "macos-x64", "url": "mac400", "hash": "h4"},
-        {"version": "4.0.2", "platform_suffix": "windows-x64", "url": "win402", "hash": "h3"},
-        {"version": "4.0.3", "platform_suffix": "linux-x64", "url": "lin403", "hash": "h5"},
-        {"version": "4.1.0", "platform_suffix": "windows-x64", "url": "win410", "hash": "h6"},
-        {"version": "4.1.1", "platform_suffix": "macos-arm64", "url": "macarm411", "hash": "h7"},
-    ]
-
-    # Run the method under test
-    filtered_versions = tool_manager_instance._filter_and_process_major_minor_versions(raw_versions_data)
-
-    # Sort both lists for consistent comparison, as order of appending might vary by dict iteration
-    filtered_versions.sort(key=lambda x: (x['version'], x['platform_suffix']))
-    expected_filtered_list.sort(key=lambda x: (x['version'], x['platform_suffix']))
-
-    # Assertions
-    assert len(filtered_versions) == len(expected_filtered_list), \
-        f"Expected {len(expected_filtered_list)} filtered versions, but got {len(filtered_versions)}."
-    assert filtered_versions == expected_filtered_list, \
-        "The filtered versions list does not match the expected list."
-
-    print(f"\n[UNIT TEST] _filter_and_process_major_minor_versions_success passed.")
-
-# --- Test Case 7: ensure_blender_version_available_already_exists ---
-
-def test_ensure_blender_version_available_already_exists(mocker):
-    """
-    Test Case: ensure_blender_version_available_already_exists
-    Purpose: Verify that if a required Blender version is already available locally,
-             the function returns the path without attempting a download.
-    Asserts:
-        - The correct executable path is returned.
-        - scan_for_blender_versions and get_blender_executable_path are called.
-        - generate_and_cache_blender_download_info (the download logic) is NOT called.
-    """
-    required_version = "4.2.0"
-    mock_executable_path = f"/mock/tools/blender-{required_version}-windows-x64/blender.exe"
-
-    # Mock the dependencies
-    # 1. scan_for_blender_versions should report that the version exists
-    mock_scan = mocker.patch.object(
-        tool_manager_instance,
-        'scan_for_blender_versions',
-        return_value={'blender': [required_version, '4.1.0']}
-    )
-
-    # 2. get_blender_executable_path should return the expected path for this version
-    mock_get_path = mocker.patch.object(
-        tool_manager_instance,
-        'get_blender_executable_path',
-        return_value=mock_executable_path
-    )
-
-    # 3. The download/cache generation function should NOT be called
-    mock_generate_cache = mocker.patch.object(
-        tool_manager_instance,
-        'generate_and_cache_blender_download_info'
-    )
-
-    # Run the method under test
-    result_path = tool_manager_instance.ensure_blender_version_available(required_version)
-
-    # Assertions
-    assert result_path == mock_executable_path
-    mock_scan.assert_called_once()
-    mock_get_path.assert_called_once_with(required_version)
-    mock_generate_cache.assert_not_called()
-
-    print(f"\\n[UNIT TEST] ensure_blender_version_available_already_exists passed.")
-
-
-# --- Test Case 8: ensure_blender_version_available_download_success (Corrected) ---
-
-def test_ensure_blender_version_available_download_success(mocker):
-    """
-    Test Case: ensure_blender_version_available_download_success
-    Purpose: Verify the complete download-and-extract workflow when a version
-             is not available locally. This is a pure unit test, mocking all
-             I/O and web operations.
-    Asserts:
-        - The correct final executable path is returned.
-        - All helper functions (scan, generate cache, download, extract) are
-          called in the correct sequence.
-    """
-    required_version = "4.2.0"
-    mock_platform_suffix = "windows-x64"
-    mock_executable_path = f"/mock/tools/blender-{required_version}-{mock_platform_suffix}/blender.exe"
-    mock_download_url = f"http://mirror.example.com/blender-{required_version}-{mock_platform_suffix}.zip"
-    mock_hash = "a" * 64
-
-    # --- Mock the sequence of calls ---
-
-    # 1. scan_for_blender_versions reports the version is NOT available
-    mocker.patch.object(tool_manager_instance, 'scan_for_blender_versions', return_value={'blender': []})
-
-    # 2. generate_and_cache_blender_download_info returns info for the required version
-    mock_cache_data = {
-        required_version: {
-            "version": required_version,
-            "platform_suffix": mock_platform_suffix,
-            "file_extension": ".zip",
-            "hash": mock_hash,
-            "url": mock_download_url,
-            "mirrors": []
-        }
-    }
-    mocker.patch.object(tool_manager_instance, 'generate_and_cache_blender_download_info', return_value=mock_cache_data)
-
-    # 3. file_operations.download_file simulates a successful download
-    mock_download = mocker.patch('sethlans_worker_agent.tool_manager.download_file', return_value=True)
-
-    # 4. file_operations.extract_zip_file simulates successful extraction
-    # The extracted path must be different from the final path to trigger the rename logic
-    mock_extract = mocker.patch('sethlans_worker_agent.tool_manager.extract_zip_file', return_value=(True, "/mock/tools/temp_extracted_folder"))
-
-    # 5. os.remove and os.rename are called to clean up and standardize
-    mock_remove = mocker.patch('os.remove')
-    mock_rename = mocker.patch('os.rename') # <-- THE ADDED MOCK
-
-    # 6. get_blender_executable_path returns the final path after "extraction"
-    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value=mock_executable_path)
-
-    # Run the method under test
-    result_path = tool_manager_instance.ensure_blender_version_available(required_version)
-
-    # Assertions
-    assert result_path == mock_executable_path
-
-    # Verify the sequence of calls
-    tool_manager_instance.scan_for_blender_versions.assert_called_once()
-    tool_manager_instance.generate_and_cache_blender_download_info.assert_called_once()
-    mock_download.assert_called_once()
-    mock_extract.assert_called_once()
-    mock_remove.assert_called_once()
-    mock_rename.assert_called_once() # <-- NEW ASSERTION
-    tool_manager_instance.get_blender_executable_path.assert_called_once_with(required_version)
-
-    print(f"\\n[UNIT TEST] ensure_blender_version_available_download_success passed.")
-
-
-# --- Test Case 9: ensure_blender_version_available_download_fails ---
-
-def test_ensure_blender_version_available_download_fails(mocker):
-    """
-    Test Case: ensure_blender_version_available_download_fails
-    Purpose: Verify that the function returns None if the download_file utility fails.
-    Asserts:
-        - The function returns None.
-        - The scan and cache generation are called, but extraction is not.
-    """
-    required_version = "4.3.0"
-    mock_platform_suffix = "linux-x64"
-    mock_download_url = f"http://mirror.example.com/blender-{required_version}-{mock_platform_suffix}.tar.xz"
-    mock_hash = "b" * 64
-
-    # --- Mock the sequence of calls ---
-
-    # 1. scan_for_blender_versions reports the version is NOT available
-    mocker.patch.object(tool_manager_instance, 'scan_for_blender_versions', return_value={'blender': []})
-
-    # 2. generate_and_cache_blender_download_info returns valid data to attempt the download
-    mock_cache_data = {
-        required_version: {
-            "version": required_version,
-            "platform_suffix": mock_platform_suffix,
-            "file_extension": ".tar.xz",
-            "hash": mock_hash,
-            "url": mock_download_url,
-            "mirrors": []
-        }
-    }
-    mocker.patch.object(tool_manager_instance, 'generate_and_cache_blender_download_info', return_value=mock_cache_data)
-
-    # 3. file_operations.download_file simulates a FAILED download
-    mock_download = mocker.patch('sethlans_worker_agent.tool_manager.download_file', return_value=False)
-
-    # 4. The following functions should NOT be called
-    mock_extract = mocker.patch('sethlans_worker_agent.tool_manager.extract_zip_file')
-    mock_remove = mocker.patch('os.remove')
-    mock_rename = mocker.patch('os.rename')
-
-    # Run the method under test
-    result_path = tool_manager_instance.ensure_blender_version_available(required_version)
-
-    # Assertions
-    assert result_path is None
-
-    # Verify the sequence of calls
-    tool_manager_instance.scan_for_blender_versions.assert_called_once()
-    tool_manager_instance.generate_and_cache_blender_download_info.assert_called_once()
-    mock_download.assert_called_once()
-
-    # Assert that the workflow stopped after the failed download
-    mock_extract.assert_not_called()
-    mock_remove.assert_not_called()
-    mock_rename.assert_not_called()
-
-    print(f"\n[UNIT TEST] ensure_blender_version_available_download_fails passed.")
-
-
-# --- Test Case 10: ensure_blender_version_available_undiscoverable ---
-
-def test_ensure_blender_version_available_undiscoverable(mocker):
-    """
-    Test Case: ensure_blender_version_available_undiscoverable
-    Purpose: Verify the function returns None if the required version cannot be
-             found in the generated download cache.
-    Asserts:
-        - The function returns None.
-        - The download and extract functions are never called.
-    """
-    required_version = "99.9.9"  # A version we know won't be in the cache
-
-    # --- Mock the sequence of calls ---
-
-    # 1. scan_for_blender_versions reports the version is NOT available
-    mocker.patch.object(tool_manager_instance, 'scan_for_blender_versions', return_value={'blender': []})
-
-    # 2. generate_and_cache_blender_download_info returns an empty dictionary
-    mocker.patch.object(tool_manager_instance, 'generate_and_cache_blender_download_info', return_value={})
-
-    # 3. The download/extract workflow should NOT be triggered
-    mock_download = mocker.patch('sethlans_worker_agent.tool_manager.download_file')
-    mock_extract = mocker.patch('sethlans_worker_agent.tool_manager.extract_zip_file')
-
-    # Run the method under test
-    result_path = tool_manager_instance.ensure_blender_version_available(required_version)
-
-    # Assertions
-    assert result_path is None
-
-    # Verify the sequence of calls
-    tool_manager_instance.scan_for_blender_versions.assert_called_once()
-    tool_manager_instance.generate_and_cache_blender_download_info.assert_called_once()
-
-    # Assert that the download workflow was never started
-    mock_download.assert_not_called()
-    mock_extract.assert_not_called()
-
-    print(f"\n[UNIT TEST] ensure_blender_version_available_undiscoverable passed.")
-
-# In tests/unit/worker_agent/test_tool_manager.py
-
-# --- Test Case 11: _load_blender_cache_file_not_found ---
-
-def test_load_blender_cache_file_not_found(mocker):
-    """
-    Test Case: _load_blender_cache_file_not_found
-    Purpose: Verify that _load_blender_cache handles a non-existent cache
-             file gracefully by returning False.
-    Asserts:
-        - The method returns False.
-        - The internal cache list remains empty.
-        - The 'open' function is never called.
-    """
-    # Mock config to use a predictable path
-    mocker.patch.object(config, 'BLENDER_VERSIONS_CACHE_FILE', "/mock/cache/non_existent_cache.json")
-
-    # Mock os.path.exists to simulate the file not existing
-    mock_exists = mocker.patch('os.path.exists', return_value=False)
-
-    # Mock built-in open to ensure it's not called
-    mock_open = mocker.patch('builtins.open')
-
-    # Reset the instance's cache before the test
-    tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO = []
-
-    # Run the method under test
-    success = tool_manager_instance._load_blender_cache()
-
-    # Assertions
-    assert success is False
-    assert tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO == []
-    mock_exists.assert_called_once_with("/mock/cache/non_existent_cache.json")
-    mock_open.assert_not_called()
-
-    print(f"\n[UNIT TEST] _load_blender_cache_file_not_found passed.")
-
-# --- Test Case 12: _load_blender_cache_corrupt_json ---
-
-def test_load_blender_cache_corrupt_json(mocker):
-    """
-    Test Case: _load_blender_cache_corrupt_json
-    Purpose: Verify that _load_blender_cache handles a corrupt (invalid JSON)
-             cache file by returning False and resetting the internal cache.
-    Asserts:
-        - The method returns False.
-        - The internal cache list is reset to empty.
-    """
-    # Mock config to use a predictable path
-    mocker.patch.object(config, 'BLENDER_VERSIONS_CACHE_FILE', "/mock/cache/corrupt_cache.json")
-
-    # Mock os.path.exists to simulate the file existing
+def test_get_blender_download_info_from_cache(mocker):
+    """Tests that download info is loaded from cache if the cache file exists."""
     mocker.patch('os.path.exists', return_value=True)
+    mocker.patch('builtins.open', mocker.mock_open(read_data='{"data": "from cache"}'))  # Mock open
+    mock_load = mocker.patch.object(file_operations, 'load_json', return_value={"data": "from cache"})
+    mock_parser = mocker.patch.object(blender_release_parser, 'get_blender_releases')
 
-    # Mock the open function to return corrupt data
-    corrupt_json_data = "this is not valid json"
-    mocker.patch('builtins.open', mocker.mock_open(read_data=corrupt_json_data))
+    result = tool_manager_instance._get_blender_download_info()
 
-    # Pre-fill the cache to ensure it gets cleared
-    tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO = ["some", "old", "data"]
-
-    # Run the method under test
-    success = tool_manager_instance._load_blender_cache()
-
-    # Assertions
-    assert success is False
-    assert tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO == []
-
-    print(f"\n[UNIT TEST] _load_blender_cache_corrupt_json passed.")
+    assert result == {"data": "from cache"}
+    mock_load.assert_called_once()
+    mock_parser.assert_not_called()
 
 
-# --- Test Case 13: generate_and_cache_blender_download_info_from_existing_cache ---
+def test_get_blender_download_info_from_parser(mocker):
+    """Tests that download info is generated and saved when cache is absent."""
+    mocker.patch('os.path.exists', return_value=False)
+    mocker.patch('builtins.open', mocker.mock_open())  # Mock open for writing
+    mock_dump = mocker.patch.object(file_operations, 'dump_json')
+    mock_parser = mocker.patch.object(blender_release_parser, 'get_blender_releases',
+                                      return_value={"data": "from parser"})
 
-def test_generate_and_cache_blender_download_info_from_existing_cache(mocker):
-    """
-    Test Case: generate_and_cache_blender_download_info_from_existing_cache
-    Purpose: Verify the function correctly uses data from a pre-existing cache file,
-             filters it for the current OS, and avoids any network activity.
-    Asserts:
-        - The returned dictionary contains only data for the mocked OS.
-        - The cache loading function is called, but the dynamic generation functions are not.
-    """
-    # --- Mock Data and Config ---
-    # 1. Mock the platform details for filtering
-    mock_platform_details = {'download_suffix': 'windows-x64'}
-    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_platform_details)
+    result = tool_manager_instance._get_blender_download_info()
 
-    # 2. This is the raw, multi-platform data that we pretend is loaded from the cache file
-    raw_cache_data = [
-        {"version": "4.2.0", "platform_suffix": "windows-x64", "url": "..."},
-        {"version": "4.1.0", "platform_suffix": "linux-x64", "url": "..."},
-        {"version": "4.0.0", "platform_suffix": "windows-x64", "url": "..."}
-    ]
-
-    # --- Mock Function Calls ---
-    # 3. Mock _load_blender_cache to return True and pre-populate the instance's cache attribute
-    mocker.patch.object(tool_manager_instance, '_load_blender_cache', return_value=True)
-    tool_manager_instance.CACHED_BLENDER_DOWNLOAD_INFO = raw_cache_data
-
-    # 4. Mock the network/generation functions to ensure they are NOT called
-    mock_fetch_soup = mocker.patch('sethlans_worker_agent.tool_manager.fetch_page_soup')
-
-    # Run the method under test
-    result = tool_manager_instance.generate_and_cache_blender_download_info()
-
-    # --- Assertions ---
-    # 5. The result should be a dictionary keyed by version, containing ONLY the windows versions
-    assert len(result) == 2
-    assert "4.2.0" in result
-    assert "4.0.0" in result
-    assert "4.1.0" not in result  # The linux version should be filtered out
-    assert result["4.2.0"]["platform_suffix"] == "windows-x64"
-
-    # 6. Verify that no network or dynamic generation occurred
-    mock_fetch_soup.assert_not_called()
-
-    print(f"\n[UNIT TEST] generate_and_cache_blender_download_info_from_existing_cache passed.")
+    assert result == {"data": "from parser"}
+    mock_parser.assert_called_once()
+    mock_dump.assert_called_once_with({"data": "from parser"}, mocker.ANY)
 
 
-# --- Test Case 14: generate_and_cache_blender_download_info_dynamic_generation ---
+# --- Tests for ensure_blender_version_available ---
 
-def test_generate_and_cache_blender_download_info_dynamic_generation(mocker):
-    """
-    Test Case: generate_and_cache_blender_download_info_dynamic_generation
-    Purpose: Verify the full dynamic workflow: web scraping, data processing,
-             filtering, caching, and returning the final filtered data.
-    Asserts:
-        - All helper functions are called in the correct sequence.
-        - The final returned dictionary is correctly filtered for the current OS.
-    """
-    # --- Mock Data and Config ---
-    # 1. Mock the current platform that the final result will be filtered for.
-    mock_platform_details = {'download_suffix': 'linux-x64'}
-    mocker.patch.object(config, 'CURRENT_PLATFORM_BLENDER_DETAILS', mock_platform_details)
+@pytest.fixture
+def mock_ensure_deps(mocker):
+    """Fixture to mock all dependencies for ensure_blender_version_available."""
+    mocker.patch.object(tool_manager_instance, '_create_tools_directory_if_not_exists')
+    mock_get_exe = mocker.patch.object(tool_manager_instance, 'get_blender_executable_path')
+    mock_get_info = mocker.patch.object(tool_manager_instance, '_get_blender_download_info')
 
-    # --- Mock Function Calls Step-by-Step through the Workflow ---
+    mock_download = mocker.patch.object(file_operations, 'download_file')
+    mock_verify = mocker.patch.object(file_operations, 'verify_hash')
+    mock_extract = mocker.patch.object(file_operations, 'extract_archive')
+    mock_cleanup = mocker.patch.object(file_operations, 'cleanup_archive')
 
-    # 2. Start by having _load_blender_cache fail, to trigger this path.
-    mocker.patch.object(tool_manager_instance, '_load_blender_cache', return_value=False)
+    mocker.patch.object(tool_manager_instance, '_get_platform_identifier', return_value="windows-x64")
 
-    # 3. Mock the web scraping functions. We don't need real HTML.
-    mocker.patch('sethlans_worker_agent.tool_manager.fetch_page_soup', return_value="dummy_soup")
-    mock_parse_dirs = mocker.patch('sethlans_worker_agent.tool_manager.parse_major_version_directories',
-                                   return_value=['http://.../Blender4.1/'])
+    return {
+        "get_exe": mock_get_exe, "get_info": mock_get_info, "download": mock_download,
+        "verify": mock_verify, "extract": mock_extract, "cleanup": mock_cleanup
+    }
 
-    # 4. Mock the data collector to return some sample data for the one URL.
-    mock_collected_data = [
-        {"version": "4.1.1", "platform_suffix": "linux-x64"},
-        {"version": "4.1.0", "platform_suffix": "windows-x64"}
-    ]
-    mock_collect_details = mocker.patch('sethlans_worker_agent.tool_manager.collect_blender_version_details',
-                                        return_value=mock_collected_data)
 
-    # 5. Mock the internal filtering and saving functions.
-    # _filter_and_process_major_minor_versions would just return the same list in this simple case.
-    mock_filter_process = mocker.patch.object(tool_manager_instance, '_filter_and_process_major_minor_versions',
-                                              return_value=mock_collected_data)
-    mock_save_cache = mocker.patch.object(tool_manager_instance, '_save_blender_cache', return_value=True)
+def test_ensure_blender_already_exists(mock_ensure_deps):
+    """Tests the case where the requested version is already installed."""
+    mock_ensure_deps["get_exe"].return_value = "/path/to/blender.exe"
 
-    # Run the method under test
-    result = tool_manager_instance.generate_and_cache_blender_download_info()
+    result = tool_manager_instance.ensure_blender_version_available("4.1.1")
 
-    # --- Assertions ---
-    # 6. Assert the final, OS-filtered result is correct.
-    assert len(result) == 1
-    assert "4.1.1" in result
-    assert result["4.1.1"]["platform_suffix"] == "linux-x64"
+    assert result == "/path/to/blender.exe"
+    mock_ensure_deps["get_info"].assert_not_called()
 
-    # 7. Assert the entire chain of functions was called correctly.
-    tool_manager_instance._load_blender_cache.assert_called_once()
-    mock_parse_dirs.assert_called_once_with("dummy_soup")
-    mock_collect_details.assert_called_once_with('http://.../Blender4.1/')
-    # The raw data is grouped by major.minor before being passed to the filter function
-    expected_filter_arg = {'4.1': mock_collected_data}
-    mock_filter_process.assert_called_once_with(expected_filter_arg)
-    mock_save_cache.assert_called_once_with(mock_collected_data)
 
-    print(f"\n[UNIT TEST] generate_and_cache_blender_download_info_dynamic_generation passed.")
+def test_ensure_blender_download_success(mock_ensure_deps, mocker):  # Added mocker here
+    """Tests the full successful download, verify, and extract workflow."""
+    mock_ensure_deps["get_exe"].side_effect = [None, "/path/to/blender.exe"]
+    mock_ensure_deps["get_info"].return_value = {
+        "4.1.1": {"windows-x64": {"url": "http://a.zip", "sha256": "hash123"}}
+    }
+    mock_ensure_deps["download"].return_value = "/tmp/a.zip"
+    mock_ensure_deps["verify"].return_value = True
+
+    result = tool_manager_instance.ensure_blender_version_available("4.1.1")
+
+    assert result == "/path/to/blender.exe"
+    mock_ensure_deps["download"].assert_called_once_with("http://a.zip", mocker.ANY)
+    mock_ensure_deps["cleanup"].assert_called_once()
+
+
+def test_ensure_blender_version_not_in_releases(mock_ensure_deps):
+    """Tests when the requested version doesn't exist in the release info."""
+    mock_ensure_deps["get_exe"].return_value = None
+    mock_ensure_deps["get_info"].return_value = {}
+
+    result = tool_manager_instance.ensure_blender_version_available("9.9.9")
+
+    assert result is None
+    mock_ensure_deps["download"].assert_not_called()
+
+
+def test_ensure_blender_hash_verification_fails(mock_ensure_deps, mocker):
+    """Tests that a failed hash check aborts the process and cleans up."""
+    mock_ensure_deps["get_exe"].return_value = None
+    mock_ensure_deps["get_info"].return_value = {
+        "4.1.1": {"windows-x64": {"url": "http://a.zip", "sha256": "hash123"}}
+    }
+    mock_ensure_deps["download"].return_value = "/tmp/a.zip"
+    mock_ensure_deps["verify"].return_value = False
+    mock_remove = mocker.patch('os.remove')
+
+    result = tool_manager_instance.ensure_blender_version_available("4.1.1")
+
+    assert result is None
+    mock_remove.assert_called_once_with("/tmp/a.zip")
+    mock_ensure_deps["extract"].assert_not_called()

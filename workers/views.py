@@ -29,6 +29,7 @@ from .serializers import WorkerSerializer, JobSerializer
 from django.utils import timezone
 
 from rest_framework import viewsets
+from rest_framework.decorators import action
 # from rest_framework.permissions import IsAuthenticatedOrReadOnly
 
 from django_filters.rest_framework import DjangoFilterBackend
@@ -102,6 +103,44 @@ class JobViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'assigned_worker']
     search_fields = ['name', 'blend_file_path']
     ordering_fields = ['submitted_at', 'status', 'name']
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """
+        Custom action to cancel a job.
+        """
+        job = self.get_object()
+        old_status = job.status
+        job.status = JobStatus.CANCELED
+
+        # Also set the completed_at timestamp when canceling
+        if not job.completed_at:
+            job.completed_at = timezone.now()
+
+        job.save()
+
+        logger.info(
+            f"Job '{job.name}' (ID: {job.id}) CANCELED via API. Status changed from {old_status} to {job.status}.")
+
+        serializer = self.get_serializer(job)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # --- NEW: Add this method for debugging ---
+    def partial_update(self, request, *args, **kwargs):
+        """
+        Overrides the default PATCH method to add debug logging.
+        """
+        print(f"\n--- DJANGO DEBUG: Received PATCH request for Job {kwargs.get('pk')} ---")
+        print(f"--- DJANGO DEBUG: Request data: {request.data}")
+
+        response = super().partial_update(request, *args, **kwargs)
+
+        print(f"--- DJANGO DEBUG: Response status code: {response.status_code}")
+        if response.status_code != 200:
+            print(f"--- DJANGO DEBUG: Response data (error): {response.data}")
+        print(f"--- DJANGO DEBUG: End of PATCH request ---\n")
+
+        return response
 
     def perform_create(self, serializer):
         job = serializer.save(status=JobStatus.QUEUED, submitted_at=timezone.now())

@@ -23,79 +23,87 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/utils/file_operations.py
 
-import requests
+import hashlib
+import json
+import logging
 import os
-import datetime
-import zipfile
+import requests
 import shutil
+from tqdm import tqdm
 
-from .file_hasher import calculate_file_sha256
-
-import logging # This should be there
-logger = logging.getLogger(__name__) # Get a logger for this module
+logger = logging.getLogger(__name__)
 
 
-def download_file(url, destination_path, expected_hash=None):
-    """
-    Downloads a file from a given URL to a destination path, and optionally verifies its SHA256 hash.
-    """
-    logger.info(f"Downloading {url} to {destination_path}...")  # <-- Changed print to logger.info
-    try:
-        with requests.get(url, stream=True, timeout=300) as r:
-            r.raise_for_status()
-            with open(destination_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        logger.info("Download complete.")  # <-- Changed print to logger.info
+# --- JSON Operations ---
+def load_json(file_handle):
+    """Convenience wrapper for loading JSON data from a file handle."""
+    return json.load(file_handle)
 
-        if expected_hash:
-            logger.info(f"Verifying hash of {destination_path}...")  # <-- Changed print to logger.info
-            calculated_hash = calculate_file_sha256(destination_path)
-            if calculated_hash and calculated_hash.lower() == expected_hash.lower():
-                logger.info("Hash verification SUCCESS!")  # <-- Changed print to logger.info
-                return True
-            else:
-                logger.error(
-                    f"Hash verification FAILED! Expected: {expected_hash}, Calculated: {calculated_hash}. Deleting corrupted file.")  # <-- Changed print to logger.error
-                os.remove(destination_path)
-                return False
+
+def dump_json(data, file_handle):
+    """Convenience wrapper for dumping data to a JSON file handle with indentation."""
+    json.dump(data, file_handle, indent=4)
+
+
+# --- Download and Archive Operations ---
+def download_file(url, dest_folder):
+    """Downloads a file with a progress bar."""
+    local_filename = url.split('/')[-1]
+    download_path = os.path.join(dest_folder, local_filename)
+
+    logger.info(f"Downloading {url} to {download_path}...")
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        total_size = int(r.headers.get('content-length', 0))
+        with open(download_path, 'wb') as f, tqdm(
+                total=total_size, unit='iB', unit_scale=True, desc=local_filename
+        ) as bar:
+            for chunk in r.iter_content(chunk_size=8192):
+                size = f.write(chunk)
+                bar.update(size)
+    logger.info("Download complete.")
+    return download_path
+
+
+def verify_hash(file_path, expected_hash, algorithm='sha256'):
+    """Verifies the hash of a downloaded file."""
+    logger.info(f"Verifying hash of {file_path}...")
+    hasher = hashlib.new(algorithm)
+    with open(file_path, 'rb') as f:
+        while chunk := f.read(8192):
+            hasher.update(chunk)
+
+    calculated_hash = hasher.hexdigest()
+    if calculated_hash == expected_hash:
+        logger.info("Hash verification SUCCESS!")
         return True
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Download failed - {e}")  # <-- Changed print to logger.error
-        if os.path.exists(destination_path):
-            os.remove(destination_path)
-        return False
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during download: {e}")  # <-- Changed print to logger.error
-        if os.path.exists(destination_path):
-            os.remove(destination_path)
+    else:
+        logger.error(f"Hash verification FAILED. Expected {expected_hash}, got {calculated_hash}")
         return False
 
 
-def extract_zip_file(zip_path, extract_to_path):
-    """Extracts a ZIP file to a specified directory."""
-    logger.info(f"Extracting {zip_path} to {extract_to_path}...")  # <-- Changed print to logger.info
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            root_folder_name = ""
-            for name in zip_ref.namelist():
-                if '/' in name:
-                    root_folder_name = name.split('/')[0]
-                    break
+def extract_archive(archive_path, extract_to):
+    """Extracts a .zip or .tar.xz archive."""
+    logger.info(f"Extracting {archive_path} to {extract_to}...")
+    shutil.unpack_archive(archive_path, extract_to)
 
-            actual_extract_path = os.path.join(extract_to_path, root_folder_name)
+    # Get the name of the extracted directory
+    archive_name = os.path.basename(archive_path)
+    if archive_name.endswith('.zip'):
+        extracted_dir_name = archive_name[:-4]
+    elif archive_name.endswith('.tar.xz'):
+        extracted_dir_name = archive_name[:-7]
+    else:
+        extracted_dir_name = archive_name  # Fallback
 
-            os.makedirs(actual_extract_path, exist_ok=True)
-            zip_ref.extractall(extract_to_path)
+    full_extracted_path = os.path.join(extract_to, extracted_dir_name)
+    logger.info(f"Extraction complete to {full_extracted_path}.")
+    return full_extracted_path
 
-        logger.info(f"Extraction complete to {actual_extract_path}.")  # <-- Changed print to logger.info
-        return True, actual_extract_path
-    except zipfile.BadZipFile:
-        logger.error(f"Invalid ZIP file: {zip_path}")  # <-- Changed print to logger.error
-        return False, None
-    except Exception as e:
-        logger.error(
-            f"An unexpected error occurred during extraction of {zip_path}: {e}")  # <-- Changed print to logger.error
-        return False, None
+
+def cleanup_archive(archive_path):
+    """Deletes the specified file."""
+    logger.info(f"Cleaned up temporary download file: {archive_path}")
+    os.remove(archive_path)

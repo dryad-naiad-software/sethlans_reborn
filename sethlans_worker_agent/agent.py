@@ -22,55 +22,74 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/agent.py
+# sethlans_worker_agent/agent.py
 
-import time
+import argparse
 import logging
-import argparse  # <-- ADD THIS IMPORT
+import time
+import sys
+from sethlans_worker_agent import job_processor, system_monitor, config
 
-from . import config
-from . import system_monitor
-from . import job_processor
+# --- Logging Setup ---
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
+parser = argparse.ArgumentParser(description="Sethlans Reborn Worker Agent")
+parser.add_argument(
+    '--loglevel',
+    dest='loglevel',
+    choices=LOG_LEVELS.keys(),
+    default='INFO',
+    help='Set the logging level'
+)
+args = parser.parse_args()
 
-# Get a logger for this module
+logging.basicConfig(
+    level=LOG_LEVELS[args.loglevel],
+    format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
-# Global variable to store worker's own info once registered
-WORKER_INFO = {}
 
-if __name__ == "__main__":
-    # --- START OF MODIFIED BLOCK ---
-    # 1. Set up argument parser
-    parser = argparse.ArgumentParser(description="Sethlans Reborn Worker Agent")
-    parser.add_argument(
-        "--loglevel",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Set the logging level for the worker agent."
-    )
-    args = parser.parse_args()
+# --- Main Application Logic ---
+def main():
+    """Main loop for the worker agent."""
+    logger.info("Sethlans Reborn Worker Agent Starting...")
 
-    # 2. Configure logging using the parsed argument
-    config.configure_worker_logging(args.loglevel)
-    # --- END OF MODIFIED BLOCK ---
+    worker_id = None
 
-    print("Sethlans Reborn Worker Agent Starting...")
-    logger.info("Worker Agent starting main loop...")
-
-    # The main loop will now handle registration and polling
     while True:
-        if not system_monitor.WORKER_INFO.get('id'):
-            logger.warning("Worker not registered with Manager. Attempting registration heartbeat...")
+        try:
+            if not worker_id:
+                logger.warning("Worker not registered with Manager. Attempting registration...")
+                new_id = system_monitor.register_with_manager()
+                if new_id:
+                    worker_id = new_id
+                else:
+                    logger.error("Failed to register with manager. Retrying in 30 seconds...")
+                    time.sleep(30)
+                    continue
 
-            full_system_info = system_monitor.get_system_info()
-            system_monitor.send_heartbeat(full_system_info)
+            # If registered, perform regular heartbeat and check for jobs.
+            system_monitor.send_heartbeat()
+            job_processor.get_and_claim_job(worker_id)
 
-            if not system_monitor.WORKER_INFO.get('id'):
-                logger.error("Registration failed. Will retry after a delay.")
-        else:
-            logger.info(f"Worker registered as ID {system_monitor.WORKER_INFO['id']}. Polling for jobs...")
+            logger.debug(f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds.")
+            time.sleep(config.JOB_POLLING_INTERVAL_SECONDS)
 
-            system_monitor.send_heartbeat({'hostname': system_monitor.WORKER_INFO['hostname']})
-            job_processor.get_and_claim_job()
+        except KeyboardInterrupt:
+            logger.info("Shutdown signal received. Exiting...")
+            sys.exit(0)
+        except Exception as e:
+            logger.critical(f"An unhandled exception occurred in the main loop: {e}", exc_info=True)
+            logger.info("Restarting main loop in 60 seconds...")
+            time.sleep(60)
 
-        logger.debug(f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds.")
-        time.sleep(config.JOB_POLLING_INTERVAL_SECONDS)
+
+if __name__ == '__main__':
+    main()
