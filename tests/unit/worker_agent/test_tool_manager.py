@@ -149,19 +149,32 @@ def test_ensure_blender_already_exists(mock_ensure_deps):
     mock_ensure_deps["get_info"].assert_not_called()
 
 
-def test_ensure_blender_download_success(mock_ensure_deps, mocker):  # Added mocker here
+def test_ensure_blender_download_success(mock_ensure_deps, mocker):
     """Tests the full successful download, verify, and extract workflow."""
+    # Arrange mocks for the new permission-setting code
+    mocker.patch('platform.system', return_value="Linux")
+    mocker.patch('os.stat', return_value=MagicMock(st_mode=0o644))
+    mock_chmod = mocker.patch('os.chmod')
+
+    # --- THIS IS THE FIX ---
+    # Override the fixture's platform mock to match this test's data
+    mocker.patch.object(tool_manager_instance, '_get_platform_identifier', return_value="linux-x64")
+
+    # Arrange the test scenario
     mock_ensure_deps["get_exe"].side_effect = [None, "/path/to/blender.exe"]
     mock_ensure_deps["get_info"].return_value = {
-        "4.1.1": {"windows-x64": {"url": "http://a.zip", "sha256": "hash123"}}
+        "4.1.1": {"linux-x64": {"url": "http://a.tar.xz", "sha256": "hash123"}}
     }
-    mock_ensure_deps["download"].return_value = "/tmp/a.zip"
+    mock_ensure_deps["download"].return_value = "/tmp/a.tar.xz"
     mock_ensure_deps["verify"].return_value = True
 
+    # Act
     result = tool_manager_instance.ensure_blender_version_available("4.1.1")
 
+    # Assert
     assert result == "/path/to/blender.exe"
-    mock_ensure_deps["download"].assert_called_once_with("http://a.zip", mocker.ANY)
+    mock_ensure_deps["download"].assert_called_once_with("http://a.tar.xz", mocker.ANY)
+    mock_chmod.assert_called_once()
     mock_ensure_deps["cleanup"].assert_called_once()
 
 
@@ -193,7 +206,7 @@ def test_ensure_blender_hash_verification_fails(mock_ensure_deps, mocker):
     mock_ensure_deps["extract"].assert_not_called()
 
 
-# --- NEW: Test for cross-platform architecture detection ---
+# --- Test for cross-platform architecture detection ---
 @pytest.mark.parametrize("system, machine, expected_id", [
     ("Linux", "x86_64", "linux-x64"),
     ("Linux", "aarch64", "linux-arm64"),
