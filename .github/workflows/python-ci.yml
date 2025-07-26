@@ -42,6 +42,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # --- NEW: Cache Blender Installation ---
+      - name: Cache Managed Blender Tools
+        id: blender-cache
+        uses: actions/cache@v4
+        with:
+          path: sethlans_worker_agent/managed_tools
+          key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('sethlans_worker_agent/config.py') }}
+
       # --- 5. Code Quality & Testing Steps ---
       - name: Lint with flake8
         run: |
