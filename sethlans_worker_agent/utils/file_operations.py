@@ -86,77 +86,65 @@ def verify_hash(file_path, expected_hash, algorithm='sha256'):
         return False
 
 
-# --- MODIFIED: DMG handling function for macOS with diagnostics ---
+# --- FINAL VERSION of the DMG handler ---
 def handle_dmg_extraction_on_mac(dmg_path, extract_to):
     """
     Mounts a DMG, copies the .app, and unmounts it.
     """
     logger.info(f"Mounting {dmg_path}...")
-    # Use a unique mount point to avoid conflicts
     mount_point = os.path.join("/Volumes", f"BlenderMount_{int(time.time())}")
-
-    # The hdiutil command to be executed.
-    # We are removing '-quiet' to get more verbose output for debugging.
     hdiutil_command = ["hdiutil", "attach", dmg_path, "-mountpoint", mount_point, "-nobrowse"]
 
     try:
-        # Run the command and capture output
-        process = subprocess.run(
-            hdiutil_command,
-            check=True,
-            capture_output=True,  # Capture stdout and stderr
-            text=True  # Decode output as text
-        )
+        process = subprocess.run(hdiutil_command, check=True, capture_output=True, text=True)
         logger.debug(f"hdiutil attach stdout:\n{process.stdout}")
 
-        # Find the .app directory inside the mounted volume
         app_dir = next((d for d in os.listdir(mount_point) if d.endswith(".app")), None)
         if not app_dir:
             raise IOError("Could not find .app directory in the mounted DMG.")
 
         source_app_path = os.path.join(mount_point, app_dir)
 
-        # The final extracted folder name should match the standard format
-        dest_folder_name = os.path.basename(dmg_path).replace(".dmg", "")
-        final_dest_path = os.path.join(extract_to, dest_folder_name)
+        # ** THE FIX IS HERE **
+        # 1. Define the standard installation directory name (e.g., blender-4.5.0-macos-arm64)
+        install_dir_name = os.path.basename(dmg_path).replace(".dmg", "")
+        # 2. Create the full path for that standard installation directory.
+        install_dir_path = os.path.join(extract_to, install_dir_name)
+        # 3. Define the final destination for the .app bundle *inside* the install directory.
+        final_app_dest_path = os.path.join(install_dir_path, app_dir)
 
-        if os.path.exists(final_dest_path):
-            shutil.rmtree(final_dest_path)
+        if os.path.exists(install_dir_path):
+            shutil.rmtree(install_dir_path)
 
-        logger.info(f"Copying {source_app_path} to {final_dest_path}...")
-        shutil.copytree(source_app_path, final_dest_path)
+        logger.info(f"Copying {source_app_path} to {final_app_dest_path}...")
+        # 4. Copy the .app bundle to its correct final destination.
+        shutil.copytree(source_app_path, final_app_dest_path)
 
-        return final_dest_path
+        # Return the path to the PARENT directory, which is what the rest of the app expects.
+        return install_dir_path
 
     except subprocess.CalledProcessError as e:
         logger.critical(f"hdiutil attach failed with exit code {e.returncode}.")
         logger.error(f"STDOUT from hdiutil:\n{e.stdout}")
         logger.error(f"STDERR from hdiutil:\n{e.stderr}")
-        # Re-raise the exception so the program still fails as expected
         raise e
 
     finally:
-        # Unmount the DMG
         if os.path.exists(mount_point):
             logger.info(f"Unmounting {mount_point}...")
-            # Use a separate run call for detach that doesn't capture output unless needed
             subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], check=False)
 
 
 def extract_archive(archive_path, extract_to):
     """Extracts an archive, handling DMG on macOS and other types elsewhere."""
-    # Check for macOS and .dmg file
     if platform.system() == "Darwin" and archive_path.endswith(".dmg"):
         logger.info("macOS .dmg detected, using custom handler.")
         extracted_path = handle_dmg_extraction_on_mac(archive_path, extract_to)
         logger.info(f"DMG processing complete. Extracted to {extracted_path}.")
         return extracted_path
     else:
-        # Use shutil for .zip, .tar.xz, etc.
         logger.info(f"Extracting {archive_path} to {extract_to}...")
         shutil.unpack_archive(archive_path, extract_to)
-
-        # Get the name of the extracted directory for logging
         archive_name = os.path.basename(archive_path)
         if archive_name.endswith('.zip'):
             extracted_dir_name = archive_name[:-4]
@@ -164,7 +152,6 @@ def extract_archive(archive_path, extract_to):
             extracted_dir_name = archive_name[:-7]
         else:
             extracted_dir_name = archive_name
-
         full_extracted_path = os.path.join(extract_to, extracted_dir_name)
         logger.info(f"Extraction complete to {full_extracted_path}.")
         return full_extracted_path
