@@ -85,14 +85,40 @@ def test_verify_hash():
         # Clean up the temporary file
         os.remove(tmp_path)
 
+# --- NEW: Test for DMG vs standard archive handling ---
+def test_extract_archive_handles_dmg_on_mac(mocker):
+    """Tests that the extract function calls the DMG handler on macOS for .dmg files."""
+    # Arrange
+    mocker.patch('platform.system', return_value="Darwin")
+    mock_dmg_handler = mocker.patch('sethlans_worker_agent.utils.file_operations.handle_dmg_extraction_on_mac')
+    mock_shutil_unpack = mocker.patch('shutil.unpack_archive')
 
-def test_extract_archive(mocker):
-    """Tests that the extract function calls shutil.unpack_archive."""
-    mock_unpack = mocker.patch('shutil.unpack_archive')
+    # Act
+    file_operations.extract_archive("/tmp/archive.dmg", "/tmp/extract_to")
 
-    file_operations.extract_archive("/tmp/archive.zip", "/tmp/extract_to")
+    # Assert
+    mock_dmg_handler.assert_called_once_with("/tmp/archive.dmg", "/tmp/extract_to")
+    mock_shutil_unpack.assert_not_called()
 
-    mock_unpack.assert_called_once_with("/tmp/archive.zip", "/tmp/extract_to")
+
+@pytest.mark.parametrize("system, archive_path", [
+    ("Darwin", "/tmp/archive.zip"),
+    ("Linux", "/tmp/archive.tar.xz"),
+    ("Windows", "/tmp/archive.zip"),
+])
+def test_extract_archive_uses_shutil_for_fallback_cases(mocker, system, archive_path):
+    """Tests that the extract function calls shutil.unpack_archive for non-DMG cases."""
+    # Arrange
+    mocker.patch('platform.system', return_value=system)
+    mock_dmg_handler = mocker.patch('sethlans_worker_agent.utils.file_operations.handle_dmg_extraction_on_mac')
+    mock_shutil_unpack = mocker.patch('shutil.unpack_archive')
+
+    # Act
+    file_operations.extract_archive(archive_path, "/tmp/extract_to")
+
+    # Assert
+    mock_shutil_unpack.assert_called_once_with(archive_path, "/tmp/extract_to")
+    mock_dmg_handler.assert_not_called()
 
 
 def test_cleanup_archive(mocker):

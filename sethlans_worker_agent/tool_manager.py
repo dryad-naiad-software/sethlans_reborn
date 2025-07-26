@@ -77,8 +77,12 @@ class ToolManager:
 
         if system == "windows":
             return "windows-x64" if "64" in arch else "windows-x86"
+        # --- FIXED: Properly detect Linux architecture ---
         elif system == "linux":
-            return "linux-x64"
+            if arch == "x86_64":
+                return "linux-x64"
+            elif arch == "aarch64":
+                return "linux-arm64"
         elif system == "darwin":  # macOS
             return "macos-arm64" if "arm" in arch or "aarch64" in arch else "macos-x64"
         return None
@@ -89,6 +93,7 @@ class ToolManager:
         if platform.system() == "Windows":
             return base_path / "blender.exe"
         elif platform.system() == "Darwin":  # macOS
+            # The .app is a directory, so we need to point inside it
             return base_path / "Blender.app" / "Contents" / "MacOS" / "Blender"
         else:  # Linux
             return base_path / "blender"

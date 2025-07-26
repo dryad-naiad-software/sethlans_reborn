@@ -191,3 +191,27 @@ def test_ensure_blender_hash_verification_fails(mock_ensure_deps, mocker):
     assert result is None
     mock_remove.assert_called_once_with("/tmp/a.zip")
     mock_ensure_deps["extract"].assert_not_called()
+
+
+# --- NEW: Test for cross-platform architecture detection ---
+@pytest.mark.parametrize("system, machine, expected_id", [
+    ("Linux", "x86_64", "linux-x64"),
+    ("Linux", "aarch64", "linux-arm64"),
+    ("Windows", "AMD64", "windows-x64"),
+    ("Darwin", "x86_64", "macos-x64"),
+    ("Darwin", "arm64", "macos-arm64"),
+    ("SunOS", "sparc", None),
+])
+def test_get_platform_identifier_parameterized(mocker, system, machine, expected_id):
+    """
+    Tests the _get_platform_identifier method for various OS and architecture combinations.
+    """
+    # Arrange: Mock the platform module functions
+    mocker.patch('platform.system', return_value=system)
+    mocker.patch('platform.machine', return_value=machine)
+
+    # Act
+    result = tool_manager_instance._get_platform_identifier()
+
+    # Assert
+    assert result == expected_id

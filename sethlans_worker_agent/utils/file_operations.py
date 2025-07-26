@@ -31,6 +31,9 @@ import logging
 import os
 import requests
 import shutil
+import platform  # <-- ADDED
+import subprocess  # <-- ADDED
+import time  # <-- ADDED
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -84,23 +87,75 @@ def verify_hash(file_path, expected_hash, algorithm='sha256'):
         return False
 
 
+# --- ADDED: DMG handling function for macOS ---
+def handle_dmg_extraction_on_mac(dmg_path, extract_to):
+    """
+    Mounts a DMG, copies the .app, and unmounts it.
+    """
+    logger.info(f"Mounting {dmg_path}...")
+    # Use a unique mount point to avoid conflicts
+    mount_point = os.path.join("/Volumes", f"BlenderMount_{int(time.time())}")
+
+    try:
+        # Mount the DMG
+        subprocess.run(
+            ["hdiutil", "attach", dmg_path, "-mountpoint", mount_point, "-nobrowse", "-quiet"],
+            check=True
+        )
+
+        # Find the .app directory inside the mounted volume
+        app_dir = next((d for d in os.listdir(mount_point) if d.endswith(".app")), None)
+        if not app_dir:
+            raise IOError("Could not find .app directory in the mounted DMG.")
+
+        source_app_path = os.path.join(mount_point, app_dir)
+
+        # The final extracted folder name should match the standard format, e.g., "blender-4.5.0-macos-arm64"
+        dest_folder_name = os.path.basename(dmg_path).replace(".dmg", "")
+        final_dest_path = os.path.join(extract_to, dest_folder_name)
+
+        # Remove existing destination to avoid errors
+        if os.path.exists(final_dest_path):
+            shutil.rmtree(final_dest_path)
+
+        logger.info(f"Copying {source_app_path} to {final_dest_path}...")
+        shutil.copytree(source_app_path, final_dest_path)
+
+        return final_dest_path
+
+    finally:
+        # Unmount the DMG
+        if os.path.exists(mount_point):
+            logger.info(f"Unmounting {mount_point}...")
+            subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], check=True, capture_output=True)
+
+
+# --- UPDATED: Main extraction function ---
 def extract_archive(archive_path, extract_to):
-    """Extracts a .zip or .tar.xz archive."""
-    logger.info(f"Extracting {archive_path} to {extract_to}...")
-    shutil.unpack_archive(archive_path, extract_to)
-
-    # Get the name of the extracted directory
-    archive_name = os.path.basename(archive_path)
-    if archive_name.endswith('.zip'):
-        extracted_dir_name = archive_name[:-4]
-    elif archive_name.endswith('.tar.xz'):
-        extracted_dir_name = archive_name[:-7]
+    """Extracts an archive, handling DMG on macOS and other types elsewhere."""
+    # Check for macOS and .dmg file
+    if platform.system() == "Darwin" and archive_path.endswith(".dmg"):
+        logger.info("macOS .dmg detected, using custom handler.")
+        extracted_path = handle_dmg_extraction_on_mac(archive_path, extract_to)
+        logger.info(f"DMG processing complete. Extracted to {extracted_path}.")
+        return extracted_path
     else:
-        extracted_dir_name = archive_name  # Fallback
+        # Use shutil for .zip, .tar.xz, etc.
+        logger.info(f"Extracting {archive_path} to {extract_to}...")
+        shutil.unpack_archive(archive_path, extract_to)
 
-    full_extracted_path = os.path.join(extract_to, extracted_dir_name)
-    logger.info(f"Extraction complete to {full_extracted_path}.")
-    return full_extracted_path
+        # Get the name of the extracted directory for logging
+        archive_name = os.path.basename(archive_path)
+        if archive_name.endswith('.zip'):
+            extracted_dir_name = archive_name[:-4]
+        elif archive_name.endswith('.tar.xz'):
+            extracted_dir_name = archive_name[:-7]
+        else:
+            extracted_dir_name = archive_name
+
+        full_extracted_path = os.path.join(extract_to, extracted_dir_name)
+        logger.info(f"Extraction complete to {full_extracted_path}.")
+        return full_extracted_path
 
 
 def cleanup_archive(archive_path):

@@ -82,6 +82,12 @@ PLATFORM_BLENDER_MAP = {
         'download_ext': '.tar.xz',
         'executable_path_in_folder': 'blender'
     },
+    # --- ADDED: Entry for ARM Linux ---
+    ('Linux', 'aarch64'): {
+        'download_suffix': 'linux-arm64',
+        'download_ext': '.tar.xz',
+        'executable_path_in_folder': 'blender'
+    },
     ('Darwin', 'x86_64'): {
         'download_suffix': 'macos-x64',
         'download_ext': '.dmg',
@@ -90,7 +96,8 @@ PLATFORM_BLENDER_MAP = {
     ('Darwin', 'arm64'): {
         'download_suffix': 'macos-arm64',
         'download_ext': '.dmg',
-        'executable_path_in_in_folder': 'blender.app/Contents/MacOS/blender'
+        # --- FIXED: Corrected typo from executable_path_in_in_folder ---
+        'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'
     }
 }
 
