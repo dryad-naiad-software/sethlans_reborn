@@ -196,10 +196,10 @@ class TestRenderWorkflow(BaseE2ETest):
 class TestGpuWorkflow(BaseE2ETest):
     """Groups tests for the GPU selection workflow."""
 
-    def test_gpu_job_command_generation(self):
+    def test_gpu_job_omits_factory_startup(self):
         """
-        Tests that for a GPU job, the command correctly includes --factory-startup
-        and any other necessary GPU flags.
+        Tests that for a GPU job, the '--factory-startup' flag is correctly omitted
+        to allow the pre-configured .blend file's settings to be used.
         """
         print("\n--- ACTION: Submitting GPU job with invalid file ---")
         job_payload = {
@@ -222,8 +222,8 @@ class TestGpuWorkflow(BaseE2ETest):
             try:
                 line = self.worker_log_queue.get(timeout=1)
                 if "Running Command:" in line:
-                    # Verify the NEW key behavior: --factory-startup is ALWAYS PRESENT.
-                    assert "--factory-startup" in line
+                    # Verify the key behavior: --factory-startup is MISSING for GPU jobs.
+                    assert "--factory-startup" not in line
                     command_logged = True
                     break
             except queue.Empty:
@@ -246,7 +246,6 @@ class TestGpuWorkflow(BaseE2ETest):
         """
         Tests a full end-to-end GPU render, but only runs if a GPU is available.
         """
-        # --- MODIFIED & IMPROVED: Check for standard CI or GitHub-specific env var ---
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
         is_macos_in_ci = platform.system() == "Darwin" and is_ci
 
