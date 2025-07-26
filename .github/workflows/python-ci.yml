@@ -8,21 +8,18 @@ on:
 
 jobs:
   build-and-test:
-    # --- UPDATED: Add OS to the test matrix ---
     strategy:
-      fail-fast: false # Don't cancel all jobs if one fails
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.12", "3.13"]
 
-    # Run on the OS specified in the matrix
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- UPDATED: This step now only runs on Linux ---
       - name: Install System Dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -63,6 +60,55 @@ jobs:
         run: |
           pytest tests/unit
 
-      - name: Run End-to-End Tests
+      # --- E2E Tests for non-macOS ---
+      - name: Run End-to-End Tests (Windows & Linux)
+        if: runner.os != 'macOS'
+        run: pytest tests/e2e
+
+      # --- E2E Tests and Diagnostics for macOS ---
+      - name: 1. Check Initial Disk Space (macOS)
+        if: runner.os == 'macOS'
+        run: df -h
+
+      - name: 2. Check Initial Permissions (macOS)
+        if: runner.os == 'macOS'
         run: |
-          pytest tests/e2e
+          echo "Checking permissions for target directory..."
+          mkdir -p sethlans_worker_agent/managed_tools/blender/
+          ls -la sethlans_worker_agent/managed_tools/blender/
+
+      - name: 3. Run End-to-End Tests (macOS)
+        if: runner.os == 'macOS'
+        id: e2e_tests
+        continue-on-error: true
+        run: pytest tests/e2e
+
+      - name: 4. Check E2E Test Outcome (macOS)
+        if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'
+        run: echo "E2E tests failed. Collecting post-run diagnostic info..."
+
+      - name: 5. Check Disk Space After Failure (macOS)
+        if: runner.os == 'macOS' && failure()
+        run: df -h
+
+      - name: 6. List All Mounted Volumes (macOS)
+        if: runner.os == 'macOS' && failure()
+        run: mount
+
+      - name: 7. Recursively List Files in Target Directory (macOS)
+        if: runner.os == 'macOS' && failure()
+        run: |
+          echo "Listing all files in the Blender tools directory..."
+          ls -laR sethlans_worker_agent/managed_tools/blender/
+
+      - name: 8. Attempt to Unmount Any Lingering DMGs (macOS)
+        if: runner.os == 'macOS' && always()
+        run: |
+          echo "Attempting to detach any lingering BlenderMount volumes..."
+          hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
+
+      - name: 9. Fail job if E2E tests failed (macOS)
+        if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'
+        run: |
+          echo "Failing the job because end-to-end tests failed."
+          exit 1
