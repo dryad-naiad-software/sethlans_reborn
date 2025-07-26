@@ -8,17 +8,23 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    # --- UPDATED: Add OS to the test matrix ---
     strategy:
+      fail-fast: false # Don't cancel all jobs if one fails
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.12", "3.13"]
+
+    # Run on the OS specified in the matrix
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- NEW: Install Blender's system dependencies ---
-      - name: Install System Dependencies for Blender
+      # --- UPDATED: This step now only runs on Linux ---
+      - name: Install System Dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
