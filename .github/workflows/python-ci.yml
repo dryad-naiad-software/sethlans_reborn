@@ -2,16 +2,17 @@ name: Sethlans Reborn CI
 
 on:
   push:
-    branches: [ "master" ] # <-- Changed from main
+    branches: [ "master" ]
   pull_request:
-    branches: [ "master" ] # <-- Changed from main
+    branches: [ "master" ]
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        # --- UPDATED: Changed Python versions ---
+        python-version: ["3.13", "3.14"]
 
     steps:
       - name: Checkout repository
