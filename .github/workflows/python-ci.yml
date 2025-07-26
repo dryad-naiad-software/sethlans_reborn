@@ -1,25 +1,19 @@
 name: Sethlans Reborn CI
 
-# --- 1. Define Triggers ---
-# This workflow runs on pushes or pull requests to the "main" branch
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ] # <-- Changed from main
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ] # <-- Changed from main
 
-# --- 2. Define the Job ---
 jobs:
   build-and-test:
-    # Use the latest version of Ubuntu for the runner environment
     runs-on: ubuntu-latest
     strategy:
-      # Run tests against multiple Python versions
       matrix:
         python-version: ["3.11", "3.12"]
 
     steps:
-      # --- 3. Setup Steps ---
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -28,7 +22,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # --- 4. Install Dependencies with Caching ---
       - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
@@ -42,7 +35,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # --- NEW: Cache Blender Installation ---
       - name: Cache Managed Blender Tools
         id: blender-cache
         uses: actions/cache@v4
@@ -50,12 +42,9 @@ jobs:
           path: sethlans_worker_agent/managed_tools
           key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('sethlans_worker_agent/config.py') }}
 
-      # --- 5. Code Quality & Testing Steps ---
       - name: Lint with flake8
         run: |
-          # stop the build if there are Python syntax errors or undefined names
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          # exit-zero treats all errors as warnings.
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Run Unit Tests
