@@ -44,10 +44,10 @@ def mock_popen_setup(mocker):
     mock_process.pid = 12345
     mock_process.stdout.readline.side_effect = ['Blender render complete.\n', '']
     mock_process.stderr.readline.side_effect = ['']
+    mock_process.poll.return_value = 0 # Make it look like it finished immediately for simple tests
     mocker.patch('time.sleep')
 
     mock_popen = mocker.patch('subprocess.Popen', return_value=mock_process)
-    mocker.patch('psutil.pid_exists', side_effect=[True, False])
 
     mock_response_rendering = MagicMock(status_code=200)
     mock_response_rendering.json.return_value = {'status': 'RENDERING'}
@@ -96,9 +96,6 @@ def test_execute_blender_job_gpu_command(mock_popen_setup):
     job_processor.execute_blender_job(mock_job_data)
 
     called_command = mock_popen.call_args.args[0]
-
-    # --- THIS IS THE FIX ---
-    # Assert that the flag is NOT present for GPU jobs.
     assert "--factory-startup" not in called_command
 
 
@@ -185,6 +182,7 @@ def test_get_and_claim_job_success(mocker):
     assert mock_patch.call_count == 3
 
 
+# --- THIS IS THE CORRECTED TEST ---
 def test_execute_blender_job_cancellation(mocker):
     """
     Tests that execute_blender_job correctly handles a cancellation signal from the API.
@@ -204,10 +202,13 @@ def test_execute_blender_job_cancellation(mocker):
     mock_process.pid = 12345
     mock_process.stdout.readline.side_effect = ['output line 1\n', '']
     mock_process.stderr.readline.side_effect = ['']
-    mock_process.wait.return_value = -9
+    # CORRECTED MOCK: Mock poll() to keep the loop alive long enough for cancellation to be checked
+    mock_process.poll.side_effect = [None, None, 0]
+    mock_process.wait.return_value = -9 # Simulate being killed
     mocker.patch('subprocess.Popen', return_value=mock_process)
 
-    mocker.patch('psutil.pid_exists', side_effect=[True, True, False])
+    # Mock psutil.Process for the cancellation logic, as it's now used on all platforms
+    mock_psutil_process = mocker.patch('psutil.Process')
 
     mock_response_rendering = MagicMock(status_code=200)
     mock_response_rendering.json.return_value = {'status': 'RENDERING'}
@@ -219,3 +220,4 @@ def test_execute_blender_job_cancellation(mocker):
 
     assert was_canceled is True
     assert error_message == "Job was canceled by user request."
+    mock_psutil_process.assert_called_with(12345) # Verify psutil was used to kill the process

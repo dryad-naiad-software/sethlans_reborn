@@ -131,7 +131,7 @@ def execute_blender_job(job_data):
     render_engine = job_data.get('render_engine', 'CYCLES')
     render_settings = job_data.get('render_settings', {})
     render_device = job_data.get('render_device', 'CPU')
-    temp_script_path = None # Keep for render_settings, but not used for GPU
+    temp_script_path = None
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
 
@@ -147,15 +147,12 @@ def execute_blender_job(job_data):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # --- FINAL REVISED LOGIC: Conditional --factory-startup ---
     command = [
         blender_to_use, "-b", blend_file_path,
         "-o", output_file_pattern.replace('####', '#'),
         "-F", "PNG", "-E", render_engine,
     ]
 
-    # For CPU jobs, force a clean state to override any .blend file GPU settings.
-    # For GPU jobs, omit it to RESPECT the .blend file's GPU settings.
     if render_device == 'CPU':
         command.insert(1, "--factory-startup")
         logger.info("CPU job detected. Using --factory-startup to ensure CPU rendering.")
@@ -167,7 +164,6 @@ def execute_blender_job(job_data):
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
 
-    # This override is kept for applying render settings from the API, if any.
     if isinstance(render_settings, dict):
         for key_path, value in render_settings.items():
             py_value = f"'{value}'" if isinstance(value, str) else value
@@ -177,10 +173,8 @@ def execute_blender_job(job_data):
     logger.info(f"Running Command: {' '.join(command)}")
 
     process = None
-    success = False
-    stdout_lines, stderr_lines, error_message = [], [], ""
-    stdout_output, stderr_output = "", ""
     was_canceled = False
+    stdout_lines, stderr_lines, error_message = [], [], ""
     final_return_code = -1
 
     try:
@@ -201,47 +195,54 @@ def execute_blender_job(job_data):
 
         job_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
-        while psutil.pid_exists(process.pid):
+        # --- UNIFIED LOOP: Use process.poll() for waiting and psutil for cancellation on ALL platforms ---
+        while process.poll() is None:
             try:
                 response = requests.get(job_url, timeout=5)
                 if response.status_code == 200 and response.json().get('status') == 'CANCELED':
-                    logger.warning(f"Cancellation signal received for job ID {job_id}. Killing Blender process...")
-                    process.kill()
+                    logger.warning(f"Cancellation signal for job ID {job_id} received. Terminating process tree.")
+                    parent = psutil.Process(process.pid)
+                    # Kill all children and then the parent process itself
+                    for child in parent.children(recursive=True):
+                        child.kill()
+                    parent.kill()
                     was_canceled = True
                     break
-            except requests.exceptions.RequestException as e:
-                logger.error(f"API error while checking for cancellation: {e}")
+            except (requests.exceptions.RequestException, psutil.NoSuchProcess):
+                # Ignore API errors or if the process finished between checks
+                if not psutil.pid_exists(process.pid):
+                    break
+
             time.sleep(2)
 
+        # Wait for I/O threads to finish reading all output after the process has terminated
         stdout_thread.join()
         stderr_thread.join()
+
+        # Get the final return code. wait() is safe now because we know the process is terminated.
         final_return_code = process.wait()
 
     except Exception as e:
         error_message = f"An unexpected error occurred during Blender execution: {e}"
-        success = False
-        was_canceled = False
         final_return_code = -1
 
     stdout_output = "".join(stdout_lines)
     stderr_output = "".join(stderr_lines)
+    success = False
 
     if was_canceled:
         error_message = "Job was canceled by user request."
-        success = False
     elif final_return_code == 0:
         logger.info("Render command completed successfully.")
         error_message = ""
         success = True
-    elif 'error_message' not in locals() or not error_message:
+    elif not error_message:
         error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
         error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"
-        success = False
 
     logger.debug(f"--- STDOUT ---\n{stdout_output[-1000:]}")
     logger.debug(f"--- STDERR ---\n{stderr_output}")
 
-    # This variable is defined but might not be used if render_settings is empty
     if temp_script_path and os.path.exists(temp_script_path):
         os.remove(temp_script_path)
 
