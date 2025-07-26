@@ -23,10 +23,12 @@
 #
 
 # sethlans_worker_agent/tool_manager.py
+# sethlans_worker_agent/tool_manager.py
 
 import logging
 import platform
 import os
+import stat  # <-- ADDED IMPORT
 from pathlib import Path
 from . import config
 from .utils import file_operations, blender_release_parser
@@ -77,7 +79,6 @@ class ToolManager:
 
         if system == "windows":
             return "windows-x64" if "64" in arch else "windows-x86"
-        # --- FIXED: Properly detect Linux architecture ---
         elif system == "linux":
             if arch == "x86_64":
                 return "linux-x64"
@@ -181,8 +182,15 @@ class ToolManager:
             logger.critical(f"An error occurred during download/extraction: {e}", exc_info=True)
             return None
 
-        # 4. Verify and return the new path
-        return self.get_blender_executable_path(requested_version)
+        # --- 4. NEW: Verify path and set permissions ---
+        final_exe_path = self.get_blender_executable_path(requested_version)
+        if final_exe_path and platform.system() != "Windows":
+            logger.info(f"Setting execute permission on {final_exe_path}")
+            # Get current permissions and add execute bit for owner
+            st = os.stat(final_exe_path)
+            os.chmod(final_exe_path, st.st_mode | stat.S_IEXEC)
+
+        return final_exe_path
 
 
 # Singleton instance

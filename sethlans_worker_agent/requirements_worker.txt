@@ -1,10 +1,10 @@
-beautifulsoup4==4.13.4
+beautifulsoup4~=4.12.3
 certifi==2025.7.14
 charset-normalizer==3.4.2
 colorama==0.4.6
 idna==3.10
-psutil==7.0.0
-requests==2.32.4
+psutil~=5.9.8
+requests~=2.31.0
 soupsieve==2.7
 tqdm==4.67.1
 typing_extensions==4.14.1

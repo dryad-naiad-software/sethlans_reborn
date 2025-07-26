@@ -11,12 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # --- UPDATED: Changed Python versions ---
         python-version: ["3.12", "3.13"]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # --- NEW: Install Blender's system dependencies ---
+      - name: Install System Dependencies for Blender
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5

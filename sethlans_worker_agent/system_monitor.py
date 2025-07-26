@@ -22,6 +22,7 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/system_monitor.py
+# sethlans_worker_agent/system_monitor.py
 
 import logging
 import platform
@@ -30,6 +31,7 @@ import requests
 import subprocess
 import tempfile
 import os
+import sys  # <-- ADDED IMPORT
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
@@ -55,15 +57,45 @@ def detect_gpu_devices():
         return []
 
     latest_version = \
-    sorted([b['version'] for b in local_blenders], key=lambda v: [int(p) for p in v.split('.')], reverse=True)[0]
+        sorted([b['version'] for b in local_blenders], key=lambda v: [int(p) for p in v.split('.')], reverse=True)[0]
     blender_exe = tool_manager_instance.get_blender_executable_path(latest_version)
 
     if not blender_exe:
         logger.error(f"Could not get executable path for Blender {latest_version}.")
         return []
 
-    # --- FINAL SCRIPT ---
-    # This script is fully dynamic and requires no pre-configuration on the worker.
+    # --- NEW: Check for missing system dependencies on Linux before running Blender ---
+    if platform.system() == "Linux":
+        try:
+            logger.debug(f"Running 'ldd' dependency check on {blender_exe}")
+            ldd_result = subprocess.run(["ldd", blender_exe], capture_output=True, text=True, check=False)
+            if "not found" in ldd_result.stdout:
+                error_message = f"""
+####################################################################
+# ERROR: Blender is missing required system libraries.
+####################################################################
+Blender cannot start because some shared libraries are not installed on this system.
+This is common on minimal Linux installations (like CI runners or new servers).
+
+'ldd' output showing missing libraries:
+{ldd_result.stdout}
+To fix this, please install the missing libraries. For Debian/Ubuntu-based systems,
+a common set of required libraries can be installed with:
+
+sudo apt-get update && sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
+
+####################################################################
+"""
+                logger.critical("Blender dependency check failed.")
+                # Print to stderr to ensure it's visible even with redirected logs
+                print(error_message, file=sys.stderr)
+                return []  # Fail gracefully
+        except FileNotFoundError:
+            logger.warning("Could not find 'ldd' command to check Blender dependencies. Skipping check.")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during the ldd dependency check: {e}")
+
+    # --- Script for dynamic GPU detection ---
     py_script = """
 import bpy
 import sys
@@ -102,8 +134,6 @@ except Exception as e:
             temp_script_path = f.name
             f.write(py_script)
 
-        # We now use --factory-startup again because our script is fully dynamic
-        # and we want a clean slate, ignoring any saved user preferences.
         command = [blender_exe, '--background', '--factory-startup', '--python', temp_script_path]
         result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=90)
 
@@ -113,7 +143,6 @@ except Exception as e:
         gpu_devices = []
         output_lines = result.stdout.strip().splitlines()
         for line in output_lines:
-            # A valid line will not contain spaces and will contain a backend name
             if ' ' not in line and any(device in line for device in ['CUDA', 'OPTIX', 'HIP', 'METAL', 'ONEAPI']):
                 gpu_devices = line.strip().split(',')
                 break
@@ -182,6 +211,9 @@ def register_with_manager():
 
     heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
     payload = get_system_info()
+
+    # If get_system_info() returns an empty list for GPUs because of the new check,
+    # the registration payload will correctly reflect that the worker is not ready for jobs.
 
     logger.info(f"Sending registration heartbeat to {heartbeat_url}...")
     try:
