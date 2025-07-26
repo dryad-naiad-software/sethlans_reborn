@@ -23,7 +23,6 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-# sethlans_worker_agent/utils/file_operations.py
 
 import hashlib
 import json
@@ -31,9 +30,9 @@ import logging
 import os
 import requests
 import shutil
-import platform  # <-- ADDED
-import subprocess  # <-- ADDED
-import time  # <-- ADDED
+import platform
+import subprocess
+import time
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -87,7 +86,7 @@ def verify_hash(file_path, expected_hash, algorithm='sha256'):
         return False
 
 
-# --- ADDED: DMG handling function for macOS ---
+# --- MODIFIED: DMG handling function for macOS with diagnostics ---
 def handle_dmg_extraction_on_mac(dmg_path, extract_to):
     """
     Mounts a DMG, copies the .app, and unmounts it.
@@ -96,12 +95,19 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
     # Use a unique mount point to avoid conflicts
     mount_point = os.path.join("/Volumes", f"BlenderMount_{int(time.time())}")
 
+    # The hdiutil command to be executed.
+    # We are removing '-quiet' to get more verbose output for debugging.
+    hdiutil_command = ["hdiutil", "attach", dmg_path, "-mountpoint", mount_point, "-nobrowse"]
+
     try:
-        # Mount the DMG
-        subprocess.run(
-            ["hdiutil", "attach", dmg_path, "-mountpoint", mount_point, "-nobrowse", "-quiet"],
-            check=True
+        # Run the command and capture output
+        process = subprocess.run(
+            hdiutil_command,
+            check=True,
+            capture_output=True,  # Capture stdout and stderr
+            text=True  # Decode output as text
         )
+        logger.debug(f"hdiutil attach stdout:\n{process.stdout}")
 
         # Find the .app directory inside the mounted volume
         app_dir = next((d for d in os.listdir(mount_point) if d.endswith(".app")), None)
@@ -110,11 +116,10 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
 
         source_app_path = os.path.join(mount_point, app_dir)
 
-        # The final extracted folder name should match the standard format, e.g., "blender-4.5.0-macos-arm64"
+        # The final extracted folder name should match the standard format
         dest_folder_name = os.path.basename(dmg_path).replace(".dmg", "")
         final_dest_path = os.path.join(extract_to, dest_folder_name)
 
-        # Remove existing destination to avoid errors
         if os.path.exists(final_dest_path):
             shutil.rmtree(final_dest_path)
 
@@ -123,14 +128,21 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
 
         return final_dest_path
 
+    except subprocess.CalledProcessError as e:
+        logger.critical(f"hdiutil attach failed with exit code {e.returncode}.")
+        logger.error(f"STDOUT from hdiutil:\n{e.stdout}")
+        logger.error(f"STDERR from hdiutil:\n{e.stderr}")
+        # Re-raise the exception so the program still fails as expected
+        raise e
+
     finally:
         # Unmount the DMG
         if os.path.exists(mount_point):
             logger.info(f"Unmounting {mount_point}...")
-            subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], check=True, capture_output=True)
+            # Use a separate run call for detach that doesn't capture output unless needed
+            subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], check=False)
 
 
-# --- UPDATED: Main extraction function ---
 def extract_archive(archive_path, extract_to):
     """Extracts an archive, handling DMG on macOS and other types elsewhere."""
     # Check for macOS and .dmg file
