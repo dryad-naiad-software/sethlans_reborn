@@ -1,7 +1,7 @@
 # Virtual environment
 venv/
-.venv/          # Added by some tools, good to ignore
-venv_worker/    # <-- Add this line for the worker agent's venv
+.venv/
+venv_worker/
 *.env
 .env
 
@@ -29,8 +29,6 @@ share/python-wheels/
 *.ipynb
 .mypy_cache/
 .pytest_cache/
-.venv/
-Pipfile.lock
 
 # Django specific
 *.sqlite3
@@ -38,16 +36,21 @@ Pipfile.lock
 /static/
 *.log
 
-# PyCharm specific
+# IDE / Editor
 .idea/
 *.iml
+.vscode/
 
 # OS generated files
 .DS_Store
 .Trashes
 Thumbs.db
 
-
+# Render Outputs & Managed Tools
 /render_test_output/
+/test_output/
 /sethlans_worker_agent/managed_tools/
-test_results.txt
+
+# Test Results
+unit_test_results.txt
+e2e_test_results.txt

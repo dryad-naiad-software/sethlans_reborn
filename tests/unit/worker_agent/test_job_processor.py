@@ -82,7 +82,7 @@ def test_execute_blender_job_cpu_success(mock_popen_setup):
 
 def test_execute_blender_job_gpu_command(mock_popen_setup):
     """
-    Tests that the GPU python expression is correctly added to the command for GPU jobs.
+    Tests that the --factory-startup flag is correctly OMITTED for GPU jobs.
     """
     mock_popen, mock_process = mock_popen_setup
     mock_process.wait.return_value = 0
@@ -97,11 +97,9 @@ def test_execute_blender_job_gpu_command(mock_popen_setup):
 
     called_command = mock_popen.call_args.args[0]
 
-    assert "--factory-startup" in called_command  # Should still be clean
-    assert "--python-expr" in called_command
-
-    gpu_expr_index = called_command.index("--python-expr") + 1
-    assert "bpy.context.scene.cycles.device='GPU'" in called_command[gpu_expr_index]
+    # --- THIS IS THE FIX ---
+    # Assert that the flag is NOT present for GPU jobs.
+    assert "--factory-startup" not in called_command
 
 
 def test_execute_blender_job_failure(mock_popen_setup):

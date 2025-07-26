@@ -24,8 +24,8 @@
 
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Worker, Job, JobStatus, Animation # Import Animation
-from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer # Import AnimationSerializer
+from .models import Worker, Job, JobStatus, Animation
+from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer
 from django.utils import timezone
 
 from rest_framework import viewsets
@@ -42,6 +42,7 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
     """
     API endpoint for workers to send heartbeats and register themselves.
     """
+
     def list(self, request):
         workers = Worker.objects.all()
         serializer = WorkerSerializer(workers, many=True)
@@ -52,35 +53,52 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         if not hostname:
             return Response({"detail": "Hostname is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        worker, created = Worker.objects.update_or_create(
-            hostname=hostname,
-            defaults={
-                'ip_address': request.data.get('ip_address'),
-                'os': request.data.get('os'),
-                'available_tools': request.data.get('available_tools', {}),
-                'last_seen': timezone.now(),
-                'is_active': True
-            }
-        )
+        # Differentiate between a full registration and a simple heartbeat
+        is_full_registration = 'os' in request.data or 'available_tools' in request.data
 
-        logger.info(f"Worker heartbeat. Hostname: {worker.hostname}, Created: {created}")
+        if is_full_registration:
+            # Handle initial registration or a full update of worker info
+            worker, created = Worker.objects.update_or_create(
+                hostname=hostname,
+                defaults={
+                    'ip_address': request.data.get('ip_address'),
+                    'os': request.data.get('os'),
+                    'available_tools': request.data.get('available_tools', {}),
+                    'last_seen': timezone.now(),
+                    'is_active': True
+                }
+            )
+            log_msg = "registration/full update" if not created else "registration"
+            logger.info(f"Worker {log_msg}. Hostname: {worker.hostname}")
+        else:
+            # Handle a simple, periodic heartbeat to keep the worker alive
+            try:
+                worker = Worker.objects.get(hostname=hostname)
+                worker.last_seen = timezone.now()
+                worker.is_active = True
+                worker.save(update_fields=['last_seen', 'is_active'])
+                logger.debug(f"Worker periodic heartbeat. Hostname: {worker.hostname}")
+            except Worker.DoesNotExist:
+                return Response(
+                    {"detail": "Worker not found. Please re-register with full system info."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
         serializer = WorkerSerializer(worker)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 class AnimationViewSet(viewsets.ModelViewSet):
     """
     API endpoint for creating and viewing Animation jobs.
-    Creating an Animation will automatically spawn child frame Jobs.
     """
     queryset = Animation.objects.all().order_by('-submitted_at')
     serializer_class = AnimationSerializer
 
     def perform_create(self, serializer):
-        # 1. Create the parent Animation object
         animation = serializer.save(status='QUEUED')
         logger.info(f"Created new animation '{animation.name}' (ID: {animation.id}). Spawning frame jobs...")
 
-        # 2. Loop through the frame range and create a child Job for each frame
         jobs_to_create = []
         for frame_num in range(animation.start_frame, animation.end_frame + 1):
             job = Job(
@@ -92,12 +110,13 @@ class AnimationViewSet(viewsets.ModelViewSet):
                 end_frame=frame_num,
                 blender_version=animation.blender_version,
                 render_engine=animation.render_engine,
-                render_device=animation.render_device, # <-- THE FIX IS HERE
+                render_device=animation.render_device,
             )
             jobs_to_create.append(job)
 
         Job.objects.bulk_create(jobs_to_create)
         logger.info(f"Successfully spawned {len(jobs_to_create)} frame jobs for animation ID {animation.id}.")
+
 
 class JobViewSet(viewsets.ModelViewSet):
     """

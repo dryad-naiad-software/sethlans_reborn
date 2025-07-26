@@ -1,5 +1,6 @@
 # dump_project_code.ps1
 # This script first outputs a clear directory listing of the project (excluding specified dirs),
+# then captures the full git log,
 # then divides the content of .py, .ini, and .txt files into manageable chunks (excluding specified dirs).
 # It ensures that each chunk ends cleanly at the end of a file.
 # It creates a manifest file and multiple chunk files for easier digestion by a chat model.
@@ -25,8 +26,8 @@ $ExcludeNames = @(
     "venv_worker",
     ".pytest_cache",
     "__pycache__",
-    "managed_tools",    # New exclusion
-    "render_test_output", # New exclusion
+    "managed_tools",
+    "render_test_output",
     "project_code_dump_chunks" # Exclude the output directory itself
 )
 
@@ -79,8 +80,15 @@ function Get-TreeListing {
         $relativePath = $_.FullName.Replace($ProjectRoot.ToString() + "\", "")
 
         # Check if the current item (directory or file) itself, or any of its parent directories, is excluded
-        if (Test-PathContainsExcludedDir $_.FullName) {
-            return # Skip this item and its children
+        if ($_.PSIsContainer) {
+            # Check if this directory's name is in ExcludeNames
+            if ($ExcludeNames -contains $_.Name) {
+                return # Skip this directory and its contents
+            }
+        }
+        # For files, also check if their parent directory is excluded
+        if (-not $_.PSIsContainer -and (Test-PathContainsExcludedDir $_.Directory.FullName)) {
+            return # Skip file if its parent directory is excluded
         }
 
         if ($_.PSIsContainer) {
@@ -96,7 +104,24 @@ function Get-TreeListing {
 Get-TreeListing -Path $ProjectRoot -Depth 0
 
 Add-Content -LiteralPath $ManifestFile -Value "--- END OF DIRECTORY LISTING ---"
-# --- End Directory Listing ---
+
+
+# --- Add Git Log ---
+Add-Content -LiteralPath $ManifestFile -Value "`n--- START OF GIT LOG ---"
+try {
+    # Change to project root to ensure git command runs correctly
+    Push-Location $ProjectRoot
+    # Get the full git log output and append it to the manifest file
+    $gitLogOutput = git log --pretty=fuller # Capture full output
+    Add-Content -LiteralPath $ManifestFile -Value $gitLogOutput
+    Pop-Location # Go back to original location
+} catch {
+    Add-Content -LiteralPath $ManifestFile -Value "ERROR: Could not get git log. Please ensure Git is installed and initialized in the project root."
+    Add-Content -LiteralPath $ManifestFile -Value "$($_.Exception.Message)"
+}
+Add-Content -LiteralPath $ManifestFile -Value "--- END OF GIT LOG ---"
+# --- End Git Log ---
+
 
 # --- Collect File Contents for Chunking ---
 # Filter files to dump, excluding specified directories and __pycache__ etc.
@@ -117,8 +142,7 @@ foreach ($file in $FilesToDump) {
     $formattedFileContent = "`n--- FILE_START: $relativePath ---`n$fileContent`n--- FILE_END: $relativePath ---"
 
     # Check if adding this file would exceed the max chunk size
-    # If current chunk is not empty AND adding this file would make it too big,
-    # or if this single file is larger than MaxChunkSize (it will become its own chunk)
+    # Or if this single file is larger than MaxChunkSize (it will become its own chunk)
     if ($CurrentChunkContent.Length -gt 0 -and ($CurrentChunkContent.Length + $formattedFileContent.Length) -gt $MaxChunkSizeChars) {
         # Save the current chunk before adding the new file
         $ChunkFileName = "project_code_chunk_{0:02d}.txt" -f $CurrentChunkNumber

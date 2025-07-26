@@ -1,3 +1,26 @@
+#
+# Copyright (c) 2025 Dryad and Naiad Software LLC
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#
+# Created by Mario Estrella on 07/23/2025.
+# Dryad and Naiad Software LLC
+# mestrella@dryadandnaiad.com
+# Project: sethlans_reborn
+#
 # sethlans_worker_agent/job_processor.py
 
 import datetime
@@ -9,6 +32,7 @@ import time
 import platform
 import threading
 import psutil
+import tempfile
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
@@ -107,7 +131,7 @@ def execute_blender_job(job_data):
     render_engine = job_data.get('render_engine', 'CYCLES')
     render_settings = job_data.get('render_settings', {})
     render_device = job_data.get('render_device', 'CPU')
-    temp_script_path = None
+    temp_script_path = None # Keep for render_settings, but not used for GPU
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
 
@@ -123,33 +147,27 @@ def execute_blender_job(job_data):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # Build the base command, always using --factory-startup for a clean slate
+    # --- FINAL REVISED LOGIC: Conditional --factory-startup ---
     command = [
-        blender_to_use, "--factory-startup", "-b", blend_file_path,
+        blender_to_use, "-b", blend_file_path,
         "-o", output_file_pattern.replace('####', '#'),
         "-F", "PNG", "-E", render_engine,
     ]
+
+    # For CPU jobs, force a clean state to override any .blend file GPU settings.
+    # For GPU jobs, omit it to RESPECT the .blend file's GPU settings.
+    if render_device == 'CPU':
+        command.insert(1, "--factory-startup")
+        logger.info("CPU job detected. Using --factory-startup to ensure CPU rendering.")
+    else:
+        logger.info("GPU job detected. Omitting --factory-startup to use pre-configured .blend file settings.")
 
     if start_frame == end_frame:
         command.extend(["-f", str(start_frame)])
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
 
-    # --- NEW LOGIC ---
-    # If a GPU render is requested for Cycles, inject a python script to enable it.
-    if render_device == 'GPU' and render_engine == 'CYCLES':
-        logger.info("GPU rendering requested. Dynamically configuring Blender Cycles device...")
-        py_command = (
-            "import bpy; "
-            "bpy.context.scene.cycles.device='GPU'; "
-            "prefs = bpy.context.preferences.addons['cycles'].preferences; "
-            "prefs.get_devices(); "
-            "for dev in prefs.devices: "
-            "    if dev.type == 'CPU': dev.use = False; "
-            "    else: dev.use = True; "
-        )
-        command.extend(["--python-expr", py_command])
-
+    # This override is kept for applying render settings from the API, if any.
     if isinstance(render_settings, dict):
         for key_path, value in render_settings.items():
             py_value = f"'{value}'" if isinstance(value, str) else value
@@ -195,9 +213,9 @@ def execute_blender_job(job_data):
                 logger.error(f"API error while checking for cancellation: {e}")
             time.sleep(2)
 
-        final_return_code = process.wait()
         stdout_thread.join()
         stderr_thread.join()
+        final_return_code = process.wait()
 
     except Exception as e:
         error_message = f"An unexpected error occurred during Blender execution: {e}"
@@ -223,6 +241,7 @@ def execute_blender_job(job_data):
     logger.debug(f"--- STDOUT ---\n{stdout_output[-1000:]}")
     logger.debug(f"--- STDERR ---\n{stderr_output}")
 
+    # This variable is defined but might not be used if render_settings is empty
     if temp_script_path and os.path.exists(temp_script_path):
         os.remove(temp_script_path)
 
