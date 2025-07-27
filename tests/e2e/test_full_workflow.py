@@ -39,6 +39,7 @@ import queue
 
 from sethlans_worker_agent import config as worker_config
 from sethlans_worker_agent import system_monitor
+from workers.constants import RenderSettings # <-- MODIFIED IMPORT
 
 
 def is_gpu_available():
@@ -307,7 +308,8 @@ class TestAnimationWorkflow(BaseE2ETest):
             "blender_version": "4.5.0",
             "render_device": "CPU",
             "render_settings": {
-                "cycles.samples": 25
+                RenderSettings.SAMPLES: 25,
+                RenderSettings.RESOLUTION_PERCENTAGE: 25
             }
         }
         create_response = requests.post(f"{MANAGER_URL}/animations/", json=anim_payload)

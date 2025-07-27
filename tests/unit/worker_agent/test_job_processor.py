@@ -33,6 +33,7 @@ from unittest.mock import MagicMock
 
 # Import the function to be tested and its dependencies
 from sethlans_worker_agent import job_processor
+from workers.constants import RenderSettings
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 # --- Test data for time parsing ---
@@ -73,7 +74,7 @@ def mock_popen_setup(mocker):
     (VALID_STDOUT_UNDER_AN_HOUR, 95),
     (VALID_STDOUT_OVER_AN_HOUR, 3723),
     ("Some other text...\nTime: 01:02:03.99 (Saving: 00:00.00)", 3723),
-    ("Another line...\nTime: 12.34 (Saving: 00.01)", None),  # Should not match MM:SS.ss without minutes
+    ("Another line...\nTime: 12.34 (Saving: 00.01)", None), # Should not match MM:SS.ss without minutes
     (NO_TIME_STDOUT, None),
     (PROGRESS_BAR_TIME_STDOUT, None),  # Should ignore intermediate time reports
     ("", None)
@@ -152,7 +153,6 @@ def test_execute_blender_job_gpu_command(mock_popen_setup):
     assert "--factory-startup" not in called_command
 
 
-# --- NEW TEST FOR RENDER SETTINGS ---
 def test_execute_blender_job_with_render_settings(mock_popen_setup):
     """
     Tests that render_settings are correctly converted into --python-expr arguments.
@@ -164,9 +164,9 @@ def test_execute_blender_job_with_render_settings(mock_popen_setup):
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
         'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'CPU',
         'render_settings': {
-            'cycles.samples': 128,
-            'resolution_x': 1920,
-            'resolution_y': 1080
+            RenderSettings.SAMPLES: 128,
+            RenderSettings.RESOLUTION_X: 1920,
+            RenderSettings.RESOLUTION_PERCENTAGE: 50
         }
     }
 
@@ -176,15 +176,15 @@ def test_execute_blender_job_with_render_settings(mock_popen_setup):
 
     # Check for the sample setting
     assert "--python-expr" in called_command
-    expected_samples_expr = "import bpy; bpy.context.scene.render.cycles.samples = 128"
+    expected_samples_expr = f"import bpy; bpy.context.scene.{RenderSettings.SAMPLES} = 128"
     assert expected_samples_expr in called_command
 
     # Check for resolution_x
-    expected_resx_expr = "import bpy; bpy.context.scene.render.resolution_x = 1920"
+    expected_resx_expr = f"import bpy; bpy.context.scene.{RenderSettings.RESOLUTION_X} = 1920"
     assert expected_resx_expr in called_command
 
-    # Check for resolution_y
-    expected_resy_expr = "import bpy; bpy.context.scene.render.resolution_y = 1080"
+    # Check for resolution percentage
+    expected_resy_expr = f"import bpy; bpy.context.scene.{RenderSettings.RESOLUTION_PERCENTAGE} = 50"
     assert expected_resy_expr in called_command
 
 

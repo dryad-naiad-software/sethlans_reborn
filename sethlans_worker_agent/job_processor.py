@@ -213,7 +213,8 @@ def execute_blender_job(job_data):
     if isinstance(render_settings, dict):
         for key_path, value in render_settings.items():
             py_value = f"'{value}'" if isinstance(value, str) else value
-            py_command = f"import bpy; bpy.context.scene.render.{key_path} = {py_value}"
+            # --- THIS IS THE FIX ---
+            py_command = f"import bpy; bpy.context.scene.{key_path} = {py_value}"
             command.extend(["--python-expr", py_command])
 
     logger.info(f"Running Command: {' '.join(command)}")
