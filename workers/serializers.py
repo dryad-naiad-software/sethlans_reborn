@@ -21,9 +21,10 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# workers/serializers.py
 
 from rest_framework import serializers
-from .models import Worker, Job, JobStatus, Animation # Import Animation
+from .models import Worker, Job, JobStatus, Animation
 
 class WorkerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -41,17 +42,16 @@ class AnimationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
             'blend_file_path', 'output_file_pattern', 'start_frame', 'end_frame',
-            'blender_version', 'render_engine', 'render_device', # <-- Added field
-            'submitted_at', 'completed_at'
+            'blender_version', 'render_engine', 'render_device',
+            'submitted_at', 'completed_at',
+            'total_render_time_seconds' # <-- ADDED
         ]
-        read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at')
-
+        read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at', 'total_render_time_seconds')
 
     def get_total_frames(self, obj):
         return (obj.end_frame - obj.start_frame) + 1
 
     def get_completed_frames(self, obj):
-        # Count all child jobs that are marked as DONE
         return obj.jobs.filter(status=JobStatus.DONE).count()
 
     def get_progress(self, obj):
@@ -84,9 +84,10 @@ class JobSerializer(serializers.ModelSerializer):
             'completed_at',
             'blender_version',
             'render_engine',
-            'render_device', # <-- Added field
+            'render_device',
             'last_output',
             'error_message',
+            'render_time_seconds', # <-- ADDED
         ]
         read_only_fields = [
             'submitted_at', 'started_at', 'completed_at',
@@ -97,4 +98,5 @@ class JobSerializer(serializers.ModelSerializer):
             'status': {'required': False},
             'assigned_worker': {'required': False},
             'animation': {'required': False},
+            'render_time_seconds': {'required': False}, # <-- ADDED
         }

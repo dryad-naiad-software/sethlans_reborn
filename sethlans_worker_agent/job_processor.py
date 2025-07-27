@@ -1,5 +1,3 @@
-# sethlans_worker_agent/job_processor.py
-
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -23,22 +21,50 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/job_processor.py
 
 import datetime
 import logging
 import os
-import platform
-import subprocess
-import threading
-import time
-
-import psutil
+import re
 import requests
+import subprocess
+import time
+import platform
+import threading
+import psutil
+import tempfile
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
+
+TIME_REGEX = re.compile(r"Time: (\d{2}):(\d{2}):(\d{2}\.\d{2})")
+
+
+def _parse_render_time(stdout_text):
+    """Parses Blender's stdout to find the total render time and returns it in seconds."""
+    match = TIME_REGEX.search(stdout_text)
+    if not match:
+        return None
+
+    try:
+        hours = int(match.group(1))
+        minutes = int(match.group(2))
+        seconds = float(match.group(3))
+
+        # --- NEW: Validate the parsed time components ---
+        if not (0 <= hours < 100 and 0 <= minutes < 60 and 0 <= seconds < 60):
+            logger.warning(f"Parsed invalid time components: {hours}h {minutes}m {seconds}s")
+            return None
+
+        total_seconds = int((hours * 3600) + (minutes * 60) + seconds)
+        logger.info(f"Parsed render time: {total_seconds} seconds.")
+        return total_seconds
+    except (IndexError, ValueError) as e:
+        logger.warning(f"Could not parse render time from stdout: {e}")
+        return None
 
 
 def update_job_status(job_url, payload):
@@ -82,6 +108,10 @@ def get_and_claim_job(worker_id):
                     "last_output": stdout,
                     "error_message": blender_error_msg,
                 }
+
+                render_time = _parse_render_time(stdout)
+                if render_time is not None:
+                    job_update_payload["render_time_seconds"] = render_time
 
                 if success:
                     job_update_payload["status"] = "DONE"
@@ -150,7 +180,6 @@ def execute_blender_job(job_data):
 
     command = [
         blender_to_use, "-b", blend_file_path,
-        # --- MODIFICATION: Pass the output pattern directly to Blender ---
         "-o", output_file_pattern,
         "-F", "PNG", "-E", render_engine,
     ]

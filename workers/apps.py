@@ -21,10 +21,14 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# workers/apps.py
 
 from django.apps import AppConfig
-
 
 class WorkersConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'workers'
+
+    def ready(self):
+        # Implicitly connect signal handlers decorated with @receiver.
+        from . import models

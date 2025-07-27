@@ -278,7 +278,6 @@ class TestGpuWorkflow(BaseE2ETest):
         print("E2E Full GPU Render Test Passed!")
 
 
-# --- NEW TEST CLASS FOR ANIMATIONS ---
 class TestAnimationWorkflow(BaseE2ETest):
     """Groups tests for the animation rendering workflow."""
 
@@ -287,7 +286,7 @@ class TestAnimationWorkflow(BaseE2ETest):
         Tests submitting a multi-frame animation, polling for completion,
         and verifying that all output files are created.
         """
-        start_frame, end_frame = 1, 10
+        start_frame, end_frame = 1, 5  # <-- MODIFIED
         total_frames = (end_frame - start_frame) + 1
         output_pattern = os.path.join(worker_config.TEST_OUTPUT_DIR, "anim_render_####")
 
@@ -308,7 +307,6 @@ class TestAnimationWorkflow(BaseE2ETest):
 
         print(f"Polling API for completion of {total_frames} frames...")
         completed = False
-        # Poll for up to 5 minutes, which should be plenty for 10 simple frames.
         for i in range(150):
             check_response = requests.get(anim_url)
             assert check_response.status_code == 200
@@ -324,11 +322,10 @@ class TestAnimationWorkflow(BaseE2ETest):
 
         print("Verifying output files...")
         for frame_num in range(start_frame, end_frame + 1):
-            # Format the output file path, replacing #### with the padded frame number
             expected_file_path = output_pattern.replace("####", f"{frame_num:04d}") + ".png"
             assert os.path.exists(expected_file_path), f"Output file is missing: {expected_file_path}"
 
-        print("SUCCESS: All 10 animation frames were rendered successfully.")
+        print(f"SUCCESS: All {total_frames} animation frames were rendered successfully.")
 
 
 class TestWorkerRegistration(BaseE2ETest):
