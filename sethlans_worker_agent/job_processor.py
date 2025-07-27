@@ -1,3 +1,5 @@
+# sethlans_worker_agent/job_processor.py
+
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -21,18 +23,17 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-# sethlans_worker_agent/job_processor.py
 
 import datetime
 import logging
 import os
-import requests
-import subprocess
-import time
 import platform
+import subprocess
 import threading
+import time
+
 import psutil
-import tempfile
+import requests
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
@@ -149,7 +150,8 @@ def execute_blender_job(job_data):
 
     command = [
         blender_to_use, "-b", blend_file_path,
-        "-o", output_file_pattern.replace('####', '#'),
+        # --- MODIFICATION: Pass the output pattern directly to Blender ---
+        "-o", output_file_pattern,
         "-F", "PNG", "-E", render_engine,
     ]
 
@@ -195,31 +197,26 @@ def execute_blender_job(job_data):
 
         job_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
-        # --- UNIFIED LOOP: Use process.poll() for waiting and psutil for cancellation on ALL platforms ---
         while process.poll() is None:
             try:
                 response = requests.get(job_url, timeout=5)
                 if response.status_code == 200 and response.json().get('status') == 'CANCELED':
                     logger.warning(f"Cancellation signal for job ID {job_id} received. Terminating process tree.")
                     parent = psutil.Process(process.pid)
-                    # Kill all children and then the parent process itself
                     for child in parent.children(recursive=True):
                         child.kill()
                     parent.kill()
                     was_canceled = True
                     break
             except (requests.exceptions.RequestException, psutil.NoSuchProcess):
-                # Ignore API errors or if the process finished between checks
                 if not psutil.pid_exists(process.pid):
                     break
 
             time.sleep(2)
 
-        # Wait for I/O threads to finish reading all output after the process has terminated
         stdout_thread.join()
         stderr_thread.join()
 
-        # Get the final return code. wait() is safe now because we know the process is terminated.
         final_return_code = process.wait()
 
     except Exception as e:

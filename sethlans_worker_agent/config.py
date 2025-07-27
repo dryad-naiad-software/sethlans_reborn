@@ -46,6 +46,7 @@ MANAGED_TOOLS_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'sethlans_worker_agent
 
 TEST_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'test_scene.blend')
 BENCHMARK_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'bmw27.blend')
+ANIMATION_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'animation.blend') # <-- ADDED
 TEST_OUTPUT_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'test_output')
 
 # --- Tool Discovery & Download Configuration ---
@@ -59,9 +60,6 @@ BLENDER_MIRROR_BASE_URLS = [
 
 BLENDER_VERSIONS_CACHE_FILE = os.path.join(MANAGED_TOOLS_DIR, 'blender_versions_cache.json')
 
-# --- NEW CONSTANT ---
-# The major.minor version series for the current Blender Long-Term Support release.
-# The worker will ensure the latest patch of this version is downloaded at startup.
 REQUIRED_LTS_VERSION_SERIES = "4.5"
 
 
@@ -82,7 +80,6 @@ PLATFORM_BLENDER_MAP = {
         'download_ext': '.tar.xz',
         'executable_path_in_folder': 'blender'
     },
-    # --- ADDED: Entry for ARM Linux ---
     ('Linux', 'aarch64'): {
         'download_suffix': 'linux-arm64',
         'download_ext': '.tar.xz',
@@ -96,7 +93,6 @@ PLATFORM_BLENDER_MAP = {
     ('Darwin', 'arm64'): {
         'download_suffix': 'macos-arm64',
         'download_ext': '.dmg',
-        # --- FIXED: Corrected typo from executable_path_in_in_folder ---
         'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'
     }
 }
@@ -112,10 +108,8 @@ def configure_worker_logging(log_level_str="INFO"):
     Configures the basic logging for the worker agent.
     This should be called once at startup.
     """
-    # Map the string name to the actual logging level constant
     log_level = getattr(logging, log_level_str.upper(), logging.INFO)
 
-    # Ensure handlers are not duplicated if called multiple times
     if not logging.root.handlers:
         logging.basicConfig(
             level=log_level,

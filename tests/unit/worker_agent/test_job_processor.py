@@ -132,7 +132,7 @@ def test_execute_blender_job_animation_command(mock_popen_setup):
 
     expected_command = [
         "/mock/tools/blender", '--factory-startup', '-b', '/path/to/scene.blend',
-        '-o', '/path/to/output/frame_#', '-F', 'PNG', '-E', 'CYCLES',
+        '-o', '/path/to/output/frame_####', '-F', 'PNG', '-E', 'CYCLES',
         '-s', '10', '-e', '20', '-a'
     ]
 

@@ -217,12 +217,10 @@ class TestGpuWorkflow(BaseE2ETest):
         print("Waiting for worker to prepare the render command...")
         command_logged = False
         start_time = time.time()
-        # Drain the queue to look for the command
         while time.time() - start_time < 60:
             try:
                 line = self.worker_log_queue.get(timeout=1)
                 if "Running Command:" in line:
-                    # Verify the key behavior: --factory-startup is MISSING for GPU jobs.
                     assert "--factory-startup" not in line
                     command_logged = True
                     break
@@ -267,7 +265,7 @@ class TestGpuWorkflow(BaseE2ETest):
 
         print("Polling API for DONE status...")
         final_status = ""
-        for i in range(120):  # GPU renders can take longer
+        for i in range(120):
             check_response = requests.get(f"{MANAGER_URL}/jobs/{job_id}/")
             if check_response.status_code == 200:
                 current_status = check_response.json()['status']
@@ -278,6 +276,59 @@ class TestGpuWorkflow(BaseE2ETest):
             time.sleep(2)
         assert final_status == "DONE", f"Job finished with status '{final_status}', expected 'DONE'."
         print("E2E Full GPU Render Test Passed!")
+
+
+# --- NEW TEST CLASS FOR ANIMATIONS ---
+class TestAnimationWorkflow(BaseE2ETest):
+    """Groups tests for the animation rendering workflow."""
+
+    def test_animation_render_workflow(self):
+        """
+        Tests submitting a multi-frame animation, polling for completion,
+        and verifying that all output files are created.
+        """
+        start_frame, end_frame = 1, 10
+        total_frames = (end_frame - start_frame) + 1
+        output_pattern = os.path.join(worker_config.TEST_OUTPUT_DIR, "anim_render_####")
+
+        print("\n--- ACTION: Submitting animation job ---")
+        anim_payload = {
+            "name": "E2E Animation Test",
+            "blend_file_path": worker_config.ANIMATION_BLEND_FILE_PATH,
+            "output_file_pattern": output_pattern,
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "blender_version": "4.5.0",
+            "render_device": "CPU"
+        }
+        create_response = requests.post(f"{MANAGER_URL}/animations/", json=anim_payload)
+        assert create_response.status_code == 201
+        anim_id = create_response.json()['id']
+        anim_url = f"{MANAGER_URL}/animations/{anim_id}/"
+
+        print(f"Polling API for completion of {total_frames} frames...")
+        completed = False
+        # Poll for up to 5 minutes, which should be plenty for 10 simple frames.
+        for i in range(150):
+            check_response = requests.get(anim_url)
+            assert check_response.status_code == 200
+            data = check_response.json()
+            completed_frames = data.get('completed_frames', 0)
+            print(f"  Attempt {i + 1}/150: {data.get('progress', 'N/A')}")
+            if completed_frames == total_frames:
+                completed = True
+                break
+            time.sleep(2)
+
+        assert completed, f"Animation did not complete in time. Only {completed_frames}/{total_frames} frames finished."
+
+        print("Verifying output files...")
+        for frame_num in range(start_frame, end_frame + 1):
+            # Format the output file path, replacing #### with the padded frame number
+            expected_file_path = output_pattern.replace("####", f"{frame_num:04d}") + ".png"
+            assert os.path.exists(expected_file_path), f"Output file is missing: {expected_file_path}"
+
+        print("SUCCESS: All 10 animation frames were rendered successfully.")
 
 
 class TestWorkerRegistration(BaseE2ETest):
