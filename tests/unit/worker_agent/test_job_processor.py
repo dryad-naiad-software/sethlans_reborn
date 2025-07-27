@@ -10,12 +10,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/24/2025.
@@ -73,7 +73,7 @@ def mock_popen_setup(mocker):
     (VALID_STDOUT_UNDER_AN_HOUR, 95),
     (VALID_STDOUT_OVER_AN_HOUR, 3723),
     ("Some other text...\nTime: 01:02:03.99 (Saving: 00:00.00)", 3723),
-    ("Another line...\nTime: 12.34 (Saving: 00.01)", None), # Should not match MM:SS.ss without minutes
+    ("Another line...\nTime: 12.34 (Saving: 00.01)", None),  # Should not match MM:SS.ss without minutes
     (NO_TIME_STDOUT, None),
     (PROGRESS_BAR_TIME_STDOUT, None),  # Should ignore intermediate time reports
     ("", None)
@@ -150,6 +150,42 @@ def test_execute_blender_job_gpu_command(mock_popen_setup):
 
     called_command = mock_popen.call_args.args[0]
     assert "--factory-startup" not in called_command
+
+
+# --- NEW TEST FOR RENDER SETTINGS ---
+def test_execute_blender_job_with_render_settings(mock_popen_setup):
+    """
+    Tests that render_settings are correctly converted into --python-expr arguments.
+    """
+    mock_popen, _ = mock_popen_setup
+
+    mock_job_data = {
+        'id': 6, 'name': 'Settings Override', 'blend_file_path': '/path/to/scene.blend',
+        'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
+        'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'CPU',
+        'render_settings': {
+            'cycles.samples': 128,
+            'resolution_x': 1920,
+            'resolution_y': 1080
+        }
+    }
+
+    job_processor.execute_blender_job(mock_job_data)
+
+    called_command = mock_popen.call_args.args[0]
+
+    # Check for the sample setting
+    assert "--python-expr" in called_command
+    expected_samples_expr = "import bpy; bpy.context.scene.render.cycles.samples = 128"
+    assert expected_samples_expr in called_command
+
+    # Check for resolution_x
+    expected_resx_expr = "import bpy; bpy.context.scene.render.resolution_x = 1920"
+    assert expected_resx_expr in called_command
+
+    # Check for resolution_y
+    expected_resy_expr = "import bpy; bpy.context.scene.render.resolution_y = 1080"
+    assert expected_resy_expr in called_command
 
 
 def test_execute_blender_job_failure(mock_popen_setup):

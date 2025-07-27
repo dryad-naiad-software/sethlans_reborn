@@ -10,12 +10,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/23/2025.
@@ -213,7 +213,7 @@ def execute_blender_job(job_data):
     if isinstance(render_settings, dict):
         for key_path, value in render_settings.items():
             py_value = f"'{value}'" if isinstance(value, str) else value
-            py_command = f"import bpy; bpy.context.scene.{key_path} = {py_value}"
+            py_command = f"import bpy; bpy.context.scene.render.{key_path} = {py_value}"
             command.extend(["--python-expr", py_command])
 
     logger.info(f"Running Command: {' '.join(command)}")

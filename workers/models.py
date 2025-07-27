@@ -8,12 +8,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/22/2025.
@@ -66,7 +66,7 @@ class Animation(models.Model):
                                        help_text="e.g., '4.5' or 'blender-4.5.0-windows-x64'")
     render_engine = models.CharField(max_length=100, default="CYCLES", help_text="e.g., 'CYCLES' or 'BLENDER_EEVEE'")
     render_device = models.CharField(max_length=10, default="CPU")
-    # --- NEW FIELD ---
+    render_settings = models.JSONField(default=dict, blank=True, help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
     total_render_time_seconds = models.IntegerField(default=0,
                                                     help_text="The cumulative render time of all completed frames in this animation.")
 
@@ -99,6 +99,7 @@ class Job(models.Model):
                                        help_text="e.g., '4.5' or 'blender-4.5.0-windows-x64'")
     render_engine = models.CharField(max_length=100, default="CYCLES", help_text="e.g., 'CYCLES' or 'BLENDER_EEVEE'")
     render_device = models.CharField(max_length=10, default="CPU")
+    render_settings = models.JSONField(default=dict, blank=True, help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
     last_output = models.TextField(blank=True, default='')
     error_message = models.TextField(blank=True, default='')
     animation = models.ForeignKey(
@@ -108,7 +109,6 @@ class Job(models.Model):
         blank=True,
         related_name='jobs'
     )
-    # --- NEW FIELD ---
     render_time_seconds = models.IntegerField(null=True, blank=True,
                                               help_text="The total time in seconds this job took to render.")
 
@@ -121,7 +121,6 @@ class Job(models.Model):
         verbose_name_plural = "Render Jobs"
 
 
-# --- NEW SIGNAL RECEIVER ---
 @receiver(post_save, sender=Job)
 def update_animation_on_job_complete(sender, instance, **kwargs):
     """

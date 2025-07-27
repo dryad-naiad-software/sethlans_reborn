@@ -10,12 +10,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/23/2025.
@@ -110,7 +110,7 @@ class BaseE2ETest:
         while time.time() - start_time < max_wait_seconds:
             try:
                 line = cls.worker_log_queue.get(timeout=1)
-                print(f"  [SETUP LOG] {line.strip()}")
+                print(f"  [SETUP LOG] {line.strip()}")
                 if "Loop finished. Sleeping for" in line:
                     print("Worker is ready!")
                     worker_ready = True
@@ -132,7 +132,7 @@ class BaseE2ETest:
         while not cls.worker_log_queue.empty():
             try:
                 line = cls.worker_log_queue.get_nowait()
-                print(f"  [WORKER] {line.strip()}")
+                print(f"  [WORKER] {line.strip()}")
             except queue.Empty:
                 break
         print("--- END OF WORKER LOGS ---\n")
@@ -276,7 +276,7 @@ class TestGpuWorkflow(BaseE2ETest):
             check_response = requests.get(f"{MANAGER_URL}/jobs/{job_id}/")
             if check_response.status_code == 200:
                 current_status = check_response.json()['status']
-                print(f"  Attempt {i + 1}/120: Current job status is {current_status}")
+                print(f"  Attempt {i + 1}/120: Current job status is {current_status}")
                 if current_status in ["DONE", "ERROR"]:
                     final_status = current_status
                     break
@@ -305,7 +305,10 @@ class TestAnimationWorkflow(BaseE2ETest):
             "start_frame": start_frame,
             "end_frame": end_frame,
             "blender_version": "4.5.0",
-            "render_device": "CPU"
+            "render_device": "CPU",
+            "render_settings": {
+                "cycles.samples": 25
+            }
         }
         create_response = requests.post(f"{MANAGER_URL}/animations/", json=anim_payload)
         assert create_response.status_code == 201
@@ -319,7 +322,7 @@ class TestAnimationWorkflow(BaseE2ETest):
             assert check_response.status_code == 200
             data = check_response.json()
             completed_frames = data.get('completed_frames', 0)
-            print(f"  Attempt {i + 1}/150: {data.get('progress', 'N/A')}")
+            print(f"  Attempt {i + 1}/150: {data.get('progress', 'N/A')}")
             if completed_frames == total_frames:
                 completed = True
                 break

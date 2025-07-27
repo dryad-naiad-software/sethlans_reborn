@@ -8,12 +8,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/22/2025.
@@ -43,8 +43,9 @@ class AnimationSerializer(serializers.ModelSerializer):
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
             'blend_file_path', 'output_file_pattern', 'start_frame', 'end_frame',
             'blender_version', 'render_engine', 'render_device',
+            'render_settings',
             'submitted_at', 'completed_at',
-            'total_render_time_seconds' # <-- ADDED
+            'total_render_time_seconds'
         ]
         read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at', 'total_render_time_seconds')
 
@@ -85,9 +86,10 @@ class JobSerializer(serializers.ModelSerializer):
             'blender_version',
             'render_engine',
             'render_device',
+            'render_settings',
             'last_output',
             'error_message',
-            'render_time_seconds', # <-- ADDED
+            'render_time_seconds',
         ]
         read_only_fields = [
             'submitted_at', 'started_at', 'completed_at',
@@ -98,5 +100,6 @@ class JobSerializer(serializers.ModelSerializer):
             'status': {'required': False},
             'assigned_worker': {'required': False},
             'animation': {'required': False},
-            'render_time_seconds': {'required': False}, # <-- ADDED
+            'render_time_seconds': {'required': False},
+            'render_settings': {'required': False},
         }

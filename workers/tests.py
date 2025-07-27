@@ -10,12 +10,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/22/2025.
@@ -189,6 +189,29 @@ class AnimationViewSetTests(APITestCase):
         self.assertEqual(response.data['total_frames'], 10)
         self.assertEqual(response.data['completed_frames'], 3)
         self.assertEqual(response.data['progress'], "3 of 10 frames complete")
+
+    def test_create_animation_propagates_render_settings(self):
+        """
+        Ensure that render_settings from an Animation are copied to its child Jobs.
+        """
+        animation_data = {
+            "name": "Render Settings Test",
+            "blend_file_path": "/path/to/animation.blend",
+            "output_file_pattern": "//renders/settings_####",
+            "start_frame": 1,
+            "end_frame": 2,
+            "render_settings": {"cycles.samples": 32, "resolution_x": 800}
+        }
+        url = "/api/animations/"
+        response = self.client.post(url, animation_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        parent_animation = Animation.objects.get()
+        self.assertEqual(parent_animation.render_settings['cycles.samples'], 32)
+
+        first_job = Job.objects.order_by('start_frame').first()
+        self.assertEqual(first_job.render_settings['cycles.samples'], 32)
+        self.assertEqual(first_job.render_settings['resolution_x'], 800)
 
 
 # --- NEW TEST CLASS FOR SIGNALS ---
