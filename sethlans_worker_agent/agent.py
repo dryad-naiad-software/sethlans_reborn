@@ -1,3 +1,5 @@
+# sethlans_worker_agent/agent.py
+
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -21,8 +23,6 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-# sethlans_worker_agent/agent.py
-# sethlans_worker_agent/agent.py
 
 import argparse
 import logging
@@ -79,6 +79,7 @@ def main():
             system_monitor.send_heartbeat()
             job_processor.get_and_claim_job(worker_id)
 
+            # --- RESTORED: Always sleep after a work cycle ---
             logger.debug(f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds.")
             time.sleep(config.JOB_POLLING_INTERVAL_SECONDS)
 

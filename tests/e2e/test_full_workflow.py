@@ -179,11 +179,12 @@ class TestRenderWorkflow(BaseE2ETest):
         create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
         assert create_response.status_code == 201
         job_id = create_response.json()['id']
+        job_url = f"{MANAGER_URL}/jobs/{job_id}/"
 
         print("Polling API for DONE status...")
         final_status = ""
         for i in range(120):
-            check_response = requests.get(f"{MANAGER_URL}/jobs/{job_id}/")
+            check_response = requests.get(job_url)
             if check_response.status_code == 200:
                 current_status = check_response.json()['status']
                 if current_status in ["DONE", "ERROR"]:
@@ -191,6 +192,12 @@ class TestRenderWorkflow(BaseE2ETest):
                     break
             time.sleep(2)
         assert final_status == "DONE"
+
+        # --- UPDATED ASSERTION ---
+        print("Verifying render time was recorded...")
+        final_job_data = requests.get(job_url).json()
+        assert final_job_data.get('render_time_seconds') is not None
+        assert final_job_data.get('render_time_seconds') > 0
 
 
 class TestGpuWorkflow(BaseE2ETest):
@@ -286,7 +293,7 @@ class TestAnimationWorkflow(BaseE2ETest):
         Tests submitting a multi-frame animation, polling for completion,
         and verifying that all output files are created.
         """
-        start_frame, end_frame = 1, 5  # <-- MODIFIED
+        start_frame, end_frame = 1, 5
         total_frames = (end_frame - start_frame) + 1
         output_pattern = os.path.join(worker_config.TEST_OUTPUT_DIR, "anim_render_####")
 
@@ -326,6 +333,12 @@ class TestAnimationWorkflow(BaseE2ETest):
             assert os.path.exists(expected_file_path), f"Output file is missing: {expected_file_path}"
 
         print(f"SUCCESS: All {total_frames} animation frames were rendered successfully.")
+
+        # --- ADDED ASSERTION ---
+        print("Verifying total animation render time was recorded...")
+        final_anim_data = requests.get(anim_url).json()
+        assert final_anim_data.get('total_render_time_seconds') is not None
+        assert final_anim_data.get('total_render_time_seconds') > 0
 
 
 class TestWorkerRegistration(BaseE2ETest):

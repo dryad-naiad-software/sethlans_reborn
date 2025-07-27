@@ -54,3 +54,4 @@ Thumbs.db
 # Test Results
 unit_test_results.txt
 e2e_test_results.txt
+/parse_log_file.py

@@ -1,3 +1,5 @@
+# sethlans_worker_agent/job_processor.py
+
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -21,7 +23,6 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-# sethlans_worker_agent/job_processor.py
 
 import datetime
 import logging
@@ -40,31 +41,43 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
 
-TIME_REGEX = re.compile(r"Time: (\d{2}):(\d{2}):(\d{2}\.\d{2})")
-
 
 def _parse_render_time(stdout_text):
-    """Parses Blender's stdout to find the total render time and returns it in seconds."""
-    match = TIME_REGEX.search(stdout_text)
-    if not match:
-        return None
+    """
+    Parses Blender's stdout log content to find the total render time by
+    finding the unique final summary line containing "(Saving:)". This is the most
+    robust method, as it avoids issues with progress bar output.
+    """
+    # Regex makes the HH: component optional to handle renders under an hour.
+    # Group 1: Hours (Optional), Group 2: Minutes, Group 3: Seconds
+    time_line_regex = re.compile(r"Time: (?:(\d{2}):)?(\d{2}):(\d{2}\.\d{2})")
 
-    try:
-        hours = int(match.group(1))
-        minutes = int(match.group(2))
-        seconds = float(match.group(3))
+    # Iterate through each line of the captured output.
+    for line in stdout_text.splitlines():
+        # The final summary line is the ONLY one that contains "(Saving:".
+        if "(Saving:" in line:
+            match = time_line_regex.search(line)
+            if match:
+                try:
+                    # Handle the optional hour group
+                    hours_str = match.group(1)
+                    minutes_str = match.group(2)
+                    seconds_str = match.group(3)
 
-        # --- NEW: Validate the parsed time components ---
-        if not (0 <= hours < 100 and 0 <= minutes < 60 and 0 <= seconds < 60):
-            logger.warning(f"Parsed invalid time components: {hours}h {minutes}m {seconds}s")
-            return None
+                    hours = int(hours_str) if hours_str else 0
+                    minutes = int(minutes_str)
+                    seconds = float(seconds_str)
 
-        total_seconds = int((hours * 3600) + (minutes * 60) + seconds)
-        logger.info(f"Parsed render time: {total_seconds} seconds.")
-        return total_seconds
-    except (IndexError, ValueError) as e:
-        logger.warning(f"Could not parse render time from stdout: {e}")
-        return None
+                    total_seconds = int((hours * 3600) + (minutes * 60) + seconds)
+                    logger.info(f"Parsed render time: {total_seconds} seconds from line: '{line.strip()}'")
+                    return total_seconds
+                except (IndexError, ValueError) as e:
+                    logger.warning(f"Found summary line but failed to parse time: '{line.strip()}' - {e}")
+                    return None
+
+    # If the loop finishes without finding the line.
+    logger.warning("Could not find the final 'Time: ... (Saving: ...)' summary line in the render output.")
+    return None
 
 
 def update_job_status(job_url, payload):
@@ -77,7 +90,9 @@ def update_job_status(job_url, payload):
 
 
 def get_and_claim_job(worker_id):
-    """Polls the manager for a job, claims it, and processes it."""
+    """
+    Polls for jobs, claims the first available one, and processes it.
+    """
     poll_url = f"{config.MANAGER_API_URL}jobs/"
     params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
 

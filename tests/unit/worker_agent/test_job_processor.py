@@ -35,9 +35,11 @@ from unittest.mock import MagicMock
 from sethlans_worker_agent import job_processor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
-# --- NEW: Test data for time parsing ---
-VALID_STDOUT = "Blender render complete\nSaved: '/tmp/test.png'\nTime: 00:01:35.25 (Saving: 00:00.10)\n"
+# --- Test data for time parsing ---
+VALID_STDOUT_UNDER_AN_HOUR = "Blender render complete\nSaved: '/tmp/test.png'\nTime: 01:35.25 (Saving: 00:00.10)\n"
+VALID_STDOUT_OVER_AN_HOUR = "Blender render complete\nSaved: '/tmp/test.png'\nTime: 01:02:03.99 (Saving: 00:00.00)\n"
 NO_TIME_STDOUT = "Blender render complete\n"
+PROGRESS_BAR_TIME_STDOUT = "Fra:1 Mem:158.90M | Time:00:09.53 | Remaining:00:20.23"
 
 
 @pytest.fixture
@@ -66,12 +68,14 @@ def mock_popen_setup(mocker):
     return mock_popen, mock_process
 
 
-# --- NEW TESTS for the time parsing logic ---
+# --- UPDATED: Tests for the final, robust time parsing logic ---
 @pytest.mark.parametrize("stdout, expected_seconds", [
-    (VALID_STDOUT, 95),
-    ("Some other text... Time: 01:02:03.99 ...more text", 3723),
+    (VALID_STDOUT_UNDER_AN_HOUR, 95),
+    (VALID_STDOUT_OVER_AN_HOUR, 3723),
+    ("Some other text...\nTime: 01:02:03.99 (Saving: 00:00.00)", 3723),
+    ("Another line...\nTime: 12.34 (Saving: 00.01)", None), # Should not match MM:SS.ss without minutes
     (NO_TIME_STDOUT, None),
-    ("Invalid Time: 99:99:99.99", None),
+    (PROGRESS_BAR_TIME_STDOUT, None),  # Should ignore intermediate time reports
     ("", None)
 ])
 def test_parse_render_time(stdout, expected_seconds):
@@ -98,7 +102,7 @@ def test_get_and_claim_job_sends_render_time(mocker):
 
     mocker.patch(
         'sethlans_worker_agent.job_processor.execute_blender_job',
-        return_value=(True, False, VALID_STDOUT, "", "")
+        return_value=(True, False, VALID_STDOUT_UNDER_AN_HOUR, "", "")
     )
 
     job_processor.get_and_claim_job(mock_worker_id)
