@@ -26,15 +26,16 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from .views import WorkerHeartbeatViewSet, JobViewSet, AnimationViewSet, AssetViewSet # <-- Import AssetViewSet
+from .views import WorkerHeartbeatViewSet, JobViewSet, AnimationViewSet, AssetViewSet, ProjectViewSet
 
 # Create a router instance
 router = DefaultRouter()
 # Register your ViewSets with the router.
+router.register(r'projects', ProjectViewSet, basename='project')
 router.register(r'jobs', JobViewSet, basename='job')
 router.register(r'heartbeat', WorkerHeartbeatViewSet, basename='heartbeat')
 router.register(r'animations', AnimationViewSet, basename='animation')
-router.register(r'assets', AssetViewSet, basename='asset') # <-- New registration for assets
+router.register(r'assets', AssetViewSet, basename='asset')
 
 urlpatterns = [
     # Include all router URLs at the root of /api/

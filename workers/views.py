@@ -8,12 +8,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/22/2025.
@@ -24,8 +24,8 @@
 
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Worker, Job, JobStatus, Animation, Asset
-from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer
+from .models import Worker, Job, JobStatus, Animation, Asset, Project
+from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer, ProjectSerializer
 from django.utils import timezone
 
 from rest_framework import viewsets
@@ -37,6 +37,14 @@ from rest_framework import filters
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class ProjectViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for creating and viewing Projects.
+    """
+    queryset = Project.objects.all().order_by('-created_at')
+    serializer_class = ProjectSerializer
 
 
 class WorkerHeartbeatViewSet(viewsets.ViewSet):
@@ -95,9 +103,11 @@ class AnimationViewSet(viewsets.ModelViewSet):
     """
     queryset = Animation.objects.all().order_by('-submitted_at')
     serializer_class = AnimationSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'project']
 
     def perform_create(self, serializer):
-        animation = serializer.save(status='QUEUED')
+        animation = serializer.save()
         logger.info(f"Created new animation '{animation.name}' (ID: {animation.id}). Spawning frame jobs...")
 
         jobs_to_create = []
@@ -105,7 +115,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
             job = Job(
                 animation=animation,
                 name=f"{animation.name}_Frame_{frame_num:04d}",
-                asset=animation.asset, # <-- UPDATED
+                asset=animation.asset,
                 output_file_pattern=animation.output_file_pattern,
                 start_frame=frame_num,
                 end_frame=frame_num,
@@ -127,6 +137,8 @@ class AssetViewSet(viewsets.ModelViewSet):
     queryset = Asset.objects.all()
     serializer_class = AssetSerializer
     parser_classes = (MultiPartParser, FileUploadParser)
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['project']
 
 
 class JobViewSet(viewsets.ModelViewSet):
@@ -136,8 +148,8 @@ class JobViewSet(viewsets.ModelViewSet):
     queryset = Job.objects.all()
     serializer_class = JobSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'assigned_worker', 'animation']
-    search_fields = ['name', 'asset__name'] # <-- UPDATED
+    filterset_fields = ['status', 'assigned_worker', 'animation', 'asset__project']
+    search_fields = ['name', 'asset__name', 'asset__project__name']
     ordering_fields = ['submitted_at', 'status', 'name']
 
     @action(detail=True, methods=['post'])

@@ -8,12 +8,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/23/2025.
@@ -68,17 +68,18 @@ class BaseE2ETest:
     worker_log_queue = queue.Queue()
     _blender_cache_path = None
 
-    # --- NEW: Asset IDs will be stored here ---
+    project_id = None
     scene_asset_id = None
     bmw_asset_id = None
     anim_asset_id = None
 
     @classmethod
-    def _upload_test_asset(cls, name, file_path):
+    def _upload_test_asset(cls, name, file_path, project_id):
         """Helper to upload a blend file and return its asset ID."""
         with open(file_path, 'rb') as f:
             payload = {
                 "name": name,
+                "project": project_id,
             }
             files = {
                 "blend_file": (os.path.basename(file_path), f.read(), "application/octet-stream")
@@ -149,7 +150,7 @@ class BaseE2ETest:
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
         if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR,
-                                                                       ignore_errors=True)
+                                                                        ignore_errors=True)
         if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
             worker_config.BLENDER_VERSIONS_CACHE_FILE)
         if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
@@ -166,6 +167,7 @@ class BaseE2ETest:
         test_env = os.environ.copy()
         test_env["SETHLANS_DB_NAME"] = TEST_DB_NAME
         test_env["DJANGO_SETTINGS_MODULE"] = "config.settings"
+        test_env["SETHLANS_MEDIA_ROOT"] = str(MEDIA_ROOT_FOR_TEST)
         subprocess.run([sys.executable, "manage.py", "migrate"], cwd=PROJECT_ROOT, env=test_env, check=True,
                        capture_output=True)
 
@@ -175,11 +177,17 @@ class BaseE2ETest:
                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(5)
 
-        # --- NEW: Upload assets after manager starts ---
+        print("Creating E2E test project...")
+        project_payload = {"name": f"E2E-Test-Project-{int(time.time())}"}
+        response = requests.post(f"{MANAGER_URL}/projects/", json=project_payload)
+        response.raise_for_status()
+        cls.project_id = response.json()['id']
+        print(f"Test project created with ID: {cls.project_id}")
+
         print("Uploading test assets...")
-        cls.scene_asset_id = cls._upload_test_asset("E2E Test Scene", worker_config.TEST_BLEND_FILE_PATH)
-        cls.bmw_asset_id = cls._upload_test_asset("E2E BMW Scene", worker_config.BENCHMARK_BLEND_FILE_PATH)
-        cls.anim_asset_id = cls._upload_test_asset("E2E Animation Scene", worker_config.ANIMATION_BLEND_FILE_PATH)
+        cls.scene_asset_id = cls._upload_test_asset("E2E Test Scene", worker_config.TEST_BLEND_FILE_PATH, cls.project_id)
+        cls.bmw_asset_id = cls._upload_test_asset("E2E BMW Scene", worker_config.BENCHMARK_BLEND_FILE_PATH, cls.project_id)
+        cls.anim_asset_id = cls._upload_test_asset("E2E Animation Scene", worker_config.ANIMATION_BLEND_FILE_PATH, cls.project_id)
         print(f"Assets uploaded: scene_id={cls.scene_asset_id}, bmw_id={cls.bmw_asset_id}, anim_id={cls.anim_asset_id}")
 
         print("Starting Worker Agent...")
@@ -244,7 +252,7 @@ class BaseE2ETest:
 
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
         if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR,
-                                                                       ignore_errors=True)
+                                                                        ignore_errors=True)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
         if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
             worker_config.BLENDER_VERSIONS_CACHE_FILE)
@@ -363,6 +371,7 @@ class TestAnimationWorkflow(BaseE2ETest):
         print("\n--- ACTION: Submitting animation job ---")
         anim_payload = {
             "name": "E2E Animation Test",
+            "project": self.project_id,
             "asset_id": self.anim_asset_id,
             "output_file_pattern": output_pattern,
             "start_frame": start_frame,

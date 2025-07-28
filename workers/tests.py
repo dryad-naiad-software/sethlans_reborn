@@ -10,12 +10,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/22/2025.
@@ -27,24 +27,48 @@
 
 import tempfile
 import shutil
+import os
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.test import APITestCase
-from .models import Job, Worker, JobStatus, Animation, Asset
+from .models import Job, Worker, JobStatus, Animation, Asset, Project
 
 
-# --- NEW TEST CLASS FOR ASSETS ---
-@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
-class AssetViewSetTests(APITestCase):
+class BaseMediaTestCase(APITestCase):
     """
-    Test suite for the AssetViewSet, specifically for file uploads.
+    A base test case that creates a temporary MEDIA_ROOT for tests
+    that involve file uploads, and cleans it up afterward. It also
+    creates a default Project instance for tests to use.
     """
+    _media_root_override = None
+    media_root = None
+
+    @classmethod
+    def setUpClass(cls):
+        """Create a temporary directory and activate the MEDIA_ROOT override."""
+        super().setUpClass()
+        cls.media_root = tempfile.mkdtemp()
+        cls._media_root_override = override_settings(MEDIA_ROOT=cls.media_root)
+        cls._media_root_override.enable()
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(tempfile.gettempdir(), ignore_errors=True)
+        """Deactivate the MEDIA_ROOT override and remove the temporary directory."""
+        cls._media_root_override.disable()
+        if cls.media_root and os.path.exists(cls.media_root):
+            shutil.rmtree(cls.media_root, ignore_errors=True)
         super().tearDownClass()
+
+    def setUp(self):
+        """Create a default Project for test methods to use."""
+        self.project = Project.objects.create(name="Default Test Project")
+
+
+class AssetViewSetTests(BaseMediaTestCase):
+    """
+    Test suite for the AssetViewSet, specifically for file uploads.
+    """
 
     def test_upload_asset_file(self):
         """
@@ -61,6 +85,7 @@ class AssetViewSetTests(APITestCase):
         asset_data = {
             "name": "Test Scene Asset",
             "blend_file": uploaded_file,
+            "project": self.project.id
         }
 
         url = "/api/assets/"
@@ -71,8 +96,13 @@ class AssetViewSetTests(APITestCase):
 
         new_asset = Asset.objects.get()
         self.assertEqual(new_asset.name, "Test Scene Asset")
-        self.assertTrue(new_asset.blend_file.name.startswith("assets/"))
-        self.assertTrue(new_asset.blend_file.name.endswith("test_scene.blend"))
+        self.assertEqual(new_asset.project, self.project)
+
+        # --- MODIFIED ASSERTIONS FOR UUID FILENAME AND PROJECT PATH ---
+        expected_path_start = f"assets/{self.project.id}/"
+        self.assertTrue(new_asset.blend_file.name.startswith(expected_path_start))
+        self.assertTrue(new_asset.blend_file.name.endswith(".blend"))
+        self.assertNotIn("test_scene", new_asset.blend_file.name)
 
         # Verify the file content on disk
         with new_asset.blend_file.open('rb') as f:
@@ -127,15 +157,17 @@ class WorkerHeartbeatTests(APITestCase):
         self.assertEqual(updated_worker.available_tools['blender'][0], "4.2.0")
 
 
-class JobViewSetTests(APITestCase):
+class JobViewSetTests(BaseMediaTestCase):
     """
     Test suite for the JobViewSet.
     """
 
     def setUp(self):
-        """Create a dummy asset for jobs to link to."""
+        """Create a dummy project and asset for jobs to link to."""
+        super().setUp()
         self.asset = Asset.objects.create(
             name="Test Asset for Jobs",
+            project=self.project,
             blend_file=SimpleUploadedFile("dummy.blend", b"data")
         )
 
@@ -199,13 +231,15 @@ class JobViewSetTests(APITestCase):
         self.assertEqual(response.data['status'], JobStatus.CANCELED)
 
 
-class AnimationViewSetTests(APITestCase):
+class AnimationViewSetTests(BaseMediaTestCase):
     """Test suite for the new AnimationViewSet."""
 
     def setUp(self):
-        """Create a dummy asset for animations to link to."""
+        """Create a dummy project and asset for animations to link to."""
+        super().setUp()
         self.asset = Asset.objects.create(
             name="Test Asset for Animations",
+            project=self.project,
             blend_file=SimpleUploadedFile("dummy_anim.blend", b"data")
         )
 
@@ -216,6 +250,7 @@ class AnimationViewSetTests(APITestCase):
         """
         animation_data = {
             "name": "My Test Animation",
+            "project": self.project.id,
             "asset_id": self.asset.id,
             "output_file_pattern": "//renders/anim_####",
             "start_frame": 1,
@@ -230,6 +265,7 @@ class AnimationViewSetTests(APITestCase):
         self.assertEqual(Job.objects.count(), 5)
         parent_animation = Animation.objects.first()
         self.assertEqual(parent_animation.render_device, "GPU")
+        self.assertEqual(parent_animation.project, self.project)
         first_job = Job.objects.order_by('start_frame').first()
         self.assertEqual(first_job.render_device, "GPU")
         self.assertEqual(first_job.asset, self.asset)
@@ -238,7 +274,8 @@ class AnimationViewSetTests(APITestCase):
         """
         Ensure the serializer correctly calculates and reports progress.
         """
-        anim = Animation.objects.create(name="Progress Test", asset=self.asset, start_frame=1, end_frame=10)
+        anim = Animation.objects.create(name="Progress Test", project=self.project, asset=self.asset, start_frame=1,
+                                        end_frame=10)
         for i in range(1, 11):
             Job.objects.create(animation=anim, name=f"Job_{i}", asset=self.asset, start_frame=i, end_frame=i)
         Job.objects.filter(animation=anim, start_frame__in=[1, 2, 3]).update(status=JobStatus.DONE)
@@ -255,6 +292,7 @@ class AnimationViewSetTests(APITestCase):
         """
         animation_data = {
             "name": "Render Settings Test",
+            "project": self.project.id,
             "asset_id": self.asset.id,
             "output_file_pattern": "//renders/settings_####",
             "start_frame": 1,
@@ -273,13 +311,15 @@ class AnimationViewSetTests(APITestCase):
         self.assertEqual(first_job.render_settings['resolution_x'], 800)
 
 
-class AnimationSignalTests(APITestCase):
+class AnimationSignalTests(BaseMediaTestCase):
     """Test suite for the Django signals related to animations."""
 
     def setUp(self):
-        """Create a dummy asset for jobs/animations to link to."""
+        """Create a dummy project and asset for jobs/animations to link to."""
+        super().setUp()
         self.asset = Asset.objects.create(
             name="Test Asset for Signals",
+            project=self.project,
             blend_file=SimpleUploadedFile("dummy_signal.blend", b"data")
         )
 
@@ -289,7 +329,8 @@ class AnimationSignalTests(APITestCase):
         the parent Animation's total_render_time_seconds.
         """
         # ARRANGE: Create a parent animation and two child jobs
-        anim = Animation.objects.create(name="Signal Test Animation", asset=self.asset, start_frame=1, end_frame=2)
+        anim = Animation.objects.create(name="Signal Test Animation", project=self.project, asset=self.asset,
+                                        start_frame=1, end_frame=2)
         job1 = Job.objects.create(animation=anim, name="Job_1", asset=self.asset, render_time_seconds=100,
                                   status=JobStatus.QUEUED)
         job2 = Job.objects.create(animation=anim, name="Job_2", asset=self.asset, render_time_seconds=50,

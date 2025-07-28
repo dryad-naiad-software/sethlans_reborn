@@ -8,12 +8,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/22/2025.
@@ -23,11 +23,32 @@
 #
 # workers/models.py
 
+import uuid
+from pathlib import Path
 from django.db import models
 from django.utils import timezone
 from django.db.models import JSONField, Sum
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
+
+class Project(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+def asset_upload_path(instance, filename):
+    """Generates a project-specific path for an asset file using UUIDs."""
+    extension = Path(filename).suffix
+    # The file will be saved to MEDIA_ROOT/assets/<project_id>/<asset_uuid><ext>
+    return f'assets/{instance.project.id}/{uuid.uuid4()}{extension}'
 
 
 class Worker(models.Model):
@@ -46,8 +67,9 @@ class Worker(models.Model):
 
 
 class Asset(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='assets')
     name = models.CharField(max_length=255, unique=True, help_text="A unique name for the asset file.")
-    blend_file = models.FileField(upload_to='assets/%Y/%m/%d/', help_text="The uploaded .blend file.")
+    blend_file = models.FileField(upload_to=asset_upload_path, help_text="The uploaded .blend file.")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -66,6 +88,7 @@ class JobStatus(models.TextChoices):
 
 
 class Animation(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='animations')
     name = models.CharField(max_length=255, unique=True)
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='animations')
     output_file_pattern = models.CharField(max_length=1024)

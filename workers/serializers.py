@@ -8,12 +8,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/22/2025.
@@ -24,7 +24,14 @@
 # workers/serializers.py
 
 from rest_framework import serializers
-from .models import Worker, Job, JobStatus, Animation, Asset
+from .models import Worker, Job, JobStatus, Animation, Asset, Project
+
+class ProjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Project
+        fields = ['id', 'name', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
 
 class WorkerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -34,16 +41,25 @@ class WorkerSerializer(serializers.ModelSerializer):
 
 
 class AssetSerializer(serializers.ModelSerializer):
+    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
+    project_details = ProjectSerializer(source='project', read_only=True)
+
     class Meta:
         model = Asset
-        fields = ['id', 'name', 'blend_file', 'created_at']
-        read_only_fields = ['created_at']
+        fields = ['id', 'name', 'blend_file', 'created_at', 'project', 'project_details']
+        read_only_fields = ['created_at', 'project_details']
+        extra_kwargs = {
+            'project': {'write_only': True}
+        }
 
 
 class AnimationSerializer(serializers.ModelSerializer):
     progress = serializers.SerializerMethodField()
     total_frames = serializers.SerializerMethodField()
     completed_frames = serializers.SerializerMethodField()
+
+    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
+    project_details = ProjectSerializer(source='project', read_only=True)
     asset = AssetSerializer(read_only=True)
     asset_id = serializers.PrimaryKeyRelatedField(
         queryset=Asset.objects.all(), source='asset', write_only=True
@@ -53,13 +69,25 @@ class AnimationSerializer(serializers.ModelSerializer):
         model = Animation
         fields = [
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
-            'asset', 'asset_id', 'output_file_pattern', 'start_frame', 'end_frame',
+            'project', 'project_details', 'asset', 'asset_id', 'output_file_pattern', 'start_frame', 'end_frame',
             'blender_version', 'render_engine', 'render_device',
             'render_settings',
             'submitted_at', 'completed_at',
             'total_render_time_seconds'
         ]
-        read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at', 'total_render_time_seconds', 'asset')
+        read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at',
+                            'total_render_time_seconds', 'asset', 'project_details')
+        extra_kwargs = {
+            'project': {'write_only': True}
+        }
+
+    def validate(self, data):
+        """Check that the chosen Asset belongs to the chosen Project."""
+        project = data.get('project')
+        asset = data.get('asset')
+        if project and asset and asset.project != project:
+            raise serializers.ValidationError("The selected Asset does not belong to the selected Project.")
+        return data
 
     def get_total_frames(self, obj):
         return (obj.end_frame - obj.start_frame) + 1

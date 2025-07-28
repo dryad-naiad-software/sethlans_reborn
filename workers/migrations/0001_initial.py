@@ -3,6 +3,8 @@
 import django.db.models.deletion
 import django.utils.timezone
 from django.db import migrations, models
+import uuid
+import workers.models
 
 
 class Migration(migrations.Migration):
@@ -14,11 +16,10 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='Asset',
+            name='Project',
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(help_text='A unique name for the asset file.', max_length=255, unique=True)),
-                ('blend_file', models.FileField(help_text='The uploaded .blend file.', upload_to='assets/%Y/%m/%d/')),
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ('name', models.CharField(max_length=255, unique=True)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
             ],
             options={
@@ -41,6 +42,19 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
+            name='Asset',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(help_text='A unique name for the asset file.', max_length=255, unique=True)),
+                ('blend_file', models.FileField(help_text='The uploaded .blend file.', upload_to=workers.models.asset_upload_path)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='assets', to='workers.project')),
+            ],
+            options={
+                'ordering': ['-created_at'],
+            },
+        ),
+        migrations.CreateModel(
             name='Animation',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -57,6 +71,7 @@ class Migration(migrations.Migration):
                 ('render_settings', models.JSONField(blank=True, default=dict, help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")),
                 ('total_render_time_seconds', models.IntegerField(default=0, help_text='The cumulative render time of all completed frames in this animation.')),
                 ('asset', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='animations', to='workers.asset')),
+                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='animations', to='workers.project')),
             ],
         ),
         migrations.CreateModel(
