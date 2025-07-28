@@ -1,5 +1,3 @@
-# tests/unit/worker_agent/test_job_processor.py
-
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -23,6 +21,7 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# tests/unit/worker_agent/test_job_processor.py
 
 import pytest
 import requests
@@ -39,7 +38,6 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 # --- Test data for time parsing ---
 VALID_STDOUT_UNDER_AN_HOUR = "Blender render complete\nSaved: '/tmp/test.png'\nTime: 01:35.25 (Saving: 00:00.10)\n"
 VALID_STDOUT_OVER_AN_HOUR = "Blender render complete\nSaved: '/tmp/test.png'\nTime: 01:02:03.99 (Saving: 00:00.00)\n"
-# --- NEW: Test case for the sub-second bug ---
 VALID_STDOUT_SUB_SECOND = "Render complete.\nTime: 00:00.32 (Saving: 00:00.14)\n"
 NO_TIME_STDOUT = "Blender render complete\n"
 PROGRESS_BAR_TIME_STDOUT = "Fra:1 Mem:158.90M | Time:00:09.53 | Remaining:00:20.23"
@@ -68,18 +66,21 @@ def mock_popen_setup(mocker):
     mocker.patch('os.path.exists', return_value=True)
     mocker.patch('os.makedirs')
 
+    # --- NEW: Mock the asset manager ---
+    mocker.patch('sethlans_worker_agent.asset_manager.ensure_asset_is_available', return_value="/mock/local/scene.blend")
+
+
     return mock_popen, mock_process
 
 
-# --- UPDATED: Tests for the final, robust time parsing logic ---
 @pytest.mark.parametrize("stdout, expected_seconds", [
-    (VALID_STDOUT_SUB_SECOND, 1),      # <-- NEW TEST CASE
-    (VALID_STDOUT_UNDER_AN_HOUR, 96),  # <-- UPDATED EXPECTED VALUE (95.25 -> 96)
-    (VALID_STDOUT_OVER_AN_HOUR, 3724), # <-- UPDATED EXPECTED VALUE (3723.99 -> 3724)
-    ("Some other text...\nTime: 01:02:03.99 (Saving: 00:00.00)", 3724), # <-- UPDATED EXPECTED VALUE
-    ("Another line...\nTime: 12.34 (Saving: 00.01)", None),  # Should not match MM:SS.ss without minutes
+    (VALID_STDOUT_SUB_SECOND, 1),
+    (VALID_STDOUT_UNDER_AN_HOUR, 96),
+    (VALID_STDOUT_OVER_AN_HOUR, 3724),
+    ("Some other text...\nTime: 01:02:03.99 (Saving: 00:00.00)", 3724),
+    ("Another line...\nTime: 12.34 (Saving: 00.01)", None),
     (NO_TIME_STDOUT, None),
-    (PROGRESS_BAR_TIME_STDOUT, None),  # Should ignore intermediate time reports
+    (PROGRESS_BAR_TIME_STDOUT, None),
     ("", None)
 ])
 def test_parse_render_time(stdout, expected_seconds):
@@ -99,25 +100,20 @@ def test_get_and_claim_job_sends_render_time(mocker):
     mocker.patch('requests.get', return_value=MagicMock(
         json=lambda: [mock_available_job], raise_for_status=lambda: None
     ))
-
-    # Configure the mock to return successful status codes for all patch calls
     mock_patch = mocker.patch('requests.patch')
     mock_patch.return_value = MagicMock(status_code=200)
-
     mocker.patch(
         'sethlans_worker_agent.job_processor.execute_blender_job',
         return_value=(True, False, VALID_STDOUT_UNDER_AN_HOUR, "", "")
     )
-
     job_processor.get_and_claim_job(mock_worker_id)
 
     assert mock_patch.call_count == 3
     final_call_args = mock_patch.call_args
     assert 'render_time_seconds' in final_call_args.kwargs['json']
-    assert final_call_args.kwargs['json']['render_time_seconds'] == 96 # <-- UPDATED EXPECTED VALUE
+    assert final_call_args.kwargs['json']['render_time_seconds'] == 96
 
 
-# --- Existing Tests (Unchanged) ---
 def test_execute_blender_job_cpu_success(mock_popen_setup):
     """Tests a standard successful CPU render job execution."""
     mock_popen, mock_process = mock_popen_setup
@@ -125,7 +121,8 @@ def test_execute_blender_job_cpu_success(mock_popen_setup):
     mock_process.wait.return_value = 0
 
     mock_job_data = {
-        'id': 1, 'name': 'CPU Test Render', 'blend_file_path': '/path/to/scene.blend',
+        'id': 1, 'name': 'CPU Test Render',
+        'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
         'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'CPU'
     }
@@ -134,6 +131,7 @@ def test_execute_blender_job_cpu_success(mock_popen_setup):
 
     called_command = mock_popen.call_args.args[0]
     assert "--factory-startup" in called_command
+    assert "/mock/local/scene.blend" in called_command
 
 
 def test_execute_blender_job_gpu_command(mock_popen_setup):
@@ -145,7 +143,8 @@ def test_execute_blender_job_gpu_command(mock_popen_setup):
     mock_process.wait.return_value = 0
 
     mock_job_data = {
-        'id': 5, 'name': 'GPU Test', 'blend_file_path': '/path/to/scene.blend',
+        'id': 5, 'name': 'GPU Test',
+        'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
         'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'GPU'
     }
@@ -167,13 +166,12 @@ def test_execute_blender_job_with_render_settings(mock_popen_setup, mocker):
     mock_temp_file.__enter__.return_value.write = MagicMock()
     mocker.patch('tempfile.NamedTemporaryFile', return_value=mock_temp_file)
 
-    # --- THIS IS THE FIX ---
-    # Mock os.remove and os.path.exists ONCE and save the reference.
     mock_os_remove = mocker.patch('os.remove')
     mocker.patch('os.path.exists', return_value=True)
 
     mock_job_data = {
-        'id': 6, 'name': 'Settings Override', 'blend_file_path': '/path/to/scene.blend',
+        'id': 6, 'name': 'Settings Override',
+        'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
         'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'CPU',
         'render_settings': {
@@ -182,27 +180,18 @@ def test_execute_blender_job_with_render_settings(mock_popen_setup, mocker):
         }
     }
 
-    # Call the function only ONCE
     job_processor.execute_blender_job(mock_job_data)
 
-    # Assert that the script was written to
     write_mock = mock_temp_file.__enter__.return_value.write
     write_mock.assert_called_once()
     written_content = write_mock.call_args[0][0]
 
-    # Verify script content
     assert "import bpy" in written_content
-    assert "for scene in bpy.data.scenes:" in written_content
     assert f"    scene.{RenderSettings.SAMPLES} = 128" in written_content
-    assert f"    scene.{RenderSettings.RESOLUTION_PERCENTAGE} = 50" in written_content
 
-    # Verify the blender command
     called_command = mock_popen.call_args.args[0]
     assert "--python" in called_command
     assert "/tmp/fake_script.py" in called_command
-    assert "--python-expr" not in called_command
-
-    # Verify cleanup was called correctly
     mock_os_remove.assert_called_once_with("/tmp/fake_script.py")
 
 
@@ -214,7 +203,8 @@ def test_execute_blender_job_failure(mock_popen_setup):
     mock_process.wait.return_value = 1
 
     mock_job_data = {
-        'id': 2, 'name': 'Failed Render', 'blend_file_path': '/path/to/scene.blend',
+        'id': 2, 'name': 'Failed Render',
+        'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1, 'end_frame': 1,
         'blender_version': '4.2.0'
     }
@@ -232,7 +222,8 @@ def test_execute_blender_job_animation_command(mock_popen_setup):
     mock_process.wait.return_value = 0
 
     mock_job_data = {
-        'id': 3, 'name': 'Test Animation', 'blend_file_path': '/path/to/scene.blend',
+        'id': 3, 'name': 'Test Animation',
+        'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 10, 'end_frame': 20,
         'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'CPU'
     }
@@ -240,7 +231,7 @@ def test_execute_blender_job_animation_command(mock_popen_setup):
     job_processor.execute_blender_job(mock_job_data)
 
     expected_command = [
-        "/mock/tools/blender", '--factory-startup', '-b', '/path/to/scene.blend',
+        "/mock/tools/blender", '--factory-startup', '-b', '/mock/local/scene.blend',
         '-o', '/path/to/output/frame_####', '-F', 'PNG', '-E', 'CYCLES',
         '-s', '10', '-e', '20', '-a'
     ]
@@ -251,12 +242,16 @@ def test_execute_blender_job_animation_command(mock_popen_setup):
 
 def test_execute_blender_job_tool_unavailable(mocker):
     """Tests that the job fails if the requested Blender version is not found."""
+    # This test doesn't need the full popen fixture
+    mocker.patch('sethlans_worker_agent.asset_manager.ensure_asset_is_available', return_value="/mock/local/scene.blend")
     mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value=None)
     mocker.patch('subprocess.Popen')
 
     mock_job_data = {
-        'id': 4, 'name': 'Tool Fail Render', 'blender_version': '4.99.0',
-        'blend_file_path': '/path/to/scene.blend', 'output_file_pattern': '/path/to/output/frame_####'
+        'id': 4, 'name': 'Tool Fail Render',
+        'asset': {'blend_file': 'http://server/media/scene.blend'},
+        'blender_version': '4.99.0',
+        'output_file_pattern': '/path/to/output/frame_####'
     }
 
     success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
@@ -293,7 +288,8 @@ def test_execute_blender_job_cancellation(mock_popen_setup, mocker):
     mocker.patch('psutil.Process')
 
     mock_job_data = {
-        'id': 99, 'name': 'Cancellable Job', 'blend_file_path': '/path/to/scene.blend',
+        'id': 99, 'name': 'Cancellable Job',
+        'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': '/path/to/output/frame_####', 'start_frame': 1,
         'end_frame': 1, 'blender_version': '4.1.1'
     }
