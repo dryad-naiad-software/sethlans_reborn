@@ -194,12 +194,40 @@ def execute_blender_job(job_data):
         os.makedirs(output_dir)
 
     command = [
-        blender_to_use, "-b", blend_file_path,
-        "-o", output_file_pattern,
-        "-F", "PNG", "-E", render_engine,
+        blender_to_use, "-b", blend_file_path
     ]
 
+    # --- THIS IS THE FIX ---
+    # We now write settings to a temp file and execute it with --python.
+    # The script MUST be provided before other render arguments like -f or -o.
+    if isinstance(render_settings, dict) and render_settings:
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                temp_script_path = f.name
+                script_lines = ["import bpy", "for scene in bpy.data.scenes:"]
+                for key, value in render_settings.items():
+                    py_value = repr(value)
+                    script_lines.append(f"    scene.{key} = {py_value}")
+
+                script_content = "\n".join(script_lines)
+                f.write(script_content)
+                logger.debug(f"Generated override script at {temp_script_path}:\n{script_content}")
+
+            command.extend(["--python", temp_script_path])
+        except Exception as e:
+            logger.error(f"Failed to generate render settings script: {e}")
+            if temp_script_path and os.path.exists(temp_script_path):
+                os.remove(temp_script_path)
+            return False, False, "", "", f"Failed to generate settings script: {e}"
+
+    # Add remaining render arguments AFTER the python script
+    command.extend([
+        "-o", output_file_pattern,
+        "-F", "PNG", "-E", render_engine,
+    ])
+
     if render_device == 'CPU':
+        # Insert --factory-startup after the blender executable
         command.insert(1, "--factory-startup")
         logger.info("CPU job detected. Using --factory-startup to ensure CPU rendering.")
     else:
@@ -209,13 +237,6 @@ def execute_blender_job(job_data):
         command.extend(["-f", str(start_frame)])
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
-
-    if isinstance(render_settings, dict):
-        for key_path, value in render_settings.items():
-            py_value = f"'{value}'" if isinstance(value, str) else value
-            # --- THIS IS THE FIX ---
-            py_command = f"import bpy; bpy.context.scene.{key_path} = {py_value}"
-            command.extend(["--python-expr", py_command])
 
     logger.info(f"Running Command: {' '.join(command)}")
 
@@ -267,6 +288,10 @@ def execute_blender_job(job_data):
     except Exception as e:
         error_message = f"An unexpected error occurred during Blender execution: {e}"
         final_return_code = -1
+    finally:
+        # Re-enabled cleanup for the temporary script
+        if temp_script_path and os.path.exists(temp_script_path):
+            os.remove(temp_script_path)
 
     stdout_output = "".join(stdout_lines)
     stderr_output = "".join(stderr_lines)
@@ -284,8 +309,5 @@ def execute_blender_job(job_data):
 
     logger.debug(f"--- STDOUT ---\n{stdout_output[-1000:]}")
     logger.debug(f"--- STDERR ---\n{stderr_output}")
-
-    if temp_script_path and os.path.exists(temp_script_path):
-        os.remove(temp_script_path)
 
     return success, was_canceled, stdout_output, stderr_output, error_message

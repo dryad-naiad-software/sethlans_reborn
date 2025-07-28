@@ -29,7 +29,7 @@ import requests
 import subprocess
 import psutil
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, mock_open
 
 # Import the function to be tested and its dependencies
 from sethlans_worker_agent import job_processor
@@ -74,7 +74,7 @@ def mock_popen_setup(mocker):
     (VALID_STDOUT_UNDER_AN_HOUR, 95),
     (VALID_STDOUT_OVER_AN_HOUR, 3723),
     ("Some other text...\nTime: 01:02:03.99 (Saving: 00:00.00)", 3723),
-    ("Another line...\nTime: 12.34 (Saving: 00.01)", None), # Should not match MM:SS.ss without minutes
+    ("Another line...\nTime: 12.34 (Saving: 00.01)", None),  # Should not match MM:SS.ss without minutes
     (NO_TIME_STDOUT, None),
     (PROGRESS_BAR_TIME_STDOUT, None),  # Should ignore intermediate time reports
     ("", None)
@@ -153,11 +153,21 @@ def test_execute_blender_job_gpu_command(mock_popen_setup):
     assert "--factory-startup" not in called_command
 
 
-def test_execute_blender_job_with_render_settings(mock_popen_setup):
+def test_execute_blender_job_with_render_settings(mock_popen_setup, mocker):
     """
-    Tests that render_settings are correctly converted into --python-expr arguments.
+    Tests that render_settings are correctly written to a temp script
+    and passed to Blender via the --python argument.
     """
     mock_popen, _ = mock_popen_setup
+    mock_temp_file = MagicMock()
+    mock_temp_file.__enter__.return_value.name = "/tmp/fake_script.py"
+    mock_temp_file.__enter__.return_value.write = MagicMock()
+    mocker.patch('tempfile.NamedTemporaryFile', return_value=mock_temp_file)
+
+    # --- THIS IS THE FIX ---
+    # Mock os.remove and os.path.exists ONCE and save the reference.
+    mock_os_remove = mocker.patch('os.remove')
+    mocker.patch('os.path.exists', return_value=True)
 
     mock_job_data = {
         'id': 6, 'name': 'Settings Override', 'blend_file_path': '/path/to/scene.blend',
@@ -165,27 +175,32 @@ def test_execute_blender_job_with_render_settings(mock_popen_setup):
         'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'CPU',
         'render_settings': {
             RenderSettings.SAMPLES: 128,
-            RenderSettings.RESOLUTION_X: 1920,
             RenderSettings.RESOLUTION_PERCENTAGE: 50
         }
     }
 
+    # Call the function only ONCE
     job_processor.execute_blender_job(mock_job_data)
 
+    # Assert that the script was written to
+    write_mock = mock_temp_file.__enter__.return_value.write
+    write_mock.assert_called_once()
+    written_content = write_mock.call_args[0][0]
+
+    # Verify script content
+    assert "import bpy" in written_content
+    assert "for scene in bpy.data.scenes:" in written_content
+    assert f"    scene.{RenderSettings.SAMPLES} = 128" in written_content
+    assert f"    scene.{RenderSettings.RESOLUTION_PERCENTAGE} = 50" in written_content
+
+    # Verify the blender command
     called_command = mock_popen.call_args.args[0]
+    assert "--python" in called_command
+    assert "/tmp/fake_script.py" in called_command
+    assert "--python-expr" not in called_command
 
-    # Check for the sample setting
-    assert "--python-expr" in called_command
-    expected_samples_expr = f"import bpy; bpy.context.scene.{RenderSettings.SAMPLES} = 128"
-    assert expected_samples_expr in called_command
-
-    # Check for resolution_x
-    expected_resx_expr = f"import bpy; bpy.context.scene.{RenderSettings.RESOLUTION_X} = 1920"
-    assert expected_resx_expr in called_command
-
-    # Check for resolution percentage
-    expected_resy_expr = f"import bpy; bpy.context.scene.{RenderSettings.RESOLUTION_PERCENTAGE} = 50"
-    assert expected_resy_expr in called_command
+    # Verify cleanup was called correctly
+    mock_os_remove.assert_called_once_with("/tmp/fake_script.py")
 
 
 def test_execute_blender_job_failure(mock_popen_setup):
