@@ -147,14 +147,15 @@ class BaseE2ETest:
         print(f"\n--- SETUP: {cls.__name__} ---")
 
         cls._cache_blender_once()
+        # Clean up artifacts from previous runs
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
-        if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR,
-                                                                        ignore_errors=True)
-        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
-            worker_config.BLENDER_VERSIONS_CACHE_FILE)
+        if Path(worker_config.MANAGED_ASSETS_DIR).exists(): shutil.rmtree(worker_config.MANAGED_ASSETS_DIR, ignore_errors=True)
+        if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR, ignore_errors=True)
+        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
         if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
         MEDIA_ROOT_FOR_TEST.mkdir()
+
 
         blender_dir_for_test = MOCK_TOOLS_DIR / "blender"
         blender_dir_for_test.mkdir(parents=True)
@@ -251,12 +252,12 @@ class BaseE2ETest:
             cls.worker_log_thread.join(timeout=5)
 
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
-        if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR,
-                                                                        ignore_errors=True)
+        if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR, ignore_errors=True)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
-        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
-            worker_config.BLENDER_VERSIONS_CACHE_FILE)
+        if Path(worker_config.MANAGED_ASSETS_DIR).exists(): shutil.rmtree(worker_config.MANAGED_ASSETS_DIR, ignore_errors=True)
+        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
         if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
+
 
         print("Teardown complete.")
 
