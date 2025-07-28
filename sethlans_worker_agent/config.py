@@ -22,6 +22,7 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/config.py
+# sethlans_worker_agent/config.py
 
 import os
 import sys
@@ -43,10 +44,11 @@ PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parent.parent
 SYSTEM_BLENDER_EXECUTABLE = None
 
 MANAGED_TOOLS_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'sethlans_worker_agent', 'managed_tools')
+MANAGED_ASSETS_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'sethlans_worker_agent', 'managed_assets') # <-- NEW
 
 TEST_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'test_scene.blend')
 BENCHMARK_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'bmw27.blend')
-ANIMATION_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'animation.blend') # <-- ADDED
+ANIMATION_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'animation.blend')
 TEST_OUTPUT_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'test_output')
 
 # --- Tool Discovery & Download Configuration ---

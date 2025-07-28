@@ -32,29 +32,34 @@ class WorkerSerializer(serializers.ModelSerializer):
         fields = ['id', 'hostname', 'ip_address', 'os', 'last_seen', 'is_active', 'available_tools']
         read_only_fields = ['last_seen']
 
-# --- NEW ASSET SERIALIZER ---
+
 class AssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Asset
         fields = ['id', 'name', 'blend_file', 'created_at']
         read_only_fields = ['created_at']
 
+
 class AnimationSerializer(serializers.ModelSerializer):
     progress = serializers.SerializerMethodField()
     total_frames = serializers.SerializerMethodField()
     completed_frames = serializers.SerializerMethodField()
+    asset = AssetSerializer(read_only=True)
+    asset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Asset.objects.all(), source='asset', write_only=True
+    )
 
     class Meta:
         model = Animation
         fields = [
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
-            'blend_file_path', 'output_file_pattern', 'start_frame', 'end_frame',
+            'asset', 'asset_id', 'output_file_pattern', 'start_frame', 'end_frame',
             'blender_version', 'render_engine', 'render_device',
             'render_settings',
             'submitted_at', 'completed_at',
             'total_render_time_seconds'
         ]
-        read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at', 'total_render_time_seconds')
+        read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at', 'total_render_time_seconds', 'asset')
 
     def get_total_frames(self, obj):
         return (obj.end_frame - obj.start_frame) + 1
@@ -69,16 +74,23 @@ class AnimationSerializer(serializers.ModelSerializer):
             return "0 of 0 frames complete"
         return f"{completed} of {total} frames complete"
 
+
 class JobSerializer(serializers.ModelSerializer):
     assigned_worker_hostname = serializers.CharField(source='assigned_worker.hostname', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    asset = AssetSerializer(read_only=True)
+    asset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Asset.objects.all(), source='asset', write_only=True
+    )
+
 
     class Meta:
         model = Job
         fields = [
             'id',
             'name',
-            'blend_file_path',
+            'asset',
+            'asset_id',
             'output_file_pattern',
             'start_frame',
             'end_frame',
@@ -102,6 +114,7 @@ class JobSerializer(serializers.ModelSerializer):
             'submitted_at', 'started_at', 'completed_at',
             'last_output', 'error_message',
             'status_display', 'assigned_worker_hostname',
+            'asset'
         ]
         extra_kwargs = {
             'status': {'required': False},

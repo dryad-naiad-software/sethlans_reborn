@@ -105,7 +105,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
             job = Job(
                 animation=animation,
                 name=f"{animation.name}_Frame_{frame_num:04d}",
-                blend_file_path=animation.blend_file_path,
+                asset=animation.asset, # <-- UPDATED
                 output_file_pattern=animation.output_file_pattern,
                 start_frame=frame_num,
                 end_frame=frame_num,
@@ -120,7 +120,6 @@ class AnimationViewSet(viewsets.ModelViewSet):
         logger.info(f"Successfully spawned {len(jobs_to_create)} frame jobs for animation ID {animation.id}.")
 
 
-# --- NEW ASSET VIEWSET ---
 class AssetViewSet(viewsets.ModelViewSet):
     """
     API endpoint for uploading and managing .blend file assets.
@@ -138,7 +137,7 @@ class JobViewSet(viewsets.ModelViewSet):
     serializer_class = JobSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'assigned_worker', 'animation']
-    search_fields = ['name', 'blend_file_path']
+    search_fields = ['name', 'asset__name'] # <-- UPDATED
     ordering_fields = ['submitted_at', 'status', 'name']
 
     @action(detail=True, methods=['post'])

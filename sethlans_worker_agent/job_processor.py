@@ -1,6 +1,3 @@
-# sethlans_worker_agent/job_processor.py
-
-#
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
 # This program is free software; you can redistribute it and/or
@@ -23,10 +20,11 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# sethlans_worker_agent/job_processor.py
 
 import datetime
 import logging
-import math  # <-- ADDED IMPORT
+import math
 import os
 import re
 import requests
@@ -37,7 +35,7 @@ import threading
 import psutil
 import tempfile
 
-from sethlans_worker_agent import config
+from sethlans_worker_agent import config, asset_manager # <-- Import asset_manager
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
@@ -49,18 +47,13 @@ def _parse_render_time(stdout_text):
     finding the unique final summary line containing "(Saving:)". This is the most
     robust method, as it avoids issues with progress bar output.
     """
-    # Regex makes the HH: component optional to handle renders under an hour.
-    # Group 1: Hours (Optional), Group 2: Minutes, Group 3: Seconds
     time_line_regex = re.compile(r"Time: (?:(\d{2}):)?(\d{2}):(\d{2}\.\d{2})")
 
-    # Iterate through each line of the captured output.
     for line in stdout_text.splitlines():
-        # The final summary line is the ONLY one that contains "(Saving:".
         if "(Saving:" in line:
             match = time_line_regex.search(line)
             if match:
                 try:
-                    # Handle the optional hour group
                     hours_str = match.group(1)
                     minutes_str = match.group(2)
                     seconds_str = match.group(3)
@@ -69,8 +62,6 @@ def _parse_render_time(stdout_text):
                     minutes = int(minutes_str)
                     seconds = float(seconds_str)
 
-                    # --- THIS IS THE FIX ---
-                    # Use math.ceil to round up, ensuring sub-second renders are recorded as 1 second.
                     total_seconds = int(math.ceil((hours * 3600) + (minutes * 60) + seconds))
                     logger.info(f"Parsed render time: {total_seconds} seconds from line: '{line.strip()}'")
                     return total_seconds
@@ -78,7 +69,6 @@ def _parse_render_time(stdout_text):
                     logger.warning(f"Found summary line but failed to parse time: '{line.strip()}' - {e}")
                     return None
 
-    # If the loop finishes without finding the line.
     logger.warning("Could not find the final 'Time: ... (Saving: ...)' summary line in the render output.")
     return None
 
@@ -172,7 +162,6 @@ def execute_blender_job(job_data):
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
-    blend_file_path = job_data.get('blend_file_path')
     output_file_pattern = job_data.get('output_file_pattern')
     start_frame = job_data.get('start_frame', 1)
     end_frame = job_data.get('end_frame', 1)
@@ -183,6 +172,13 @@ def execute_blender_job(job_data):
     temp_script_path = None
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
+
+    # --- UPDATED: Get local asset path ---
+    local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
+    if not local_blend_file_path:
+        error_message = "Failed to download or find the required .blend file asset."
+        logger.error(error_message)
+        return False, False, "", "", error_message
 
     blender_to_use = tool_manager_instance.ensure_blender_version_available(
         blender_version_req) if blender_version_req else config.SYSTEM_BLENDER_EXECUTABLE
@@ -196,13 +192,11 @@ def execute_blender_job(job_data):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # --- UPDATED: Use the downloaded local path ---
     command = [
-        blender_to_use, "-b", blend_file_path
+        blender_to_use, "-b", local_blend_file_path
     ]
 
-    # --- THIS IS THE FIX ---
-    # We now write settings to a temp file and execute it with --python.
-    # The script MUST be provided before other render arguments like -f or -o.
     if isinstance(render_settings, dict) and render_settings:
         try:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
@@ -223,14 +217,12 @@ def execute_blender_job(job_data):
                 os.remove(temp_script_path)
             return False, False, "", "", f"Failed to generate settings script: {e}"
 
-    # Add remaining render arguments AFTER the python script
     command.extend([
         "-o", output_file_pattern,
         "-F", "PNG", "-E", render_engine,
     ])
 
     if render_device == 'CPU':
-        # Insert --factory-startup after the blender executable
         command.insert(1, "--factory-startup")
         logger.info("CPU job detected. Using --factory-startup to ensure CPU rendering.")
     else:
@@ -292,7 +284,6 @@ def execute_blender_job(job_data):
         error_message = f"An unexpected error occurred during Blender execution: {e}"
         final_return_code = -1
     finally:
-        # Re-enabled cleanup for the temporary script
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
 

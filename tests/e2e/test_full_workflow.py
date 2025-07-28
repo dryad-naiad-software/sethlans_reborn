@@ -1,5 +1,3 @@
-# tests/e2e/test_full_workflow.py
-
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -23,6 +21,7 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# tests/e2e/test_full_workflow.py
 
 import os
 import shutil
@@ -38,12 +37,14 @@ from pathlib import Path
 
 import pytest
 import requests
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from sethlans_worker_agent import config as worker_config
 from sethlans_worker_agent import system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser, file_operations
 from workers.constants import RenderSettings
+from workers.models import Asset
 
 
 def is_gpu_available():
@@ -57,6 +58,7 @@ MANAGER_URL = "http://127.0.0.1:8000/api"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TEST_DB_NAME = "test_e2e_db.sqlite3"
 MOCK_TOOLS_DIR = Path(worker_config.MANAGED_TOOLS_DIR)
+MEDIA_ROOT_FOR_TEST = Path(tempfile.mkdtemp())
 
 
 class BaseE2ETest:
@@ -64,28 +66,42 @@ class BaseE2ETest:
     worker_process = None
     worker_log_thread = None
     worker_log_queue = queue.Queue()
-
-    # Class-level variable to store the path to the cached, extracted Blender directory
     _blender_cache_path = None
+
+    # --- NEW: Asset IDs will be stored here ---
+    scene_asset_id = None
+    bmw_asset_id = None
+    anim_asset_id = None
+
+    @classmethod
+    def _upload_test_asset(cls, name, file_path):
+        """Helper to upload a blend file and return its asset ID."""
+        with open(file_path, 'rb') as f:
+            payload = {
+                "name": name,
+            }
+            files = {
+                "blend_file": (os.path.basename(file_path), f.read(), "application/octet-stream")
+            }
+            response = requests.post(f"{MANAGER_URL}/assets/", data=payload, files=files)
+            response.raise_for_status()
+            return response.json()['id']
 
     @classmethod
     def _cache_blender_once(cls):
         """
         Downloads and extracts Blender to a persistent system temp directory.
-        This method runs only once per test session, and subsequent calls will use the cache.
         """
         if cls._blender_cache_path and cls._blender_cache_path.exists():
-            return  # Already cached in this test session run.
+            return
 
         cache_root = Path(tempfile.gettempdir()) / "sethlans_e2e_cache"
         cache_root.mkdir(exist_ok=True)
-
-        version_req = "4.5.0"  # The version required by our tests
+        version_req = "4.5.0"
         platform_id = tool_manager_instance._get_platform_identifier()
         if not platform_id:
             raise RuntimeError("Could not determine platform identifier for E2E tests.")
 
-        # This is the final path to the *extracted* Blender directory inside the cache.
         blender_install_dir_name = f"blender-{version_req}-{platform_id}"
         cls._blender_cache_path = cache_root / blender_install_dir_name
 
@@ -94,7 +110,6 @@ class BaseE2ETest:
             return
 
         print(f"\nBlender {version_req} not found in cache. Downloading and extracting once...")
-
         releases = blender_release_parser.get_blender_releases()
         release_info = releases.get(version_req, {}).get(platform_id)
         if not release_info or not release_info.get('url') or not release_info.get('sha256'):
@@ -102,7 +117,6 @@ class BaseE2ETest:
 
         url = release_info['url']
         expected_hash = release_info['sha256']
-
         try:
             downloaded_archive = file_operations.download_file(url, str(cache_root))
             if not file_operations.verify_hash(downloaded_archive, expected_hash):
@@ -112,10 +126,9 @@ class BaseE2ETest:
             file_operations.cleanup_archive(downloaded_archive)
             print(f"Successfully cached Blender to {cls._blender_cache_path}")
         except Exception as e:
-            # Clean up a failed attempt to ensure it retries next time.
             if cls._blender_cache_path.exists():
                 shutil.rmtree(cls._blender_cache_path)
-            cls._blender_cache_path = None  # Reset path so it retries
+            cls._blender_cache_path = None
             raise RuntimeError(f"Failed to cache Blender for E2E tests: {e}")
 
     @classmethod
@@ -132,20 +145,16 @@ class BaseE2ETest:
         """Set up the environment for all tests in this class."""
         print(f"\n--- SETUP: {cls.__name__} ---")
 
-        # Step 1: Download and extract Blender to a shared cache location if not already done.
         cls._cache_blender_once()
+        if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
+        if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
+        if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR,
+                                                                       ignore_errors=True)
+        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
+            worker_config.BLENDER_VERSIONS_CACHE_FILE)
+        if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
+        MEDIA_ROOT_FOR_TEST.mkdir()
 
-        # Step 2: Clean the test-specific directories for perfect isolation.
-        if os.path.exists(TEST_DB_NAME):
-            os.remove(TEST_DB_NAME)
-        if MOCK_TOOLS_DIR.exists():
-            shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
-        if Path(worker_config.TEST_OUTPUT_DIR).exists():
-            shutil.rmtree(worker_config.TEST_OUTPUT_DIR, ignore_errors=True)
-        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE):
-            os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
-
-        # Step 3: Copy the cached, extracted Blender into the test's sandboxed tool directory.
         blender_dir_for_test = MOCK_TOOLS_DIR / "blender"
         blender_dir_for_test.mkdir(parents=True)
         source_path = cls._blender_cache_path
@@ -153,19 +162,25 @@ class BaseE2ETest:
         print(f"Copying cached Blender from {source_path} to {dest_path}")
         shutil.copytree(source_path, dest_path)
 
-        # Step 4: Proceed with the original setup logic. The worker will now find the
-        # pre-copied Blender and skip its own slow download and extraction steps.
         print("Running migrations...")
         test_env = os.environ.copy()
         test_env["SETHLANS_DB_NAME"] = TEST_DB_NAME
+        test_env["DJANGO_SETTINGS_MODULE"] = "config.settings"
         subprocess.run([sys.executable, "manage.py", "migrate"], cwd=PROJECT_ROOT, env=test_env, check=True,
                        capture_output=True)
 
         print("Starting Django manager...")
-        cls.manager_process = subprocess.Popen([sys.executable, "manage.py", "runserver", "--noreload"],
-                                               cwd=PROJECT_ROOT, env=test_env, stdout=subprocess.DEVNULL,
-                                               stderr=subprocess.DEVNULL)
+        manager_command = [sys.executable, "manage.py", "runserver", "--noreload"]
+        cls.manager_process = subprocess.Popen(manager_command, cwd=PROJECT_ROOT, env=test_env,
+                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(5)
+
+        # --- NEW: Upload assets after manager starts ---
+        print("Uploading test assets...")
+        cls.scene_asset_id = cls._upload_test_asset("E2E Test Scene", worker_config.TEST_BLEND_FILE_PATH)
+        cls.bmw_asset_id = cls._upload_test_asset("E2E BMW Scene", worker_config.BENCHMARK_BLEND_FILE_PATH)
+        cls.anim_asset_id = cls._upload_test_asset("E2E Animation Scene", worker_config.ANIMATION_BLEND_FILE_PATH)
+        print(f"Assets uploaded: scene_id={cls.scene_asset_id}, bmw_id={cls.bmw_asset_id}, anim_id={cls.anim_asset_id}")
 
         print("Starting Worker Agent...")
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
@@ -177,20 +192,19 @@ class BaseE2ETest:
         cls.worker_log_thread.start()
 
         worker_ready = False
-        max_wait_seconds = 60  # Can be shorter now that download is skipped
+        max_wait_seconds = 60
         start_time = time.time()
         print("Waiting for worker to complete registration and initial setup...")
         while time.time() - start_time < max_wait_seconds:
             try:
                 line = cls.worker_log_queue.get(timeout=1)
-                print(f"  [SETUP LOG] {line.strip()}")
+                print(f"  [SETUP LOG] {line.strip()}")
                 if "Loop finished. Sleeping for" in line:
                     print("Worker is ready!")
                     worker_ready = True
                     break
             except queue.Empty:
                 if cls.worker_process.poll() is not None:
-                    # Drain queue to show any final error messages
                     while not cls.worker_log_queue.empty():
                         print(f"  [FINAL LOG] {cls.worker_log_queue.get_nowait().strip()}")
                     raise RuntimeError("Worker process terminated unexpectedly during setup.")
@@ -201,52 +215,50 @@ class BaseE2ETest:
 
     @classmethod
     def teardown_class(cls):
-        """Tear down the environment after all tests in this class."""
         print(f"\n--- TEARDOWN: {cls.__name__} ---")
-
         print("\n--- CAPTURED WORKER LOGS ---")
         while not cls.worker_log_queue.empty():
             try:
                 line = cls.worker_log_queue.get_nowait()
-                print(f"  [WORKER] {line.strip()}")
+                print(f"  [WORKER] {line.strip()}")
             except queue.Empty:
                 break
         print("--- END OF WORKER LOGS ---\n")
 
         if cls.worker_process:
             if platform.system() == "Windows":
-                subprocess.run(f"taskkill /F /T /PID {cls.worker_process.pid}", check=False, capture_output=True, shell=True)
+                subprocess.run(f"taskkill /F /T /PID {cls.worker_process.pid}", check=False, capture_output=True,
+                               shell=True)
             else:
                 cls.worker_process.kill()
 
         if cls.manager_process:
             if platform.system() == "Windows":
-                subprocess.run(f"taskkill /F /T /PID {cls.manager_process.pid}", check=False, capture_output=True, shell=True)
+                subprocess.run(f"taskkill /F /T /PID {cls.manager_process.pid}", check=False, capture_output=True,
+                               shell=True)
             else:
                 cls.manager_process.kill()
 
         if cls.worker_log_thread:
             cls.worker_log_thread.join(timeout=5)
 
-        if os.path.exists(TEST_DB_NAME):
-            os.remove(TEST_DB_NAME)
-        if Path(worker_config.TEST_OUTPUT_DIR).exists():
-            shutil.rmtree(worker_config.TEST_OUTPUT_DIR, ignore_errors=True)
-        if MOCK_TOOLS_DIR.exists():
-            shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
-        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE):
-            os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
+        if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
+        if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR,
+                                                                       ignore_errors=True)
+        if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
+        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
+            worker_config.BLENDER_VERSIONS_CACHE_FILE)
+        if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
+
         print("Teardown complete.")
 
 
 class TestRenderWorkflow(BaseE2ETest):
-    """Groups tests for the standard render workflow."""
-
     def test_full_render_workflow(self):
         print("\n--- ACTION: Submitting render job ---")
         job_payload = {
             "name": "E2E CPU Render Test",
-            "blend_file_path": worker_config.TEST_BLEND_FILE_PATH,
+            "asset_id": self.scene_asset_id,
             "output_file_pattern": os.path.join(worker_config.TEST_OUTPUT_DIR, "e2e_render_####"),
             "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
             "render_engine": "CYCLES",
@@ -280,17 +292,11 @@ class TestRenderWorkflow(BaseE2ETest):
 
 
 class TestGpuWorkflow(BaseE2ETest):
-    """Groups tests for the GPU selection workflow."""
-
     def test_gpu_job_omits_factory_startup(self):
-        """
-        Tests that for a GPU job, the '--factory-startup' flag is correctly omitted
-        to allow the pre-configured .blend file's settings to be used.
-        """
-        print("\n--- ACTION: Submitting GPU job with invalid file ---")
+        print("\n--- ACTION: Submitting GPU job for command check ---")
         job_payload = {
             "name": "E2E GPU Command Test",
-            "blend_file_path": "/path/to/non_existent_file.blend",
+            "asset_id": self.bmw_asset_id,  # Use a valid asset
             "output_file_pattern": os.path.join(worker_config.TEST_OUTPUT_DIR, "gpu_test_####"),
             "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
             "render_engine": "CYCLES",
@@ -298,9 +304,8 @@ class TestGpuWorkflow(BaseE2ETest):
         }
         create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
         assert create_response.status_code == 201
-        job_id = create_response.json()['id']
 
-        print("Waiting for worker to prepare the render command...")
+        print("Waiting for worker to log the render command...")
         command_logged = False
         start_time = time.time()
         while time.time() - start_time < 60:
@@ -312,24 +317,9 @@ class TestGpuWorkflow(BaseE2ETest):
                     break
             except queue.Empty:
                 continue
-        assert command_logged
-
-        print("Polling API for ERROR status...")
-        final_status = ""
-        for i in range(30):
-            check_response = requests.get(f"{MANAGER_URL}/jobs/{job_id}/")
-            if check_response.status_code == 200:
-                current_status = check_response.json()['status']
-                if current_status == "ERROR":
-                    final_status = current_status
-                    break
-            time.sleep(1)
-        assert final_status == "ERROR"
+        assert command_logged, "Worker did not log the 'Running Command' line in time."
 
     def test_full_gpu_render_workflow(self):
-        """
-        Tests a full end-to-end GPU render, but only runs if a GPU is available.
-        """
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
         is_macos_in_ci = platform.system() == "Darwin" and is_ci
 
@@ -339,7 +329,7 @@ class TestGpuWorkflow(BaseE2ETest):
         print("\n--- ACTION: Submitting full GPU render job ---")
         job_payload = {
             "name": "E2E Full GPU Render Test",
-            "blend_file_path": worker_config.BENCHMARK_BLEND_FILE_PATH,
+            "asset_id": self.bmw_asset_id,
             "output_file_pattern": os.path.join(worker_config.TEST_OUTPUT_DIR, "e2e_gpu_render_####"),
             "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
             "render_engine": "CYCLES",
@@ -355,7 +345,7 @@ class TestGpuWorkflow(BaseE2ETest):
             check_response = requests.get(f"{MANAGER_URL}/jobs/{job_id}/")
             if check_response.status_code == 200:
                 current_status = check_response.json()['status']
-                print(f"  Attempt {i + 1}/120: Current job status is {current_status}")
+                print(f"  Attempt {i + 1}/120: Current job status is {current_status}")
                 if current_status in ["DONE", "ERROR"]:
                     final_status = current_status
                     break
@@ -365,13 +355,7 @@ class TestGpuWorkflow(BaseE2ETest):
 
 
 class TestAnimationWorkflow(BaseE2ETest):
-    """Groups tests for the animation rendering workflow."""
-
     def test_animation_render_workflow(self):
-        """
-        Tests submitting a multi-frame animation, polling for completion,
-        and verifying that all output files are created.
-        """
         start_frame, end_frame = 1, 5
         total_frames = (end_frame - start_frame) + 1
         output_pattern = os.path.join(worker_config.TEST_OUTPUT_DIR, "anim_render_####")
@@ -379,7 +363,7 @@ class TestAnimationWorkflow(BaseE2ETest):
         print("\n--- ACTION: Submitting animation job ---")
         anim_payload = {
             "name": "E2E Animation Test",
-            "blend_file_path": worker_config.ANIMATION_BLEND_FILE_PATH,
+            "asset_id": self.anim_asset_id,
             "output_file_pattern": output_pattern,
             "start_frame": start_frame,
             "end_frame": end_frame,
@@ -402,7 +386,7 @@ class TestAnimationWorkflow(BaseE2ETest):
             assert check_response.status_code == 200
             data = check_response.json()
             completed_frames = data.get('completed_frames', 0)
-            print(f"  Attempt {i + 1}/150: {data.get('progress', 'N/A')}")
+            print(f"  Attempt {i + 1}/150: {data.get('progress', 'N/A')}")
             if completed_frames == total_frames:
                 completed = True
                 break
@@ -424,8 +408,6 @@ class TestAnimationWorkflow(BaseE2ETest):
 
 
 class TestWorkerRegistration(BaseE2ETest):
-    """Tests the worker's registration and reporting capabilities."""
-
     def test_worker_reports_correct_gpu_devices(self):
         print("\n--- ACTION: Verifying worker hardware reporting ---")
         print("Detecting local GPU devices for comparison...")

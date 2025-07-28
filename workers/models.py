@@ -67,7 +67,7 @@ class JobStatus(models.TextChoices):
 
 class Animation(models.Model):
     name = models.CharField(max_length=255, unique=True)
-    blend_file_path = models.CharField(max_length=1024)
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='animations')
     output_file_pattern = models.CharField(max_length=1024)
     start_frame = models.IntegerField()
     end_frame = models.IntegerField()
@@ -88,7 +88,7 @@ class Animation(models.Model):
 
 class Job(models.Model):
     name = models.CharField(max_length=255, unique=True, help_text="A unique name for the render job.")
-    blend_file_path = models.CharField(max_length=1024, help_text="Absolute path to the Blender file.")
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='jobs')
     output_file_pattern = models.CharField(max_length=1024, help_text="Output file path pattern (e.g., //render/#.png)")
     start_frame = models.IntegerField(default=1)
     end_frame = models.IntegerField(default=1)
