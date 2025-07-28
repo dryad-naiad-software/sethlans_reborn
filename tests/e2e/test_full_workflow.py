@@ -294,10 +294,25 @@ class TestRenderWorkflow(BaseE2ETest):
             time.sleep(2)
         assert final_status == "DONE"
 
-        print("Verifying render time was recorded...")
-        final_job_data = requests.get(job_url).json()
+        print("Verifying final job data and output file...")
+        final_job_response = requests.get(job_url)
+        assert final_job_response.status_code == 200
+        final_job_data = final_job_response.json()
+
+        # 1. Verify render time
         assert final_job_data.get('render_time_seconds') is not None
         assert final_job_data.get('render_time_seconds') > 0
+
+        # 2. Verify output file URL
+        assert 'output_file' in final_job_data
+        output_url = final_job_data['output_file']
+        assert output_url is not None
+
+        # 3. Verify the file can be downloaded
+        print(f"Downloading output file from {output_url}...")
+        download_response = requests.get(output_url)
+        assert download_response.status_code == 200
+        assert len(download_response.content) > 0, "Downloaded output file is empty."
 
 
 class TestGpuWorkflow(BaseE2ETest):

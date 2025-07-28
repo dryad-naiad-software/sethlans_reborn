@@ -163,3 +163,25 @@ class JobViewSet(viewsets.ModelViewSet):
         logger.info(f"Job '{job.name}' (ID: {job.id}) CANCELED. Status: {old_status} -> {job.status}.")
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser])
+    def upload_output(self, request, pk=None):
+        """
+        Action for a worker to upload the final rendered output file for a job.
+        """
+        job = self.get_object()
+        file_obj = request.data.get('output_file')
+
+        if not file_obj:
+            return Response(
+                {"error": "Missing 'output_file' in request."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # The 'save' method on the FileField handles moving the uploaded file
+        # to the correct location defined by 'upload_to'.
+        job.output_file.save(file_obj.name, file_obj, save=True)
+
+        logger.info(f"Received output file for job ID {job.id}. Saved to {job.output_file.name}")
+        serializer = self.get_serializer(job)
+        return Response(serializer.data, status=status.HTTP_200_OK)

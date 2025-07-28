@@ -7,12 +7,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/23/2025.
@@ -35,10 +35,31 @@ import threading
 import psutil
 import tempfile
 
-from sethlans_worker_agent import config, asset_manager # <-- Import asset_manager
+from sethlans_worker_agent import config, asset_manager
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
+
+
+def _upload_render_output(job_id, output_file_path):
+    """Uploads the rendered output file to the manager."""
+    if not os.path.exists(output_file_path):
+        logger.error(f"Render output file not found at {output_file_path}. Cannot upload.")
+        return
+
+    upload_url = f"{config.MANAGER_API_URL}jobs/{job_id}/upload_output/"
+    logger.info(f"Uploading render output {output_file_path} to {upload_url}...")
+
+    try:
+        with open(output_file_path, 'rb') as f:
+            files = {'output_file': (os.path.basename(output_file_path), f, 'image/png')}
+            response = requests.post(upload_url, files=files, timeout=60)
+            response.raise_for_status()
+        logger.info(f"Successfully uploaded output file for job {job_id}.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to upload output file for job {job_id}: {e}")
+    except FileNotFoundError:
+        logger.error(f"File not found during upload attempt for job {job_id}: {output_file_path}")
 
 
 def _parse_render_time(stdout_text):
@@ -109,7 +130,8 @@ def get_and_claim_job(worker_id):
                 logger.info(f"Successfully claimed job '{job_name}'! Starting render...")
                 update_job_status(claim_url, {"status": "RENDERING"})
 
-                success, was_canceled, stdout, stderr, blender_error_msg = execute_blender_job(job_to_claim)
+                success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = execute_blender_job(
+                    job_to_claim)
 
                 job_update_payload = {
                     "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
@@ -123,6 +145,8 @@ def get_and_claim_job(worker_id):
 
                 if success:
                     job_update_payload["status"] = "DONE"
+                    if final_output_path:
+                        _upload_render_output(job_id, final_output_path)
                 elif was_canceled:
                     job_update_payload["status"] = "CANCELED"
                 else:
@@ -158,7 +182,7 @@ def _stream_reader(stream, output_list):
 def execute_blender_job(job_data):
     """
     Executes a Blender render job, monitoring for cancellation and reading output via threads.
-    Returns (success: bool, was_canceled: bool, stdout: str, stderr: str, error_message: str)
+    Returns (success: bool, was_canceled: bool, stdout: str, stderr: str, error_message: str, output_path: str|None)
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
@@ -173,18 +197,17 @@ def execute_blender_job(job_data):
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
 
-    # --- UPDATED: Get local asset path ---
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
     if not local_blend_file_path:
         error_message = "Failed to download or find the required .blend file asset."
         logger.error(error_message)
-        return False, False, "", "", error_message
+        return False, False, "", "", error_message, None
 
     blender_to_use = tool_manager_instance.ensure_blender_version_available(
         blender_version_req) if blender_version_req else config.SYSTEM_BLENDER_EXECUTABLE
     if not blender_to_use:
         error_message = f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job."
-        return False, False, "", "", error_message
+        return False, False, "", "", error_message, None
 
     logger.info(f"Using Blender executable: {blender_to_use}")
 
@@ -192,7 +215,6 @@ def execute_blender_job(job_data):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # --- UPDATED: Use the downloaded local path ---
     command = [
         blender_to_use, "-b", local_blend_file_path
     ]
@@ -215,7 +237,7 @@ def execute_blender_job(job_data):
             logger.error(f"Failed to generate render settings script: {e}")
             if temp_script_path and os.path.exists(temp_script_path):
                 os.remove(temp_script_path)
-            return False, False, "", "", f"Failed to generate settings script: {e}"
+            return False, False, "", "", f"Failed to generate settings script: {e}", None
 
     command.extend([
         "-o", output_file_pattern,
@@ -290,6 +312,7 @@ def execute_blender_job(job_data):
     stdout_output = "".join(stdout_lines)
     stderr_output = "".join(stderr_lines)
     success = False
+    final_output_path = None
 
     if was_canceled:
         error_message = "Job was canceled by user request."
@@ -297,6 +320,8 @@ def execute_blender_job(job_data):
         logger.info("Render command completed successfully.")
         error_message = ""
         success = True
+        if start_frame == end_frame:
+            final_output_path = output_file_pattern.replace("####", f"{start_frame:04d}") + ".png"
     elif not error_message:
         error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
         error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"
@@ -304,4 +329,4 @@ def execute_blender_job(job_data):
     logger.debug(f"--- STDOUT ---\n{stdout_output[-1000:]}")
     logger.debug(f"--- STDERR ---\n{stderr_output}")
 
-    return success, was_canceled, stdout_output, stderr_output, error_message
+    return success, was_canceled, stdout_output, stderr_output, error_message, final_output_path

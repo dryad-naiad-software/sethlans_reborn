@@ -96,6 +96,7 @@ class Migration(migrations.Migration):
                 ('animation', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='jobs', to='workers.animation')),
                 ('asset', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='jobs', to='workers.asset')),
                 ('assigned_worker', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='jobs', to='workers.worker')),
+                ('output_file', models.FileField(blank=True, help_text='The final rendered output file uploaded by the worker.', null=True, upload_to=workers.models.job_output_upload_path)),
             ],
             options={
                 'verbose_name': 'Render Job',

@@ -8,12 +8,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/24/2025.
@@ -104,14 +104,62 @@ def test_get_and_claim_job_sends_render_time(mocker):
     mock_patch.return_value = MagicMock(status_code=200)
     mocker.patch(
         'sethlans_worker_agent.job_processor.execute_blender_job',
-        return_value=(True, False, VALID_STDOUT_UNDER_AN_HOUR, "", "")
+        return_value=(True, False, VALID_STDOUT_UNDER_AN_HOUR, "", "", "/path/to/render.png")
     )
+    # Also mock the new upload function so we can isolate this test
+    mocker.patch('sethlans_worker_agent.job_processor._upload_render_output')
+
     job_processor.get_and_claim_job(mock_worker_id)
 
     assert mock_patch.call_count == 3
     final_call_args = mock_patch.call_args
     assert 'render_time_seconds' in final_call_args.kwargs['json']
     assert final_call_args.kwargs['json']['render_time_seconds'] == 96
+
+
+def test_get_and_claim_job_uploads_output_on_success(mocker):
+    """
+    Tests that the render output is uploaded when a job completes successfully.
+    """
+    mock_worker_id = 123
+    mock_job = {'id': 1, 'name': 'Upload Test Job'}
+    mock_output_path = "/tmp/mock_render.png"
+
+    mocker.patch('requests.get', return_value=MagicMock(
+        json=lambda: [mock_job], raise_for_status=lambda: None
+    ))
+    mocker.patch('requests.patch', return_value=MagicMock(status_code=200))
+    mocker.patch(
+        'sethlans_worker_agent.job_processor.execute_blender_job',
+        return_value=(True, False, "Success stdout", "", "", mock_output_path)
+    )
+    mock_upload = mocker.patch('sethlans_worker_agent.job_processor._upload_render_output')
+
+    job_processor.get_and_claim_job(mock_worker_id)
+
+    mock_upload.assert_called_once_with(mock_job['id'], mock_output_path)
+
+
+def test_get_and_claim_job_does_not_upload_on_failure(mocker):
+    """
+    Tests that the render output is NOT uploaded when a job fails.
+    """
+    mock_worker_id = 123
+    mock_job = {'id': 2, 'name': 'Failed Upload Test'}
+
+    mocker.patch('requests.get', return_value=MagicMock(
+        json=lambda: [mock_job], raise_for_status=lambda: None
+    ))
+    mocker.patch('requests.patch', return_value=MagicMock(status_code=200))
+    mocker.patch(
+        'sethlans_worker_agent.job_processor.execute_blender_job',
+        return_value=(False, False, "", "Error stderr", "Blender failed", None)
+    )
+    mock_upload = mocker.patch('sethlans_worker_agent.job_processor._upload_render_output')
+
+    job_processor.get_and_claim_job(mock_worker_id)
+
+    mock_upload.assert_not_called()
 
 
 def test_execute_blender_job_cpu_success(mock_popen_setup):
@@ -127,8 +175,10 @@ def test_execute_blender_job_cpu_success(mock_popen_setup):
         'blender_version': '4.2.0', 'render_engine': 'CYCLES', 'render_device': 'CPU'
     }
 
-    job_processor.execute_blender_job(mock_job_data)
+    success, _, _, _, _, output_path = job_processor.execute_blender_job(mock_job_data)
 
+    assert success is True
+    assert output_path == '/path/to/output/frame_0001.png'
     called_command = mock_popen.call_args.args[0]
     assert "--factory-startup" in called_command
     assert "/mock/local/scene.blend" in called_command
@@ -209,9 +259,10 @@ def test_execute_blender_job_failure(mock_popen_setup):
         'blender_version': '4.2.0'
     }
 
-    success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+    success, was_canceled, stdout, stderr, error_message, output_path = job_processor.execute_blender_job(mock_job_data)
 
     assert success is False
+    assert output_path is None
     assert "Blender exited with code 1" in error_message
 
 
@@ -254,9 +305,10 @@ def test_execute_blender_job_tool_unavailable(mocker):
         'output_file_pattern': '/path/to/output/frame_####'
     }
 
-    success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+    success, was_canceled, stdout, stderr, error_message, output_path = job_processor.execute_blender_job(mock_job_data)
 
     assert success is False
+    assert output_path is None
     assert "Could not find or acquire Blender version '4.99.0'" in error_message
 
 
@@ -271,8 +323,10 @@ def test_get_and_claim_job_success(mocker):
     mocker.patch('requests.patch', side_effect=[MagicMock(status_code=200)] * 3)
     mocker.patch(
         'sethlans_worker_agent.job_processor.execute_blender_job',
-        return_value=(True, False, "output", "", "")
+        return_value=(True, False, "output", "", "", "/path/to/render.png")
     )
+    mocker.patch('sethlans_worker_agent.job_processor._upload_render_output')
+
 
     job_processor.get_and_claim_job(mock_worker_id)
 
@@ -300,7 +354,8 @@ def test_execute_blender_job_cancellation(mock_popen_setup, mocker):
     mock_response_canceled.json.return_value = {'status': 'CANCELED'}
     mocker.patch('requests.get', side_effect=[mock_response_rendering, mock_response_canceled])
 
-    success, was_canceled, stdout, stderr, error_message = job_processor.execute_blender_job(mock_job_data)
+    success, was_canceled, stdout, stderr, error_message, output_path = job_processor.execute_blender_job(mock_job_data)
 
     assert was_canceled is True
+    assert output_path is None
     assert error_message == "Job was canceled by user request."

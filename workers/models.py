@@ -51,6 +51,14 @@ def asset_upload_path(instance, filename):
     return f'assets/{instance.project.id}/{uuid.uuid4()}{extension}'
 
 
+def job_output_upload_path(instance, filename):
+    """Generates a project-specific path for a job's output file."""
+    extension = Path(filename).suffix
+    project_id = instance.asset.project.id
+    # Use the job ID for a unique, predictable filename.
+    return f'assets/{project_id}/outputs/job_{instance.id}{extension}'
+
+
 class Worker(models.Model):
     hostname = models.CharField(max_length=255, unique=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
@@ -146,6 +154,12 @@ class Job(models.Model):
     )
     render_time_seconds = models.IntegerField(null=True, blank=True,
                                               help_text="The total time in seconds this job took to render.")
+    output_file = models.FileField(
+        upload_to=job_output_upload_path,
+        null=True,
+        blank=True,
+        help_text="The final rendered output file uploaded by the worker."
+    )
 
     def __str__(self):
         return f"{self.name} ({self.status})"

@@ -230,6 +230,36 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertEqual(job.status, JobStatus.CANCELED)
         self.assertEqual(response.data['status'], JobStatus.CANCELED)
 
+    def test_upload_job_output_file(self):
+        """
+        Ensure a file can be uploaded to the custom 'upload_output' action.
+        """
+        # Arrange
+        job = Job.objects.create(name="Job for Upload", asset=self.asset)
+        url = f"/api/jobs/{job.id}/upload_output/"
+        file_content = b"fake-png-image-data"
+        uploaded_file = SimpleUploadedFile(
+            "render_result.png",
+            file_content,
+            content_type="image/png"
+        )
+        data = {"output_file": uploaded_file}
+
+        # Act
+        response = self.client.post(url, data, format='multipart')
+
+        # Assert
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        job.refresh_from_db()
+        self.assertIsNotNone(job.output_file)
+        self.assertTrue(job.output_file.name.startswith(f"assets/{self.project.id}/outputs/job_{job.id}"))
+        self.assertTrue(job.output_file.name.endswith(".png"))
+
+        with job.output_file.open('rb') as f:
+            content_on_disk = f.read()
+            self.assertEqual(content_on_disk, file_content)
+
 
 class AnimationViewSetTests(BaseMediaTestCase):
     """Test suite for the new AnimationViewSet."""

@@ -137,12 +137,14 @@ class JobSerializer(serializers.ModelSerializer):
             'last_output',
             'error_message',
             'render_time_seconds',
+            'output_file',
         ]
         read_only_fields = [
             'submitted_at', 'started_at', 'completed_at',
             'last_output', 'error_message',
             'status_display', 'assigned_worker_hostname',
-            'asset'
+            'asset',
+            'output_file',
         ]
         extra_kwargs = {
             'status': {'required': False},
