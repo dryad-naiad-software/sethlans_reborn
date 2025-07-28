@@ -31,15 +31,19 @@ import sys
 import time
 import platform
 import socket
+import tempfile
+import queue
+import threading
 from pathlib import Path
+
 import pytest
 import requests
-import threading
-import queue
 
 from sethlans_worker_agent import config as worker_config
 from sethlans_worker_agent import system_monitor
-from workers.constants import RenderSettings # <-- MODIFIED IMPORT
+from sethlans_worker_agent.tool_manager import tool_manager_instance
+from sethlans_worker_agent.utils import blender_release_parser, file_operations
+from workers.constants import RenderSettings
 
 
 def is_gpu_available():
@@ -61,6 +65,59 @@ class BaseE2ETest:
     worker_log_thread = None
     worker_log_queue = queue.Queue()
 
+    # Class-level variable to store the path to the cached, extracted Blender directory
+    _blender_cache_path = None
+
+    @classmethod
+    def _cache_blender_once(cls):
+        """
+        Downloads and extracts Blender to a persistent system temp directory.
+        This method runs only once per test session, and subsequent calls will use the cache.
+        """
+        if cls._blender_cache_path and cls._blender_cache_path.exists():
+            return  # Already cached in this test session run.
+
+        cache_root = Path(tempfile.gettempdir()) / "sethlans_e2e_cache"
+        cache_root.mkdir(exist_ok=True)
+
+        version_req = "4.5.0"  # The version required by our tests
+        platform_id = tool_manager_instance._get_platform_identifier()
+        if not platform_id:
+            raise RuntimeError("Could not determine platform identifier for E2E tests.")
+
+        # This is the final path to the *extracted* Blender directory inside the cache.
+        blender_install_dir_name = f"blender-{version_req}-{platform_id}"
+        cls._blender_cache_path = cache_root / blender_install_dir_name
+
+        if cls._blender_cache_path.exists():
+            print(f"\nBlender {version_req} found in persistent cache: {cls._blender_cache_path}")
+            return
+
+        print(f"\nBlender {version_req} not found in cache. Downloading and extracting once...")
+
+        releases = blender_release_parser.get_blender_releases()
+        release_info = releases.get(version_req, {}).get(platform_id)
+        if not release_info or not release_info.get('url') or not release_info.get('sha256'):
+            raise RuntimeError(f"Cannot find download info for Blender {version_req} on {platform_id}")
+
+        url = release_info['url']
+        expected_hash = release_info['sha256']
+
+        try:
+            downloaded_archive = file_operations.download_file(url, str(cache_root))
+            if not file_operations.verify_hash(downloaded_archive, expected_hash):
+                raise IOError(f"Hash mismatch for cached Blender download: {downloaded_archive}")
+
+            file_operations.extract_archive(downloaded_archive, str(cache_root))
+            file_operations.cleanup_archive(downloaded_archive)
+            print(f"Successfully cached Blender to {cls._blender_cache_path}")
+        except Exception as e:
+            # Clean up a failed attempt to ensure it retries next time.
+            if cls._blender_cache_path.exists():
+                shutil.rmtree(cls._blender_cache_path)
+            cls._blender_cache_path = None  # Reset path so it retries
+            raise RuntimeError(f"Failed to cache Blender for E2E tests: {e}")
+
     @classmethod
     def _log_reader_thread(cls, pipe):
         """Reads lines from the worker's output pipe and puts them in a queue."""
@@ -74,6 +131,11 @@ class BaseE2ETest:
     def setup_class(cls):
         """Set up the environment for all tests in this class."""
         print(f"\n--- SETUP: {cls.__name__} ---")
+
+        # Step 1: Download and extract Blender to a shared cache location if not already done.
+        cls._cache_blender_once()
+
+        # Step 2: Clean the test-specific directories for perfect isolation.
         if os.path.exists(TEST_DB_NAME):
             os.remove(TEST_DB_NAME)
         if MOCK_TOOLS_DIR.exists():
@@ -83,6 +145,16 @@ class BaseE2ETest:
         if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE):
             os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
 
+        # Step 3: Copy the cached, extracted Blender into the test's sandboxed tool directory.
+        blender_dir_for_test = MOCK_TOOLS_DIR / "blender"
+        blender_dir_for_test.mkdir(parents=True)
+        source_path = cls._blender_cache_path
+        dest_path = blender_dir_for_test / source_path.name
+        print(f"Copying cached Blender from {source_path} to {dest_path}")
+        shutil.copytree(source_path, dest_path)
+
+        # Step 4: Proceed with the original setup logic. The worker will now find the
+        # pre-copied Blender and skip its own slow download and extraction steps.
         print("Running migrations...")
         test_env = os.environ.copy()
         test_env["SETHLANS_DB_NAME"] = TEST_DB_NAME
@@ -95,17 +167,17 @@ class BaseE2ETest:
                                                stderr=subprocess.DEVNULL)
         time.sleep(5)
 
-        print("Starting Worker Agent (will download Blender on first run)...")
+        print("Starting Worker Agent...")
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
         cls.worker_process = subprocess.Popen(worker_command, cwd=PROJECT_ROOT, env=test_env, stdout=subprocess.PIPE,
-                                              stderr=subprocess.STDOUT, text=True)
+                                              stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
 
         cls.worker_log_thread = threading.Thread(target=cls._log_reader_thread, args=(cls.worker_process.stdout,))
         cls.worker_log_thread.daemon = True
         cls.worker_log_thread.start()
 
         worker_ready = False
-        max_wait_seconds = 420
+        max_wait_seconds = 60  # Can be shorter now that download is skipped
         start_time = time.time()
         print("Waiting for worker to complete registration and initial setup...")
         while time.time() - start_time < max_wait_seconds:
@@ -118,6 +190,9 @@ class BaseE2ETest:
                     break
             except queue.Empty:
                 if cls.worker_process.poll() is not None:
+                    # Drain queue to show any final error messages
+                    while not cls.worker_log_queue.empty():
+                        print(f"  [FINAL LOG] {cls.worker_log_queue.get_nowait().strip()}")
                     raise RuntimeError("Worker process terminated unexpectedly during setup.")
                 continue
 
@@ -140,13 +215,13 @@ class BaseE2ETest:
 
         if cls.worker_process:
             if platform.system() == "Windows":
-                subprocess.run(f"taskkill /F /T /PID {cls.worker_process.pid}", check=False, capture_output=True)
+                subprocess.run(f"taskkill /F /T /PID {cls.worker_process.pid}", check=False, capture_output=True, shell=True)
             else:
                 cls.worker_process.kill()
 
         if cls.manager_process:
             if platform.system() == "Windows":
-                subprocess.run(f"taskkill /F /T /PID {cls.manager_process.pid}", check=False, capture_output=True)
+                subprocess.run(f"taskkill /F /T /PID {cls.manager_process.pid}", check=False, capture_output=True, shell=True)
             else:
                 cls.manager_process.kill()
 
@@ -198,7 +273,6 @@ class TestRenderWorkflow(BaseE2ETest):
             time.sleep(2)
         assert final_status == "DONE"
 
-        # --- UPDATED ASSERTION ---
         print("Verifying render time was recorded...")
         final_job_data = requests.get(job_url).json()
         assert final_job_data.get('render_time_seconds') is not None
@@ -343,7 +417,6 @@ class TestAnimationWorkflow(BaseE2ETest):
 
         print(f"SUCCESS: All {total_frames} animation frames were rendered successfully.")
 
-        # --- ADDED ASSERTION ---
         print("Verifying total animation render time was recorded...")
         final_anim_data = requests.get(anim_url).json()
         assert final_anim_data.get('total_render_time_seconds') is not None
