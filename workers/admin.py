@@ -21,9 +21,10 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# workers/admin.py
 
 from django.contrib import admin
-from .models import Worker, Job, Animation # Import Animation
+from .models import Worker, Job, Animation, Asset # Import Asset
 
 
 @admin.register(Worker)
@@ -54,3 +55,10 @@ class AnimationAdmin(admin.ModelAdmin):
     date_hierarchy = 'submitted_at'
     ordering = ('-submitted_at',)
     readonly_fields = ('submitted_at', 'completed_at')
+
+# --- NEW: Register Asset model ---
+@admin.register(Asset)
+class AssetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'blend_file', 'created_at')
+    search_fields = ('name',)
+    date_hierarchy = 'created_at'

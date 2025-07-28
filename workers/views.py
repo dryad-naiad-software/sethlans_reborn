@@ -20,16 +20,17 @@
 # Dryad and Naiad Software LLC
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
-#
+# workers/views.py
 
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Worker, Job, JobStatus, Animation
-from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer
+from .models import Worker, Job, JobStatus, Animation, Asset
+from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer
 from django.utils import timezone
 
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FileUploadParser
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 
@@ -117,6 +118,16 @@ class AnimationViewSet(viewsets.ModelViewSet):
 
         Job.objects.bulk_create(jobs_to_create)
         logger.info(f"Successfully spawned {len(jobs_to_create)} frame jobs for animation ID {animation.id}.")
+
+
+# --- NEW ASSET VIEWSET ---
+class AssetViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for uploading and managing .blend file assets.
+    """
+    queryset = Asset.objects.all()
+    serializer_class = AssetSerializer
+    parser_classes = (MultiPartParser, FileUploadParser)
 
 
 class JobViewSet(viewsets.ModelViewSet):

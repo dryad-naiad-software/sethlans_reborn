@@ -23,10 +23,61 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+# workers/tests.py
 
+import tempfile
+import shutil
+from django.test import override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.test import APITestCase
-from .models import Job, Worker, JobStatus, Animation
+from .models import Job, Worker, JobStatus, Animation, Asset
+
+
+# --- NEW TEST CLASS FOR ASSETS ---
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class AssetViewSetTests(APITestCase):
+    """
+    Test suite for the AssetViewSet, specifically for file uploads.
+    """
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(tempfile.gettempdir(), ignore_errors=True)
+        super().tearDownClass()
+
+    def test_upload_asset_file(self):
+        """
+        Ensure we can upload a .blend file to the Asset endpoint.
+        """
+        # Create a dummy file in memory
+        blend_file_content = b"this is a dummy blend file"
+        uploaded_file = SimpleUploadedFile(
+            "test_scene.blend",
+            blend_file_content,
+            content_type="application/octet-stream"
+        )
+
+        asset_data = {
+            "name": "Test Scene Asset",
+            "blend_file": uploaded_file,
+        }
+
+        url = "/api/assets/"
+        response = self.client.post(url, asset_data, format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Asset.objects.count(), 1)
+
+        new_asset = Asset.objects.get()
+        self.assertEqual(new_asset.name, "Test Scene Asset")
+        self.assertTrue(new_asset.blend_file.name.startswith("assets/"))
+        self.assertTrue(new_asset.blend_file.name.endswith("test_scene.blend"))
+
+        # Verify the file content on disk
+        with new_asset.blend_file.open('rb') as f:
+            content_on_disk = f.read()
+            self.assertEqual(content_on_disk, blend_file_content)
 
 
 class WorkerHeartbeatTests(APITestCase):

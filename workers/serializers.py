@@ -24,13 +24,20 @@
 # workers/serializers.py
 
 from rest_framework import serializers
-from .models import Worker, Job, JobStatus, Animation
+from .models import Worker, Job, JobStatus, Animation, Asset
 
 class WorkerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Worker
         fields = ['id', 'hostname', 'ip_address', 'os', 'last_seen', 'is_active', 'available_tools']
         read_only_fields = ['last_seen']
+
+# --- NEW ASSET SERIALIZER ---
+class AssetSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Asset
+        fields = ['id', 'name', 'blend_file', 'created_at']
+        read_only_fields = ['created_at']
 
 class AnimationSerializer(serializers.ModelSerializer):
     progress = serializers.SerializerMethodField()

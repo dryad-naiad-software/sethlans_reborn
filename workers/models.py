@@ -45,6 +45,18 @@ class Worker(models.Model):
         ordering = ['hostname']
 
 
+class Asset(models.Model):
+    name = models.CharField(max_length=255, unique=True, help_text="A unique name for the asset file.")
+    blend_file = models.FileField(upload_to='assets/%Y/%m/%d/', help_text="The uploaded .blend file.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ['-created_at']
+
+
 class JobStatus(models.TextChoices):
     QUEUED = 'QUEUED', 'Queued'
     RENDERING = 'RENDERING', 'Rendering'
