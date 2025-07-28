@@ -39,6 +39,8 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 # --- Test data for time parsing ---
 VALID_STDOUT_UNDER_AN_HOUR = "Blender render complete\nSaved: '/tmp/test.png'\nTime: 01:35.25 (Saving: 00:00.10)\n"
 VALID_STDOUT_OVER_AN_HOUR = "Blender render complete\nSaved: '/tmp/test.png'\nTime: 01:02:03.99 (Saving: 00:00.00)\n"
+# --- NEW: Test case for the sub-second bug ---
+VALID_STDOUT_SUB_SECOND = "Render complete.\nTime: 00:00.32 (Saving: 00:00.14)\n"
 NO_TIME_STDOUT = "Blender render complete\n"
 PROGRESS_BAR_TIME_STDOUT = "Fra:1 Mem:158.90M | Time:00:09.53 | Remaining:00:20.23"
 
@@ -71,9 +73,10 @@ def mock_popen_setup(mocker):
 
 # --- UPDATED: Tests for the final, robust time parsing logic ---
 @pytest.mark.parametrize("stdout, expected_seconds", [
-    (VALID_STDOUT_UNDER_AN_HOUR, 95),
-    (VALID_STDOUT_OVER_AN_HOUR, 3723),
-    ("Some other text...\nTime: 01:02:03.99 (Saving: 00:00.00)", 3723),
+    (VALID_STDOUT_SUB_SECOND, 1),      # <-- NEW TEST CASE
+    (VALID_STDOUT_UNDER_AN_HOUR, 96),  # <-- UPDATED EXPECTED VALUE (95.25 -> 96)
+    (VALID_STDOUT_OVER_AN_HOUR, 3724), # <-- UPDATED EXPECTED VALUE (3723.99 -> 3724)
+    ("Some other text...\nTime: 01:02:03.99 (Saving: 00:00.00)", 3724), # <-- UPDATED EXPECTED VALUE
     ("Another line...\nTime: 12.34 (Saving: 00.01)", None),  # Should not match MM:SS.ss without minutes
     (NO_TIME_STDOUT, None),
     (PROGRESS_BAR_TIME_STDOUT, None),  # Should ignore intermediate time reports
@@ -111,10 +114,10 @@ def test_get_and_claim_job_sends_render_time(mocker):
     assert mock_patch.call_count == 3
     final_call_args = mock_patch.call_args
     assert 'render_time_seconds' in final_call_args.kwargs['json']
-    assert final_call_args.kwargs['json']['render_time_seconds'] == 95
+    assert final_call_args.kwargs['json']['render_time_seconds'] == 96 # <-- UPDATED EXPECTED VALUE
 
 
-# --- Existing Tests ---
+# --- Existing Tests (Unchanged) ---
 def test_execute_blender_job_cpu_success(mock_popen_setup):
     """Tests a standard successful CPU render job execution."""
     mock_popen, mock_process = mock_popen_setup

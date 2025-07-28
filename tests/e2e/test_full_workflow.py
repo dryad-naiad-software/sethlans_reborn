@@ -176,6 +176,10 @@ class TestRenderWorkflow(BaseE2ETest):
             "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
             "render_engine": "CYCLES",
             "render_device": "CPU",
+            "render_settings": {
+                RenderSettings.SAMPLES: 10,
+                RenderSettings.RESOLUTION_PERCENTAGE: 10
+            }
         }
         create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
         assert create_response.status_code == 201

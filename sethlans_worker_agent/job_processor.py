@@ -26,6 +26,7 @@
 
 import datetime
 import logging
+import math  # <-- ADDED IMPORT
 import os
 import re
 import requests
@@ -68,7 +69,9 @@ def _parse_render_time(stdout_text):
                     minutes = int(minutes_str)
                     seconds = float(seconds_str)
 
-                    total_seconds = int((hours * 3600) + (minutes * 60) + seconds)
+                    # --- THIS IS THE FIX ---
+                    # Use math.ceil to round up, ensuring sub-second renders are recorded as 1 second.
+                    total_seconds = int(math.ceil((hours * 3600) + (minutes * 60) + seconds))
                     logger.info(f"Parsed render time: {total_seconds} seconds from line: '{line.strip()}'")
                     return total_seconds
                 except (IndexError, ValueError) as e:
