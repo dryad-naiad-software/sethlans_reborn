@@ -59,6 +59,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TEST_DB_NAME = "test_e2e_db.sqlite3"
 MOCK_TOOLS_DIR = Path(worker_config.MANAGED_TOOLS_DIR)
 MEDIA_ROOT_FOR_TEST = Path(tempfile.mkdtemp())
+# **FIX:** Define the series we want to test, not a specific patch.
+E2E_BLENDER_SERIES = "4.5"
 
 
 class BaseE2ETest:
@@ -67,6 +69,7 @@ class BaseE2ETest:
     worker_log_thread = None
     worker_log_queue = queue.Queue()
     _blender_cache_path = None
+    _blender_version_for_test = None  # **NEW:** To store the dynamically found version
 
     project_id = None
     scene_asset_id = None
@@ -91,14 +94,35 @@ class BaseE2ETest:
     @classmethod
     def _cache_blender_once(cls):
         """
-        Downloads and extracts Blender to a persistent system temp directory.
+        Dynamically finds the latest patch for the E2E_BLENDER_SERIES,
+        then downloads and extracts it to a persistent system temp directory.
         """
+        # **NEW DYNAMIC LOGIC STARTS HERE**
+        if cls._blender_version_for_test is None:
+            print(f"\nDynamically determining latest patch for Blender {E2E_BLENDER_SERIES}.x series...")
+            releases = blender_release_parser.get_blender_releases()
+            latest_patch_for_series = None
+            # The parser returns sorted keys, so the first match is the latest.
+            for version in releases.keys():
+                if version.startswith(E2E_BLENDER_SERIES + '.'):
+                    latest_patch_for_series = version
+                    break
+
+            if not latest_patch_for_series:
+                raise RuntimeError(f"Cannot find any patch release for Blender series {E2E_BLENDER_SERIES}")
+
+            cls._blender_version_for_test = latest_patch_for_series
+            print(f"Found latest patch: {cls._blender_version_for_test}")
+
+        version_req = cls._blender_version_for_test
+        # **DYNAMIC LOGIC ENDS HERE**
+
         if cls._blender_cache_path and cls._blender_cache_path.exists():
             return
 
         cache_root = Path(tempfile.gettempdir()) / "sethlans_e2e_cache"
         cache_root.mkdir(exist_ok=True)
-        version_req = "4.5.0"
+
         platform_id = tool_manager_instance._get_platform_identifier()
         if not platform_id:
             raise RuntimeError("Could not determine platform identifier for E2E tests.")
@@ -206,7 +230,7 @@ class BaseE2ETest:
         cls.worker_log_thread.start()
 
         worker_ready = False
-        max_wait_seconds = 60
+        max_wait_seconds = 180 # Increased wait time for potential first-time download
         start_time = time.time()
         print("Waiting for worker to complete registration and initial setup...")
         while time.time() - start_time < max_wait_seconds:
@@ -276,7 +300,7 @@ class TestRenderWorkflow(BaseE2ETest):
             "name": "E2E CPU Render Test",
             "asset_id": self.scene_asset_id,
             "output_file_pattern": "e2e_render_####",  # Use relative path
-            "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
+            "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_engine": "CYCLES",
             "render_device": "CPU",
             "render_settings": {
@@ -325,7 +349,7 @@ class TestGpuWorkflow(BaseE2ETest):
             "name": "E2E GPU Command Test",
             "asset_id": self.bmw_asset_id,
             "output_file_pattern": "gpu_test_####",
-            "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
+            "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_engine": "CYCLES",
             "render_device": "GPU"
         }
@@ -358,7 +382,7 @@ class TestGpuWorkflow(BaseE2ETest):
             "name": "E2E Full GPU Render Test",
             "asset_id": self.bmw_asset_id,
             "output_file_pattern": "e2e_gpu_render_####",
-            "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
+            "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_engine": "CYCLES",
             "render_device": "GPU",
         }
@@ -396,7 +420,7 @@ class TestAnimationWorkflow(BaseE2ETest):
             "output_file_pattern": output_pattern,
             "start_frame": start_frame,
             "end_frame": end_frame,
-            "blender_version": "4.5.0",
+            "blender_version": self._blender_version_for_test,
             "render_device": "CPU",
             "render_settings": {
                 RenderSettings.SAMPLES: 25,
