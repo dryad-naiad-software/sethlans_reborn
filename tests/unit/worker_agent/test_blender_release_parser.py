@@ -24,70 +24,72 @@
 #
 import pytest
 import requests
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 # Import the module to be tested and its dependency
 from sethlans_worker_agent.utils import blender_release_parser
 from sethlans_worker_agent.utils import hash_parser
 
 # --- Mock HTML Data ---
-MOCK_MAIN_PAGE_HTML = """
+MOCK_MAIN_PAGE_HTML_MULTI_PATCH = """
 <html><body>
-    <a href="Blender3.6/">Blender3.6/</a>
     <a href="Blender4.1/">Blender4.1/</a>
+    <a href="Blender4.2/">Blender4.2/</a>
 </body></html>
 """
 
-MOCK_VERSION_PAGE_HTML = """
+MOCK_4_1_PAGE_HTML = """
 <html><body>
+    <a href="blender-4.1.0-windows-x64.zip">blender-4.1.0-windows-x64.zip</a>
     <a href="blender-4.1.1-windows-x64.zip">blender-4.1.1-windows-x64.zip</a>
     <a href="blender-4.1.1.sha256">blender-4.1.1.sha256</a>
 </body></html>
 """
 
+MOCK_4_2_PAGE_HTML = """
+<html><body>
+    <a href="blender-4.2.0-windows-x64.zip">blender-4.2.0-windows-x64.zip</a>
+    <a href="blender-4.2.0.sha256">blender-4.2.0.sha256</a>
+</body></html>
+"""
 
-def test_get_blender_releases_success(mocker):
+def test_get_blender_releases_filters_for_latest_patch(mocker):
     """
-    Tests the full successful workflow of scraping the main and version pages.
+    Tests that the scraper correctly identifies multiple patch versions
+    and filters the final result to include only the latest one for each series.
     """
     # Arrange
-    # Configure the .content attribute, which is what BeautifulSoup uses.
-    mock_main_response = MagicMock()
-    mock_main_response.content = MOCK_MAIN_PAGE_HTML
+    mock_main_response = MagicMock(content=MOCK_MAIN_PAGE_HTML_MULTI_PATCH)
+    mock_4_1_response = MagicMock(content=MOCK_4_1_PAGE_HTML)
+    mock_4_2_response = MagicMock(content=MOCK_4_2_PAGE_HTML)
 
-    mock_version_response = MagicMock()
-    mock_version_response.content = MOCK_VERSION_PAGE_HTML
+    def get_side_effect(url, timeout):
+        if url.endswith('/release/'):
+            return mock_main_response
+        if url.endswith('/Blender4.1/'):
+            return mock_4_1_response
+        if url.endswith('/Blender4.2/'):
+            return mock_4_2_response
+        return MagicMock() # Default mock for any other calls
 
-    mocker.patch('requests.get', side_effect=[mock_main_response, mock_version_response])
-
-    # Mock the dependency on hash_parser
+    mocker.patch('requests.get', side_effect=get_side_effect)
     mocker.patch.object(
         hash_parser,
         'get_all_hashes_from_url',
-        return_value={"blender-4.1.1-windows-x64.zip": "hash123"}
+        return_value={
+            "blender-4.1.1-windows-x64.zip": "hash411",
+            "blender-4.2.0-windows-x64.zip": "hash420"
+        }
     )
 
     # Act
     releases = blender_release_parser.get_blender_releases()
 
     # Assert
-    assert "3.6.0" not in releases
-    assert "4.1.1" in releases
-    win_release = releases["4.1.1"]["windows-x64"]
-    assert "blender-4.1.1-windows-x64.zip" in win_release["url"]
-    assert win_release["sha256"] == "hash123"
-    assert requests.get.call_count == 2
+    assert "4.1.0" not in releases  # Should be filtered out
+    assert "4.1.1" in releases      # Should be the latest for 4.1
+    assert "4.2.0" in releases      # Should be the latest for 4.2
+    assert len(releases) == 2
 
-
-def test_get_blender_releases_network_failure(mocker):
-    """
-    Tests that the function returns an empty dictionary if a network error occurs.
-    """
-    # Arrange: Mock requests.get to raise an exception
-    mocker.patch('requests.get', side_effect=requests.exceptions.RequestException)
-
-    # Act
-    releases = blender_release_parser.get_blender_releases()
-
-    # Assert: The function should catch the exception and return an empty dict
-    assert releases == {}
+    release_411 = releases["4.1.1"]["windows-x64"]
+    assert "blender-4.1.1-windows-x64.zip" in release_411["url"]

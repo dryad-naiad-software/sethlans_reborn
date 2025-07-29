@@ -24,12 +24,50 @@
 #
 
 import pytest
+import re
 from unittest.mock import MagicMock
 
 # Import the ToolManager instance and its dependencies for mocking
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent import config
 from sethlans_worker_agent.utils import file_operations, blender_release_parser
+
+
+# --- Tests for _resolve_version ---
+
+def test_resolve_version_handles_full_version_string():
+    """If a full X.Y.Z version is provided, it should be returned as-is."""
+    result = tool_manager_instance._resolve_version("4.1.1")
+    assert result == "4.1.1"
+
+
+def test_resolve_version_finds_latest_local_patch(mocker):
+    """If a partial X.Y version is given, it finds the latest among local installs."""
+    mock_local_blenders = [
+        {'version': '4.5.0'},
+        {'version': '4.5.2'},
+        {'version': '4.1.1'},
+        {'version': '4.5.1'},
+    ]
+    mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=mock_local_blenders)
+    result = tool_manager_instance._resolve_version("4.5")
+    assert result == "4.5.2"
+
+
+def test_resolve_version_finds_latest_web_patch_if_not_local(mocker):
+    """If no local patches are found, it checks the web for the latest patch."""
+    mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[])
+    mock_web_releases = {"4.5.0": {}, "4.5.1": {}, "4.2.9": {}}
+    mocker.patch.object(tool_manager_instance, '_get_blender_download_info', return_value=mock_web_releases)
+    result = tool_manager_instance._resolve_version("4.5")
+    assert result == "4.5.1"
+
+
+def test_resolve_version_returns_none_for_invalid_format():
+    """If the version string format is invalid, it returns None."""
+    assert tool_manager_instance._resolve_version("4") is None
+    assert tool_manager_instance._resolve_version("4.5.1.2") is None
+    assert tool_manager_instance._resolve_version("latest") is None
 
 
 # --- Tests for scan_for_local_blenders ---
@@ -43,12 +81,10 @@ def test_scan_for_local_blenders(mocker):
     mock_dir_valid.name = "blender-4.1.1-windows-x64"
     mock_dir_valid.is_dir.return_value = True
 
-    # This mock should be skipped by the code's logic
     mock_dir_invalid_name = MagicMock()
     mock_dir_invalid_name.name = "not-blender-folder"
     mock_dir_invalid_name.is_dir.return_value = True
 
-    # Patch the methods on the Path class, not an instance
     mocker.patch('pathlib.Path.exists', return_value=True)
     mocker.patch('pathlib.Path.iterdir', return_value=[mock_dir_valid, mock_dir_invalid_name])
     mocker.patch('pathlib.Path.is_file', return_value=True)
@@ -123,6 +159,7 @@ def test_get_blender_download_info_from_parser(mocker):
 def mock_ensure_deps(mocker):
     """Fixture to mock all dependencies for ensure_blender_version_available."""
     mocker.patch.object(tool_manager_instance, '_create_tools_directory_if_not_exists')
+    mocker.patch.object(tool_manager_instance, '_resolve_version', side_effect=lambda v: v) # Pass through by default
     mock_get_exe = mocker.patch.object(tool_manager_instance, 'get_blender_executable_path')
     mock_get_info = mocker.patch.object(tool_manager_instance, '_get_blender_download_info')
 
@@ -151,16 +188,13 @@ def test_ensure_blender_already_exists(mock_ensure_deps):
 
 def test_ensure_blender_download_success(mock_ensure_deps, mocker):
     """Tests the full successful download, verify, and extract workflow."""
-    # Arrange mocks for the new permission-setting code
     mocker.patch('platform.system', return_value="Linux")
     mocker.patch('os.stat', return_value=MagicMock(st_mode=0o644))
     mock_chmod = mocker.patch('os.chmod')
 
-    # --- THIS IS THE FIX ---
-    # Override the fixture's platform mock to match this test's data
     mocker.patch.object(tool_manager_instance, '_get_platform_identifier', return_value="linux-x64")
+    mocker.patch.object(tool_manager_instance, '_resolve_version', return_value="4.1.1")
 
-    # Arrange the test scenario
     mock_ensure_deps["get_exe"].side_effect = [None, "/path/to/blender.exe"]
     mock_ensure_deps["get_info"].return_value = {
         "4.1.1": {"linux-x64": {"url": "http://a.tar.xz", "sha256": "hash123"}}
@@ -168,18 +202,17 @@ def test_ensure_blender_download_success(mock_ensure_deps, mocker):
     mock_ensure_deps["download"].return_value = "/tmp/a.tar.xz"
     mock_ensure_deps["verify"].return_value = True
 
-    # Act
     result = tool_manager_instance.ensure_blender_version_available("4.1.1")
 
-    # Assert
     assert result == "/path/to/blender.exe"
     mock_ensure_deps["download"].assert_called_once_with("http://a.tar.xz", mocker.ANY)
     mock_chmod.assert_called_once()
     mock_ensure_deps["cleanup"].assert_called_once()
 
 
-def test_ensure_blender_version_not_in_releases(mock_ensure_deps):
+def test_ensure_blender_version_not_in_releases(mock_ensure_deps, mocker):
     """Tests when the requested version doesn't exist in the release info."""
+    mocker.patch.object(tool_manager_instance, '_resolve_version', return_value="9.9.9")
     mock_ensure_deps["get_exe"].return_value = None
     mock_ensure_deps["get_info"].return_value = {}
 
@@ -191,6 +224,7 @@ def test_ensure_blender_version_not_in_releases(mock_ensure_deps):
 
 def test_ensure_blender_hash_verification_fails(mock_ensure_deps, mocker):
     """Tests that a failed hash check aborts the process and cleans up."""
+    mocker.patch.object(tool_manager_instance, '_resolve_version', return_value="4.1.1")
     mock_ensure_deps["get_exe"].return_value = None
     mock_ensure_deps["get_info"].return_value = {
         "4.1.1": {"windows-x64": {"url": "http://a.zip", "sha256": "hash123"}}
@@ -206,7 +240,6 @@ def test_ensure_blender_hash_verification_fails(mock_ensure_deps, mocker):
     mock_ensure_deps["extract"].assert_not_called()
 
 
-# --- Test for cross-platform architecture detection ---
 @pytest.mark.parametrize("system, machine, expected_id", [
     ("Linux", "x86_64", "linux-x64"),
     ("Linux", "aarch64", "linux-arm64"),
@@ -219,12 +252,9 @@ def test_get_platform_identifier_parameterized(mocker, system, machine, expected
     """
     Tests the _get_platform_identifier method for various OS and architecture combinations.
     """
-    # Arrange: Mock the platform module functions
     mocker.patch('platform.system', return_value=system)
     mocker.patch('platform.machine', return_value=machine)
 
-    # Act
     result = tool_manager_instance._get_platform_identifier()
 
-    # Assert
     assert result == expected_id

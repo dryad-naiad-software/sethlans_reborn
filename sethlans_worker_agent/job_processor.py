@@ -45,7 +45,7 @@ def _upload_render_output(job_id, output_file_path):
     """Uploads the rendered output file to the manager."""
     if not os.path.exists(output_file_path):
         logger.error(f"Render output file not found at {output_file_path}. Cannot upload.")
-        return
+        return False
 
     upload_url = f"{config.MANAGER_API_URL}jobs/{job_id}/upload_output/"
     logger.info(f"Uploading render output {output_file_path} to {upload_url}...")
@@ -56,10 +56,13 @@ def _upload_render_output(job_id, output_file_path):
             response = requests.post(upload_url, files=files, timeout=60)
             response.raise_for_status()
         logger.info(f"Successfully uploaded output file for job {job_id}.")
+        return True
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to upload output file for job {job_id}: {e}")
+        return False
     except FileNotFoundError:
         logger.error(f"File not found during upload attempt for job {job_id}: {output_file_path}")
+        return False
 
 
 def _parse_render_time(stdout_text):
@@ -146,7 +149,19 @@ def get_and_claim_job(worker_id):
                 if success:
                     job_update_payload["status"] = "DONE"
                     if final_output_path:
-                        _upload_render_output(job_id, final_output_path)
+                        upload_ok = _upload_render_output(job_id, final_output_path)
+                        # **FIX:** Clean up the local file after a successful upload
+                        if upload_ok:
+                            try:
+                                logger.info(f"Cleaning up local render output: {final_output_path}")
+                                os.remove(final_output_path)
+                                # Try to remove the parent directory if it's empty
+                                output_dir = os.path.dirname(final_output_path)
+                                if not os.listdir(output_dir):
+                                    os.rmdir(output_dir)
+                            except OSError as e:
+                                logger.warning(f"Could not clean up temporary render file or directory: {e}")
+
                 elif was_canceled:
                     job_update_payload["status"] = "CANCELED"
                 else:
@@ -197,6 +212,9 @@ def execute_blender_job(job_data):
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
 
+    # Ensure local temp directory exists for override scripts
+    os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
+
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
     if not local_blend_file_path:
         error_message = "Failed to download or find the required .blend file asset."
@@ -211,7 +229,10 @@ def execute_blender_job(job_data):
 
     logger.info(f"Using Blender executable: {blender_to_use}")
 
-    output_dir = os.path.dirname(output_file_pattern)
+    # Resolve the output path relative to the worker's output directory and normalize it
+    resolved_output_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, output_file_pattern))
+
+    output_dir = os.path.dirname(resolved_output_pattern)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -221,7 +242,8 @@ def execute_blender_job(job_data):
 
     if isinstance(render_settings, dict) and render_settings:
         try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            # Use the local temp directory for the script file.
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
                 temp_script_path = f.name
                 script_lines = ["import bpy", "for scene in bpy.data.scenes:"]
                 for key, value in render_settings.items():
@@ -240,7 +262,7 @@ def execute_blender_job(job_data):
             return False, False, "", "", f"Failed to generate settings script: {e}", None
 
     command.extend([
-        "-o", output_file_pattern,
+        "-o", resolved_output_pattern,
         "-F", "PNG", "-E", render_engine,
     ])
 
@@ -321,7 +343,7 @@ def execute_blender_job(job_data):
         error_message = ""
         success = True
         if start_frame == end_frame:
-            final_output_path = output_file_pattern.replace("####", f"{start_frame:04d}") + ".png"
+            final_output_path = resolved_output_pattern.replace("####", f"{start_frame:04d}") + ".png"
     elif not error_message:
         error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
         error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"

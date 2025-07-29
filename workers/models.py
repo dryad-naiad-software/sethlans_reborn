@@ -24,12 +24,16 @@
 # workers/models.py
 
 import uuid
+import logging
 from pathlib import Path
 from django.db import models
 from django.utils import timezone
 from django.db.models import JSONField, Sum
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+
+
+logger = logging.getLogger(__name__)
 
 
 class Project(models.Model):
@@ -57,6 +61,14 @@ def job_output_upload_path(instance, filename):
     project_id = instance.asset.project.id
     # Use the job ID for a unique, predictable filename.
     return f'assets/{project_id}/outputs/job_{instance.id}{extension}'
+
+
+def tiled_job_output_upload_path(instance, filename):
+    """Generates a project-specific path for a tiled job's final assembled output file."""
+    extension = Path(filename).suffix
+    project_id = instance.asset.project.id
+    # Use the TiledJob UUID for a unique filename.
+    return f'assets/{project_id}/outputs/tiled_{instance.id}{extension}'
 
 
 class Worker(models.Model):
@@ -95,6 +107,14 @@ class JobStatus(models.TextChoices):
     CANCELED = 'CANCELED', 'Canceled'
 
 
+class TiledJobStatus(models.TextChoices):
+    QUEUED = 'QUEUED', 'Queued'
+    RENDERING = 'RENDERING', 'Rendering'
+    ASSEMBLING = 'ASSEMBLING', 'Assembling'
+    DONE = 'DONE', 'Done'
+    ERROR = 'ERROR', 'Error'
+
+
 class Animation(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='animations')
     name = models.CharField(max_length=255, unique=True)
@@ -106,7 +126,7 @@ class Animation(models.Model):
     submitted_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     blender_version = models.CharField(max_length=100, default="4.5",
-                                       help_text="e.g., '4.5' or 'blender-4.5.0-windows-x64'")
+                                       help_text="e.g., '4.5' or '4.1.1'")
     render_engine = models.CharField(max_length=100, default="CYCLES", help_text="e.g., 'CYCLES' or 'BLENDER_EEVEE'")
     render_device = models.CharField(max_length=10, default="CPU")
     render_settings = models.JSONField(default=dict, blank=True, help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
@@ -115,6 +135,33 @@ class Animation(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class TiledJob(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='tiled_jobs')
+    name = models.CharField(max_length=255, unique=True)
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='tiled_jobs')
+    final_resolution_x = models.IntegerField()
+    final_resolution_y = models.IntegerField()
+    tile_count_x = models.IntegerField(default=4)
+    tile_count_y = models.IntegerField(default=4)
+    status = models.CharField(max_length=50, choices=TiledJobStatus.choices, default=TiledJobStatus.QUEUED)
+    submitted_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    blender_version = models.CharField(max_length=100, default="4.5")
+    render_engine = models.CharField(max_length=100, default="CYCLES")
+    render_device = models.CharField(max_length=10, default="CPU")
+    render_settings = models.JSONField(default=dict, blank=True, help_text="Global render settings for all tiles.")
+    total_render_time_seconds = models.IntegerField(default=0)
+    output_file = models.FileField(upload_to=tiled_job_output_upload_path, null=True, blank=True,
+                                   help_text="The final, assembled output image.")
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ['-submitted_at']
 
 
 class Job(models.Model):
@@ -139,7 +186,7 @@ class Job(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     blender_version = models.CharField(max_length=100, default="4.5",
-                                       help_text="e.g., '4.5' or 'blender-4.5.0-windows-x64'")
+                                       help_text="e.g., '4.5' or '4.1.1'")
     render_engine = models.CharField(max_length=100, default="CYCLES", help_text="e.g., 'CYCLES' or 'BLENDER_EEVEE'")
     render_device = models.CharField(max_length=10, default="CPU")
     render_settings = models.JSONField(default=dict, blank=True, help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
@@ -147,6 +194,13 @@ class Job(models.Model):
     error_message = models.TextField(blank=True, default='')
     animation = models.ForeignKey(
         Animation,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='jobs'
+    )
+    tiled_job = models.ForeignKey(
+        TiledJob,
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -171,31 +225,48 @@ class Job(models.Model):
 
 
 @receiver(post_save, sender=Job)
-def update_animation_on_job_complete(sender, instance, **kwargs):
+def update_parent_job_status(sender, instance, **kwargs):
     """
-    After a Job is saved, if it's part of an animation, check if the
-    animation is complete and update its total render time.
+    After a Job is saved, check if it belongs to a parent Animation or TiledJob
+    and update the parent's status accordingly.
     """
-    if not instance.animation:
-        return
+    # Moved import here to prevent circular dependency
+    from .image_assembler import assemble_tiled_job_image
 
-    animation = instance.animation
-    all_jobs = animation.jobs.all()
-    total_jobs_count = all_jobs.count()
+    if instance.animation:
+        animation = instance.animation
+        all_jobs = animation.jobs.all()
+        total_jobs_count = all_jobs.count()
 
-    if total_jobs_count > 0:
-        # Recalculate total render time from all DONE jobs
-        time_aggregate = all_jobs.filter(status=JobStatus.DONE).aggregate(total=Sum('render_time_seconds'))
+        if total_jobs_count > 0:
+            time_aggregate = all_jobs.filter(status=JobStatus.DONE).aggregate(total=Sum('render_time_seconds'))
+            total_time = time_aggregate['total'] or 0
+            finished_jobs_count = all_jobs.filter(status__in=[JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELED]).count()
+            animation_completed = total_jobs_count == finished_jobs_count
+
+            Animation.objects.filter(pk=animation.pk).update(
+                total_render_time_seconds=total_time,
+                status="DONE" if animation_completed else "RENDERING",
+                completed_at=timezone.now() if animation_completed and not animation.completed_at else None
+            )
+
+    elif instance.tiled_job:
+        tiled_job = instance.tiled_job
+        all_tile_jobs = tiled_job.jobs.all()
+        total_tiles = tiled_job.tile_count_x * tiled_job.tile_count_y
+
+        time_aggregate = all_tile_jobs.filter(status=JobStatus.DONE).aggregate(total=Sum('render_time_seconds'))
         total_time = time_aggregate['total'] or 0
 
-        # Check if all jobs are finished (DONE, ERROR, or CANCELED)
-        finished_jobs_count = all_jobs.filter(status__in=[JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELED]).count()
+        completed_tiles = all_tile_jobs.filter(status=JobStatus.DONE).count()
 
-        animation_completed = total_jobs_count == finished_jobs_count
-
-        # Update animation fields without triggering signals
-        Animation.objects.filter(pk=animation.pk).update(
+        # Update render time and status
+        TiledJob.objects.filter(pk=tiled_job.pk).update(
             total_render_time_seconds=total_time,
-            status="DONE" if animation_completed else "RENDERING",
-            completed_at=timezone.now() if animation_completed and not animation.completed_at else None
+            status=TiledJobStatus.RENDERING
         )
+
+        # Trigger assembly if all tiles are done
+        if completed_tiles == total_tiles:
+            logger.info(f"All {total_tiles} tiles for TiledJob {tiled_job.id} are complete. Triggering assembly.")
+            assemble_tiled_job_image(tiled_job.id)

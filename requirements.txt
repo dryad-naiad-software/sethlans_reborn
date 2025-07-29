@@ -10,6 +10,7 @@ git-filter-repo==2.47.0
 idna==3.10
 iniconfig==2.1.0
 packaging==25.0
+Pillow==11.3.0
 pluggy==1.6.0
 psutil==7.0.0
 Pygments==2.19.2

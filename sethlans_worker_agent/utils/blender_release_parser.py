@@ -38,9 +38,10 @@ FILE_REGEX = re.compile(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg|msi|msi
 
 def get_blender_releases():
     """
-    Scrapes the Blender download page to get all official release URLs.
+    Scrapes the Blender download page to get all official release URLs,
+    filtering for only the latest patch of each minor version.
     """
-    releases = {}
+    all_releases = {}
     logger.info("Performing dynamic Blender download info generation (4.x+ only)...")
     try:
         response = requests.get(BASE_URL, timeout=10)
@@ -59,24 +60,29 @@ def get_blender_releases():
 
             version_url = f"{BASE_URL}{href}"
             logger.debug(f"Parsing major version page: {version_url}")
-            parse_version_page(version_url, releases)
+            parse_version_page(version_url, all_releases)
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to fetch Blender release index: {e}")
     except Exception as e:
         logger.error(f"An unexpected error occurred while parsing Blender releases: {e}", exc_info=True)
 
-    # Log the latest patch found for each minor version
+    # --- CORRECTED: Filter for only the latest patch of each minor version ---
     latest_patches = {}
-    for version in releases:
+    # Correctly sort by converting version parts to integers
+    sorted_versions = sorted(all_releases.keys(), key=lambda v: [int(p) for p in v.split('.')], reverse=True)
+
+    for version in sorted_versions:
         major_minor = ".".join(version.split('.')[:2])
-        if major_minor not in latest_patches or version > latest_patches[major_minor]:
-            latest_patches[major_minor] = version
+        if major_minor not in latest_patches:
+            latest_patches[major_minor] = {'version': version, 'data': all_releases[version]}
 
-    for version, latest_patch in latest_patches.items():
-        logger.info(f"  Selected latest for {version} series: {latest_patch}")
+    final_releases = {v['version']: v['data'] for v in latest_patches.values()}
 
-    return releases
+    for version_series, data in latest_patches.items():
+        logger.info(f"  Selected latest for {version_series} series: {data['version']}")
+
+    return final_releases
 
 
 def parse_version_page(url, releases):

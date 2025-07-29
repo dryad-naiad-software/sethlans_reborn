@@ -40,16 +40,19 @@ JOB_POLLING_INTERVAL_SECONDS = 5
 
 # --- Worker Agent Paths ---
 PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parent.parent
+WORKER_AGENT_DIR = Path(__file__).resolve().parent
 
 SYSTEM_BLENDER_EXECUTABLE = None
 
-MANAGED_TOOLS_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'sethlans_worker_agent', 'managed_tools')
-MANAGED_ASSETS_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'sethlans_worker_agent', 'managed_assets') # <-- NEW
+MANAGED_TOOLS_DIR = os.path.join(WORKER_AGENT_DIR, 'managed_tools')
+MANAGED_ASSETS_DIR = os.path.join(WORKER_AGENT_DIR, 'managed_assets')
+WORKER_OUTPUT_DIR = os.path.join(WORKER_AGENT_DIR, 'worker_output')
+WORKER_TEMP_DIR = os.path.join(WORKER_AGENT_DIR, 'temp')
 
 TEST_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'test_scene.blend')
 BENCHMARK_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'bmw27.blend')
 ANIMATION_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'animation.blend')
-TEST_OUTPUT_DIR = os.path.join(PROJECT_ROOT_FOR_WORKER, 'test_output')
+
 
 # --- Tool Discovery & Download Configuration ---
 BLENDER_RELEASES_URL = "https://download.blender.org/release/"

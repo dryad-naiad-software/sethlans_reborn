@@ -21,13 +21,12 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-
-# sethlans_worker_agent/tool_manager.py
 # sethlans_worker_agent/tool_manager.py
 
 import logging
 import platform
 import os
+import re
 import stat  # <-- ADDED IMPORT
 from pathlib import Path
 from . import config
@@ -128,35 +127,75 @@ class ToolManager:
             logger.info(f"Saved generated Blender download info to local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")
         return info
 
+    def _resolve_version(self, requested_version):
+        """
+        Resolves a full X.Y.Z version from a partial X.Y version string.
+        It prefers locally installed versions first, then checks the web.
+        """
+        if re.fullmatch(r'\d+\.\d+\.\d+', requested_version):
+            return requested_version  # Already a full version
+
+        if not re.fullmatch(r'\d+\.\d+', requested_version):
+            logger.error(f"Invalid version format: '{requested_version}'. Must be 'X.Y' or 'X.Y.Z'.")
+            return None
+
+        # Check for local installations first
+        local_blenders = self.scan_for_local_blenders()
+        matching_patches = [
+            b['version'] for b in local_blenders
+            if b['version'].startswith(requested_version + '.')
+        ]
+        if matching_patches:
+            latest_local = sorted(matching_patches, key=lambda v: [int(p) for p in v.split('.')], reverse=True)[0]
+            logger.info(f"Resolved '{requested_version}' to latest local version: {latest_local}")
+            return latest_local
+
+        # If not found locally, check the web for the latest patch
+        all_releases = self._get_blender_download_info()
+        matching_web_patches = [v for v in all_releases if v.startswith(requested_version + '.')]
+        if matching_web_patches:
+            latest_web = sorted(matching_web_patches, key=lambda v: [int(p) for p in v.split('.')], reverse=True)[0]
+            logger.info(f"Resolved '{requested_version}' to latest available web version: {latest_web}")
+            return latest_web
+
+        logger.error(f"Could not find any patch versions for series '{requested_version}'.")
+        return None
+
     def ensure_blender_version_available(self, requested_version):
         """
         Ensures the requested Blender version is available. Downloads if necessary.
+        Handles both full ('4.5.0') and partial ('4.5') version strings.
         Returns the path to the executable if available, otherwise None.
         """
         self._create_tools_directory_if_not_exists()
-        logger.info(f"Checking for Blender version {requested_version} availability.")
+
+        full_version = self._resolve_version(requested_version)
+        if not full_version:
+            return None
+
+        logger.info(f"Checking for Blender version {full_version} availability.")
 
         # 1. Check if it's already installed
-        exe_path = self.get_blender_executable_path(requested_version)
+        exe_path = self.get_blender_executable_path(full_version)
         if exe_path:
-            logger.info(f"Blender version {requested_version} already available locally. Path: {exe_path}")
+            logger.info(f"Blender version {full_version} already available locally. Path: {exe_path}")
             return exe_path
 
         # 2. If not, find download URL
-        logger.info(f"Version {requested_version} not found locally. Attempting to download.")
+        logger.info(f"Version {full_version} not found locally. Attempting to download.")
         blender_releases = self._get_blender_download_info()
         platform_id = self._get_platform_identifier()
 
-        release_info = blender_releases.get(requested_version, {}).get(platform_id)
+        release_info = blender_releases.get(full_version, {}).get(platform_id)
         if not release_info:
-            logger.error(f"Could not find release info for Blender {requested_version} on platform {platform_id}.")
+            logger.error(f"Could not find release info for Blender {full_version} on platform {platform_id}.")
             return None
 
         url = release_info.get('url')
         expected_hash = release_info.get('sha256')
 
         if not url:
-            logger.error(f"Could not find a download URL for Blender {requested_version} on platform {platform_id}.")
+            logger.error(f"Could not find a download URL for Blender {full_version} on platform {platform_id}.")
             return None
 
         # 3. Download, Verify, and Extract
@@ -183,7 +222,7 @@ class ToolManager:
             return None
 
         # --- 4. NEW: Verify path and set permissions ---
-        final_exe_path = self.get_blender_executable_path(requested_version)
+        final_exe_path = self.get_blender_executable_path(full_version)
         if final_exe_path and platform.system() != "Windows":
             logger.info(f"Setting execute permission on {final_exe_path}")
             # Get current permissions and add execute bit for owner

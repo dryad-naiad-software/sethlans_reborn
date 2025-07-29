@@ -24,7 +24,7 @@
 # workers/serializers.py
 
 from rest_framework import serializers
-from .models import Worker, Job, JobStatus, Animation, Asset, Project
+from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus
 
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
@@ -103,6 +103,59 @@ class AnimationSerializer(serializers.ModelSerializer):
         return f"{completed} of {total} frames complete"
 
 
+class TiledJobSerializer(serializers.ModelSerializer):
+    progress = serializers.SerializerMethodField()
+    total_tiles = serializers.SerializerMethodField()
+    completed_tiles = serializers.SerializerMethodField()
+
+    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
+    project_details = ProjectSerializer(source='project', read_only=True)
+    asset = AssetSerializer(read_only=True)
+    asset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Asset.objects.all(), source='asset', write_only=True
+    )
+
+    class Meta:
+        model = TiledJob
+        fields = [
+            'id', 'name', 'status', 'progress', 'total_tiles', 'completed_tiles',
+            'project', 'project_details', 'asset', 'asset_id',
+            'final_resolution_x', 'final_resolution_y', 'tile_count_x', 'tile_count_y',
+            'blender_version', 'render_engine', 'render_device', 'render_settings',
+            'submitted_at', 'completed_at', 'total_render_time_seconds', 'output_file'
+        ]
+        read_only_fields = (
+            'id', 'status', 'progress', 'total_tiles', 'completed_tiles',
+            'submitted_at', 'completed_at', 'total_render_time_seconds',
+            'asset', 'project_details', 'output_file'
+        )
+        extra_kwargs = {
+            'project': {'write_only': True}
+        }
+
+    def validate(self, data):
+        """Check that the chosen Asset belongs to the chosen Project."""
+        project = data.get('project')
+        asset = data.get('asset')
+        if project and asset and asset.project != project:
+            raise serializers.ValidationError("The selected Asset does not belong to the selected Project.")
+        return data
+
+    def get_total_tiles(self, obj):
+        return obj.tile_count_x * obj.tile_count_y
+
+    def get_completed_tiles(self, obj):
+        # Assumes child jobs are linked via the 'jobs' related_name
+        return obj.jobs.filter(status=JobStatus.DONE).count()
+
+    def get_progress(self, obj):
+        completed = self.get_completed_tiles(obj)
+        total = self.get_total_tiles(obj)
+        if total == 0:
+            return "0 of 0 tiles complete"
+        return f"{completed} of {total} tiles complete"
+
+
 class JobSerializer(serializers.ModelSerializer):
     assigned_worker_hostname = serializers.CharField(source='assigned_worker.hostname', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
@@ -127,6 +180,7 @@ class JobSerializer(serializers.ModelSerializer):
             'assigned_worker',
             'assigned_worker_hostname',
             'animation',
+            'tiled_job',
             'submitted_at',
             'started_at',
             'completed_at',
@@ -145,6 +199,7 @@ class JobSerializer(serializers.ModelSerializer):
             'status_display', 'assigned_worker_hostname',
             'asset',
             'output_file',
+            'tiled_job',
         ]
         extra_kwargs = {
             'status': {'required': False},

@@ -32,7 +32,10 @@ from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.test import APITestCase
-from .models import Job, Worker, JobStatus, Animation, Asset, Project
+from PIL import Image
+from .models import Job, Worker, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus
+from .constants import RenderSettings
+from .image_assembler import assemble_tiled_job_image
 
 
 class BaseMediaTestCase(APITestCase):
@@ -339,6 +342,130 @@ class AnimationViewSetTests(BaseMediaTestCase):
         first_job = Job.objects.order_by('start_frame').first()
         self.assertEqual(first_job.render_settings['cycles.samples'], 32)
         self.assertEqual(first_job.render_settings['resolution_x'], 800)
+
+
+class TiledJobViewSetTests(BaseMediaTestCase):
+    """Test suite for the TiledJobViewSet."""
+
+    def setUp(self):
+        """Create a dummy project and asset for tiled jobs to link to."""
+        super().setUp()
+        self.asset = Asset.objects.create(
+            name="Test Asset for Tiled Jobs",
+            project=self.project,
+            blend_file=SimpleUploadedFile("dummy_tiled.blend", b"data")
+        )
+
+    def test_create_tiled_job_spawns_child_jobs(self):
+        """
+        Ensure creating a TiledJob spawns the correct number of child Jobs
+        with correctly calculated border render settings.
+        """
+        tiled_job_data = {
+            "name": "My Tiled Render",
+            "project": self.project.id,
+            "asset_id": self.asset.id,
+            "final_resolution_x": 800,
+            "final_resolution_y": 600,
+            "tile_count_x": 2,
+            "tile_count_y": 2,
+            "render_settings": {RenderSettings.SAMPLES: 64}
+        }
+        url = "/api/tiled-jobs/"
+        response = self.client.post(url, tiled_job_data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(TiledJob.objects.count(), 1)
+        self.assertEqual(Job.objects.count(), 4) # 2x2 grid
+
+        # Check the first tile (0, 0)
+        job_tile_0_0 = Job.objects.get(name="My Tiled Render_Tile_0_0")
+        settings = job_tile_0_0.render_settings
+        self.assertEqual(settings[RenderSettings.SAMPLES], 64)
+        self.assertEqual(settings[RenderSettings.RESOLUTION_X], 800)
+        self.assertEqual(settings[RenderSettings.USE_BORDER], True)
+        self.assertEqual(settings[RenderSettings.BORDER_MIN_X], 0.0)
+        self.assertEqual(settings[RenderSettings.BORDER_MAX_X], 0.5)
+        self.assertEqual(settings[RenderSettings.BORDER_MIN_Y], 0.0)
+        self.assertEqual(settings[RenderSettings.BORDER_MAX_Y], 0.5)
+
+        # Check the last tile (1, 1)
+        job_tile_1_1 = Job.objects.get(name="My Tiled Render_Tile_1_1")
+        settings = job_tile_1_1.render_settings
+        self.assertEqual(settings[RenderSettings.SAMPLES], 64)
+        self.assertEqual(settings[RenderSettings.BORDER_MIN_X], 0.5)
+        self.assertEqual(settings[RenderSettings.BORDER_MAX_X], 1.0)
+        self.assertEqual(settings[RenderSettings.BORDER_MIN_Y], 0.5)
+        self.assertEqual(settings[RenderSettings.BORDER_MAX_Y], 1.0)
+
+
+class ImageAssemblerTests(BaseMediaTestCase):
+    """Test suite for the image assembly utility."""
+
+    def setUp(self):
+        """Create a TiledJob and mock child jobs with dummy image files."""
+        super().setUp()
+        self.asset = Asset.objects.create(
+            name="Test Asset for Assembler",
+            project=self.project,
+            blend_file=SimpleUploadedFile("dummy_assembler.blend", b"data")
+        )
+        self.tiled_job = TiledJob.objects.create(
+            name="Test Assembly Job",
+            project=self.project,
+            asset=self.asset,
+            final_resolution_x=200,
+            final_resolution_y=200,
+            tile_count_x=2,
+            tile_count_y=2,
+        )
+
+        # Create 4 dummy tile images with different colors
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)] # R, G, B, Y
+        for y in range(2):
+            for x in range(2):
+                img = Image.new('RGB', (100, 100), color=colors[y * 2 + x])
+                # Save the dummy file to a path the job model can use
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png', dir=self.media_root)
+                img.save(temp_file, 'PNG')
+                temp_file.close()
+
+                job = Job.objects.create(
+                    tiled_job=self.tiled_job,
+                    name=f"{self.tiled_job.name}_Tile_{y}_{x}",
+                    asset=self.asset,
+                    status=JobStatus.DONE,
+                )
+                # Assign the saved file to the job's FileField
+                job.output_file.name = os.path.relpath(temp_file.name, self.media_root)
+                job.save()
+
+    def test_assemble_tiled_job_image(self):
+        """
+        Ensure the assembler correctly stitches tiles into a final image.
+        """
+        # Act
+        assemble_tiled_job_image(self.tiled_job.id)
+
+        # Assert
+        self.tiled_job.refresh_from_db()
+        self.assertEqual(self.tiled_job.status, TiledJobStatus.DONE)
+        self.assertIsNotNone(self.tiled_job.completed_at)
+        self.assertTrue(self.tiled_job.output_file.name)
+
+        # Verify the assembled image
+        final_image = Image.open(self.tiled_job.output_file.path)
+        self.assertEqual(final_image.size, (200, 200))
+
+        # ** THIS IS THE FIX **
+        # Check pixel colors in each quadrant to verify correct assembly,
+        # accounting for the Y-inversion between Blender and Pillow coordinates.
+        # Blender's y=0 is the bottom row (Red, Green), which Pillow pastes at the bottom.
+        # Blender's y=1 is the top row (Blue, Yellow), which Pillow pastes at the top.
+        self.assertEqual(final_image.getpixel((50, 50)), (0, 0, 255, 255))      # Top-left should be Blue (y=1, x=0)
+        self.assertEqual(final_image.getpixel((150, 50)), (255, 255, 0, 255))   # Top-right should be Yellow (y=1, x=1)
+        self.assertEqual(final_image.getpixel((50, 150)), (255, 0, 0, 255))     # Bottom-left should be Red (y=0, x=0)
+        self.assertEqual(final_image.getpixel((150, 150)), (0, 255, 0, 255))   # Bottom-right should be Green (y=0, x=1)
 
 
 class AnimationSignalTests(BaseMediaTestCase):

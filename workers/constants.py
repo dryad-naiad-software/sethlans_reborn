@@ -8,12 +8,12 @@
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 07/27/2025.
@@ -25,6 +25,21 @@
 """
 Constants for the workers application, defining the API contract for job settings.
 """
+from django.db import models
+
+
+class SupportedBlenderVersions(models.TextChoices):
+    """
+    Defines the officially supported Blender versions (latest patch of each series).
+    This can be used to populate UI dropdowns and for API validation.
+    """
+    V4_5_LTS = "4.5.0", "Blender 4.5.0 (LTS)"
+    V4_4 = "4.4.3", "Blender 4.4.3"
+    V4_3 = "4.3.2", "Blender 4.3.2"
+    V4_2_LTS = "4.2.12", "Blender 4.2.12 (LTS)"
+    V4_1 = "4.1.1", "Blender 4.1.1"
+    V4_0 = "4.0.2", "Blender 4.0.2"
+
 
 class RenderSettings:
     """

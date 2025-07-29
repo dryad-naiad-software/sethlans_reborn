@@ -24,8 +24,9 @@
 
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Worker, Job, JobStatus, Animation, Asset, Project
-from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer, ProjectSerializer
+from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob
+from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer, ProjectSerializer, TiledJobSerializer
+from .constants import RenderSettings
 from django.utils import timezone
 
 from rest_framework import viewsets
@@ -35,6 +36,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 
 import logging
+import os
+import tempfile
+
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +134,71 @@ class AnimationViewSet(viewsets.ModelViewSet):
         logger.info(f"Successfully spawned {len(jobs_to_create)} frame jobs for animation ID {animation.id}.")
 
 
+class TiledJobViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for creating and managing Tiled Render jobs.
+    Creating a TiledJob will automatically spawn the individual tile Jobs.
+    """
+    queryset = TiledJob.objects.all().order_by('-submitted_at')
+    serializer_class = TiledJobSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'project']
+
+    def perform_create(self, serializer):
+        tiled_job = serializer.save()
+        logger.info(f"Created new TiledJob '{tiled_job.name}' (ID: {tiled_job.id}). Spawning tile jobs...")
+
+        jobs_to_create = []
+        tile_count_x = tiled_job.tile_count_x
+        tile_count_y = tiled_job.tile_count_y
+        tile_width = 1.0 / tile_count_x
+        tile_height = 1.0 / tile_count_y
+
+        # **FIX:** Generate a RELATIVE path for the worker to use.
+        # The worker will resolve this inside its own 'test_output' directory.
+        tile_output_dir = os.path.join("tiled_jobs", str(tiled_job.id))
+
+        for y in range(tile_count_y):
+            for x in range(tile_count_x):
+                border_min_x = x * tile_width
+                border_max_x = (x + 1) * tile_width
+                border_min_y = y * tile_height
+                border_max_y = (y + 1) * tile_height
+
+                # Start with global settings and add tile-specific overrides
+                tile_render_settings = tiled_job.render_settings.copy()
+                tile_render_settings.update({
+                    RenderSettings.RESOLUTION_X: tiled_job.final_resolution_x,
+                    RenderSettings.RESOLUTION_Y: tiled_job.final_resolution_y,
+                    RenderSettings.RESOLUTION_PERCENTAGE: 100, # <-- FORCE 100% RESOLUTION
+                    RenderSettings.USE_BORDER: True,
+                    RenderSettings.CROP_TO_BORDER: True,
+                    RenderSettings.BORDER_MIN_X: round(border_min_x, 6),
+                    RenderSettings.BORDER_MAX_X: round(border_max_x, 6),
+                    RenderSettings.BORDER_MIN_Y: round(border_min_y, 6),
+                    RenderSettings.BORDER_MAX_Y: round(border_max_y, 6),
+                })
+
+                output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####")
+
+                job = Job(
+                    tiled_job=tiled_job,
+                    name=f"{tiled_job.name}_Tile_{y}_{x}",
+                    asset=tiled_job.asset,
+                    output_file_pattern=output_pattern,
+                    start_frame=1,
+                    end_frame=1,
+                    blender_version=tiled_job.blender_version,
+                    render_engine=tiled_job.render_engine,
+                    render_device=tiled_job.render_device,
+                    render_settings=tile_render_settings,
+                )
+                jobs_to_create.append(job)
+
+        Job.objects.bulk_create(jobs_to_create)
+        logger.info(f"Successfully spawned {len(jobs_to_create)} tile jobs for TiledJob ID {tiled_job.id}.")
+
+
 class AssetViewSet(viewsets.ModelViewSet):
     """
     API endpoint for uploading and managing .blend file assets.
@@ -148,7 +217,7 @@ class JobViewSet(viewsets.ModelViewSet):
     queryset = Job.objects.all()
     serializer_class = JobSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'assigned_worker', 'animation', 'asset__project']
+    filterset_fields = ['status', 'assigned_worker', 'animation', 'asset__project', 'tiled_job']
     search_fields = ['name', 'asset__name', 'asset__project__name']
     ordering_fields = ['submitted_at', 'status', 'name']
 

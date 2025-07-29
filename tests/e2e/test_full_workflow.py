@@ -33,18 +33,18 @@ import socket
 import tempfile
 import queue
 import threading
+import io
 from pathlib import Path
 
 import pytest
 import requests
-from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 
 from sethlans_worker_agent import config as worker_config
 from sethlans_worker_agent import system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser, file_operations
 from workers.constants import RenderSettings
-from workers.models import Asset
 
 
 def is_gpu_available():
@@ -150,12 +150,14 @@ class BaseE2ETest:
         # Clean up artifacts from previous runs
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
-        if Path(worker_config.MANAGED_ASSETS_DIR).exists(): shutil.rmtree(worker_config.MANAGED_ASSETS_DIR, ignore_errors=True)
-        if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR, ignore_errors=True)
-        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
+        if Path(worker_config.MANAGED_ASSETS_DIR).exists(): shutil.rmtree(worker_config.MANAGED_ASSETS_DIR,
+                                                                          ignore_errors=True)
+        if Path(worker_config.WORKER_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.WORKER_OUTPUT_DIR,
+                                                                         ignore_errors=True)
+        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
+            worker_config.BLENDER_VERSIONS_CACHE_FILE)
         if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
         MEDIA_ROOT_FOR_TEST.mkdir()
-
 
         blender_dir_for_test = MOCK_TOOLS_DIR / "blender"
         blender_dir_for_test.mkdir(parents=True)
@@ -186,9 +188,12 @@ class BaseE2ETest:
         print(f"Test project created with ID: {cls.project_id}")
 
         print("Uploading test assets...")
-        cls.scene_asset_id = cls._upload_test_asset("E2E Test Scene", worker_config.TEST_BLEND_FILE_PATH, cls.project_id)
-        cls.bmw_asset_id = cls._upload_test_asset("E2E BMW Scene", worker_config.BENCHMARK_BLEND_FILE_PATH, cls.project_id)
-        cls.anim_asset_id = cls._upload_test_asset("E2E Animation Scene", worker_config.ANIMATION_BLEND_FILE_PATH, cls.project_id)
+        cls.scene_asset_id = cls._upload_test_asset("E2E Test Scene", worker_config.TEST_BLEND_FILE_PATH,
+                                                    cls.project_id)
+        cls.bmw_asset_id = cls._upload_test_asset("E2E BMW Scene", worker_config.BENCHMARK_BLEND_FILE_PATH,
+                                                  cls.project_id)
+        cls.anim_asset_id = cls._upload_test_asset("E2E Animation Scene", worker_config.ANIMATION_BLEND_FILE_PATH,
+                                                   cls.project_id)
         print(f"Assets uploaded: scene_id={cls.scene_asset_id}, bmw_id={cls.bmw_asset_id}, anim_id={cls.anim_asset_id}")
 
         print("Starting Worker Agent...")
@@ -252,12 +257,14 @@ class BaseE2ETest:
             cls.worker_log_thread.join(timeout=5)
 
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
-        if Path(worker_config.TEST_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.TEST_OUTPUT_DIR, ignore_errors=True)
+        if Path(worker_config.WORKER_OUTPUT_DIR).exists(): shutil.rmtree(worker_config.WORKER_OUTPUT_DIR,
+                                                                         ignore_errors=True)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
-        if Path(worker_config.MANAGED_ASSETS_DIR).exists(): shutil.rmtree(worker_config.MANAGED_ASSETS_DIR, ignore_errors=True)
-        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
+        if Path(worker_config.MANAGED_ASSETS_DIR).exists(): shutil.rmtree(worker_config.MANAGED_ASSETS_DIR,
+                                                                          ignore_errors=True)
+        if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
+            worker_config.BLENDER_VERSIONS_CACHE_FILE)
         if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
-
 
         print("Teardown complete.")
 
@@ -268,7 +275,7 @@ class TestRenderWorkflow(BaseE2ETest):
         job_payload = {
             "name": "E2E CPU Render Test",
             "asset_id": self.scene_asset_id,
-            "output_file_pattern": os.path.join(worker_config.TEST_OUTPUT_DIR, "e2e_render_####"),
+            "output_file_pattern": "e2e_render_####",  # Use relative path
             "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
             "render_engine": "CYCLES",
             "render_device": "CPU",
@@ -299,16 +306,12 @@ class TestRenderWorkflow(BaseE2ETest):
         assert final_job_response.status_code == 200
         final_job_data = final_job_response.json()
 
-        # 1. Verify render time
         assert final_job_data.get('render_time_seconds') is not None
         assert final_job_data.get('render_time_seconds') > 0
-
-        # 2. Verify output file URL
         assert 'output_file' in final_job_data
         output_url = final_job_data['output_file']
         assert output_url is not None
 
-        # 3. Verify the file can be downloaded
         print(f"Downloading output file from {output_url}...")
         download_response = requests.get(output_url)
         assert download_response.status_code == 200
@@ -320,8 +323,8 @@ class TestGpuWorkflow(BaseE2ETest):
         print("\n--- ACTION: Submitting GPU job for command check ---")
         job_payload = {
             "name": "E2E GPU Command Test",
-            "asset_id": self.bmw_asset_id,  # Use a valid asset
-            "output_file_pattern": os.path.join(worker_config.TEST_OUTPUT_DIR, "gpu_test_####"),
+            "asset_id": self.bmw_asset_id,
+            "output_file_pattern": "gpu_test_####",
             "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
             "render_engine": "CYCLES",
             "render_device": "GPU"
@@ -354,7 +357,7 @@ class TestGpuWorkflow(BaseE2ETest):
         job_payload = {
             "name": "E2E Full GPU Render Test",
             "asset_id": self.bmw_asset_id,
-            "output_file_pattern": os.path.join(worker_config.TEST_OUTPUT_DIR, "e2e_gpu_render_####"),
+            "output_file_pattern": "e2e_gpu_render_####",
             "start_frame": 1, "end_frame": 1, "blender_version": "4.5.0",
             "render_engine": "CYCLES",
             "render_device": "GPU",
@@ -382,7 +385,8 @@ class TestAnimationWorkflow(BaseE2ETest):
     def test_animation_render_workflow(self):
         start_frame, end_frame = 1, 5
         total_frames = (end_frame - start_frame) + 1
-        output_pattern = os.path.join(worker_config.TEST_OUTPUT_DIR, "anim_render_####")
+        # Use a relative path pattern
+        output_pattern = "anim_render_####"
 
         print("\n--- ACTION: Submitting animation job ---")
         anim_payload = {
@@ -416,20 +420,78 @@ class TestAnimationWorkflow(BaseE2ETest):
                 completed = True
                 break
             time.sleep(2)
-
         assert completed, f"Animation did not complete in time. Only {completed_frames}/{total_frames} frames finished."
 
-        print("Verifying output files...")
-        for frame_num in range(start_frame, end_frame + 1):
-            expected_file_path = output_pattern.replace("####", f"{frame_num:04d}") + ".png"
-            assert os.path.exists(expected_file_path), f"Output file is missing: {expected_file_path}"
+        # ** THIS IS THE FIX **
+        # Verify that the output files are available from the manager, not on the local disk.
+        print("Verifying all child jobs have an output file URL...")
+        jobs_response = requests.get(f"{MANAGER_URL}/jobs/?animation={anim_id}")
+        assert jobs_response.status_code == 200
+        child_jobs = jobs_response.json()
+        assert len(child_jobs) == total_frames
 
-        print(f"SUCCESS: All {total_frames} animation frames were rendered successfully.")
+        for job in child_jobs:
+            assert job.get('output_file') is not None, f"Job {job['id']} is missing its output file URL."
+
+        print("SUCCESS: All animation frames were rendered and uploaded successfully.")
 
         print("Verifying total animation render time was recorded...")
         final_anim_data = requests.get(anim_url).json()
         assert final_anim_data.get('total_render_time_seconds') is not None
         assert final_anim_data.get('total_render_time_seconds') > 0
+
+
+class TestTiledWorkflow(BaseE2ETest):
+    def test_tiled_render_workflow(self):
+        print("\n--- ACTION: Submitting tiled render job ---")
+        tiled_job_payload = {
+            "name": "E2E Tiled Render Test",
+            "project": self.project_id,
+            "asset_id": self.bmw_asset_id,
+            "final_resolution_x": 400,
+            "final_resolution_y": 400,
+            "tile_count_x": 2,
+            "tile_count_y": 2,
+            "blender_version": "4.5",
+            "render_settings": {RenderSettings.SAMPLES: 32}
+        }
+        create_response = requests.post(f"{MANAGER_URL}/tiled-jobs/", json=tiled_job_payload)
+        assert create_response.status_code == 201
+        tiled_job_id = create_response.json()['id']
+        tiled_job_url = f"{MANAGER_URL}/tiled-jobs/{tiled_job_id}/"
+
+        print("Polling API for DONE status...")
+        final_status = ""
+        # Increased timeout for tiled job with assembly
+        for i in range(180):
+            check_response = requests.get(tiled_job_url)
+            assert check_response.status_code == 200
+            data = check_response.json()
+            current_status = data['status']
+            print(f"  Attempt {i + 1}/180: Current job status is {current_status} ({data.get('progress', 'N/A')})")
+            if current_status in ["DONE", "ERROR"]:
+                final_status = current_status
+                break
+            time.sleep(2)
+        assert final_status == "DONE"
+
+        print("Verifying final job data and output file...")
+        final_job_response = requests.get(tiled_job_url)
+        assert final_job_response.status_code == 200
+        final_job_data = final_job_response.json()
+
+        assert final_job_data.get('total_render_time_seconds') > 0
+        output_url = final_job_data.get('output_file')
+        assert output_url is not None
+
+        print(f"Downloading final assembled image from {output_url}...")
+        download_response = requests.get(output_url)
+        assert download_response.status_code == 200
+
+        # Verify image integrity
+        image_data = io.BytesIO(download_response.content)
+        with Image.open(image_data) as img:
+            assert img.size == (400, 400)
 
 
 class TestWorkerRegistration(BaseE2ETest):
