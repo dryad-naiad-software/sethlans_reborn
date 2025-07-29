@@ -33,8 +33,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.test import APITestCase
 from PIL import Image
-from .models import Job, Worker, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus
-from .constants import RenderSettings
+from .models import Job, Worker, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus, AnimationFrame
+from .constants import RenderSettings, TilingConfiguration
 from .image_assembler import assemble_tiled_job_image
 
 
@@ -344,6 +344,56 @@ class AnimationViewSetTests(BaseMediaTestCase):
         self.assertEqual(first_job.render_settings['resolution_x'], 800)
 
 
+class TiledAnimationModelTests(BaseMediaTestCase):
+    """Test suite for the new Tiled Animation models."""
+
+    def setUp(self):
+        """Create a dummy asset for tests."""
+        super().setUp()
+        self.asset = Asset.objects.create(
+            name="Test Asset for Tiled Anim Models",
+            project=self.project,
+            blend_file=SimpleUploadedFile("dummy_tiled_anim.blend", b"data")
+        )
+
+    def test_create_tiled_animation_and_frames(self):
+        """
+        Ensure the new models and their relationships can be created successfully.
+        """
+        # Create a tiled animation
+        anim = Animation.objects.create(
+            name="Tiled Animation Model Test",
+            project=self.project,
+            asset=self.asset,
+            start_frame=1,
+            end_frame=2,
+            tiling_config=TilingConfiguration.TILE_2X2
+        )
+        self.assertEqual(anim.tiling_config, TilingConfiguration.TILE_2X2)
+
+        # Create a parent frame
+        anim_frame = AnimationFrame.objects.create(
+            animation=anim,
+            frame_number=1
+        )
+        self.assertEqual(anim_frame.animation, anim)
+
+        # Create a job linked to that frame
+        job = Job.objects.create(
+            name="Tiled Anim Job",
+            asset=self.asset,
+            animation=anim,
+            animation_frame=anim_frame,
+            start_frame=1,
+            end_frame=1
+        )
+        self.assertEqual(job.animation_frame, anim_frame)
+        self.assertEqual(job.animation_frame.animation, anim)
+        self.assertEqual(AnimationFrame.objects.count(), 1)
+        self.assertEqual(anim.frames.count(), 1)
+        self.assertEqual(anim_frame.tile_jobs.count(), 1)
+
+
 class TiledJobViewSetTests(BaseMediaTestCase):
     """Test suite for the TiledJobViewSet."""
 
@@ -376,7 +426,7 @@ class TiledJobViewSetTests(BaseMediaTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(TiledJob.objects.count(), 1)
-        self.assertEqual(Job.objects.count(), 4) # 2x2 grid
+        self.assertEqual(Job.objects.count(), 4)  # 2x2 grid
 
         # Check the first tile (0, 0)
         job_tile_0_0 = Job.objects.get(name="My Tiled Render_Tile_0_0")
@@ -421,7 +471,7 @@ class ImageAssemblerTests(BaseMediaTestCase):
         )
 
         # Create 4 dummy tile images with different colors
-        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)] # R, G, B, Y
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]  # R, G, B, Y
         for y in range(2):
             for x in range(2):
                 img = Image.new('RGB', (100, 100), color=colors[y * 2 + x])
@@ -464,8 +514,8 @@ class ImageAssemblerTests(BaseMediaTestCase):
         # Blender's y=1 is the top row (Blue, Yellow), which Pillow pastes at the top.
         self.assertEqual(final_image.getpixel((50, 50)), (0, 0, 255, 255))      # Top-left should be Blue (y=1, x=0)
         self.assertEqual(final_image.getpixel((150, 50)), (255, 255, 0, 255))   # Top-right should be Yellow (y=1, x=1)
-        self.assertEqual(final_image.getpixel((50, 150)), (255, 0, 0, 255))     # Bottom-left should be Red (y=0, x=0)
-        self.assertEqual(final_image.getpixel((150, 150)), (0, 255, 0, 255))   # Bottom-right should be Green (y=0, x=1)
+        self.assertEqual(final_image.getpixel((50, 150)), (255, 0, 0, 255))      # Bottom-left should be Red (y=0, x=0)
+        self.assertEqual(final_image.getpixel((150, 150)), (0, 255, 0, 255))    # Bottom-right should be Green (y=0, x=1)
 
 
 class AnimationSignalTests(BaseMediaTestCase):

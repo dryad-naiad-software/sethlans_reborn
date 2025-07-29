@@ -28,12 +28,23 @@ Constants for the workers application, defining the API contract for job setting
 from django.db import models
 
 
+class TilingConfiguration(models.TextChoices):
+    """
+    Defines the supported grid sizes for tiled rendering.
+    """
+    NONE = 'NONE', 'None'
+    TILE_2X2 = '2x2', '2x2 (4 Tiles)'
+    TILE_3X3 = '3x3', '3x3 (9 Tiles)'
+    TILE_4X4 = '4x4', '4x4 (16 Tiles)'
+    TILE_5X5 = '5x5', '5x5 (25 Tiles)'
+
+
 class SupportedBlenderVersions(models.TextChoices):
     """
     Defines the officially supported Blender versions (latest patch of each series).
     This can be used to populate UI dropdowns and for API validation.
     """
-    V4_5_LTS = "4.5.0", "Blender 4.5.0 (LTS)"
+    V4_5_LTS = "4.5.0", "Blender 4.5.1 (LTS)"
     V4_4 = "4.4.3", "Blender 4.4.3"
     V4_3 = "4.3.2", "Blender 4.3.2"
     V4_2_LTS = "4.2.12", "Blender 4.2.12 (LTS)"
