@@ -64,7 +64,8 @@ def test_detect_gpu_devices_success(mocker):
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
-    mock_run.return_value = MagicMock(stdout='CUDA,OPTIX\n', stderr='', check_returncode=MagicMock())
+    # ** THE FIX IS HERE: Mock the returncode to simulate a successful run **
+    mock_run.return_value = MagicMock(stdout='CUDA,OPTIX\n', stderr='', returncode=0)
 
     devices = system_monitor.detect_gpu_devices()
 
@@ -74,12 +75,12 @@ def test_detect_gpu_devices_success(mocker):
 def test_detect_gpu_devices_caches_result(mocker):
     """Ensures that GPU detection results are cached after the first call."""
     # Arrange
-    # *** THE FIX IS HERE: Mock platform to avoid the Linux-specific ldd call ***
     mocker.patch('platform.system', return_value="Windows")
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
-    mock_run.return_value = MagicMock(stdout='CUDA\n', stderr='')
+    # ** THE FIX IS HERE: Mock the returncode to simulate a successful run **
+    mock_run.return_value = MagicMock(stdout='CUDA\n', stderr='', returncode=0)
 
     # Act 1: First call should trigger the subprocess
     devices_first_call = system_monitor.detect_gpu_devices()

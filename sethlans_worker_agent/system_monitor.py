@@ -31,7 +31,7 @@ import requests
 import subprocess
 import tempfile
 import os
-import sys  # <-- ADDED IMPORT
+import sys
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
@@ -61,7 +61,7 @@ def detect_gpu_devices():
     local_blenders = tool_manager_instance.scan_for_local_blenders()
     if not local_blenders:
         logger.warning("No local Blender versions found to perform GPU check.")
-        _gpu_devices_cache = [] # Cache the empty result
+        _gpu_devices_cache = []  # Cache the empty result
         return _gpu_devices_cache
 
     latest_version = \
@@ -70,7 +70,7 @@ def detect_gpu_devices():
 
     if not blender_exe:
         logger.error(f"Could not get executable path for Blender {latest_version}.")
-        _gpu_devices_cache = [] # Cache the empty result
+        _gpu_devices_cache = []  # Cache the empty result
         return _gpu_devices_cache
 
     if platform.system() == "Linux":
@@ -123,9 +123,12 @@ try:
         if any(d.type == backend for d in prefs.devices):
             found_backends.add(backend)
 
-    print(','.join(sorted(list(found_backends))))
+    # If any backends were found, print them. Otherwise, print nothing.
+    if found_backends:
+        print(','.join(sorted(list(found_backends))))
 
 except Exception as e:
+    # On failure, print to stderr for logging but nothing to stdout.
     print(f"Error in GPU detection script: {e}", file=sys.stderr)
 """
 
@@ -136,12 +139,24 @@ except Exception as e:
             f.write(py_script)
 
         command = [blender_exe, '--background', '--factory-startup', '--python', temp_script_path]
-        result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=90)
+
+        # ** THE FIX IS HERE **
+        # On some headless systems (like macOS CI runners), this subprocess can crash.
+        # We remove `check=True` and manually check the return code. A crash during
+        # detection should be treated as "no GPUs found", not a fatal worker error.
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=90)
 
         logger.debug(f"Blender GPU detection stdout:\n{result.stdout}")
         logger.debug(f"Blender GPU detection stderr:\n{result.stderr}")
 
+        if result.returncode != 0:
+            logger.warning(
+                f"Blender process for GPU detection exited with non-zero code {result.returncode}. Assuming no GPU is available.")
+            _gpu_devices_cache = []
+            return _gpu_devices_cache
+
         gpu_devices = []
+        # Find the line that contains the comma-separated list of devices.
         output_lines = result.stdout.strip().splitlines()
         for line in output_lines:
             if ' ' not in line and any(device in line for device in ['CUDA', 'OPTIX', 'HIP', 'METAL', 'ONEAPI']):
@@ -151,10 +166,11 @@ except Exception as e:
         _gpu_devices_cache = [device for device in gpu_devices if device]
         logger.info(f"Detected and cached GPU Devices: {_gpu_devices_cache if _gpu_devices_cache else 'None'}")
         return _gpu_devices_cache
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        if e.stdout: logger.error(f"Blender GPU detection stdout on error:\n{e.stdout}")
-        if e.stderr: logger.error(f"Blender GPU detection stderr on error:\n{e.stderr}")
-        logger.error(f"Failed to detect GPU devices using Blender: {e}")
+
+    except subprocess.TimeoutExpired as e:
+        if e.stdout: logger.error(f"Blender GPU detection stdout on timeout:\n{e.stdout}")
+        if e.stderr: logger.error(f"Blender GPU detection stderr on timeout:\n{e.stderr}")
+        logger.error(f"Blender process for GPU detection timed out. Assuming no GPU is available.")
         _gpu_devices_cache = []
         return _gpu_devices_cache
     except FileNotFoundError:
