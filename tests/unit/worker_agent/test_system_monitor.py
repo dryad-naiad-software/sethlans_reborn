@@ -34,6 +34,12 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
 
 
+@pytest.fixture(autouse=True)
+def reset_system_monitor_cache():
+    """Resets the module-level cache before each test to ensure isolation."""
+    system_monitor._gpu_devices_cache = None
+
+
 def test_get_system_info(mocker):
     """
     Tests that system information, including GPU devices, is gathered correctly.
@@ -64,7 +70,32 @@ def test_detect_gpu_devices_success(mocker):
     assert devices == ['CUDA', 'OPTIX']
 
 
-# --- NEW: Test for LTS version helper ---
+def test_detect_gpu_devices_caches_result(mocker):
+    """Ensures that GPU detection results are cached after the first call."""
+    # Arrange
+    mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
+    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
+    mock_run = mocker.patch('subprocess.run')
+    mock_run.return_value = MagicMock(stdout='CUDA\n', stderr='')
+
+    # Act 1: First call should trigger the subprocess
+    devices_first_call = system_monitor.detect_gpu_devices()
+
+    # Assert 1: Subprocess was called and result is correct
+    mock_run.assert_called_once()
+    assert devices_first_call == ['CUDA']
+
+    # Reset mock to check for subsequent calls
+    mock_run.reset_mock()
+
+    # Act 2: Second call should use the cache
+    devices_second_call = system_monitor.detect_gpu_devices()
+
+    # Assert 2: Subprocess was NOT called, and the result is the same
+    mock_run.assert_not_called()
+    assert devices_second_call == ['CUDA']
+
+
 @pytest.mark.parametrize("versions, series, expected", [
     (['4.5.0', '4.5.1', '4.1.0', '4.5.2'], "4.5", "4.5.2"),
     (['4.5.10', '4.5.2', '4.5.9'], "4.5", "4.5.10"),
@@ -77,21 +108,17 @@ def test_find_latest_lts_patch(versions, series, expected):
     assert result == expected
 
 
-# --- UPDATED: Tests for the new registration logic ---
 def test_register_with_manager_lts_success(mocker):
     """
     Tests the full successful registration flow, including finding and downloading the LTS Blender.
     """
     mocker.patch.object(system_monitor, 'WORKER_ID', None)
-    # 1. Mock the parser to return a list of versions
     mocker.patch.object(
         blender_release_parser, 'get_blender_releases', return_value={'4.5.0': {}, '4.5.1': {}}
     )
-    # 2. Mock the tool manager to successfully "download" the found version
     mock_ensure_blender = mocker.patch.object(
         tool_manager_instance, 'ensure_blender_version_available', return_value="/path/to/blender-4.5.1"
     )
-    # 3. Mock the rest of the registration process
     mocker.patch('sethlans_worker_agent.system_monitor.get_system_info', return_value={})
     mock_post = mocker.patch('requests.post')
     mock_post.return_value.json.return_value = {'id': 123}
@@ -99,7 +126,6 @@ def test_register_with_manager_lts_success(mocker):
     worker_id = system_monitor.register_with_manager()
 
     assert worker_id == 123
-    # Assert that it correctly identified '4.5.1' as the latest and tried to download it
     mock_ensure_blender.assert_called_once_with('4.5.1')
     mock_post.assert_called_once()
 
@@ -120,7 +146,6 @@ def test_register_with_manager_lts_not_found(mocker):
     mock_ensure_blender.assert_not_called()
 
 
-# --- Existing tests for heartbeat ---
 def test_send_heartbeat_success(mocker):
     """
     Tests that a heartbeat is sent correctly when the worker is registered.

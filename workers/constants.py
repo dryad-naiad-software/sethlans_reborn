@@ -28,6 +28,33 @@ Constants for the workers application, defining the API contract for job setting
 from django.db import models
 
 
+class RenderEngine(models.TextChoices):
+    """
+    Defines the supported Blender render engines.
+    The value is the string Blender's Python API expects.
+    """
+    CYCLES = 'CYCLES', 'Cycles'
+    EEVEE = 'BLENDER_EEVEE_NEXT', 'Eevee'
+    WORKBENCH = 'WORKBENCH', 'Workbench'
+
+
+class CyclesFeatureSet(models.TextChoices):
+    """
+    Defines the supported feature sets for the Cycles render engine.
+    """
+    SUPPORTED = 'SUPPORTED', 'Supported'
+    EXPERIMENTAL = 'EXPERIMENTAL', 'Experimental'
+
+
+class RenderDevice(models.TextChoices):
+    """
+    Defines the user's device preference for rendering.
+    """
+    CPU = 'CPU', 'CPU Only'
+    GPU = 'GPU', 'GPU Only'
+    ANY = 'ANY', 'Any Available Device'
+
+
 class TilingConfiguration(models.TextChoices):
     """
     Defines the supported grid sizes for tiled rendering.
@@ -44,7 +71,7 @@ class SupportedBlenderVersions(models.TextChoices):
     Defines the officially supported Blender versions (latest patch of each series).
     This can be used to populate UI dropdowns and for API validation.
     """
-    V4_5_LTS = "4.5.0", "Blender 4.5.1 (LTS)"
+    V4_5_LTS = "4.5.1", "Blender 4.5.1 (LTS)"
     V4_4 = "4.4.3", "Blender 4.4.3"
     V4_3 = "4.3.2", "Blender 4.3.2"
     V4_2_LTS = "4.2.12", "Blender 4.2.12 (LTS)"
@@ -59,10 +86,15 @@ class RenderSettings:
     The keys must be the full property path from 'bpy.context.scene'.
     """
     # General Settings
+    RENDER_ENGINE = "render.engine"
     SAMPLES = "cycles.samples"
     RESOLUTION_X = "render.resolution_x"
     RESOLUTION_Y = "render.resolution_y"
     RESOLUTION_PERCENTAGE = "render.resolution_percentage"
+
+    # Cycles-specific Settings
+    CYCLES_DEVICE = "cycles.device"
+    CYCLES_FEATURE_SET = "cycles.feature_set"
 
     # Tiled/Border Rendering Settings
     USE_BORDER = "render.use_border"

@@ -28,7 +28,7 @@ import os
 from unittest.mock import MagicMock, ANY
 
 # Import the function to be tested and its dependencies
-from sethlans_worker_agent import job_processor, config
+from sethlans_worker_agent import job_processor, config, system_monitor
 from workers.constants import RenderSettings
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
@@ -89,6 +89,30 @@ def test_parse_render_time(stdout, expected_seconds):
     assert result == expected_seconds
 
 
+@pytest.mark.parametrize("gpu_devices, expected_param", [
+    (['CUDA'], 'true'),  # Case with GPU
+    ([], 'false'),       # Case without GPU
+])
+def test_get_and_claim_job_sends_gpu_capability(mocker, gpu_devices, expected_param):
+    """
+    Tests that the worker correctly reports its GPU capability when polling for jobs.
+    """
+    mock_worker_id = 123
+    # Mock requests.get to return an empty list (no jobs found) to simplify the test
+    mock_get = mocker.patch('requests.get', return_value=MagicMock(json=lambda: []))
+    # Mock the system_monitor call to control the outcome
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=gpu_devices)
+
+    # Act
+    job_processor.get_and_claim_job(mock_worker_id)
+
+    # Assert
+    mock_get.assert_called_once()
+    call_args = mock_get.call_args
+    assert 'params' in call_args.kwargs
+    assert call_args.kwargs['params']['gpu_available'] == expected_param
+
+
 def test_get_and_claim_job_sends_render_time(mocker):
     """
     Tests that the render time is correctly parsed and included in the
@@ -110,6 +134,8 @@ def test_get_and_claim_job_sends_render_time(mocker):
     mocker.patch('os.remove')
     mocker.patch('os.rmdir')
     mocker.patch('os.listdir', return_value=[])
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
+
 
     job_processor.get_and_claim_job(mock_worker_id)
 
@@ -139,6 +165,7 @@ def test_get_and_claim_job_uploads_output_on_success(mocker):
     mocker.patch('os.remove')
     mocker.patch('os.rmdir')
     mocker.patch('os.listdir', return_value=[])
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
 
     job_processor.get_and_claim_job(mock_worker_id)
 
@@ -161,6 +188,7 @@ def test_get_and_claim_job_does_not_upload_on_failure(mocker):
         return_value=(False, False, "", "Error stderr", "Blender failed", None)
     )
     mock_upload = mocker.patch('sethlans_worker_agent.job_processor._upload_render_output')
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
 
     job_processor.get_and_claim_job(mock_worker_id)
 
@@ -328,6 +356,8 @@ def test_get_and_claim_job_success(mocker):
     mocker.patch('os.remove')
     mocker.patch('os.rmdir')
     mocker.patch('os.listdir', return_value=[])
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
+
 
     job_processor.get_and_claim_job(mock_worker_id)
 
@@ -381,6 +411,7 @@ def test_get_and_claim_job_cleans_up_file_on_success(mocker):
     mock_remove = mocker.patch('os.remove')
     mocker.patch('os.listdir', return_value=[])
     mock_rmdir = mocker.patch('os.rmdir')
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
 
     job_processor.get_and_claim_job(mock_worker_id)
 

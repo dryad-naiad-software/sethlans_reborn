@@ -34,7 +34,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from PIL import Image
 from .models import Job, Worker, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus, AnimationFrame, AnimationFrameStatus
-from .constants import RenderSettings, TilingConfiguration
+from .constants import RenderSettings, TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 from .image_assembler import assemble_tiled_job_image, assemble_animation_frame_image
 
 
@@ -197,7 +197,7 @@ class JobViewSetTests(BaseMediaTestCase):
             "output_file_pattern": "//renders/final_shot_####",
             "start_frame": 1,
             "end_frame": 100,
-            "render_device": "GPU"
+            "render_device": RenderDevice.GPU
         }
         url = "/api/jobs/"
         response = self.client.post(url, job_data, format='json')
@@ -206,7 +206,7 @@ class JobViewSetTests(BaseMediaTestCase):
         new_job = Job.objects.get()
         self.assertEqual(new_job.name, job_data['name'])
         self.assertEqual(new_job.status, 'QUEUED')
-        self.assertEqual(new_job.render_device, 'GPU')
+        self.assertEqual(new_job.render_device, RenderDevice.GPU)
         self.assertEqual(new_job.asset, self.asset)
 
     def test_update_job_status(self):
@@ -263,6 +263,38 @@ class JobViewSetTests(BaseMediaTestCase):
             content_on_disk = f.read()
             self.assertEqual(content_on_disk, file_content)
 
+    def test_job_filtering_for_gpu_capability(self):
+        """
+        Ensure the job list is correctly filtered based on worker GPU capability.
+        """
+        # Arrange
+        Job.objects.create(name="CPU Job", asset=self.asset, render_device=RenderDevice.CPU)
+        Job.objects.create(name="GPU Job", asset=self.asset, render_device=RenderDevice.GPU)
+        Job.objects.create(name="Any Device Job", asset=self.asset, render_device=RenderDevice.ANY)
+        url = "/api/jobs/"
+
+        # Act (CPU-only worker)
+        response_cpu_worker = self.client.get(url, {'gpu_available': 'false'})
+        # Act (GPU-capable worker)
+        response_gpu_worker = self.client.get(url, {'gpu_available': 'true'})
+        # Act (No preference)
+        response_no_pref = self.client.get(url)
+
+        # Assert (CPU-only worker)
+        self.assertEqual(response_cpu_worker.status_code, status.HTTP_200_OK)
+        cpu_worker_job_names = {job['name'] for job in response_cpu_worker.data}
+        self.assertIn("CPU Job", cpu_worker_job_names)
+        self.assertIn("Any Device Job", cpu_worker_job_names)
+        self.assertNotIn("GPU Job", cpu_worker_job_names)
+
+        # Assert (GPU-capable worker)
+        self.assertEqual(response_gpu_worker.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_gpu_worker.data), 3)
+
+        # Assert (No preference specified)
+        self.assertEqual(response_no_pref.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_no_pref.data), 3)
+
 
 class AnimationViewSetTests(BaseMediaTestCase):
     """Test suite for the new AnimationViewSet."""
@@ -289,7 +321,7 @@ class AnimationViewSetTests(BaseMediaTestCase):
             "start_frame": 1,
             "end_frame": 5,
             "blender_version": "4.1.1",
-            "render_device": "GPU"
+            "render_device": RenderDevice.GPU
         }
         url = "/api/animations/"
         response = self.client.post(url, animation_data, format='json')
@@ -297,10 +329,10 @@ class AnimationViewSetTests(BaseMediaTestCase):
         self.assertEqual(Animation.objects.count(), 1)
         self.assertEqual(Job.objects.count(), 5)
         parent_animation = Animation.objects.first()
-        self.assertEqual(parent_animation.render_device, "GPU")
+        self.assertEqual(parent_animation.render_device, RenderDevice.GPU)
         self.assertEqual(parent_animation.project, self.project)
         first_job = Job.objects.order_by('start_frame').first()
-        self.assertEqual(first_job.render_device, "GPU")
+        self.assertEqual(first_job.render_device, RenderDevice.GPU)
         self.assertEqual(first_job.asset, self.asset)
 
     def test_animation_progress_tracking(self):
@@ -330,7 +362,7 @@ class AnimationViewSetTests(BaseMediaTestCase):
             "output_file_pattern": "//renders/settings_####",
             "start_frame": 1,
             "end_frame": 2,
-            "render_settings": {"cycles.samples": 32, "resolution_x": 800}
+            "render_settings": {"cycles.samples": 32, "render.resolution_x": 800}
         }
         url = "/api/animations/"
         response = self.client.post(url, animation_data, format='json')
@@ -341,7 +373,7 @@ class AnimationViewSetTests(BaseMediaTestCase):
 
         first_job = Job.objects.order_by('start_frame').first()
         self.assertEqual(first_job.render_settings['cycles.samples'], 32)
-        self.assertEqual(first_job.render_settings['resolution_x'], 800)
+        self.assertEqual(first_job.render_settings['render.resolution_x'], 800)
 
     def test_create_tiled_animation_spawns_correct_jobs(self):
         """
@@ -380,6 +412,45 @@ class AnimationViewSetTests(BaseMediaTestCase):
         self.assertEqual(settings[RenderSettings.BORDER_MIN_Y], 0.5)
         self.assertEqual(settings[RenderSettings.BORDER_MAX_Y], 1.0)
 
+    def test_create_animation_with_new_render_config(self):
+        """
+        Ensure new render configuration settings are saved and propagated into
+        the child jobs' render_settings dictionary.
+        """
+        animation_data = {
+            "name": "New Config Test",
+            "project": self.project.id,
+            "asset_id": self.asset.id,
+            "output_file_pattern": "//renders/new_config_####",
+            "start_frame": 1,
+            "end_frame": 1,
+            "render_engine": RenderEngine.EEVEE,
+            "cycles_feature_set": CyclesFeatureSet.EXPERIMENTAL,
+            "render_device": RenderDevice.GPU
+        }
+        url = "/api/animations/"
+        response = self.client.post(url, animation_data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Animation.objects.count(), 1)
+        self.assertEqual(Job.objects.count(), 1)
+
+        parent_animation = Animation.objects.first()
+        self.assertEqual(parent_animation.render_engine, RenderEngine.EEVEE)
+        self.assertEqual(parent_animation.cycles_feature_set, CyclesFeatureSet.EXPERIMENTAL)
+        self.assertEqual(parent_animation.render_device, RenderDevice.GPU)
+
+        child_job = Job.objects.first()
+        self.assertEqual(child_job.render_engine, RenderEngine.EEVEE)
+        self.assertEqual(child_job.cycles_feature_set, CyclesFeatureSet.EXPERIMENTAL)
+        self.assertEqual(child_job.render_device, RenderDevice.GPU)
+
+        # Verify injection into render_settings
+        injected_settings = child_job.render_settings
+        self.assertEqual(injected_settings[RenderSettings.RENDER_ENGINE], RenderEngine.EEVEE)
+        # Should NOT be present if engine is not CYCLES
+        self.assertNotIn(RenderSettings.CYCLES_FEATURE_SET, injected_settings)
+        self.assertNotIn(RenderSettings.CYCLES_DEVICE, injected_settings)
 
 class TiledAnimationModelTests(BaseMediaTestCase):
     """Test suite for the new Tiled Animation models."""

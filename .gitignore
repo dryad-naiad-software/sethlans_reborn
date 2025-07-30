@@ -59,3 +59,4 @@ sethlans_worker_agent/temp/
 
 /parse_log_file.py
 /Run-ManualTest.ps1
+/manual_test_script.py

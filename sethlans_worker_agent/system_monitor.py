@@ -38,23 +38,31 @@ from sethlans_worker_agent.utils import blender_release_parser
 
 logger = logging.getLogger(__name__)
 
-# Module-level state
+# --- Module-level state and cache ---
 WORKER_ID = None
 HOSTNAME = socket.gethostname()
 IP_ADDRESS = socket.gethostbyname(HOSTNAME)
 OS_INFO = f"{platform.system()} {platform.release()}"
+_gpu_devices_cache = None
 
 
 def detect_gpu_devices():
     """
     Dynamically detects available Cycles GPU rendering devices by actively testing each backend.
+    Caches the result after the first successful run to avoid repeated slow subprocess calls.
     """
+    global _gpu_devices_cache
+    if _gpu_devices_cache is not None:
+        logger.debug(f"Returning cached GPU devices: {_gpu_devices_cache}")
+        return _gpu_devices_cache
+
     logger.info("Detecting available GPU devices using Blender...")
 
     local_blenders = tool_manager_instance.scan_for_local_blenders()
     if not local_blenders:
         logger.warning("No local Blender versions found to perform GPU check.")
-        return []
+        _gpu_devices_cache = [] # Cache the empty result
+        return _gpu_devices_cache
 
     latest_version = \
         sorted([b['version'] for b in local_blenders], key=lambda v: [int(p) for p in v.split('.')], reverse=True)[0]
@@ -62,9 +70,9 @@ def detect_gpu_devices():
 
     if not blender_exe:
         logger.error(f"Could not get executable path for Blender {latest_version}.")
-        return []
+        _gpu_devices_cache = [] # Cache the empty result
+        return _gpu_devices_cache
 
-    # --- NEW: Check for missing system dependencies on Linux before running Blender ---
     if platform.system() == "Linux":
         try:
             logger.debug(f"Running 'ldd' dependency check on {blender_exe}")
@@ -87,15 +95,14 @@ sudo apt-get update && sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 
 ####################################################################
 """
                 logger.critical("Blender dependency check failed.")
-                # Print to stderr to ensure it's visible even with redirected logs
                 print(error_message, file=sys.stderr)
-                return []  # Fail gracefully
+                _gpu_devices_cache = []
+                return _gpu_devices_cache
         except FileNotFoundError:
             logger.warning("Could not find 'ldd' command to check Blender dependencies. Skipping check.")
         except Exception as e:
             logger.error(f"An unexpected error occurred during the ldd dependency check: {e}")
 
-    # --- Script for dynamic GPU detection ---
     py_script = """
 import bpy
 import sys
@@ -103,22 +110,16 @@ import sys
 try:
     found_backends = set()
     prefs = bpy.context.preferences.addons['cycles'].preferences
-
-    # Get all possible backend types Blender was compiled with
     possible_backends = [b[0] for b in prefs.get_device_types(bpy.context) if b[0] != 'CPU']
 
     for backend in possible_backends:
         try:
-            # Attempt to set the compute backend
             prefs.compute_device_type = backend
         except TypeError:
-            # This backend is not supported on the system (e.g. no drivers), so skip it
             continue
 
-        # Force a scan for devices for this specific backend
         prefs.get_devices()
 
-        # Crucially, check if any of the devices Blender just found match the backend we set.
         if any(d.type == backend for d in prefs.devices):
             found_backends.add(backend)
 
@@ -147,16 +148,19 @@ except Exception as e:
                 gpu_devices = line.strip().split(',')
                 break
 
-        logger.info(f"Detected GPU Devices: {gpu_devices if gpu_devices else 'None'}")
-        return [device for device in gpu_devices if device]
+        _gpu_devices_cache = [device for device in gpu_devices if device]
+        logger.info(f"Detected and cached GPU Devices: {_gpu_devices_cache if _gpu_devices_cache else 'None'}")
+        return _gpu_devices_cache
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         if e.stdout: logger.error(f"Blender GPU detection stdout on error:\n{e.stdout}")
         if e.stderr: logger.error(f"Blender GPU detection stderr on error:\n{e.stderr}")
         logger.error(f"Failed to detect GPU devices using Blender: {e}")
-        return []
+        _gpu_devices_cache = []
+        return _gpu_devices_cache
     except FileNotFoundError:
         logger.error(f"Blender executable not found at {blender_exe} for GPU detection.")
-        return []
+        _gpu_devices_cache = []
+        return _gpu_devices_cache
     finally:
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
@@ -211,9 +215,6 @@ def register_with_manager():
 
     heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
     payload = get_system_info()
-
-    # If get_system_info() returns an empty list for GPUs because of the new check,
-    # the registration payload will correctly reflect that the worker is not ready for jobs.
 
     logger.info(f"Sending registration heartbeat to {heartbeat_url}...")
     try:

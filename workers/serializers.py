@@ -78,10 +78,10 @@ class AnimationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
             'project', 'project_details', 'asset', 'asset_id', 'output_file_pattern', 'start_frame', 'end_frame',
-            'blender_version', 'render_engine', 'render_device',
+            'blender_version', 'render_engine', 'render_device', 'cycles_feature_set',
             'render_settings', 'tiling_config',
             'submitted_at', 'completed_at',
-            'total_render_time_seconds', 'frames' # <-- ADDED 'frames'
+            'total_render_time_seconds', 'frames'
         ]
         read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at',
                             'total_render_time_seconds', 'asset', 'project_details', 'frames')
@@ -131,7 +131,7 @@ class TiledJobSerializer(serializers.ModelSerializer):
             'id', 'name', 'status', 'progress', 'total_tiles', 'completed_tiles',
             'project', 'project_details', 'asset', 'asset_id',
             'final_resolution_x', 'final_resolution_y', 'tile_count_x', 'tile_count_y',
-            'blender_version', 'render_engine', 'render_device', 'render_settings',
+            'blender_version', 'render_engine', 'render_device', 'cycles_feature_set', 'render_settings',
             'submitted_at', 'completed_at', 'total_render_time_seconds', 'output_file'
         ]
         read_only_fields = (
@@ -198,6 +198,7 @@ class JobSerializer(serializers.ModelSerializer):
             'blender_version',
             'render_engine',
             'render_device',
+            'cycles_feature_set',
             'render_settings',
             'last_output',
             'error_message',

@@ -26,7 +26,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, AnimationFrame
 from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer, ProjectSerializer, TiledJobSerializer
-from .constants import RenderSettings, TilingConfiguration
+from .constants import RenderSettings, TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 from django.utils import timezone
 
 from rest_framework import viewsets
@@ -114,6 +114,12 @@ class AnimationViewSet(viewsets.ModelViewSet):
         animation = serializer.save()
         logger.info(f"Created new animation '{animation.name}' (ID: {animation.id}). Spawning jobs...")
 
+        # Prepare the base render settings that will be injected into child jobs.
+        base_render_settings = animation.render_settings.copy()
+        base_render_settings[RenderSettings.RENDER_ENGINE] = animation.render_engine
+        if animation.render_engine == RenderEngine.CYCLES:
+            base_render_settings[RenderSettings.CYCLES_FEATURE_SET] = animation.cycles_feature_set
+
         jobs_to_create = []
 
         if animation.tiling_config == TilingConfiguration.NONE:
@@ -130,7 +136,8 @@ class AnimationViewSet(viewsets.ModelViewSet):
                     blender_version=animation.blender_version,
                     render_engine=animation.render_engine,
                     render_device=animation.render_device,
-                    render_settings=animation.render_settings,
+                    cycles_feature_set=animation.cycles_feature_set,
+                    render_settings=base_render_settings,
                 )
                 jobs_to_create.append(job)
         else:
@@ -152,8 +159,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
                         border_min_y = y * tile_height
                         border_max_y = (y + 1) * tile_height
 
-                        tile_render_settings = animation.render_settings.copy()
-                        # <-- FIX: Force full resolution and dimensions for each tile
+                        tile_render_settings = base_render_settings.copy()
                         tile_render_settings.update({
                             RenderSettings.RESOLUTION_X: animation.render_settings.get(RenderSettings.RESOLUTION_X),
                             RenderSettings.RESOLUTION_Y: animation.render_settings.get(RenderSettings.RESOLUTION_Y),
@@ -166,7 +172,6 @@ class AnimationViewSet(viewsets.ModelViewSet):
                             RenderSettings.BORDER_MAX_Y: round(border_max_y, 6),
                         })
 
-                        # Use a unique directory for each frame's tiles
                         tile_output_dir = os.path.join("tiled_anim_frames", str(anim_frame.id))
                         output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####")
 
@@ -181,6 +186,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
                             blender_version=animation.blender_version,
                             render_engine=animation.render_engine,
                             render_device=animation.render_device,
+                            cycles_feature_set=animation.cycles_feature_set,
                             render_settings=tile_render_settings,
                         )
                         jobs_to_create.append(job)
@@ -203,6 +209,12 @@ class TiledJobViewSet(viewsets.ModelViewSet):
         tiled_job = serializer.save()
         logger.info(f"Created new TiledJob '{tiled_job.name}' (ID: {tiled_job.id}). Spawning tile jobs...")
 
+        # Prepare the base render settings that will be injected into child jobs.
+        base_render_settings = tiled_job.render_settings.copy()
+        base_render_settings[RenderSettings.RENDER_ENGINE] = tiled_job.render_engine
+        if tiled_job.render_engine == RenderEngine.CYCLES:
+            base_render_settings[RenderSettings.CYCLES_FEATURE_SET] = tiled_job.cycles_feature_set
+
         jobs_to_create = []
         tile_count_x = tiled_job.tile_count_x
         tile_count_y = tiled_job.tile_count_y
@@ -218,12 +230,11 @@ class TiledJobViewSet(viewsets.ModelViewSet):
                 border_min_y = y * tile_height
                 border_max_y = (y + 1) * tile_height
 
-                # Start with global settings and add tile-specific overrides
-                tile_render_settings = tiled_job.render_settings.copy()
+                tile_render_settings = base_render_settings.copy()
                 tile_render_settings.update({
                     RenderSettings.RESOLUTION_X: tiled_job.final_resolution_x,
                     RenderSettings.RESOLUTION_Y: tiled_job.final_resolution_y,
-                    RenderSettings.RESOLUTION_PERCENTAGE: 100,  # <-- FORCE 100% RESOLUTION
+                    RenderSettings.RESOLUTION_PERCENTAGE: 100,
                     RenderSettings.USE_BORDER: True,
                     RenderSettings.CROP_TO_BORDER: True,
                     RenderSettings.BORDER_MIN_X: round(border_min_x, 6),
@@ -244,6 +255,7 @@ class TiledJobViewSet(viewsets.ModelViewSet):
                     blender_version=tiled_job.blender_version,
                     render_engine=tiled_job.render_engine,
                     render_device=tiled_job.render_device,
+                    cycles_feature_set=tiled_job.cycles_feature_set,
                     render_settings=tile_render_settings,
                 )
                 jobs_to_create.append(job)
@@ -274,6 +286,19 @@ class JobViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'asset__name', 'asset__project__name']
     ordering_fields = ['submitted_at', 'status', 'name']
 
+    def get_queryset(self):
+        """
+        Overrides the default queryset to allow filtering based on worker GPU capability.
+        """
+        queryset = super().get_queryset()
+        gpu_available_param = self.request.query_params.get('gpu_available')
+
+        if gpu_available_param == 'false':
+            logger.debug("Filtering jobs for a CPU-only worker. Excluding jobs that require GPU.")
+            return queryset.exclude(render_device=RenderDevice.GPU)
+
+        return queryset
+
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         job = self.get_object()
@@ -300,8 +325,6 @@ class JobViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # The 'save' method on the FileField handles moving the uploaded file
-        # to the correct location defined by 'upload_to'.
         job.output_file.save(file_obj.name, file_obj, save=True)
 
         logger.info(f"Received output file for job ID {job.id}. Saved to {job.output_file.name}")

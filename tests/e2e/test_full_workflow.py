@@ -39,17 +39,22 @@ from pathlib import Path
 import pytest
 import requests
 from PIL import Image
+from unittest.mock import patch
 
 from sethlans_worker_agent import config as worker_config
 from sethlans_worker_agent import system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser, file_operations
-from workers.constants import RenderSettings, TilingConfiguration
+from workers.constants import RenderSettings, TilingConfiguration, RenderDevice
 
 
 def is_gpu_available():
     """Checks if a compatible GPU is available for rendering."""
+    # Reset cache for this check to be accurate for the host machine
+    system_monitor._gpu_devices_cache = None
     devices = system_monitor.detect_gpu_devices()
+    # Ensure cache is clear for subsequent test runs
+    system_monitor._gpu_devices_cache = None
     return len(devices) > 0
 
 
@@ -59,7 +64,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TEST_DB_NAME = "test_e2e_db.sqlite3"
 MOCK_TOOLS_DIR = Path(worker_config.MANAGED_TOOLS_DIR)
 MEDIA_ROOT_FOR_TEST = Path(tempfile.mkdtemp())
-# **FIX:** Define the series we want to test, not a specific patch.
 E2E_BLENDER_SERIES = "4.5"
 
 
@@ -69,7 +73,7 @@ class BaseE2ETest:
     worker_log_thread = None
     worker_log_queue = queue.Queue()
     _blender_cache_path = None
-    _blender_version_for_test = None  # **NEW:** To store the dynamically found version
+    _blender_version_for_test = None
 
     project_id = None
     scene_asset_id = None
@@ -101,7 +105,6 @@ class BaseE2ETest:
             print(f"\nDynamically determining latest patch for Blender {E2E_BLENDER_SERIES}.x series...")
             releases = blender_release_parser.get_blender_releases()
             latest_patch_for_series = None
-            # The parser returns sorted keys, so the first match is the latest.
             for version in releases.keys():
                 if version.startswith(E2E_BLENDER_SERIES + '.'):
                     latest_patch_for_series = version
@@ -155,11 +158,11 @@ class BaseE2ETest:
             raise RuntimeError(f"Failed to cache Blender for E2E tests: {e}")
 
     @classmethod
-    def _log_reader_thread(cls, pipe):
-        """Reads lines from the worker's output pipe and puts them in a queue."""
+    def _log_reader_thread(cls, pipe, log_queue):
+        """Reads lines from a pipe and puts them in the specified queue."""
         try:
             for line in iter(pipe.readline, ''):
-                cls.worker_log_queue.put(line)
+                log_queue.put(line)
         finally:
             pipe.close()
 
@@ -169,7 +172,6 @@ class BaseE2ETest:
         print(f"\n--- SETUP: {cls.__name__} ---")
 
         cls._cache_blender_once()
-        # Clean up artifacts from previous runs
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
         if Path(worker_config.MANAGED_ASSETS_DIR).exists(): shutil.rmtree(worker_config.MANAGED_ASSETS_DIR,
@@ -218,22 +220,33 @@ class BaseE2ETest:
                                                    cls.project_id)
         print(f"Assets uploaded: scene_id={cls.scene_asset_id}, bmw_id={cls.bmw_asset_id}, anim_id={cls.anim_asset_id}")
 
+        # Start worker as part of the main setup
+        cls.start_worker(cls.worker_log_queue)
+
+    @classmethod
+    def start_worker(cls, log_queue):
+        """Starts the worker process and its log reader thread."""
         print("Starting Worker Agent...")
+        test_env = os.environ.copy()
+        test_env["SETHLANS_DB_NAME"] = TEST_DB_NAME
+        test_env["DJANGO_SETTINGS_MODULE"] = "config.settings"
+        test_env["SETHLANS_MEDIA_ROOT"] = str(MEDIA_ROOT_FOR_TEST)
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
         cls.worker_process = subprocess.Popen(worker_command, cwd=PROJECT_ROOT, env=test_env, stdout=subprocess.PIPE,
                                               stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
 
-        cls.worker_log_thread = threading.Thread(target=cls._log_reader_thread, args=(cls.worker_process.stdout,))
+        cls.worker_log_thread = threading.Thread(target=cls._log_reader_thread,
+                                                 args=(cls.worker_process.stdout, log_queue))
         cls.worker_log_thread.daemon = True
         cls.worker_log_thread.start()
 
         worker_ready = False
-        max_wait_seconds = 180 # Increased wait time for potential first-time download
+        max_wait_seconds = 180
         start_time = time.time()
         print("Waiting for worker to complete registration and initial setup...")
         while time.time() - start_time < max_wait_seconds:
             try:
-                line = cls.worker_log_queue.get(timeout=1)
+                line = log_queue.get(timeout=1)
                 print(f"  [SETUP LOG] {line.strip()}")
                 if "Loop finished. Sleeping for" in line:
                     print("Worker is ready!")
@@ -241,8 +254,8 @@ class BaseE2ETest:
                     break
             except queue.Empty:
                 if cls.worker_process.poll() is not None:
-                    while not cls.worker_log_queue.empty():
-                        print(f"  [FINAL LOG] {cls.worker_log_queue.get_nowait().strip()}")
+                    while not log_queue.empty():
+                        print(f"  [FINAL LOG] {log_queue.get_nowait().strip()}")
                     raise RuntimeError("Worker process terminated unexpectedly during setup.")
                 continue
 
@@ -261,21 +274,21 @@ class BaseE2ETest:
                 break
         print("--- END OF WORKER LOGS ---\n")
 
-        if cls.worker_process:
+        if cls.worker_process and cls.worker_process.poll() is None:
             if platform.system() == "Windows":
                 subprocess.run(f"taskkill /F /T /PID {cls.worker_process.pid}", check=False, capture_output=True,
                                shell=True)
             else:
                 cls.worker_process.kill()
 
-        if cls.manager_process:
+        if cls.manager_process and cls.manager_process.poll() is None:
             if platform.system() == "Windows":
                 subprocess.run(f"taskkill /F /T /PID {cls.manager_process.pid}", check=False, capture_output=True,
                                shell=True)
             else:
                 cls.manager_process.kill()
 
-        if cls.worker_log_thread:
+        if cls.worker_log_thread and cls.worker_log_thread.is_alive():
             cls.worker_log_thread.join(timeout=5)
 
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
@@ -291,13 +304,15 @@ class BaseE2ETest:
         print("Teardown complete.")
 
 
+# ... (All other test classes remain unchanged) ...
+
 class TestRenderWorkflow(BaseE2ETest):
     def test_full_render_workflow(self):
         print("\n--- ACTION: Submitting render job ---")
         job_payload = {
             "name": "E2E CPU Render Test",
             "asset_id": self.scene_asset_id,
-            "output_file_pattern": "e2e_render_####",  # Use relative path
+            "output_file_pattern": "e2e_render_####",
             "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_engine": "CYCLES",
             "render_device": "CPU",
@@ -407,7 +422,6 @@ class TestAnimationWorkflow(BaseE2ETest):
     def test_animation_render_workflow(self):
         start_frame, end_frame = 1, 5
         total_frames = (end_frame - start_frame) + 1
-        # Use a relative path pattern
         output_pattern = "anim_render_####"
 
         print("\n--- ACTION: Submitting animation job ---")
@@ -444,7 +458,6 @@ class TestAnimationWorkflow(BaseE2ETest):
             time.sleep(2)
         assert completed, f"Animation did not complete in time. Only {completed_frames}/{total_frames} frames finished."
 
-        # Verify that the output files are available from the manager
         print("Verifying all child jobs have an output file URL...")
         jobs_response = requests.get(f"{MANAGER_URL}/jobs/?animation={anim_id}")
         assert jobs_response.status_code == 200
@@ -483,7 +496,6 @@ class TestTiledWorkflow(BaseE2ETest):
 
         print("Polling API for DONE status...")
         final_status = ""
-        # Increased timeout for tiled job with assembly
         for i in range(180):
             check_response = requests.get(tiled_job_url)
             assert check_response.status_code == 200
@@ -509,7 +521,6 @@ class TestTiledWorkflow(BaseE2ETest):
         download_response = requests.get(output_url)
         assert download_response.status_code == 200
 
-        # Verify image integrity
         image_data = io.BytesIO(download_response.content)
         with Image.open(image_data) as img:
             assert img.size == (400, 400)
@@ -553,7 +564,7 @@ class TestTiledAnimationWorkflow(BaseE2ETest):
             "name": "E2E Tiled Animation Test",
             "project": self.project_id,
             "asset_id": self.anim_asset_id,
-            "output_file_pattern": "tiled_anim_e2e_####", # <-- ADDED THIS REQUIRED FIELD
+            "output_file_pattern": "tiled_anim_e2e_####",
             "start_frame": start_frame,
             "end_frame": end_frame,
             "blender_version": self._blender_version_for_test,
@@ -571,7 +582,7 @@ class TestTiledAnimationWorkflow(BaseE2ETest):
 
         print(f"Polling API for completion of {total_frames} frames...")
         final_status = ""
-        for i in range(240): # Longer timeout for more jobs
+        for i in range(240):
             check_response = requests.get(anim_url)
             assert check_response.status_code == 200
             data = check_response.json()
@@ -603,3 +614,66 @@ class TestTiledAnimationWorkflow(BaseE2ETest):
                 assert img.size == (200, 200)
 
         print("SUCCESS: Tiled animation workflow completed successfully.")
+
+
+class TestJobFiltering(BaseE2ETest):
+    """
+    This test has a custom setup to simulate a CPU-only worker.
+    """
+    mock_patcher = None
+
+    @classmethod
+    def setup_class(cls):
+        """Override setup to mock before starting the worker."""
+        print("\n--- Applying mock for CPU-only worker BEFORE setup ---")
+        cls.mock_patcher = patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
+        cls.mock_patcher.start()
+        # Now call the original setup, which will start a worker that uses the mock
+        super().setup_class()
+
+    @classmethod
+    def teardown_class(cls):
+        """Ensure the mock is stopped."""
+        super().teardown_class()
+        if cls.mock_patcher:
+            print("\n--- Stopping CPU-only worker mock ---")
+            cls.mock_patcher.stop()
+
+    def test_cpu_worker_ignores_gpu_job(self):
+        print("\n--- ACTION: Testing that a CPU-only worker ignores GPU-only jobs ---")
+
+        # 1. Submit one GPU job and one CPU job
+        print("Submitting GPU-only and CPU-only jobs...")
+        gpu_job_payload = {"name": "GPU-Only Job", "asset_id": self.scene_asset_id, "render_device": RenderDevice.GPU,
+                           "output_file_pattern": "gpu_filter_test_####"}
+        cpu_job_payload = {"name": "CPU-Only Job", "asset_id": self.scene_asset_id, "render_device": RenderDevice.CPU,
+                           "output_file_pattern": "cpu_filter_test_####"}
+        gpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=gpu_job_payload)
+        cpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=cpu_job_payload)
+        assert gpu_response.status_code == 201
+        assert cpu_response.status_code == 201
+        gpu_job_id = gpu_response.json()['id']
+        cpu_job_id = cpu_response.json()['id']
+
+        # 2. Poll and verify
+        print("Polling to verify correct job was taken...")
+        cpu_job_completed = False
+        for _ in range(30):  # Wait up to 60 seconds
+            cpu_job_status_response = requests.get(f"{MANAGER_URL}/jobs/{cpu_job_id}/")
+            gpu_job_status_response = requests.get(f"{MANAGER_URL}/jobs/{gpu_job_id}/")
+            assert cpu_job_status_response.status_code == 200
+            assert gpu_job_status_response.status_code == 200
+
+            cpu_job_status = cpu_job_status_response.json()['status']
+            gpu_job_status = gpu_job_status_response.json()['status']
+
+            # GPU job should never be touched by our mocked CPU-only worker
+            assert gpu_job_status == "QUEUED"
+
+            if cpu_job_status == "DONE":
+                cpu_job_completed = True
+                break
+            time.sleep(2)
+
+        assert cpu_job_completed, "CPU job was not completed by the worker."
+        print("SUCCESS: CPU-only worker correctly ignored the GPU job and processed the CPU job.")

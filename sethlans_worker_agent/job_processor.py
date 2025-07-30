@@ -35,7 +35,7 @@ import threading
 import psutil
 import tempfile
 
-from sethlans_worker_agent import config, asset_manager
+from sethlans_worker_agent import config, asset_manager, system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
@@ -108,10 +108,21 @@ def update_job_status(job_url, payload):
 
 def get_and_claim_job(worker_id):
     """
-    Polls for jobs, claims the first available one, and processes it.
+    Polls for jobs based on worker capabilities, claims the first available one, and processes it.
     """
     poll_url = f"{config.MANAGER_API_URL}jobs/"
-    params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+
+    # Check for GPU capability and add to query params.
+    # This uses the cached result from the initial system_monitor run.
+    detected_gpus = system_monitor.detect_gpu_devices()
+    gpu_available = len(detected_gpus) > 0
+
+    params = {
+        'status': 'QUEUED',
+        'assigned_worker__isnull': 'true',
+        'gpu_available': str(gpu_available).lower()
+    }
+    logger.debug(f"Polling for jobs with params: {params}")
 
     try:
         response = requests.get(poll_url, params=params, timeout=10)
@@ -150,12 +161,10 @@ def get_and_claim_job(worker_id):
                     job_update_payload["status"] = "DONE"
                     if final_output_path:
                         upload_ok = _upload_render_output(job_id, final_output_path)
-                        # **FIX:** Clean up the local file after a successful upload
                         if upload_ok:
                             try:
                                 logger.info(f"Cleaning up local render output: {final_output_path}")
                                 os.remove(final_output_path)
-                                # Try to remove the parent directory if it's empty
                                 output_dir = os.path.dirname(final_output_path)
                                 if not os.listdir(output_dir):
                                     os.rmdir(output_dir)
@@ -212,7 +221,6 @@ def execute_blender_job(job_data):
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
 
-    # Ensure local temp directory exists for override scripts
     os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
 
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
@@ -229,7 +237,6 @@ def execute_blender_job(job_data):
 
     logger.info(f"Using Blender executable: {blender_to_use}")
 
-    # Resolve the output path relative to the worker's output directory and normalize it
     resolved_output_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, output_file_pattern))
 
     output_dir = os.path.dirname(resolved_output_pattern)
@@ -242,7 +249,6 @@ def execute_blender_job(job_data):
 
     if isinstance(render_settings, dict) and render_settings:
         try:
-            # Use the local temp directory for the script file.
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
                 temp_script_path = f.name
                 script_lines = ["import bpy", "for scene in bpy.data.scenes:"]

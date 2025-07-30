@@ -32,7 +32,7 @@ from django.db.models import JSONField, Sum
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from .constants import TilingConfiguration
+from .constants import TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +144,10 @@ class Animation(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     blender_version = models.CharField(max_length=100, default="4.5",
                                        help_text="e.g., '4.5' or '4.1.1'")
-    render_engine = models.CharField(max_length=100, default="CYCLES", help_text="e.g., 'CYCLES' or 'BLENDER_EEVEE'")
-    render_device = models.CharField(max_length=10, default="CPU")
+    render_engine = models.CharField(max_length=50, choices=RenderEngine.choices, default=RenderEngine.CYCLES)
+    render_device = models.CharField(max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY)
+    cycles_feature_set = models.CharField(max_length=50, choices=CyclesFeatureSet.choices,
+                                          default=CyclesFeatureSet.SUPPORTED)
     render_settings = models.JSONField(default=dict, blank=True,
                                        help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
     total_render_time_seconds = models.IntegerField(default=0,
@@ -192,8 +194,10 @@ class TiledJob(models.Model):
     submitted_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     blender_version = models.CharField(max_length=100, default="4.5")
-    render_engine = models.CharField(max_length=100, default="CYCLES")
-    render_device = models.CharField(max_length=10, default="CPU")
+    render_engine = models.CharField(max_length=50, choices=RenderEngine.choices, default=RenderEngine.CYCLES)
+    render_device = models.CharField(max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY)
+    cycles_feature_set = models.CharField(max_length=50, choices=CyclesFeatureSet.choices,
+                                          default=CyclesFeatureSet.SUPPORTED)
     render_settings = models.JSONField(default=dict, blank=True, help_text="Global render settings for all tiles.")
     total_render_time_seconds = models.IntegerField(default=0)
     output_file = models.FileField(upload_to=tiled_job_output_upload_path, null=True, blank=True,
@@ -229,8 +233,10 @@ class Job(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     blender_version = models.CharField(max_length=100, default="4.5",
                                        help_text="e.g., '4.5' or '4.1.1'")
-    render_engine = models.CharField(max_length=100, default="CYCLES", help_text="e.g., 'CYCLES' or 'BLENDER_EEVEE'")
-    render_device = models.CharField(max_length=10, default="CPU")
+    render_engine = models.CharField(max_length=50, choices=RenderEngine.choices, default=RenderEngine.CYCLES)
+    render_device = models.CharField(max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY)
+    cycles_feature_set = models.CharField(max_length=50, choices=CyclesFeatureSet.choices,
+                                          default=CyclesFeatureSet.SUPPORTED)
     render_settings = models.JSONField(default=dict, blank=True,
                                        help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
     last_output = models.TextField(blank=True, default='')
