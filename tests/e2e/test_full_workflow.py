@@ -315,7 +315,7 @@ class TestRenderWorkflow(BaseE2ETest):
             "output_file_pattern": "e2e_render_####",
             "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_engine": "CYCLES",
-            "render_device": "CPU",
+            "render_device": "CPU", # Explicitly test CPU
             "render_settings": {
                 RenderSettings.SAMPLES: 10,
                 RenderSettings.RESOLUTION_PERCENTAGE: 10
@@ -356,33 +356,6 @@ class TestRenderWorkflow(BaseE2ETest):
 
 
 class TestGpuWorkflow(BaseE2ETest):
-    def test_gpu_job_omits_factory_startup(self):
-        print("\n--- ACTION: Submitting GPU job for command check ---")
-        job_payload = {
-            "name": "E2E GPU Command Test",
-            "asset_id": self.bmw_asset_id,
-            "output_file_pattern": "gpu_test_####",
-            "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
-            "render_engine": "CYCLES",
-            "render_device": "GPU"
-        }
-        create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
-        assert create_response.status_code == 201
-
-        print("Waiting for worker to log the render command...")
-        command_logged = False
-        start_time = time.time()
-        while time.time() - start_time < 60:
-            try:
-                line = self.worker_log_queue.get(timeout=1)
-                if "Running Command:" in line:
-                    assert "--factory-startup" not in line
-                    command_logged = True
-                    break
-            except queue.Empty:
-                continue
-        assert command_logged, "Worker did not log the 'Running Command' line in time."
-
     def test_full_gpu_render_workflow(self):
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
         is_macos_in_ci = platform.system() == "Darwin" and is_ci

@@ -41,6 +41,50 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 logger = logging.getLogger(__name__)
 
 
+def _generate_render_config_script(render_device, render_settings):
+    """
+    Generates the content for a Python script to configure Blender's render settings.
+    This includes device selection and user-provided overrides.
+    """
+    script_lines = ["import bpy"]
+
+    # --- Device Configuration ---
+    detected_gpus = system_monitor.detect_gpu_devices()
+    use_gpu = (render_device == 'GPU') or (render_device == 'ANY' and detected_gpus)
+
+    script_lines.append("prefs = bpy.context.preferences.addons['cycles'].preferences")
+
+    if use_gpu:
+        logger.info(f"Configuring job for GPU rendering. Available backends: {detected_gpus}")
+        # Preference order for backend can be adjusted here
+        backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
+        chosen_backend = next((b for b in backend_preference if b in detected_gpus), None)
+
+        if chosen_backend:
+            script_lines.append(f"prefs.compute_device_type = '{chosen_backend}'")
+            script_lines.append("prefs.get_devices()")
+            script_lines.append("for device in prefs.devices:")
+            script_lines.append("    if device.type != 'CPU':")
+            script_lines.append("        device.use = True")
+            script_lines.append("bpy.context.scene.cycles.device = 'GPU'")
+        else:
+            logger.warning("GPU requested but no compatible backend was detected. Falling back to CPU.")
+            script_lines.append("bpy.context.scene.cycles.device = 'CPU'")
+    else:
+        logger.info("Configuring job for CPU rendering.")
+        script_lines.append("bpy.context.scene.cycles.device = 'CPU'")
+
+    # --- User Overrides ---
+    if isinstance(render_settings, dict) and render_settings:
+        script_lines.append("# Applying user-defined render settings")
+        script_lines.append("for scene in bpy.data.scenes:")
+        for key, value in render_settings.items():
+            py_value = repr(value)
+            script_lines.append(f"    scene.{key} = {py_value}")
+
+    return "\n".join(script_lines)
+
+
 def _upload_render_output(job_id, output_file_path):
     """Uploads the rendered output file to the manager."""
     if not os.path.exists(output_file_path):
@@ -243,40 +287,31 @@ def execute_blender_job(job_data):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # Always use --factory-startup for a clean, predictable environment
     command = [
-        blender_to_use, "-b", local_blend_file_path
+        blender_to_use, "--factory-startup", "-b", local_blend_file_path
     ]
 
-    if isinstance(render_settings, dict) and render_settings:
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
-                temp_script_path = f.name
-                script_lines = ["import bpy", "for scene in bpy.data.scenes:"]
-                for key, value in render_settings.items():
-                    py_value = repr(value)
-                    script_lines.append(f"    scene.{key} = {py_value}")
+    # Generate and write the combined config script (device + user settings)
+    try:
+        script_content = _generate_render_config_script(render_device, render_settings)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
+            temp_script_path = f.name
+            f.write(script_content)
+            logger.debug(f"Generated override script at {temp_script_path}:\n{script_content}")
 
-                script_content = "\n".join(script_lines)
-                f.write(script_content)
-                logger.debug(f"Generated override script at {temp_script_path}:\n{script_content}")
-
-            command.extend(["--python", temp_script_path])
-        except Exception as e:
-            logger.error(f"Failed to generate render settings script: {e}")
-            if temp_script_path and os.path.exists(temp_script_path):
-                os.remove(temp_script_path)
-            return False, False, "", "", f"Failed to generate settings script: {e}", None
+        command.extend(["--python", temp_script_path])
+    except Exception as e:
+        error_msg = f"Failed to generate render settings script: {e}"
+        logger.error(error_msg)
+        if temp_script_path and os.path.exists(temp_script_path):
+            os.remove(temp_script_path)
+        return False, False, "", "", error_msg, None
 
     command.extend([
         "-o", resolved_output_pattern,
         "-F", "PNG", "-E", render_engine,
     ])
-
-    if render_device == 'CPU':
-        command.insert(1, "--factory-startup")
-        logger.info("CPU job detected. Using --factory-startup to ensure CPU rendering.")
-    else:
-        logger.info("GPU job detected. Omitting --factory-startup to use pre-configured .blend file settings.")
 
     if start_frame == end_frame:
         command.extend(["-f", str(start_frame)])

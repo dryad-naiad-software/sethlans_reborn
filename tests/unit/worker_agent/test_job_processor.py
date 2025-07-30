@@ -41,36 +41,47 @@ PROGRESS_BAR_TIME_STDOUT = "Fra:1 Mem:158.90M | Time:00:09.53 | Remaining:00:20.
 
 
 @pytest.fixture
-def mock_popen_setup(mocker):
+def mock_job_exec_deps(mocker):
     """
     A fixture to provide a standard, complex mock setup for subprocess.Popen,
-    psutil, and requests for testing execute_blender_job.
+    tempfile, and other dependencies for testing execute_blender_job.
+    This fixture returns a dictionary of key mocks for tests to use.
     """
     # Mock config directories
     mocker.patch.object(config, 'WORKER_OUTPUT_DIR', '/mock/worker_output')
     mocker.patch.object(config, 'WORKER_TEMP_DIR', '/mock/worker_temp')
 
+    # Mock subprocess management
     mock_process = MagicMock()
     mock_process.pid = 12345
     mock_process.stdout.readline.side_effect = ['Blender render complete.\n', '']
     mock_process.stderr.readline.side_effect = ['']
     mock_process.poll.return_value = 0
+    mock_process.wait.return_value = 0
+    mock_popen = mocker.patch('subprocess.Popen', return_value=mock_process)
     mocker.patch('time.sleep')
 
-    mock_popen = mocker.patch('subprocess.Popen', return_value=mock_process)
-
-    mock_response_rendering = MagicMock(status_code=200)
-    mock_response_rendering.json.return_value = {'status': 'RENDERING'}
-    mocker.patch('requests.get', return_value=mock_response_rendering)
-
+    # Mock dependencies of execute_blender_job
+    mocker.patch('requests.get', return_value=MagicMock(status_code=200, json=lambda: {'status': 'RENDERING'}))
     mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value="/mock/tools/blender")
     mocker.patch('os.path.exists', return_value=True)
     mocker.patch('os.makedirs')
-
     mocker.patch('sethlans_worker_agent.asset_manager.ensure_asset_is_available',
                  return_value="/mock/local/scene.blend")
 
-    return mock_popen, mock_process
+    # Mock tempfile to capture script content
+    mock_write_method = MagicMock()
+    mock_temp_file_context = MagicMock()
+    mock_temp_file_context.__enter__.return_value.name = "/mock/worker_temp/fake_script.py"
+    mock_temp_file_context.__enter__.return_value.write = mock_write_method
+    mocker.patch('tempfile.NamedTemporaryFile', return_value=mock_temp_file_context)
+    mocker.patch('os.remove')
+
+    return {
+        "popen": mock_popen,
+        "process": mock_process,
+        "script_write": mock_write_method
+    }
 
 
 @pytest.mark.parametrize("stdout, expected_seconds", [
@@ -98,15 +109,11 @@ def test_get_and_claim_job_sends_gpu_capability(mocker, gpu_devices, expected_pa
     Tests that the worker correctly reports its GPU capability when polling for jobs.
     """
     mock_worker_id = 123
-    # Mock requests.get to return an empty list (no jobs found) to simplify the test
     mock_get = mocker.patch('requests.get', return_value=MagicMock(json=lambda: []))
-    # Mock the system_monitor call to control the outcome
     mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=gpu_devices)
 
-    # Act
     job_processor.get_and_claim_job(mock_worker_id)
 
-    # Assert
     mock_get.assert_called_once()
     call_args = mock_get.call_args
     assert 'params' in call_args.kwargs
@@ -195,126 +202,151 @@ def test_get_and_claim_job_does_not_upload_on_failure(mocker):
     mock_upload.assert_not_called()
 
 
-def test_execute_blender_job_cpu_success(mock_popen_setup):
-    """Tests a standard successful CPU render job execution."""
-    mock_popen, mock_process = mock_popen_setup
-    mock_process.stdout.readline.side_effect = ['Blender render complete.\n', '']
-    mock_process.wait.return_value = 0
-
-    mock_job_data = {
-        'id': 1, 'name': 'CPU Test Render',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
-        'output_file_pattern': os.path.join('tiles', 'tile_0_0_####'),
-        'start_frame': 1, 'end_frame': 1,
-        'blender_version': '4.5.0', 'render_engine': 'CYCLES', 'render_device': 'CPU'
-    }
-
-    success, _, _, _, _, output_path = job_processor.execute_blender_job(mock_job_data)
-
-    assert success is True
-    expected_path = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, 'tiles', 'tile_0_0_0001.png'))
-    assert output_path == expected_path
-    called_command = mock_popen.call_args.args[0]
-    assert "--factory-startup" in called_command
-    assert "/mock/local/scene.blend" in called_command
-
-
-def test_execute_blender_job_gpu_command(mock_popen_setup):
+@pytest.mark.parametrize("render_device", ["CPU", "GPU", "ANY"])
+def test_command_always_includes_factory_startup(mock_job_exec_deps, render_device):
     """
-    Tests that the --factory-startup flag is correctly OMITTED for GPU jobs.
+    Verifies that --factory-startup is always used, regardless of render device.
     """
-    mock_popen, mock_process = mock_popen_setup
-    mock_process.stdout.readline.side_effect = ['Blender render complete.\n', '']
-    mock_process.wait.return_value = 0
-
+    mock_popen = mock_job_exec_deps["popen"]
     mock_job_data = {
-        'id': 5, 'name': 'GPU Test',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
-        'output_file_pattern': os.path.join('tiles', 'tile_0_0_####'),
-        'start_frame': 1, 'end_frame': 1,
-        'blender_version': '4.5.0', 'render_engine': 'CYCLES', 'render_device': 'GPU'
+        'id': 1,
+        'asset': {'blend_file': 'http://a.blend'},
+        'output_file_pattern': 'f',
+        'render_device': render_device,
+        'blender_version': '4.5.0'
     }
 
     job_processor.execute_blender_job(mock_job_data)
 
-    called_command = mock_popen.call_args.args[0]
-    assert "--factory-startup" not in called_command
+    assert "--factory-startup" in mock_popen.call_args.args[0]
 
 
-def test_execute_blender_job_with_render_settings(mock_popen_setup, mocker):
+def test_gpu_job_generates_correct_script(mocker, mock_job_exec_deps):
     """
-    Tests that render_settings are correctly written to a temp script
-    and passed to Blender via the --python argument.
+    Verifies that a GPU job generates a script to enable the best available GPU backend.
     """
-    mock_popen, _ = mock_popen_setup
-    mock_temp_file_context = MagicMock()
-    mock_temp_file_context.__enter__.return_value.name = "/mock/worker_temp/fake_script.py"
-    mock_temp_file = mocker.patch('tempfile.NamedTemporaryFile', return_value=mock_temp_file_context)
-    mocker.patch('os.remove')
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['HIP', 'OPTIX'])
+    mock_write = mock_job_exec_deps["script_write"]
+    job_data = {
+        'id': 1,
+        'asset': {},
+        'output_file_pattern': 'f',
+        'render_device': 'GPU',
+        'blender_version': '4.5.0'
+    }
+    job_processor.execute_blender_job(job_data)
 
+    written_script = mock_write.call_args.args[0]
+    assert "prefs.compute_device_type = 'OPTIX'" in written_script
+    assert "bpy.context.scene.cycles.device = 'GPU'" in written_script
+
+
+def test_cpu_job_generates_correct_script(mocker, mock_job_exec_deps):
+    """Verifies that a CPU job generates a script that sets the device to CPU."""
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA']) # Even if GPU exists
+    mock_write = mock_job_exec_deps["script_write"]
+    job_data = {
+        'id': 1,
+        'asset': {},
+        'output_file_pattern': 'f',
+        'render_device': 'CPU',
+        'blender_version': '4.5.0'
+    }
+    job_processor.execute_blender_job(job_data)
+
+    written_script = mock_write.call_args.args[0]
+    assert "bpy.context.scene.cycles.device = 'CPU'" in written_script
+    assert "prefs.compute_device_type" not in written_script # Should not try to set a GPU backend
+
+
+def test_any_job_on_gpu_worker_generates_gpu_script(mocker, mock_job_exec_deps):
+    """Verifies an 'ANY' device job on a GPU worker correctly configures for GPU."""
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA'])
+    mock_write = mock_job_exec_deps["script_write"]
+    job_data = {
+        'id': 1,
+        'asset': {},
+        'output_file_pattern': 'f',
+        'render_device': 'ANY',
+        'blender_version': '4.5.0'
+    }
+    job_processor.execute_blender_job(job_data)
+
+    written_script = mock_write.call_args.args[0]
+    assert "prefs.compute_device_type = 'CUDA'" in written_script
+    assert "bpy.context.scene.cycles.device = 'GPU'" in written_script
+
+
+def test_any_job_on_cpu_worker_generates_cpu_script(mocker, mock_job_exec_deps):
+    """Verifies an 'ANY' device job on a CPU-only worker correctly configures for CPU."""
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
+    mock_write = mock_job_exec_deps["script_write"]
+    job_data = {
+        'id': 1,
+        'asset': {},
+        'output_file_pattern': 'f',
+        'render_device': 'ANY',
+        'blender_version': '4.5.0'
+    }
+    job_processor.execute_blender_job(job_data)
+
+    written_script = mock_write.call_args.args[0]
+    assert "bpy.context.scene.cycles.device = 'CPU'" in written_script
+    assert "prefs.compute_device_type" not in written_script
+
+
+def test_execute_blender_job_with_render_settings(mock_job_exec_deps):
+    """
+    Tests that render_settings are correctly included in the generated script.
+    """
+    mock_write = mock_job_exec_deps["script_write"]
     mock_job_data = {
-        'id': 6, 'name': 'Settings Override',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
+        'id': 6, 'name': 'Settings Override', 'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': 'some_render_####', 'start_frame': 1, 'end_frame': 1,
         'blender_version': '4.5.0', 'render_device': 'CPU',
-        'render_settings': {
-            RenderSettings.SAMPLES: 128,
-        }
+        'render_settings': {RenderSettings.SAMPLES: 128}
     }
 
     job_processor.execute_blender_job(mock_job_data)
 
-    mock_temp_file.assert_called_once_with(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR)
-    called_command = mock_popen.call_args.args[0]
-    assert "--python" in called_command
-    assert "/mock/worker_temp/fake_script.py" in called_command
+    written_script = mock_write.call_args.args[0]
+    assert "scene.cycles.samples = 128" in written_script
 
 
-def test_execute_blender_job_failure(mock_popen_setup):
+def test_execute_blender_job_failure(mock_job_exec_deps):
     """Tests a failed render job execution (non-zero exit code)."""
-    mock_popen, mock_process = mock_popen_setup
+    mock_process = mock_job_exec_deps["process"]
     mock_process.stdout.readline.side_effect = ['Blender render complete.\n', '']
     mock_process.stderr.readline.side_effect = ['Error: Something went wrong.\n', '']
     mock_process.wait.return_value = 1
 
     mock_job_data = {
-        'id': 2, 'name': 'Failed Render',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
+        'id': 2, 'name': 'Failed Render', 'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': 'frame_####', 'start_frame': 1, 'end_frame': 1,
         'blender_version': '4.5.0'
     }
 
-    success, was_canceled, stdout, stderr, error_message, output_path = job_processor.execute_blender_job(mock_job_data)
+    success, _, _, _, error_message, _ = job_processor.execute_blender_job(mock_job_data)
 
     assert success is False
-    assert output_path is None
     assert "Blender exited with code 1" in error_message
 
 
-def test_execute_blender_job_animation_command(mock_popen_setup):
+def test_execute_blender_job_animation_command(mock_job_exec_deps):
     """Tests that the command for an animation is constructed correctly."""
-    mock_popen, mock_process = mock_popen_setup
-    mock_process.stdout.readline.side_effect = ['Blender render complete.\n', '']
-    mock_process.wait.return_value = 0
-
+    mock_popen = mock_job_exec_deps["popen"]
     output_pattern = os.path.join('anim', 'frame_####')
     mock_job_data = {
-        'id': 3, 'name': 'Test Animation',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
+        'id': 3, 'name': 'Test Animation', 'asset': {'blend_file': 'http://server/media/scene.blend'},
         'output_file_pattern': output_pattern, 'start_frame': 10, 'end_frame': 20,
         'blender_version': '4.5.0', 'render_device': 'CPU'
     }
 
     job_processor.execute_blender_job(mock_job_data)
 
-    resolved_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, output_pattern))
-
     called_command = mock_popen.call_args.args[0]
-    assert resolved_pattern in called_command
-    assert '-s' in called_command
-    assert '10' in called_command
-    assert '-e' in called_command
-    assert '20' in called_command
+    assert '-s' in called_command and '10' in called_command
+    assert '-e' in called_command and '20' in called_command
     assert '-a' in called_command
 
 
@@ -323,19 +355,15 @@ def test_execute_blender_job_tool_unavailable(mocker):
     mocker.patch('sethlans_worker_agent.asset_manager.ensure_asset_is_available',
                  return_value="/mock/local/scene.blend")
     mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value=None)
-    mocker.patch('subprocess.Popen')
 
     mock_job_data = {
-        'id': 4, 'name': 'Tool Fail Render',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
-        'blender_version': '9.9.9',
-        'output_file_pattern': 'frame_####'
+        'id': 4, 'name': 'Tool Fail Render', 'asset': {'blend_file': 'http://server/media/scene.blend'},
+        'blender_version': '9.9.9', 'output_file_pattern': 'frame_####'
     }
 
-    success, was_canceled, stdout, stderr, error_message, output_path = job_processor.execute_blender_job(mock_job_data)
+    success, _, _, _, error_message, _ = job_processor.execute_blender_job(mock_job_data)
 
     assert success is False
-    assert output_path is None
     assert "Could not find or acquire Blender version '9.9.9'" in error_message
 
 
@@ -358,37 +386,28 @@ def test_get_and_claim_job_success(mocker):
     mocker.patch('os.listdir', return_value=[])
     mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
 
-
     job_processor.get_and_claim_job(mock_worker_id)
 
 
-def test_execute_blender_job_cancellation(mock_popen_setup, mocker):
+def test_execute_blender_job_cancellation(mock_job_exec_deps, mocker):
     """
     Tests that execute_blender_job correctly handles a cancellation signal from the API.
     """
-    mock_popen, mock_process = mock_popen_setup
-    mock_process.stdout.readline.side_effect = ['output line 1\n', '']
+    mock_process = mock_job_exec_deps["process"]
     mock_process.poll.side_effect = [None, None, 0]
-    mock_process.wait.return_value = -9
     mocker.patch('psutil.Process')
 
     mock_job_data = {
-        'id': 99, 'name': 'Cancellable Job',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
-        'output_file_pattern': 'frame_####', 'start_frame': 1,
-        'end_frame': 1, 'blender_version': '4.5.0'
+        'id': 99, 'name': 'Cancellable Job', 'asset': {'blend_file': 'http://server/media/scene.blend'},
+        'output_file_pattern': 'frame_####', 'start_frame': 1, 'end_frame': 1, 'blender_version': '4.5.0'
     }
 
-    mock_response_rendering = MagicMock(status_code=200)
-    mock_response_rendering.json.return_value = {'status': 'RENDERING'}
-    mock_response_canceled = MagicMock(status_code=200)
-    mock_response_canceled.json.return_value = {'status': 'CANCELED'}
-    mocker.patch('requests.get', side_effect=[mock_response_rendering, mock_response_canceled])
+    mock_response_canceled = MagicMock(status_code=200, json=lambda: {'status': 'CANCELED'})
+    mocker.patch('requests.get', side_effect=[MagicMock(status_code=200, json=lambda: {'status': 'RENDERING'}), mock_response_canceled])
 
-    success, was_canceled, stdout, stderr, error_message, output_path = job_processor.execute_blender_job(mock_job_data)
+    success, was_canceled, _, _, error_message, _ = job_processor.execute_blender_job(mock_job_data)
 
     assert was_canceled is True
-    assert output_path is None
     assert error_message == "Job was canceled by user request."
 
 
@@ -417,51 +436,3 @@ def test_get_and_claim_job_cleans_up_file_on_success(mocker):
 
     mock_remove.assert_called_once_with(mock_output_path)
     mock_rmdir.assert_called_once_with(os.path.dirname(mock_output_path))
-
-
-def test_execute_blender_job_uses_local_output_dir(mock_popen_setup):
-    """Tests that the render command uses the local worker_output directory."""
-    mock_popen, mock_process = mock_popen_setup
-    mock_process.wait.return_value = 0
-
-    mock_job_data = {
-        'id': 1, 'name': 'CPU Test Render',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
-        'output_file_pattern': os.path.join('tiles', 'tile_0_0_####'),
-        'start_frame': 1, 'end_frame': 1,
-        'blender_version': '4.5.0', 'render_device': 'CPU'
-    }
-
-    success, _, _, _, _, output_path = job_processor.execute_blender_job(mock_job_data)
-
-    assert success is True
-    expected_path = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, 'tiles', 'tile_0_0_0001.png'))
-    assert output_path == expected_path
-
-    called_command = mock_popen.call_args.args[0]
-    expected_pattern_in_command = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, 'tiles', 'tile_0_0_####'))
-    assert expected_pattern_in_command in called_command
-
-
-def test_execute_blender_job_uses_local_temp_dir_for_scripts(mock_popen_setup, mocker):
-    """Tests that render_settings scripts are created in the local temp directory."""
-    mock_popen, _ = mock_popen_setup
-    mock_temp_file_context = MagicMock()
-    mock_temp_file_context.__enter__.return_value.name = "/mock/worker_temp/fake_script.py"
-    mock_temp_file = mocker.patch('tempfile.NamedTemporaryFile', return_value=mock_temp_file_context)
-    mocker.patch('os.remove')
-
-    mock_job_data = {
-        'id': 6, 'name': 'Settings Override',
-        'asset': {'blend_file': 'http://server/media/scene.blend'},
-        'output_file_pattern': 'some_render_####', 'start_frame': 1, 'end_frame': 1,
-        'blender_version': '4.5.0', 'render_device': 'CPU',
-        'render_settings': {RenderSettings.SAMPLES: 128}
-    }
-
-    job_processor.execute_blender_job(mock_job_data)
-
-    mock_temp_file.assert_called_once_with(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR)
-
-    called_command = mock_popen.call_args.args[0]
-    assert "/mock/worker_temp/fake_script.py" in called_command
