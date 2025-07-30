@@ -153,7 +153,11 @@ class AnimationViewSet(viewsets.ModelViewSet):
                         border_max_y = (y + 1) * tile_height
 
                         tile_render_settings = animation.render_settings.copy()
+                        # <-- FIX: Force full resolution and dimensions for each tile
                         tile_render_settings.update({
+                            RenderSettings.RESOLUTION_X: animation.render_settings.get(RenderSettings.RESOLUTION_X),
+                            RenderSettings.RESOLUTION_Y: animation.render_settings.get(RenderSettings.RESOLUTION_Y),
+                            RenderSettings.RESOLUTION_PERCENTAGE: 100,
                             RenderSettings.USE_BORDER: True,
                             RenderSettings.CROP_TO_BORDER: True,
                             RenderSettings.BORDER_MIN_X: round(border_min_x, 6),
