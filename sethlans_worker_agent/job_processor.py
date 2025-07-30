@@ -41,37 +41,41 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 logger = logging.getLogger(__name__)
 
 
-def _generate_render_config_script(render_device, render_settings):
+def _generate_render_config_script(render_engine, render_device, render_settings):
     """
     Generates the content for a Python script to configure Blender's render settings.
-    This includes device selection and user-provided overrides.
+    This includes engine, device selection, and user-provided overrides.
     """
     script_lines = ["import bpy"]
 
-    # --- Device Configuration ---
-    detected_gpus = system_monitor.detect_gpu_devices()
-    use_gpu = (render_device == 'GPU') or (render_device == 'ANY' and detected_gpus)
+    # --- Engine and Device Configuration ---
+    # 1. Set the render engine FIRST to ensure the context is correct.
+    script_lines.append(f"bpy.context.scene.render.engine = '{render_engine}'")
 
-    if use_gpu:
-        logger.info(f"Configuring job for GPU rendering. Available backends: {detected_gpus}")
-        script_lines.append("prefs = bpy.context.preferences.addons['cycles'].preferences")
-        # Preference order for backend can be adjusted here
-        backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
-        chosen_backend = next((b for b in backend_preference if b in detected_gpus), None)
+    # 2. Only configure Cycles-specific device settings if the engine is Cycles.
+    if render_engine == 'CYCLES':
+        detected_gpus = system_monitor.detect_gpu_devices()
+        use_gpu = (render_device == 'GPU') or (render_device == 'ANY' and detected_gpus)
 
-        if chosen_backend:
-            script_lines.append(f"prefs.compute_device_type = '{chosen_backend}'")
-            script_lines.append("prefs.get_devices()")
-            script_lines.append("for device in prefs.devices:")
-            script_lines.append("    if device.type != 'CPU':")
-            script_lines.append("        device.use = True")
-            script_lines.append("bpy.context.scene.cycles.device = 'GPU'")
+        if use_gpu:
+            logger.info(f"Configuring job for GPU rendering. Available backends: {detected_gpus}")
+            script_lines.append("prefs = bpy.context.preferences.addons['cycles'].preferences")
+            backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
+            chosen_backend = next((b for b in backend_preference if b in detected_gpus), None)
+
+            if chosen_backend:
+                script_lines.append(f"prefs.compute_device_type = '{chosen_backend}'")
+                script_lines.append("prefs.get_devices()")
+                script_lines.append("for device in prefs.devices:")
+                script_lines.append("    if device.type != 'CPU':")
+                script_lines.append("        device.use = True")
+                script_lines.append("bpy.context.scene.cycles.device = 'GPU'")
+            else:
+                logger.warning("GPU requested but no compatible backend was detected. Falling back to CPU.")
+                script_lines.append("bpy.context.scene.cycles.device = 'CPU'")
         else:
-            logger.warning("GPU requested but no compatible backend was detected. Falling back to CPU.")
+            logger.info("Configuring job for CPU rendering.")
             script_lines.append("bpy.context.scene.cycles.device = 'CPU'")
-    else:
-        logger.info("Configuring job for CPU rendering.")
-        script_lines.append("bpy.context.scene.cycles.device = 'CPU'")
 
     # --- User Overrides ---
     if isinstance(render_settings, dict) and render_settings:
@@ -111,8 +115,7 @@ def _upload_render_output(job_id, output_file_path):
 def _parse_render_time(stdout_text):
     """
     Parses Blender's stdout log content to find the total render time by
-    finding the unique final summary line containing "(Saving:)". This is the most
-    robust method, as it avoids issues with progress bar output.
+    finding the unique final summary line containing "(Saving:)".
     """
     time_line_regex = re.compile(r"Time: (?:(\d{2}):)?(\d{2}):(\d{2}\.\d{2})")
 
@@ -121,21 +124,16 @@ def _parse_render_time(stdout_text):
             match = time_line_regex.search(line)
             if match:
                 try:
-                    hours_str = match.group(1)
-                    minutes_str = match.group(2)
-                    seconds_str = match.group(3)
-
+                    hours_str, minutes_str, seconds_str = match.groups()
                     hours = int(hours_str) if hours_str else 0
                     minutes = int(minutes_str)
                     seconds = float(seconds_str)
-
                     total_seconds = int(math.ceil((hours * 3600) + (minutes * 60) + seconds))
                     logger.info(f"Parsed render time: {total_seconds} seconds from line: '{line.strip()}'")
                     return total_seconds
                 except (IndexError, ValueError) as e:
                     logger.warning(f"Found summary line but failed to parse time: '{line.strip()}' - {e}")
                     return None
-
     logger.warning("Could not find the final 'Time: ... (Saving: ...)' summary line in the render output.")
     return None
 
@@ -154,17 +152,9 @@ def get_and_claim_job(worker_id):
     Polls for jobs based on worker capabilities, claims the first available one, and processes it.
     """
     poll_url = f"{config.MANAGER_API_URL}jobs/"
-
-    # Check for GPU capability and add to query params.
-    # This uses the cached result from the initial system_monitor run.
     detected_gpus = system_monitor.detect_gpu_devices()
     gpu_available = len(detected_gpus) > 0
-
-    params = {
-        'status': 'QUEUED',
-        'assigned_worker__isnull': 'true',
-        'gpu_available': str(gpu_available).lower()
-    }
+    params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true', 'gpu_available': str(gpu_available).lower()}
     logger.debug(f"Polling for jobs with params: {params}")
 
     try:
@@ -178,61 +168,45 @@ def get_and_claim_job(worker_id):
             job_name = job_to_claim.get('name', 'Unnamed Job')
             claim_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
-            logger.info(f"Found {len(available_jobs)} available job(s).")
-            logger.info(f"Attempting to claim job '{job_name}' (ID: {job_id})...")
-
+            logger.info(f"Found {len(available_jobs)} available job(s). Attempting to claim job '{job_name}' (ID: {job_id})...")
             claim_response = requests.patch(claim_url, json={"assigned_worker": worker_id}, timeout=5)
 
             if claim_response.status_code == 200:
                 logger.info(f"Successfully claimed job '{job_name}'! Starting render...")
                 update_job_status(claim_url, {"status": "RENDERING"})
+                success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = execute_blender_job(job_to_claim)
 
-                success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = execute_blender_job(
-                    job_to_claim)
-
-                job_update_payload = {
-                    "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
-                    "last_output": stdout,
-                    "error_message": blender_error_msg,
-                }
-
+                job_update_payload = {"completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'), "last_output": stdout, "error_message": blender_error_msg}
                 render_time = _parse_render_time(stdout)
                 if render_time is not None:
                     job_update_payload["render_time_seconds"] = render_time
 
                 if success:
                     job_update_payload["status"] = "DONE"
-                    if final_output_path:
-                        upload_ok = _upload_render_output(job_id, final_output_path)
-                        if upload_ok:
-                            try:
-                                logger.info(f"Cleaning up local render output: {final_output_path}")
-                                os.remove(final_output_path)
-                                output_dir = os.path.dirname(final_output_path)
-                                if not os.listdir(output_dir):
-                                    os.rmdir(output_dir)
-                            except OSError as e:
-                                logger.warning(f"Could not clean up temporary render file or directory: {e}")
-
+                    if final_output_path and _upload_render_output(job_id, final_output_path):
+                        try:
+                            logger.info(f"Cleaning up local render output: {final_output_path}")
+                            os.remove(final_output_path)
+                            output_dir = os.path.dirname(final_output_path)
+                            if not os.listdir(output_dir):
+                                os.rmdir(output_dir)
+                        except OSError as e:
+                            logger.warning(f"Could not clean up temporary render file or directory: {e}")
                 elif was_canceled:
                     job_update_payload["status"] = "CANCELED"
                 else:
                     job_update_payload["status"] = "ERROR"
 
                 report_response = requests.patch(claim_url, json=job_update_payload, timeout=5)
-
                 if report_response.status_code == 200:
-                    logger.info(
-                        f"Successfully reported final status '{job_update_payload['status']}' for job {job_id}.")
+                    logger.info(f"Successfully reported final status '{job_update_payload['status']}' for job {job_id}.")
                 else:
-                    logger.error(
-                        f"Failed to report final status for job {job_id}. Server responded with {report_response.status_code}.")
+                    logger.error(f"Failed to report final status for job {job_id}. Server responded with {report_response.status_code}.")
 
             elif claim_response.status_code == 409:
                 logger.warning(f"Job {job_id} was claimed by another worker. Looking for another job.")
             else:
-                logger.error(
-                    f"Failed to claim job {job_id}. Status: {claim_response.status_code}, Response: {claim_response.text}")
+                logger.error(f"Failed to claim job {job_id}. Status: {claim_response.status_code}, Response: {claim_response.text}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Could not poll for jobs: {e}")
 
@@ -263,42 +237,28 @@ def execute_blender_job(job_data):
     temp_script_path = None
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
-
     os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
 
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
     if not local_blend_file_path:
-        error_message = "Failed to download or find the required .blend file asset."
-        logger.error(error_message)
-        return False, False, "", "", error_message, None
+        return False, False, "", "", "Failed to download or find the required .blend file asset.", None
 
-    blender_to_use = tool_manager_instance.ensure_blender_version_available(
-        blender_version_req) if blender_version_req else config.SYSTEM_BLENDER_EXECUTABLE
+    blender_to_use = tool_manager_instance.ensure_blender_version_available(blender_version_req)
     if not blender_to_use:
-        error_message = f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job."
-        return False, False, "", "", error_message, None
+        return False, False, "", "", f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job.", None
 
     logger.info(f"Using Blender executable: {blender_to_use}")
-
     resolved_output_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, output_file_pattern))
+    os.makedirs(os.path.dirname(resolved_output_pattern), exist_ok=True)
 
-    output_dir = os.path.dirname(resolved_output_pattern)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
 
-    # Always use --factory-startup for a clean, predictable environment
-    command = [
-        blender_to_use, "--factory-startup", "-b", local_blend_file_path
-    ]
-
-    # Generate and write the combined config script (device + user settings)
     try:
-        script_content = _generate_render_config_script(render_device, render_settings)
+        script_content = _generate_render_config_script(render_engine, render_device, render_settings)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
             temp_script_path = f.name
             f.write(script_content)
             logger.debug(f"Generated override script at {temp_script_path}:\n{script_content}")
-
         command.extend(["--python", temp_script_path])
     except Exception as e:
         error_msg = f"Failed to generate render settings script: {e}"
@@ -307,10 +267,7 @@ def execute_blender_job(job_data):
             os.remove(temp_script_path)
         return False, False, "", "", error_msg, None
 
-    command.extend([
-        "-o", resolved_output_pattern,
-        "-F", "PNG", "-E", render_engine,
-    ])
+    command.extend(["-o", resolved_output_pattern, "-F", "PNG"])
 
     if start_frame == end_frame:
         command.extend(["-f", str(start_frame)])
@@ -318,28 +275,20 @@ def execute_blender_job(job_data):
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
 
     logger.info(f"Running Command: {' '.join(command)}")
-
     process = None
-    was_canceled = False
-    stdout_lines, stderr_lines, error_message = [], [], ""
+    was_canceled, stdout_lines, stderr_lines, error_message = False, [], [], ""
     final_return_code = -1
 
     try:
-        popen_kwargs = {
-            "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
-            "encoding": 'utf-8', "errors": 'surrogateescape',
-            "cwd": config.PROJECT_ROOT_FOR_WORKER
-        }
+        popen_kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "encoding": 'utf-8', "errors": 'surrogateescape', "cwd": config.PROJECT_ROOT_FOR_WORKER}
         if platform.system() == "Windows":
             popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
         process = subprocess.Popen(command, **popen_kwargs)
 
         stdout_thread = threading.Thread(target=_stream_reader, args=(process.stdout, stdout_lines))
         stderr_thread = threading.Thread(target=_stream_reader, args=(process.stderr, stderr_lines))
         stdout_thread.start()
         stderr_thread.start()
-
         job_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
         while process.poll() is None:
@@ -356,12 +305,10 @@ def execute_blender_job(job_data):
             except (requests.exceptions.RequestException, psutil.NoSuchProcess):
                 if not psutil.pid_exists(process.pid):
                     break
-
             time.sleep(2)
 
         stdout_thread.join()
         stderr_thread.join()
-
         final_return_code = process.wait()
 
     except Exception as e:
@@ -371,16 +318,13 @@ def execute_blender_job(job_data):
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
 
-    stdout_output = "".join(stdout_lines)
-    stderr_output = "".join(stderr_lines)
-    success = False
-    final_output_path = None
+    stdout_output, stderr_output = "".join(stdout_lines), "".join(stderr_lines)
+    success, final_output_path = False, None
 
     if was_canceled:
         error_message = "Job was canceled by user request."
     elif final_return_code == 0:
         logger.info("Render command completed successfully.")
-        error_message = ""
         success = True
         if start_frame == end_frame:
             final_output_path = resolved_output_pattern.replace("####", f"{start_frame:04d}") + ".png"
