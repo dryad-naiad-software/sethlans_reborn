@@ -24,7 +24,7 @@
 # workers/serializers.py
 
 from rest_framework import serializers
-from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus
+from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus, AnimationFrame
 
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
@@ -71,7 +71,7 @@ class AnimationSerializer(serializers.ModelSerializer):
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
             'project', 'project_details', 'asset', 'asset_id', 'output_file_pattern', 'start_frame', 'end_frame',
             'blender_version', 'render_engine', 'render_device',
-            'render_settings',
+            'render_settings', 'tiling_config',
             'submitted_at', 'completed_at',
             'total_render_time_seconds'
         ]
@@ -181,6 +181,7 @@ class JobSerializer(serializers.ModelSerializer):
             'assigned_worker_hostname',
             'animation',
             'tiled_job',
+            'animation_frame',
             'submitted_at',
             'started_at',
             'completed_at',
@@ -200,6 +201,7 @@ class JobSerializer(serializers.ModelSerializer):
             'asset',
             'output_file',
             'tiled_job',
+            'animation_frame'
         ]
         extra_kwargs = {
             'status': {'required': False},

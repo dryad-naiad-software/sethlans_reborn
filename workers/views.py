@@ -24,9 +24,9 @@
 
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob
+from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, AnimationFrame
 from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer, ProjectSerializer, TiledJobSerializer
-from .constants import RenderSettings
+from .constants import RenderSettings, TilingConfiguration
 from django.utils import timezone
 
 from rest_framework import viewsets
@@ -112,26 +112,77 @@ class AnimationViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         animation = serializer.save()
-        logger.info(f"Created new animation '{animation.name}' (ID: {animation.id}). Spawning frame jobs...")
+        logger.info(f"Created new animation '{animation.name}' (ID: {animation.id}). Spawning jobs...")
 
         jobs_to_create = []
-        for frame_num in range(animation.start_frame, animation.end_frame + 1):
-            job = Job(
-                animation=animation,
-                name=f"{animation.name}_Frame_{frame_num:04d}",
-                asset=animation.asset,
-                output_file_pattern=animation.output_file_pattern,
-                start_frame=frame_num,
-                end_frame=frame_num,
-                blender_version=animation.blender_version,
-                render_engine=animation.render_engine,
-                render_device=animation.render_device,
-                render_settings=animation.render_settings,
-            )
-            jobs_to_create.append(job)
+
+        if animation.tiling_config == TilingConfiguration.NONE:
+            # --- Standard Animation Job Spawning ---
+            logger.info(f"Spawning standard frame jobs for animation '{animation.name}'.")
+            for frame_num in range(animation.start_frame, animation.end_frame + 1):
+                job = Job(
+                    animation=animation,
+                    name=f"{animation.name}_Frame_{frame_num:04d}",
+                    asset=animation.asset,
+                    output_file_pattern=animation.output_file_pattern,
+                    start_frame=frame_num,
+                    end_frame=frame_num,
+                    blender_version=animation.blender_version,
+                    render_engine=animation.render_engine,
+                    render_device=animation.render_device,
+                    render_settings=animation.render_settings,
+                )
+                jobs_to_create.append(job)
+        else:
+            # --- Tiled Animation Job Spawning ---
+            logger.info(f"Spawning tiled jobs for animation '{animation.name}' with config {animation.tiling_config}")
+            tile_counts = [int(i) for i in animation.tiling_config.split('x')]
+            tile_count_x, tile_count_y = tile_counts[0], tile_counts[1]
+            tile_width = 1.0 / tile_count_x
+            tile_height = 1.0 / tile_count_y
+
+            for frame_num in range(animation.start_frame, animation.end_frame + 1):
+                # Create the parent frame object to group the tiles
+                anim_frame = AnimationFrame.objects.create(animation=animation, frame_number=frame_num)
+
+                for y in range(tile_count_y):
+                    for x in range(tile_count_x):
+                        border_min_x = x * tile_width
+                        border_max_x = (x + 1) * tile_width
+                        border_min_y = y * tile_height
+                        border_max_y = (y + 1) * tile_height
+
+                        tile_render_settings = animation.render_settings.copy()
+                        tile_render_settings.update({
+                            RenderSettings.USE_BORDER: True,
+                            RenderSettings.CROP_TO_BORDER: True,
+                            RenderSettings.BORDER_MIN_X: round(border_min_x, 6),
+                            RenderSettings.BORDER_MAX_X: round(border_max_x, 6),
+                            RenderSettings.BORDER_MIN_Y: round(border_min_y, 6),
+                            RenderSettings.BORDER_MAX_Y: round(border_max_y, 6),
+                        })
+
+                        # Use a unique directory for each frame's tiles
+                        tile_output_dir = os.path.join("tiled_anim_frames", str(anim_frame.id))
+                        output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####")
+
+                        job = Job(
+                            animation=animation,
+                            animation_frame=anim_frame,
+                            name=f"{animation.name}_Frame_{frame_num:04d}_Tile_{y}_{x}",
+                            asset=animation.asset,
+                            output_file_pattern=output_pattern,
+                            start_frame=frame_num,
+                            end_frame=frame_num,
+                            blender_version=animation.blender_version,
+                            render_engine=animation.render_engine,
+                            render_device=animation.render_device,
+                            render_settings=tile_render_settings,
+                        )
+                        jobs_to_create.append(job)
 
         Job.objects.bulk_create(jobs_to_create)
-        logger.info(f"Successfully spawned {len(jobs_to_create)} frame jobs for animation ID {animation.id}.")
+        logger.info(f"Successfully spawned {len(jobs_to_create)} jobs for animation ID {animation.id}.")
 
 
 class TiledJobViewSet(viewsets.ModelViewSet):
@@ -154,8 +205,6 @@ class TiledJobViewSet(viewsets.ModelViewSet):
         tile_width = 1.0 / tile_count_x
         tile_height = 1.0 / tile_count_y
 
-        # **FIX:** Generate a RELATIVE path for the worker to use.
-        # The worker will resolve this inside its own 'test_output' directory.
         tile_output_dir = os.path.join("tiled_jobs", str(tiled_job.id))
 
         for y in range(tile_count_y):
@@ -170,7 +219,7 @@ class TiledJobViewSet(viewsets.ModelViewSet):
                 tile_render_settings.update({
                     RenderSettings.RESOLUTION_X: tiled_job.final_resolution_x,
                     RenderSettings.RESOLUTION_Y: tiled_job.final_resolution_y,
-                    RenderSettings.RESOLUTION_PERCENTAGE: 100, # <-- FORCE 100% RESOLUTION
+                    RenderSettings.RESOLUTION_PERCENTAGE: 100,  # <-- FORCE 100% RESOLUTION
                     RenderSettings.USE_BORDER: True,
                     RenderSettings.CROP_TO_BORDER: True,
                     RenderSettings.BORDER_MIN_X: round(border_min_x, 6),

@@ -343,6 +343,43 @@ class AnimationViewSetTests(BaseMediaTestCase):
         self.assertEqual(first_job.render_settings['cycles.samples'], 32)
         self.assertEqual(first_job.render_settings['resolution_x'], 800)
 
+    def test_create_tiled_animation_spawns_correct_jobs(self):
+        """
+        Ensure creating a tiled animation spawns the correct number of frames and tile jobs.
+        """
+        animation_data = {
+            "name": "My Tiled Anim",
+            "project": self.project.id,
+            "asset_id": self.asset.id,
+            "output_file_pattern": "//renders/tiled_anim_####",
+            "start_frame": 1,
+            "end_frame": 2,
+            "tiling_config": TilingConfiguration.TILE_2X2,
+            "render_settings": {RenderSettings.SAMPLES: 16}
+        }
+        url = "/api/animations/"
+        response = self.client.post(url, animation_data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Animation.objects.count(), 1)
+        self.assertEqual(AnimationFrame.objects.count(), 2)  # 2 frames
+        self.assertEqual(Job.objects.count(), 8)  # 2 frames * 4 tiles each
+
+        # Inspect a specific tile job to verify its settings
+        job = Job.objects.get(name="My Tiled Anim_Frame_0002_Tile_1_1")
+        self.assertEqual(job.start_frame, 2)
+        self.assertEqual(job.end_frame, 2)
+        self.assertIsNotNone(job.animation_frame)
+        self.assertEqual(job.animation_frame.frame_number, 2)
+
+        settings = job.render_settings
+        self.assertEqual(settings[RenderSettings.SAMPLES], 16) # From parent
+        self.assertEqual(settings[RenderSettings.USE_BORDER], True) # Injected
+        self.assertEqual(settings[RenderSettings.BORDER_MIN_X], 0.5)
+        self.assertEqual(settings[RenderSettings.BORDER_MAX_X], 1.0)
+        self.assertEqual(settings[RenderSettings.BORDER_MIN_Y], 0.5)
+        self.assertEqual(settings[RenderSettings.BORDER_MAX_Y], 1.0)
+
 
 class TiledAnimationModelTests(BaseMediaTestCase):
     """Test suite for the new Tiled Animation models."""
