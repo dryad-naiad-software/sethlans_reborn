@@ -1,6 +1,6 @@
 # Sethlans Reborn - Distributed Blender Rendering System 🚀
 
-![CI/CD](https://img.shields.io/badge/CI/CD-passing-brightgreen)
+![CI/CD](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml))
 ![Python](https://img.shields.io/badge/Python-3.12+-blue)
 ![Django](https://img.shields.io/badge/Django-5.2-green)
 ![License](https://img.shields.io/badge/License-GPLv2-blue)
