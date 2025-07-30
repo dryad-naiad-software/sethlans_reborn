@@ -32,6 +32,7 @@ import requests
 import shutil
 import platform
 import subprocess
+import tarfile
 import time
 from tqdm import tqdm
 
@@ -136,25 +137,35 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
 
 
 def extract_archive(archive_path, extract_to):
-    """Extracts an archive, handling DMG on macOS and other types elsewhere."""
+    """
+    Extracts an archive, handling DMG on macOS and using the secure tarfile
+    filter for tar archives to resolve DeprecationWarning.
+    """
+    archive_name = os.path.basename(archive_path)
+
     if platform.system() == "Darwin" and archive_path.endswith(".dmg"):
         logger.info("macOS .dmg detected, using custom handler.")
         extracted_path = handle_dmg_extraction_on_mac(archive_path, extract_to)
         logger.info(f"DMG processing complete. Extracted to {extracted_path}.")
         return extracted_path
+
+    elif archive_path.endswith(".tar.xz"):
+        logger.info(f"Extracting {archive_path} to {extract_to} using tarfile with 'data' filter...")
+        with tarfile.open(archive_path, 'r:xz') as tar:
+            tar.extractall(path=extract_to, filter='data')
+        extracted_dir_name = archive_name[:-7]
     else:
-        logger.info(f"Extracting {archive_path} to {extract_to}...")
+        # For .zip and other formats, shutil is still fine.
+        logger.info(f"Extracting {archive_path} to {extract_to} using shutil...")
         shutil.unpack_archive(archive_path, extract_to)
-        archive_name = os.path.basename(archive_path)
         if archive_name.endswith('.zip'):
             extracted_dir_name = archive_name[:-4]
-        elif archive_name.endswith('.tar.xz'):
-            extracted_dir_name = archive_name[:-7]
         else:
             extracted_dir_name = archive_name
-        full_extracted_path = os.path.join(extract_to, extracted_dir_name)
-        logger.info(f"Extraction complete to {full_extracted_path}.")
-        return full_extracted_path
+
+    full_extracted_path = os.path.join(extract_to, extracted_dir_name)
+    logger.info(f"Extraction complete to {full_extracted_path}.")
+    return full_extracted_path
 
 
 def cleanup_archive(archive_path):

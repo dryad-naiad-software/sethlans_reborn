@@ -60,6 +60,7 @@ def test_detect_gpu_devices_success(mocker):
     """
     Tests successful GPU detection when Blender runs correctly.
     """
+    mocker.patch('platform.system', return_value="Windows")  # Avoid ldd check
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
@@ -73,6 +74,8 @@ def test_detect_gpu_devices_success(mocker):
 def test_detect_gpu_devices_caches_result(mocker):
     """Ensures that GPU detection results are cached after the first call."""
     # Arrange
+    # *** THE FIX IS HERE: Mock platform to avoid the Linux-specific ldd call ***
+    mocker.patch('platform.system', return_value="Windows")
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
