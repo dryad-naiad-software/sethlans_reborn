@@ -53,10 +53,18 @@ class AssetSerializer(serializers.ModelSerializer):
         }
 
 
+class AnimationFrameSerializer(serializers.ModelSerializer):
+    """Serializer for the individual, assembled frames of a tiled animation."""
+    class Meta:
+        model = AnimationFrame
+        fields = ['id', 'frame_number', 'status', 'output_file', 'render_time_seconds']
+
+
 class AnimationSerializer(serializers.ModelSerializer):
     progress = serializers.SerializerMethodField()
     total_frames = serializers.SerializerMethodField()
     completed_frames = serializers.SerializerMethodField()
+    frames = AnimationFrameSerializer(many=True, read_only=True) # <-- NESTED SERIALIZER
 
     project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
     project_details = ProjectSerializer(source='project', read_only=True)
@@ -73,10 +81,10 @@ class AnimationSerializer(serializers.ModelSerializer):
             'blender_version', 'render_engine', 'render_device',
             'render_settings', 'tiling_config',
             'submitted_at', 'completed_at',
-            'total_render_time_seconds'
+            'total_render_time_seconds', 'frames' # <-- ADDED 'frames'
         ]
         read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at',
-                            'total_render_time_seconds', 'asset', 'project_details')
+                            'total_render_time_seconds', 'asset', 'project_details', 'frames')
         extra_kwargs = {
             'project': {'write_only': True}
         }
@@ -93,6 +101,8 @@ class AnimationSerializer(serializers.ModelSerializer):
         return (obj.end_frame - obj.start_frame) + 1
 
     def get_completed_frames(self, obj):
+        if obj.tiling_config != 'NONE':
+            return obj.frames.filter(status='DONE').count()
         return obj.jobs.filter(status=JobStatus.DONE).count()
 
     def get_progress(self, obj):

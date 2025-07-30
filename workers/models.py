@@ -277,17 +277,27 @@ class Job(models.Model):
 @receiver(post_save, sender=Job)
 def update_parent_job_status(sender, instance, **kwargs):
     """
-    After a Job is saved, check if it belongs to a parent Animation or TiledJob
-    and update the parent's status accordingly.
+    After a Job is saved, check if it belongs to a parent and update it.
     """
-    # Moved import here to prevent circular dependency
-    from .image_assembler import assemble_tiled_job_image
+    from .image_assembler import assemble_tiled_job_image, assemble_animation_frame_image
 
-    if instance.animation and instance.animation.tiling_config == TilingConfiguration.NONE:
+    if instance.animation_frame and instance.status == JobStatus.DONE:
+        frame = instance.animation_frame
+        animation = frame.animation
+        tile_counts = [int(i) for i in animation.tiling_config.split('x')]
+        total_tiles_for_frame = tile_counts[0] * tile_counts[1]
+        completed_tiles = frame.tile_jobs.filter(status=JobStatus.DONE).count()
+
+        if completed_tiles >= total_tiles_for_frame:
+            logger.info(f"All {total_tiles_for_frame} tiles for {frame} are complete. Triggering assembly.")
+            assemble_animation_frame_image(frame.id)
+
+    elif instance.animation and instance.animation.tiling_config == TilingConfiguration.NONE:
+        # This handles standard (non-tiled) animations
         animation = instance.animation
         all_jobs = animation.jobs.all()
+        # ... existing logic ...
         total_jobs_count = all_jobs.count()
-
         if total_jobs_count > 0:
             time_aggregate = all_jobs.filter(status=JobStatus.DONE).aggregate(total=Sum('render_time_seconds'))
             total_time = time_aggregate['total'] or 0
@@ -302,27 +312,40 @@ def update_parent_job_status(sender, instance, **kwargs):
             )
 
     elif instance.tiled_job:
+        # This handles single tiled jobs
         tiled_job = instance.tiled_job
+        # ... existing logic ...
         all_tile_jobs = tiled_job.jobs.all()
         total_tiles = tiled_job.tile_count_x * tiled_job.tile_count_y
-
         time_aggregate = all_tile_jobs.filter(status=JobStatus.DONE).aggregate(total=Sum('render_time_seconds'))
         total_time = time_aggregate['total'] or 0
-
         completed_tiles = all_tile_jobs.filter(status=JobStatus.DONE).count()
-
-        # Update render time and status
         TiledJob.objects.filter(pk=tiled_job.pk).update(
-            total_render_time_seconds=total_time,
-            status=TiledJobStatus.RENDERING
-        )
-
-        # Trigger assembly if all tiles are done
+            total_render_time_seconds=total_time, status=TiledJobStatus.RENDERING)
         if completed_tiles == total_tiles:
             logger.info(f"All {total_tiles} tiles for TiledJob {tiled_job.id} are complete. Triggering assembly.")
             assemble_tiled_job_image(tiled_job.id)
 
-    # NEW: Handle Tiled Animation Frame logic
-    elif instance.animation_frame:
-        # TODO: Implement this logic in Phase 3
-        pass
+
+@receiver(post_save, sender=AnimationFrame)
+def update_parent_animation_status(sender, instance, **kwargs):
+    """
+    After an AnimationFrame is saved, check if the parent Animation is now complete.
+    """
+    if instance.status != AnimationFrameStatus.DONE:
+        return
+
+    animation = instance.animation
+    total_frames = (animation.end_frame - animation.start_frame) + 1
+    completed_frames = animation.frames.filter(status=AnimationFrameStatus.DONE).count()
+
+    if completed_frames >= total_frames:
+        logger.info(f"All {total_frames} frames for Animation '{animation.name}' are complete.")
+        time_aggregate = animation.frames.aggregate(total=Sum('render_time_seconds'))
+        total_time = time_aggregate['total'] or 0
+
+        Animation.objects.filter(pk=animation.pk).update(
+            status="DONE",
+            completed_at=timezone.now(),
+            total_render_time_seconds=total_time
+        )

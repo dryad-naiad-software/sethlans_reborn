@@ -33,9 +33,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.test import APITestCase
 from PIL import Image
-from .models import Job, Worker, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus, AnimationFrame
+from .models import Job, Worker, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus, AnimationFrame, AnimationFrameStatus
 from .constants import RenderSettings, TilingConfiguration
-from .image_assembler import assemble_tiled_job_image
+from .image_assembler import assemble_tiled_job_image, assemble_animation_frame_image
 
 
 class BaseMediaTestCase(APITestCase):
@@ -595,3 +595,96 @@ class AnimationSignalTests(BaseMediaTestCase):
         # ASSERT: The animation's total time should now be the sum of both jobs.
         anim.refresh_from_db()
         self.assertEqual(anim.total_render_time_seconds, 150)
+
+
+class TiledAnimationAssemblyTests(BaseMediaTestCase):
+    """Test suite for the tiled animation assembly logic and signals."""
+
+    def setUp(self):
+        """Create models for a tiled animation with one frame and four tile jobs."""
+        super().setUp()
+        self.asset = Asset.objects.create(
+            name="Test Asset for Tiled Assembly",
+            project=self.project,
+            blend_file=SimpleUploadedFile("dummy_assembly.blend", b"data")
+        )
+        self.animation = Animation.objects.create(
+            name="Tiled Assembly Animation",
+            project=self.project,
+            asset=self.asset,
+            start_frame=1,
+            end_frame=2, # Two frames for the final signal test
+            tiling_config=TilingConfiguration.TILE_2X2
+        )
+        self.frame1 = AnimationFrame.objects.create(animation=self.animation, frame_number=1)
+        self.frame2 = AnimationFrame.objects.create(animation=self.animation, frame_number=2)
+
+        # Create 4 dummy tile images with different colors for frame 1
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)] # R, G, B, Y
+        for y in range(2):
+            for x in range(2):
+                img = Image.new('RGB', (50, 50), color=colors[y * 2 + x])
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png', dir=self.media_root)
+                img.save(temp_file, 'PNG')
+                temp_file.close()
+
+                job = Job.objects.create(
+                    animation=self.animation,
+                    animation_frame=self.frame1,
+                    name=f"{self.animation.name}_Frame_1_Tile_{y}_{x}",
+                    asset=self.asset,
+                    status=JobStatus.DONE,
+                    render_time_seconds=10,
+                    render_settings={
+                        RenderSettings.RESOLUTION_X: 100,
+                        RenderSettings.RESOLUTION_Y: 100
+                    }
+                )
+                job.output_file.name = os.path.relpath(temp_file.name, self.media_root)
+                job.save()
+
+    def test_assemble_animation_frame(self):
+        """
+        Ensure the assembler correctly stitches tiles for a single animation frame.
+        """
+        # Act: Trigger assembly for the first frame
+        assemble_animation_frame_image(self.frame1.id)
+
+        # Assert
+        self.frame1.refresh_from_db()
+        self.assertEqual(self.frame1.status, AnimationFrameStatus.DONE)
+        self.assertTrue(self.frame1.output_file.name)
+        self.assertEqual(self.frame1.render_time_seconds, 40) # 4 jobs * 10 seconds
+
+        # Verify the assembled image content
+        final_image = Image.open(self.frame1.output_file.path)
+        self.assertEqual(final_image.size, (100, 100))
+        self.assertEqual(final_image.getpixel((25, 25)), (0, 0, 255, 255))      # Top-left (y=1, x=0) -> Blue
+        self.assertEqual(final_image.getpixel((75, 25)), (255, 255, 0, 255))   # Top-right (y=1, x=1) -> Yellow
+        self.assertEqual(final_image.getpixel((25, 75)), (255, 0, 0, 255))      # Bottom-left (y=0, x=0) -> Red
+        self.assertEqual(final_image.getpixel((75, 75)), (0, 255, 0, 255))    # Bottom-right (y=0, x=1) -> Green
+
+    def test_animation_status_updates_after_all_frames_assemble(self):
+        """
+        Ensure the parent Animation status updates to DONE only after all its
+        AnimationFrame children are marked as DONE.
+        """
+        # Arrange: Assemble the first frame and set its render time.
+        assemble_animation_frame_image(self.frame1.id)
+        self.frame1.refresh_from_db()
+        self.assertEqual(self.frame1.status, AnimationFrameStatus.DONE)
+
+        # The animation should still be in progress
+        self.animation.refresh_from_db()
+        self.assertNotEqual(self.animation.status, "DONE")
+
+        # Arrange: Mock the completion of the second frame's jobs and assemble it
+        self.frame2.render_time_seconds = 60 # Simulate a different render time
+        self.frame2.status = AnimationFrameStatus.DONE
+        self.frame2.save() # This triggers the post_save signal on AnimationFrame
+
+        # Assert: Now the animation should be complete
+        self.animation.refresh_from_db()
+        self.assertEqual(self.animation.status, "DONE")
+        self.assertIsNotNone(self.animation.completed_at)
+        self.assertEqual(self.animation.total_render_time_seconds, 100) # 40s from frame 1 + 60s from frame 2

@@ -44,7 +44,7 @@ from sethlans_worker_agent import config as worker_config
 from sethlans_worker_agent import system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser, file_operations
-from workers.constants import RenderSettings
+from workers.constants import RenderSettings, TilingConfiguration
 
 
 def is_gpu_available():
@@ -97,7 +97,6 @@ class BaseE2ETest:
         Dynamically finds the latest patch for the E2E_BLENDER_SERIES,
         then downloads and extracts it to a persistent system temp directory.
         """
-        # **NEW DYNAMIC LOGIC STARTS HERE**
         if cls._blender_version_for_test is None:
             print(f"\nDynamically determining latest patch for Blender {E2E_BLENDER_SERIES}.x series...")
             releases = blender_release_parser.get_blender_releases()
@@ -115,7 +114,6 @@ class BaseE2ETest:
             print(f"Found latest patch: {cls._blender_version_for_test}")
 
         version_req = cls._blender_version_for_test
-        # **DYNAMIC LOGIC ENDS HERE**
 
         if cls._blender_cache_path and cls._blender_cache_path.exists():
             return
@@ -446,8 +444,7 @@ class TestAnimationWorkflow(BaseE2ETest):
             time.sleep(2)
         assert completed, f"Animation did not complete in time. Only {completed_frames}/{total_frames} frames finished."
 
-        # ** THIS IS THE FIX **
-        # Verify that the output files are available from the manager, not on the local disk.
+        # Verify that the output files are available from the manager
         print("Verifying all child jobs have an output file URL...")
         jobs_response = requests.get(f"{MANAGER_URL}/jobs/?animation={anim_id}")
         assert jobs_response.status_code == 200
@@ -541,3 +538,68 @@ class TestWorkerRegistration(BaseE2ETest):
 
         assert sorted(reported_gpus) == sorted(expected_gpus)
         print("SUCCESS: Worker correctly reported its GPU capabilities.")
+
+
+class TestTiledAnimationWorkflow(BaseE2ETest):
+    def test_tiled_animation_workflow(self):
+        """
+        Tests the full workflow for a tiled animation: submission, rendering,
+        frame-by-frame assembly, and final verification.
+        """
+        print("\n--- ACTION: Submitting Tiled Animation job ---")
+        start_frame, end_frame = 1, 2
+        total_frames = (end_frame - start_frame) + 1
+        anim_payload = {
+            "name": "E2E Tiled Animation Test",
+            "project": self.project_id,
+            "asset_id": self.anim_asset_id,
+            "output_file_pattern": "tiled_anim_e2e_####", # <-- ADDED THIS REQUIRED FIELD
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "blender_version": self._blender_version_for_test,
+            "tiling_config": TilingConfiguration.TILE_2X2,
+            "render_settings": {
+                RenderSettings.SAMPLES: 16,
+                RenderSettings.RESOLUTION_X: 200,
+                RenderSettings.RESOLUTION_Y: 200
+            }
+        }
+        create_response = requests.post(f"{MANAGER_URL}/animations/", json=anim_payload)
+        assert create_response.status_code == 201
+        anim_id = create_response.json()['id']
+        anim_url = f"{MANAGER_URL}/animations/{anim_id}/"
+
+        print(f"Polling API for completion of {total_frames} frames...")
+        final_status = ""
+        for i in range(240): # Longer timeout for more jobs
+            check_response = requests.get(anim_url)
+            assert check_response.status_code == 200
+            data = check_response.json()
+            current_status = data['status']
+            print(f"  Attempt {i + 1}/240: Animation status is {current_status} ({data.get('progress', 'N/A')})")
+            if current_status in ["DONE", "ERROR"]:
+                final_status = current_status
+                break
+            time.sleep(2)
+        assert final_status == "DONE"
+
+        print("Verifying final animation data and output files...")
+        final_anim_response = requests.get(anim_url)
+        assert final_anim_response.status_code == 200
+        final_anim_data = final_anim_response.json()
+
+        assert final_anim_data['total_render_time_seconds'] > 0
+        assert len(final_anim_data['frames']) == total_frames
+
+        for frame_data in final_anim_data['frames']:
+            assert frame_data['status'] == 'DONE'
+            frame_url = frame_data['output_file']
+            assert frame_url is not None
+            print(f"Downloading and verifying assembled frame {frame_data['frame_number']} from {frame_url}...")
+            download_response = requests.get(frame_url)
+            assert download_response.status_code == 200
+            image_data = io.BytesIO(download_response.content)
+            with Image.open(image_data) as img:
+                assert img.size == (200, 200)
+
+        print("SUCCESS: Tiled animation workflow completed successfully.")
