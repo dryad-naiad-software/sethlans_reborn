@@ -52,10 +52,9 @@ def _generate_render_config_script(render_device, render_settings):
     detected_gpus = system_monitor.detect_gpu_devices()
     use_gpu = (render_device == 'GPU') or (render_device == 'ANY' and detected_gpus)
 
-    script_lines.append("prefs = bpy.context.preferences.addons['cycles'].preferences")
-
     if use_gpu:
         logger.info(f"Configuring job for GPU rendering. Available backends: {detected_gpus}")
+        script_lines.append("prefs = bpy.context.preferences.addons['cycles'].preferences")
         # Preference order for backend can be adjusted here
         backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
         chosen_backend = next((b for b in backend_preference if b in detected_gpus), None)
