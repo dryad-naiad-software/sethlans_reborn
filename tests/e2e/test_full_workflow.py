@@ -620,14 +620,16 @@ class TestJobFiltering(BaseE2ETest):
             "asset_id": self.scene_asset_id,
             "render_device": RenderDevice.GPU,
             "output_file_pattern": "gpu_filter_test_####",
-            "blender_version": self._blender_version_for_test
+            "blender_version": self._blender_version_for_test,
+            "render_settings": {RenderSettings.SAMPLES: 8} # Add settings to match working tests
         }
         cpu_job_payload = {
             "name": "CPU-Only Job",
             "asset_id": self.scene_asset_id,
             "render_device": RenderDevice.CPU,
             "output_file_pattern": "cpu_filter_test_####",
-            "blender_version": self._blender_version_for_test
+            "blender_version": self._blender_version_for_test,
+            "render_settings": {RenderSettings.SAMPLES: 8} # Add settings to match working tests
         }
         gpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=gpu_job_payload)
         cpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=cpu_job_payload)
