@@ -304,8 +304,6 @@ class BaseE2ETest:
         print("Teardown complete.")
 
 
-# ... (All other test classes remain unchanged) ...
-
 class TestRenderWorkflow(BaseE2ETest):
     def test_full_render_workflow(self):
         print("\n--- ACTION: Submitting render job ---")
@@ -617,10 +615,20 @@ class TestJobFiltering(BaseE2ETest):
 
         # 1. Submit one GPU job and one CPU job
         print("Submitting GPU-only and CPU-only jobs...")
-        gpu_job_payload = {"name": "GPU-Only Job", "asset_id": self.scene_asset_id, "render_device": RenderDevice.GPU,
-                           "output_file_pattern": "gpu_filter_test_####"}
-        cpu_job_payload = {"name": "CPU-Only Job", "asset_id": self.scene_asset_id, "render_device": RenderDevice.CPU,
-                           "output_file_pattern": "cpu_filter_test_####"}
+        gpu_job_payload = {
+            "name": "GPU-Only Job",
+            "asset_id": self.scene_asset_id,
+            "render_device": RenderDevice.GPU,
+            "output_file_pattern": "gpu_filter_test_####",
+            "blender_version": self._blender_version_for_test
+        }
+        cpu_job_payload = {
+            "name": "CPU-Only Job",
+            "asset_id": self.scene_asset_id,
+            "render_device": RenderDevice.CPU,
+            "output_file_pattern": "cpu_filter_test_####",
+            "blender_version": self._blender_version_for_test
+        }
         gpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=gpu_job_payload)
         cpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=cpu_job_payload)
         assert gpu_response.status_code == 201
