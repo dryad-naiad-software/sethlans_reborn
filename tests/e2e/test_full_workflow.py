@@ -234,10 +234,11 @@ class BaseE2ETest:
 
         # --- FIX FOR MACOS CI ---
         # The virtualized GPU on macOS CI runners is unstable and causes Blender's Metal backend to crash.
-        # Force the worker into CPU-only mode to bypass this instability for all macOS CI tests.
+        # Force the worker into CPU-only mode for all tests EXCEPT the one that explicitly
+        # checks for GPU reporting, which does not perform a full render.
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
-        if platform.system() == "Darwin" and is_ci:
-            print("\n[CI-FIX] macOS CI detected. Forcing worker into CPU-only mode to ensure stability.")
+        if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration':
+            print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode.")
             test_env["SETHLANS_MOCK_CPU_ONLY"] = "true"
         # --- END OF FIX ---
 
@@ -676,10 +677,9 @@ class TestJobFiltering(BaseE2ETest):
     @classmethod
     def teardown_class(cls):
         """Ensure the environment variable is cleaned up."""
+        # The base teardown already handles this, no need to override if only for env var.
         super().teardown_class()
         print("\n--- Stopping CPU-only worker mock ---")
-        if "SETHLANS_MOCK_CPU_ONLY" in os.environ:
-            del os.environ["SETHLANS_MOCK_CPU_ONLY"]
 
     def test_cpu_worker_ignores_gpu_job(self):
         print("\n--- ACTION: Testing that a CPU-only worker ignores GPU-only jobs ---")
@@ -692,7 +692,7 @@ class TestJobFiltering(BaseE2ETest):
             "render_device": RenderDevice.GPU,
             "output_file_pattern": "gpu_filter_test_####",
             "blender_version": self._blender_version_for_test,
-            "render_settings": {RenderSettings.SAMPLES: 8}  # Add settings to match working tests
+            "render_settings": {RenderSettings.SAMPLES: 8}
         }
         cpu_job_payload = {
             "name": "CPU-Only Job",
@@ -700,7 +700,7 @@ class TestJobFiltering(BaseE2ETest):
             "render_device": RenderDevice.CPU,
             "output_file_pattern": "cpu_filter_test_####",
             "blender_version": self._blender_version_for_test,
-            "render_settings": {RenderSettings.SAMPLES: 8}  # Add settings to match working tests
+            "render_settings": {RenderSettings.SAMPLES: 8}
         }
         gpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=gpu_job_payload)
         cpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=cpu_job_payload)
