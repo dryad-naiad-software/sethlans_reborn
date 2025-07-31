@@ -49,11 +49,19 @@ def _generate_render_config_script(render_engine, render_device, render_settings
     """
     script_lines = ["import bpy"]
 
-    # --- Engine and Device Configuration ---
-    # 1. Set the render engine FIRST to ensure the context is correct.
+    # --- Engine and User Overrides ---
+    # Apply general scene settings first for stability.
     script_lines.append(f"bpy.context.scene.render.engine = '{render_engine}'")
 
-    # 2. Only configure Cycles-specific device settings if the engine is Cycles.
+    if isinstance(render_settings, dict) and render_settings:
+        script_lines.append("# Applying user-defined render settings")
+        script_lines.append("for scene in bpy.data.scenes:")
+        for key, value in render_settings.items():
+            py_value = repr(value)
+            script_lines.append(f"    scene.{key} = {py_value}")
+
+    # --- Device Configuration ---
+    # Configure the compute device last.
     if render_engine == 'CYCLES':
         detected_gpus = system_monitor.detect_gpu_devices()
         use_gpu = (render_device == 'GPU') or (render_device == 'ANY' and detected_gpus)
@@ -77,14 +85,6 @@ def _generate_render_config_script(render_engine, render_device, render_settings
         else:
             logger.info("Configuring job for CPU rendering.")
             script_lines.append("bpy.context.scene.cycles.device = 'CPU'")
-
-    # --- User Overrides ---
-    if isinstance(render_settings, dict) and render_settings:
-        script_lines.append("# Applying user-defined render settings")
-        script_lines.append("for scene in bpy.data.scenes:")
-        for key, value in render_settings.items():
-            py_value = repr(value)
-            script_lines.append(f"    scene.{key} = {py_value}")
 
     return "\n".join(script_lines)
 
@@ -281,16 +281,6 @@ def execute_blender_job(job_data):
         command.extend(["-f", str(start_frame)])
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
-
-    # --- DEBUGGING LOG ---
-    # Use print() for high visibility in CI logs, in case logging isn't captured.
-    print(f"--- [SETHLANS DEBUG] ---", flush=True)
-    print(f"Executing Blender Command: {' '.join(command)}", flush=True)
-    if temp_script_path:
-        with open(temp_script_path, 'r') as f:
-            print(f"--- Override Script Content ---\n{f.read()}", flush=True)
-    print(f"--- [END SETHLANS DEBUG] ---", flush=True)
-    # --- END DEBUGGING LOG ---
 
     logger.info(f"Running Command: {' '.join(command)}")
     process = None
