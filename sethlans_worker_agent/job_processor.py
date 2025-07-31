@@ -168,15 +168,19 @@ def get_and_claim_job(worker_id):
             job_name = job_to_claim.get('name', 'Unnamed Job')
             claim_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
-            logger.info(f"Found {len(available_jobs)} available job(s). Attempting to claim job '{job_name}' (ID: {job_id})...")
+            logger.info(
+                f"Found {len(available_jobs)} available job(s). Attempting to claim job '{job_name}' (ID: {job_id})...")
             claim_response = requests.patch(claim_url, json={"assigned_worker": worker_id}, timeout=5)
 
             if claim_response.status_code == 200:
                 logger.info(f"Successfully claimed job '{job_name}'! Starting render...")
                 update_job_status(claim_url, {"status": "RENDERING"})
-                success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = execute_blender_job(job_to_claim)
+                success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = execute_blender_job(
+                    job_to_claim)
 
-                job_update_payload = {"completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'), "last_output": stdout, "error_message": blender_error_msg}
+                job_update_payload = {
+                    "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
+                    "last_output": stdout, "error_message": blender_error_msg}
                 render_time = _parse_render_time(stdout)
                 if render_time is not None:
                     job_update_payload["render_time_seconds"] = render_time
@@ -199,14 +203,17 @@ def get_and_claim_job(worker_id):
 
                 report_response = requests.patch(claim_url, json=job_update_payload, timeout=5)
                 if report_response.status_code == 200:
-                    logger.info(f"Successfully reported final status '{job_update_payload['status']}' for job {job_id}.")
+                    logger.info(
+                        f"Successfully reported final status '{job_update_payload['status']}' for job {job_id}.")
                 else:
-                    logger.error(f"Failed to report final status for job {job_id}. Server responded with {report_response.status_code}.")
+                    logger.error(
+                        f"Failed to report final status for job {job_id}. Server responded with {report_response.status_code}.")
 
             elif claim_response.status_code == 409:
                 logger.warning(f"Job {job_id} was claimed by another worker. Looking for another job.")
             else:
-                logger.error(f"Failed to claim job {job_id}. Status: {claim_response.status_code}, Response: {claim_response.text}")
+                logger.error(
+                    f"Failed to claim job {job_id}. Status: {claim_response.status_code}, Response: {claim_response.text}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Could not poll for jobs: {e}")
 
@@ -280,10 +287,14 @@ def execute_blender_job(job_data):
     final_return_code = -1
 
     try:
-        popen_kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "encoding": 'utf-8', "errors": 'surrogateescape', "cwd": config.PROJECT_ROOT_FOR_WORKER}
+        popen_kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "encoding": 'utf-8',
+                        "errors": 'surrogateescape', "cwd": config.PROJECT_ROOT_FOR_WORKER}
         if platform.system() == "Windows":
             popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        logger.debug("Attempting to launch Blender subprocess...")
         process = subprocess.Popen(command, **popen_kwargs)
+        logger.info(f"Blender subprocess launched with PID: {process.pid}")
 
         stdout_thread = threading.Thread(target=_stream_reader, args=(process.stdout, stdout_lines))
         stderr_thread = threading.Thread(target=_stream_reader, args=(process.stderr, stderr_lines))
@@ -292,6 +303,7 @@ def execute_blender_job(job_data):
         job_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
         while process.poll() is None:
+            logger.debug(f"Polling subprocess... still running. Checking for cancellation signal.")
             try:
                 response = requests.get(job_url, timeout=5)
                 if response.status_code == 200 and response.json().get('status') == 'CANCELED':
@@ -307,12 +319,16 @@ def execute_blender_job(job_data):
                     break
             time.sleep(2)
 
+        logger.info("Blender subprocess polling loop finished.")
         stdout_thread.join()
         stderr_thread.join()
+
         final_return_code = process.wait()
+        logger.info(f"Blender subprocess finished with exit code: {final_return_code}")
 
     except Exception as e:
         error_message = f"An unexpected error occurred during Blender execution: {e}"
+        logger.critical(error_message, exc_info=True)
         final_return_code = -1
     finally:
         if temp_script_path and os.path.exists(temp_script_path):

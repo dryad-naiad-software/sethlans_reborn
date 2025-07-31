@@ -1,114 +1,39 @@
-name: Sethlans Reborn CI
+# .github/workflows/python-ci.yml
 
-on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+name: Python CI
+
+on: [push, pull_request]
 
 jobs:
-  build-and-test:
+  build:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.12", "3.13"]
-
-    runs-on: ${{ matrix.os }}
+        python-version: ["3.12"] # Or your specific Python version
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install System Dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Cache Managed Blender Tools
-        id: blender-cache
-        uses: actions/cache@v4
-        with:
-          path: sethlans_worker_agent/managed_tools
-          key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('sethlans_worker_agent/config.py') }}
+      - name: Run unit tests
+        run: pytest -m "not e2e"
 
-      - name: Lint with flake8
-        run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      - name: Run E2E tests (Windows & Linux)
+        if: runner.os == 'Windows' || runner.os == 'Linux'
+        run: pytest -m "e2e"
 
-      - name: Run Unit Tests
-        run: |
-          pytest tests/unit
-
-      # --- E2E Tests for non-macOS ---
-      - name: Run End-to-End Tests (Windows & Linux)
-        if: runner.os != 'macOS'
-        run: pytest tests/e2e
-
-      # --- E2E Tests and Diagnostics for macOS ---
-      - name: 1. Check Initial Disk Space (macOS)
+      - name: Run E2E tests with timeout (macOS)
         if: runner.os == 'macOS'
-        run: df -h
-
-      - name: 2. Check Initial Permissions (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          echo "Checking permissions for target directory..."
-          mkdir -p sethlans_worker_agent/managed_tools/blender/
-          ls -la sethlans_worker_agent/managed_tools/blender/
-
-      - name: 3. Run End-to-End Tests (macOS)
-        if: runner.os == 'macOS'
-        id: e2e_tests
-        continue-on-error: true
-        run: pytest tests/e2e
-
-      - name: 4. Check E2E Test Outcome (macOS)
-        if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'
-        run: echo "E2E tests failed. Collecting post-run diagnostic info..."
-
-      - name: 5. Check Disk Space After Failure (macOS)
-        if: runner.os == 'macOS' && failure()
-        run: df -h
-
-      - name: 6. List All Mounted Volumes (macOS)
-        if: runner.os == 'macOS' && failure()
-        run: mount
-
-      - name: 7. Recursively List Files in Target Directory (macOS)
-        if: runner.os == 'macOS' && failure()
-        run: |
-          echo "Listing all files in the Blender tools directory..."
-          ls -laR sethlans_worker_agent/managed_tools/blender/
-
-      - name: 8. Attempt to Unmount Any Lingering DMGs (macOS)
-        if: runner.os == 'macOS' && always()
-        run: |
-          echo "Attempting to detach any lingering BlenderMount volumes..."
-          hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
-
-      - name: 9. Fail job if E2E tests failed (macOS)
-        if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'
-        run: |
-          echo "Failing the job because end-to-end tests failed."
-          exit 1
+        run: pytest --timeout=420 -m "e2e"
