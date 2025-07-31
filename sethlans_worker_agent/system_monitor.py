@@ -56,6 +56,14 @@ def detect_gpu_devices():
         logger.debug(f"Returning cached GPU devices: {_gpu_devices_cache}")
         return _gpu_devices_cache
 
+    # --- THE FIX IS HERE ---
+    # Check for an environment variable to force CPU-only mode for testing.
+    if os.environ.get("SETHLANS_MOCK_CPU_ONLY") == "true":
+        logger.warning("Mocking CPU-only worker via environment variable. No GPUs will be detected.")
+        _gpu_devices_cache = []
+        return _gpu_devices_cache
+    # --- END OF FIX ---
+
     logger.info("Detecting available GPU devices using Blender...")
 
     local_blenders = tool_manager_instance.scan_for_local_blenders()
@@ -140,10 +148,6 @@ except Exception as e:
 
         command = [blender_exe, '--background', '--factory-startup', '--python', temp_script_path]
 
-        # ** THE FIX IS HERE **
-        # On some headless systems (like macOS CI runners), this subprocess can crash.
-        # We remove `check=True` and manually check the return code. A crash during
-        # detection should be treated as "no GPUs found", not a fatal worker error.
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=90)
 
         logger.debug(f"Blender GPU detection stdout:\n{result.stdout}")

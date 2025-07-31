@@ -603,24 +603,22 @@ class TestJobFiltering(BaseE2ETest):
     """
     This test has a custom setup to simulate a CPU-only worker.
     """
-    mock_patcher = None
 
     @classmethod
     def setup_class(cls):
         """Override setup to mock before starting the worker."""
         print("\n--- Applying mock for CPU-only worker BEFORE setup ---")
-        cls.mock_patcher = patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
-        cls.mock_patcher.start()
-        # Now call the original setup, which will start a worker that uses the mock
+        os.environ["SETHLANS_MOCK_CPU_ONLY"] = "true"
+        # Now call the original setup, which will start a worker with the env var
         super().setup_class()
 
     @classmethod
     def teardown_class(cls):
-        """Ensure the mock is stopped."""
+        """Ensure the environment variable is cleaned up."""
         super().teardown_class()
-        if cls.mock_patcher:
-            print("\n--- Stopping CPU-only worker mock ---")
-            cls.mock_patcher.stop()
+        print("\n--- Stopping CPU-only worker mock ---")
+        if "SETHLANS_MOCK_CPU_ONLY" in os.environ:
+            del os.environ["SETHLANS_MOCK_CPU_ONLY"]
 
     def test_cpu_worker_ignores_gpu_job(self):
         print("\n--- ACTION: Testing that a CPU-only worker ignores GPU-only jobs ---")
