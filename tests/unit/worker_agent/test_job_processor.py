@@ -25,7 +25,7 @@
 
 import pytest
 import os
-from unittest.mock import MagicMock, ANY
+from unittest.mock import MagicMock, ANY, mock_open
 
 # Import the function to be tested and its dependencies
 from sethlans_worker_agent import job_processor, config, system_monitor
@@ -76,6 +76,13 @@ def mock_job_exec_deps(mocker):
     mock_temp_file_context.__enter__.return_value.write = mock_write_method
     mocker.patch('tempfile.NamedTemporaryFile', return_value=mock_temp_file_context)
     mocker.patch('os.remove')
+
+    # ** THE FIX IS HERE **
+    # Mock 'builtins.open' to handle the read call from the debug print statement.
+    # The 'mock_open' utility can simulate reading back the content we pretend to write.
+    mock_file_content = "import bpy\n# Mock script content"
+    mocker.patch('builtins.open', mock_open(read_data=mock_file_content))
+
 
     return {
         "popen": mock_popen,

@@ -1,3 +1,4 @@
+#
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
 # This program is free software; you can redistribute it and/or
@@ -280,6 +281,16 @@ def execute_blender_job(job_data):
         command.extend(["-f", str(start_frame)])
     else:
         command.extend(["-s", str(start_frame), "-e", str(end_frame), "-a"])
+
+    # --- DEBUGGING LOG ---
+    # Use print() for high visibility in CI logs, in case logging isn't captured.
+    print(f"--- [SETHLANS DEBUG] ---", flush=True)
+    print(f"Executing Blender Command: {' '.join(command)}", flush=True)
+    if temp_script_path:
+        with open(temp_script_path, 'r') as f:
+            print(f"--- Override Script Content ---\n{f.read()}", flush=True)
+    print(f"--- [END SETHLANS DEBUG] ---", flush=True)
+    # --- END DEBUGGING LOG ---
 
     logger.info(f"Running Command: {' '.join(command)}")
     process = None
