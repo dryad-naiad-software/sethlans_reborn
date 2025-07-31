@@ -24,6 +24,13 @@
 # Project: sethlans_reborn
 #
 
+"""
+A collection of utility functions for file system and networking tasks.
+
+This module provides platform-aware helpers for downloading files, verifying
+their integrity, and handling different types of archives (e.g., ZIP, Tar, DMG).
+"""
+
 import hashlib
 import json
 import logging
@@ -41,18 +48,41 @@ logger = logging.getLogger(__name__)
 
 # --- JSON Operations ---
 def load_json(file_handle):
-    """Convenience wrapper for loading JSON data from a file handle."""
+    """
+    Convenience wrapper for loading JSON data from a file handle.
+
+    Args:
+        file_handle (file): An open file handle for a JSON file.
+
+    Returns:
+        dict or list: The loaded JSON data.
+    """
     return json.load(file_handle)
 
 
 def dump_json(data, file_handle):
-    """Convenience wrapper for dumping data to a JSON file handle with indentation."""
+    """
+    Convenience wrapper for dumping data to a JSON file handle with indentation.
+
+    Args:
+        data (dict or list): The data to serialize to JSON.
+        file_handle (file): An open file handle for the destination file.
+    """
     json.dump(data, file_handle, indent=4)
 
 
 # --- Download and Archive Operations ---
 def download_file(url, dest_folder):
-    """Downloads a file with a progress bar."""
+    """
+    Downloads a file from a URL to a local destination with a progress bar.
+
+    Args:
+        url (str): The URL of the file to download.
+        dest_folder (str): The path to the local directory to save the file.
+
+    Returns:
+        str: The full local path to the downloaded file.
+    """
     local_filename = url.split('/')[-1]
     download_path = os.path.join(dest_folder, local_filename)
 
@@ -71,7 +101,17 @@ def download_file(url, dest_folder):
 
 
 def verify_hash(file_path, expected_hash, algorithm='sha256'):
-    """Verifies the hash of a downloaded file."""
+    """
+    Verifies the hash of a downloaded file against an expected value.
+
+    Args:
+        file_path (str): The path to the file to verify.
+        expected_hash (str): The known hash value to compare against.
+        algorithm (str): The hashing algorithm to use (e.g., 'sha256').
+
+    Returns:
+        bool: True if the hashes match, False otherwise.
+    """
     logger.info(f"Verifying hash of {file_path}...")
     hasher = hashlib.new(algorithm)
     with open(file_path, 'rb') as f:
@@ -87,10 +127,23 @@ def verify_hash(file_path, expected_hash, algorithm='sha256'):
         return False
 
 
-# --- FINAL VERSION of the DMG handler ---
 def handle_dmg_extraction_on_mac(dmg_path, extract_to):
     """
-    Mounts a DMG, copies the .app, and unmounts it.
+    Mounts a macOS `.dmg` file, copies the `.app` bundle, and unmounts it.
+
+    This function uses `hdiutil` for mounting/unmounting and `shutil` for copying.
+    It's a platform-specific solution for macOS.
+
+    Args:
+        dmg_path (str): The path to the downloaded `.dmg` file.
+        extract_to (str): The destination directory for the extracted `.app`.
+
+    Returns:
+        str: The path to the directory containing the extracted application.
+
+    Raises:
+        subprocess.CalledProcessError: If `hdiutil` fails.
+        IOError: If the `.app` bundle cannot be found in the mounted image.
     """
     logger.info(f"Mounting {dmg_path}...")
     mount_point = os.path.join("/Volumes", f"BlenderMount_{int(time.time())}")
@@ -106,7 +159,6 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
 
         source_app_path = os.path.join(mount_point, app_dir)
 
-        # ** THE FIX IS HERE **
         # 1. Define the standard installation directory name (e.g., blender-4.5.0-macos-arm64)
         install_dir_name = os.path.basename(dmg_path).replace(".dmg", "")
         # 2. Create the full path for that standard installation directory.
@@ -121,7 +173,6 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
         # 4. Copy the .app bundle to its correct final destination.
         shutil.copytree(source_app_path, final_app_dest_path)
 
-        # Return the path to the PARENT directory, which is what the rest of the app expects.
         return install_dir_path
 
     except subprocess.CalledProcessError as e:
@@ -138,8 +189,18 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
 
 def extract_archive(archive_path, extract_to):
     """
-    Extracts an archive, handling DMG on macOS and using the secure tarfile
-    filter for tar archives to resolve DeprecationWarning.
+    Extracts an archive to a specified directory, handling different formats.
+
+    This function acts as a dispatcher, using a platform-specific handler for
+    `.dmg` files on macOS, and the `tarfile` module with a secure filter for
+    `.tar.xz` archives. Other formats are handled by `shutil.unpack_archive`.
+
+    Args:
+        archive_path (str): The full path to the archive file.
+        extract_to (str): The destination directory for the extracted contents.
+
+    Returns:
+        str: The full path to the top-level directory of the extracted contents.
     """
     archive_name = os.path.basename(archive_path)
 
@@ -169,6 +230,11 @@ def extract_archive(archive_path, extract_to):
 
 
 def cleanup_archive(archive_path):
-    """Deletes the specified file."""
+    """
+    Deletes the specified file from the filesystem.
+
+    Args:
+        archive_path (str): The path to the file to delete.
+    """
     logger.info(f"Cleaned up temporary download file: {archive_path}")
     os.remove(archive_path)

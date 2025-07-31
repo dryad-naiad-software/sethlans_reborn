@@ -22,6 +22,13 @@
 # Project: sethlans_reborn
 #
 # workers/image_assembler.py
+"""
+Utility functions for assembling tiled render outputs.
+
+This module contains the logic for stitching individual render tiles back together
+into a single, high-resolution image using the Pillow library. It is designed
+to be called by Django signals upon completion of all child render jobs.
+"""
 
 import logging
 import re
@@ -40,6 +47,14 @@ TILE_COORD_REGEX = re.compile(r"_Tile_(\d+)_(\d+)$")
 def assemble_animation_frame_image(animation_frame_id):
     """
     Assembles the completed tiles for a single frame of a tiled animation.
+
+    This function is triggered by a signal when all child tile jobs for a given
+    `AnimationFrame` are marked as `DONE`. It fetches the individual tile images,
+    stitches them together based on their coordinates, and saves the final
+    assembled image to the `AnimationFrame` model's `output_file` field.
+
+    Args:
+        animation_frame_id (int): The primary key of the `AnimationFrame` to assemble.
     """
     try:
         frame = AnimationFrame.objects.get(id=animation_frame_id)
@@ -110,8 +125,15 @@ def assemble_animation_frame_image(animation_frame_id):
 
 def assemble_tiled_job_image(tiled_job_id):
     """
-    Finds all completed tile jobs for a TiledJob, stitches them
-    together into a final image, and saves it.
+    Assembles the completed tiles for a single, high-resolution `TiledJob`.
+
+    This function is triggered by a signal when all child `Job`s for a given
+    `TiledJob` are marked as `DONE`. It fetches the individual tile images,
+    stitches them together based on their coordinates, and saves the final
+    assembled image to the `TiledJob` model's `output_file` field.
+
+    Args:
+        tiled_job_id (UUID): The primary key of the `TiledJob` to assemble.
     """
     try:
         tiled_job = TiledJob.objects.get(id=tiled_job_id)

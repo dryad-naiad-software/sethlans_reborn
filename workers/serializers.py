@@ -22,11 +22,21 @@
 # Project: sethlans_reborn
 #
 # workers/serializers.py
+"""
+Django REST Framework serializers for the workers application.
+
+These serializers define the data format for all API requests and responses,
+ensuring data integrity and providing a clear contract for frontend and
+worker agent interactions.
+"""
 
 from rest_framework import serializers
 from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus, AnimationFrame
 
 class ProjectSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the `Project` model.
+    """
     class Meta:
         model = Project
         fields = ['id', 'name', 'created_at', 'is_paused']
@@ -34,6 +44,9 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 
 class WorkerSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the `Worker` model.
+    """
     class Meta:
         model = Worker
         fields = ['id', 'hostname', 'ip_address', 'os', 'last_seen', 'is_active', 'available_tools']
@@ -41,6 +54,9 @@ class WorkerSerializer(serializers.ModelSerializer):
 
 
 class AssetSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the `Asset` model, handling file uploads.
+    """
     project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
     project_details = ProjectSerializer(source='project', read_only=True)
 
@@ -54,17 +70,25 @@ class AssetSerializer(serializers.ModelSerializer):
 
 
 class AnimationFrameSerializer(serializers.ModelSerializer):
-    """Serializer for the individual, assembled frames of a tiled animation."""
+    """
+    Serializer for the individual, assembled frames of a tiled animation.
+    """
     class Meta:
         model = AnimationFrame
         fields = ['id', 'frame_number', 'status', 'output_file', 'render_time_seconds']
 
 
 class AnimationSerializer(serializers.ModelSerializer):
-    progress = serializers.SerializerMethodField()
-    total_frames = serializers.SerializerMethodField()
-    completed_frames = serializers.SerializerMethodField()
-    frames = AnimationFrameSerializer(many=True, read_only=True) # <-- NESTED SERIALIZER
+    """
+    Serializer for the `Animation` model.
+
+    This serializer includes custom fields to report progress and links to the
+    child `AnimationFrame` objects for tiled animations.
+    """
+    progress = serializers.SerializerMethodField(help_text="Human-readable progress string (e.g., '3 of 10 frames complete').")
+    total_frames = serializers.SerializerMethodField(help_text="The total number of frames in the animation.")
+    completed_frames = serializers.SerializerMethodField(help_text="The number of frames that are in a 'DONE' status.")
+    frames = AnimationFrameSerializer(many=True, read_only=True, help_text="List of child frames for tiled animations.")
 
     project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
     project_details = ProjectSerializer(source='project', read_only=True)
@@ -78,7 +102,7 @@ class AnimationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
             'project', 'project_details', 'asset', 'asset_id', 'output_file_pattern', 'start_frame', 'end_frame',
-            'frame_step',  # <-- ADDED
+            'frame_step',
             'blender_version', 'render_engine', 'render_device', 'cycles_feature_set',
             'render_settings', 'tiling_config',
             'submitted_at', 'completed_at',
@@ -91,7 +115,9 @@ class AnimationSerializer(serializers.ModelSerializer):
         }
 
     def validate(self, data):
-        """Check that the chosen Asset belongs to the chosen Project."""
+        """
+        Custom validation to ensure the selected `Asset` belongs to the `Project`.
+        """
         project = data.get('project')
         asset = data.get('asset')
         if project and asset and asset.project != project:
@@ -99,14 +125,24 @@ class AnimationSerializer(serializers.ModelSerializer):
         return data
 
     def get_total_frames(self, obj):
+        """
+        Calculates the total number of frames in the animation.
+        """
         return (obj.end_frame - obj.start_frame) + 1
 
     def get_completed_frames(self, obj):
+        """
+        Counts the number of completed frames. This logic differs based on
+        whether the animation is tiled or a standard sequence.
+        """
         if obj.tiling_config != 'NONE':
             return obj.frames.filter(status='DONE').count()
         return obj.jobs.filter(status=JobStatus.DONE).count()
 
     def get_progress(self, obj):
+        """
+        Generates a human-readable string representing the progress of the animation.
+        """
         completed = self.get_completed_frames(obj)
         total = self.get_total_frames(obj)
         if total == 0:
@@ -115,9 +151,14 @@ class AnimationSerializer(serializers.ModelSerializer):
 
 
 class TiledJobSerializer(serializers.ModelSerializer):
-    progress = serializers.SerializerMethodField()
-    total_tiles = serializers.SerializerMethodField()
-    completed_tiles = serializers.SerializerMethodField()
+    """
+    Serializer for the `TiledJob` model.
+
+    Includes calculated fields for progress and tile counts.
+    """
+    progress = serializers.SerializerMethodField(help_text="Human-readable progress string (e.g., '3 of 10 tiles complete').")
+    total_tiles = serializers.SerializerMethodField(help_text="The total number of tiles in the job.")
+    completed_tiles = serializers.SerializerMethodField(help_text="The number of tiles that are in a 'DONE' status.")
 
     project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
     project_details = ProjectSerializer(source='project', read_only=True)
@@ -145,7 +186,9 @@ class TiledJobSerializer(serializers.ModelSerializer):
         }
 
     def validate(self, data):
-        """Check that the chosen Asset belongs to the chosen Project."""
+        """
+        Custom validation to ensure the selected `Asset` belongs to the `Project`.
+        """
         project = data.get('project')
         asset = data.get('asset')
         if project and asset and asset.project != project:
@@ -153,13 +196,21 @@ class TiledJobSerializer(serializers.ModelSerializer):
         return data
 
     def get_total_tiles(self, obj):
+        """
+        Calculates the total number of tiles for the job.
+        """
         return obj.tile_count_x * obj.tile_count_y
 
     def get_completed_tiles(self, obj):
-        # Assumes child jobs are linked via the 'jobs' related_name
+        """
+        Counts the number of completed child jobs.
+        """
         return obj.jobs.filter(status=JobStatus.DONE).count()
 
     def get_progress(self, obj):
+        """
+        Generates a human-readable string representing the progress of the tiled job.
+        """
         completed = self.get_completed_tiles(obj)
         total = self.get_total_tiles(obj)
         if total == 0:
@@ -168,8 +219,14 @@ class TiledJobSerializer(serializers.ModelSerializer):
 
 
 class JobSerializer(serializers.ModelSerializer):
-    assigned_worker_hostname = serializers.CharField(source='assigned_worker.hostname', read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    """
+    Serializer for the `Job` model.
+
+    This serializer is used by the API for creating, viewing, and updating jobs.
+    It includes read-only fields for human-readable status and worker hostname.
+    """
+    assigned_worker_hostname = serializers.CharField(source='assigned_worker.hostname', read_only=True, help_text="The hostname of the worker assigned to this job.")
+    status_display = serializers.CharField(source='get_status_display', read_only=True, help_text="The human-readable status of the job.")
     asset = AssetSerializer(read_only=True)
     asset_id = serializers.PrimaryKeyRelatedField(
         queryset=Asset.objects.all(), source='asset', write_only=True

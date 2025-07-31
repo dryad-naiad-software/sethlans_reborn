@@ -23,7 +23,12 @@
 #
 
 """
-Constants for the workers application, defining the API contract for job settings.
+Centralized constants for the workers application.
+
+This module defines the API contract for various job settings, including
+supported render engines, devices, tiling configurations, and render
+setting keys. These constants are used for validation, API documentation,
+and ensuring consistency across the entire system.
 """
 from django.db import models
 
@@ -31,7 +36,9 @@ from django.db import models
 class RenderEngine(models.TextChoices):
     """
     Defines the supported Blender render engines.
-    The value is the string Blender's Python API expects.
+
+    The choice values are the exact string Blender's Python API expects
+    when setting the render engine (e.g., `bpy.context.scene.render.engine = 'CYCLES'`).
     """
     CYCLES = 'CYCLES', 'Cycles'
     EEVEE = 'BLENDER_EEVEE_NEXT', 'Eevee'
@@ -49,6 +56,10 @@ class CyclesFeatureSet(models.TextChoices):
 class RenderDevice(models.TextChoices):
     """
     Defines the user's device preference for rendering.
+
+    - `CPU`: Forces rendering on the CPU only.
+    - `GPU`: Forces rendering on the GPU only.
+    - `ANY`: The worker can choose the most efficient device available.
     """
     CPU = 'CPU', 'CPU Only'
     GPU = 'GPU', 'GPU Only'
@@ -68,8 +79,10 @@ class TilingConfiguration(models.TextChoices):
 
 class SupportedBlenderVersions(models.TextChoices):
     """
-    Defines the officially supported Blender versions (latest patch of each series).
-    This can be used to populate UI dropdowns and for API validation.
+    Defines the officially supported Blender versions.
+
+    This is used to populate UI dropdowns and for API validation, ensuring
+    the worker agents are capable of processing the jobs.
     """
     V4_5_LTS = "4.5.1", "Blender 4.5.1 (LTS)"
     V4_4 = "4.4.3", "Blender 4.4.3"
@@ -81,9 +94,10 @@ class SupportedBlenderVersions(models.TextChoices):
 
 class RenderSettings:
     """
-    Defines the string keys for the render_settings dictionary override.
-    These are used by the worker to apply settings via Python expressions.
-    The keys must be the full property path from 'bpy.context.scene'.
+    Defines the string keys for the `render_settings` dictionary override.
+
+    These keys correspond to the full property paths within Blender's Python API,
+    allowing the worker agent to programmatically override settings for a render job.
     """
     # General Settings
     RENDER_ENGINE = "render.engine"

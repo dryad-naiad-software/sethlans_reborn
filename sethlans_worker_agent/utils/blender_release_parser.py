@@ -22,6 +22,14 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/utils/blender_release_parser.py
+"""
+Utility for dynamically scraping the official Blender download site.
+
+This module fetches and parses the Blender download page to discover available
+release versions and their corresponding download URLs and SHA256 hashes. It
+focuses on the modern Blender versions (4.0+) and intelligently filters for
+the latest patch version of each major.minor series.
+"""
 
 import logging
 import requests
@@ -40,6 +48,16 @@ def get_blender_releases():
     """
     Scrapes the Blender download page to get all official release URLs,
     filtering for only the latest patch of each minor version.
+
+    This function starts at the base URL, navigates to each major version
+    directory (e.g., `Blender4.1/`), and parses the download links on each page.
+    It then returns a dictionary containing only the latest patch version for
+    each `major.minor` series.
+
+    Returns:
+        dict: A dictionary of available Blender versions, where each key is a
+              full version string (e.g., `'4.1.1'`) and the value is a nested
+              dictionary containing download information for each platform.
     """
     all_releases = {}
     logger.info("Performing dynamic Blender download info generation (4.x+ only)...")
@@ -86,7 +104,18 @@ def get_blender_releases():
 
 
 def parse_version_page(url, releases):
-    """Parses a specific version page (e.g., /Blender4.1/) for download links."""
+    """
+    Parses a specific Blender version page for download links and SHA256 hashes.
+
+    This function scrapes a page like `download.blender.org/release/Blender4.1/`
+    to find all the available download files (`.zip`, `.dmg`, `.tar.xz`) and
+    their corresponding SHA256 hash files. The data is then added to the
+    `releases` dictionary.
+
+    Args:
+        url (str): The URL of the version page to parse.
+        releases (dict): The dictionary to populate with the parsed release data.
+    """
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()

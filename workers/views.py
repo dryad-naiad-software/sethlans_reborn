@@ -25,7 +25,8 @@
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, AnimationFrame
-from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer, ProjectSerializer, TiledJobSerializer
+from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, AssetSerializer, ProjectSerializer, \
+    TiledJobSerializer
 from .constants import RenderSettings, TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 from django.utils import timezone
 
@@ -39,20 +40,31 @@ import logging
 import os
 import tempfile
 
-
 logger = logging.getLogger(__name__)
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
     """
-    API endpoint for creating and viewing Projects.
+    API endpoint for creating, retrieving, and managing rendering projects.
+
+    Projects serve as the top-level organizational entity for assets and jobs.
+    They can be paused to temporarily stop workers from processing their jobs.
     """
     queryset = Project.objects.all().order_by('-created_at')
     serializer_class = ProjectSerializer
 
     @action(detail=True, methods=['post'])
     def pause(self, request, pk=None):
-        """Sets the project's is_paused flag to True."""
+        """
+        Pauses a project, preventing workers from picking up any of its jobs.
+
+        Args:
+            request: The request object.
+            pk: The primary key of the project to pause.
+
+        Returns:
+            A Response containing the updated project data.
+        """
         project = self.get_object()
         project.is_paused = True
         project.save(update_fields=['is_paused'])
@@ -61,7 +73,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def unpause(self, request, pk=None):
-        """Sets the project's is_paused flag to False."""
+        """
+        Unpauses a project, allowing workers to resume processing its jobs.
+
+        Args:
+            request: The request object.
+            pk: The primary key of the project to unpause.
+
+        Returns:
+            A Response containing the updated project data.
+        """
         project = self.get_object()
         project.is_paused = False
         project.save(update_fields=['is_paused'])
@@ -71,15 +92,29 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
 class WorkerHeartbeatViewSet(viewsets.ViewSet):
     """
-    API endpoint for workers to send heartbeats and register themselves.
+    API endpoint for workers to send heartbeats and register with the manager.
+
+    A POST request with full system information will either register a new worker
+    or update an existing one. Subsequent POSTs with just the hostname will
+    simply update the 'last_seen' timestamp.
     """
 
     def list(self, request):
+        """Lists all registered workers."""
         workers = Worker.objects.all()
         serializer = WorkerSerializer(workers, many=True)
         return Response(serializer.data)
 
     def create(self, request):
+        """
+        Handles worker registration and periodic heartbeats.
+
+        Args:
+            request: The request object containing worker data.
+
+        Returns:
+            A Response containing the worker's data.
+        """
         hostname = request.data.get('hostname')
         if not hostname:
             return Response({"detail": "Hostname is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -121,7 +156,11 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
 
 class AnimationViewSet(viewsets.ModelViewSet):
     """
-    API endpoint for creating and viewing Animation jobs.
+    API endpoint for creating and managing multi-frame animation jobs.
+
+    A POST request to this endpoint will create a parent `Animation` object
+    and automatically spawn a child `Job` for each frame in the sequence,
+    or a grid of `Job`s for tiled animations.
     """
     queryset = Animation.objects.all().order_by('-submitted_at')
     serializer_class = AnimationSerializer
@@ -129,6 +168,10 @@ class AnimationViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'project']
 
     def perform_create(self, serializer):
+        """
+        Spawns individual `Job` objects for each frame of the animation after the parent
+        `Animation` object is created. Handles both standard and tiled animations.
+        """
         animation = serializer.save()
         logger.info(f"Created new animation '{animation.name}' (ID: {animation.id}). Spawning jobs...")
 
@@ -216,7 +259,10 @@ class AnimationViewSet(viewsets.ModelViewSet):
 class TiledJobViewSet(viewsets.ModelViewSet):
     """
     API endpoint for creating and managing Tiled Render jobs.
-    Creating a TiledJob will automatically spawn the individual tile Jobs.
+
+    A POST request to this endpoint will create a parent `TiledJob` object and
+    automatically spawn a child `Job` for each tile in the specified grid.
+    These tile jobs contain the necessary render border overrides.
     """
     queryset = TiledJob.objects.all().order_by('-submitted_at')
     serializer_class = TiledJobSerializer
@@ -224,6 +270,10 @@ class TiledJobViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'project']
 
     def perform_create(self, serializer):
+        """
+        Spawns individual `Job` objects for each tile of the render after the parent
+        `TiledJob` object is created.
+        """
         tiled_job = serializer.save()
         logger.info(f"Created new TiledJob '{tiled_job.name}' (ID: {tiled_job.id}). Spawning tile jobs...")
 
@@ -285,6 +335,7 @@ class TiledJobViewSet(viewsets.ModelViewSet):
 class AssetViewSet(viewsets.ModelViewSet):
     """
     API endpoint for uploading and managing .blend file assets.
+    Assets are uploaded as multipart/form-data.
     """
     queryset = Asset.objects.all()
     serializer_class = AssetSerializer
@@ -296,6 +347,9 @@ class AssetViewSet(viewsets.ModelViewSet):
 class JobViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows render jobs to be viewed or created.
+
+    Workers use this endpoint to poll for new jobs, claim them for rendering,
+    and update their status and final output.
     """
     queryset = Job.objects.all()
     serializer_class = JobSerializer
@@ -308,6 +362,10 @@ class JobViewSet(viewsets.ModelViewSet):
         """
         Overrides the default queryset to allow filtering based on worker GPU capability
         and to exclude jobs from paused projects when workers poll for jobs.
+
+        If a worker polls with `gpu_available=true`, only jobs that can use a GPU are returned.
+        If a worker polls with `gpu_available=false`, only jobs that can use a CPU are returned.
+        If a worker is not polling (i.e., this is a regular API request), all jobs are returned.
         """
         queryset = super().get_queryset()
         gpu_available_param = self.request.query_params.get('gpu_available')
@@ -331,6 +389,16 @@ class JobViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
+        """
+        Cancels a render job, setting its status to 'CANCELED'.
+
+        Args:
+            request: The request object.
+            pk: The primary key of the job to cancel.
+
+        Returns:
+            A Response containing the updated job data.
+        """
         job = self.get_object()
         old_status = job.status
         job.status = JobStatus.CANCELED
@@ -345,6 +413,15 @@ class JobViewSet(viewsets.ModelViewSet):
     def upload_output(self, request, pk=None):
         """
         Action for a worker to upload the final rendered output file for a job.
+
+        Expects a multipart/form-data request with a file field named `output_file`.
+
+        Args:
+            request: The request object containing the uploaded file.
+            pk: The primary key of the job to attach the file to.
+
+        Returns:
+            A Response containing the updated job data.
         """
         job = self.get_object()
         file_obj = request.data.get('output_file')

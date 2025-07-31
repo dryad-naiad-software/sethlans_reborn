@@ -22,6 +22,13 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/config.py
+"""
+Configuration module for the Sethlans Reborn worker agent.
+
+This module consolidates all configurable settings for the worker agent,
+including API endpoints, operational intervals, file paths, and hardware
+management flags. It is the single source of truth for the worker's behavior.
+"""
 
 import os
 import sys
@@ -31,14 +38,18 @@ from pathlib import Path
 
 
 # --- Manager API Configuration ---
+# The base URL for the central Django Manager's API.
 MANAGER_API_URL = "http://127.0.0.1:8000/api/"
 
 # --- Worker Operation Intervals ---
+# Frequency (in seconds) for sending heartbeats to the manager.
 HEARTBEAT_INTERVAL_SECONDS = 30
+# Frequency (in seconds) for polling the manager for new jobs.
 JOB_POLLING_INTERVAL_SECONDS = 5
 
 # --- Worker Hardware Configuration ---
-# These settings are mutually exclusive.
+# These settings are mutually exclusive and can be set via environment variables.
+# They are primarily used for testing or in specific rendering environments.
 FORCE_CPU_ONLY = os.getenv('SETHLANS_FORCE_CPU_ONLY', 'false').lower() == 'true'
 FORCE_GPU_ONLY = os.getenv('SETHLANS_FORCE_GPU_ONLY', 'false').lower() == 'true'
 
@@ -48,36 +59,47 @@ if FORCE_CPU_ONLY and FORCE_GPU_ONLY:
 
 
 # --- Worker Agent Paths ---
+# The root directory of the entire project.
 PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parent.parent
+# The root directory of the worker agent module.
 WORKER_AGENT_DIR = Path(__file__).resolve().parent
 
+# The path to a system-wide Blender executable. Currently not used.
 SYSTEM_BLENDER_EXECUTABLE = None
 
+# Directories for local storage managed by the worker agent.
 MANAGED_TOOLS_DIR = os.path.join(WORKER_AGENT_DIR, 'managed_tools')
 MANAGED_ASSETS_DIR = os.path.join(WORKER_AGENT_DIR, 'managed_assets')
 WORKER_OUTPUT_DIR = os.path.join(WORKER_AGENT_DIR, 'worker_output')
 WORKER_TEMP_DIR = os.path.join(WORKER_AGENT_DIR, 'temp')
 
+# Paths to test .blend files used in the end-to-end test suite.
 TEST_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'test_scene.blend')
 BENCHMARK_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'bmw27.blend')
 ANIMATION_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'animation.blend')
 
 
 # --- Tool Discovery & Download Configuration ---
+# The base URL for the official Blender downloads.
 BLENDER_RELEASES_URL = "https://download.blender.org/release/"
 
+# A list of mirror URLs for redundant download sources.
 BLENDER_MIRROR_BASE_URLS = [
     "https://mirror.clarkson.edu/blender/release/",
     "http://ftp.halifax.rwth-aachen.de/blender/release/",
     "http://ftp.nluug.nl/pub/graphics/blender/release/",
 ]
 
+# The local file path for the cached list of available Blender versions.
 BLENDER_VERSIONS_CACHE_FILE = os.path.join(MANAGED_TOOLS_DIR, 'blender_versions_cache.json')
 
+# The required major.minor LTS version series for the worker to install.
 REQUIRED_LTS_VERSION_SERIES = "4.5"
 
 
 # --- Platform and Architecture-specific Blender Download/Executable Mappings ---
+# A dictionary mapping Python's platform.system()/platform.machine() output
+# to the correct Blender download naming conventions and executable paths.
 PLATFORM_BLENDER_MAP = {
     ('Windows', 'amd64'): {
         'download_suffix': 'windows-x64',
@@ -111,6 +133,7 @@ PLATFORM_BLENDER_MAP = {
     }
 }
 
+# The specific details for the current platform and architecture.
 CURRENT_PLATFORM_BLENDER_DETAILS = PLATFORM_BLENDER_MAP.get((platform.system(), platform.machine().lower()))
 if not CURRENT_PLATFORM_BLENDER_DETAILS:
     print(
@@ -120,7 +143,12 @@ if not CURRENT_PLATFORM_BLENDER_DETAILS:
 def configure_worker_logging(log_level_str="INFO"):
     """
     Configures the basic logging for the worker agent.
-    This should be called once at startup.
+
+    This function sets up a root logger with a specific format and a configurable
+    log level. This should be called once at application startup.
+
+    Args:
+        log_level_str (str): The desired logging level as a string (e.g., 'DEBUG', 'INFO').
     """
     log_level = getattr(logging, log_level_str.upper(), logging.INFO)
 

@@ -22,6 +22,13 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/asset_manager.py
+"""
+Handles the management of local render assets for the worker agent.
+
+This module is responsible for ensuring that the `.blend` file required for a
+render job is present in the local cache. If the file does not exist locally,
+it is downloaded from the manager's API endpoint.
+"""
 
 import logging
 import os
@@ -38,6 +45,11 @@ logger = logging.getLogger(__name__)
 def ensure_asset_is_available(asset_data):
     """
     Ensures a given asset is available in the local cache, downloading it if necessary.
+
+    The function first checks if the asset file already exists in the local
+    `managed_assets` directory. If so, it returns the local path directly.
+    Otherwise, it initiates a download from the provided URL, creates the
+    necessary directory structure, and saves the file locally.
 
     Args:
         asset_data (dict): The asset dictionary from the job payload,
@@ -94,4 +106,3 @@ def ensure_asset_is_available(asset_data):
     except Exception as e:
         logger.critical(f"An unexpected error occurred in asset download: {e}", exc_info=True)
         return None
-

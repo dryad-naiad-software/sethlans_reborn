@@ -22,6 +22,13 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/job_processor.py
+"""
+The core module for the worker agent responsible for handling all render job tasks.
+
+This includes polling the manager for new jobs, claiming them, downloading assets,
+executing the Blender subprocess, monitoring its progress, and reporting the
+final status and output back to the manager.
+"""
 
 import datetime
 import logging
@@ -45,7 +52,16 @@ logger = logging.getLogger(__name__)
 def _generate_render_config_script(render_engine, render_device, render_settings):
     """
     Generates the content for a Python script to configure Blender's render settings.
-    This includes engine, device selection, and user-provided overrides.
+    This is executed via the `--python` command-line argument to ensure settings
+    are applied before the render begins.
+
+    Args:
+        render_engine (str): The requested render engine (e.g., 'CYCLES').
+        render_device (str): The requested render device ('CPU', 'GPU', or 'ANY').
+        render_settings (dict): A dictionary of user-defined settings to override.
+
+    Returns:
+        str: The complete Python script as a string.
     """
     script_lines = ["import bpy"]
 
@@ -90,7 +106,16 @@ def _generate_render_config_script(render_engine, render_device, render_settings
 
 
 def _upload_render_output(job_id, output_file_path):
-    """Uploads the rendered output file to the manager."""
+    """
+    Uploads the rendered output file to the manager's dedicated API endpoint.
+
+    Args:
+        job_id (int): The ID of the job the file belongs to.
+        output_file_path (str): The local filesystem path of the file to upload.
+
+    Returns:
+        bool: True if the upload was successful, False otherwise.
+    """
     if not os.path.exists(output_file_path):
         logger.error(f"Render output file not found at {output_file_path}. Cannot upload.")
         return False
@@ -117,6 +142,13 @@ def _parse_render_time(stdout_text):
     """
     Parses Blender's stdout log content to find the total render time by
     finding the unique final summary line containing "(Saving:)".
+
+    Args:
+        stdout_text (str): The full stdout log from the Blender subprocess.
+
+    Returns:
+        int or None: The total render time in seconds, rounded up to the nearest
+                     whole number, or None if the time could not be parsed.
     """
     time_line_regex = re.compile(r"Time: (?:(\d{2}):)?(\d{2}):(\d{2}\.\d{2})")
 
@@ -140,7 +172,13 @@ def _parse_render_time(stdout_text):
 
 
 def update_job_status(job_url, payload):
-    """Updates the job status via the API."""
+    """
+    Sends a PATCH request to the manager to update a job's status.
+
+    Args:
+        job_url (str): The full URL of the job to update.
+        payload (dict): The data to send in the request body.
+    """
     try:
         response = requests.patch(job_url, json=payload, timeout=5)
         response.raise_for_status()
@@ -150,7 +188,15 @@ def update_job_status(job_url, payload):
 
 def get_and_claim_job(worker_id):
     """
-    Polls for jobs based on worker capabilities, claims the first available one, and processes it.
+    Polls the manager for available jobs, claims the first one found, and starts the render process.
+
+    This function is the heart of the worker's operational loop. It sends a request to the
+    manager's job list endpoint, applying filters based on the worker's configured hardware
+    capabilities. If a job is available, it attempts to claim it by updating the `assigned_worker`
+    field. Upon a successful claim, it initiates the rendering process.
+
+    Args:
+        worker_id (int): The unique ID of the worker, as assigned by the manager.
     """
     poll_url = f"{config.MANAGER_API_URL}jobs/"
     detected_gpus = system_monitor.detect_gpu_devices()
@@ -162,7 +208,6 @@ def get_and_claim_job(worker_id):
 
     params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
 
-    # *** BUG FIX STARTS HERE ***
     # Correctly set polling parameters based on forced hardware modes.
     if config.FORCE_GPU_ONLY:
         params['gpu_available'] = 'true'
@@ -170,7 +215,6 @@ def get_and_claim_job(worker_id):
         params['gpu_available'] = 'false'
     # If neither flag is set (normal operation), do NOT add the 'gpu_available'
     # parameter. This allows a GPU-capable worker to pick up both CPU and GPU jobs.
-    # *** BUG FIX ENDS HERE ***
 
     logger.debug(f"Polling for jobs with params: {params}")
 
@@ -236,7 +280,10 @@ def get_and_claim_job(worker_id):
 
 
 def _stream_reader(stream, output_list):
-    """Helper function to read a stream line by line into a list."""
+    """
+    Helper function to read a subprocess stream line by line into a list.
+    This runs in a separate thread to prevent I/O deadlocks.
+    """
     try:
         for line in iter(stream.readline, ''):
             output_list.append(line)
@@ -246,8 +293,25 @@ def _stream_reader(stream, output_list):
 
 def execute_blender_job(job_data):
     """
-    Executes a Blender render job, monitoring for cancellation and reading output via threads.
-    Returns (success: bool, was_canceled: bool, stdout: str, stderr: str, error_message: str, output_path: str|None)
+    Executes a Blender render job as a subprocess, monitoring for cancellation
+    and reading its output in a thread-safe manner.
+
+    This function first prepares the environment by downloading the required asset
+    and Blender version. It then constructs a command with a dynamically generated
+    Python script to ensure consistent render settings. The subprocess is
+    monitored for completion or a cancellation signal from the manager.
+
+    Args:
+        job_data (dict): The full job dictionary received from the manager API.
+
+    Returns:
+        tuple: A tuple containing:
+            - bool: True if the render was successful, False otherwise.
+            - bool: True if the job was canceled, False otherwise.
+            - str: The captured stdout from the Blender process.
+            - str: The captured stderr from the Blender process.
+            - str: A human-readable error message, if applicable.
+            - str or None: The final output file path if successful, otherwise None.
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')

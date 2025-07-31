@@ -22,6 +22,13 @@
 # Project: sethlans_reborn
 #
 # workers/models.py
+"""
+Defines the Django models for the Sethlans Reborn rendering system.
+
+These models represent all the core entities of the application, including
+the organizational structure (`Project`), renderable assets (`Asset`),
+rendering machines (`Worker`), and the various types of render jobs.
+"""
 
 import uuid
 import logging
@@ -38,6 +45,16 @@ logger = logging.getLogger(__name__)
 
 
 class Project(models.Model):
+    """
+    Represents a top-level creative project for organizing assets and jobs.
+
+    Attributes:
+        id (UUIDField): A unique identifier for the project.
+        name (CharField): The human-readable name of the project.
+        created_at (DateTimeField): The date and time the project was created.
+        is_paused (BooleanField): If True, all jobs in this project will not be
+            picked up by workers.
+    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -51,37 +68,65 @@ class Project(models.Model):
 
 
 def asset_upload_path(instance, filename):
-    """Generates a project-specific path for an asset file using UUIDs."""
+    """
+    Generates a project-specific path for an uploaded asset file.
+
+    The path is structured as: `media/assets/<project_id>/<asset_uuid><ext>`.
+    This ensures files for different projects are isolated and avoids naming collisions.
+    """
     extension = Path(filename).suffix
-    # The file will be saved to MEDIA_ROOT/assets/<project_id>/<asset_uuid><ext>
     return f'assets/{instance.project.id}/{uuid.uuid4()}{extension}'
 
 
 def job_output_upload_path(instance, filename):
-    """Generates a project-specific path for a job's output file."""
+    """
+    Generates a unique, project-specific path for a single render job's output file.
+
+    The path is structured as: `media/assets/<project_id>/outputs/job_<job_id><ext>`.
+    """
     extension = Path(filename).suffix
     project_id = instance.asset.project.id
-    # Use the job ID for a unique, predictable filename.
     return f'assets/{project_id}/outputs/job_{instance.id}{extension}'
 
 
 def tiled_job_output_upload_path(instance, filename):
-    """Generates a project-specific path for a tiled job's final assembled output file."""
+    """
+    Generates a unique, project-specific path for a TiledJob's final assembled output file.
+
+    The path is structured as: `media/assets/<project_id>/outputs/tiled_<tiled_job_id><ext>`.
+    """
     extension = Path(filename).suffix
     project_id = instance.asset.project.id
-    # Use the TiledJob UUID for a unique filename.
     return f'assets/{project_id}/outputs/tiled_{instance.id}{extension}'
 
 
 def animation_frame_output_upload_path(instance, filename):
-    """Generates a project-specific path for an assembled animation frame."""
+    """
+    Generates a project-specific path for a single, assembled animation frame.
+
+    The path is structured as: `media/assets/<proj_id>/outputs/anim_<anim_id>/frame_<frame_number><ext>`.
+    """
     extension = Path(filename).suffix
     project_id = instance.animation.project.id
-    # e.g., assets/<proj_id>/outputs/anim_<anim_id>/frame_0001.png
     return f'assets/{project_id}/outputs/anim_{instance.animation.id}/frame_{instance.frame_number:04d}{extension}'
 
 
 class Worker(models.Model):
+    """
+    Represents a single rendering machine in the distributed system.
+
+    Workers send periodic heartbeats to the manager to register and update their
+    status and capabilities.
+
+    Attributes:
+        hostname (CharField): The unique hostname of the worker.
+        ip_address (GenericIPAddressField): The IP address of the worker.
+        os (CharField): The operating system of the worker (e.g., 'Windows 11').
+        last_seen (DateTimeField): The timestamp of the last successful heartbeat.
+        is_active (BooleanField): A flag indicating if the worker is currently online.
+        available_tools (JSONField): A dictionary containing detected hardware
+            (e.g., CPU cores, GPU devices) and available software versions (e.g., Blender).
+    """
     hostname = models.CharField(max_length=255, unique=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     os = models.CharField(max_length=100, blank=True, default='')
@@ -97,6 +142,18 @@ class Worker(models.Model):
 
 
 class Asset(models.Model):
+    """
+    Represents a `.blend` file asset uploaded to the manager.
+
+    Assets are linked to a `Project` for organizational purposes and are
+    downloaded by workers when a job requires them.
+
+    Attributes:
+        project (ForeignKey): The project this asset belongs to.
+        name (CharField): The unique name of the asset.
+        blend_file (FileField): The actual `.blend` file.
+        created_at (DateTimeField): The date and time the asset was uploaded.
+    """
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='assets')
     name = models.CharField(max_length=255, unique=True, help_text="A unique name for the asset file.")
     blend_file = models.FileField(upload_to=asset_upload_path, help_text="The uploaded .blend file.")
@@ -110,6 +167,7 @@ class Asset(models.Model):
 
 
 class JobStatus(models.TextChoices):
+    """Enumeration for the possible states of a standard render job."""
     QUEUED = 'QUEUED', 'Queued'
     RENDERING = 'RENDERING', 'Rendering'
     DONE = 'DONE', 'Done'
@@ -118,6 +176,7 @@ class JobStatus(models.TextChoices):
 
 
 class TiledJobStatus(models.TextChoices):
+    """Enumeration for the possible states of a tiled render job."""
     QUEUED = 'QUEUED', 'Queued'
     RENDERING = 'RENDERING', 'Rendering'
     ASSEMBLING = 'ASSEMBLING', 'Assembling'
@@ -126,6 +185,7 @@ class TiledJobStatus(models.TextChoices):
 
 
 class AnimationFrameStatus(models.TextChoices):
+    """Enumeration for the possible states of a single frame within an animation."""
     PENDING = 'PENDING', 'Pending'
     RENDERING = 'RENDERING', 'Rendering'
     ASSEMBLING = 'ASSEMBLING', 'Assembling'
@@ -134,6 +194,31 @@ class AnimationFrameStatus(models.TextChoices):
 
 
 class Animation(models.Model):
+    """
+    Represents a multi-frame animation render job.
+
+    This model serves as a parent container that automatically spawns
+    individual `Job` objects for each frame.
+
+    Attributes:
+        project (ForeignKey): The project this animation belongs to.
+        name (CharField): The unique name of the animation job.
+        asset (ForeignKey): The `.blend` file asset to be rendered.
+        output_file_pattern (CharField): The output file name pattern (e.g., `//renders/####.png`).
+        start_frame (IntegerField): The first frame of the animation sequence.
+        end_frame (IntegerField): The last frame of the animation sequence.
+        frame_step (IntegerField): The number of frames to advance between renders.
+        status (CharField): The current status of the overall animation.
+        submitted_at (DateTimeField): The date and time the animation was submitted.
+        completed_at (DateTimeField): The date and time the animation was fully completed.
+        blender_version (CharField): The target Blender version for rendering.
+        render_engine (CharField): The render engine to use (e.g., `CYCLES`).
+        render_device (CharField): The preferred render device (`CPU`, `GPU`, `ANY`).
+        cycles_feature_set (CharField): The Cycles feature set to use (`SUPPORTED`, `EXPERIMENTAL`).
+        render_settings (JSONField): A dictionary of optional Blender settings to override.
+        total_render_time_seconds (IntegerField): The sum of all child jobs' render times.
+        tiling_config (CharField): If set, each frame will be rendered as a grid of tiles.
+    """
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='animations')
     name = models.CharField(max_length=255, unique=True)
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='animations')
@@ -166,7 +251,20 @@ class Animation(models.Model):
 
 
 class AnimationFrame(models.Model):
-    """Represents a single frame of a (potentially tiled) animation."""
+    """
+    Represents a single frame of a (potentially tiled) animation.
+
+    This model is used as a parent container for the tile jobs of a single
+    frame, and stores the final assembled image and render time for that frame.
+
+    Attributes:
+        animation (ForeignKey): The parent `Animation` to which this frame belongs.
+        frame_number (IntegerField): The number of the frame in the sequence.
+        status (CharField): The current status of the frame's rendering and assembly.
+        output_file (FileField): The final, assembled output image for this frame.
+        render_time_seconds (IntegerField): The total time taken to render and
+            assemble all tiles for this frame.
+    """
     animation = models.ForeignKey(Animation, on_delete=models.CASCADE, related_name='frames')
     frame_number = models.IntegerField()
     status = models.CharField(max_length=50, choices=AnimationFrameStatus.choices, default=AnimationFrameStatus.PENDING)
@@ -184,6 +282,32 @@ class AnimationFrame(models.Model):
 
 
 class TiledJob(models.Model):
+    """
+    Represents a single, high-resolution image render that is split into multiple tiles.
+
+    This model serves as a parent container that automatically spawns
+    individual `Job` objects for each tile of the render.
+
+    Attributes:
+        id (UUIDField): A unique identifier for the tiled job.
+        project (ForeignKey): The project this tiled job belongs to.
+        name (CharField): The unique name of the tiled job.
+        asset (ForeignKey): The `.blend` file asset to be rendered.
+        final_resolution_x (IntegerField): The final width in pixels of the assembled image.
+        final_resolution_y (IntegerField): The final height in pixels of the assembled image.
+        tile_count_x (IntegerField): The number of horizontal tiles in the grid.
+        tile_count_y (IntegerField): The number of vertical tiles in the grid.
+        status (CharField): The current status of the overall tiled job.
+        submitted_at (DateTimeField): The date and time the job was submitted.
+        completed_at (DateTimeField): The date and time the job was fully completed.
+        blender_version (CharField): The target Blender version for rendering.
+        render_engine (CharField): The render engine to use (e.g., `CYCLES`).
+        render_device (CharField): The preferred render device (`CPU`, `GPU`, `ANY`).
+        cycles_feature_set (CharField): The Cycles feature set to use (`SUPPORTED`, `EXPERIMENTAL`).
+        render_settings (JSONField): A dictionary of optional Blender settings to override.
+        total_render_time_seconds (IntegerField): The sum of all child jobs' render times.
+        output_file (FileField): The final, assembled output image file.
+    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='tiled_jobs')
     name = models.CharField(max_length=255, unique=True)
@@ -213,6 +337,37 @@ class TiledJob(models.Model):
 
 
 class Job(models.Model):
+    """
+    Represents a single, discrete render job.
+
+    This is the fundamental unit of work processed by a `Worker` agent. It can
+    be a standalone image render, a single frame of an animation, or a single
+    tile of a tiled job.
+
+    Attributes:
+        name (CharField): The unique name for the job.
+        asset (ForeignKey): The `.blend` file asset to be rendered.
+        output_file_pattern (CharField): The path pattern for the render output.
+        start_frame (IntegerField): The starting frame number for the render.
+        end_frame (IntegerField): The ending frame number for the render.
+        status (CharField): The current status of the job.
+        assigned_worker (ForeignKey): The worker currently processing this job.
+        submitted_at (DateTimeField): The date and time the job was submitted.
+        started_at (DateTimeField): The date and time the worker started the job.
+        completed_at (DateTimeField): The date and time the job finished.
+        blender_version (CharField): The target Blender version for rendering.
+        render_engine (CharField): The render engine to use (e.g., `CYCLES`).
+        render_device (CharField): The preferred render device (`CPU`, `GPU`, `ANY`).
+        cycles_feature_set (CharField): The Cycles feature set to use (`SUPPORTED`, `EXPERIMENTAL`).
+        render_settings (JSONField): A dictionary of optional Blender settings to override.
+        last_output (TextField): The final captured output from the Blender process stdout.
+        error_message (TextField): Any error message captured from the Blender process.
+        animation (ForeignKey): A link to the parent `Animation` object, if this is a frame job.
+        tiled_job (ForeignKey): A link to the parent `TiledJob` object, if this is a tile.
+        animation_frame (ForeignKey): A link to the parent `AnimationFrame` for tiled animation frames.
+        render_time_seconds (IntegerField): The total time the render process took.
+        output_file (FileField): The final rendered output file.
+    """
     name = models.CharField(max_length=255, unique=True, help_text="A unique name for the render job.")
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='jobs')
     output_file_pattern = models.CharField(max_length=1024, help_text="Output file path pattern (e.g., //render/#.png)")
@@ -285,7 +440,11 @@ class Job(models.Model):
 @receiver(post_save, sender=Job)
 def update_parent_job_status(sender, instance, **kwargs):
     """
-    After a Job is saved, check if it belongs to a parent and update it.
+    A signal receiver that updates the status and render time of a parent `Animation`
+    or `TiledJob` when one of its child `Job`s completes.
+
+    If a `Job` is part of a tiled animation frame, this signal checks if all
+    tiles for that frame are complete and triggers the image assembly process.
     """
     from .image_assembler import assemble_tiled_job_image, assemble_animation_frame_image
 
@@ -338,7 +497,11 @@ def update_parent_job_status(sender, instance, **kwargs):
 @receiver(post_save, sender=AnimationFrame)
 def update_parent_animation_status(sender, instance, **kwargs):
     """
-    After an AnimationFrame is saved, check if the parent Animation is now complete.
+    A signal receiver that checks if all `AnimationFrame`s for a parent `Animation`
+    have completed their rendering and assembly.
+
+    If all frames are complete, it updates the parent animation's status to `DONE`
+    and calculates its total render time.
     """
     if instance.status != AnimationFrameStatus.DONE:
         return

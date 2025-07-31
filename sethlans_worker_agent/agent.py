@@ -23,6 +23,18 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+"""
+The main entry point for the Sethlans Reborn Worker Agent.
+
+This script initializes the worker, handles command-line arguments, and
+enters an infinite loop to perform its core duties:
+1. Registering with the central manager.
+2. Sending periodic heartbeats to maintain a live connection.
+3. Polling the manager for new render jobs.
+4. Claiming and executing available jobs.
+
+The agent's behavior and logging level can be configured via command-line arguments.
+"""
 
 import argparse
 import logging
@@ -58,7 +70,14 @@ logger = logging.getLogger(__name__)
 
 # --- Main Application Logic ---
 def main():
-    """Main loop for the worker agent."""
+    """
+    The main operational loop for the worker agent.
+
+    This function continuously attempts to register with the manager and, once
+    successful, enters a loop to send heartbeats and poll for new jobs. The loop
+    is designed to be resilient to temporary network failures and handles graceful
+    shutdowns via a KeyboardInterrupt.
+    """
     logger.info("Sethlans Reborn Worker Agent Starting...")
 
     worker_id = None

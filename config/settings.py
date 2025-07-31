@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'django_filters',
     'pytest_django',
+    'drf_spectacular', # <-- ADDED FOR API DOCUMENTATION
     # Your custom apps here
     'workers',
 ]
@@ -194,9 +195,9 @@ LOGGING = {
             'propagate': True, # Pass messages to parent loggers (e.g., root)
         },
         # Your specific application logger
-        'workers': { 
+        'workers': {
             'handlers': ['console'],
-            'level': LOG_LEVEL, 
+            'level': LOG_LEVEL,
             'propagate': False, # Don't pass to root if handled here to avoid duplication
         },
         # Example for Django's built-in loggers
@@ -221,3 +222,11 @@ LOGGING = {
 # --- NEW: Media Files (User Uploads) Configuration ---
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.getenv('SETHLANS_MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
+
+# --- NEW: DRF Spectacular Configuration ---
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Sethlans Reborn API',
+    'DESCRIPTION': 'RESTful API for the distributed Blender rendering system.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}

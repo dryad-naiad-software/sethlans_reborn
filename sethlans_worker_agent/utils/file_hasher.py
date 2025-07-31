@@ -24,17 +24,37 @@
 # Project: sethlans_reborn
 #
 
+"""
+Utility for performing file integrity checks.
+
+This module contains a single function for calculating the SHA256 hash
+of a file, which is essential for verifying the integrity of downloaded
+Blender archives.
+"""
 
 import hashlib
 import datetime
 import os
 
-import logging # This should be there
-logger = logging.getLogger(__name__) # Get a logger for this module
+import logging
+logger = logging.getLogger(__name__)
 
 
 def calculate_file_sha256(file_path, chunk_size=4096):
-    """Calculates the SHA256 hash of a file."""
+    """
+    Calculates the SHA256 hash of a file.
+
+    The file is read in chunks to efficiently handle large files without
+    consuming excessive memory.
+
+    Args:
+        file_path (str): The path to the file to be hashed.
+        chunk_size (int): The size of the chunks to read.
+
+    Returns:
+        str or None: The hexadecimal SHA256 hash string, or None if an
+                     error occurs (e.g., file not found).
+    """
     sha256_hash = hashlib.sha256()
     try:
         with open(file_path, "rb") as f:
@@ -42,8 +62,8 @@ def calculate_file_sha256(file_path, chunk_size=4096):
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
     except FileNotFoundError:
-        logger.error(f"File not found for hash calculation: {file_path}") # <-- Changed print to logger.error
+        logger.error(f"File not found for hash calculation: {file_path}")
         return None
     except Exception as e:
-        logger.error(f"Failed to calculate hash for {file_path}: {e}") # <-- Changed print to logger.error
+        logger.error(f"Failed to calculate hash for {file_path}: {e}")
         return None

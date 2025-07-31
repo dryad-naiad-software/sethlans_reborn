@@ -22,6 +22,15 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/system_monitor.py
+"""
+Handles all system monitoring and communication between the worker and manager.
+
+This module is responsible for:
+- Detecting and caching local hardware and software capabilities.
+- Registering the worker with the central manager.
+- Sending periodic heartbeats to maintain a live connection.
+- Ensuring the required Blender LTS version is installed before registration.
+"""
 
 import logging
 import platform
@@ -48,8 +57,14 @@ _gpu_devices_cache = None
 def detect_gpu_devices():
     """
     Dynamically detects available Cycles GPU rendering devices by actively testing each backend.
-    Caches the result after the first successful run to avoid repeated slow subprocess calls.
-    Respects the FORCE_CPU_ONLY configuration setting.
+
+    This function spawns a headless Blender process to programmatically query for all available
+    render devices (e.g., CUDA, OPTIX, METAL). The results are cached after the first successful
+    run to avoid repeated, slow subprocess calls. This process is bypassed if the
+    `FORCE_CPU_ONLY` configuration flag is set.
+
+    Returns:
+        list: A list of strings representing the detected GPU device backends (e.g., `['CUDA', 'OPTIX']`).
     """
     global _gpu_devices_cache
     if _gpu_devices_cache is not None:
@@ -190,7 +205,12 @@ except Exception as e:
 
 
 def get_system_info():
-    """Gathers basic system information, now including GPU devices."""
+    """
+    Gathers a snapshot of the worker's system information.
+
+    Returns:
+        dict: A dictionary containing the hostname, IP, OS, and available tools.
+    """
     available_blenders = tool_manager_instance.scan_for_local_blenders()
     gpu_devices = detect_gpu_devices()
 
@@ -206,7 +226,16 @@ def get_system_info():
 
 
 def _find_latest_lts_patch(all_versions, lts_series):
-    """Finds the highest patch version for a given major.minor series."""
+    """
+    Helper function to find the highest patch version for a given major.minor LTS series.
+
+    Args:
+        all_versions (list): A list of all available Blender version strings (e.g., '4.5.1').
+        lts_series (str): The major.minor version series to check (e.g., '4.5').
+
+    Returns:
+        str or None: The latest patch version string, or None if none are found.
+    """
     lts_patches = [v for v in all_versions if v.startswith(lts_series + '.')]
     if not lts_patches:
         return None
@@ -215,7 +244,14 @@ def _find_latest_lts_patch(all_versions, lts_series):
 
 def register_with_manager():
     """
-    Ensures the latest LTS Blender is present, then registers with the manager.
+    Ensures the latest Blender LTS version is installed and then registers the worker with the manager.
+
+    This is a critical bootstrap function that runs at the start of the worker agent's lifecycle.
+    It first attempts to find or download the required Blender version before sending a
+    full system information payload to the manager.
+
+    Returns:
+        int or None: The ID assigned to the worker by the manager, or None if registration fails.
     """
     global WORKER_ID
 
@@ -260,7 +296,13 @@ def register_with_manager():
 
 
 def send_heartbeat():
-    """Sends a periodic heartbeat to the manager to show the worker is alive."""
+    """
+    Sends a simple, periodic heartbeat to the manager to confirm the worker is alive.
+
+    This function only sends the worker's hostname to the `/api/heartbeat/` endpoint,
+    relying on the manager to update the `last_seen` timestamp for the corresponding
+    worker record.
+    """
     if not WORKER_ID:
         logger.warning("Cannot send heartbeat, worker is not registered.")
         return
