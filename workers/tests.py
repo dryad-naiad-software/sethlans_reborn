@@ -452,6 +452,30 @@ class AnimationViewSetTests(BaseMediaTestCase):
         self.assertNotIn(RenderSettings.CYCLES_FEATURE_SET, injected_settings)
         self.assertNotIn(RenderSettings.CYCLES_DEVICE, injected_settings)
 
+    def test_create_animation_with_frame_step(self):
+        """
+        Ensure creating an animation with a frame_step > 1 spawns the correct jobs.
+        """
+        animation_data = {
+            "name": "Frame Step Test",
+            "project": self.project.id,
+            "asset_id": self.asset.id,
+            "output_file_pattern": "//renders/step_####",
+            "start_frame": 1,
+            "end_frame": 5,
+            "frame_step": 2
+        }
+        url = "/api/animations/"
+        response = self.client.post(url, animation_data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Animation.objects.count(), 1)
+        self.assertEqual(Job.objects.count(), 3)  # Jobs for frames 1, 3, 5
+
+        spawned_frames = [job.start_frame for job in Job.objects.order_by('start_frame')]
+        self.assertEqual(spawned_frames, [1, 3, 5])
+
+
 class TiledAnimationModelTests(BaseMediaTestCase):
     """Test suite for the new Tiled Animation models."""
 

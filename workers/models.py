@@ -139,6 +139,7 @@ class Animation(models.Model):
     output_file_pattern = models.CharField(max_length=1024)
     start_frame = models.IntegerField()
     end_frame = models.IntegerField()
+    frame_step = models.IntegerField(default=1, help_text="Number of frames to advance animation between renders (e.g., a step of 2 renders every other frame).")
     status = models.CharField(max_length=50, default='QUEUED')
     submitted_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)

@@ -78,6 +78,7 @@ class AnimationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
             'project', 'project_details', 'asset', 'asset_id', 'output_file_pattern', 'start_frame', 'end_frame',
+            'frame_step',  # <-- ADDED
             'blender_version', 'render_engine', 'render_device', 'cycles_feature_set',
             'render_settings', 'tiling_config',
             'submitted_at', 'completed_at',

@@ -445,6 +445,53 @@ class TestAnimationWorkflow(BaseE2ETest):
         assert final_anim_data.get('total_render_time_seconds') is not None
         assert final_anim_data.get('total_render_time_seconds') > 0
 
+    def test_animation_with_frame_step(self):
+        """
+        Tests that an animation with a frame_step > 1 spawns the correct number of jobs.
+        """
+        start_frame, end_frame, frame_step = 1, 5, 2
+        expected_frames = [1, 3, 5]
+        expected_job_count = len(expected_frames)
+
+        print("\n--- ACTION: Submitting animation job with frame_step ---")
+        anim_payload = {
+            "name": "E2E Frame Step Test",
+            "project": self.project_id,
+            "asset_id": self.anim_asset_id,
+            "output_file_pattern": "frame_step_render_####",
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "frame_step": frame_step,
+            "blender_version": self._blender_version_for_test,
+        }
+        create_response = requests.post(f"{MANAGER_URL}/animations/", json=anim_payload)
+        assert create_response.status_code == 201
+        anim_id = create_response.json()['id']
+        anim_url = f"{MANAGER_URL}/animations/{anim_id}/"
+
+        print(f"Polling API for completion of {expected_job_count} stepped frames...")
+        completed = False
+        for i in range(150):
+            check_response = requests.get(anim_url)
+            assert check_response.status_code == 200
+            data = check_response.json()
+            completed_frames = data.get('completed_frames', 0)
+            if completed_frames == expected_job_count:
+                completed = True
+                break
+            time.sleep(2)
+        assert completed, f"Animation with frame step did not complete in time."
+
+        # Verify the correct jobs were created and completed
+        jobs_response = requests.get(f"{MANAGER_URL}/jobs/?animation={anim_id}")
+        assert jobs_response.status_code == 200
+        child_jobs = jobs_response.json()
+        assert len(child_jobs) == expected_job_count
+
+        spawned_frames = sorted([job['start_frame'] for job in child_jobs])
+        assert spawned_frames == expected_frames
+        print(f"SUCCESS: Correctly spawned jobs for frames {spawned_frames}.")
+
 
 class TestTiledWorkflow(BaseE2ETest):
     def test_tiled_render_workflow(self):

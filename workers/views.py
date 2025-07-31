@@ -125,7 +125,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
         if animation.tiling_config == TilingConfiguration.NONE:
             # --- Standard Animation Job Spawning ---
             logger.info(f"Spawning standard frame jobs for animation '{animation.name}'.")
-            for frame_num in range(animation.start_frame, animation.end_frame + 1):
+            for frame_num in range(animation.start_frame, animation.end_frame + 1, animation.frame_step):
                 job = Job(
                     animation=animation,
                     name=f"{animation.name}_Frame_{frame_num:04d}",
@@ -148,7 +148,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
             tile_width = 1.0 / tile_count_x
             tile_height = 1.0 / tile_count_y
 
-            for frame_num in range(animation.start_frame, animation.end_frame + 1):
+            for frame_num in range(animation.start_frame, animation.end_frame + 1, animation.frame_step):
                 # Create the parent frame object to group the tiles
                 anim_frame = AnimationFrame.objects.create(animation=animation, frame_number=frame_num)
 
