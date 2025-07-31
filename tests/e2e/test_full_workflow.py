@@ -235,13 +235,17 @@ class BaseE2ETest:
             test_env.update(extra_env)
 
         # --- FIX FOR MACOS CI ---
-        # The virtualized GPU on macOS CI runners is unstable and causes Blender's Metal backend to crash.
-        # Force the worker into CPU-only mode for all tests EXCEPT the one that explicitly
-        # checks for GPU reporting, which does not perform a full render.
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
-        if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration':
+        # *** BUG FIX STARTS HERE ***
+        # Check if a force flag is already being set by the specific test.
+        force_flag_is_set = "SETHLANS_FORCE_CPU_ONLY" in test_env or "SETHLANS_FORCE_GPU_ONLY" in test_env
+
+        # The virtualized GPU on macOS CI is unstable. Force CPU-only mode for stability,
+        # but only if the test isn't already setting a force mode itself.
+        if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration' and not force_flag_is_set:
             print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode.")
             test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
+        # *** BUG FIX ENDS HERE ***
         # --- END OF FIX ---
 
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
