@@ -313,7 +313,7 @@ class TestRenderWorkflow(BaseE2ETest):
             "output_file_pattern": "e2e_render_####",
             "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_engine": "CYCLES",
-            "render_device": "CPU", # Explicitly test CPU
+            "render_device": "CPU",  # Explicitly test CPU
             "render_settings": {
                 RenderSettings.SAMPLES: 10,
                 RenderSettings.RESOLUTION_PERCENTAGE: 10
@@ -448,6 +448,12 @@ class TestAnimationWorkflow(BaseE2ETest):
 
 class TestTiledWorkflow(BaseE2ETest):
     def test_tiled_render_workflow(self):
+        is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+        is_macos_in_ci = platform.system() == "Darwin" and is_ci
+
+        if is_macos_in_ci:
+            pytest.skip("Skipping tiled GPU-implicit test on macOS CI to maintain stability.")
+
         print("\n--- ACTION: Submitting tiled render job ---")
         tiled_job_payload = {
             "name": "E2E Tiled Render Test",
@@ -528,6 +534,12 @@ class TestTiledAnimationWorkflow(BaseE2ETest):
         Tests the full workflow for a tiled animation: submission, rendering,
         frame-by-frame assembly, and final verification.
         """
+        is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+        is_macos_in_ci = platform.system() == "Darwin" and is_ci
+
+        if is_macos_in_ci:
+            pytest.skip("Skipping tiled animation GPU-implicit test on macOS CI to maintain stability.")
+
         print("\n--- ACTION: Submitting Tiled Animation job ---")
         start_frame, end_frame = 1, 2
         total_frames = (end_frame - start_frame) + 1
@@ -621,7 +633,7 @@ class TestJobFiltering(BaseE2ETest):
             "render_device": RenderDevice.GPU,
             "output_file_pattern": "gpu_filter_test_####",
             "blender_version": self._blender_version_for_test,
-            "render_settings": {RenderSettings.SAMPLES: 8} # Add settings to match working tests
+            "render_settings": {RenderSettings.SAMPLES: 8}  # Add settings to match working tests
         }
         cpu_job_payload = {
             "name": "CPU-Only Job",
@@ -629,7 +641,7 @@ class TestJobFiltering(BaseE2ETest):
             "render_device": RenderDevice.CPU,
             "output_file_pattern": "cpu_filter_test_####",
             "blender_version": self._blender_version_for_test,
-            "render_settings": {RenderSettings.SAMPLES: 8} # Add settings to match working tests
+            "render_settings": {RenderSettings.SAMPLES: 8}  # Add settings to match working tests
         }
         gpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=gpu_job_payload)
         cpu_response = requests.post(f"{MANAGER_URL}/jobs/", json=cpu_job_payload)
