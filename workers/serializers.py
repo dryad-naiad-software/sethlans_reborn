@@ -29,8 +29,8 @@ from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob,
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
-        fields = ['id', 'name', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = ['id', 'name', 'created_at', 'is_paused']
+        read_only_fields = ['id', 'created_at', 'is_paused']
 
 
 class WorkerSerializer(serializers.ModelSerializer):

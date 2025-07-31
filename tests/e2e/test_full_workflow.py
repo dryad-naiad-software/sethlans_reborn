@@ -717,3 +717,79 @@ class TestJobFiltering(BaseE2ETest):
 
         assert cpu_job_completed, "CPU job was not completed by the worker."
         print("SUCCESS: CPU-only worker correctly ignored the GPU job and processed the CPU job.")
+
+
+class TestProjectPauseWorkflow(BaseE2ETest):
+    """
+    Tests the end-to-end workflow of pausing a project and ensuring
+    workers do not pick up jobs from it until it is unpaused.
+    """
+
+    def test_worker_respects_paused_project(self):
+        print("\n--- ACTION: Testing worker respects paused projects ---")
+
+        # 1. Create a second project that will be paused
+        paused_project_payload = {"name": f"E2E-Paused-Project-{int(time.time())}"}
+        response = requests.post(f"{MANAGER_URL}/projects/", json=paused_project_payload)
+        assert response.status_code == 201
+        paused_project_id = response.json()['id']
+        paused_asset_id = self._upload_test_asset("Paused Project Asset", worker_config.TEST_BLEND_FILE_PATH,
+                                                  paused_project_id)
+
+        # 2. Create one job in the active project and one in the soon-to-be-paused project
+        active_job_payload = {
+            "name": "Active Project Job", "asset_id": self.scene_asset_id,
+            "output_file_pattern": "active_####", "render_settings": {RenderSettings.SAMPLES: 1}
+        }
+        paused_job_payload = {
+            "name": "Paused Project Job", "asset_id": paused_asset_id,
+            "output_file_pattern": "paused_####", "render_settings": {RenderSettings.SAMPLES: 1}
+        }
+
+        active_job_res = requests.post(f"{MANAGER_URL}/jobs/", json=active_job_payload)
+        paused_job_res = requests.post(f"{MANAGER_URL}/jobs/", json=paused_job_payload)
+        assert active_job_res.status_code == 201
+        assert paused_job_res.status_code == 201
+        active_job_id = active_job_res.json()['id']
+        paused_job_id = paused_job_res.json()['id']
+
+        # 3. Pause the second project
+        print(f"Pausing project {paused_project_id}...")
+        pause_res = requests.post(f"{MANAGER_URL}/projects/{paused_project_id}/pause/")
+        assert pause_res.status_code == 200
+        assert pause_res.json()['is_paused'] is True
+
+        # 4. Wait and verify that only the active job is completed
+        print("Waiting for worker to process active job...")
+        active_job_done = False
+        for _ in range(15):  # 30 second timeout
+            active_job_status = requests.get(f"{MANAGER_URL}/jobs/{active_job_id}/").json()['status']
+            paused_job_status = requests.get(f"{MANAGER_URL}/jobs/{paused_job_id}/").json()['status']
+
+            assert paused_job_status == "QUEUED", "Paused job was processed prematurely!"
+
+            if active_job_status == "DONE":
+                active_job_done = True
+                break
+            time.sleep(2)
+
+        assert active_job_done, "Active project job did not complete in time."
+        print("SUCCESS: Worker completed the active job and ignored the paused one.")
+
+        # 5. Unpause the project and verify the second job is now completed
+        print(f"Unpausing project {paused_project_id}...")
+        unpause_res = requests.post(f"{MANAGER_URL}/projects/{paused_project_id}/unpause/")
+        assert unpause_res.status_code == 200
+        assert unpause_res.json()['is_paused'] is False
+
+        print("Waiting for worker to process the now-unpaused job...")
+        paused_job_done = False
+        for _ in range(15):  # 30 second timeout
+            paused_job_status = requests.get(f"{MANAGER_URL}/jobs/{paused_job_id}/").json()['status']
+            if paused_job_status == "DONE":
+                paused_job_done = True
+                break
+            time.sleep(2)
+
+        assert paused_job_done, "Paused project job did not complete after being unpaused."
+        print("SUCCESS: Worker completed the job after the project was unpaused.")

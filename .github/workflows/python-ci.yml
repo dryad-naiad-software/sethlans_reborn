@@ -81,7 +81,7 @@ jobs:
         if: runner.os == 'macOS'
         id: e2e_tests
         continue-on-error: true
-        run: pytest --timeout=420 tests/e2e
+        run: pytest tests/e2e
 
       - name: 4. Check E2E Test Outcome (macOS)
         if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'

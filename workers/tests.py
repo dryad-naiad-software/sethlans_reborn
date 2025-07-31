@@ -68,6 +68,39 @@ class BaseMediaTestCase(APITestCase):
         self.project = Project.objects.create(name="Default Test Project")
 
 
+class ProjectViewSetTests(BaseMediaTestCase):
+    """
+    Test suite for the ProjectViewSet, covering pause/unpause actions.
+    """
+
+    def test_pause_project(self):
+        """
+        Ensure the /pause/ action sets the project's is_paused flag to True.
+        """
+        self.assertFalse(self.project.is_paused)
+        url = f"/api/projects/{self.project.id}/pause/"
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['is_paused'])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_paused)
+
+    def test_unpause_project(self):
+        """
+        Ensure the /unpause/ action sets the project's is_paused flag to False.
+        """
+        self.project.is_paused = True
+        self.project.save()
+        self.assertTrue(self.project.is_paused)
+
+        url = f"/api/projects/{self.project.id}/unpause/"
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data['is_paused'])
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_paused)
+
+
 class AssetViewSetTests(BaseMediaTestCase):
     """
     Test suite for the AssetViewSet, specifically for file uploads.
@@ -294,6 +327,41 @@ class JobViewSetTests(BaseMediaTestCase):
         # Assert (No preference specified)
         self.assertEqual(response_no_pref.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response_no_pref.data), 3)
+
+    def test_job_filtering_skips_paused_projects(self):
+        """
+        Ensure workers polling for jobs do not see jobs from paused projects.
+        """
+        # Arrange: Create an active project and a paused project
+        active_project = self.project
+        paused_project = Project.objects.create(name="Paused Project", is_paused=True)
+        paused_asset = Asset.objects.create(name="Paused Asset", project=paused_project,
+                                            blend_file=SimpleUploadedFile("p.blend", b"d"))
+
+        # Create a job in each project
+        Job.objects.create(name="Active Job", asset=self.asset, status=JobStatus.QUEUED)
+        Job.objects.create(name="Paused Job", asset=paused_asset, status=JobStatus.QUEUED)
+
+        url = "/api/jobs/"
+        # Correctly simulate a worker poll
+        params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+
+        # Act 1: Poll for jobs. Only the active one should be returned.
+        response = self.client.get(url, params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['name'], "Active Job")
+
+        # Act 2: Unpause the project and poll again.
+        paused_project.is_paused = False
+        paused_project.save()
+
+        response = self.client.get(url, params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        job_names = {job['name'] for job in response.data}
+        self.assertEqual(len(job_names), 2)
+        self.assertIn("Active Job", job_names)
+        self.assertIn("Paused Job", job_names)
 
 
 class AnimationViewSetTests(BaseMediaTestCase):

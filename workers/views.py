@@ -50,6 +50,24 @@ class ProjectViewSet(viewsets.ModelViewSet):
     queryset = Project.objects.all().order_by('-created_at')
     serializer_class = ProjectSerializer
 
+    @action(detail=True, methods=['post'])
+    def pause(self, request, pk=None):
+        """Sets the project's is_paused flag to True."""
+        project = self.get_object()
+        project.is_paused = True
+        project.save(update_fields=['is_paused'])
+        logger.info(f"Project '{project.name}' (ID: {project.id}) has been paused.")
+        return Response(self.get_serializer(project).data)
+
+    @action(detail=True, methods=['post'])
+    def unpause(self, request, pk=None):
+        """Sets the project's is_paused flag to False."""
+        project = self.get_object()
+        project.is_paused = False
+        project.save(update_fields=['is_paused'])
+        logger.info(f"Project '{project.name}' (ID: {project.id}) has been unpaused.")
+        return Response(self.get_serializer(project).data)
+
 
 class WorkerHeartbeatViewSet(viewsets.ViewSet):
     """
@@ -288,10 +306,19 @@ class JobViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Overrides the default queryset to allow filtering based on worker GPU capability.
+        Overrides the default queryset to allow filtering based on worker GPU capability
+        and to exclude jobs from paused projects when workers poll for jobs.
         """
         queryset = super().get_queryset()
         gpu_available_param = self.request.query_params.get('gpu_available')
+
+        # A worker poll is identified by the presence of these specific query parameters.
+        is_worker_poll = 'status' in self.request.query_params and 'assigned_worker__isnull' in self.request.query_params
+
+        # Filter out jobs from paused projects ONLY when a worker is polling for available work.
+        # This allows direct access to a job's details via its ID even if paused.
+        if is_worker_poll:
+            queryset = queryset.filter(asset__project__is_paused=False)
 
         if gpu_available_param == 'false':
             logger.debug("Filtering jobs for a CPU-only worker. Excluding jobs that require GPU.")

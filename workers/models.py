@@ -41,6 +41,7 @@ class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    is_paused = models.BooleanField(default=False, help_text="If true, workers will not pick up jobs from this project.")
 
     def __str__(self):
         return self.name
