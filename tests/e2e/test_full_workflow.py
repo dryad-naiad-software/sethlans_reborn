@@ -171,6 +171,17 @@ class BaseE2ETest:
         """Set up the environment for all tests in this class."""
         print(f"\n--- SETUP: {cls.__name__} ---")
 
+        # *** BUG FIX STARTS HERE ***
+        # Conditionally apply the macOS CI CPU-only fix at the class level.
+        # This ensures that tests requiring specific worker modes (like TestForcedHardwareModes)
+        # can manage their own environments without conflict.
+        is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+        if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration':
+            print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing CPU-only mode for this test class.")
+            os.environ["SETHLANS_FORCE_CPU_ONLY"] = "true"
+        # *** BUG FIX ENDS HERE ***
+
+
         cls._cache_blender_once()
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
@@ -233,20 +244,6 @@ class BaseE2ETest:
         test_env["SETHLANS_MEDIA_ROOT"] = str(MEDIA_ROOT_FOR_TEST)
         if extra_env:
             test_env.update(extra_env)
-
-        # --- FIX FOR MACOS CI ---
-        is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
-        # *** BUG FIX STARTS HERE ***
-        # Check if a force flag is already being set by the specific test.
-        force_flag_is_set = "SETHLANS_FORCE_CPU_ONLY" in test_env or "SETHLANS_FORCE_GPU_ONLY" in test_env
-
-        # The virtualized GPU on macOS CI is unstable. Force CPU-only mode for stability,
-        # but only if the test isn't already setting a force mode itself.
-        if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration' and not force_flag_is_set:
-            print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode.")
-            test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
-        # *** BUG FIX ENDS HERE ***
-        # --- END OF FIX ---
 
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
         cls.worker_process = subprocess.Popen(worker_command, cwd=PROJECT_ROOT, env=test_env, stdout=subprocess.PIPE,
@@ -319,6 +316,8 @@ class BaseE2ETest:
         if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
 
         # Clean up mock environment variables
+        if "SETHLANS_FORCE_CPU_ONLY" in os.environ:
+            del os.environ["SETHLANS_FORCE_CPU_ONLY"]
         if "SETHLANS_MOCK_CPU_ONLY" in os.environ:
             del os.environ["SETHLANS_MOCK_CPU_ONLY"]
 
