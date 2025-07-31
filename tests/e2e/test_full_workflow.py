@@ -235,18 +235,15 @@ class BaseE2ETest:
             test_env.update(extra_env)
 
         # --- FIX FOR MACOS CI ---
-        # The virtualized GPU on macOS CI runners is unstable and causes Blender's Metal backend to crash.
-        # Force the worker into CPU-only mode for all tests EXCEPT the one that explicitly
-        # checks for GPU reporting, which does not perform a full render.
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
-        # *** BUG FIX STARTS HERE ***
         # Check if a force flag is already being set by the specific test.
         force_flag_is_set = "SETHLANS_FORCE_CPU_ONLY" in test_env or "SETHLANS_FORCE_GPU_ONLY" in test_env
 
+        # The virtualized GPU on macOS CI is unstable. Force CPU-only mode for stability,
+        # but only if the test isn't already setting a force mode itself.
         if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration' and not force_flag_is_set:
             print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode.")
             test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
-        # *** BUG FIX ENDS HERE ***
         # --- END OF FIX ---
 
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
@@ -859,15 +856,11 @@ class TestForcedHardwareModes(BaseE2ETest):
         Verify that a worker in FORCE_GPU_ONLY mode only polls for and
         accepts GPU-enabled jobs.
         """
-        # *** BUG FIX STARTS HERE ***
-        # Skip this test on macOS CI because GPU rendering is unstable there.
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
-        if platform.system() == "Darwin" and is_ci:
-            pytest.skip("Skipping force_gpu_only test on macOS CI due to Blender/Metal instability.")
-        # *** BUG FIX ENDS HERE ***
+        is_macos_in_ci = platform.system() == "Darwin" and is_ci
 
-        if not is_gpu_available():
-            pytest.skip("Skipping FORCE_GPU_ONLY test: No physical GPU available.")
+        if not is_gpu_available() or is_macos_in_ci:
+            pytest.skip("Skipping GPU test: No GPU available or running in unstable macOS CI environment.")
 
         # Stop the default worker and start one in GPU-only mode
         if self.worker_process and self.worker_process.poll() is None:
@@ -897,3 +890,72 @@ class TestForcedHardwareModes(BaseE2ETest):
 
         assert gpu_job_completed, "GPU-only worker failed to complete the GPU job."
         print("SUCCESS: Worker in FORCE_GPU_ONLY mode correctly processed the GPU job and ignored the CPU job.")
+
+# --- NEW REGRESSION TEST CLASS ---
+class TestDefaultWorkerFlexibility(BaseE2ETest):
+    """
+    Tests that a default worker with GPU capabilities can process all job types.
+    """
+
+    def test_gpu_capable_worker_handles_cpu_and_gpu_jobs(self):
+        """
+        Submits both a CPU and a GPU job to a default (non-forced) worker
+        that has a GPU, and verifies it completes both. This is the regression
+        test for the original E2E stall.
+        """
+        if not is_gpu_available():
+            pytest.skip("Skipping test: requires a GPU-capable host machine.")
+
+        is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+        if platform.system() == "Darwin" and is_ci:
+            pytest.skip("Skipping test on macOS CI due to Blender rendering instability.")
+
+        print("\n--- ACTION: Testing default worker flexibility ---")
+
+        # Stop the worker that may have been forced into CPU mode by a previous test class
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+
+        # Start a fresh worker with no force flags to ensure default behavior
+        self.start_worker(self.worker_log_queue)
+
+        # Submit one of each job type
+        print("Submitting GPU and CPU jobs...")
+        gpu_job_payload = {
+            "name": "Flex Test GPU Job", "asset_id": self.scene_asset_id,
+            "render_device": RenderDevice.GPU, "output_file_pattern": "flex_gpu_####",
+            "blender_version": self._blender_version_for_test
+        }
+        cpu_job_payload = {
+            "name": "Flex Test CPU Job", "asset_id": self.scene_asset_id,
+            "render_device": RenderDevice.CPU, "output_file_pattern": "flex_cpu_####",
+            "blender_version": self._blender_version_for_test
+        }
+
+        gpu_res = requests.post(f"{MANAGER_URL}/jobs/", json=gpu_job_payload)
+        cpu_res = requests.post(f"{MANAGER_URL}/jobs/", json=cpu_job_payload)
+        assert gpu_res.status_code == 201
+        assert cpu_res.status_code == 201
+        gpu_job_id = gpu_res.json()['id']
+        cpu_job_id = cpu_res.json()['id']
+
+        # Poll until both jobs are done
+        print("Polling for completion of both jobs...")
+        cpu_done, gpu_done = False, False
+        for _ in range(120):  # 4 minute timeout
+            gpu_status = requests.get(f"{MANAGER_URL}/jobs/{gpu_job_id}/").json()['status']
+            cpu_status = requests.get(f"{MANAGER_URL}/jobs/{cpu_job_id}/").json()['status']
+            if gpu_status == "DONE":
+                gpu_done = True
+            if cpu_status == "DONE":
+                cpu_done = True
+            if gpu_done and cpu_done:
+                break
+            time.sleep(2)
+
+        final_gpu_status = requests.get(f"{MANAGER_URL}/jobs/{gpu_job_id}/").json()['status']
+        final_cpu_status = requests.get(f"{MANAGER_URL}/jobs/{cpu_job_id}/").json()['status']
+
+        assert final_gpu_status == "DONE", "GPU job was not completed by the flexible worker."
+        assert final_cpu_status == "DONE", "CPU job was not completed by the flexible worker."
+        print("SUCCESS: Default GPU-capable worker correctly processed both CPU and GPU jobs.")
