@@ -22,7 +22,6 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/config.py
-# sethlans_worker_agent/config.py
 
 import os
 import sys
@@ -37,6 +36,16 @@ MANAGER_API_URL = "http://127.0.0.1:8000/api/"
 # --- Worker Operation Intervals ---
 HEARTBEAT_INTERVAL_SECONDS = 30
 JOB_POLLING_INTERVAL_SECONDS = 5
+
+# --- Worker Hardware Configuration ---
+# These settings are mutually exclusive.
+FORCE_CPU_ONLY = os.getenv('SETHLANS_FORCE_CPU_ONLY', 'false').lower() == 'true'
+FORCE_GPU_ONLY = os.getenv('SETHLANS_FORCE_GPU_ONLY', 'false').lower() == 'true'
+
+if FORCE_CPU_ONLY and FORCE_GPU_ONLY:
+    sys.stderr.write("ERROR: SETHLANS_FORCE_CPU_ONLY and SETHLANS_FORCE_GPU_ONLY are mutually exclusive. Set only one.\n")
+    sys.exit(1)
+
 
 # --- Worker Agent Paths ---
 PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parent.parent

@@ -22,7 +22,6 @@
 # Project: sethlans_reborn
 #
 # sethlans_worker_agent/system_monitor.py
-# sethlans_worker_agent/system_monitor.py
 
 import logging
 import platform
@@ -50,19 +49,23 @@ def detect_gpu_devices():
     """
     Dynamically detects available Cycles GPU rendering devices by actively testing each backend.
     Caches the result after the first successful run to avoid repeated slow subprocess calls.
+    Respects the FORCE_CPU_ONLY configuration setting.
     """
     global _gpu_devices_cache
     if _gpu_devices_cache is not None:
         logger.debug(f"Returning cached GPU devices: {_gpu_devices_cache}")
         return _gpu_devices_cache
 
-    # --- THE FIX IS HERE ---
-    # Check for an environment variable to force CPU-only mode for testing.
-    if os.environ.get("SETHLANS_MOCK_CPU_ONLY") == "true":
-        logger.warning("Mocking CPU-only worker via environment variable. No GPUs will be detected.")
+    if config.FORCE_CPU_ONLY:
+        logger.warning("Worker is in FORCE_CPU_ONLY mode. Reporting no GPU devices.")
         _gpu_devices_cache = []
         return _gpu_devices_cache
-    # --- END OF FIX ---
+
+    # This is the old check for the E2E test harness, which is now superseded by FORCE_CPU_ONLY
+    if os.environ.get("SETHLANS_MOCK_CPU_ONLY") == "true":
+        logger.warning("Mocking CPU-only worker via legacy environment variable. No GPUs will be detected.")
+        _gpu_devices_cache = []
+        return _gpu_devices_cache
 
     logger.info("Detecting available GPU devices using Blender...")
 

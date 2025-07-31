@@ -155,7 +155,18 @@ def get_and_claim_job(worker_id):
     poll_url = f"{config.MANAGER_API_URL}jobs/"
     detected_gpus = system_monitor.detect_gpu_devices()
     gpu_available = len(detected_gpus) > 0
-    params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true', 'gpu_available': str(gpu_available).lower()}
+
+    if config.FORCE_GPU_ONLY and not gpu_available:
+        logger.info("FORCE_GPU_ONLY is enabled, but no GPUs were detected. Skipping job poll.")
+        return
+
+    params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+    if config.FORCE_GPU_ONLY:
+        params['gpu_available'] = 'true'
+    else:
+        # This handles both normal operation and FORCE_CPU_ONLY, where gpu_available will be False.
+        params['gpu_available'] = str(gpu_available).lower()
+
     logger.debug(f"Polling for jobs with params: {params}")
 
     try:

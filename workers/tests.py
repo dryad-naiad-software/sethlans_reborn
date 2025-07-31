@@ -316,13 +316,18 @@ class JobViewSetTests(BaseMediaTestCase):
         # Assert (CPU-only worker)
         self.assertEqual(response_cpu_worker.status_code, status.HTTP_200_OK)
         cpu_worker_job_names = {job['name'] for job in response_cpu_worker.data}
+        self.assertEqual(len(cpu_worker_job_names), 2)
         self.assertIn("CPU Job", cpu_worker_job_names)
         self.assertIn("Any Device Job", cpu_worker_job_names)
         self.assertNotIn("GPU Job", cpu_worker_job_names)
 
         # Assert (GPU-capable worker)
         self.assertEqual(response_gpu_worker.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_gpu_worker.data), 3)
+        gpu_worker_job_names = {job['name'] for job in response_gpu_worker.data}
+        self.assertEqual(len(gpu_worker_job_names), 2)
+        self.assertIn("GPU Job", gpu_worker_job_names)
+        self.assertIn("Any Device Job", gpu_worker_job_names)
+        self.assertNotIn("CPU Job", gpu_worker_job_names)
 
         # Assert (No preference specified)
         self.assertEqual(response_no_pref.status_code, status.HTTP_200_OK)

@@ -320,7 +320,10 @@ class JobViewSet(viewsets.ModelViewSet):
         if is_worker_poll:
             queryset = queryset.filter(asset__project__is_paused=False)
 
-        if gpu_available_param == 'false':
+        if gpu_available_param == 'true':
+            logger.debug("Filtering jobs for a GPU-capable worker. Excluding CPU-only jobs.")
+            return queryset.exclude(render_device=RenderDevice.CPU)
+        elif gpu_available_param == 'false':
             logger.debug("Filtering jobs for a CPU-only worker. Excluding jobs that require GPU.")
             return queryset.exclude(render_device=RenderDevice.GPU)
 

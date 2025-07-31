@@ -224,13 +224,15 @@ class BaseE2ETest:
         cls.start_worker(cls.worker_log_queue)
 
     @classmethod
-    def start_worker(cls, log_queue):
+    def start_worker(cls, log_queue, extra_env=None):
         """Starts the worker process and its log reader thread."""
         print("Starting Worker Agent...")
         test_env = os.environ.copy()
         test_env["SETHLANS_DB_NAME"] = TEST_DB_NAME
         test_env["DJANGO_SETTINGS_MODULE"] = "config.settings"
         test_env["SETHLANS_MEDIA_ROOT"] = str(MEDIA_ROOT_FOR_TEST)
+        if extra_env:
+            test_env.update(extra_env)
 
         # --- FIX FOR MACOS CI ---
         # The virtualized GPU on macOS CI runners is unstable and causes Blender's Metal backend to crash.
@@ -239,7 +241,7 @@ class BaseE2ETest:
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
         if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration':
             print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode.")
-            test_env["SETHLANS_MOCK_CPU_ONLY"] = "true"
+            test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
         # --- END OF FIX ---
 
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
@@ -815,3 +817,71 @@ class TestProjectPauseWorkflow(BaseE2ETest):
 
         assert paused_job_done, "Paused project job did not complete after being unpaused."
         print("SUCCESS: Worker completed the job after the project was unpaused.")
+
+
+class TestForcedHardwareModes(BaseE2ETest):
+    """
+    Test suite for the FORCE_CPU_ONLY and FORCE_GPU_ONLY modes.
+    This class will have custom worker startup logic.
+    """
+
+    def test_force_cpu_only_mode(self):
+        """
+        Verify that a worker started with FORCE_CPU_ONLY reports no GPUs,
+        even if the host machine has them.
+        """
+        # We need to stop the default worker to start a new one with the env var
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+
+        # Start a new worker with the FORCE_CPU_ONLY flag
+        self.start_worker(self.worker_log_queue, extra_env={"SETHLANS_FORCE_CPU_ONLY": "true"})
+
+        # Verify its registration data
+        response = requests.get(f"{MANAGER_URL}/heartbeat/")
+        assert response.status_code == 200
+        worker_data = response.json()
+        assert len(worker_data) > 0
+        local_hostname = socket.gethostname()
+        worker_record = next((w for w in worker_data if w['hostname'] == local_hostname), None)
+        assert worker_record is not None
+        reported_gpus = worker_record.get('available_tools', {}).get('gpu_devices', [])
+        assert reported_gpus == []
+        print("SUCCESS: Worker in FORCE_CPU_ONLY mode correctly reported no GPUs.")
+
+    def test_force_gpu_only_mode(self):
+        """
+        Verify that a worker in FORCE_GPU_ONLY mode only polls for and
+        accepts GPU-enabled jobs.
+        """
+        if not is_gpu_available():
+            pytest.skip("Skipping FORCE_GPU_ONLY test: No physical GPU available.")
+
+        # Stop the default worker and start one in GPU-only mode
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+        self.start_worker(self.worker_log_queue, extra_env={"SETHLANS_FORCE_GPU_ONLY": "true"})
+
+        # Submit one GPU job and one CPU job
+        gpu_job = requests.post(f"{MANAGER_URL}/jobs/", json={
+            "name": "GPU Job for GPU-Only Worker", "asset_id": self.scene_asset_id,
+            "render_device": "GPU", "output_file_pattern": "gpu_only_####"
+        }).json()
+        cpu_job = requests.post(f"{MANAGER_URL}/jobs/", json={
+            "name": "CPU Job for GPU-Only Worker", "asset_id": self.scene_asset_id,
+            "render_device": "CPU", "output_file_pattern": "cpu_only_####"
+        }).json()
+
+        # Poll until the GPU job is done, verifying the CPU job is untouched
+        gpu_job_completed = False
+        for _ in range(30): # 60 sec timeout
+            gpu_status = requests.get(f"{MANAGER_URL}/jobs/{gpu_job['id']}/").json()['status']
+            cpu_status = requests.get(f"{MANAGER_URL}/jobs/{cpu_job['id']}/").json()['status']
+            assert cpu_status == "QUEUED", "GPU-only worker processed a CPU job."
+            if gpu_status == "DONE":
+                gpu_job_completed = True
+                break
+            time.sleep(2)
+
+        assert gpu_job_completed, "GPU-only worker failed to complete the GPU job."
+        print("SUCCESS: Worker in FORCE_GPU_ONLY mode correctly processed the GPU job and ignored the CPU job.")

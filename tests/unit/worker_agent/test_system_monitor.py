@@ -60,11 +60,11 @@ def test_detect_gpu_devices_success(mocker):
     """
     Tests successful GPU detection when Blender runs correctly.
     """
+    mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
     mocker.patch('platform.system', return_value="Windows")  # Avoid ldd check
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
-    # ** THE FIX IS HERE: Mock the returncode to simulate a successful run **
     mock_run.return_value = MagicMock(stdout='CUDA,OPTIX\n', stderr='', returncode=0)
 
     devices = system_monitor.detect_gpu_devices()
@@ -72,14 +72,30 @@ def test_detect_gpu_devices_success(mocker):
     assert devices == ['CUDA', 'OPTIX']
 
 
+def test_detect_gpu_devices_force_cpu_only_mode(mocker):
+    """
+    Ensures that when FORCE_CPU_ONLY is true, GPU detection is skipped and an empty list is returned.
+    """
+    # Arrange: Force the config setting to True
+    mocker.patch.object(config, 'FORCE_CPU_ONLY', True)
+    mock_run = mocker.patch('subprocess.run') # Mock subprocess to ensure it's not called
+
+    # Act
+    devices = system_monitor.detect_gpu_devices()
+
+    # Assert
+    assert devices == []
+    mock_run.assert_not_called()
+
+
 def test_detect_gpu_devices_caches_result(mocker):
     """Ensures that GPU detection results are cached after the first call."""
     # Arrange
+    mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
     mocker.patch('platform.system', return_value="Windows")
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
-    # ** THE FIX IS HERE: Mock the returncode to simulate a successful run **
     mock_run.return_value = MagicMock(stdout='CUDA\n', stderr='', returncode=0)
 
     # Act 1: First call should trigger the subprocess
