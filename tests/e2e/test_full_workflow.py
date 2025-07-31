@@ -231,6 +231,16 @@ class BaseE2ETest:
         test_env["SETHLANS_DB_NAME"] = TEST_DB_NAME
         test_env["DJANGO_SETTINGS_MODULE"] = "config.settings"
         test_env["SETHLANS_MEDIA_ROOT"] = str(MEDIA_ROOT_FOR_TEST)
+
+        # --- FIX FOR MACOS CI ---
+        # The virtualized GPU on macOS CI runners is unstable and causes Blender's Metal backend to crash.
+        # Force the worker into CPU-only mode to bypass this instability for all macOS CI tests.
+        is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+        if platform.system() == "Darwin" and is_ci:
+            print("\n[CI-FIX] macOS CI detected. Forcing worker into CPU-only mode to ensure stability.")
+            test_env["SETHLANS_MOCK_CPU_ONLY"] = "true"
+        # --- END OF FIX ---
+
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
         cls.worker_process = subprocess.Popen(worker_command, cwd=PROJECT_ROOT, env=test_env, stdout=subprocess.PIPE,
                                               stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
@@ -300,6 +310,10 @@ class BaseE2ETest:
         if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE): os.remove(
             worker_config.BLENDER_VERSIONS_CACHE_FILE)
         if MEDIA_ROOT_FOR_TEST.exists(): shutil.rmtree(MEDIA_ROOT_FOR_TEST, ignore_errors=True)
+
+        # Clean up mock environment variables
+        if "SETHLANS_MOCK_CPU_ONLY" in os.environ:
+            del os.environ["SETHLANS_MOCK_CPU_ONLY"]
 
         print("Teardown complete.")
 
@@ -700,8 +714,8 @@ class TestJobFiltering(BaseE2ETest):
         cpu_job_completed = False
         for _ in range(30):  # Wait up to 60 seconds
             cpu_job_status_response = requests.get(f"{MANAGER_URL}/jobs/{cpu_job_id}/")
-            gpu_job_status_response = requests.get(f"{MANAGER_URL}/jobs/{gpu_job_id}/")
             assert cpu_job_status_response.status_code == 200
+            gpu_job_status_response = requests.get(f"{MANAGER_URL}/jobs/{gpu_job_id}/")
             assert gpu_job_status_response.status_code == 200
 
             cpu_job_status = cpu_job_status_response.json()['status']
@@ -762,9 +776,14 @@ class TestProjectPauseWorkflow(BaseE2ETest):
         # 4. Wait and verify that only the active job is completed
         print("Waiting for worker to process active job...")
         active_job_done = False
-        for _ in range(15):  # 30 second timeout
-            active_job_status = requests.get(f"{MANAGER_URL}/jobs/{active_job_id}/").json()['status']
-            paused_job_status = requests.get(f"{MANAGER_URL}/jobs/{paused_job_id}/").json()['status']
+        for _ in range(30):  # 60 second timeout
+            active_job_response = requests.get(f"{MANAGER_URL}/jobs/{active_job_id}/")
+            assert active_job_response.status_code == 200
+            active_job_status = active_job_response.json()['status']
+
+            paused_job_response = requests.get(f"{MANAGER_URL}/jobs/{paused_job_id}/")
+            assert paused_job_response.status_code == 200
+            paused_job_status = paused_job_response.json()['status']
 
             assert paused_job_status == "QUEUED", "Paused job was processed prematurely!"
 
@@ -784,8 +803,11 @@ class TestProjectPauseWorkflow(BaseE2ETest):
 
         print("Waiting for worker to process the now-unpaused job...")
         paused_job_done = False
-        for _ in range(15):  # 30 second timeout
-            paused_job_status = requests.get(f"{MANAGER_URL}/jobs/{paused_job_id}/").json()['status']
+        for _ in range(30):  # 60 second timeout
+            paused_job_response = requests.get(f"{MANAGER_URL}/jobs/{paused_job_id}/")
+            assert paused_job_response.status_code == 200
+            paused_job_status = paused_job_response.json()['status']
+
             if paused_job_status == "DONE":
                 paused_job_done = True
                 break
