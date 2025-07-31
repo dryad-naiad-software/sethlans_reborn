@@ -183,3 +183,50 @@ def test_command_omits_render_engine_flag(mock_job_exec_deps):
 
     called_command = mock_popen.call_args.args[0]
     assert "-E" not in called_command
+
+
+# --- NEW TEST SUITE FOR POLLING LOGIC ---
+class TestJobPolling:
+    @pytest.fixture
+    def mock_poll_deps(self, mocker):
+        """Mocks dependencies for get_and_claim_job."""
+        mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
+        mocker.patch.object(config, 'FORCE_GPU_ONLY', False)
+        mock_requests_get = mocker.patch('requests.get')
+        mock_requests_get.return_value.json.return_value = [] # No jobs by default
+        mock_detect_gpu = mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices')
+        return mock_requests_get, mock_detect_gpu
+
+    def test_poll_in_force_cpu_mode(self, mocker, mock_poll_deps):
+        """Worker in FORCE_CPU_ONLY mode should poll for gpu_available=false."""
+        mock_requests_get, _ = mock_poll_deps
+        mocker.patch.object(config, 'FORCE_CPU_ONLY', True)
+
+        job_processor.get_and_claim_job(1)
+
+        mock_requests_get.assert_called_once()
+        call_params = mock_requests_get.call_args.kwargs.get('params', {})
+        assert call_params.get('gpu_available') == 'false'
+
+    def test_poll_in_force_gpu_mode(self, mocker, mock_poll_deps):
+        """Worker in FORCE_GPU_ONLY mode should poll for gpu_available=true."""
+        mock_requests_get, mock_detect_gpu = mock_poll_deps
+        mock_detect_gpu.return_value = ['CUDA'] # Simulate GPU present
+        mocker.patch.object(config, 'FORCE_GPU_ONLY', True)
+
+        job_processor.get_and_claim_job(1)
+
+        mock_requests_get.assert_called_once()
+        call_params = mock_requests_get.call_args.kwargs.get('params', {})
+        assert call_params.get('gpu_available') == 'true'
+
+    def test_poll_in_default_mode(self, mock_poll_deps):
+        """A normal worker (no force flags) should not specify gpu_available, making it flexible."""
+        mock_requests_get, mock_detect_gpu = mock_poll_deps
+        mock_detect_gpu.return_value = ['CUDA']  # Simulate a GPU-capable worker
+
+        job_processor.get_and_claim_job(1)
+
+        mock_requests_get.assert_called_once()
+        call_params = mock_requests_get.call_args.kwargs.get('params', {})
+        assert 'gpu_available' not in call_params

@@ -161,11 +161,16 @@ def get_and_claim_job(worker_id):
         return
 
     params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+
+    # *** BUG FIX STARTS HERE ***
+    # Correctly set polling parameters based on forced hardware modes.
     if config.FORCE_GPU_ONLY:
         params['gpu_available'] = 'true'
-    else:
-        # This handles both normal operation and FORCE_CPU_ONLY, where gpu_available will be False.
-        params['gpu_available'] = str(gpu_available).lower()
+    elif config.FORCE_CPU_ONLY:
+        params['gpu_available'] = 'false'
+    # If neither flag is set (normal operation), do NOT add the 'gpu_available'
+    # parameter. This allows a GPU-capable worker to pick up both CPU and GPU jobs.
+    # *** BUG FIX ENDS HERE ***
 
     logger.debug(f"Polling for jobs with params: {params}")
 
