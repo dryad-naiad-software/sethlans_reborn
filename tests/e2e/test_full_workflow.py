@@ -1,26 +1,3 @@
-#
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-#
-#
-# Created by Mario Estrella on 07/23/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
 # tests/e2e/test_full_workflow.py
 
 import os
@@ -59,7 +36,7 @@ def is_gpu_available():
 
 
 # --- Test Constants ---
-MANAGER_URL = "http://127.0.0.1:8000/api"
+MANAGER_URL = worker_config.MANAGER_API_URL.rstrip('/')
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TEST_DB_NAME = "test_e2e_db.sqlite3"
 MOCK_TOOLS_DIR = Path(worker_config.MANAGED_TOOLS_DIR)
@@ -198,8 +175,8 @@ class BaseE2ETest:
         subprocess.run([sys.executable, "manage.py", "migrate"], cwd=PROJECT_ROOT, env=test_env, check=True,
                        capture_output=True)
 
-        print("Starting Django manager...")
-        manager_command = [sys.executable, "manage.py", "runserver", "--noreload"]
+        print(f"Starting Django manager on port {worker_config.MANAGER_PORT}...")
+        manager_command = [sys.executable, "manage.py", "runserver", str(worker_config.MANAGER_PORT), "--noreload"]
         cls.manager_process = subprocess.Popen(manager_command, cwd=PROJECT_ROOT, env=test_env,
                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(5)

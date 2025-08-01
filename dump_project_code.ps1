@@ -1,25 +1,12 @@
 # dump_project_code.ps1
-# This script first outputs a clear directory listing of the project (excluding specified dirs),
-# then captures the full git log,
-# then divides the content of .py, .ini, and .txt files into manageable chunks (excluding specified dirs).
-# It ensures that each chunk ends cleanly at the end of a file.
-# It creates a manifest file and multiple chunk files for easier digestion by a chat model.
+# Stable version: no parameters, builds manifest in memory, strict chunking with splitting oversized files,
+# and includes a sanity-check summary (files processed, chunk counts, largest chunk size).
 
-# Define the base directory of your project (current directory when run)
 $ProjectRoot = Get-Location
-
-# Define the output directory for chunks and manifest
 $OutputChunkDir = Join-Path $ProjectRoot "project_code_dump_chunks"
-# Ensure the output directory exists
 New-Item -ItemType Directory -Path $OutputChunkDir -Force | Out-Null
-
-# Define the manifest file path
 $ManifestFile = Join-Path $OutputChunkDir "project_dump_manifest.txt"
 
-# Clear existing manifest file content
-Clear-Content $ManifestFile -ErrorAction SilentlyContinue
-
-# --- List of directories/patterns to exclude ---
 $ExcludeNames = @(
     "venv",
     ".idea",
@@ -28,170 +15,213 @@ $ExcludeNames = @(
     "__pycache__",
     "managed_tools",
     "render_test_output",
-    "project_code_dump_chunks" # Exclude the output directory itself
+    "project_code_dump_chunks"
 )
 
-# Helper function to check if a path contains an excluded directory name
 function Test-PathContainsExcludedDir {
     param([string]$Path)
-    $normalizedPath = $Path -replace [regex]::Escape($ProjectRoot.ToString()), ""
-    $pathParts = $normalizedPath.TrimStart('\').Split('\')
-
-    foreach ($part in $pathParts) {
-        if ($ExcludeNames -contains $part) {
-            return $true
-        }
+    $trimmed = $Path.TrimEnd('\','/')
+    $parts = $trimmed.Split([IO.Path]::DirectorySeparatorChar)
+    foreach ($p in $parts) {
+        if ($ExcludeNames -contains $p) { return $true }
     }
     return $false
 }
 
+# Accumulate manifest lines
+$manifestLines = @()
 
-Add-Content -LiteralPath $ManifestFile -Value "--- START OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
-Add-Content -LiteralPath $ManifestFile -Value "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-Add-Content -LiteralPath $ManifestFile -Value "`n**INSTRUCTIONS FOR PROCESSING THIS CODEBASE:**"
-Add-Content -LiteralPath $ManifestFile -Value "1. **READ THIS MANIFEST FIRST.** It provides an overview and list of chunks."
-Add-Content -LiteralPath $ManifestFile -Value "2. **ACKNOWLEDGE RECEIPT OF THIS MANIFEST.** Confirm you understand the process."
-Add-Content -LiteralPath $ManifestFile -Value "3. **REQUEST CHUNKS SEQUENTIALLY.** After acknowledging, ask for the content of 'project_code_chunk_01.txt', then 'project_code_chunk_02.txt', and so on, until all chunks listed below have been provided."
-Add-Content -LiteralPath $ManifestFile -Value "4. **CONFIRM RECEIPT OF EACH CHUNK.** After each chunk is provided, please acknowledge that you have received and processed its content before requesting the next."
-Add-Content -LiteralPath $ManifestFile -Value "`n**PROJECT OVERVIEW:**"
-Add-Content -LiteralPath $ManifestFile -Value "Project Name: Sethlans Reborn - Distributed Blender Rendering System"
-Add-Content -LiteralPath $ManifestFile -Value "Core Goal: Leverage multiple worker machines for Blender rendering jobs."
-Add-Content -LiteralPath $ManifestFile -Value "Architecture: Consists of a Django Manager (Backend) and Python Worker Agents (Clients)."
-Add-Content -LiteralPath $ManifestFile -Value "Development Focus: Currently focusing on building out and unit testing the **backend functionality**. The **frontend will eventually be written in Angular**."
-Add-Content -LiteralPath $ManifestFile -Value "`n**CURRENT CODEBASE STATE:**"
-Add-Content -LiteralPath $ManifestFile -Value "This dump contains all .py, .ini, and .txt files from the project as of the timestamp above."
-Add-Content -LiteralPath $ManifestFile -Value "The unit test suite for the 'sethlans_worker_agent' components is partially complete and currently stable (passing 6 tests in test_tool_manager.py and others)."
-Add-Content -LiteralPath $ManifestFile -Value "The last complex test we were working on ('generate_and_cache_blender_download_info' in tool_manager.py) was paused due to intricate mocking issues, so that test (Test 7 in test_tool_manager.py) is NOT expected to pass in the current code, but is stable in the previous commit. We will revisit it later."
-Add-Content -LiteralPath $ManifestFile -Value "`n--- END OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
+# Header / overview
+$manifestLines += "--- START OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
+$manifestLines += "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+$manifestLines += ""
+$manifestLines += "**INSTRUCTIONS FOR PROCESSING THIS CODEBASE:**"
+$manifestLines += "1. **READ THIS MANIFEST FIRST.** It provides an overview and list of chunks."
+$manifestLines += "2. **ACKNOWLEDGE RECEIPT OF THIS MANIFEST.** Confirm you understand the process."
+$manifestLines += "3. **REQUEST CHUNKS SEQUENTIALLY.** After acknowledging, ask for the content of each chunk in order."
+$manifestLines += "4. **CONFIRM RECEIPT OF EACH CHUNK.**"
+$manifestLines += ""
+$manifestLines += "**PROJECT OVERVIEW:**"
+$manifestLines += "Project Name: Sethlans Reborn - Distributed Blender Rendering System"
+$manifestLines += "Core Goal: Leverage multiple worker machines for Blender rendering jobs."
+$manifestLines += "Architecture: Django Manager backend + Python Worker Agents."
+$manifestLines += "Development Focus: Backend unit testing; frontend planned in Angular."
+$manifestLines += ""
+$manifestLines += "**CURRENT CODEBASE STATE:**"
+$manifestLines += "Dump includes all .py, .ini, and .txt files as of the timestamp."
+$manifestLines += "Unit test suite for 'sethlans_worker_agent' is partially complete (6 passing tests)."
+$manifestLines += "Test 'generate_and_cache_blender_download_info' is currently paused due to mocking complexity."
+$manifestLines += ""
+$manifestLines += "--- END OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
+$manifestLines += ""
 
+# Directory listing
+$manifestLines += "--- START OF DIRECTORY LISTING ---"
+$manifestLines += ("Project Root: {0}\" -f $ProjectRoot.Name)
 
-# --- Add Directory Listing ---
-Add-Content -LiteralPath $ManifestFile -Value "`n--- START OF DIRECTORY LISTING ---"
-Add-Content -LiteralPath $ManifestFile -Value "Project Root: $($ProjectRoot.Name)\"
-
-# Define a recursive function for clearer tree-like listing
 function Get-TreeListing {
-    param (
-        [string]$Path,
-        [int]$Depth = 0
-    )
+    param([string]$Path, [int]$Depth = 0)
     $indent = "  " * $Depth
-    Get-ChildItem -Path $Path | ForEach-Object {
-        $relativePath = $_.FullName.Replace($ProjectRoot.ToString() + "\", "")
+    try {
+        Get-ChildItem -LiteralPath $Path | Sort-Object @{Expression='PSIsContainer'; Descending=$true}, Name | ForEach-Object {
+            if ($_.PSIsContainer -and $ExcludeNames -contains $_.Name) { return }
+            if (-not $_.PSIsContainer -and (Test-PathContainsExcludedDir $_.Directory.FullName)) { return }
 
-        # Check if the current item (directory or file) itself, or any of its parent directories, is excluded
-        if ($_.PSIsContainer) {
-            # Check if this directory's name is in ExcludeNames
-            if ($ExcludeNames -contains $_.Name) {
-                return # Skip this directory and its contents
+            if ($_.PSIsContainer) {
+                $manifestLines += ("{0}|-- {1}\" -f $indent, $_.Name)
+                Get-TreeListing -Path $_.FullName -Depth ($Depth + 1)
+            } else {
+                $manifestLines += ("{0}|-- {1}" -f $indent, $_.Name)
             }
         }
-        # For files, also check if their parent directory is excluded
-        if (-not $_.PSIsContainer -and (Test-PathContainsExcludedDir $_.Directory.FullName)) {
-            return # Skip file if its parent directory is excluded
-        }
-
-        if ($_.PSIsContainer) {
-            Add-Content -LiteralPath $ManifestFile -Value "$($indent)|-- $($_.Name)\"
-            Get-TreeListing -Path $_.FullName -Depth ($Depth + 1)
-        } else {
-            Add-Content -LiteralPath $ManifestFile -Value "$($indent)|-- $($_.Name)"
-        }
+    } catch {
+        $manifestLines += ("WARNING: Failed to list directory at {0}: {1}" -f $Path, $_.Exception.Message)
     }
 }
 
-# Start the recursive listing from the project root
 Get-TreeListing -Path $ProjectRoot -Depth 0
+$manifestLines += "--- END OF DIRECTORY LISTING ---"
 
-Add-Content -LiteralPath $ManifestFile -Value "--- END OF DIRECTORY LISTING ---"
-
-
-# --- Add Git Log ---
-Add-Content -LiteralPath $ManifestFile -Value "`n--- START OF GIT LOG ---"
+# Git log
+$manifestLines += ""
+$manifestLines += "--- START OF GIT LOG ---"
 try {
-    # Change to project root to ensure git command runs correctly
     Push-Location $ProjectRoot
-    # Get the full git log output and append it to the manifest file
-    $gitLogOutput = git log --pretty=fuller # Capture full output
-    Add-Content -LiteralPath $ManifestFile -Value $gitLogOutput
-    Pop-Location # Go back to original location
+    $gitLogOutput = git log --pretty=fuller 2>&1
+    $manifestLines += $gitLogOutput
+    Pop-Location
 } catch {
-    Add-Content -LiteralPath $ManifestFile -Value "ERROR: Could not get git log. Please ensure Git is installed and initialized in the project root."
-    Add-Content -LiteralPath $ManifestFile -Value "$($_.Exception.Message)"
+    $manifestLines += "ERROR: Could not get git log. Ensure Git is installed and repository is initialized."
+    $manifestLines += $_.Exception.Message
 }
-Add-Content -LiteralPath $ManifestFile -Value "--- END OF GIT LOG ---"
-# --- End Git Log ---
+$manifestLines += "--- END OF GIT LOG ---"
 
-
-# --- Collect File Contents for Chunking ---
-# Filter files to dump, excluding specified directories and __pycache__ etc.
+# Chunking logic
 $FilesToDump = Get-ChildItem -Path $ProjectRoot -Recurse -Include "*.py", "*.ini", "*.txt" |
-               Where-Object { -not (Test-PathContainsExcludedDir $_.Directory.FullName) } | # Exclude based on parent directory
-               Sort-Object FullName # Sort for consistent order
+    Where-Object { -not (Test-PathContainsExcludedDir $_.Directory.FullName) } |
+    Sort-Object FullName
 
-$CurrentChunkContent = ""
-$CurrentChunkNumber = 1
-$ChunkFileNames = @() # To store names for the manifest
-$MaxChunkSizeChars = 60000 # Aim for approx 60KB per chunk. Adjust as needed if chunks are still too large.
+$filesFound = $FilesToDump.Count
+$filesProcessed = 0
+$filesFailed = 0
 
-Write-Host "Processing files for chunking..."
+$MaxChunkSizeChars = 40000
+$chunks = @()
+$currentChunk = ""
+
+function Split-FormattedFileIntoPieces {
+    param([string]$text, [int]$maxSize)
+    $pieces = @()
+    if ($text.Length -le $maxSize) { return ,$text }
+
+    $lines = $text -split "`n"
+    $buffer = ""
+    foreach ($line in $lines) {
+        $candidate = if ($buffer) { "$buffer`n$line" } else { $line }
+        if ($candidate.Length -le $maxSize) {
+            $buffer = $candidate
+        } else {
+            if ($buffer) { $pieces += $buffer }
+            if ($line.Length -le $maxSize) {
+                $buffer = $line
+            } else {
+                $i = 0
+                while ($i -lt $line.Length) {
+                    $slice = $line.Substring($i, [Math]::Min($maxSize, $line.Length - $i))
+                    $pieces += $slice
+                    $i += $slice.Length
+                }
+                $buffer = ""
+            }
+        }
+    }
+    if ($buffer) { $pieces += $buffer }
+    return $pieces
+}
 
 foreach ($file in $FilesToDump) {
     $relativePath = $file.FullName.Replace($ProjectRoot.ToString() + "\", "")
-    $fileContent = Get-Content $file.FullName -Raw -Encoding Utf8 # Ensure consistent encoding
-    $formattedFileContent = "`n--- FILE_START: $relativePath ---`n$fileContent`n--- FILE_END: $relativePath ---"
-
-    # Check if adding this file would exceed the max chunk size
-    # Or if this single file is larger than MaxChunkSize (it will become its own chunk)
-    if ($CurrentChunkContent.Length -gt 0 -and ($CurrentChunkContent.Length + $formattedFileContent.Length) -gt $MaxChunkSizeChars) {
-        # Save the current chunk before adding the new file
-        $ChunkFileName = "project_code_chunk_{0:02d}.txt" -f $CurrentChunkNumber
-        $ChunkFilePath = Join-Path $OutputChunkDir $ChunkFileName
-
-        # Add chunk headers/footers to the file
-        Add-Content -LiteralPath $ChunkFilePath -Value "--- START OF CHUNK $($ChunkNumber) OF [TOTAL_CHUNKS_PLACEHOLDER] ---" -Encoding Utf8
-        Add-Content -LiteralPath $ChunkFilePath -Value $CurrentChunkContent -Encoding Utf8
-        Add-Content -LiteralPath $ChunkFilePath -Value "`n--- END OF CHUNK $($ChunkNumber) OF [TOTAL_CHUNKS_PLACEHOLDER] ---" -Encoding Utf8
-
-        $ChunkFileNames += $ChunkFileName # Add to list for manifest
-        $CurrentChunkContent = "" # Reset for next chunk
-        $CurrentChunkNumber++
-        Write-Host "  Generated $ChunkFileName"
+    try {
+        $content = Get-Content -LiteralPath $file.FullName -Raw -Encoding Utf8
+        $filesProcessed++
+    } catch {
+        Write-Warning ("Failed to read {0}: {1}" -f $relativePath, $_.Exception.Message)
+        $filesFailed++
+        continue
     }
+    $wrapped = "`n--- FILE_START: $relativePath ---`n$content`n--- FILE_END: $relativePath ---"
+    $pieces = Split-FormattedFileIntoPieces -text $wrapped -maxSize $MaxChunkSizeChars
 
-    # Add current file content to the current chunk
-    $CurrentChunkContent += $formattedFileContent
+    foreach ($piece in $pieces) {
+        if ($currentChunk.Length -gt 0 -and ($currentChunk.Length + $piece.Length) -gt $MaxChunkSizeChars) {
+            $chunks += [pscustomobject]@{ Content = $currentChunk }
+            $currentChunk = ""
+        }
+        $currentChunk += $piece
+    }
 }
 
-# Add the last chunk if there's any remaining content
-if ($CurrentChunkContent.Length -gt 0) {
-    $ChunkFileName = "project_code_chunk_{0:02d}.txt" -f $CurrentChunkNumber
-    $ChunkFilePath = Join-Path $OutputChunkDir $ChunkFileName
-
-    Add-Content -LiteralPath $ChunkFilePath -Value "--- START OF CHUNK $($CurrentChunkNumber) OF [TOTAL_CHUNKS_PLACEHOLDER] ---" -Encoding Utf8
-    Add-Content -LiteralPath $ChunkFilePath -Value $CurrentChunkContent -Encoding Utf8
-    Add-Content -LiteralPath $ChunkFilePath -Value "`n--- END OF CHUNK $($CurrentChunkNumber) OF [TOTAL_CHUNKS_PLACEHOLDER] ---" -Encoding Utf8
-
-    $ChunkFileNames += $ChunkFileName
-    $CurrentChunkNumber++
-    Write-Host "  Generated $ChunkFileName (last chunk)"
+if ($currentChunk.Length -gt 0) {
+    $chunks += [pscustomobject]@{ Content = $currentChunk }
 }
 
-# --- Update Manifest with Total Chunks and chunk file names ---
-$TotalChunksFinal = $ChunkFileNames.Count
+# Write chunk files
+$TotalChunks = $chunks.Count
+$chunkFileNames = @()
+$chunkSizes = @()
 
-# Re-read manifest to update TOTAL_CHUNKS_PLACEHOLDER
-$ManifestContent = Get-Content $ManifestFile -Raw -Encoding Utf8
-$ManifestContent = $ManifestContent.Replace("[TOTAL_CHUNKS_PLACEHOLDER]", $TotalChunksFinal)
-Set-Content -LiteralPath $ManifestFile -Value $ManifestContent -Encoding Utf8
+for ($i = 0; $i -lt $TotalChunks; $i++) {
+    $num = $i + 1
+    $name = "project_code_chunk_{0:02d}.txt" -f $num
+    $path = Join-Path $OutputChunkDir $name
+    $header = "--- START OF CHUNK $num OF $TotalChunks ---"
+    $footer = "`n--- END OF CHUNK $num OF $TotalChunks ---"
+    $full = $header + "`n" + $chunks[$i].Content + $footer
+    Set-Content -LiteralPath $path -Value $full -Encoding Utf8
 
-# Add chunk file names to the manifest
-Add-Content -LiteralPath $ManifestFile -Value "`n**CODE CHUNKS TO PROVIDE (in order):**" -Encoding Utf8
-foreach ($name in $ChunkFileNames) {
-    Add-Content -LiteralPath $ManifestFile -Value "$name" -Encoding Utf8
+    $chunkFileNames += $name
+    $chunkSizes += $full.Length
+    Write-Host "  Generated $name"
 }
-Add-Content -LiteralPath $ManifestFile -Value "`n--- END OF PROJECT CODE DUMP ---" -Encoding Utf8
 
-Write-Host "`nAll .py, .ini, and .txt file contents saved to: $OutputChunkDir"
-Write-Host "First, open and copy the content of '$ManifestFile' and paste it into your new chat."
-Write-Host "Then, sequentially provide the contents of each 'project_code_chunk_XX.txt' file listed in the manifest."
+# Sanity-check summary
+$largestChunkSize = 0
+if ($chunkSizes.Count -gt 0) {
+    $largestChunkSize = ($chunkSizes | Measure-Object -Maximum).Maximum
+}
+$averageChunkSize = 0
+if ($chunkSizes.Count -gt 0) {
+    $averageChunkSize = [Math]::Round(($chunkSizes | Measure-Object -Average).Average)
+}
+$totalChars = ($chunkSizes | Measure-Object -Sum).Sum
+
+$manifestLines += ""
+$manifestLines += "**SANITY CHECK SUMMARY:**"
+$manifestLines += ("Files matching patterns found: {0}" -f $filesFound)
+$manifestLines += ("Files successfully read: {0}" -f $filesProcessed)
+$manifestLines += ("Files failed to read: {0}" -f $filesFailed)
+$manifestLines += ("Total chunks produced: {0}" -f $TotalChunks)
+$manifestLines += ("Largest chunk size (chars): {0}" -f $largestChunkSize)
+$manifestLines += ("Average chunk size (chars): {0}" -f $averageChunkSize)
+$manifestLines += ("Total characters across chunks: {0}" -f $totalChars)
+
+# Append chunk list to manifest
+$manifestLines += ""
+$manifestLines += "**CODE CHUNKS TO PROVIDE (in order):**"
+foreach ($n in $chunkFileNames) {
+    $manifestLines += $n
+}
+$manifestLines += ""
+$manifestLines += "--- END OF PROJECT CODE DUMP ---"
+
+# Final manifest write
+if ($manifestLines.Count -eq 0) {
+    Write-Warning "Manifest is empty—nothing to write."
+} else {
+    Set-Content -LiteralPath $ManifestFile -Value ($manifestLines -join "`n") -Encoding Utf8
+    Write-Host "Manifest written to: $ManifestFile"
+}
+
+Write-Host "Chunks written to: $OutputChunkDir"
+$summary = ("Sanity summary: {0} files found, {1} read, {2} failed, {3} chunks, largest chunk {4} chars." -f $filesFound, $filesProcessed, $filesFailed, $TotalChunks, $largestChunkSize)
+Write-Host $summary

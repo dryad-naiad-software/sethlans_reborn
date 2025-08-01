@@ -1,16 +1,15 @@
-# Virtual environment
-venv/
-.venv/
-venv_worker/
-*.env
-.env
+# .gitignore
 
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-*.pyd
-*.pyo
-.Python/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
 build/
 develop-eggs/
 dist/
@@ -23,40 +22,117 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
-*.ipynb
-.mypy_cache/
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
 .pytest_cache/
 
-# Django specific
-*.sqlite3
-/media/
-/static/
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
 *.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
 
-# IDE / Editor
-.idea/
-*.iml
-.vscode/
+# Scrapy stuff:
+.scrapy
 
-# OS generated files
-.DS_Store
-.Trashes
-Thumbs.db
+# Sphinx documentation
+docs/_build/
 
+# PyBuilder
+target/
 
+# Jupyter Notebook
+.ipynb_checkpoints
 
-# Sethlans Reborn Specific
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having different hashes across platforms, it may be better to ignore Pipfile.lock.
+# Pipfile.lock
+
+# PEP 582; __pypackages__
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Sethlans Reborn specific
+manager.ini
+sethlans_worker_agent/config.ini
 sethlans_worker_agent/managed_tools/
 sethlans_worker_agent/managed_assets/
-*.txt
 sethlans_worker_agent/worker_output/
 sethlans_worker_agent/temp/
-
-
-
-/parse_log_file.py
-/Run-ManualTest.ps1
-/manual_test_script.py
+sethlans_e2e_cache/
+test_e2e_db.sqlite3
+*.txt # test result files
+/media/
+manual_test_output/

@@ -1,0 +1,13 @@
+# manager.ini.example
+#
+# This is an example configuration file for the Sethlans Manager.
+# To use it, copy this file to 'manager.ini' in the same directory
+# and modify the values as needed.
+#
+# Settings in this file will be overridden by environment variables if they are set.
+# For example, setting the SETHLANS_MANAGER_PORT environment variable will take
+# precedence over the 'port' value defined here.
+
+[server]
+# The port the Django development server will run on.
+port = 7075

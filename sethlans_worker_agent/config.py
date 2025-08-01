@@ -1,26 +1,3 @@
-#
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-#
-#
-# Created by Mario Estrella on 07/22/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
 # sethlans_worker_agent/config.py
 """
 Configuration module for the Sethlans Reborn worker agent.
@@ -28,28 +5,63 @@ Configuration module for the Sethlans Reborn worker agent.
 This module consolidates all configurable settings for the worker agent,
 including API endpoints, operational intervals, file paths, and hardware
 management flags. It is the single source of truth for the worker's behavior.
+
+Configuration is loaded with the following priority (highest priority last):
+1. Hardcoded defaults in this file.
+2. Values from a 'config.ini' file in the same directory.
+3. Environment variables (e.g., SETHLANS_MANAGER_PORT).
 """
 
 import os
 import sys
 import platform
 import logging
+import configparser
 from pathlib import Path
+
+# --- Config File Loading ---
+config_parser = configparser.ConfigParser()
+config_file_path = Path(__file__).resolve().parent / 'config.ini'
+if config_file_path.exists():
+    config_parser.read(config_file_path)
+
+
+# --- Helper function to get config value with override ---
+def get_config_value(section, key, default, is_int=False):
+    """
+    Gets a configuration value, respecting the override hierarchy.
+    1. Checks environment variable.
+    2. Checks .ini file.
+    3. Falls back to the hardcoded default.
+    """
+    env_var_name = f"SETHLANS_{section.upper()}_{key.upper()}"
+    value = os.getenv(env_var_name)
+    if value is not None:
+        return int(value) if is_int else value
+
+    if config_parser.has_option(section, key):
+        if is_int:
+            return config_parser.getint(section, key)
+        return config_parser.get(section, key)
+
+    # --- FIX IS HERE ---
+    # Ensure the default value's type is also respected.
+    return int(default) if is_int else default
 
 
 # --- Manager API Configuration ---
+MANAGER_PORT = get_config_value('manager', 'port', 7075, is_int=True)
+MANAGER_HOST = get_config_value('manager', 'host', '127.0.0.1')
 # The base URL for the central Django Manager's API.
-MANAGER_API_URL = "http://127.0.0.1:8000/api/"
+MANAGER_API_URL = f"http://{MANAGER_HOST}:{MANAGER_PORT}/api/"
+
 
 # --- Worker Operation Intervals ---
-# Frequency (in seconds) for sending heartbeats to the manager.
-HEARTBEAT_INTERVAL_SECONDS = 30
-# Frequency (in seconds) for polling the manager for new jobs.
-JOB_POLLING_INTERVAL_SECONDS = 5
+HEARTBEAT_INTERVAL_SECONDS = get_config_value('worker', 'heartbeat_interval', 30, is_int=True)
+JOB_POLLING_INTERVAL_SECONDS = get_config_value('worker', 'polling_interval', 5, is_int=True)
 
 # --- Worker Hardware Configuration ---
 # These settings are mutually exclusive and can be set via environment variables.
-# They are primarily used for testing or in specific rendering environments.
 FORCE_CPU_ONLY = os.getenv('SETHLANS_FORCE_CPU_ONLY', 'false').lower() == 'true'
 FORCE_GPU_ONLY = os.getenv('SETHLANS_FORCE_GPU_ONLY', 'false').lower() == 'true'
 
