@@ -2,7 +2,21 @@
 # Stable version: no parameters, builds manifest in memory, strict chunking with splitting oversized files,
 # and includes a sanity-check summary (files processed, chunk counts, largest chunk size).
 
-$ProjectRoot = Get-Location
+# Determine project root. If the script is run from "dev_scripts" directory, treat its parent as the project root.
+$Current = Get-Location
+$currentPath = $Current.Path
+if ((Split-Path -Leaf $currentPath) -ieq 'dev_scripts') {
+    $ProjectRootPath = Split-Path -Parent $currentPath
+    if (-not $ProjectRootPath) {
+        # fallback to current if something weird happens
+        $ProjectRootPath = $currentPath
+    }
+} else {
+    $ProjectRootPath = $currentPath
+}
+# Normalize to an item so later .Name and ToString() work consistently
+$ProjectRoot = Get-Item -LiteralPath $ProjectRootPath
+
 $OutputChunkDir = Join-Path $ProjectRoot "project_code_dump_chunks"
 New-Item -ItemType Directory -Path $OutputChunkDir -Force | Out-Null
 $ManifestFile = Join-Path $OutputChunkDir "project_dump_manifest.txt"
@@ -15,7 +29,8 @@ $ExcludeNames = @(
     "__pycache__",
     "managed_tools",
     "render_test_output",
-    "project_code_dump_chunks"
+    "project_code_dump_chunks",
+    "dev_scripts"
 )
 
 function Test-PathContainsExcludedDir {
@@ -57,7 +72,7 @@ $manifestLines += ""
 
 # Directory listing
 $manifestLines += "--- START OF DIRECTORY LISTING ---"
-$manifestLines += ("Project Root: {0}\" -f $ProjectRoot.Name)
+$manifestLines += ("Project Root: {0}" -f $ProjectRoot.Name)
 
 function Get-TreeListing {
     param([string]$Path, [int]$Depth = 0)
@@ -68,7 +83,7 @@ function Get-TreeListing {
             if (-not $_.PSIsContainer -and (Test-PathContainsExcludedDir $_.Directory.FullName)) { return }
 
             if ($_.PSIsContainer) {
-                $manifestLines += ("{0}|-- {1}\" -f $indent, $_.Name)
+                $manifestLines += ("{0}|-- {1}" -f $indent, $_.Name)
                 Get-TreeListing -Path $_.FullName -Depth ($Depth + 1)
             } else {
                 $manifestLines += ("{0}|-- {1}" -f $indent, $_.Name)
@@ -211,17 +226,4 @@ $manifestLines += "**CODE CHUNKS TO PROVIDE (in order):**"
 foreach ($n in $chunkFileNames) {
     $manifestLines += $n
 }
-$manifestLines += ""
-$manifestLines += "--- END OF PROJECT CODE DUMP ---"
-
-# Final manifest write
-if ($manifestLines.Count -eq 0) {
-    Write-Warning "Manifest is empty—nothing to write."
-} else {
-    Set-Content -LiteralPath $ManifestFile -Value ($manifestLines -join "`n") -Encoding Utf8
-    Write-Host "Manifest written to: $ManifestFile"
-}
-
-Write-Host "Chunks written to: $OutputChunkDir"
-$summary = ("Sanity summary: {0} files found, {1} read, {2} failed, {3} chunks, largest chunk {4} chars." -f $filesFound, $filesProcessed, $filesFailed, $TotalChunks, $largestChunkSize)
-Write-Host $summary
+$manifest
