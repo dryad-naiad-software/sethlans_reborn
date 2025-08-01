@@ -51,6 +51,11 @@ E2E_BLENDER_SERIES = "4.5"
 
 
 class BaseE2ETest:
+    """
+    A base class for end-to-end tests that handles the setup and teardown
+    of the entire test environment, including a live manager, a live worker,
+    and a clean database.
+    """
     manager_process = None
     worker_process = None
     worker_log_thread = None
@@ -63,18 +68,38 @@ class BaseE2ETest:
     bmw_asset_id = None
     anim_asset_id = None
 
+    # FIX: Add the test blend file path as a class attribute
+    test_blend_file = worker_config.TEST_BLEND_FILE_PATH
+
     @classmethod
     def _upload_test_asset(cls, name, file_path, project_id):
-        """Helper to upload a blend file and return its asset ID."""
+        """
+        Helper function to upload a .blend file asset to the manager.
+
+        This function handles the multipart/form-data request required for
+        uploading files alongside text data fields.
+
+        Args:
+            name (str): The name to assign to the new asset.
+            file_path (str): The local path to the .blend file.
+            project_id (str): The UUID of the project this asset belongs to.
+
+        Returns:
+            int: The ID of the newly created asset.
+        """
         with open(file_path, 'rb') as f:
             payload = {
                 "name": name,
-                "project": project_id,
+                "project": str(project_id),
             }
             files = {
-                "blend_file": (os.path.basename(file_path), f.read(), "application/octet-stream")
+                "blend_file": (os.path.basename(file_path), f, "application/octet-stream")
             }
             response = requests.post(f"{MANAGER_URL}/assets/", data=payload, files=files)
+
+            if response.status_code == 400:
+                print(f"ERROR: Asset upload failed with 400. Response: {response.text}")
+
             response.raise_for_status()
             return response.json()['id']
 
@@ -83,11 +108,13 @@ class BaseE2ETest:
         """
         Dynamically finds the latest patch for the E2E_BLENDER_SERIES,
         then downloads and extracts it to a persistent system temp directory.
+        This ensures Blender is downloaded only once per test session.
         """
         if cls._blender_version_for_test is None:
             print(f"\nDynamically determining latest patch for Blender {E2E_BLENDER_SERIES}.x series...")
             releases = blender_release_parser.get_blender_releases()
             latest_patch_for_series = None
+            # The keys are sorted by version number descending, so the first match is the latest
             for version in releases.keys():
                 if version.startswith(E2E_BLENDER_SERIES + '.'):
                     latest_patch_for_series = version
@@ -160,14 +187,13 @@ class BaseE2ETest:
         if extra_env:
             test_env.update(extra_env)
 
-        # --- FIX FOR MACOS CI ---
+        # Apply CI-specific stability fixes for macOS virtualized environments
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
         force_flag_is_set = "SETHLANS_FORCE_CPU_ONLY" in test_env or "SETHLANS_FORCE_GPU_ONLY" in test_env
 
         if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration' and not force_flag_is_set:
             print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode.")
             test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
-        # --- END OF FIX ---
 
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
         cls.worker_process = subprocess.Popen(worker_command, cwd=PROJECT_ROOT, env=test_env, stdout=subprocess.PIPE,
@@ -205,6 +231,9 @@ class BaseE2ETest:
         """Set up the environment for all tests in this class."""
         print(f"\n--- SETUP: {cls.__name__} ---")
 
+        # --- FIX: Generate a unique suffix for this test class run ---
+        unique_suffix = int(time.time())
+
         cls._cache_blender_once()
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
         if MOCK_TOOLS_DIR.exists(): shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
@@ -239,18 +268,22 @@ class BaseE2ETest:
         time.sleep(5)
 
         print("Creating E2E test project...")
-        project_payload = {"name": f"E2E-Test-Project-{int(time.time())}"}
+        project_payload = {"name": f"E2E-Test-Project-{unique_suffix}"}
         response = requests.post(f"{MANAGER_URL}/projects/", json=project_payload)
         response.raise_for_status()
         cls.project_id = response.json()['id']
         print(f"Test project created with ID: {cls.project_id}")
 
         print("Uploading test assets...")
-        cls.scene_asset_id = cls._upload_test_asset("E2E Test Scene", worker_config.TEST_BLEND_FILE_PATH,
+        # --- FIX: Append unique suffix to asset names ---
+        cls.scene_asset_id = cls._upload_test_asset(f"E2E Test Scene {unique_suffix}",
+                                                    worker_config.TEST_BLEND_FILE_PATH,
                                                     cls.project_id)
-        cls.bmw_asset_id = cls._upload_test_asset("E2E BMW Scene", worker_config.BENCHMARK_BLEND_FILE_PATH,
+        cls.bmw_asset_id = cls._upload_test_asset(f"E2E BMW Scene {unique_suffix}",
+                                                  worker_config.BENCHMARK_BLEND_FILE_PATH,
                                                   cls.project_id)
-        cls.anim_asset_id = cls._upload_test_asset("E2E Animation Scene", worker_config.ANIMATION_BLEND_FILE_PATH,
+        cls.anim_asset_id = cls._upload_test_asset(f"E2E Animation Scene {unique_suffix}",
+                                                   worker_config.ANIMATION_BLEND_FILE_PATH,
                                                    cls.project_id)
         print(f"Assets uploaded: scene_id={cls.scene_asset_id}, bmw_id={cls.bmw_asset_id}, anim_id={cls.anim_asset_id}")
 

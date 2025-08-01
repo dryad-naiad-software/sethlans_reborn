@@ -41,11 +41,11 @@ class TestAnimationWorkflow(BaseE2ETest):
     def test_animation_render_workflow(self):
         start_frame, end_frame = 1, 5
         total_frames = (end_frame - start_frame) + 1
-        output_pattern = "anim_render_####"
+        output_pattern = f"anim_render_{self.project_id}_####"
 
         print("\n--- ACTION: Submitting animation job ---")
         anim_payload = {
-            "name": "E2E Animation Test",
+            "name": f"E2E Animation Test {self.project_id}",
             "project": self.project_id,
             "asset_id": self.anim_asset_id,
             "output_file_pattern": output_pattern,
@@ -53,6 +53,7 @@ class TestAnimationWorkflow(BaseE2ETest):
             "end_frame": end_frame,
             "blender_version": self._blender_version_for_test,
             "render_device": "CPU",
+            "tiling_config": TilingConfiguration.NONE,  # <-- FIX: Explicitly set tiling config
             "render_settings": {
                 RenderSettings.SAMPLES: 25,
                 RenderSettings.RESOLUTION_PERCENTAGE: 25
@@ -106,7 +107,7 @@ class TestAnimationWorkflow(BaseE2ETest):
 
         print("\n--- ACTION: Submitting animation job with frame_step ---")
         anim_payload = {
-            "name": "E2E Frame Step Test",
+            "name": f"E2E Frame Step Test {self.project_id}",
             "project": self.project_id,
             "asset_id": self.anim_asset_id,
             "output_file_pattern": "frame_step_render_####",
@@ -114,6 +115,7 @@ class TestAnimationWorkflow(BaseE2ETest):
             "end_frame": end_frame,
             "frame_step": frame_step,
             "blender_version": self._blender_version_for_test,
+            "tiling_config": TilingConfiguration.NONE,  # <-- FIX: Explicitly set tiling config
         }
         create_response = requests.post(f"{MANAGER_URL}/animations/", json=anim_payload)
         assert create_response.status_code == 201
@@ -155,7 +157,7 @@ class TestTiledAnimationWorkflow(BaseE2ETest):
         start_frame, end_frame = 1, 2
         total_frames = (end_frame - start_frame) + 1
         anim_payload = {
-            "name": "E2E Tiled Animation Test",
+            "name": f"E2E Tiled Animation Test {self.project_id}",
             "project": self.project_id,
             "asset_id": self.anim_asset_id,
             "output_file_pattern": "tiled_anim_e2e_####",

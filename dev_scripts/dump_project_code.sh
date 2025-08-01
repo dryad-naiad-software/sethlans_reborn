@@ -67,11 +67,6 @@ manifest_lines+=("Core Goal: Leverage multiple worker machines for Blender rende
 manifest_lines+=("Architecture: Django Manager backend + Python Worker Agents.")
 manifest_lines+=("Development Focus: Backend unit testing; frontend planned in Angular.")
 manifest_lines+=("")
-manifest_lines+=("**CURRENT CODEBASE STATE:**")
-manifest_lines+=("Dump includes all .py, .ini, and .txt files as of the timestamp.")
-manifest_lines+=("Unit test suite for 'sethlans_worker_agent' is partially complete (6 passing tests).")
-manifest_lines+=("Test 'generate_and_cache_blender_download_info' is currently paused due to mocking complexity.")
-manifest_lines+=("")
 manifest_lines+=("--- END OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---")
 manifest_lines+=("")
 

@@ -1,26 +1,12 @@
-# dump_project_code.ps1
+# dump_project_code.ps1 (updated)
 # Stable version: no parameters, builds manifest in memory, strict chunking with splitting oversized files,
-# and includes a sanity-check summary (files processed, chunk counts, largest chunk size).
+# and includes a sanity‑check summary (files processed, chunk counts, largest chunk size).
 
-# Determine project root. If the script is run from "dev_scripts" directory, treat its parent as the project root.
-$Current = Get-Location
-$currentPath = $Current.Path
-if ((Split-Path -Leaf $currentPath) -ieq 'dev_scripts') {
-    $ProjectRootPath = Split-Path -Parent $currentPath
-    if (-not $ProjectRootPath) {
-        # fallback to current if something weird happens
-        $ProjectRootPath = $currentPath
-    }
-} else {
-    $ProjectRootPath = $currentPath
-}
-# Normalize to an item so later .Name and ToString() work consistently
-$ProjectRoot = Get-Item -LiteralPath $ProjectRootPath
+# ---------------------------
+# CONFIGURATION
+# ---------------------------
 
-$OutputChunkDir = Join-Path $ProjectRoot "project_code_dump_chunks"
-New-Item -ItemType Directory -Path $OutputChunkDir -Force | Out-Null
-$ManifestFile = Join-Path $OutputChunkDir "project_dump_manifest.txt"
-
+# Directory names to exclude entirely from the dump
 $ExcludeNames = @(
     "venv",
     ".idea",
@@ -33,53 +19,36 @@ $ExcludeNames = @(
     "dev_scripts"
 )
 
+# ► NEW: explicit file names (relative) to ignore
+$ExcludeFiles = @(
+    "chat_template.txt"   # ignore file sitting at the project root
+)
+
+# ---------------------------
+# HELPER FUNCTIONS
+# ---------------------------
+
 function Test-PathContainsExcludedDir {
     param([string]$Path)
     $trimmed = $Path.TrimEnd('\','/')
-    $parts = $trimmed.Split([IO.Path]::DirectorySeparatorChar)
+    $parts   = $trimmed.Split([IO.Path]::DirectorySeparatorChar)
     foreach ($p in $parts) {
         if ($ExcludeNames -contains $p) { return $true }
     }
     return $false
 }
 
-# Accumulate manifest lines
-$manifestLines = @()
-
-# Header / overview
-$manifestLines += "--- START OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
-$manifestLines += "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-$manifestLines += ""
-$manifestLines += "**INSTRUCTIONS FOR PROCESSING THIS CODEBASE:**"
-$manifestLines += "1. **READ THIS MANIFEST FIRST.** It provides an overview and list of chunks."
-$manifestLines += "2. **ACKNOWLEDGE RECEIPT OF THIS MANIFEST.** Confirm you understand the process."
-$manifestLines += "3. **REQUEST CHUNKS SEQUENTIALLY.** After acknowledging, ask for the content of each chunk in order."
-$manifestLines += "4. **CONFIRM RECEIPT OF EACH CHUNK.**"
-$manifestLines += ""
-$manifestLines += "**PROJECT OVERVIEW:**"
-$manifestLines += "Project Name: Sethlans Reborn - Distributed Blender Rendering System"
-$manifestLines += "Core Goal: Leverage multiple worker machines for Blender rendering jobs."
-$manifestLines += "Architecture: Django Manager backend + Python Worker Agents."
-$manifestLines += "Development Focus: Backend unit testing; frontend planned in Angular."
-$manifestLines += ""
-$manifestLines += "**CURRENT CODEBASE STATE:**"
-$manifestLines += "Dump includes all .py, .ini, and .txt files as of the timestamp."
-$manifestLines += "Unit test suite for 'sethlans_worker_agent' is partially complete (6 passing tests)."
-$manifestLines += "Test 'generate_and_cache_blender_download_info' is currently paused due to mocking complexity."
-$manifestLines += ""
-$manifestLines += "--- END OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
-$manifestLines += ""
-
-# Directory listing
-$manifestLines += "--- START OF DIRECTORY LISTING ---"
-$manifestLines += ("Project Root: {0}" -f $ProjectRoot.Name)
-
+# Recursive directory listing that honours both $ExcludeNames and $ExcludeFiles
 function Get-TreeListing {
     param([string]$Path, [int]$Depth = 0)
     $indent = "  " * $Depth
     try {
         Get-ChildItem -LiteralPath $Path | Sort-Object @{Expression='PSIsContainer'; Descending=$true}, Name | ForEach-Object {
+            # Skip excluded directories
             if ($_.PSIsContainer -and $ExcludeNames -contains $_.Name) { return }
+            # Skip individual files on the exclusion list
+            if (-not $_.PSIsContainer -and ($ExcludeFiles -contains $_.Name)) { return }
+            # Skip files inside excluded directories (for safety)
             if (-not $_.PSIsContainer -and (Test-PathContainsExcludedDir $_.Directory.FullName)) { return }
 
             if ($_.PSIsContainer) {
@@ -94,10 +63,58 @@ function Get-TreeListing {
     }
 }
 
+# ---------------------------
+# PROJECT ROOT DETECTION
+# ---------------------------
+
+$Current      = Get-Location
+$currentPath  = $Current.Path
+if ((Split-Path -Leaf $currentPath) -ieq 'dev_scripts') {
+    $ProjectRootPath = Split-Path -Parent $currentPath
+    if (-not $ProjectRootPath) { $ProjectRootPath = $currentPath }
+} else {
+    $ProjectRootPath = $currentPath
+}
+$ProjectRoot  = Get-Item -LiteralPath $ProjectRootPath  # normalize for .Name and .ToString()
+
+# ---------------------------
+# OUTPUT LOCATIONS
+# ---------------------------
+
+$OutputChunkDir = Join-Path $ProjectRoot "project_code_dump_chunks"
+New-Item -ItemType Directory -Path $OutputChunkDir -Force | Out-Null
+$ManifestFile   = Join-Path $OutputChunkDir "project_dump_manifest.txt"
+
+# ---------------------------
+# MANIFEST HEADER
+# ---------------------------
+
+$manifestLines = @()
+$manifestLines += "--- START OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
+$manifestLines += "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+$manifestLines += ""
+$manifestLines += "**INSTRUCTIONS FOR PROCESSING THIS CODEBASE:**"
+$manifestLines += "1. **READ THIS MANIFEST FIRST.** It provides an overview and list of chunks."
+$manifestLines += "2. **ACKNOWLEDGE RECEIPT OF THIS MANIFEST.** Confirm you understand the process."
+$manifestLines += "3. **REQUEST CHUNKS SEQUENTIALLY.** After acknowledging, ask for the content of each chunk in order."
+$manifestLines += "4. **CONFIRM RECEIPT OF EACH CHUNK.**"
+$manifestLines += ""
+$manifestLines += "--- END OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
+$manifestLines += ""
+
+# ---------------------------
+# DIRECTORY LISTING
+# ---------------------------
+
+$manifestLines += "--- START OF DIRECTORY LISTING ---"
+$manifestLines += ("Project Root: {0}" -f $ProjectRoot.Name)
 Get-TreeListing -Path $ProjectRoot -Depth 0
 $manifestLines += "--- END OF DIRECTORY LISTING ---"
 
-# Git log
+# ---------------------------
+# GIT LOG
+# ---------------------------
+
 $manifestLines += ""
 $manifestLines += "--- START OF GIT LOG ---"
 try {
@@ -111,25 +128,31 @@ try {
 }
 $manifestLines += "--- END OF GIT LOG ---"
 
-# Chunking logic
+# ---------------------------
+# FILE SELECTION & CHUNKING
+# ---------------------------
+
 $FilesToDump = Get-ChildItem -Path $ProjectRoot -Recurse -Include "*.py", "*.ini", "*.txt" |
-    Where-Object { -not (Test-PathContainsExcludedDir $_.Directory.FullName) } |
+    Where-Object {
+        -not (Test-PathContainsExcludedDir $_.Directory.FullName) -and
+        ($ExcludeFiles -notcontains $_.Name)                # ► NEW filter
+    } |
     Sort-Object FullName
 
-$filesFound = $FilesToDump.Count
+$filesFound     = $FilesToDump.Count
 $filesProcessed = 0
-$filesFailed = 0
+$filesFailed    = 0
 
 $MaxChunkSizeChars = 40000
-$chunks = @()
-$currentChunk = ""
+$chunks            = @()
+$currentChunk      = ""
 
 function Split-FormattedFileIntoPieces {
     param([string]$text, [int]$maxSize)
     $pieces = @()
     if ($text.Length -le $maxSize) { return ,$text }
 
-    $lines = $text -split "`n"
+    $lines  = $text -split "`n"
     $buffer = ""
     foreach ($line in $lines) {
         $candidate = if ($buffer) { "$buffer`n$line" } else { $line }
@@ -142,9 +165,9 @@ function Split-FormattedFileIntoPieces {
             } else {
                 $i = 0
                 while ($i -lt $line.Length) {
-                    $slice = $line.Substring($i, [Math]::Min($maxSize, $line.Length - $i))
+                    $slice   = $line.Substring($i, [Math]::Min($maxSize, $line.Length - $i))
                     $pieces += $slice
-                    $i += $slice.Length
+                    $i      += $slice.Length
                 }
                 $buffer = ""
             }
@@ -164,8 +187,9 @@ foreach ($file in $FilesToDump) {
         $filesFailed++
         continue
     }
+
     $wrapped = "`n--- FILE_START: $relativePath ---`n$content`n--- FILE_END: $relativePath ---"
-    $pieces = Split-FormattedFileIntoPieces -text $wrapped -maxSize $MaxChunkSizeChars
+    $pieces  = Split-FormattedFileIntoPieces -text $wrapped -maxSize $MaxChunkSizeChars
 
     foreach ($piece in $pieces) {
         if ($currentChunk.Length -gt 0 -and ($currentChunk.Length + $piece.Length) -gt $MaxChunkSizeChars) {
@@ -176,58 +200,60 @@ foreach ($file in $FilesToDump) {
     }
 }
 
-if ($currentChunk.Length -gt 0) {
-    $chunks += [pscustomobject]@{ Content = $currentChunk }
-}
+if ($currentChunk.Length -gt 0) { $chunks += [pscustomobject]@{ Content = $currentChunk } }
 
-# Write chunk files
-$TotalChunks = $chunks.Count
+# ---------------------------
+# WRITE CHUNK FILES
+# ---------------------------
+
+$TotalChunks   = $chunks.Count
 $chunkFileNames = @()
-$chunkSizes = @()
+$chunkSizes     = @()
 
 for ($i = 0; $i -lt $TotalChunks; $i++) {
-    $num = $i + 1
-    $name = "project_code_chunk_{0:02d}.txt" -f $num
-    $path = Join-Path $OutputChunkDir $name
+    $num   = $i + 1
+    $name  = "project_code_chunk_{0:02d}.txt" -f $num
+    $path  = Join-Path $OutputChunkDir $name
     $header = "--- START OF CHUNK $num OF $TotalChunks ---"
     $footer = "`n--- END OF CHUNK $num OF $TotalChunks ---"
-    $full = $header + "`n" + $chunks[$i].Content + $footer
+    $full   = $header + "`n" + $chunks[$i].Content + $footer
+
     Set-Content -LiteralPath $path -Value $full -Encoding Utf8
 
     $chunkFileNames += $name
-    $chunkSizes += $full.Length
+    $chunkSizes     += $full.Length
     Write-Host "  Generated $name"
 }
 
-# Sanity-check summary
+# ---------------------------
+# SANITY‑CHECK SUMMARY
+# ---------------------------
+
 $largestChunkSize = 0
-if ($chunkSizes.Count -gt 0) {
-    $largestChunkSize = ($chunkSizes | Measure-Object -Maximum).Maximum
-}
+if ($chunkSizes.Count -gt 0) { $largestChunkSize = ($chunkSizes | Measure-Object -Maximum).Maximum }
 $averageChunkSize = 0
-if ($chunkSizes.Count -gt 0) {
-    $averageChunkSize = [Math]::Round(($chunkSizes | Measure-Object -Average).Average)
-}
-$totalChars = ($chunkSizes | Measure-Object -Sum).Sum
+if ($chunkSizes.Count -gt 0) { $averageChunkSize = [Math]::Round(($chunkSizes | Measure-Object -Average).Average) }
+$totalChars       = ($chunkSizes | Measure-Object -Sum).Sum
 
 $manifestLines += ""
 $manifestLines += "**SANITY CHECK SUMMARY:**"
-$manifestLines += ("Files matching patterns found: {0}" -f $filesFound)
-$manifestLines += ("Files successfully read: {0}" -f $filesProcessed)
-$manifestLines += ("Files failed to read: {0}" -f $filesFailed)
-$manifestLines += ("Total chunks produced: {0}" -f $TotalChunks)
-$manifestLines += ("Largest chunk size (chars): {0}" -f $largestChunkSize)
-$manifestLines += ("Average chunk size (chars): {0}" -f $averageChunkSize)
-$manifestLines += ("Total characters across chunks: {0}" -f $totalChars)
+$manifestLines += ("Files matching patterns found: {0}"        -f $filesFound)
+$manifestLines += ("Files successfully read: {0}"               -f $filesProcessed)
+$manifestLines += ("Files failed to read: {0}"                   -f $filesFailed)
+$manifestLines += ("Total chunks produced: {0}"                  -f $TotalChunks)
+$manifestLines += ("Largest chunk size (chars): {0}"            -f $largestChunkSize)
+$manifestLines += ("Average chunk size (chars): {0}"            -f $averageChunkSize)
+$manifestLines += ("Total characters across chunks: {0}"        -f $totalChars)
 
-# Append chunk list to manifest
+# Append chunk list
 $manifestLines += ""
 $manifestLines += "**CODE CHUNKS TO PROVIDE (in order):**"
-foreach ($n in $chunkFileNames) {
-    $manifestLines += $n
-}
+foreach ($n in $chunkFileNames) { $manifestLines += $n }
 
-# === FIXED PART: actually write the manifest to disk ===
+# ---------------------------
+# WRITE MANIFEST
+# ---------------------------
+
 try {
     $manifestLines | Set-Content -LiteralPath $ManifestFile -Encoding Utf8
     Write-Host "Manifest written to: $ManifestFile"
@@ -235,5 +261,5 @@ try {
     Write-Error "Failed to write manifest: $($_.Exception.Message)"
 }
 
-# Optional: output summary to console as well
+# Optional console summary
 Write-Host "Chunks written to: $OutputChunkDir"
