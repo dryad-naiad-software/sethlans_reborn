@@ -33,6 +33,7 @@ import requests
 from PIL import Image
 
 from workers.constants import RenderSettings, TilingConfiguration
+from workers.image_utils import THUMBNAIL_SIZE
 from .shared_setup import BaseE2ETest, MANAGER_URL
 
 
@@ -76,7 +77,7 @@ class TestAnimationWorkflow(BaseE2ETest):
             time.sleep(2)
         assert completed, f"Animation did not complete in time. Only {completed_frames}/{total_frames} frames finished."
 
-        print("Verifying all child jobs have an output file URL...")
+        print("Verifying all child jobs have an output file and thumbnail URL...")
         jobs_response = requests.get(f"{MANAGER_URL}/jobs/?animation={anim_id}")
         assert jobs_response.status_code == 200
         child_jobs = jobs_response.json()
@@ -84,13 +85,19 @@ class TestAnimationWorkflow(BaseE2ETest):
 
         for job in child_jobs:
             assert job.get('output_file') is not None, f"Job {job['id']} is missing its output file URL."
+            assert job.get('thumbnail') is not None, f"Job {job['id']} is missing its thumbnail URL."
 
-        print("SUCCESS: All animation frames were rendered and uploaded successfully.")
-
-        print("Verifying total animation render time was recorded...")
+        print("Verifying parent animation has a thumbnail...")
         final_anim_data = requests.get(anim_url).json()
-        assert final_anim_data.get('total_render_time_seconds') is not None
-        assert final_anim_data.get('total_render_time_seconds') > 0
+        assert final_anim_data.get('thumbnail') is not None
+        thumb_url = final_anim_data['thumbnail']
+        thumb_res = requests.get(thumb_url)
+        assert thumb_res.status_code == 200
+        with Image.open(io.BytesIO(thumb_res.content)) as img:
+            assert img.width <= THUMBNAIL_SIZE[0]
+            assert img.height <= THUMBNAIL_SIZE[1]
+
+        print("SUCCESS: All animation frames were rendered and all thumbnails generated.")
 
     def test_animation_with_frame_step(self):
         start_frame, end_frame, frame_step = 1, 5, 2
@@ -186,18 +193,17 @@ class TestTiledAnimationWorkflow(BaseE2ETest):
         assert final_anim_response.status_code == 200
         final_anim_data = final_anim_response.json()
 
-        assert final_anim_data['total_render_time_seconds'] > 0
+        assert final_anim_data['thumbnail'] is not None
         assert len(final_anim_data['frames']) == total_frames
 
         for frame_data in final_anim_data['frames']:
             assert frame_data['status'] == 'DONE'
-            frame_url = frame_data['output_file']
-            assert frame_url is not None
-            print(f"Downloading and verifying assembled frame {frame_data['frame_number']} from {frame_url}...")
-            download_response = requests.get(frame_url)
+            assert frame_data['output_file'] is not None
+            assert frame_data['thumbnail'] is not None
+            print(f"Downloading and verifying assembled frame {frame_data['frame_number']}...")
+            download_response = requests.get(frame_data['output_file'])
             assert download_response.status_code == 200
-            image_data = io.BytesIO(download_response.content)
-            with Image.open(image_data) as img:
+            with Image.open(io.BytesIO(download_response.content)) as img:
                 assert img.size == (200, 200)
 
-        print("SUCCESS: Tiled animation workflow completed successfully.")
+        print("SUCCESS: Tiled animation workflow and thumbnails completed successfully.")

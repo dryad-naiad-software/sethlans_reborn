@@ -29,6 +29,7 @@ from .serializers import WorkerSerializer, JobSerializer, AnimationSerializer, A
     TiledJobSerializer
 from .constants import RenderSettings, TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 from django.utils import timezone
+from .image_utils import generate_thumbnail
 
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -415,6 +416,7 @@ class JobViewSet(viewsets.ModelViewSet):
         Action for a worker to upload the final rendered output file for a job.
 
         Expects a multipart/form-data request with a file field named `output_file`.
+        Saving the file will trigger a signal to generate the thumbnail.
 
         Args:
             request: The request object containing the uploaded file.

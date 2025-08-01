@@ -33,6 +33,7 @@ import requests
 from PIL import Image
 
 from workers.constants import RenderSettings
+from workers.image_utils import THUMBNAIL_SIZE
 from .shared_setup import BaseE2ETest, MANAGER_URL
 
 
@@ -75,19 +76,24 @@ class TestTiledWorkflow(BaseE2ETest):
             time.sleep(2)
         assert final_status == "DONE"
 
-        print("Verifying final job data and output file...")
+        print("Verifying final job data, output file, and thumbnail...")
         final_job_response = requests.get(tiled_job_url)
         assert final_job_response.status_code == 200
         final_job_data = final_job_response.json()
 
         assert final_job_data.get('total_render_time_seconds') > 0
-        output_url = final_job_data.get('output_file')
-        assert output_url is not None
+        assert final_job_data.get('output_file') is not None
+        assert final_job_data.get('thumbnail') is not None
 
-        print(f"Downloading final assembled image from {output_url}...")
-        download_response = requests.get(output_url)
+        print(f"Downloading final assembled image...")
+        download_response = requests.get(final_job_data['output_file'])
         assert download_response.status_code == 200
-
-        image_data = io.BytesIO(download_response.content)
-        with Image.open(image_data) as img:
+        with Image.open(io.BytesIO(download_response.content)) as img:
             assert img.size == (400, 400)
+
+        print(f"Downloading and verifying thumbnail...")
+        thumb_response = requests.get(final_job_data['thumbnail'])
+        assert thumb_response.status_code == 200
+        with Image.open(io.BytesIO(thumb_response.content)) as img:
+            assert img.width <= THUMBNAIL_SIZE[0]
+            assert img.height <= THUMBNAIL_SIZE[1]

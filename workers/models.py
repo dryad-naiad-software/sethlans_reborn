@@ -38,6 +38,7 @@ from django.utils import timezone
 from django.db.models import JSONField, Sum
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.core.files.base import ContentFile
 
 from .constants import TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 
@@ -58,7 +59,8 @@ class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    is_paused = models.BooleanField(default=False, help_text="If true, workers will not pick up jobs from this project.")
+    is_paused = models.BooleanField(default=False,
+                                    help_text="If true, workers will not pick up jobs from this project.")
 
     def __str__(self):
         return self.name
@@ -109,6 +111,31 @@ def animation_frame_output_upload_path(instance, filename):
     extension = Path(filename).suffix
     project_id = instance.animation.project.id
     return f'assets/{project_id}/outputs/anim_{instance.animation.id}/frame_{instance.frame_number:04d}{extension}'
+
+
+def thumbnail_upload_path(instance, filename):
+    """
+    Generates a unique, project-specific path for a thumbnail image.
+
+    The path is structured to place all thumbnails in a centralized `thumbnails`
+    directory, named after the object and its ID to ensure uniqueness.
+    """
+    extension = Path(filename).suffix
+    model_name = instance.__class__.__name__.lower()
+    project_id = None
+
+    if hasattr(instance, 'project'):
+        project_id = instance.project.id
+    elif hasattr(instance, 'asset'):
+        project_id = instance.asset.project.id
+    elif hasattr(instance, 'animation'):
+        project_id = instance.animation.project.id
+
+    if not project_id:
+        # Fallback for models without a direct project link, though unlikely
+        return f'assets/unknown_project/thumbnails/{model_name}_{instance.id}{extension}'
+
+    return f'assets/{project_id}/thumbnails/{model_name}_{instance.id}{extension}'
 
 
 class Worker(models.Model):
@@ -218,6 +245,7 @@ class Animation(models.Model):
         render_settings (JSONField): A dictionary of optional Blender settings to override.
         total_render_time_seconds (IntegerField): The sum of all child jobs' render times.
         tiling_config (CharField): If set, each frame will be rendered as a grid of tiles.
+        thumbnail (ImageField): A small preview image of the most recently completed frame.
     """
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='animations')
     name = models.CharField(max_length=255, unique=True)
@@ -225,7 +253,8 @@ class Animation(models.Model):
     output_file_pattern = models.CharField(max_length=1024)
     start_frame = models.IntegerField()
     end_frame = models.IntegerField()
-    frame_step = models.IntegerField(default=1, help_text="Number of frames to advance animation between renders (e.g., a step of 2 renders every other frame).")
+    frame_step = models.IntegerField(default=1,
+                                     help_text="Number of frames to advance animation between renders (e.g., a step of 2 renders every other frame).")
     status = models.CharField(max_length=50, default='QUEUED')
     submitted_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -245,6 +274,8 @@ class Animation(models.Model):
         default=TilingConfiguration.NONE,
         help_text="Grid size for tiled rendering of each frame."
     )
+    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True,
+                                  help_text="A preview thumbnail of the latest completed frame.")
 
     def __str__(self):
         return self.name
@@ -264,6 +295,7 @@ class AnimationFrame(models.Model):
         output_file (FileField): The final, assembled output image for this frame.
         render_time_seconds (IntegerField): The total time taken to render and
             assemble all tiles for this frame.
+        thumbnail (ImageField): A small preview image of the assembled frame.
     """
     animation = models.ForeignKey(Animation, on_delete=models.CASCADE, related_name='frames')
     frame_number = models.IntegerField()
@@ -272,6 +304,8 @@ class AnimationFrame(models.Model):
                                    help_text="The final, assembled output image for this frame.")
     render_time_seconds = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True,
+                                  help_text="A preview thumbnail of this assembled frame.")
 
     def __str__(self):
         return f"{self.animation.name} - Frame {self.frame_number}"
@@ -307,6 +341,7 @@ class TiledJob(models.Model):
         render_settings (JSONField): A dictionary of optional Blender settings to override.
         total_render_time_seconds (IntegerField): The sum of all child jobs' render times.
         output_file (FileField): The final, assembled output image file.
+        thumbnail (ImageField): A small preview image of the final assembled output.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='tiled_jobs')
@@ -328,6 +363,8 @@ class TiledJob(models.Model):
     total_render_time_seconds = models.IntegerField(default=0)
     output_file = models.FileField(upload_to=tiled_job_output_upload_path, null=True, blank=True,
                                    help_text="The final, assembled output image.")
+    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True,
+                                  help_text="A preview thumbnail of the final assembled image.")
 
     def __str__(self):
         return self.name
@@ -367,6 +404,7 @@ class Job(models.Model):
         animation_frame (ForeignKey): A link to the parent `AnimationFrame` for tiled animation frames.
         render_time_seconds (IntegerField): The total time the render process took.
         output_file (FileField): The final rendered output file.
+        thumbnail (ImageField): A small preview image of the final rendered output.
     """
     name = models.CharField(max_length=255, unique=True, help_text="A unique name for the render job.")
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='jobs')
@@ -420,13 +458,15 @@ class Job(models.Model):
         related_name='tile_jobs'
     )
     render_time_seconds = models.IntegerField(null=True, blank=True,
-                                            help_text="The total time in seconds this job took to render.")
+                                              help_text="The total time in seconds this job took to render.")
     output_file = models.FileField(
         upload_to=job_output_upload_path,
         null=True,
         blank=True,
         help_text="The final rendered output file uploaded by the worker."
     )
+    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True,
+                                  help_text="A preview thumbnail of the final render.")
 
     def __str__(self):
         return f"{self.name} ({self.status})"
@@ -438,32 +478,28 @@ class Job(models.Model):
 
 
 @receiver(post_save, sender=Job)
-def update_parent_job_status(sender, instance, **kwargs):
+def handle_job_completion(sender, instance, **kwargs):
     """
-    A signal receiver that updates the status and render time of a parent `Animation`
-    or `TiledJob` when one of its child `Job`s completes.
-
-    If a `Job` is part of a tiled animation frame, this signal checks if all
-    tiles for that frame are complete and triggers the image assembly process.
+    Signal receiver for when a Job is saved. It handles:
+    - Updating parent Animation/TiledJob status on job completion.
+    - Triggering thumbnail generation for the job's output file.
     """
     from .image_assembler import assemble_tiled_job_image, assemble_animation_frame_image
+    from .image_utils import generate_thumbnail
 
+    # --- Parent Status Update Logic ---
     if instance.animation_frame and instance.status == JobStatus.DONE:
         frame = instance.animation_frame
         animation = frame.animation
         tile_counts = [int(i) for i in animation.tiling_config.split('x')]
         total_tiles_for_frame = tile_counts[0] * tile_counts[1]
         completed_tiles = frame.tile_jobs.filter(status=JobStatus.DONE).count()
-
         if completed_tiles >= total_tiles_for_frame:
             logger.info(f"All {total_tiles_for_frame} tiles for {frame} are complete. Triggering assembly.")
             assemble_animation_frame_image(frame.id)
-
     elif instance.animation and instance.animation.tiling_config == TilingConfiguration.NONE:
-        # This handles standard (non-tiled) animations
         animation = instance.animation
         all_jobs = animation.jobs.all()
-        # ... existing logic ...
         total_jobs_count = all_jobs.count()
         if total_jobs_count > 0:
             time_aggregate = all_jobs.filter(status=JobStatus.DONE).aggregate(total=Sum('render_time_seconds'))
@@ -472,16 +508,22 @@ def update_parent_job_status(sender, instance, **kwargs):
                 status__in=[JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELED]).count()
             animation_completed = total_jobs_count == finished_jobs_count
 
-            Animation.objects.filter(pk=animation.pk).update(
-                total_render_time_seconds=total_time,
-                status="DONE" if animation_completed else "RENDERING",
-                completed_at=timezone.now() if animation_completed and not animation.completed_at else None
-            )
+            # Also update status to RENDERING if it's the first job completing
+            current_status = animation.status
+            new_status = current_status
+            if current_status == JobStatus.QUEUED and finished_jobs_count > 0:
+                new_status = JobStatus.RENDERING
+            if animation_completed:
+                new_status = JobStatus.DONE
+
+            update_fields = {'total_render_time_seconds': total_time, 'status': new_status}
+            if animation_completed and not animation.completed_at:
+                update_fields['completed_at'] = timezone.now()
+
+            Animation.objects.filter(pk=animation.pk).update(**update_fields)
 
     elif instance.tiled_job:
-        # This handles single tiled jobs
         tiled_job = instance.tiled_job
-        # ... existing logic ...
         all_tile_jobs = tiled_job.jobs.all()
         total_tiles = tiled_job.tile_count_x * tiled_job.tile_count_y
         time_aggregate = all_tile_jobs.filter(status=JobStatus.DONE).aggregate(total=Sum('render_time_seconds'))
@@ -493,30 +535,80 @@ def update_parent_job_status(sender, instance, **kwargs):
             logger.info(f"All {total_tiles} tiles for TiledJob {tiled_job.id} are complete. Triggering assembly.")
             assemble_tiled_job_image(tiled_job.id)
 
+    # --- Thumbnail Generation for Standard Jobs ---
+    if instance.output_file and not instance.thumbnail:
+        # Check that this is a standard job, not a tile (tiles are handled by frame/tiled job assembly)
+        if not instance.animation_frame and not instance.tiled_job:
+            logger.info(f"Job {instance.id} has an output file. Generating thumbnail.")
+            thumb_content = generate_thumbnail(instance.output_file)
+            if thumb_content:
+                # Disconnect signal to prevent recursion, save, then reconnect.
+                post_save.disconnect(handle_job_completion, sender=Job)
+                instance.thumbnail.save(thumb_content.name, thumb_content, save=True)
+                post_save.connect(handle_job_completion, sender=Job)
+
+                # Update parent animation thumbnail for non-tiled animations
+                if instance.animation:
+                    post_save.disconnect(handle_job_completion, sender=Job)
+                    instance.animation.thumbnail.save(thumb_content.name, ContentFile(thumb_content.getvalue()),
+                                                      save=True)
+                    post_save.connect(handle_job_completion, sender=Job)
+
 
 @receiver(post_save, sender=AnimationFrame)
-def update_parent_animation_status(sender, instance, **kwargs):
+def handle_animation_frame_completion(sender, instance, **kwargs):
     """
-    A signal receiver that checks if all `AnimationFrame`s for a parent `Animation`
-    have completed their rendering and assembly.
-
-    If all frames are complete, it updates the parent animation's status to `DONE`
-    and calculates its total render time.
+    Signal receiver for when an AnimationFrame is saved. It handles:
+    - Updating the parent Animation's status after all frames are complete.
+    - Triggering thumbnail generation for the frame's output file.
     """
-    if instance.status != AnimationFrameStatus.DONE:
-        return
+    from .image_utils import generate_thumbnail
 
     animation = instance.animation
-    total_frames = (animation.end_frame - animation.start_frame) + 1
-    completed_frames = animation.frames.filter(status=AnimationFrameStatus.DONE).count()
 
-    if completed_frames >= total_frames:
-        logger.info(f"All {total_frames} frames for Animation '{animation.name}' are complete.")
-        time_aggregate = animation.frames.aggregate(total=Sum('render_time_seconds'))
+    # --- Thumbnail Generation ---
+    if instance.output_file and not instance.thumbnail:
+        logger.info(f"AnimationFrame {instance.id} has an output file. Generating thumbnail.")
+        thumb_content = generate_thumbnail(instance.output_file)
+        if thumb_content:
+            # Disconnect to prevent recursion
+            post_save.disconnect(handle_animation_frame_completion, sender=AnimationFrame)
+            instance.thumbnail.save(thumb_content.name, ContentFile(thumb_content.getvalue()), save=True)
+            # Also update the parent animation's thumbnail
+            animation.thumbnail.save(thumb_content.name, ContentFile(thumb_content.getvalue()), save=True)
+            post_save.connect(handle_animation_frame_completion, sender=AnimationFrame)
+
+    # --- Parent Animation Status Update ---
+    if instance.status == AnimationFrameStatus.DONE and animation.status == JobStatus.QUEUED:
+        animation.status = JobStatus.RENDERING
+        animation.save(update_fields=['status'])
+
+    all_frames = animation.frames.all()
+    total_frames_count = all_frames.count()
+    completed_frames_count = all_frames.filter(status=AnimationFrameStatus.DONE).count()
+
+    if total_frames_count > 0 and completed_frames_count == total_frames_count:
+        logger.info(f"All {total_frames_count} frames for Animation '{animation.name}' are complete.")
+        time_aggregate = all_frames.aggregate(total=Sum('render_time_seconds'))
         total_time = time_aggregate['total'] or 0
 
-        Animation.objects.filter(pk=animation.pk).update(
-            status="DONE",
-            completed_at=timezone.now(),
-            total_render_time_seconds=total_time
-        )
+        animation.status = "DONE"
+        animation.completed_at = timezone.now()
+        animation.total_render_time_seconds = total_time
+        animation.save(update_fields=['status', 'completed_at', 'total_render_time_seconds'])
+
+
+@receiver(post_save, sender=TiledJob)
+def handle_tiled_job_completion(sender, instance, **kwargs):
+    """
+    Signal receiver for TiledJob to generate a thumbnail upon completion.
+    """
+    from .image_utils import generate_thumbnail
+    if instance.output_file and not instance.thumbnail:
+        logger.info(f"TiledJob {instance.id} has an output file. Generating thumbnail.")
+        thumb_content = generate_thumbnail(instance.output_file)
+        if thumb_content:
+            # Disconnect to prevent recursion
+            post_save.disconnect(handle_tiled_job_completion, sender=TiledJob)
+            instance.thumbnail.save(thumb_content.name, thumb_content, save=True)
+            post_save.connect(handle_tiled_job_completion, sender=TiledJob)

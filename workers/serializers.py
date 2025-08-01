@@ -75,7 +75,7 @@ class AnimationFrameSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = AnimationFrame
-        fields = ['id', 'frame_number', 'status', 'output_file', 'render_time_seconds']
+        fields = ['id', 'frame_number', 'status', 'output_file', 'thumbnail', 'render_time_seconds']
 
 
 class AnimationSerializer(serializers.ModelSerializer):
@@ -106,10 +106,10 @@ class AnimationSerializer(serializers.ModelSerializer):
             'blender_version', 'render_engine', 'render_device', 'cycles_feature_set',
             'render_settings', 'tiling_config',
             'submitted_at', 'completed_at',
-            'total_render_time_seconds', 'frames'
+            'total_render_time_seconds', 'thumbnail', 'frames'
         ]
         read_only_fields = ('status', 'progress', 'total_frames', 'completed_frames', 'submitted_at', 'completed_at',
-                            'total_render_time_seconds', 'asset', 'project_details', 'frames')
+                            'total_render_time_seconds', 'asset', 'project_details', 'thumbnail', 'frames')
         extra_kwargs = {
             'project': {'write_only': True}
         }
@@ -174,12 +174,12 @@ class TiledJobSerializer(serializers.ModelSerializer):
             'project', 'project_details', 'asset', 'asset_id',
             'final_resolution_x', 'final_resolution_y', 'tile_count_x', 'tile_count_y',
             'blender_version', 'render_engine', 'render_device', 'cycles_feature_set', 'render_settings',
-            'submitted_at', 'completed_at', 'total_render_time_seconds', 'output_file'
+            'submitted_at', 'completed_at', 'total_render_time_seconds', 'output_file', 'thumbnail'
         ]
         read_only_fields = (
             'id', 'status', 'progress', 'total_tiles', 'completed_tiles',
             'submitted_at', 'completed_at', 'total_render_time_seconds',
-            'asset', 'project_details', 'output_file'
+            'asset', 'project_details', 'output_file', 'thumbnail'
         )
         extra_kwargs = {
             'project': {'write_only': True}
@@ -262,6 +262,7 @@ class JobSerializer(serializers.ModelSerializer):
             'error_message',
             'render_time_seconds',
             'output_file',
+            'thumbnail',
         ]
         read_only_fields = [
             'submitted_at', 'started_at', 'completed_at',
@@ -269,6 +270,7 @@ class JobSerializer(serializers.ModelSerializer):
             'status_display', 'assigned_worker_hostname',
             'asset',
             'output_file',
+            'thumbnail',
             'tiled_job',
             'animation_frame'
         ]

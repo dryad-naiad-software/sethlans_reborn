@@ -39,6 +39,7 @@ from django.db.models import Sum
 from PIL import Image
 from .models import TiledJob, TiledJobStatus, JobStatus, AnimationFrame, AnimationFrameStatus
 from .constants import RenderSettings
+from .image_utils import generate_thumbnail
 
 logger = logging.getLogger(__name__)
 TILE_COORD_REGEX = re.compile(r"_Tile_(\d+)_(\d+)$")
@@ -50,14 +51,15 @@ def assemble_animation_frame_image(animation_frame_id):
 
     This function is triggered by a signal when all child tile jobs for a given
     `AnimationFrame` are marked as `DONE`. It fetches the individual tile images,
-    stitches them together based on their coordinates, and saves the final
-    assembled image to the `AnimationFrame` model's `output_file` field.
+    stitches them together, and saves the final assembled image to the
+    `AnimationFrame` model's `output_file` field. Thumbnail generation is handled
+    by a post_save signal on the AnimationFrame model.
 
     Args:
         animation_frame_id (int): The primary key of the `AnimationFrame` to assemble.
     """
     try:
-        frame = AnimationFrame.objects.get(id=animation_frame_id)
+        frame = AnimationFrame.objects.select_related('animation').get(id=animation_frame_id)
     except AnimationFrame.DoesNotExist:
         logger.error(f"Cannot assemble image: AnimationFrame with ID {animation_frame_id} not found.")
         return
@@ -67,6 +69,7 @@ def assemble_animation_frame_image(animation_frame_id):
     frame.save(update_fields=['status'])
 
     completed_jobs = frame.tile_jobs.filter(status=JobStatus.DONE).order_by('name')
+    animation = frame.animation
 
     try:
         # Determine final resolution from a child job's settings
@@ -82,7 +85,7 @@ def assemble_animation_frame_image(animation_frame_id):
 
         final_image = Image.new('RGBA', (final_resolution_x, final_resolution_y))
 
-        tile_counts = [int(i) for i in frame.animation.tiling_config.split('x')]
+        tile_counts = [int(i) for i in animation.tiling_config.split('x')]
         tile_count_x, tile_count_y = tile_counts[0], tile_counts[1]
         tile_pixel_width = final_resolution_x // tile_count_x
         tile_pixel_height = final_resolution_y // tile_count_y
@@ -104,7 +107,7 @@ def assemble_animation_frame_image(animation_frame_id):
         final_image.save(buffer, format='PNG')
         buffer.seek(0)
 
-        file_name = f"anim_{frame.animation.id}_frame_{frame.frame_number:04d}.png"
+        file_name = f"anim_{animation.id}_frame_{frame.frame_number:04d}.png"
         content_file = ContentFile(buffer.getvalue(), name=file_name)
 
         frame.output_file.save(file_name, content_file, save=False)
@@ -129,8 +132,9 @@ def assemble_tiled_job_image(tiled_job_id):
 
     This function is triggered by a signal when all child `Job`s for a given
     `TiledJob` are marked as `DONE`. It fetches the individual tile images,
-    stitches them together based on their coordinates, and saves the final
-    assembled image to the `TiledJob` model's `output_file` field.
+    stitches them together, and saves the final assembled image to the `TiledJob`
+    model's `output_file` field. Thumbnail generation is handled by a post_save
+    signal on the TiledJob model.
 
     Args:
         tiled_job_id (UUID): The primary key of the `TiledJob` to assemble.
@@ -178,8 +182,8 @@ def assemble_tiled_job_image(tiled_job_id):
         # Create a Django ContentFile and save it to the model's FileField
         file_name = f"tiled_job_{tiled_job.id}_final.png"
         content_file = ContentFile(buffer.getvalue(), name=file_name)
-
         tiled_job.output_file.save(file_name, content_file, save=False)
+
         tiled_job.status = TiledJobStatus.DONE
         tiled_job.completed_at = timezone.now()
         tiled_job.save()
