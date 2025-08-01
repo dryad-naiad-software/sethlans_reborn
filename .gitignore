@@ -133,6 +133,7 @@ sethlans_worker_agent/worker_output/
 sethlans_worker_agent/temp/
 sethlans_e2e_cache/
 test_e2e_db.sqlite3
-*.txt # test result files
 /media/
 manual_test_output/
+/chat_template.txt
+/dev_scripts/results/

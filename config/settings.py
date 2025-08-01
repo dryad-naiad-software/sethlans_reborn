@@ -230,3 +230,6 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
+
+# Delete old thumbnail files before saving new ones
+WORKERS_DELETE_OLD_THUMBNAILS = True

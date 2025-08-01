@@ -16,18 +16,28 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
-# Created by Mario Estrella on 07/22/2025.
+# Created by Mario Estrella on 8/1/2025.
 # Dryad and Naiad Software LLC
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-# workers/apps.py
-from django.apps import AppConfig
+# workers/models/worker.py
+from django.db import models
 
-class WorkersConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "workers"
+class Worker(models.Model):
+    """
+    Represents a single rendering machine in the distributed system.
+    """
+    hostname = models.CharField(max_length=255, unique=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    os = models.CharField(max_length=100, blank=True, default='')
+    last_seen = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+    available_tools = models.JSONField(default=dict, blank=True)
 
-    def ready(self):
-        # Ensure signal handlers are registered when the app loads
-        from . import signals  # noqa: F401
+    def __str__(self):
+        return self.hostname
+
+    class Meta:
+        ordering = ['hostname']
+
