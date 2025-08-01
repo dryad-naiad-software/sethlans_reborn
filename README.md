@@ -15,6 +15,7 @@ Sethlans Reborn is a powerful, distributed rendering system designed to accelera
 * **Automatic Blender Management**: Workers can dynamically discover, download, cache, and verify any required Blender version on-demand.
 * **Advanced Render Configuration**: Submit jobs with specific render engines (Cycles, Eevee), device preferences (CPU, GPU, ANY), and override any Blender setting (e.g., sample count, resolution).
 * **Tiled Rendering**: Automatically split high-resolution still frames and animation sequences into a grid of tiles for parallel rendering, with automatic assembly of the final image(s).
+* **Project Management**: Organize jobs and assets into projects, with the ability to pause and resume all work within a project.
 * **Smart Job Filtering**: The manager ensures that jobs requiring a GPU are only offered to workers that have reported GPU capabilities.
 
 ---
@@ -42,7 +43,7 @@ A standalone application that runs on each rendering machine.
 ### Manager Setup
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/dryad-naiad-software/sethlans_reborn.git
+    git clone [https://github.com/dryad-naiad-software/sethlans_reborn.git](https://github.com/dryad-naiad-software/sethlans_reborn.git)
     cd sethlans_reborn
     ```
 2.  **Create and activate a virtual environment:**
@@ -54,15 +55,15 @@ A standalone application that runs on each rendering machine.
     ```bash
     pip install -r requirements.txt
     ```
-4.  **Run database migrations:**
+4.  **Configure the manager:**
+    Copy the example configuration file `manager.ini.example` to `manager.ini`. The default settings are suitable for local testing.
+
+5.  **Run the manager:**
+    A convenience script handles database migrations and starts the server on the correct port.
     ```bash
-    python manage.py migrate
+    python run_manager.py
     ```
-5.  **Start the development server:**
-    ```bash
-    python manage.py runserver
-    ```
-    The API will be available at `http://127.0.0.1:8000/api/`.
+    The API will be available at `http://127.0.0.1:7075/api/`. The browsable API documentation is at `http://127.0.0.1:7075/api/docs/`.
 
 ### Worker Agent Setup
 The worker can be run on the same machine or any other machine on the network.
@@ -73,7 +74,16 @@ The worker can be run on the same machine or any other machine on the network.
     ```bash
     pip install -r sethlans_worker_agent/requirements_worker.txt
     ```
-4.  **Run the agent:**
+4.  **Configure the worker:**
+    Copy `sethlans_worker_agent/config.ini.example` to `sethlans_worker_agent/config.ini`. Edit this file to point to the manager's IP address and port.
+
+    ```ini
+    [manager]
+    host = 127.0.0.1
+    port = 7075
+    ```
+
+5.  **Run the agent:**
     ```bash
     python -m sethlans_worker_agent.agent
     ```
@@ -89,12 +99,12 @@ This project uses `pytest` for testing.
 
 * **Run Unit Tests**:
     ```bash
-    pytest -m "not e2e"
+    pytest tests/unit
     ```
 * **Run End-to-End (E2E) Tests**:
     *These tests are long-running, as they download Blender and execute real render jobs.*
     ```bash
-    pytest -m "e2e"
+    pytest tests/e2e
     ```
 
 ---

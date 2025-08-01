@@ -226,4 +226,14 @@ $manifestLines += "**CODE CHUNKS TO PROVIDE (in order):**"
 foreach ($n in $chunkFileNames) {
     $manifestLines += $n
 }
-$manifest
+
+# === FIXED PART: actually write the manifest to disk ===
+try {
+    $manifestLines | Set-Content -LiteralPath $ManifestFile -Encoding Utf8
+    Write-Host "Manifest written to: $ManifestFile"
+} catch {
+    Write-Error "Failed to write manifest: $($_.Exception.Message)"
+}
+
+# Optional: output summary to console as well
+Write-Host "Chunks written to: $OutputChunkDir"
