@@ -125,6 +125,7 @@ dmypy.json
 .pyre/
 
 # Sethlans Reborn specific
+logs/
 manager.ini
 sethlans_worker_agent/config.ini
 sethlans_worker_agent/managed_tools/

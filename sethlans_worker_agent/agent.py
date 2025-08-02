@@ -1,3 +1,4 @@
+# FILENAME: sethlans_worker_agent/agent.py
 # sethlans_worker_agent/agent.py
 
 #
@@ -38,33 +39,52 @@ The agent's behavior and logging level can be configured via command-line argume
 
 import argparse
 import logging
+from logging.handlers import RotatingFileHandler
 import time
 import sys
 from sethlans_worker_agent import job_processor, system_monitor, config
 
-# --- Logging Setup ---
-LOG_LEVELS = {
-    'DEBUG': logging.DEBUG,
-    'INFO': logging.INFO,
-    'WARNING': logging.WARNING,
-    'ERROR': logging.ERROR,
-    'CRITICAL': logging.CRITICAL
-}
+# --- Argument Parsing ---
 parser = argparse.ArgumentParser(description="Sethlans Reborn Worker Agent")
 parser.add_argument(
     '--loglevel',
     dest='loglevel',
-    choices=LOG_LEVELS.keys(),
+    choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
     default='INFO',
-    help='Set the logging level'
+    help='Set the logging level for console and file output.'
 )
 args = parser.parse_args()
 
-logging.basicConfig(
-    level=LOG_LEVELS[args.loglevel],
-    format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+# --- Logging Setup ---
+# Ensure the log directory exists
+config.WORKER_LOG_DIR.mkdir(exist_ok=True)
+log_file_path = config.WORKER_LOG_DIR / 'worker.log'
+
+# Get the root logger
+root_logger = logging.getLogger()
+root_logger.setLevel(getattr(logging, args.loglevel))
+
+# Create a standard formatter
+formatter = logging.Formatter(
+    '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Create and add the console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(formatter)
+root_logger.addHandler(console_handler)
+
+# Create and add the rotating file handler
+file_handler = RotatingFileHandler(
+    log_file_path,
+    maxBytes=5*1024*1024, # 5 MB
+    backupCount=3
+)
+file_handler.setFormatter(formatter)
+root_logger.addHandler(file_handler)
+
+# Get the logger for this module specifically
 logger = logging.getLogger(__name__)
 
 

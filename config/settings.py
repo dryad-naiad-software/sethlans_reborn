@@ -1,3 +1,4 @@
+# FILENAME: config/settings.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -22,7 +23,7 @@
 # Project: sethlans_reborn
 #
 
-from pathlib import Path # <-- ADDED THIS IMPORT!
+from pathlib import Path
 import os
 import logging
 
@@ -101,6 +102,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': DB_NAME, # Use the new variable here
+        'OPTIONS': {
+            'timeout': 30,
+        },
     }
 }
 
@@ -151,6 +155,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Get default log level from environment variable, fallback to INFO for production-like verbosity
 LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
 
+# Create logs directory if it doesn't exist
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False, # Keep Django's default loggers
@@ -174,46 +182,42 @@ LOGGING = {
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'standard', # Use our custom standard formatter
-            'level': 'DEBUG', # Always output DEBUG to console handler, filtering happens at logger level
+            'formatter': 'standard',
+            'level': 'DEBUG',
         },
-        # You can add a file handler here if you want logs to go to a file
-        # 'file': {
-        #     'class': 'logging.handlers.RotatingFileHandler',
-        #     'filename': BASE_DIR / 'logs' / 'django.log',
-        #     'level': 'INFO',
-        #     'formatter': 'standard',
-        #     'maxBytes': 1024 * 1024 * 5, # 5 MB
-        #     'backupCount': 5,
-        # },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'manager.log',
+            'level': 'INFO',
+            'formatter': 'standard',
+            'maxBytes': 1024 * 1024 * 5, # 5 MB
+            'backupCount': 5,
+        },
     },
     'loggers': {
-        # Root logger: catches all messages not handled by specific loggers
         '': {
-            'handlers': ['console'],
-            'level': LOG_LEVEL, # Use the dynamic log level
-            'propagate': True, # Pass messages to parent loggers (e.g., root)
-        },
-        # Your specific application logger
-        'workers': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': LOG_LEVEL,
-            'propagate': False, # Don't pass to root if handled here to avoid duplication
+            'propagate': True,
         },
-        # Example for Django's built-in loggers
+        'workers': {
+            'handlers': ['console', 'file'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
         'django': {
-            'handlers': ['console'],
-            'level': 'INFO', # Keep Django's own logs at INFO by default
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
             'propagate': False,
         },
         'django.request': {
-            'handlers': ['console'],
-            'level': 'WARNING', # Requests that return 4xx or 5xx will be logged as WARNING or ERROR
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
             'propagate': False,
         },
         'django.db.backends': {
-            'handlers': ['console'],
-            'level': 'INFO', # Log SQL queries at DEBUG level, otherwise INFO
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
             'propagate': False,
         },
     },

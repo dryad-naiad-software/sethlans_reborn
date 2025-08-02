@@ -1,3 +1,4 @@
+# FILENAME: sethlans_worker_agent/config.py
 # sethlans_worker_agent/config.py
 """
 Configuration module for the Sethlans Reborn worker agent.
@@ -82,6 +83,8 @@ MANAGED_TOOLS_DIR = WORKER_AGENT_DIR / 'managed_tools'
 MANAGED_ASSETS_DIR = WORKER_AGENT_DIR / 'managed_assets'
 WORKER_OUTPUT_DIR = WORKER_AGENT_DIR / 'worker_output'
 WORKER_TEMP_DIR = WORKER_AGENT_DIR / 'temp'
+WORKER_LOG_DIR = WORKER_AGENT_DIR / 'logs'
+
 
 # Paths to test .blend files used in the end-to-end test suite.
 TEST_BLEND_FILE_PATH = PROJECT_ROOT_FOR_WORKER / 'tests' / 'assets' / 'test_scene.blend'
