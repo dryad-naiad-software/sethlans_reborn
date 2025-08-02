@@ -1,3 +1,4 @@
+# FILENAME: .github/workflows/python-ci.yml
 name: Sethlans Reborn CI
 
 on:
@@ -107,7 +108,19 @@ jobs:
           echo "Attempting to detach any lingering BlenderMount volumes..."
           hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
 
-      - name: 9. Fail job if E2E tests failed (macOS)
+      - name: 9. Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            logs/manager.log
+            sethlans_worker_agent/logs/worker.log
+            test_artifacts/
+            sethlans_worker_agent/worker_output/
+          if-no-files-found: ignore
+
+      - name: 10. Fail job if E2E tests failed (macOS)
         if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'
         run: |
           echo "Failing the job because end-to-end tests failed."

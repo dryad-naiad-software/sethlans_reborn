@@ -1,4 +1,4 @@
-# tests/e2e/shared_setup.py
+# FILENAME: tests/e2e/shared_setup.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -58,7 +58,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 # Define the test database path as an absolute path to avoid CWD issues
 TEST_DB_NAME = PROJECT_ROOT / "test_e2e_db.sqlite3"
 MOCK_TOOLS_DIR = Path(worker_config.MANAGED_TOOLS_DIR)
-MEDIA_ROOT_FOR_TEST = Path(tempfile.mkdtemp(prefix="sethlans_e2e_media_"))
+# Use a predictable, local directory for test artifacts
+ARTIFACTS_ROOT_FOR_TEST = PROJECT_ROOT / "test_artifacts"
+MEDIA_ROOT_FOR_TEST = ARTIFACTS_ROOT_FOR_TEST / "media"
 E2E_BLENDER_SERIES = "4.5"
 
 
@@ -236,7 +238,7 @@ class BaseE2ETest:
         # Comprehensive cleanup of all temporary and worker-generated directories
         paths_to_clean = [
             MOCK_TOOLS_DIR,
-            MEDIA_ROOT_FOR_TEST,
+            ARTIFACTS_ROOT_FOR_TEST,
             worker_config.MANAGED_ASSETS_DIR,
             worker_config.WORKER_OUTPUT_DIR,
             worker_config.WORKER_TEMP_DIR
@@ -248,7 +250,7 @@ class BaseE2ETest:
         if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE):
             os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
 
-        MEDIA_ROOT_FOR_TEST.mkdir()
+        MEDIA_ROOT_FOR_TEST.mkdir(parents=True, exist_ok=True)
 
         # Prepare Blender installation for the worker
         cls._cache_blender_once()
@@ -328,7 +330,7 @@ class BaseE2ETest:
 
         paths_to_clean = [
             MOCK_TOOLS_DIR,
-            MEDIA_ROOT_FOR_TEST,
+            ARTIFACTS_ROOT_FOR_TEST,
             worker_config.MANAGED_ASSETS_DIR,
             worker_config.WORKER_OUTPUT_DIR,
             worker_config.WORKER_TEMP_DIR

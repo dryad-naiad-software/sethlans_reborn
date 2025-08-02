@@ -138,3 +138,4 @@ test_e2e_db.sqlite3
 manual_test_output/
 /chat_template.txt
 /dev_scripts/results/
+test_artifacts/

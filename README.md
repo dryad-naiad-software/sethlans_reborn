@@ -43,7 +43,7 @@ A standalone application that runs on each rendering machine.
 ### Manager Setup
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/dryad-naiad-software/sethlans_reborn.git](https://github.com/dryad-naiad-software/sethlans_reborn.git)
+    git clone https://github.com/dryad-naiad-software/sethlans_reborn.git
     cd sethlans_reborn
     ```
 2.  **Create and activate a virtual environment:**
