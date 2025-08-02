@@ -116,8 +116,9 @@ jobs:
           path: |
             logs/manager.log
             sethlans_worker_agent/logs/worker.log
-            test_artifacts/
             sethlans_worker_agent/worker_output/
+            test_artifacts/media/assets/*/outputs/
+            test_artifacts/media/assets/*/thumbnails/
           if-no-files-found: ignore
 
       - name: 10. Fail job if E2E tests failed (macOS)
