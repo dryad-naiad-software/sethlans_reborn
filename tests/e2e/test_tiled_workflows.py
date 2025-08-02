@@ -16,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
-# Created by Gemini on 8/1/2025.
+# Created By Mario Estrella on 8/1/2025.
 # Dryad and Naiad Software LLC
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
