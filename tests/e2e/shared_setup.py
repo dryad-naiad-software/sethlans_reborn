@@ -1,3 +1,4 @@
+# tests/e2e/shared_setup.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -21,7 +22,6 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-# tests/e2e/shared_setup.py
 """
 Provides the base class and setup/teardown logic for the E2E test suite.
 
@@ -175,7 +175,13 @@ class BaseE2ETest:
 
     @classmethod
     def start_worker(cls, log_queue, extra_env=None):
-        """Starts the worker process and its log reader thread."""
+        """
+        Starts the worker process and its log reader thread.
+
+        Applies a stability fix for macOS CI runners by forcing the worker
+        into CPU-only mode for most tests. This is disabled for test suites
+        that specifically need to validate hardware detection.
+        """
         print("Starting Worker Agent...")
         test_env = os.environ.copy()
         test_env.update({
@@ -189,7 +195,10 @@ class BaseE2ETest:
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
         force_flag_is_set = "SETHLANS_FORCE_CPU_ONLY" in test_env or "SETHLANS_FORCE_GPU_ONLY" in test_env
 
-        if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerRegistration' and not force_flag_is_set:
+        # FIX: The hardware reporting test is in `TestWorkerBehavior`, not the non-existent
+        # `TestWorkerRegistration`. This fix ensures the stability flag is NOT applied to
+        # the test that validates hardware detection.
+        if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerBehavior' and not force_flag_is_set:
             print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode.")
             test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
 
