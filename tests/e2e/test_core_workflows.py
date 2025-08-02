@@ -77,15 +77,15 @@ class TestCoreWorkflows(BaseE2ETest):
         verify_image_output(final_job_data['thumbnail'])
         print("SUCCESS: Single-frame CPU render workflow completed and verified.")
 
-    @pytest.mark.skipif(
-        not is_gpu_available() or (platform.system() == "Darwin" and "CI" in os.environ),
-        reason="Requires a compatible GPU and is unstable on macOS CI"
-    )
     def test_single_frame_gpu_render(self):
         """
         Tests the complete lifecycle of a single-frame GPU render job.
-        This test is skipped if no compatible GPU is detected or on unstable CI.
+        This test is skipped at runtime if no compatible GPU is detected.
         """
+        # Perform the check at runtime, after setup_class has prepared Blender.
+        if not is_gpu_available() or (platform.system() == "Darwin" and "CI" in os.environ):
+            pytest.skip("Skipping GPU test: No compatible GPU or running in unstable macOS CI.")
+
         print("\n--- E2E TEST: Single-Frame GPU Render ---")
         job_payload = {
             "name": f"E2E GPU Render Test {self.project_id}",

@@ -41,19 +41,30 @@ class TestTiledWorkflows(BaseE2ETest):
     """
 
     @pytest.mark.skipif(
-        not is_gpu_available() or (platform.system() == "Darwin" and "CI" in os.environ),
-        reason="Tiled rendering is intensive; skipped on hosts without a GPU or on unstable macOS CI"
+        platform.system() == "Darwin" and "CI" in os.environ,
+        reason="Tiled rendering is skipped on unstable macOS CI environment"
     )
     def test_single_frame_tiled_render(self):
         """
-        Tests the complete lifecycle of a single-frame tiled render job.
+        Tests the tiled render workflow, adapting its settings based on hardware.
 
-        This validates that a parent TiledJob spawns the correct number of
-        child tile jobs, that those jobs are rendered, and that the final
-        image is correctly assembled and has the requested dimensions.
+        On GPU-capable systems, it runs a standard quality render. On CPU-only
+        systems, it reduces settings to ensure the test completes quickly.
         """
         print("\n--- E2E TEST: Single-Frame Tiled Render ---")
-        resolution = (400, 300)
+
+        # Adapt render settings based on available hardware at runtime
+        if is_gpu_available():
+            print("  Hardware check: GPU detected. Using standard quality settings.")
+            resolution = (400, 300)
+            samples = 32
+            render_device = "ANY"  # Let the worker choose the GPU
+        else:
+            print("  Hardware check: No GPU detected. Using low quality settings for CPU.")
+            resolution = (200, 150)
+            samples = 8
+            render_device = "CPU"  # Force CPU to avoid ambiguity
+
         tile_grid = (2, 2)
         total_tiles = tile_grid[0] * tile_grid[1]
 
@@ -66,7 +77,8 @@ class TestTiledWorkflows(BaseE2ETest):
             "tile_count_x": tile_grid[0],
             "tile_count_y": tile_grid[1],
             "blender_version": self._blender_version_for_test,
-            "render_settings": {RenderSettings.SAMPLES: 32}
+            "render_device": render_device,
+            "render_settings": {RenderSettings.SAMPLES: samples}
         }
         create_response = requests.post(f"{MANAGER_URL}/tiled-jobs/", json=tiled_job_payload)
         assert create_response.status_code == 201, f"Failed to create tiled job: {create_response.text}"
