@@ -44,8 +44,6 @@ def get_config_value(section, key, default, is_int=False):
             return config_parser.getint(section, key)
         return config_parser.get(section, key)
 
-    # --- FIX IS HERE ---
-    # Ensure the default value's type is also respected.
     return int(default) if is_int else default
 
 
@@ -80,15 +78,15 @@ WORKER_AGENT_DIR = Path(__file__).resolve().parent
 SYSTEM_BLENDER_EXECUTABLE = None
 
 # Directories for local storage managed by the worker agent.
-MANAGED_TOOLS_DIR = os.path.join(WORKER_AGENT_DIR, 'managed_tools')
-MANAGED_ASSETS_DIR = os.path.join(WORKER_AGENT_DIR, 'managed_assets')
-WORKER_OUTPUT_DIR = os.path.join(WORKER_AGENT_DIR, 'worker_output')
-WORKER_TEMP_DIR = os.path.join(WORKER_AGENT_DIR, 'temp')
+MANAGED_TOOLS_DIR = WORKER_AGENT_DIR / 'managed_tools'
+MANAGED_ASSETS_DIR = WORKER_AGENT_DIR / 'managed_assets'
+WORKER_OUTPUT_DIR = WORKER_AGENT_DIR / 'worker_output'
+WORKER_TEMP_DIR = WORKER_AGENT_DIR / 'temp'
 
 # Paths to test .blend files used in the end-to-end test suite.
-TEST_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'test_scene.blend')
-BENCHMARK_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'bmw27.blend')
-ANIMATION_BLEND_FILE_PATH = os.path.join(PROJECT_ROOT_FOR_WORKER, 'tests', 'assets', 'animation.blend')
+TEST_BLEND_FILE_PATH = PROJECT_ROOT_FOR_WORKER / 'tests' / 'assets' / 'test_scene.blend'
+BENCHMARK_BLEND_FILE_PATH = PROJECT_ROOT_FOR_WORKER / 'tests' / 'assets' / 'bmw27.blend'
+ANIMATION_BLEND_FILE_PATH = PROJECT_ROOT_FOR_WORKER / 'tests' / 'assets' / 'animation.blend'
 
 
 # --- Tool Discovery & Download Configuration ---
@@ -103,7 +101,7 @@ BLENDER_MIRROR_BASE_URLS = [
 ]
 
 # The local file path for the cached list of available Blender versions.
-BLENDER_VERSIONS_CACHE_FILE = os.path.join(MANAGED_TOOLS_DIR, 'blender_versions_cache.json')
+BLENDER_VERSIONS_CACHE_FILE = MANAGED_TOOLS_DIR / 'blender_versions_cache.json'
 
 # The required major.minor LTS version series for the worker to install.
 REQUIRED_LTS_VERSION_SERIES = "4.5"
