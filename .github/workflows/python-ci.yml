@@ -58,8 +58,7 @@ jobs:
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Run Unit Tests
-        run: |
-          pytest tests/unit
+        run: pytest tests/unit
 
       # --- E2E Tests for non-macOS ---
       - name: Run End-to-End Tests (Windows & Linux)
@@ -108,15 +107,7 @@ jobs:
           echo "Attempting to detach any lingering BlenderMount volumes..."
           hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
 
-      - name: 9. List Artifacts for Debugging
-        if: always()
-        run: |
-          echo "--- Listing contents of test_artifacts directory ---"
-          ls -laR test_artifacts || echo "test_artifacts directory not found."
-          echo "--- Listing contents of worker_output directory ---"
-          ls -laR sethlans_worker_agent/worker_output || echo "worker_output directory not found."
-
-      - name: 10. Upload Test Artifacts
+      - name: 9. Upload Test Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -125,10 +116,11 @@ jobs:
             logs/manager.log
             sethlans_worker_agent/logs/worker.log
             sethlans_worker_agent/worker_output/
-            test_artifacts/media/
+            test_artifacts/
+            !**/*.blend
           if-no-files-found: ignore
 
-      - name: 11. Fail job if E2E tests failed (macOS)
+      - name: 10. Fail job if E2E tests failed (macOS)
         if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'
         run: |
           echo "Failing the job because end-to-end tests failed."

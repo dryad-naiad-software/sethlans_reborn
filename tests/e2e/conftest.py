@@ -1,3 +1,4 @@
+# FILENAME: tests/e2e/conftest.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -27,17 +28,45 @@ Pytest configuration and hooks for the E2E test suite.
 This file provides session-level setup and teardown logic that applies to the
 entire E2E test run, not just a single test class.
 """
+import os
 import shutil
 import tempfile
 from pathlib import Path
+
+# Need to import these to access the paths
+from tests.e2e.shared_setup import ARTIFACTS_ROOT_FOR_TEST
+from sethlans_worker_agent import config as worker_config
+
+
+def pytest_sessionstart(session):
+    """
+    Pytest hook that runs once at the beginning of the entire test session.
+
+    This is used to clean up artifact directories from any previous runs to
+    ensure a clean slate before any tests start.
+    """
+    print("\n--- E2E Session Setup: Cleaning up old artifacts ---")
+    paths_to_clean = [
+        ARTIFACTS_ROOT_FOR_TEST,
+        worker_config.WORKER_OUTPUT_DIR
+    ]
+    for path in paths_to_clean:
+        if path.exists():
+            try:
+                shutil.rmtree(path)
+                print(f"Successfully removed old artifact directory: {path}")
+            except Exception as e:
+                print(f"ERROR: Could not remove old artifact directory {path}: {e}")
+
 
 def pytest_sessionfinish(session, exitstatus):
     """
     Pytest hook that runs once at the end of the entire test session.
 
-    This is used to clean up the persistent Blender E2E cache directory,
-    which is shared across multiple test class runs.
+    This is used to clean up persistent caches and, for local runs, the
+    artifact directories generated during the test.
     """
+    # --- Cleanup for Blender Cache ---
     cache_root = Path(tempfile.gettempdir()) / "sethlans_e2e_cache"
     print(f"\n--- E2E Session Teardown: Cleaning up cache at {cache_root} ---")
     if cache_root.exists():
@@ -46,3 +75,21 @@ def pytest_sessionfinish(session, exitstatus):
             print(f"Successfully removed persistent cache directory: {cache_root}")
         except Exception as e:
             print(f"ERROR: Could not remove persistent cache directory {cache_root}: {e}")
+
+    # --- Conditional Cleanup for Test-Generated Artifacts ---
+    is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+    if not is_ci:
+        print("\n--- E2E Session Teardown: Cleaning up artifacts for local run ---")
+        paths_to_clean = [
+            ARTIFACTS_ROOT_FOR_TEST,
+            worker_config.WORKER_OUTPUT_DIR
+        ]
+        for path in paths_to_clean:
+            if path.exists():
+                try:
+                    shutil.rmtree(path)
+                    print(f"Successfully removed artifact directory: {path}")
+                except Exception as e:
+                    print(f"ERROR: Could not remove artifact directory {path}: {e}")
+    else:
+        print("\n--- E2E Session Teardown: Preserving artifacts for CI upload ---")

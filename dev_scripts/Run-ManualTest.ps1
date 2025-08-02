@@ -1,7 +1,7 @@
 # This script automates the creation of a new project, asset, and tiled job for testing.
 
 # --- Configuration ---
-$apiUrl = "http://127.0.0.1:8000/api"
+$apiUrl = "http://127.0.0.1:7075/api"
 $blendFilePath = "C:\Users\mestrella\Projects\sethlans_reborn\tests\assets\bmw27.blend"
 
 # --- Generate Unique Names ---

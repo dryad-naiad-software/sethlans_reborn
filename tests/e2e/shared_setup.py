@@ -151,7 +151,8 @@ class BaseE2ETest:
         releases = blender_release_parser.get_blender_releases()
         release_info = releases.get(cls._blender_version_for_test, {}).get(platform_id)
         if not release_info or not all(k in release_info for k in ['url', 'sha256']):
-            raise RuntimeError(f"Cannot find download info for Blender {cls._blender_version_for_test} on {platform_id}")
+            raise RuntimeError(
+                f"Cannot find download info for Blender {cls._blender_version_for_test} on {platform_id}")
 
         try:
             downloaded_archive = file_operations.download_file(release_info['url'], str(cache_root))
@@ -187,7 +188,7 @@ class BaseE2ETest:
         print("Starting Worker Agent...")
         test_env = os.environ.copy()
         test_env.update({
-            "SETHLANS_DB_NAME": str(TEST_DB_NAME), # Pass absolute path as string
+            "SETHLANS_DB_NAME": str(TEST_DB_NAME),  # Pass absolute path as string
             "DJANGO_SETTINGS_MODULE": "config.settings",
             "SETHLANS_MEDIA_ROOT": str(MEDIA_ROOT_FOR_TEST)
         })
@@ -210,7 +211,8 @@ class BaseE2ETest:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding='utf-8', errors='replace'
         )
-        cls.worker_log_thread = threading.Thread(target=cls._log_reader_thread, args=(cls.worker_process.stdout, log_queue))
+        cls.worker_log_thread = threading.Thread(target=cls._log_reader_thread,
+                                                 args=(cls.worker_process.stdout, log_queue))
         cls.worker_log_thread.daemon = True
         cls.worker_log_thread.start()
 
@@ -232,24 +234,15 @@ class BaseE2ETest:
     def setup_class(cls):
         """Set up the environment once for all tests in this class."""
         print(f"\n--- SETUP: {cls.__name__} ---")
-        # Clean up previous run artifacts
+        # Clean up previous run artifacts that are not handled by session setup
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
-
-        # Comprehensive cleanup of all temporary and worker-generated directories
-        paths_to_clean = [
-            MOCK_TOOLS_DIR,
-            ARTIFACTS_ROOT_FOR_TEST,
-            worker_config.MANAGED_ASSETS_DIR,
-            worker_config.WORKER_OUTPUT_DIR,
-            worker_config.WORKER_TEMP_DIR
-        ]
-        for path in paths_to_clean:
-            if path.exists():
-                shutil.rmtree(path, ignore_errors=True)
-
+        if MOCK_TOOLS_DIR.exists():
+            shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
         if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE):
             os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
 
+        # The session-level hooks now handle artifact directory cleanup.
+        # We just need to ensure the media root exists for the current test class.
         MEDIA_ROOT_FOR_TEST.mkdir(parents=True, exist_ok=True)
 
         # Prepare Blender installation for the worker
@@ -261,15 +254,17 @@ class BaseE2ETest:
         # Start Manager
         test_env = os.environ.copy()
         test_env.update({
-            "SETHLANS_DB_NAME": str(TEST_DB_NAME), # Pass absolute path as string
+            "SETHLANS_DB_NAME": str(TEST_DB_NAME),  # Pass absolute path as string
             "DJANGO_SETTINGS_MODULE": "config.settings",
             "SETHLANS_MEDIA_ROOT": str(MEDIA_ROOT_FOR_TEST)
         })
         print("Running migrations...")
-        subprocess.run([sys.executable, "manage.py", "migrate"], cwd=PROJECT_ROOT, env=test_env, check=True, capture_output=True)
+        subprocess.run([sys.executable, "manage.py", "migrate"], cwd=PROJECT_ROOT, env=test_env, check=True,
+                       capture_output=True)
         print(f"Starting Django manager on port {worker_config.MANAGER_PORT}...")
         manager_command = [sys.executable, "manage.py", "runserver", str(worker_config.MANAGER_PORT), "--noreload"]
-        cls.manager_process = subprocess.Popen(manager_command, cwd=PROJECT_ROOT, env=test_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cls.manager_process = subprocess.Popen(manager_command, cwd=PROJECT_ROOT, env=test_env,
+                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(5)  # Wait for manager to start
 
         # Create shared test assets with unique names for this test run
@@ -280,9 +275,12 @@ class BaseE2ETest:
         response.raise_for_status()
         cls.project_id = response.json()['id']
 
-        cls.scene_asset_id = cls._upload_test_asset(f"E2E Test Scene {unique_suffix}", worker_config.TEST_BLEND_FILE_PATH, cls.project_id)
-        cls.bmw_asset_id = cls._upload_test_asset(f"E2E BMW Scene {unique_suffix}", worker_config.BENCHMARK_BLEND_FILE_PATH, cls.project_id)
-        cls.anim_asset_id = cls._upload_test_asset(f"E2E Animation Scene {unique_suffix}", worker_config.ANIMATION_BLEND_FILE_PATH, cls.project_id)
+        cls.scene_asset_id = cls._upload_test_asset(f"E2E Test Scene {unique_suffix}",
+                                                    worker_config.TEST_BLEND_FILE_PATH, cls.project_id)
+        cls.bmw_asset_id = cls._upload_test_asset(f"E2E BMW Scene {unique_suffix}",
+                                                  worker_config.BENCHMARK_BLEND_FILE_PATH, cls.project_id)
+        cls.anim_asset_id = cls._upload_test_asset(f"E2E Animation Scene {unique_suffix}",
+                                                   worker_config.ANIMATION_BLEND_FILE_PATH, cls.project_id)
 
         # Start Worker
         cls.start_worker(cls.worker_log_queue)
@@ -296,14 +294,16 @@ class BaseE2ETest:
         if cls.worker_process and cls.worker_process.poll() is None:
             print(f"Terminating worker process (PID: {cls.worker_process.pid})...")
             if platform.system() == "Windows":
-                subprocess.run(f"taskkill /F /T /PID {cls.worker_process.pid}", check=False, capture_output=True, shell=True)
+                subprocess.run(f"taskkill /F /T /PID {cls.worker_process.pid}", check=False, capture_output=True,
+                               shell=True)
             else:
                 cls.worker_process.kill()
 
         if cls.manager_process and cls.manager_process.poll() is None:
             print(f"Terminating manager process (PID: {cls.manager_process.pid})...")
             if platform.system() == "Windows":
-                subprocess.run(f"taskkill /F /T /PID {cls.manager_process.pid}", check=False, capture_output=True, shell=True)
+                subprocess.run(f"taskkill /F /T /PID {cls.manager_process.pid}", check=False, capture_output=True,
+                               shell=True)
             else:
                 cls.manager_process.kill()
 
@@ -328,28 +328,10 @@ class BaseE2ETest:
             except OSError as e:
                 print(f"Error removing test database {TEST_DB_NAME}: {e}")
 
-        is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
-
-        # Define paths that should always be cleaned up
-        paths_to_clean = [
-            MOCK_TOOLS_DIR,
-            worker_config.MANAGED_ASSETS_DIR,
-            worker_config.WORKER_TEMP_DIR
-        ]
-
-        # Conditionally clean up artifact directories
-        if not is_ci:
-            print("Local run detected. Cleaning up artifact directories...")
-            paths_to_clean.extend([
-                ARTIFACTS_ROOT_FOR_TEST,
-                worker_config.WORKER_OUTPUT_DIR
-            ])
-        else:
-            print("CI run detected. Preserving artifact directories for upload.")
-
-        for path in paths_to_clean:
-            if path.exists():
-                shutil.rmtree(path, ignore_errors=True)
+        # Artifact directories are now cleaned up by session-level hooks.
+        # We only clean up class-specific items here.
+        if MOCK_TOOLS_DIR.exists():
+            shutil.rmtree(MOCK_TOOLS_DIR, ignore_errors=True)
 
         if os.path.exists(worker_config.BLENDER_VERSIONS_CACHE_FILE):
             os.remove(worker_config.BLENDER_VERSIONS_CACHE_FILE)
