@@ -328,13 +328,25 @@ class BaseE2ETest:
             except OSError as e:
                 print(f"Error removing test database {TEST_DB_NAME}: {e}")
 
+        is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
+        # Define paths that should always be cleaned up
         paths_to_clean = [
             MOCK_TOOLS_DIR,
-            ARTIFACTS_ROOT_FOR_TEST,
             worker_config.MANAGED_ASSETS_DIR,
-            worker_config.WORKER_OUTPUT_DIR,
             worker_config.WORKER_TEMP_DIR
         ]
+
+        # Conditionally clean up artifact directories
+        if not is_ci:
+            print("Local run detected. Cleaning up artifact directories...")
+            paths_to_clean.extend([
+                ARTIFACTS_ROOT_FOR_TEST,
+                worker_config.WORKER_OUTPUT_DIR
+            ])
+        else:
+            print("CI run detected. Preserving artifact directories for upload.")
+
         for path in paths_to_clean:
             if path.exists():
                 shutil.rmtree(path, ignore_errors=True)
