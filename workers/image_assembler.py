@@ -51,12 +51,8 @@ def assemble_animation_frame_image(animation_frame_id):
 
     This function is triggered by a signal when all child tile jobs for a given
     `AnimationFrame` are marked as `DONE`. It fetches the individual tile images,
-    stitches them together, and saves the final assembled image to the
-    `AnimationFrame` model's `output_file` field. Thumbnail generation is handled
-    by a post_save signal on the AnimationFrame model.
-
-    Args:
-        animation_frame_id (int): The primary key of the `AnimationFrame` to assemble.
+    stitches them together, saves the final assembled image, and then explicitly
+    generates a thumbnail for it.
     """
     try:
         frame = AnimationFrame.objects.select_related('animation').get(id=animation_frame_id)
@@ -113,12 +109,17 @@ def assemble_animation_frame_image(animation_frame_id):
         frame.output_file.save(file_name, content_file, save=False)
         frame.status = AnimationFrameStatus.DONE
 
-        # Aggregate render time from child jobs
         time_aggregate = completed_jobs.aggregate(total=Sum('render_time_seconds'))
         frame.render_time_seconds = time_aggregate['total'] or 0
+        frame.save() # Save the model with the output file and status first
 
-        frame.save()
-        logger.info(f"Successfully assembled and saved final image for {frame}.")
+        # Now, explicitly generate and save the thumbnail
+        if frame.output_file and not frame.thumbnail:
+            thumb_content = generate_thumbnail(frame.output_file)
+            if thumb_content:
+                frame.thumbnail.save(thumb_content.name, thumb_content, save=True)
+
+        logger.info(f"Successfully assembled and saved final image and thumbnail for {frame}.")
 
     except Exception as e:
         logger.critical(f"A critical error occurred during image assembly for {frame}: {e}", exc_info=True)
@@ -130,14 +131,9 @@ def assemble_tiled_job_image(tiled_job_id):
     """
     Assembles the completed tiles for a single, high-resolution `TiledJob`.
 
-    This function is triggered by a signal when all child `Job`s for a given
-    `TiledJob` are marked as `DONE`. It fetches the individual tile images,
-    stitches them together, and saves the final assembled image to the `TiledJob`
-    model's `output_file` field. Thumbnail generation is handled by a post_save
-    signal on the TiledJob model.
-
-    Args:
-        tiled_job_id (UUID): The primary key of the `TiledJob` to assemble.
+    This function is triggered by a signal when all child `Job`s are marked
+    as `DONE`. It assembles the image, saves it, and then explicitly
+    generates and saves a thumbnail for the final output.
     """
     try:
         tiled_job = TiledJob.objects.get(id=tiled_job_id)
@@ -164,31 +160,31 @@ def assemble_tiled_job_image(tiled_job_id):
                 continue
 
             tile_y, tile_x = map(int, match.groups())
-
-            # Calculate paste coordinates, inverting Y for Pillow's top-left origin.
             paste_x = tile_x * tile_pixel_width
             paste_y = (tiled_job.tile_count_y - 1 - tile_y) * tile_pixel_height
-
-            logger.debug(f"Pasting tile {tile_y}_{tile_x} from job '{job.name}' at position ({paste_x}, {paste_y}).")
 
             with Image.open(job.output_file.path) as tile_image:
                 final_image.paste(tile_image, (paste_x, paste_y))
 
-        # Save the final image to an in-memory buffer
         buffer = io.BytesIO()
         final_image.save(buffer, format='PNG')
         buffer.seek(0)
 
-        # Create a Django ContentFile and save it to the model's FileField
         file_name = f"tiled_job_{tiled_job.id}_final.png"
         content_file = ContentFile(buffer.getvalue(), name=file_name)
         tiled_job.output_file.save(file_name, content_file, save=False)
 
         tiled_job.status = TiledJobStatus.DONE
         tiled_job.completed_at = timezone.now()
-        tiled_job.save()
+        tiled_job.save() # Save model with output file first
 
-        logger.info(f"Successfully assembled and saved final image for TiledJob ID {tiled_job.id}.")
+        # Now, explicitly generate and save the thumbnail
+        if tiled_job.output_file and not tiled_job.thumbnail:
+            thumb_content = generate_thumbnail(tiled_job.output_file)
+            if thumb_content:
+                tiled_job.thumbnail.save(thumb_content.name, thumb_content, save=True)
+
+        logger.info(f"Successfully assembled and saved final image and thumbnail for TiledJob ID {tiled_job.id}.")
 
     except Exception as e:
         logger.critical(f"A critical error occurred during image assembly for TiledJob ID {tiled_job.id}: {e}",

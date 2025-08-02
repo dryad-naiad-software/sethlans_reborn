@@ -281,25 +281,10 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
 
     # --- Thumbnail Generation (progress thumbnails) ---
     if instance.output_file:
-        thumb_content = None
-
-        # Create a frame thumbnail only once
-        if not instance.thumbnail:
-            logger.debug(
-                f"AnimationFrame {instance.id} has an output file. Generating frame thumbnail."
-            )
-            thumb_content = generate_thumbnail(instance.output_file)
-            if thumb_content:
-                _save_thumbnails_for_instances(
-                    [instance],
-                    sender=AnimationFrame,
-                    handler=handle_animation_frame_completion,
-                    thumb_content=thumb_content,
-                )
-
-        # Always update the animation thumbnail from the latest rendered frame
-        if thumb_content is None:
-            thumb_content = generate_thumbnail(instance.output_file)
+        # The image_assembler is responsible for creating the AnimationFrame's
+        # own thumbnail. This signal's job is to always update the PARENT
+        # animation's thumbnail to show the latest progress.
+        thumb_content = generate_thumbnail(instance.output_file)
 
         if thumb_content:
             _save_thumbnails_for_instances(
@@ -307,7 +292,7 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
                 sender=AnimationFrame,
                 handler=handle_animation_frame_completion,
                 thumb_content=thumb_content,
-                frame_number=instance.frame_number,  # version animation thumbnail by frame
+                frame_number=instance.frame_number,
             )
 
     # --- Parent Animation Status Update ---
@@ -333,22 +318,3 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
         animation.save(
             update_fields=["status", "completed_at", "total_render_time_seconds"]
         )
-
-
-@receiver(post_save, sender=TiledJob)
-def handle_tiled_job_completion(sender, instance, **kwargs):
-    """
-    Generate a thumbnail upon tiled job completion.
-    """
-    from .image_utils import generate_thumbnail
-
-    if instance.output_file and not instance.thumbnail:
-        logger.debug(f"TiledJob {instance.id} has an output file. Generating thumbnail.")
-        thumb_content = generate_thumbnail(instance.output_file)
-        if thumb_content:
-            _save_thumbnails_for_instances(
-                [instance],
-                sender=TiledJob,
-                handler=handle_tiled_job_completion,
-                thumb_content=thumb_content,
-            )

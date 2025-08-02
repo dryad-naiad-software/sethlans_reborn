@@ -66,9 +66,12 @@ class ImageAssemblerTests(BaseMediaTestCase):
         self.assertEqual(self.tiled_job.status, TiledJobStatus.DONE)
         self.assertIsNotNone(self.tiled_job.completed_at)
         self.assertTrue(self.tiled_job.output_file.name)
+        # Verify that the thumbnail was created by the assembly function
+        self.assertTrue(self.tiled_job.thumbnail.name)
 
         final_image = Image.open(self.tiled_job.output_file.path)
         self.assertEqual(final_image.size, (200, 200))
+        # Verify a few pixel colors to ensure tiles were placed correctly
         self.assertEqual(final_image.getpixel((50, 50)), (0, 0, 255, 255))
         self.assertEqual(final_image.getpixel((150, 50)), (255, 255, 0, 255))
         self.assertEqual(final_image.getpixel((50, 150)), (255, 0, 0, 255))

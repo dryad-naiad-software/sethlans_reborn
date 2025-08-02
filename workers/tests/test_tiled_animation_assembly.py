@@ -76,6 +76,8 @@ class TiledAnimationAssemblyTests(BaseMediaTestCase):
         self.frame1.refresh_from_db()
         self.assertEqual(self.frame1.status, AnimationFrameStatus.DONE)
         self.assertTrue(self.frame1.output_file.name)
+        # Verify that the thumbnail was created by the assembly function
+        self.assertTrue(self.frame1.thumbnail.name)
         self.assertEqual(self.frame1.render_time_seconds, 40)
 
         final_image = Image.open(self.frame1.output_file.path)
@@ -91,9 +93,10 @@ class TiledAnimationAssemblyTests(BaseMediaTestCase):
         self.animation.refresh_from_db()
         self.assertNotEqual(self.animation.status, "DONE")
 
+        # Simulate the second frame completing
         self.frame2.render_time_seconds = 60
         self.frame2.status = AnimationFrameStatus.DONE
-        self.frame2.save()
+        self.frame2.save() # This triggers the handle_animation_frame_completion signal
 
         self.animation.refresh_from_db()
         self.assertEqual(self.animation.status, "DONE")
