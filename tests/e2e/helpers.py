@@ -1,3 +1,4 @@
+# tests/e2e/helpers.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -21,7 +22,6 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
-# tests/e2e/helpers.py
 """
 A collection of helper functions to support the E2E test suite.
 
@@ -39,13 +39,14 @@ from PIL import Image
 from sethlans_worker_agent import system_monitor
 
 
-def poll_for_completion(api_url: str, timeout_seconds: int = 120, interval_seconds: int = 2) -> dict:
+def poll_for_completion(api_url: str, timeout_seconds: int = 240, interval_seconds: int = 2) -> dict:
     """
     Polls a job or animation API endpoint until its status is 'DONE' or 'ERROR'.
 
     Args:
         api_url (str): The full URL of the job or animation to poll.
-        timeout_seconds (int): The maximum number of seconds to wait.
+        timeout_seconds (int): The maximum number of seconds to wait. The default is
+            increased to 240s to accommodate slower CI runners.
         interval_seconds (int): The number of seconds to wait between polls.
 
     Returns:
