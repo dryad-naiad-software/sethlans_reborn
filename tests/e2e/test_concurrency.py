@@ -28,7 +28,7 @@ End-to-end tests for concurrency and database stability. 🏎️💨
 
 import requests
 import threading
-import time
+import uuid  # <-- Import uuid
 from .shared_setup import BaseE2ETest, MANAGER_URL
 from .helpers import poll_for_completion
 from workers.constants import RenderSettings
@@ -55,11 +55,13 @@ class TestConcurrency(BaseE2ETest):
 
         def submit_animation(url_list):
             """Target function for each thread to submit an animation job."""
+            # Use UUID to guarantee a unique name for each concurrent request
+            unique_id = uuid.uuid4()
             anim_payload = {
-                "name": f"E2E Concurrency Test Animation {time.time()}",
+                "name": f"E2E Concurrency Test Animation {unique_id}",
                 "project": self.project_id,
                 "asset_id": self.anim_asset_id,
-                "output_file_pattern": f"concurrent_anim_{time.time()}_####",
+                "output_file_pattern": f"concurrent_anim_{unique_id}_####",
                 "start_frame": 1,
                 "end_frame": 2,  # Short animation
                 "blender_version": self._blender_version_for_test,
