@@ -40,11 +40,22 @@ def asset_upload_path(instance, filename):
 
 def job_output_upload_path(instance, filename):
     """
-    Generates an upload path for a standard Job's output file inside a job-specific directory.
-    Example: media/assets/<project_short_id>/outputs/job_<job_id>/<filename>
+    Generates an upload path for a Job's output file.
+    - For animation frames, it groups them under an animation-specific directory.
+    - For standalone jobs, it creates a job-specific directory.
+    Example (Animation): media/assets/<proj_id>/outputs/animation_<anim_id>/<filename>
+    Example (Standalone): media/assets/<proj_id>/outputs/job_<job_id>/<filename>
     """
     project_short_id = str(instance.asset.project.id)[:8]
-    job_dir = f"job_{instance.id}"
+
+    # Check if the job is part of an animation
+    if instance.animation:
+        # Group by parent animation ID
+        job_dir = f"animation_{instance.animation.id}"
+    else:
+        # Standalone job, group by its own ID
+        job_dir = f"job_{instance.id}"
+
     return f'assets/{project_short_id}/outputs/{job_dir}/{filename}'
 
 

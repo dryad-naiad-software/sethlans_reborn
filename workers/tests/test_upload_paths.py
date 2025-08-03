@@ -67,13 +67,26 @@ class UploadPathTests(BaseMediaTestCase):
         # 8 chars for short uuid + 6 for '.blend'
         self.assertEqual(len(parts[2]), 8 + 6)
 
-    def test_job_output_upload_path_creates_job_directory(self):
+    def test_standalone_job_output_path_creates_job_directory(self):
         """
-        Verifies that job output paths are created inside a job ID-specific directory.
+        Verifies that a standalone job's output path is in a job ID-specific directory.
         """
-        job = Job.objects.create(asset=self.asset, name="Test Job For Path", id=123)
+        job = Job.objects.create(asset=self.asset, name="Test Standalone Job", id=123)
         path = job_output_upload_path(job, "render-0001.png")
-        expected = f'assets/{str(self.project.id)[:8]}/outputs/job_{job.id}/render-0001.png'
+        expected = f'assets/{str(self.project.id)[:8]}/outputs/job_123/render-0001.png'
+        self.assertEqual(path, expected)
+
+    def test_animation_job_output_path_groups_by_animation(self):
+        """
+        Verifies that frames from an animation are grouped under one animation-specific directory.
+        """
+        anim = Animation.objects.create(
+            project=self.project, asset=self.asset, name="Test Animation Grouping", start_frame=1, end_frame=2, id=999
+        )
+        job_frame1 = Job.objects.create(asset=self.asset, name="Frame 1", animation=anim, id=123)
+        path = job_output_upload_path(job_frame1, "render-0001.png")
+        anim_dir = f"animation_{anim.id}"
+        expected = f'assets/{str(self.project.id)[:8]}/outputs/{anim_dir}/render-0001.png'
         self.assertEqual(path, expected)
 
     def test_tiled_job_output_upload_path_creates_job_directory(self):
@@ -90,7 +103,7 @@ class UploadPathTests(BaseMediaTestCase):
 
     def test_animation_frame_output_upload_path_creates_animation_directory(self):
         """
-        Verifies that animation frame paths are created inside an animation ID-specific directory.
+        Verifies that assembled animation frame paths are created inside an animation ID-specific directory.
         """
         anim = Animation.objects.create(
             project=self.project, asset=self.asset, name="Test Animation Path #1", start_frame=1, end_frame=1, id=456
