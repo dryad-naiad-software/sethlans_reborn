@@ -10,7 +10,7 @@
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# GNU General Public License for a more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
@@ -38,8 +38,11 @@ from .models import (
     TiledJob,
     JobStatus,
     AnimationFrameStatus,
+    Project,
+    Asset,  # Import Asset
 )
 from .constants import TilingConfiguration
+from .manifest_generator import update_project_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +181,44 @@ def _save_thumbnails_for_instances(
 # -----------------------------
 # Signal handlers
 # -----------------------------
+
+@receiver(post_save, sender=Project)
+@receiver(post_save, sender=Asset) # FIX: Added Asset as a sender
+@receiver(post_save, sender=Job)
+@receiver(post_save, sender=Animation)
+@receiver(post_save, sender=TiledJob)
+def handle_manifest_update(sender, instance, created, **kwargs):
+    """
+    Signal handler to create or update the project manifest file.
+
+    This function is triggered whenever a Project is created or a new Job of any
+    type (Job, Animation, TiledJob) is added to a project. It calls a utility
+    to regenerate the `manifest.txt` file, ensuring it stays up-to-date.
+
+    Args:
+        sender (Model): The model class that sent the signal.
+        instance (Model): The actual instance being saved.
+        created (bool): True if a new record was created.
+        **kwargs: Additional keyword arguments.
+    """
+    if not created:
+        return
+
+    project_id = None
+    if sender is Project:
+        project_id = instance.id
+    elif hasattr(instance, 'project') and instance.project:
+        project_id = instance.project.id
+    elif hasattr(instance, 'asset') and instance.asset and instance.asset.project:
+        project_id = instance.asset.project.id
+
+    if project_id:
+        logger.debug(f"Signal received from {sender.__name__} for project {project_id}. Updating manifest.")
+        update_project_manifest(project_id)
+    else:
+        logger.warning(f"Could not determine project ID from saved {sender.__name__} instance. Manifest not updated.")
+
+
 @receiver(post_save, sender=Job)
 def handle_job_completion(sender, instance, **kwargs):
     """
