@@ -43,7 +43,8 @@ class AssetViewSetTests(BaseMediaTestCase):
         self.assertEqual(new_asset.name, "Test Scene Asset")
         self.assertEqual(new_asset.project, self.project)
 
-        expected_path_start = f"assets/{self.project.id}/"
+        project_short_id = str(self.project.id)[:8]
+        expected_path_start = f"assets/{project_short_id}/"
         self.assertTrue(new_asset.blend_file.name.startswith(expected_path_start))
         self.assertTrue(new_asset.blend_file.name.endswith(".blend"))
         self.assertNotIn("test_scene", new_asset.blend_file.name)

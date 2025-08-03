@@ -56,7 +56,6 @@ class ManifestGeneratorTests(BaseMediaTestCase):
         )
 
         Animation.objects.create(name="Opening Scene", project=self.project, asset=asset1, start_frame=1, end_frame=10)
-        # FIX: Added missing required fields `final_resolution_x` and `final_resolution_y`.
         TiledJob.objects.create(
             name="Character Portrait",
             project=self.project,
@@ -70,7 +69,8 @@ class ManifestGeneratorTests(BaseMediaTestCase):
         update_project_manifest(self.project.id)
 
         # Assert: Check file content
-        manifest_path = Path(self.media_root) / 'assets' / str(self.project.id) / 'manifest.txt'
+        project_short_id = str(self.project.id)[:8]
+        manifest_path = Path(self.media_root) / 'assets' / project_short_id / 'manifest.txt'
         self.assertTrue(manifest_path.exists())
 
         content = manifest_path.read_text()

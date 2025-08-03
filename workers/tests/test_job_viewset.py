@@ -47,6 +47,7 @@ class JobViewSetTests(BaseMediaTestCase):
     def test_create_job(self):
         job_data = {
             "name": "My New Render",
+            "project": self.project.id,
             "asset_id": self.asset.id,
             "output_file_pattern": "//renders/final_shot_####",
             "start_frame": 1,
@@ -62,6 +63,7 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertEqual(new_job.status, 'QUEUED')
         self.assertEqual(new_job.render_device, RenderDevice.GPU)
         self.assertEqual(new_job.asset, self.asset)
+        self.assertEqual(new_job.asset.project, self.project)
 
     def test_update_job_status(self):
         job = Job.objects.create(name="Job to Update", asset=self.asset, status='QUEUED')
@@ -89,7 +91,8 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         job.refresh_from_db()
         self.assertIsNotNone(job.output_file)
-        self.assertTrue(job.output_file.name.startswith(f"assets/{self.project.id}/outputs/job_{job.id}"))
+        project_short_id = str(self.project.id)[:8]
+        self.assertTrue(job.output_file.name.startswith(f"assets/{project_short_id}/outputs/job_{job.id}"))
 
     def test_job_filtering_for_gpu_capability(self):
         Job.objects.create(name="CPU Job", asset=self.asset, render_device=RenderDevice.CPU)
@@ -128,6 +131,7 @@ class JobViewSetTests(BaseMediaTestCase):
         Job.objects.create(name="Paused Job", asset=paused_asset, status=JobStatus.QUEUED)
 
         url = "/api/jobs/"
+        # This parameter is what identifies the request as a worker poll
         params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
 
         response = self.client.get(url, params)

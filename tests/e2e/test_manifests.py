@@ -47,7 +47,8 @@ class TestManifestCreation(BaseE2ETest):
         print("\n--- E2E TEST: Project Manifest Creation and Update ---")
 
         # 1. The setup_class already created a project. Check for the initial manifest.
-        manifest_path = MEDIA_ROOT_FOR_TEST / 'assets' / str(self.project_id) / 'manifest.txt'
+        project_short_id = str(self.project_id)[:8]
+        manifest_path = MEDIA_ROOT_FOR_TEST / 'assets' / project_short_id / 'manifest.txt'
         assert manifest_path.exists(), "Manifest file was not created after project setup."
 
         initial_content = manifest_path.read_text()
@@ -61,6 +62,7 @@ class TestManifestCreation(BaseE2ETest):
         print("Submitting a new job to trigger manifest update...")
         job_payload = {
             "name": f"E2E Manifest Test Job {int(time.time())}",
+            "project": self.project_id, # Must send full UUID to API
             "asset_id": self.scene_asset_id,
             "output_file_pattern": "manifest_test_####",
             "start_frame": 1, "end_frame": 1,

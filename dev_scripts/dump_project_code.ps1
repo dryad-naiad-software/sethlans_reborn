@@ -1,4 +1,4 @@
-# dump_project_code.ps1 (updated)
+# dump_project_code.ps1
 # Stable version: no parameters, builds manifest in memory, strict chunking with splitting oversized files,
 # and includes a sanity‑check summary (files processed, chunk counts, largest chunk size).
 
@@ -39,29 +39,54 @@ function Test-PathContainsExcludedDir {
 }
 
 # Recursive directory listing that honours both $ExcludeNames and $ExcludeFiles
+# Replace your Get-TreeListing with this non-recursive version
 function Get-TreeListing {
-    param([string]$Path, [int]$Depth = 0)
-    $indent = "  " * $Depth
-    try {
-        Get-ChildItem -LiteralPath $Path | Sort-Object @{Expression='PSIsContainer'; Descending=$true}, Name | ForEach-Object {
-            # Skip excluded directories
-            if ($_.PSIsContainer -and $ExcludeNames -contains $_.Name) { return }
-            # Skip individual files on the exclusion list
-            if (-not $_.PSIsContainer -and ($ExcludeFiles -contains $_.Name)) { return }
-            # Skip files inside excluded directories (for safety)
-            if (-not $_.PSIsContainer -and (Test-PathContainsExcludedDir $_.Directory.FullName)) { return }
+    param([Parameter(Mandatory)] [object]$Path, [int]$Depth = 0)
 
-            if ($_.PSIsContainer) {
-                $manifestLines += ("{0}|-- {1}" -f $indent, $_.Name)
-                Get-TreeListing -Path $_.FullName -Depth ($Depth + 1)
-            } else {
-                $manifestLines += ("{0}|-- {1}" -f $indent, $_.Name)
+    try {
+        $rootItem = Get-Item -LiteralPath $Path -ErrorAction Stop
+        $root     = $rootItem.FullName
+
+        function local:PathHasExcludedSegment([string]$rel) {
+            if ([string]::IsNullOrEmpty($rel)) { return $false }
+            foreach ($seg in ($rel -split '[\\/]+')) {
+                if ($ExcludeNames -contains $seg) { return $true }
             }
+            return $false
+        }
+
+        # Get all dirs/files once; skip reparse points (symlinks/junctions) to avoid cycles
+        $dirs = Get-ChildItem -LiteralPath $root -Directory -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+                Sort-Object FullName
+
+        $files = Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue |
+                 Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+                 Sort-Object FullName
+
+        # Emit directories first (in path order)
+        foreach ($d in $dirs) {
+            $rel = $d.FullName.Substring($root.Length + 1)
+            if (local:PathHasExcludedSegment $rel) { continue }
+            $depth  = ($rel -split '[\\/]+').Count - 1
+            $indent = '  ' * $depth
+            $script:manifestLines += ("{0}|-- {1}" -f $indent, $d.Name)
+        }
+
+        # Then emit files (skip excluded paths and explicit file-name excludes)
+        foreach ($f in $files) {
+            $rel = $f.FullName.Substring($root.Length + 1)
+            if (local:PathHasExcludedSegment ([System.IO.Path]::GetDirectoryName($rel))) { continue }
+            if ($ExcludeFiles -contains $f.Name) { continue }
+            $depth  = ($rel -split '[\\/]+').Count - 1
+            $indent = '  ' * $depth
+            $script:manifestLines += ("{0}|-- {1}" -f $indent, $f.Name)
         }
     } catch {
-        $manifestLines += ("WARNING: Failed to list directory at {0}: {1}" -f $Path, $_.Exception.Message)
+        $script:manifestLines += ("WARNING: Failed to list directory at {0}: {1}" -f $Path, $_.Exception.Message)
     }
 }
+
 
 # ---------------------------
 # PROJECT ROOT DETECTION
@@ -108,7 +133,7 @@ $manifestLines += ""
 
 $manifestLines += "--- START OF DIRECTORY LISTING ---"
 $manifestLines += ("Project Root: {0}" -f $ProjectRoot.Name)
-Get-TreeListing -Path $ProjectRoot -Depth 0
+Get-TreeListing -Path $ProjectRoot.FullName -Depth 0   # use .FullName to pass a string path
 $manifestLines += "--- END OF DIRECTORY LISTING ---"
 
 # ---------------------------

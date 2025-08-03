@@ -28,45 +28,53 @@ from pathlib import Path
 
 def asset_upload_path(instance, filename):
     """
-    media/assets/<project_id>/<uuid><ext>
+    Generates a unique upload path for an asset file using short UUIDs.
+    Example: media/assets/<project_short_id>/<asset_short_uuid><ext>
     """
     extension = Path(filename).suffix
-    return f'assets/{instance.project.id}/{uuid.uuid4()}{extension}'
+    project_short_id = str(instance.project.id)[:8]
+    asset_short_uuid = uuid.uuid4().hex[:8]
+    return f'assets/{project_short_id}/{asset_short_uuid}{extension}'
 
 
 def job_output_upload_path(instance, filename):
     """
-    media/assets/<project_id>/outputs/job_<job_id><ext>
+    Generates an upload path for a standard Job's output file.
+    Example: media/assets/<project_short_id>/outputs/job_<job_id><ext>
     """
     extension = Path(filename).suffix
-    project_id = instance.asset.project.id
-    return f'assets/{project_id}/outputs/job_{instance.id}{extension}'
+    project_short_id = str(instance.asset.project.id)[:8]
+    return f'assets/{project_short_id}/outputs/job_{instance.id}{extension}'
 
 
 def tiled_job_output_upload_path(instance, filename):
     """
-    media/assets/<project_id>/outputs/tiled_<tiled_job_id><ext>
+    Generates an upload path for a TiledJob's final assembled output.
+    Example: media/assets/<project_short_id>/outputs/tiled_<tiled_job_short_id><ext>
     """
     extension = Path(filename).suffix
-    project_id = instance.asset.project.id
-    return f'assets/{project_id}/outputs/tiled_{instance.id}{extension}'
+    project_short_id = str(instance.asset.project.id)[:8]
+    tiled_job_short_id = str(instance.id)[:8]
+    return f'assets/{project_short_id}/outputs/tiled_{tiled_job_short_id}{extension}'
 
 
 def animation_frame_output_upload_path(instance, filename):
     """
-    media/assets/<proj_id>/outputs/anim_<anim_id>/frame_<frame_number><ext>
+    Generates an upload path for an assembled AnimationFrame output.
+    Example: media/assets/<proj_short_id>/outputs/anim_<anim_id>/frame_<frame_number><ext>
     """
     extension = Path(filename).suffix
-    project_id = instance.animation.project.id
+    project_short_id = str(instance.animation.project.id)[:8]
     return (
-        f'assets/{project_id}/outputs/anim_{instance.animation.id}/'
+        f'assets/{project_short_id}/outputs/anim_{instance.animation.id}/'
         f'frame_{instance.frame_number:04d}{extension}'
     )
 
 
 def thumbnail_upload_path(instance, filename):
     """
-    media/assets/<project_id>/thumbnails/<basename>
+    Generates an upload path for a thumbnail image.
+    Example: media/assets/<project_short_id>/thumbnails/<basename>
 
     - For Animation thumbnails:
         * Respect the passed-in filename (so we can version: '<pk>-0002.png').
@@ -86,16 +94,19 @@ def thumbnail_upload_path(instance, filename):
     elif hasattr(instance, 'animation') and instance.animation is not None:
         project_id = instance.animation.project.id
 
-    if not project_id:
-        project_id = "unknown_project"
+    project_short_id = str(project_id)[:8] if project_id else "unknown_project"
 
     # Special case: Animation -> respect caller-provided basename; fallback to '{pk}.png'
     if model_name == 'animation':
         pk_value = getattr(instance, 'pk', getattr(instance, 'id', None))
         stem = passed_stem or (str(pk_value) if pk_value is not None else "temp")
         basename = f"{stem}{extension}"
-        return f'assets/{project_id}/thumbnails/{basename}'
+        return f'assets/{project_short_id}/thumbnails/{basename}'
 
     # Default behavior for other models
-    basename = f'{model_name}_{getattr(instance, "id", "unknown")}{extension}'
-    return f'assets/{project_id}/thumbnails/{basename}'
+    pk_value = getattr(instance, 'id', 'unknown')
+    if isinstance(pk_value, uuid.UUID):
+        pk_value = str(pk_value)[:8]
+
+    basename = f'{model_name}_{pk_value}{extension}'
+    return f'assets/{project_short_id}/thumbnails/{basename}'

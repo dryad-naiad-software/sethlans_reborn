@@ -59,8 +59,9 @@ def update_project_manifest(project_id: str):
         logger.error(f"Cannot generate manifest: Project with ID {project_id} not found.")
         return
 
-    # Define the path for the manifest file
-    manifest_path = Path(settings.MEDIA_ROOT) / 'assets' / str(project.id) / 'manifest.txt'
+    # Define the path for the manifest file using the short UUID
+    project_short_id = str(project.id)[:8]
+    manifest_path = Path(settings.MEDIA_ROOT) / 'assets' / project_short_id / 'manifest.txt'
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Gather data

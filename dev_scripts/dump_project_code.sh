@@ -1,271 +1,323 @@
 #!/usr/bin/env bash
+# dump_project_code.sh
+# Builds a manifest and chunked text files of the codebase for LLM ingestion.
+# Bash port of dump_project_code.ps1
+
 set -euo pipefail
 
-# Stable version: no parameters, builds manifest in memory, strict chunking with splitting oversized files,
-# and includes a sanity-check summary (files processed, chunk counts, largest chunk size).
+#######################################
+# CONFIGURATION
+#######################################
 
-# Determine project root. If run from "dev_scripts" directory, treat its parent as the project root.
-current_path="$(pwd)"
-base_name="$(basename "$current_path")"
-if [[ "$base_name" == "dev_scripts" ]]; then
-    project_root_path="$(dirname "$current_path")"
-    if [[ -z "$project_root_path" ]]; then
-        project_root_path="$current_path"
+# Directory names to exclude entirely from the dump
+exclude_names=(
+  "venv"
+  ".idea"
+  "venv_worker"
+  ".pytest_cache"
+  "__pycache__"
+  "managed_tools"
+  "render_test_output"
+  "project_code_dump_chunks"
+  "dev_scripts"
+)
+
+# Explicit file basenames to ignore
+exclude_files=(
+  "chat_template.txt"
+)
+
+# Max characters per chunk file
+MAX_CHARS=40000
+
+#######################################
+# HELPERS
+#######################################
+
+contains_in_array() {
+  local needle="$1"; shift
+  local e
+  for e in "$@"; do
+    [[ "$e" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+# Build a reusable prune clause for `find` (prints an array via echo)
+# Usage: eval "set -- $(build_prune_clause)"; find ... "$@"
+build_prune_clause() {
+  printf '('
+  printf ' -type d ('
+  local first=1
+  local name
+  for name in "${exclude_names[@]}"; do
+    if (( first )); then
+      printf " -name '%s'" "$name"
+      first=0
+    else
+      printf " -o -name '%s'" "$name"
     fi
-else
-    project_root_path="$current_path"
-fi
+  done
+  printf ' ) -prune ) -o'
+}
 
-# Normalize project root (resolve symlinks)
-project_root="$(cd "$project_root_path" && pwd)"
+# Get project root:
+# If CWD leaf is 'dev_scripts', use its parent; else use CWD.
+get_project_root() {
+  local cwd root
+  cwd="$(pwd)"
+  if [[ "$(basename "$cwd")" == "dev_scripts" ]]; then
+    root="$(dirname "$cwd")"
+  else
+    root="$cwd"
+  fi
+  printf '%s' "$root"
+}
 
+#######################################
+# DIRECTORY LISTING (non-recursive function equivalent)
+#######################################
+
+append_directory_listing() {
+  # Writes directory tree lines into the manifest via $manifest_file
+  local root="$1"
+  local prune_clause
+  prune_clause="$(build_prune_clause)"
+
+  {
+    echo "--- START OF DIRECTORY LISTING ---"
+    echo "Project Root: $(basename "$root")"
+
+    # Directories first
+    # shellcheck disable=SC2046
+    find "$root" $(eval echo "$prune_clause") -type d -print0 \
+      | sort -z \
+      | while IFS= read -r -d '' d; do
+          # Skip root itself
+          [[ "$d" == "$root" ]] && continue
+          rel="${d#$root/}"
+          # depth = number of / in rel
+          depth=$(( $(grep -o "/" <<<"$rel" | wc -l) ))
+          indent="$(printf '%*s' $((depth * 2)) '')"
+          echo "${indent}|-- $(basename "$d")"
+        done
+
+    # Files next
+    # shellcheck disable=SC2046
+    find "$root" $(eval echo "$prune_clause") -type f -print0 \
+      | sort -z \
+      | while IFS= read -r -d '' f; do
+          base="$(basename "$f")"
+          # Skip explicit file-name excludes
+          if contains_in_array "$base" "${exclude_files[@]}"; then
+            continue
+          fi
+          rel="${f#$root/}"
+          depth=$(( $(grep -o "/" <<<"$rel" | wc -l) ))
+          indent="$(printf '%*s' $((depth * 2)) '')"
+          echo "${indent}|-- $base"
+        done
+
+    echo "--- END OF DIRECTORY LISTING ---"
+  } >> "$manifest_file"
+}
+
+#######################################
+# FILE SELECTION
+#######################################
+
+collect_files_to_dump() {
+  # Prints NUL-delimited list of files to dump on stdout
+  local root="$1"
+  local prune_clause
+  prune_clause="$(build_prune_clause)"
+
+  # shellcheck disable=SC2046
+  find "$root" $(eval echo "$prune_clause") -type f \
+    \( -name '*.py' -o -name '*.ini' -o -name '*.txt' \) -print0 \
+    | while IFS= read -r -d '' f; do
+        base="$(basename "$f")"
+        if contains_in_array "$base" "${exclude_files[@]}"; then
+          continue
+        fi
+        printf '%s\0' "$f"
+      done
+}
+
+#######################################
+# CHUNKING
+#######################################
+
+# Append wrapped content to chunk temp files, splitting as needed.
+# Uses global: current_chunk_tmp, current_chunk_len, chunks_tmp_files[]
+append_wrapped_to_chunks() {
+  local wrapped="$1"
+  # Split into pieces <= MAX_CHARS, preserving lines when possible
+  # We pass content via stdin to awk to avoid quoting issues.
+  printf '%s' "$wrapped" \
+  | awk -v max="$MAX_CHARS" '
+    BEGIN { buf="" }
+    {
+      line=$0
+      cand = (buf=="" ? line : buf "\n" line)
+      if (length(cand) <= max) {
+        buf=cand
+        next
+      }
+      if (buf!="") { print buf; buf=""; }
+      # If a single line is too long, split it within the line
+      while (length(line) > max) {
+        print substr(line,1,max)
+        line = substr(line,max+1)
+      }
+      buf=line
+    }
+    END { if (buf!="") print buf; }
+  ' | while IFS= read -r piece; do
+        local piece_len=${#piece}
+        if (( current_chunk_len > 0 && current_chunk_len + piece_len > MAX_CHARS )); then
+          chunks_tmp_files+=("$current_chunk_tmp")
+          current_chunk_tmp="$(mktemp)"
+          current_chunk_len=0
+        fi
+        printf '%s' "$piece" >> "$current_chunk_tmp"
+        current_chunk_len=$(( current_chunk_len + piece_len ))
+        # Re-add newline dropped by read (awk prints lines without trailing \n in this pipeline)
+        printf '\n' >> "$current_chunk_tmp"
+        current_chunk_len=$(( current_chunk_len + 1 ))
+      done
+}
+
+#######################################
+# MAIN
+#######################################
+
+project_root="$(get_project_root)"
 output_chunk_dir="$project_root/project_code_dump_chunks"
 mkdir -p "$output_chunk_dir"
 manifest_file="$output_chunk_dir/project_dump_manifest.txt"
 
-# Excluded directory names
-exclude_names=(
-    "venv"
-    ".idea"
-    "venv_worker"
-    ".pytest_cache"
-    "__pycache__"
-    "managed_tools"
-    "render_test_output"
-    "project_code_dump_chunks"
-    "dev_scripts"
-)
-
-# Helper to decide if a path contains an excluded component
-path_contains_excluded_dir() {
-    local p="$1"
-    IFS='/' read -ra parts <<< "${p%/}"
-    for comp in "${parts[@]}"; do
-        for excl in "${exclude_names[@]}"; do
-            if [[ "$comp" == "$excl" ]]; then
-                return 0
-            fi
-        done
-    done
-    return 1
-}
-
-# Accumulate manifest lines in an array
-manifest_lines=()
-manifest_lines+=("--- START OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---")
-manifest_lines+=("Timestamp: $(date +"%Y-%m-%d %H:%M:%S")")
-manifest_lines+=("")
-manifest_lines+=("**INSTRUCTIONS FOR PROCESSING THIS CODEBASE:**")
-manifest_lines+=("1. **READ THIS MANIFEST FIRST.** It provides an overview and list of chunks.")
-manifest_lines+=("2. **ACKNOWLEDGE RECEIPT OF THIS MANIFEST.** Confirm you understand the process.")
-manifest_lines+=("3. **REQUEST CHUNKS SEQUENTIALLY.** After acknowledging, ask for the content of each chunk in order.")
-manifest_lines+=("4. **CONFIRM RECEIPT OF EACH CHUNK.**")
-manifest_lines+=("")
-manifest_lines+=("**PROJECT OVERVIEW:**")
-manifest_lines+=("Project Name: Sethlans Reborn - Distributed Blender Rendering System")
-manifest_lines+=("Core Goal: Leverage multiple worker machines for Blender rendering jobs.")
-manifest_lines+=("Architecture: Django Manager backend + Python Worker Agents.")
-manifest_lines+=("Development Focus: Backend unit testing; frontend planned in Angular.")
-manifest_lines+=("")
-manifest_lines+=("--- END OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---")
-manifest_lines+=("")
+# Manifest header
+{
+  echo "--- START OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
+  date +"Timestamp: %Y-%m-%d %H:%M:%S"
+  echo
+  echo "**INSTRUCTIONS FOR PROCESSING THIS CODEBASE:**"
+  echo "1. **READ THIS MANIFEST FIRST.** It provides an overview and list of chunks."
+  echo "2. **ACKNOWLEDGE RECEIPT OF THIS MANIFEST.** Confirm you understand the process."
+  echo "3. **REQUEST CHUNKS SEQUENTIALLY.** After acknowledging, ask for the content of each chunk in order."
+  echo "4. **CONFIRM RECEIPT OF EACH CHUNK.**"
+  echo
+  echo "--- END OF PROJECT CODE DUMP MANIFEST AND INSTRUCTIONS ---"
+  echo
+} > "$manifest_file"
 
 # Directory listing
-manifest_lines+=("--- START OF DIRECTORY LISTING ---")
-manifest_lines+=("Project Root: $(basename "$project_root")")
-
-# Recursive tree listing function
-get_tree_listing() {
-    local dir="$1"
-    local depth="$2"
-    local indent
-    indent=$(printf '  %.0s' $(seq 1 "$depth"))
-    local entries
-    # Sort: directories first, then names
-    while IFS= read -rd $'\0' entry; do
-        name="$(basename "$entry")"
-        if [[ -d "$entry" ]]; then
-            # skip excluded top-level dirs
-            for excl in "${exclude_names[@]}"; do
-                if [[ "$name" == "$excl" ]]; then
-                    continue 2
-                fi
-            done
-            manifest_lines+=("${indent}|-- $name")
-            get_tree_listing "$entry" $((depth + 1))
-        else
-            dir_of_entry="$(dirname "$entry")"
-            if path_contains_excluded_dir "$dir_of_entry"; then
-                continue
-            fi
-            manifest_lines+=("${indent}|-- $name")
-        fi
-    done < <(find "$dir" -maxdepth 1 -mindepth 1 -print0 | sort -z | xargs -0 -n1 | while read -r p; do echo -n "$p"; printf '\0'; done)
-}
-
-get_tree_listing "$project_root" 0
-manifest_lines+=("--- END OF DIRECTORY LISTING ---")
-manifest_lines+=("")
+append_directory_listing "$project_root"
 
 # Git log
-manifest_lines+=("--- START OF GIT LOG ---")
-if command -v git >/dev/null 2>&1 && [[ -d "$project_root/.git" ]]; then
-    pushd "$project_root" >/dev/null
-    if git log --pretty=fuller &>/dev/null; then
-        git_log_output="$(git log --pretty=fuller 2>&1 || true)"
-        while IFS= read -r line; do
-            manifest_lines+=("$line")
-        done <<< "$git_log_output"
-    else
-        manifest_lines+=("ERROR: Could not get git log. Repository may not have any commits or is corrupted.")
-    fi
-    popd >/dev/null
-else
-    manifest_lines+=("ERROR: Could not get git log. Ensure Git is installed and repository is initialized.")
-fi
-manifest_lines+=("--- END OF GIT LOG ---")
+{
+  echo
+  echo "--- START OF GIT LOG ---"
+  if git -C "$project_root" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "$project_root" log --pretty=fuller 2>&1
+  else
+    echo "ERROR: Could not get git log. Ensure Git is installed and repository is initialized."
+  fi
+  echo "--- END OF GIT LOG ---"
+} >> "$manifest_file"
 
-# Find files to dump
-mapfile -t files_to_dump < <(find "$project_root" -type f \( -name "*.py" -o -name "*.ini" -o -name "*.txt" \) | sort)
-
+# File selection
+mapfile -d '' files_to_dump < <(collect_files_to_dump "$project_root")
 files_found=${#files_to_dump[@]}
 files_processed=0
 files_failed=0
 
-max_chunk_size=40000
-declare -a chunks
-current_chunk=""
+# Chunk assembly to temp files
+chunks_tmp_files=()
+current_chunk_tmp="$(mktemp)"
+current_chunk_len=0
 
-split_formatted_file_into_pieces() {
-    local text="$1"
-    local max="$2"
-    local -n __out_array=$3
-
-    if [[ ${#text} -le $max ]]; then
-        __out_array=("$text")
-        return
-    fi
-
-    IFS=$'\n' read -d '' -ra lines <<< "$text" || true
-    buffer=""
-    for line in "${lines[@]}"; do
-        if [[ -n "$buffer" ]]; then
-            candidate="$buffer"$'\n'"$line"
-        else
-            candidate="$line"
-        fi
-        if [[ ${#candidate} -le $max ]]; then
-            buffer="$candidate"
-        else
-            if [[ -n "$buffer" ]]; then
-                __out_array+=("$buffer")
-            fi
-            if [[ ${#line} -le $max ]]; then
-                buffer="$line"
-            else
-                # split the line itself
-                local i=0
-                local len=${#line}
-                while [[ $i -lt $len ]]; do
-                    slice="${line:$i:$max}"
-                    __out_array+=("$slice")
-                    i=$((i + ${#slice}))
-                done
-                buffer=""
-            fi
-        fi
-    done
-    if [[ -n "$buffer" ]]; then
-        __out_array+=("$buffer")
-    fi
-}
-
-# Process each file
-for file in "${files_to_dump[@]}"; do
-    relative_path="${file#$project_root/}"
-    # Skip if in excluded dir
-    if path_contains_excluded_dir "$(dirname "$file")"; then
-        continue
-    fi
-
-    if ! content="$(< "$file")"; then
-        echo "Warning: Failed to read $relative_path" >&2
-        files_failed=$((files_failed + 1))
-        continue
-    fi
-    files_processed=$((files_processed + 1))
-    wrapped=$'\n'"--- FILE_START: $relative_path ---"$'\n'"$content"$'\n'"--- FILE_END: $relative_path ---"
-    pieces=()
-    split_formatted_file_into_pieces "$wrapped" "$max_chunk_size" pieces
-
-    for piece in "${pieces[@]}"; do
-        if [[ -n "$current_chunk" && $(( ${#current_chunk} + ${#piece} )) -gt $max_chunk_size ]]; then
-            chunks+=("$current_chunk")
-            current_chunk="$piece"
-        else
-            current_chunk+="$piece"
-        fi
-    done
+for f in "${files_to_dump[@]}"; do
+  rel="${f#$project_root/}"
+  if ! content="$(cat -- "$f" 2>/dev/null)"; then
+    printf 'Failed to read %s\n' "$rel" >&2
+    files_failed=$((files_failed + 1))
+    continue
+  fi
+  files_processed=$((files_processed + 1))
+  wrapped=$'\n'"--- FILE_START: $rel ---"$'\n'"$content"$'\n'"--- FILE_END: $rel ---"
+  append_wrapped_to_chunks "$wrapped"
 done
 
-if [[ -n "$current_chunk" ]]; then
-    chunks+=("$current_chunk")
+# Flush last chunk if it has content
+if (( current_chunk_len > 0 )); then
+  chunks_tmp_files+=("$current_chunk_tmp")
+else
+  rm -f -- "$current_chunk_tmp"
 fi
 
-total_chunks=${#chunks[@]}
+# Write final chunk files with headers/footers
+total_chunks=${#chunks_tmp_files[@]}
 chunk_file_names=()
-declare -a chunk_sizes=()
+chunk_sizes=()   # in characters (approx. via wc -m)
 
-# Write chunk files
-for i in "${!chunks[@]}"; do
-    num=$((i + 1))
-    name=$(printf "project_code_chunk_%02d.txt" "$num")
+if (( total_chunks > 0 )); then
+  for ((i=0; i<total_chunks; i++)); do
+    num=$((i+1))
+    name=$(printf 'project_code_chunk_%02d.txt' "$num")
     path="$output_chunk_dir/$name"
     header="--- START OF CHUNK $num OF $total_chunks ---"
     footer=$'\n'"--- END OF CHUNK $num OF $total_chunks ---"
-    full="${header}"$'\n'"${chunks[$i]}${footer}"
-    printf "%s" "$full" > "$path"
+
+    {
+      printf '%s\n' "$header"
+      cat -- "${chunks_tmp_files[$i]}"
+      printf '%s' "$footer"
+    } > "$path"
+
+    # Record stats
     chunk_file_names+=("$name")
-    chunk_sizes+=("${#full}")
+    size_chars=$(wc -m < "$path" | tr -d '[:space:]')
+    chunk_sizes+=("$size_chars")
+
     echo "  Generated $name"
-done
+  done
+fi
+
+# Cleanup temp files
+for tf in "${chunks_tmp_files[@]}"; do rm -f -- "$tf"; done || true
 
 # Sanity-check summary
 largest_chunk_size=0
 average_chunk_size=0
 total_chars=0
 
-if [[ ${#chunk_sizes[@]} -gt 0 ]]; then
-    for sz in "${chunk_sizes[@]}"; do
-        (( total_chars += sz ))
-        if (( sz > largest_chunk_size )); then
-            largest_chunk_size=$sz
-        fi
-    done
-    average_chunk_size=$(( (total_chars + total_chunks/2) / total_chunks ))  # rounded
+if (( ${#chunk_sizes[@]} > 0 )); then
+  for s in "${chunk_sizes[@]}"; do
+    (( s > largest_chunk_size )) && largest_chunk_size="$s"
+    total_chars=$(( total_chars + s ))
+  done
+  # Integer average
+  average_chunk_size=$(( total_chars / ${#chunk_sizes[@]} ))
 fi
 
-manifest_lines+=("")
-manifest_lines+=("**SANITY CHECK SUMMARY:**")
-manifest_lines+=("Files matching patterns found: $files_found")
-manifest_lines+=("Files successfully read: $files_processed")
-manifest_lines+=("Files failed to read: $files_failed")
-manifest_lines+=("Total chunks produced: $total_chunks")
-manifest_lines+=("Largest chunk size (chars): $largest_chunk_size")
-manifest_lines+=("Average chunk size (chars): $average_chunk_size")
-manifest_lines+=("Total characters across chunks: $total_chars")
-manifest_lines+=("")
-manifest_lines+=("**CODE CHUNKS TO PROVIDE (in order):**")
-for n in "${chunk_file_names[@]}"; do
-    manifest_lines+=("$n")
-done
-
-# Write manifest to disk
 {
-    for line in "${manifest_lines[@]}"; do
-        printf '%s\n' "$line"
-    done
-} > "$manifest_file"
+  echo
+  echo "**SANITY CHECK SUMMARY:**"
+  printf 'Files matching patterns found: %d\n' "$files_found"
+  printf 'Files successfully read: %d\n' "$files_processed"
+  printf 'Files failed to read: %d\n' "$files_failed"
+  printf 'Total chunks produced: %d\n' "$total_chunks"
+  printf 'Largest chunk size (chars): %d\n' "$largest_chunk_size"
+  printf 'Average chunk size (chars): %d\n' "$average_chunk_size"
+  printf 'Total characters across chunks: %d\n' "$total_chars"
+  echo
+  echo "**CODE CHUNKS TO PROVIDE (in order):**"
+  for n in "${chunk_file_names[@]}"; do
+    echo "$n"
+  done
+} >> "$manifest_file"
 
 echo "Manifest written to: $manifest_file"
 echo "Chunks written to: $output_chunk_dir"
