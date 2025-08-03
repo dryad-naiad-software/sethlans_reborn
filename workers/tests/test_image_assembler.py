@@ -24,9 +24,11 @@
 import os
 import tempfile
 from PIL import Image
+from django.utils.text import slugify
 from ..models import Job, TiledJob, Asset, JobStatus, TiledJobStatus
 from ..image_assembler import assemble_tiled_job_image
 from ._base import BaseMediaTestCase
+
 
 class ImageAssemblerTests(BaseMediaTestCase):
     def setUp(self):
@@ -65,10 +67,18 @@ class ImageAssemblerTests(BaseMediaTestCase):
         self.tiled_job.refresh_from_db()
         self.assertEqual(self.tiled_job.status, TiledJobStatus.DONE)
         self.assertIsNotNone(self.tiled_job.completed_at)
-        self.assertTrue(self.tiled_job.output_file.name)
-        # Verify that the thumbnail was created by the assembly function
-        self.assertTrue(self.tiled_job.thumbnail.name)
 
+        # Verify output file path
+        project_short_id = str(self.tiled_job.project.id)[:8]
+        job_dir = f"tiled-job_{str(self.tiled_job.id)[:8]}"
+        self.assertTrue(self.tiled_job.output_file.name.startswith(f"assets/{project_short_id}/outputs/{job_dir}/"))
+
+        # Verify thumbnail path and suffix
+        base_thumb_stem = f'tiledjob_{str(self.tiled_job.id)[:8]}'
+        expected_thumb_name_part = f'{base_thumb_stem}_thumbnail.png'
+        self.assertIn(expected_thumb_name_part, self.tiled_job.thumbnail.name)
+
+        # Verify image content
         final_image = Image.open(self.tiled_job.output_file.path)
         self.assertEqual(final_image.size, (200, 200))
         # Verify a few pixel colors to ensure tiles were placed correctly

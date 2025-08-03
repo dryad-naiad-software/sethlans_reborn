@@ -24,10 +24,12 @@
 import os
 import tempfile
 from PIL import Image
+from django.utils.text import slugify
 from ..models import Animation, AnimationFrame, Job, AnimationFrameStatus, JobStatus, Asset
 from ..constants import TilingConfiguration, RenderSettings
 from ..image_assembler import assemble_animation_frame_image
 from ._base import BaseMediaTestCase
+
 
 class TiledAnimationAssemblyTests(BaseMediaTestCase):
     def setUp(self):
@@ -75,11 +77,19 @@ class TiledAnimationAssemblyTests(BaseMediaTestCase):
         assemble_animation_frame_image(self.frame1.id)
         self.frame1.refresh_from_db()
         self.assertEqual(self.frame1.status, AnimationFrameStatus.DONE)
-        self.assertTrue(self.frame1.output_file.name)
-        # Verify that the thumbnail was created by the assembly function
-        self.assertTrue(self.frame1.thumbnail.name)
         self.assertEqual(self.frame1.render_time_seconds, 40)
 
+        # Verify output file path
+        project_short_id = str(self.frame1.animation.project.id)[:8]
+        anim_dir = f"animation_{self.frame1.animation.id}"
+        self.assertTrue(self.frame1.output_file.name.startswith(f"assets/{project_short_id}/outputs/{anim_dir}/"))
+
+        # Verify thumbnail path and suffix
+        base_thumb_stem = f'animationframe_{self.frame1.id}'
+        expected_thumb_name_part = f'{base_thumb_stem}_thumbnail.png'
+        self.assertIn(expected_thumb_name_part, self.frame1.thumbnail.name)
+
+        # Verify image content
         final_image = Image.open(self.frame1.output_file.path)
         self.assertEqual(final_image.size, (100, 100))
         self.assertEqual(final_image.getpixel((25, 25)), (0, 0, 255, 255))
@@ -96,7 +106,7 @@ class TiledAnimationAssemblyTests(BaseMediaTestCase):
         # Simulate the second frame completing
         self.frame2.render_time_seconds = 60
         self.frame2.status = AnimationFrameStatus.DONE
-        self.frame2.save() # This triggers the handle_animation_frame_completion signal
+        self.frame2.save()  # This triggers the handle_animation_frame_completion signal
 
         self.animation.refresh_from_db()
         self.assertEqual(self.animation.status, "DONE")

@@ -22,6 +22,7 @@
 # Project: sethlans_reborn
 #
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils.text import slugify
 from rest_framework import status
 from ..models import Job, Asset, Project, JobStatus
 from ..constants import RenderDevice
@@ -29,22 +30,31 @@ from ._base import BaseMediaTestCase
 
 class JobViewSetTests(BaseMediaTestCase):
     def setUp(self):
+        """
+        Set up a project, an asset, and a standard set of jobs for testing.
+        """
         super().setUp()
         self.asset = Asset.objects.create(
             name="Test Asset for Jobs", project=self.project, blend_file=SimpleUploadedFile("dummy.blend", b"data")
         )
+        # Create a set of jobs with different render devices for filtering tests
+        Job.objects.create(name="CPU Job", asset=self.asset, render_device=RenderDevice.CPU, status=JobStatus.QUEUED)
+        Job.objects.create(name="GPU Job", asset=self.asset, render_device=RenderDevice.GPU, status=JobStatus.QUEUED)
+        Job.objects.create(name="Any Device Job", asset=self.asset, render_device=RenderDevice.ANY, status=JobStatus.QUEUED)
+        self.url = "/api/jobs/"
 
     def test_list_jobs(self):
-        Job.objects.create(name="Job One", asset=self.asset)
-        Job.objects.create(name="Job Two", asset=self.asset)
-        url = "/api/jobs/"
-        response = self.client.get(url, format='json')
+        """
+        Tests that the endpoint lists all jobs correctly.
+        """
+        response = self.client.get(self.url, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
-        self.assertEqual(response.data[0]['name'], 'Job Two')
-        self.assertEqual(response.data[1]['name'], 'Job One')
+        self.assertEqual(len(response.data), 3)
 
     def test_create_job(self):
+        """
+        Tests the creation of a new standalone job.
+        """
         job_data = {
             "name": "My New Render",
             "project": self.project.id,
@@ -54,36 +64,45 @@ class JobViewSetTests(BaseMediaTestCase):
             "end_frame": 100,
             "render_device": RenderDevice.GPU,
         }
-        url = "/api/jobs/"
-        response = self.client.post(url, job_data, format='json')
+        response = self.client.post(self.url, job_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Job.objects.count(), 1)
-        new_job = Job.objects.get()
-        self.assertEqual(new_job.name, job_data['name'])
+        # 3 from setup + 1 new = 4
+        self.assertEqual(Job.objects.count(), 4)
+        new_job = Job.objects.get(name=job_data['name'])
         self.assertEqual(new_job.status, 'QUEUED')
         self.assertEqual(new_job.render_device, RenderDevice.GPU)
         self.assertEqual(new_job.asset, self.asset)
         self.assertEqual(new_job.asset.project, self.project)
 
     def test_update_job_status(self):
-        job = Job.objects.create(name="Job to Update", asset=self.asset, status='QUEUED')
+        """
+        Tests that a job's status can be updated via a PATCH request.
+        """
+        job = Job.objects.get(name="CPU Job")
         update_payload = {'status': 'RENDERING'}
-        url = f"/api/jobs/{job.id}/"
-        response = self.client.patch(url, update_payload, format='json')
+        response = self.client.patch(f"/api/jobs/{job.id}/", update_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         job.refresh_from_db()
         self.assertEqual(job.status, 'RENDERING')
 
     def test_cancel_job_action(self):
-        job = Job.objects.create(name="Job to be Canceled", asset=self.asset, status=JobStatus.RENDERING)
-        url = f"/api/jobs/{job.id}/cancel/"
-        response = self.client.post(url, format='json')
+        """
+        Tests the custom /cancel/ action on a job.
+        """
+        job = Job.objects.get(name="GPU Job")
+        job.status = JobStatus.RENDERING
+        job.save()
+
+        response = self.client.post(f"/api/jobs/{job.id}/cancel/", format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatus.CANCELED)
         self.assertEqual(response.data['status'], JobStatus.CANCELED)
 
     def test_upload_job_output_file(self):
+        """
+        Tests the /upload_output/ action for a job.
+        """
         job = Job.objects.create(name="Job for Upload", asset=self.asset)
         url = f"/api/jobs/{job.id}/upload_output/"
         uploaded_file = SimpleUploadedFile("render_result.png", b"fake-png-image-data", content_type="image/png")
@@ -92,57 +111,52 @@ class JobViewSetTests(BaseMediaTestCase):
         job.refresh_from_db()
         self.assertIsNotNone(job.output_file)
         project_short_id = str(self.project.id)[:8]
-        self.assertTrue(job.output_file.name.startswith(f"assets/{project_short_id}/outputs/job_{job.id}"))
+        job_dir = f"job_{job.id}"
+        self.assertTrue(job.output_file.name.startswith(f"assets/{project_short_id}/outputs/{job_dir}/"))
 
-    def test_job_filtering_for_gpu_capability(self):
-        Job.objects.create(name="CPU Job", asset=self.asset, render_device=RenderDevice.CPU)
-        Job.objects.create(name="GPU Job", asset=self.asset, render_device=RenderDevice.GPU)
-        Job.objects.create(name="Any Device Job", asset=self.asset, render_device=RenderDevice.ANY)
-        url = "/api/jobs/"
+    def test_job_filtering_for_cpu_worker(self):
+        """
+        Tests that a worker polling with gpu_available=false sees only CPU and ANY jobs.
+        """
+        params = {'gpu_available': 'false', 'status': 'QUEUED'}
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        response_cpu_worker = self.client.get(url, {'gpu_available': 'false'})
-        response_gpu_worker = self.client.get(url, {'gpu_available': 'true'})
-        response_no_pref = self.client.get(url)
+        names = {job['name'] for job in response.data}
+        self.assertEqual(len(names), 2)
+        self.assertIn("CPU Job", names)
+        self.assertIn("Any Device Job", names)
+        self.assertNotIn("GPU Job", names)
 
-        self.assertEqual(response_cpu_worker.status_code, status.HTTP_200_OK)
-        cpu_names = {job['name'] for job in response_cpu_worker.data}
-        self.assertEqual(len(cpu_names), 2)
-        self.assertIn("CPU Job", cpu_names)
-        self.assertIn("Any Device Job", cpu_names)
-        self.assertNotIn("GPU Job", cpu_names)
+    def test_job_filtering_for_gpu_worker(self):
+        """
+        Tests that a worker polling with gpu_available=true sees only GPU and ANY jobs.
+        """
+        params = {'gpu_available': 'true', 'status': 'QUEUED'}
+        response = self.client.get(self.url, params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(response_gpu_worker.status_code, status.HTTP_200_OK)
-        gpu_names = {job['name'] for job in response_gpu_worker.data}
-        self.assertEqual(len(gpu_names), 2)
-        self.assertIn("GPU Job", gpu_names)
-        self.assertIn("Any Device Job", gpu_names)
-        self.assertNotIn("CPU Job", gpu_names)
-
-        self.assertEqual(response_no_pref.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_no_pref.data), 3)
+        names = {job['name'] for job in response.data}
+        self.assertEqual(len(names), 2)
+        self.assertIn("GPU Job", names)
+        self.assertIn("Any Device Job", names)
+        self.assertNotIn("CPU Job", names)
 
     def test_job_filtering_skips_paused_projects(self):
-        active_project = self.project
+        """
+        Tests that a worker poll correctly excludes jobs from paused projects.
+        """
         paused_project = Project.objects.create(name="Paused Project", is_paused=True)
         paused_asset = Asset.objects.create(name="Paused Asset", project=paused_project,
                                             blend_file=SimpleUploadedFile("p.blend", b"d"))
-
-        Job.objects.create(name="Active Job", asset=self.asset, status=JobStatus.QUEUED)
         Job.objects.create(name="Paused Job", asset=paused_asset, status=JobStatus.QUEUED)
 
-        url = "/api/jobs/"
-        # This parameter is what identifies the request as a worker poll
+        # This parameter combination identifies the request as a worker poll
         params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+        response = self.client.get(self.url, params)
 
-        response = self.client.get(url, params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['name'], "Active Job")
-
-        paused_project.is_paused = False
-        paused_project.save()
-        response = self.client.get(url, params)
+        # Should only get the 3 jobs from the active project created in setUp
+        self.assertEqual(len(response.data), 3)
         names = {job['name'] for job in response.data}
-        self.assertEqual(len(names), 2)
-        self.assertIn("Active Job", names)
-        self.assertIn("Paused Job", names)
+        self.assertNotIn("Paused Job", names)

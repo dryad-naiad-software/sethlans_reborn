@@ -77,8 +77,8 @@ def test_animation_thumbnail_old_file_deleted(settings, tmp_path):
 
     first_thumb_path = animation.thumbnail.path
     assert os.path.exists(first_thumb_path)
-    # Deterministic basename '<pk>.png'
-    assert os.path.basename(first_thumb_path) == f"{animation.pk}.png"
+    # Deterministic basename '<pk>_thumbnail.png'
+    assert os.path.basename(first_thumb_path) == f"{animation.pk}_thumbnail.png"
 
     with open(first_thumb_path, "rb") as fh:
         bytes_before = fh.read()

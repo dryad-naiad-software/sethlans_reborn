@@ -73,8 +73,8 @@ def test_animation_thumbnail_deterministic_and_replaced(settings, tmp_path):
     # Record the animation thumbnail path after first update
     path1 = anim.thumbnail.path
     assert os.path.exists(path1)
-    # The path should be deterministic
-    assert os.path.basename(path1) == f"{anim.pk}.png"
+    # The path should be deterministic and include the suffix
+    assert os.path.basename(path1) == f"{anim.pk}_thumbnail.png"
 
     # Render second frame -> animation thumbnail should be updated in place
     f2 = AnimationFrame.objects.create(animation=anim, frame_number=2)

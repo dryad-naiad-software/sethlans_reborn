@@ -24,6 +24,7 @@
 
 import uuid
 from pathlib import Path
+from django.utils.text import slugify
 
 
 def asset_upload_path(instance, filename):
@@ -39,47 +40,38 @@ def asset_upload_path(instance, filename):
 
 def job_output_upload_path(instance, filename):
     """
-    Generates an upload path for a standard Job's output file.
-    Example: media/assets/<project_short_id>/outputs/job_<job_id><ext>
+    Generates an upload path for a standard Job's output file inside a job-specific directory.
+    Example: media/assets/<project_short_id>/outputs/job_<job_id>/<filename>
     """
-    extension = Path(filename).suffix
     project_short_id = str(instance.asset.project.id)[:8]
-    return f'assets/{project_short_id}/outputs/job_{instance.id}{extension}'
+    job_dir = f"job_{instance.id}"
+    return f'assets/{project_short_id}/outputs/{job_dir}/{filename}'
 
 
 def tiled_job_output_upload_path(instance, filename):
     """
-    Generates an upload path for a TiledJob's final assembled output.
-    Example: media/assets/<project_short_id>/outputs/tiled_<tiled_job_short_id><ext>
+    Generates an upload path for a TiledJob's final assembled output inside a job-specific directory.
+    Example: media/assets/<project_short_id>/outputs/tiled-job_<tiled_job_short_id>/<filename>
     """
-    extension = Path(filename).suffix
     project_short_id = str(instance.asset.project.id)[:8]
-    tiled_job_short_id = str(instance.id)[:8]
-    return f'assets/{project_short_id}/outputs/tiled_{tiled_job_short_id}{extension}'
+    job_dir = f"tiled-job_{str(instance.id)[:8]}"
+    return f'assets/{project_short_id}/outputs/{job_dir}/{filename}'
 
 
 def animation_frame_output_upload_path(instance, filename):
     """
-    Generates an upload path for an assembled AnimationFrame output.
-    Example: media/assets/<proj_short_id>/outputs/anim_<anim_id>/frame_<frame_number><ext>
+    Generates an upload path for an assembled AnimationFrame output inside an animation-specific directory.
+    Example: media/assets/<proj_short_id>/outputs/animation_<animation_id>/<filename>
     """
-    extension = Path(filename).suffix
     project_short_id = str(instance.animation.project.id)[:8]
-    return (
-        f'assets/{project_short_id}/outputs/anim_{instance.animation.id}/'
-        f'frame_{instance.frame_number:04d}{extension}'
-    )
+    anim_dir = f"animation_{instance.animation.id}"
+    return f'assets/{project_short_id}/outputs/{anim_dir}/{filename}'
 
 
 def thumbnail_upload_path(instance, filename):
     """
-    Generates an upload path for a thumbnail image.
-    Example: media/assets/<project_short_id>/thumbnails/<basename>
-
-    - For Animation thumbnails:
-        * Respect the passed-in filename (so we can version: '<pk>-0002.png').
-        * Default to '{pk}.png' if no usable name is provided.
-    - For other models, use '<model>_<id><ext>'.
+    Generates an upload path for a thumbnail, adding a '_thumbnail' suffix.
+    Example: media/assets/<project_short_id>/thumbnails/<basename>_thumbnail.png
     """
     extension = Path(filename).suffix or ".png"
     passed_stem = Path(filename).stem
@@ -96,17 +88,19 @@ def thumbnail_upload_path(instance, filename):
 
     project_short_id = str(project_id)[:8] if project_id else "unknown_project"
 
-    # Special case: Animation -> respect caller-provided basename; fallback to '{pk}.png'
+    # Determine the base name before adding the suffix
+    base_stem = ""
     if model_name == 'animation':
         pk_value = getattr(instance, 'pk', getattr(instance, 'id', None))
-        stem = passed_stem or (str(pk_value) if pk_value is not None else "temp")
-        basename = f"{stem}{extension}"
-        return f'assets/{project_short_id}/thumbnails/{basename}'
+        # For animations, the signal handler provides a deterministic stem (the PK)
+        base_stem = passed_stem or (str(pk_value) if pk_value is not None else "temp")
+    else:
+        pk_value = getattr(instance, 'id', 'unknown')
+        if isinstance(pk_value, uuid.UUID):
+            pk_value = str(pk_value)[:8]
+        base_stem = f'{model_name}_{pk_value}'
 
-    # Default behavior for other models
-    pk_value = getattr(instance, 'id', 'unknown')
-    if isinstance(pk_value, uuid.UUID):
-        pk_value = str(pk_value)[:8]
-
-    basename = f'{model_name}_{pk_value}{extension}'
+    # Add suffix and build final path
+    thumbnail_stem = f"{base_stem}_thumbnail"
+    basename = f"{thumbnail_stem}{extension}"
     return f'assets/{project_short_id}/thumbnails/{basename}'
