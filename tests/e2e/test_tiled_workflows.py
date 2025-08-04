@@ -69,7 +69,7 @@ class TestTiledWorkflows(BaseE2ETest):
         total_tiles = tile_grid[0] * tile_grid[1]
 
         tiled_job_payload = {
-            "name": f"E2E Tiled Render Test {self.project_id}",
+            "name": f"E2E Tiled Render Test {self.short_project_id}",
             "project": self.project_id,
             "asset_id": self.bmw_asset_id,
             "final_resolution_x": resolution[0],

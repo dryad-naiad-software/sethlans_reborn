@@ -72,7 +72,7 @@ class TestAnimationWorkflows(BaseE2ETest):
         total_frames = (end_frame - start_frame) + 1
 
         anim_payload = {
-            "name": f"E2E Animation Test {self.project_id}",
+            "name": f"E2E Animation Test {self.short_project_id}",
             "project": self.project_id,
             "asset_id": self.anim_asset_id,
             "output_file_pattern": "anim_render_####",
@@ -122,7 +122,7 @@ class TestAnimationWorkflows(BaseE2ETest):
         expected_job_count = len(expected_frames)
 
         anim_payload = {
-            "name": f"E2E Frame Step Test {self.project_id}",
+            "name": f"E2E Frame Step Test {self.short_project_id}",
             "project": self.project_id,
             "asset_id": self.anim_asset_id,
             "output_file_pattern": "frame_step_render_####",

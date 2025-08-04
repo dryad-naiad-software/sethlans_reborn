@@ -87,6 +87,7 @@ class BaseE2ETest:
 
     # Shared entity IDs
     project_id = None
+    short_project_id = None
     scene_asset_id = None
     bmw_asset_id = None
     anim_asset_id = None
@@ -273,6 +274,7 @@ class BaseE2ETest:
         response = requests.post(f"{MANAGER_URL}/projects/", json=project_payload)
         response.raise_for_status()
         cls.project_id = response.json()['id']
+        cls.short_project_id = str(cls.project_id)[:8]
 
         cls.scene_asset_id = cls._upload_test_asset(f"E2E Test Scene {unique_suffix}",
                                                     worker_config.TEST_BLEND_FILE_PATH, cls.project_id)

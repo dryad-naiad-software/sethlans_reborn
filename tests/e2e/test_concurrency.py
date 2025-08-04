@@ -54,8 +54,8 @@ class TestConcurrency(BaseE2ETest):
 
         def submit_animation(url_list):
             """Target function for each thread to submit an animation job."""
-            # Use UUID to guarantee a unique name for each concurrent request
-            unique_id = uuid.uuid4()
+            # Use a short UUID to guarantee a unique name for each concurrent request
+            unique_id = uuid.uuid4().hex[:8]
             anim_payload = {
                 "name": f"E2E Concurrency Test Animation {unique_id}",
                 "project": self.project_id,

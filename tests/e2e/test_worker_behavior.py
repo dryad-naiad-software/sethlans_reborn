@@ -79,7 +79,7 @@ class TestWorkerBehavior(BaseE2ETest):
 
         # Submit a GPU-only job
         gpu_payload = {
-            "name": f"E2E Worker-Flex GPU Job {self.project_id}",
+            "name": f"E2E Worker-Flex GPU Job {self.short_project_id}",
             "project": self.project_id,
             "asset_id": self.scene_asset_id,
             "output_file_pattern": "flex_gpu_####",
@@ -95,7 +95,7 @@ class TestWorkerBehavior(BaseE2ETest):
 
         # Submit a CPU-only job
         cpu_payload = {
-            "name": f"E2E Worker-Flex CPU Job {self.project_id}",
+            "name": f"E2E Worker-Flex CPU Job {self.short_project_id}",
             "project": self.project_id,
             "asset_id": self.scene_asset_id,
             "output_file_pattern": "flex_cpu_####",
