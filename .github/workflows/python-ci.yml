@@ -1,4 +1,3 @@
-# FILENAME: .github/workflows/python-ci.yml
 name: Sethlans Reborn CI
 
 on:

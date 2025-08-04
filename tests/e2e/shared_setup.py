@@ -1,4 +1,3 @@
-# FILENAME: tests/e2e/shared_setup.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #

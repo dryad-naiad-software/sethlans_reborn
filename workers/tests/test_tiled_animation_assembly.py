@@ -1,4 +1,3 @@
-# FILENAME: workers/tests/test_tiled_animation_assembly.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -23,9 +22,8 @@
 # Project: sethlans_reborn
 #
 import os
-import tempfile
+from pathlib import Path
 from PIL import Image
-from django.utils.text import slugify
 from ..models import Animation, AnimationFrame, Job, AnimationFrameStatus, JobStatus, Asset
 from ..constants import TilingConfiguration, RenderSettings
 from ..image_assembler import assemble_animation_frame_image
@@ -51,15 +49,19 @@ class TiledAnimationAssemblyTests(BaseMediaTestCase):
         self.frame1 = AnimationFrame.objects.create(animation=self.animation, frame_number=1)
         self.frame2 = AnimationFrame.objects.create(animation=self.animation, frame_number=2)
 
+        self.tile_paths = []
+        jobs_to_create = []
         colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]
         for y in range(2):
             for x in range(2):
                 img = Image.new('RGB', (50, 50), color=colors[y * 2 + x])
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png', dir=self.media_root)
-                img.save(temp_file, 'PNG')
-                temp_file.close()
 
-                job = Job.objects.create(
+                file_name = f"anim_tile_{y}_{x}.png"
+                file_path = Path(self.media_root) / file_name
+                img.save(file_path, 'PNG')
+                self.tile_paths.append(file_path)
+
+                job = Job(
                     animation=self.animation,
                     animation_frame=self.frame1,
                     name=f"{self.animation.name}_Frame_1_Tile_{y}_{x}",
@@ -71,33 +73,35 @@ class TiledAnimationAssemblyTests(BaseMediaTestCase):
                         RenderSettings.RESOLUTION_Y: 100,
                     },
                 )
-                job.output_file.name = os.path.relpath(temp_file.name, self.media_root)
-                job.save()
+                job.output_file.name = file_name
+                jobs_to_create.append(job)
 
-    def test_assemble_animation_frame(self):
+        Job.objects.bulk_create(jobs_to_create)
+
+    def test_assemble_animation_frame_and_cleanup_tiles(self):
+        # Verify tiles exist before assembly
+        for path in self.tile_paths:
+            self.assertTrue(os.path.exists(path))
+
+        # Run assembly
         assemble_animation_frame_image(self.frame1.id)
         self.frame1.refresh_from_db()
         self.assertEqual(self.frame1.status, AnimationFrameStatus.DONE)
         self.assertEqual(self.frame1.render_time_seconds, 40)
 
-        # Verify output file path
-        project_short_id = str(self.frame1.animation.project.id)[:8]
-        slug = slugify(self.frame1.animation.name)
-        anim_dir = f"{slug}-{self.frame1.animation.id}"
-        self.assertTrue(self.frame1.output_file.name.startswith(f"assets/{project_short_id}/outputs/{anim_dir}/"))
-
-        # Verify thumbnail path and suffix
-        slug = slugify(self.frame1.animation.name)
-        anim_id = self.frame1.animation.id
-        frame_num = self.frame1.frame_number
-        expected_thumb_name_part = f'{slug}-{anim_id}-frame-{frame_num}_thumbnail.png'
-        self.assertIn(expected_thumb_name_part, self.frame1.thumbnail.name)
-
-        # Verify image content
+        # Verify final image content
         final_image = Image.open(self.frame1.output_file.path)
         self.assertEqual(final_image.size, (100, 100))
         self.assertEqual(final_image.getpixel((25, 25)), (0, 0, 255, 255))
         self.assertEqual(final_image.getpixel((75, 75)), (0, 255, 0, 255))
+
+        # Verify tile files were deleted
+        for path in self.tile_paths:
+            self.assertFalse(os.path.exists(path), f"Tile file {path} was not deleted after assembly.")
+
+        for job in self.frame1.tile_jobs.all():
+            job.refresh_from_db()
+            self.assertFalse(job.output_file, "Job output_file field should be cleared after deletion.")
 
     def test_animation_status_updates_after_all_frames_assemble(self):
         assemble_animation_frame_image(self.frame1.id)

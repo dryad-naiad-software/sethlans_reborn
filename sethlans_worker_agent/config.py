@@ -1,5 +1,3 @@
-# FILENAME: sethlans_worker_agent/config.py
-# sethlans_worker_agent/config.py
 """
 Configuration module for the Sethlans Reborn worker agent.
 

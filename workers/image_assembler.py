@@ -37,7 +37,7 @@ from django.utils import timezone
 from django.core.files.base import ContentFile
 from django.db.models import Sum
 from PIL import Image
-from .models import TiledJob, TiledJobStatus, JobStatus, AnimationFrame, AnimationFrameStatus
+from .models import Job, TiledJob, TiledJobStatus, JobStatus, AnimationFrame, AnimationFrameStatus
 from .constants import RenderSettings
 from .image_utils import generate_thumbnail
 
@@ -47,12 +47,11 @@ TILE_COORD_REGEX = re.compile(r"_Tile_(\d+)_(\d+)$")
 
 def assemble_animation_frame_image(animation_frame_id):
     """
-    Assembles the completed tiles for a single frame of a tiled animation.
+    Assembles completed tiles for a single animation frame and cleans up the tile files.
 
-    This function is triggered by a signal when all child tile jobs for a given
-    `AnimationFrame` are marked as `DONE`. It fetches the individual tile images,
-    stitches them together, saves the final assembled image, and then explicitly
-    generates a thumbnail for it.
+    This function is triggered when all child tile jobs for an `AnimationFrame`
+    are done. It stitches the tiles, saves the final image, generates its
+    thumbnail, and then deletes the individual source tile image files.
     """
     try:
         frame = AnimationFrame.objects.select_related('animation').get(id=animation_frame_id)
@@ -111,7 +110,7 @@ def assemble_animation_frame_image(animation_frame_id):
 
         time_aggregate = completed_jobs.aggregate(total=Sum('render_time_seconds'))
         frame.render_time_seconds = time_aggregate['total'] or 0
-        frame.save() # Save the model with the output file and status first
+        frame.save()  # Save the model with the output file and status first
 
         # Now, explicitly generate and save the thumbnail
         if frame.output_file and not frame.thumbnail:
@@ -121,6 +120,19 @@ def assemble_animation_frame_image(animation_frame_id):
 
         logger.info(f"Successfully assembled and saved final image and thumbnail for {frame}.")
 
+        # --- CORRECTED: Clean up the individual tile files and database fields ---
+        logger.info(f"Cleaning up {completed_jobs.count()} tile files for {frame}.")
+        job_ids_to_clear = []
+        for job in completed_jobs:
+            if job.output_file:
+                job_ids_to_clear.append(job.id)
+                job.output_file.delete(save=False)
+
+        if job_ids_to_clear:
+            Job.objects.filter(id__in=job_ids_to_clear).update(output_file=None)
+
+        logger.info(f"Cleanup complete for {frame}.")
+
     except Exception as e:
         logger.critical(f"A critical error occurred during image assembly for {frame}: {e}", exc_info=True)
         frame.status = AnimationFrameStatus.ERROR
@@ -129,11 +141,11 @@ def assemble_animation_frame_image(animation_frame_id):
 
 def assemble_tiled_job_image(tiled_job_id):
     """
-    Assembles the completed tiles for a single, high-resolution `TiledJob`.
+    Assembles completed tiles for a TiledJob and cleans up the tile files.
 
-    This function is triggered by a signal when all child `Job`s are marked
-    as `DONE`. It assembles the image, saves it, and then explicitly
-    generates and saves a thumbnail for the final output.
+    This function is triggered when all child `Job`s are done. It assembles the
+    image, saves it, generates a thumbnail, and then deletes the individual
+    source tile image files from storage.
     """
     try:
         tiled_job = TiledJob.objects.get(id=tiled_job_id)
@@ -176,7 +188,7 @@ def assemble_tiled_job_image(tiled_job_id):
 
         tiled_job.status = TiledJobStatus.DONE
         tiled_job.completed_at = timezone.now()
-        tiled_job.save() # Save model with output file first
+        tiled_job.save()  # Save model with output file first
 
         # Now, explicitly generate and save the thumbnail
         if tiled_job.output_file and not tiled_job.thumbnail:
@@ -185,6 +197,20 @@ def assemble_tiled_job_image(tiled_job_id):
                 tiled_job.thumbnail.save(thumb_content.name, thumb_content, save=True)
 
         logger.info(f"Successfully assembled and saved final image and thumbnail for TiledJob ID {tiled_job.id}.")
+
+        # --- CORRECTED: Clean up the individual tile files and database fields ---
+        logger.info(f"Cleaning up {completed_jobs.count()} tile files for TiledJob {tiled_job.id}.")
+        job_ids_to_clear = []
+        for job in completed_jobs:
+            if job.output_file:
+                job_ids_to_clear.append(job.id)
+                job.output_file.delete(save=False)
+
+        if job_ids_to_clear:
+            Job.objects.filter(id__in=job_ids_to_clear).update(output_file=None)
+
+        logger.info(f"Cleanup complete for TiledJob {tiled_job.id}.")
+
 
     except Exception as e:
         logger.critical(f"A critical error occurred during image assembly for TiledJob ID {tiled_job.id}: {e}",

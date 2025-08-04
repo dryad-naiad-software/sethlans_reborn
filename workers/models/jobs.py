@@ -1,4 +1,3 @@
-# FILENAME: workers/models/jobs.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #

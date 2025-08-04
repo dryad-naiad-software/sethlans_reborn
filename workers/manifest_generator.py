@@ -1,4 +1,3 @@
-# workers/manifest_generator.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #

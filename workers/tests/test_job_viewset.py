@@ -1,4 +1,3 @@
-# FILENAME: workers/tests/test_job_viewset.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
