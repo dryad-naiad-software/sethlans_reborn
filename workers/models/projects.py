@@ -25,6 +25,7 @@
 import uuid
 from django.db import models
 from django.core.files.base import ContentFile
+from django.core.validators import MinLengthValidator
 from django.utils.text import slugify
 
 from .upload_paths import asset_upload_path, thumbnail_upload_path  # thumbnail path reserved for future use
@@ -35,7 +36,11 @@ class Project(models.Model):
     Represents a top-level creative project for organizing assets and jobs.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(
+        max_length=40,
+        unique=True,
+        validators=[MinLengthValidator(4)]
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     is_paused = models.BooleanField(
         default=False,
@@ -59,9 +64,10 @@ class Asset(models.Model):
     """
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='assets')
     name = models.CharField(
-        max_length=255,
+        max_length=40,
         unique=True,
         help_text="A unique name for the asset file.",
+        validators=[MinLengthValidator(4)]
     )
     blend_file = models.FileField(
         upload_to=asset_upload_path,

@@ -51,3 +51,27 @@ class AssetViewSetTests(BaseMediaTestCase):
 
         with new_asset.blend_file.open('rb') as f:
             self.assertEqual(f.read(), blend_file_content)
+
+    def test_create_asset_name_too_short(self):
+        """
+        Tests that creating an asset with a name less than 4 characters fails.
+        """
+        uploaded_file = SimpleUploadedFile("short.blend", b"data")
+        asset_data = {"name": "abc", "blend_file": uploaded_file, "project": self.project.id}
+        url = "/api/assets/"
+        response = self.client.post(url, asset_data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+        self.assertIn("at least 4 characters", str(response.data['name']))
+
+    def test_create_asset_name_too_long(self):
+        """
+        Tests that creating an asset with a name more than 40 characters fails.
+        """
+        uploaded_file = SimpleUploadedFile("long.blend", b"data")
+        asset_data = {"name": "a" * 41, "blend_file": uploaded_file, "project": self.project.id}
+        url = "/api/assets/"
+        response = self.client.post(url, asset_data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+        self.assertIn("more than 40 characters", str(response.data['name']))

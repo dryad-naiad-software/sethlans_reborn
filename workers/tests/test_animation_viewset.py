@@ -33,6 +33,7 @@ class AnimationViewSetTests(BaseMediaTestCase):
         self.asset = Asset.objects.create(
             name="Test Asset for Animations", project=self.project, blend_file=SimpleUploadedFile("dummy_anim.blend", b"data")
         )
+        self.url = "/api/animations/"
 
     def test_create_animation_spawns_jobs(self):
         data = {
@@ -45,8 +46,7 @@ class AnimationViewSetTests(BaseMediaTestCase):
             "blender_version": "4.1.1",
             "render_device": RenderDevice.GPU,
         }
-        url = "/api/animations/"
-        response = self.client.post(url, data, format='json')
+        response = self.client.post(self.url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Animation.objects.count(), 1)
         self.assertEqual(Job.objects.count(), 5)
@@ -79,8 +79,7 @@ class AnimationViewSetTests(BaseMediaTestCase):
             "end_frame": 2,
             "render_settings": {"cycles.samples": 32, "render.resolution_x": 800},
         }
-        url = "/api/animations/"
-        response = self.client.post(url, data, format='json')
+        response = self.client.post(self.url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         parent = Animation.objects.get()
@@ -100,9 +99,41 @@ class AnimationViewSetTests(BaseMediaTestCase):
             "tiling_config": TilingConfiguration.TILE_2X2,
             "render_settings": {RenderSettings.SAMPLES: 16},
         }
-        url = "/api/animations/"
-        response = self.client.post(url, data, format='json')
+        response = self.client.post(self.url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Animation.objects.count(), 1)
         # Frames and Jobs asserted in the model/assembly tests
 
+    def test_create_animation_name_too_short(self):
+        """
+        Tests that creating an animation with a name less than 4 characters fails.
+        """
+        data = {
+            "name": "abc",
+            "project": self.project.id,
+            "asset_id": self.asset.id,
+            "output_file_pattern": "p",
+            "start_frame": 1,
+            "end_frame": 1,
+        }
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+        self.assertIn("at least 4 characters", str(response.data['name']))
+
+    def test_create_animation_name_too_long(self):
+        """
+        Tests that creating an animation with a name more than 40 characters fails.
+        """
+        data = {
+            "name": "a" * 41,
+            "project": self.project.id,
+            "asset_id": self.asset.id,
+            "output_file_pattern": "p",
+            "start_frame": 1,
+            "end_frame": 1,
+        }
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+        self.assertIn("more than 40 characters", str(response.data['name']))

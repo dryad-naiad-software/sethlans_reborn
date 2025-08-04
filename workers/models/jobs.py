@@ -25,6 +25,7 @@
 import uuid
 from django.db import models
 from django.utils import timezone
+from django.core.validators import MinLengthValidator
 from ..constants import TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 from .upload_paths import job_output_upload_path, tiled_job_output_upload_path, thumbnail_upload_path
 from .projects import Asset
@@ -51,7 +52,11 @@ class TiledJob(models.Model):
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey('workers.Project', on_delete=models.CASCADE, related_name='tiled_jobs')
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(
+        max_length=40,
+        unique=True,
+        validators=[MinLengthValidator(4)]
+    )
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='tiled_jobs')
     final_resolution_x = models.IntegerField()
     final_resolution_y = models.IntegerField()
@@ -81,7 +86,12 @@ class Job(models.Model):
     """
     Represents a single, discrete render job.
     """
-    name = models.CharField(max_length=255, unique=True, help_text="A unique name for the render job.")
+    name = models.CharField(
+        max_length=40,
+        unique=True,
+        help_text="A unique name for the render job.",
+        validators=[MinLengthValidator(4)]
+    )
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='jobs')
     output_file_pattern = models.CharField(max_length=1024, help_text="Output file path pattern (e.g., //render/#.png)")
     start_frame = models.IntegerField(default=1)
