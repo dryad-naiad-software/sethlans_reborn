@@ -1,3 +1,4 @@
+# FILENAME: workers/tests/test_tiled_animation_assembly.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -81,7 +82,8 @@ class TiledAnimationAssemblyTests(BaseMediaTestCase):
 
         # Verify output file path
         project_short_id = str(self.frame1.animation.project.id)[:8]
-        anim_dir = f"animation_{self.frame1.animation.id}"
+        slug = slugify(self.frame1.animation.name)
+        anim_dir = f"{slug}-{self.frame1.animation.id}"
         self.assertTrue(self.frame1.output_file.name.startswith(f"assets/{project_short_id}/outputs/{anim_dir}/"))
 
         # Verify thumbnail path and suffix

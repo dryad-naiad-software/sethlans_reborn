@@ -1,3 +1,4 @@
+# FILENAME: workers/models/animations.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -57,7 +58,7 @@ class Animation(models.Model):
     render_settings = models.JSONField(default=dict, blank=True, help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
     total_render_time_seconds = models.IntegerField(default=0, help_text="The cumulative render time of all completed frames in this animation.")
     tiling_config = models.CharField(max_length=10, choices=TilingConfiguration.choices, default=TilingConfiguration.NONE, help_text="Grid size for tiled rendering of each frame.")
-    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the latest completed frame.")
+    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the latest completed frame.", max_length=512)
 
     def __str__(self):
         return self.name
@@ -69,10 +70,10 @@ class AnimationFrame(models.Model):
     animation = models.ForeignKey(Animation, on_delete=models.CASCADE, related_name='frames')
     frame_number = models.IntegerField()
     status = models.CharField(max_length=50, choices=AnimationFrameStatus.choices, default=AnimationFrameStatus.PENDING)
-    output_file = models.FileField(upload_to=animation_frame_output_upload_path, null=True, blank=True, help_text="The final, assembled output image for this frame.")
+    output_file = models.FileField(upload_to=animation_frame_output_upload_path, null=True, blank=True, help_text="The final, assembled output image for this frame.", max_length=512)
     render_time_seconds = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
-    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of this assembled frame.")
+    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of this assembled frame.", max_length=512)
 
     def __str__(self):
         return f"{self.animation.name} - Frame {self.frame_number}"
@@ -80,4 +81,3 @@ class AnimationFrame(models.Model):
     class Meta:
         ordering = ['animation', 'frame_number']
         unique_together = ('animation', 'frame_number')
-

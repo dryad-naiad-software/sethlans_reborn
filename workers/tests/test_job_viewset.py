@@ -1,3 +1,4 @@
+# FILENAME: workers/tests/test_job_viewset.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -111,7 +112,8 @@ class JobViewSetTests(BaseMediaTestCase):
         job.refresh_from_db()
         self.assertIsNotNone(job.output_file)
         project_short_id = str(self.project.id)[:8]
-        job_dir = f"job_{job.id}"
+        slug = slugify(job.name)
+        job_dir = f"{slug}-{job.id}"
         self.assertTrue(job.output_file.name.startswith(f"assets/{project_short_id}/outputs/{job_dir}/"))
 
     def test_job_filtering_for_cpu_worker(self):

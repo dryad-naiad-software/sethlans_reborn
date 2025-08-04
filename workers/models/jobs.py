@@ -1,3 +1,4 @@
+# FILENAME: workers/models/jobs.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -67,9 +68,9 @@ class TiledJob(models.Model):
     render_settings = models.JSONField(default=dict, blank=True, help_text="Global render settings for all tiles.")
     total_render_time_seconds = models.IntegerField(default=0)
     output_file = models.FileField(upload_to=tiled_job_output_upload_path, null=True, blank=True,
-                                   help_text="The final, assembled output image.")
+                                   help_text="The final, assembled output image.", max_length=512)
     thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True,
-                                  help_text="A preview thumbnail of the final assembled image.")
+                                  help_text="A preview thumbnail of the final assembled image.", max_length=512)
 
     def __str__(self):
         return self.name
@@ -104,8 +105,8 @@ class Job(models.Model):
     tiled_job = models.ForeignKey(TiledJob, on_delete=models.CASCADE, null=True, blank=True, related_name='jobs')
     animation_frame = models.ForeignKey('workers.AnimationFrame', on_delete=models.CASCADE, null=True, blank=True, related_name='tile_jobs')
     render_time_seconds = models.IntegerField(null=True, blank=True, help_text="The total time in seconds this job took to render.")
-    output_file = models.FileField(upload_to=job_output_upload_path, null=True, blank=True, help_text="The final rendered output file uploaded by the worker.")
-    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the final render.")
+    output_file = models.FileField(upload_to=job_output_upload_path, null=True, blank=True, help_text="The final rendered output file uploaded by the worker.", max_length=512)
+    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the final render.", max_length=512)
 
     def __str__(self):
         return f"{self.name} ({self.status})"

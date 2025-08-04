@@ -1,3 +1,4 @@
+# FILENAME: workers/tests/test_image_assembler.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -70,7 +71,8 @@ class ImageAssemblerTests(BaseMediaTestCase):
 
         # Verify output file path
         project_short_id = str(self.tiled_job.project.id)[:8]
-        job_dir = f"tiled-job_{str(self.tiled_job.id)[:8]}"
+        slug = slugify(self.tiled_job.name)
+        job_dir = f"{slug}-{str(self.tiled_job.id)[:8]}"
         self.assertTrue(self.tiled_job.output_file.name.startswith(f"assets/{project_short_id}/outputs/{job_dir}/"))
 
         # Verify thumbnail path and suffix

@@ -1,4 +1,4 @@
-# workers/tests/test_upload_paths.py
+# FILENAME: workers/tests/test_upload_paths.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -67,56 +67,65 @@ class UploadPathTests(BaseMediaTestCase):
         # 8 chars for short uuid + 6 for '.blend'
         self.assertEqual(len(parts[2]), 8 + 6)
 
-    def test_standalone_job_output_path_creates_job_directory(self):
+    def test_standalone_job_output_path_creates_descriptive_directory(self):
         """
-        Verifies that a standalone job's output path is in a job ID-specific directory.
+        Verifies that a standalone job's output path is in a descriptive,
+        slugified directory with its ID.
         """
-        job = Job.objects.create(asset=self.asset, name="Test Standalone Job", id=123)
+        job = Job.objects.create(asset=self.asset, name="Test Standalone Job! #1", id=123)
         path = job_output_upload_path(job, "render-0001.png")
-        expected = f'assets/{str(self.project.id)[:8]}/outputs/job_123/render-0001.png'
+        slug = slugify(job.name)
+        expected = f'assets/{str(self.project.id)[:8]}/outputs/{slug}-{job.id}/render-0001.png'
         self.assertEqual(path, expected)
 
-    def test_animation_job_output_path_groups_by_animation(self):
+    def test_animation_job_output_path_groups_by_descriptive_animation_name(self):
         """
-        Verifies that frames from an animation are grouped under one animation-specific directory.
+        Verifies that frames from an animation are grouped under a descriptive,
+        slugified directory based on the parent animation's name and ID.
         """
         anim = Animation.objects.create(
-            project=self.project, asset=self.asset, name="Test Animation Grouping", start_frame=1, end_frame=2, id=999
+            project=self.project, asset=self.asset, name="My Cool Animation (Test)", start_frame=1, end_frame=2, id=999
         )
         job_frame1 = Job.objects.create(asset=self.asset, name="Frame 1", animation=anim, id=123)
         path = job_output_upload_path(job_frame1, "render-0001.png")
-        anim_dir = f"animation_{anim.id}"
+        slug = slugify(anim.name)
+        anim_dir = f"{slug}-{anim.id}"
         expected = f'assets/{str(self.project.id)[:8]}/outputs/{anim_dir}/render-0001.png'
         self.assertEqual(path, expected)
 
-    def test_tiled_job_output_upload_path_creates_job_directory(self):
+    def test_tiled_job_output_upload_path_creates_descriptive_directory(self):
         """
-        Verifies that tiled job output paths are created inside a short UUID-specific directory.
+        Verifies that tiled job output paths are created inside a descriptive,
+        slugified directory with its short UUID.
         """
         tiled_job = TiledJob.objects.create(
             project=self.project, asset=self.asset, name="Test Tiled Job Path!", final_resolution_x=1, final_resolution_y=1
         )
         path = tiled_job_output_upload_path(tiled_job, "final_render.png")
-        job_dir = f"tiled-job_{str(tiled_job.id)[:8]}"
+        slug = slugify(tiled_job.name)
+        job_dir = f"{slug}-{str(tiled_job.id)[:8]}"
         expected = f'assets/{str(self.project.id)[:8]}/outputs/{job_dir}/final_render.png'
         self.assertEqual(path, expected)
 
-    def test_animation_frame_output_upload_path_creates_animation_directory(self):
+    def test_animation_frame_output_upload_path_creates_descriptive_animation_directory(self):
         """
-        Verifies that assembled animation frame paths are created inside an animation ID-specific directory.
+        Verifies that assembled animation frame paths are created inside a
+        descriptive, slugified directory based on the parent animation's name and ID.
         """
         anim = Animation.objects.create(
-            project=self.project, asset=self.asset, name="Test Animation Path #1", start_frame=1, end_frame=1, id=456
+            project=self.project, asset=self.asset, name="Test Anim Frame Path", start_frame=1, end_frame=1, id=456
         )
         anim_frame = AnimationFrame.objects.create(animation=anim, frame_number=1)
         path = animation_frame_output_upload_path(anim_frame, "frame_0001.png")
-        anim_dir = f"animation_{anim.id}"
+        slug = slugify(anim.name)
+        anim_dir = f"{slug}-{anim.id}"
         expected = f'assets/{str(self.project.id)[:8]}/outputs/{anim_dir}/frame_0001.png'
         self.assertEqual(path, expected)
 
     def test_thumbnail_upload_path_adds_suffix(self):
         """
         Verifies that the thumbnail path function adds a '_thumbnail' suffix to the filename.
+        This behavior is unchanged.
         """
         tiled_job = TiledJob.objects.create(
             project=self.project, asset=self.asset, name="Thumb Test", final_resolution_x=1, final_resolution_y=1
@@ -129,6 +138,7 @@ class UploadPathTests(BaseMediaTestCase):
     def test_animation_thumbnail_upload_path_adds_suffix(self):
         """
         Verifies the thumbnail path function adds the suffix for Animation models correctly.
+        This behavior is unchanged.
         """
         anim = Animation.objects.create(
             project=self.project, asset=self.asset, name="Anim Thumb Test", start_frame=1, end_frame=1
