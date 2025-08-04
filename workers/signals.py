@@ -1,4 +1,4 @@
-# workers/signals.py
+# FILENAME: workers/signals.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -10,7 +10,7 @@
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for a more details.
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
@@ -112,46 +112,15 @@ def _delete_existing_filefield(inst, field_name: str):
         )
 
 
-def _deterministic_thumb_name(inst) -> str:
-    """
-    Compute a stable thumbnail filename for a model instance.
-    The model's upload_to controls directory placement.
-    """
-    pk = getattr(inst, "pk", None)
-    if not pk:
-        return "temp.png"
-
-    # For Animation specifically, tests expect the basename "{pk}.png"
-    if isinstance(inst, Animation):
-        return f"{pk}.png"
-
-    # Simple deterministic name for others as well
-    return f"{pk}.png"
-
-
-def _next_animation_thumb_name(animation: Animation, frame_number: int | None) -> str:
-    """
-    Return a fixed, deterministic filename for Animation thumbnails.
-
-    Always '{pk}.png' (or 'temp.png' if pk isn't available yet). Deletion of the
-    previously referenced file (controlled by WORKERS_DELETE_OLD_THUMBNAILS) ensures
-    storage won't generate a unique alternative name.
-    """
-    pk = getattr(animation, "pk", None)
-    return f"{pk}.png" if pk is not None else "temp.png"
-
-
-
 def _save_thumbnails_for_instances(
-    instances, *, sender, handler, thumb_content, field_name="thumbnail", frame_number: int | None = None
+    instances, *, sender, handler, thumb_content, field_name="thumbnail"
 ):
     """
     Disconnects the sender/handler to prevent recursion, then saves the same
     thumbnail bytes to each instance's <field_name>. Finally reconnects the handler.
 
-    - Uses deterministic filenames (stable path per instance); animations may be versioned.
-    - Optionally deletes the existing file first (if WORKERS_DELETE_OLD_THUMBNAILS=True)
-    - Relies on model field's upload_to for the directory structure.
+    - Relies on the model field's `upload_to` function to generate the final path.
+    - Optionally deletes the existing file first (if WORKERS_DELETE_OLD_THUMBNAILS=True).
     """
     if thumb_content is None:
         return
@@ -163,17 +132,11 @@ def _save_thumbnails_for_instances(
     post_save.disconnect(handler, sender=sender)
     try:
         for inst in instances:
-            # Choose filename
-            if isinstance(inst, Animation):
-                file_name = _next_animation_thumb_name(inst, frame_number)
-            else:
-                file_name = _deterministic_thumb_name(inst)
-
             # Delete old file if configured
             _delete_existing_filefield(inst, field_name)
 
-            # Pass chosen filename so upload_paths can respect it (esp. for Animation)
-            getattr(inst, field_name).save(file_name, ContentFile(data), save=True)
+            # Pass a generic name; the `upload_to` function will generate the final descriptive path.
+            getattr(inst, field_name).save("thumb.png", ContentFile(data), save=True)
     finally:
         post_save.connect(handler, sender=sender)
 
@@ -304,7 +267,6 @@ def handle_job_completion(sender, instance, **kwargs):
                     sender=Job,
                     handler=handle_job_completion,
                     thumb_content=thumb_content,
-                    # frame_number intentionally omitted here; this is a one-off update
                 )
 
 
@@ -333,7 +295,6 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
                 sender=AnimationFrame,
                 handler=handle_animation_frame_completion,
                 thumb_content=thumb_content,
-                frame_number=instance.frame_number,
             )
 
     # --- Parent Animation Status Update ---

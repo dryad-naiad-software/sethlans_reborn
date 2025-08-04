@@ -113,44 +113,44 @@ def animation_frame_output_upload_path(instance, filename):
 
 def thumbnail_upload_path(instance, filename):
     """
-    Generates an upload path for a thumbnail, adding a '_thumbnail' suffix.
-    Example: media/assets/<project_short_id>/thumbnails/<basename>_thumbnail.png
+    Generates a descriptive upload path for a thumbnail.
+    The final name is a slug of the instance's name, its primary key, and a suffix.
+    Example: media/assets/<proj_id>/thumbnails/my-cool-job-123_thumbnail.png
 
     Args:
         instance (Model): The model instance being saved.
-        filename (str): The original filename of the thumbnail.
+        filename (str): The original filename of the thumbnail (used for extension).
 
     Returns:
         str: The generated file path.
     """
-    extension = Path(filename).suffix or ".png"
-    passed_stem = Path(filename).stem
-    model_name = instance.__class__.__name__.lower()
+    from workers.models import AnimationFrame
 
-    # Resolve project id from common relationships
+    extension = Path(filename).suffix or ".png"
+    base_stem = "unknown-thumbnail"
     project_id = None
-    if hasattr(instance, 'project') and instance.project is not None:
-        project_id = instance.project.id
-    elif hasattr(instance, 'asset') and instance.asset is not None:
-        project_id = instance.asset.project.id
-    elif hasattr(instance, 'animation') and instance.animation is not None:
-        project_id = instance.animation.project.id
+
+    # Resolve name, pk, and project_id based on instance type
+    if hasattr(instance, 'project'):
+        project_id = instance.project_id
+    elif hasattr(instance, 'asset'):
+        project_id = instance.asset.project_id
+    elif hasattr(instance, 'animation'):
+        project_id = instance.animation.project_id
+
+    if isinstance(instance, AnimationFrame):
+        name = instance.animation.name
+        pk = instance.animation.id
+        # Add frame number for clarity, though parent animation ID provides uniqueness
+        base_stem = f"{slugify(name)}-{pk}-frame-{instance.frame_number}"
+    elif hasattr(instance, 'name') and hasattr(instance, 'pk'):
+        name = instance.name
+        pk = instance.pk
+        if isinstance(pk, uuid.UUID):
+            pk = str(pk)[:8]
+        base_stem = f"{slugify(name)}-{pk}"
 
     project_short_id = str(project_id)[:8] if project_id else "unknown_project"
+    final_filename = f"{base_stem}_thumbnail{extension}"
 
-    # Determine the base name before adding the suffix
-    base_stem = ""
-    if model_name == 'animation':
-        pk_value = getattr(instance, 'pk', getattr(instance, 'id', None))
-        # For animations, the signal handler provides a deterministic stem (the PK)
-        base_stem = passed_stem or (str(pk_value) if pk_value is not None else "temp")
-    else:
-        pk_value = getattr(instance, 'id', 'unknown')
-        if isinstance(pk_value, uuid.UUID):
-            pk_value = str(pk_value)[:8]
-        base_stem = f'{model_name}_{pk_value}'
-
-    # Add suffix and build final path
-    thumbnail_stem = f"{base_stem}_thumbnail"
-    basename = f"{thumbnail_stem}{extension}"
-    return f'assets/{project_short_id}/thumbnails/{basename}'
+    return f'assets/{project_short_id}/thumbnails/{final_filename}'

@@ -87,8 +87,10 @@ class TiledAnimationAssemblyTests(BaseMediaTestCase):
         self.assertTrue(self.frame1.output_file.name.startswith(f"assets/{project_short_id}/outputs/{anim_dir}/"))
 
         # Verify thumbnail path and suffix
-        base_thumb_stem = f'animationframe_{self.frame1.id}'
-        expected_thumb_name_part = f'{base_thumb_stem}_thumbnail.png'
+        slug = slugify(self.frame1.animation.name)
+        anim_id = self.frame1.animation.id
+        frame_num = self.frame1.frame_number
+        expected_thumb_name_part = f'{slug}-{anim_id}-frame-{frame_num}_thumbnail.png'
         self.assertIn(expected_thumb_name_part, self.frame1.thumbnail.name)
 
         # Verify image content

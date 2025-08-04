@@ -28,6 +28,7 @@ import os
 import tempfile
 import pytest
 from django.core.files.base import ContentFile
+from django.utils.text import slugify
 from PIL import Image
 from pathlib import Path
 
@@ -82,8 +83,8 @@ def test_animation_thumbnail_old_file_deleted_and_no_orphans(settings, tmp_path)
     first_thumb_path = Path(animation.thumbnail.path)
     assert first_thumb_path.exists()
 
-    # The path should be deterministic and include the suffix
-    expected_basename = f"{animation.pk}_thumbnail.png"
+    # The path should be deterministic and descriptive
+    expected_basename = f"{slugify(animation.name)}-{animation.pk}_thumbnail.png"
     assert first_thumb_path.name == expected_basename
 
     thumbnail_dir = first_thumb_path.parent

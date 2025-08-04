@@ -76,8 +76,9 @@ class ImageAssemblerTests(BaseMediaTestCase):
         self.assertTrue(self.tiled_job.output_file.name.startswith(f"assets/{project_short_id}/outputs/{job_dir}/"))
 
         # Verify thumbnail path and suffix
-        base_thumb_stem = f'tiledjob_{str(self.tiled_job.id)[:8]}'
-        expected_thumb_name_part = f'{base_thumb_stem}_thumbnail.png'
+        slug = slugify(self.tiled_job.name)
+        short_id = str(self.tiled_job.id)[:8]
+        expected_thumb_name_part = f'{slug}-{short_id}_thumbnail.png'
         self.assertIn(expected_thumb_name_part, self.tiled_job.thumbnail.name)
 
         # Verify image content

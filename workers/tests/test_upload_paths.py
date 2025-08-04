@@ -57,15 +57,14 @@ class UploadPathTests(BaseMediaTestCase):
     def test_asset_upload_path_is_unchanged(self):
         """
         Verifies asset paths use a short project ID for the directory and
-        a new short UUID for the filename. This behavior is unchanged.
+        a new short UUID for the filename.
         """
         path = asset_upload_path(self.asset, "test.blend")
         parts = path.split('/')
         self.assertEqual(parts[0], 'assets')
         self.assertEqual(parts[1], str(self.project.id)[:8])
         self.assertTrue(parts[2].endswith('.blend'))
-        # 8 chars for short uuid + 6 for '.blend'
-        self.assertEqual(len(parts[2]), 8 + 6)
+        self.assertEqual(len(parts[2]), 8 + 6) # 8 for short uuid + 6 for '.blend'
 
     def test_standalone_job_output_path_creates_descriptive_directory(self):
         """
@@ -122,29 +121,50 @@ class UploadPathTests(BaseMediaTestCase):
         expected = f'assets/{str(self.project.id)[:8]}/outputs/{anim_dir}/frame_0001.png'
         self.assertEqual(path, expected)
 
-    def test_thumbnail_upload_path_adds_suffix(self):
+    def test_job_thumbnail_upload_path(self):
         """
-        Verifies that the thumbnail path function adds a '_thumbnail' suffix to the filename.
-        This behavior is unchanged.
+        Verifies thumbnail path for a standard Job.
         """
-        tiled_job = TiledJob.objects.create(
-            project=self.project, asset=self.asset, name="Thumb Test", final_resolution_x=1, final_resolution_y=1
-        )
-        path = thumbnail_upload_path(tiled_job, "thumb.png")
-        base_stem = f'tiledjob_{str(tiled_job.id)[:8]}'
-        expected = f'assets/{str(self.project.id)[:8]}/thumbnails/{base_stem}_thumbnail.png'
+        job = Job.objects.create(asset=self.asset, name="My Job Thumbnail Test", id=555)
+        path = thumbnail_upload_path(job, "thumb.png")
+        slug = slugify(job.name)
+        expected = f'assets/{str(self.project.id)[:8]}/thumbnails/{slug}-{job.id}_thumbnail.png'
         self.assertEqual(path, expected)
 
-    def test_animation_thumbnail_upload_path_adds_suffix(self):
+    def test_tiled_job_thumbnail_upload_path(self):
         """
-        Verifies the thumbnail path function adds the suffix for Animation models correctly.
-        This behavior is unchanged.
+        Verifies thumbnail path for a TiledJob.
+        """
+        tiled_job = TiledJob.objects.create(
+            project=self.project, asset=self.asset, name="My Tiled Thumbnail", final_resolution_x=1, final_resolution_y=1
+        )
+        path = thumbnail_upload_path(tiled_job, "thumb.png")
+        slug = slugify(tiled_job.name)
+        short_id = str(tiled_job.id)[:8]
+        expected = f'assets/{str(self.project.id)[:8]}/thumbnails/{slug}-{short_id}_thumbnail.png'
+        self.assertEqual(path, expected)
+
+    def test_animation_thumbnail_upload_path(self):
+        """
+        Verifies thumbnail path for an Animation.
         """
         anim = Animation.objects.create(
-            project=self.project, asset=self.asset, name="Anim Thumb Test", start_frame=1, end_frame=1
+            project=self.project, asset=self.asset, name="My Animation Thumbnail", start_frame=1, end_frame=1
         )
-        # Simulate the signal handler passing a deterministic filename (the PK)
-        path = thumbnail_upload_path(anim, f"{anim.pk}.png")
-        base_stem = str(anim.pk)
-        expected = f'assets/{str(self.project.id)[:8]}/thumbnails/{base_stem}_thumbnail.png'
+        path = thumbnail_upload_path(anim, "thumb.png")
+        slug = slugify(anim.name)
+        expected = f'assets/{str(self.project.id)[:8]}/thumbnails/{slug}-{anim.id}_thumbnail.png'
+        self.assertEqual(path, expected)
+
+    def test_animation_frame_thumbnail_upload_path(self):
+        """
+        Verifies thumbnail path for an AnimationFrame is based on its parent animation.
+        """
+        anim = Animation.objects.create(
+            project=self.project, asset=self.asset, name="Parent Anim For Frame", start_frame=1, end_frame=1, id=888
+        )
+        anim_frame = AnimationFrame.objects.create(animation=anim, frame_number=5)
+        path = thumbnail_upload_path(anim_frame, "thumb.png")
+        slug = slugify(anim.name)
+        expected = f'assets/{str(self.project.id)[:8]}/thumbnails/{slug}-{anim.id}-frame-5_thumbnail.png'
         self.assertEqual(path, expected)
