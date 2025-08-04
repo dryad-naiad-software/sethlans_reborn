@@ -79,6 +79,11 @@ class ImageAssemblerTests(BaseMediaTestCase):
         self.assertEqual(self.tiled_job.status, TiledJobStatus.DONE)
         self.assertIsNotNone(self.tiled_job.completed_at)
 
+        # Verify final filename uses the short UUID
+        short_uuid = str(self.tiled_job.id)[:8]
+        expected_filename = f"tiled_job_{short_uuid}_final.png"
+        self.assertIn(expected_filename, self.tiled_job.output_file.name)
+
         # Verify final image content
         final_image = Image.open(self.tiled_job.output_file.path)
         self.assertEqual(final_image.size, (200, 200))

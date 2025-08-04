@@ -29,6 +29,7 @@ import os
 import platform
 import pytest
 import requests
+import uuid
 
 from .shared_setup import BaseE2ETest, MANAGER_URL
 from .helpers import poll_for_completion, verify_image_output, is_gpu_available
@@ -69,7 +70,7 @@ class TestTiledWorkflows(BaseE2ETest):
         total_tiles = tile_grid[0] * tile_grid[1]
 
         tiled_job_payload = {
-            "name": f"E2E Tiled Render Test {self.short_project_id}",
+            "name": f"E2E Tiled Render Test {uuid.uuid4().hex[:8]}",
             "project": self.project_id,
             "asset_id": self.bmw_asset_id,
             "final_resolution_x": resolution[0],

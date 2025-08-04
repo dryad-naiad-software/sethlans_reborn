@@ -31,6 +31,7 @@ import platform
 import os
 import pytest
 import requests
+import uuid
 
 from .shared_setup import BaseE2ETest, MANAGER_URL
 from .helpers import is_gpu_available, poll_for_completion, verify_image_output
@@ -49,7 +50,7 @@ class TestCoreWorkflows(BaseE2ETest):
         """
         print("\n--- E2E TEST: Single-Frame CPU Render ---")
         job_payload = {
-            "name": f"E2E CPU Render Test {self.short_project_id}",
+            "name": f"E2E CPU Render Test {uuid.uuid4().hex[:8]}",
             "project": self.project_id,
             "asset_id": self.scene_asset_id,
             "output_file_pattern": "e2e_cpu_render_####",
@@ -89,7 +90,7 @@ class TestCoreWorkflows(BaseE2ETest):
 
         print("\n--- E2E TEST: Single-Frame GPU Render ---")
         job_payload = {
-            "name": f"E2E GPU Render Test {self.short_project_id}",
+            "name": f"E2E GPU Render Test {uuid.uuid4().hex[:8]}",
             "project": self.project_id,
             "asset_id": self.bmw_asset_id,  # Use a more intensive scene for GPU
             "output_file_pattern": "e2e_gpu_render_####",

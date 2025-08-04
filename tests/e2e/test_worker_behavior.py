@@ -30,6 +30,7 @@ import os
 import platform
 import pytest
 import requests
+import uuid
 from .shared_setup import BaseE2ETest, MANAGER_URL
 from .helpers import is_gpu_available, poll_for_completion
 from sethlans_worker_agent import system_monitor
@@ -79,7 +80,7 @@ class TestWorkerBehavior(BaseE2ETest):
 
         # Submit a GPU-only job
         gpu_payload = {
-            "name": f"E2E Worker-Flex GPU Job {self.short_project_id}",
+            "name": f"E2E Worker-Flex GPU Job {uuid.uuid4().hex[:8]}",
             "project": self.project_id,
             "asset_id": self.scene_asset_id,
             "output_file_pattern": "flex_gpu_####",
@@ -95,7 +96,7 @@ class TestWorkerBehavior(BaseE2ETest):
 
         # Submit a CPU-only job
         cpu_payload = {
-            "name": f"E2E Worker-Flex CPU Job {self.short_project_id}",
+            "name": f"E2E Worker-Flex CPU Job {uuid.uuid4().hex[:8]}",
             "project": self.project_id,
             "asset_id": self.scene_asset_id,
             "output_file_pattern": "flex_cpu_####",

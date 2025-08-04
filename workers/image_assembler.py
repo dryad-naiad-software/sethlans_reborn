@@ -182,7 +182,7 @@ def assemble_tiled_job_image(tiled_job_id):
         final_image.save(buffer, format='PNG')
         buffer.seek(0)
 
-        file_name = f"tiled_job_{tiled_job.id}_final.png"
+        file_name = f"tiled_job_{str(tiled_job.id)[:8]}_final.png"
         content_file = ContentFile(buffer.getvalue(), name=file_name)
         tiled_job.output_file.save(file_name, content_file, save=False)
 

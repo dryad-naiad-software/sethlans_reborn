@@ -30,6 +30,7 @@ import platform
 import os
 import pytest
 import requests
+import uuid
 
 from .shared_setup import BaseE2ETest, MANAGER_URL
 from .helpers import is_gpu_available, poll_for_completion
@@ -73,13 +74,13 @@ class TestHardwareModes(BaseE2ETest):
         self.start_worker(self.worker_log_queue, extra_env={"SETHLANS_FORCE_CPU_ONLY": "true"})
 
         gpu_payload = {
-            "name": f"E2E GPU-Only Job (ignored) {self.short_project_id}", "project": self.project_id,
+            "name": f"E2E GPU-Only Job (ignored) {uuid.uuid4().hex[:8]}", "project": self.project_id,
             "asset_id": self.scene_asset_id, "output_file_pattern": "ignored_gpu_####",
             "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_device": "GPU"
         }
         cpu_payload = {
-            "name": f"E2E CPU-Only Job (processed) {self.short_project_id}", "project": self.project_id,
+            "name": f"E2E CPU-Only Job (processed) {uuid.uuid4().hex[:8]}", "project": self.project_id,
             "asset_id": self.scene_asset_id, "output_file_pattern": "processed_cpu_####",
             "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_device": "CPU"
@@ -114,13 +115,13 @@ class TestHardwareModes(BaseE2ETest):
         self.start_worker(self.worker_log_queue, extra_env={"SETHLANS_FORCE_GPU_ONLY": "true"})
 
         gpu_payload = {
-            "name": f"E2E GPU-Only Job (processed) {self.short_project_id}", "project": self.project_id,
+            "name": f"E2E GPU-Only Job (processed) {uuid.uuid4().hex[:8]}", "project": self.project_id,
             "asset_id": self.scene_asset_id, "output_file_pattern": "processed_gpu_####",
             "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_device": "GPU"
         }
         cpu_payload = {
-            "name": f"E2E CPU-Only Job (ignored) {self.short_project_id}", "project": self.project_id,
+            "name": f"E2E CPU-Only Job (ignored) {uuid.uuid4().hex[:8]}", "project": self.project_id,
             "asset_id": self.scene_asset_id, "output_file_pattern": "ignored_cpu_####",
             "start_frame": 1, "end_frame": 1, "blender_version": self._blender_version_for_test,
             "render_device": "CPU"

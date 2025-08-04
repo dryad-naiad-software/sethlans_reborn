@@ -50,6 +50,7 @@ End-to-end tests for multi-frame animation workflows. 🎞️
 """
 
 import requests
+import uuid
 from .shared_setup import BaseE2ETest, MANAGER_URL
 from .helpers import poll_for_completion, verify_image_output
 from workers.constants import RenderSettings
@@ -72,7 +73,7 @@ class TestAnimationWorkflows(BaseE2ETest):
         total_frames = (end_frame - start_frame) + 1
 
         anim_payload = {
-            "name": f"E2E Animation Test {self.short_project_id}",
+            "name": f"E2E Animation Test {uuid.uuid4().hex[:8]}",
             "project": self.project_id,
             "asset_id": self.anim_asset_id,
             "output_file_pattern": "anim_render_####",
@@ -122,7 +123,7 @@ class TestAnimationWorkflows(BaseE2ETest):
         expected_job_count = len(expected_frames)
 
         anim_payload = {
-            "name": f"E2E Frame Step Test {self.short_project_id}",
+            "name": f"E2E Frame Step Test {uuid.uuid4().hex[:8]}",
             "project": self.project_id,
             "asset_id": self.anim_asset_id,
             "output_file_pattern": "frame_step_render_####",
