@@ -1,3 +1,4 @@
+# FILENAME: workers/image_utils.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -38,16 +39,16 @@ from django.core.files.base import ContentFile
 
 logger = logging.getLogger(__name__)
 
-THUMBNAIL_SIZE = (256, 256)
+THUMBNAIL_WIDTH = 256
 
 
 def generate_thumbnail(source_file_field):
     """
-    Generates a resized thumbnail from a source image stored in a Django FileField.
+    Generates a thumbnail with a fixed width, preserving the aspect ratio.
 
-    This function opens an image, creates a thumbnail that fits within a bounding
-    box defined by THUMBNAIL_SIZE while maintaining aspect ratio, and returns
-    it as a Django ContentFile, ready to be saved to another ImageField.
+    This function opens an image, resizes it to a fixed width defined by
+    THUMBNAIL_WIDTH, and calculates the height proportionally. It returns
+    the result as a Django ContentFile, ready to be saved to an ImageField.
 
     Args:
         source_file_field (django.db.models.fields.files.FieldFile): The source
@@ -64,8 +65,17 @@ def generate_thumbnail(source_file_field):
         # Open the source image using a context manager
         with source_file_field.open(mode='rb') as f:
             img = Image.open(f)
-            # Use thumbnail() to resize while preserving aspect ratio
-            img.thumbnail(THUMBNAIL_SIZE)
+
+            # Calculate the new height to maintain aspect ratio
+            width, height = img.size
+            if width == 0:
+                return None  # Avoid division by zero
+
+            aspect_ratio = height / width
+            new_height = int(THUMBNAIL_WIDTH * aspect_ratio)
+
+            # Resize using a high-quality downsampling filter
+            img = img.resize((THUMBNAIL_WIDTH, new_height), Image.Resampling.LANCZOS)
 
             # Save the thumbnail to an in-memory buffer
             buffer = io.BytesIO()

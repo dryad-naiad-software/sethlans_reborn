@@ -1,3 +1,4 @@
+# FILENAME: tests/e2e/test_animation_workflows.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -81,7 +82,8 @@ class TestAnimationWorkflows(BaseE2ETest):
             "blender_version": self._blender_version_for_test,
             "render_settings": {
                 RenderSettings.SAMPLES: 16,
-                RenderSettings.RESOLUTION_PERCENTAGE: 10
+                RenderSettings.RESOLUTION_X: 640,
+                RenderSettings.RESOLUTION_Y: 360,
             }
         }
         create_response = requests.post(f"{MANAGER_URL}/animations/", json=anim_payload)

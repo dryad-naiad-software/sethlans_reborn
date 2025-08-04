@@ -1,3 +1,4 @@
+# FILENAME: tests/e2e/test_tiled_workflows.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -56,12 +57,12 @@ class TestTiledWorkflows(BaseE2ETest):
         # Adapt render settings based on available hardware at runtime
         if is_gpu_available():
             print("  Hardware check: GPU detected. Using standard quality settings.")
-            resolution = (400, 300)
+            resolution = (640, 480)
             samples = 32
             render_device = "ANY"  # Let the worker choose the GPU
         else:
             print("  Hardware check: No GPU detected. Using low quality settings for CPU.")
-            resolution = (200, 150)
+            resolution = (400, 300)
             samples = 8
             render_device = "CPU"  # Force CPU to avoid ambiguity
 

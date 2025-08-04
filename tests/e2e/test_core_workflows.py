@@ -1,3 +1,4 @@
+# FILENAME: tests/e2e/test_core_workflows.py
 #
 # Copyright (c) 2025 Dryad and Naiad Software LLC
 #
@@ -60,7 +61,8 @@ class TestCoreWorkflows(BaseE2ETest):
             "render_device": "CPU",
             "render_settings": {
                 RenderSettings.SAMPLES: 10,
-                RenderSettings.RESOLUTION_PERCENTAGE: 10
+                RenderSettings.RESOLUTION_X: 640,
+                RenderSettings.RESOLUTION_Y: 480
             }
         }
         create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
@@ -96,7 +98,11 @@ class TestCoreWorkflows(BaseE2ETest):
             "end_frame": 1,
             "blender_version": self._blender_version_for_test,
             "render_engine": "CYCLES",
-            "render_device": "GPU"
+            "render_device": "GPU",
+            "render_settings": {
+                # bmw27.blend is 1920x1080, 35% is 672x378, which is sufficient
+                RenderSettings.RESOLUTION_PERCENTAGE: 35
+            }
         }
         create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
         assert create_response.status_code == 201

@@ -67,7 +67,8 @@ class TestConcurrency(BaseE2ETest):
                 "blender_version": self._blender_version_for_test,
                 "render_settings": {
                     RenderSettings.SAMPLES: 8,
-                    RenderSettings.RESOLUTION_PERCENTAGE: 10
+                    RenderSettings.RESOLUTION_X: 640,
+                    RenderSettings.RESOLUTION_Y: 360,
                 }
             }
             try:
