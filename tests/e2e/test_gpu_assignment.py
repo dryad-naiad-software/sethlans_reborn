@@ -81,13 +81,15 @@ class TestGpuAssignment(BaseE2ETest):
 
                 # 2. Submit a high-load render job
                 job_payload = {
-                    "name": f"E2E GPU Assignment Test on GPU {gpu_index} - {uuid.uuid4().hex[:8]}",
+                    # --- FIX: Shortened the job name to be < 40 chars ---
+                    "name": f"E2E GPU Assign Test {gpu_index}-{uuid.uuid4().hex[:8]}",
                     "project": self.project_id,
                     "asset_id": self.bmw_asset_id,
                     "output_file_pattern": f"gpu_assign_test_{gpu_index}_####",
                     "start_frame": 1,
                     "end_frame": 1,
                     "blender_version": self._blender_version_for_test,
+                    "render_engine": "CYCLES",
                     "render_device": "GPU",
                     "render_settings": {
                         "cycles.samples": 400,
@@ -97,7 +99,7 @@ class TestGpuAssignment(BaseE2ETest):
                 }
                 print(f"Submitting job for GPU {gpu_index}...")
                 create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
-                assert create_response.status_code == 201, f"Failed to create job for GPU {gpu_index}"
+                assert create_response.status_code == 201, f"Failed to create job for GPU {gpu_index}: {create_response.text}"
                 job_url = f"{MANAGER_URL}/jobs/{create_response.json()['id']}/"
 
                 # 3. Wait for completion

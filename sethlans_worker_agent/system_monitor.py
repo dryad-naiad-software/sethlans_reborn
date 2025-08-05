@@ -41,6 +41,7 @@ import tempfile
 import os
 import sys
 import json
+import re
 from collections import defaultdict
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
@@ -74,11 +75,21 @@ def _filter_preferred_gpus(devices):
         list: A filtered and sorted list containing one device dictionary
               per physical GPU.
     """
+    # --- NEW: Use a regex to reliably find the PCI bus address for grouping. ---
+    pci_regex = re.compile(r'(\d{4}:\d{2}:\d{2}\.\d|\d{4}:\d{2}:\d{2})')
     physical_gpus = defaultdict(list)
+
     for device in devices:
-        # Heuristic: The last part of the ID string after '_' is often the
-        # unique physical device identifier (like a PCI bus address).
-        physical_id = device.get('id', '').split('_')[-1]
+        device_id_str = device.get('id', '')
+        physical_id = None
+
+        match = pci_regex.search(device_id_str)
+        if match:
+            physical_id = match.group(1)
+        else:
+            # Fallback for devices that may not have a standard PCI ID format.
+            physical_id = device_id_str
+
         if physical_id:
             physical_gpus[physical_id].append(device)
 
