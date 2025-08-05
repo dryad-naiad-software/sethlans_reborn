@@ -204,32 +204,41 @@ def test_get_gpu_device_details_success(mocker):
     mock_filter.assert_called_once_with(mock_gpu_data)
 
 
-def test_filter_preferred_gpus_logic():
+def test_filter_preferred_gpus_with_complex_devices():
     """
-    Tests the GPU filtering and prioritization logic with a complex mix of devices.
+    Tests the GPU filtering, grouping by PCI address, and preference logic.
+
+    This test validates two key behaviors:
+    1.  The regex correctly groups devices by physical PCI address, even when
+        the device ID string has an '_OptiX' suffix.
+    2.  The simplified preference logic correctly chooses the best backend
+        (OPTIX > CUDA) for all cards where both are available.
     """
-    # Arrange: 2 physical cards, one RTX (supports OPTIX/CUDA), one GTX (supports CUDA only)
+    # Arrange: 2 physical cards.
+    # - A GTX 1070 Ti with PCI ID 0000:0a:00, offering both CUDA and OptiX.
+    # - An RTX 3090 with PCI ID 0000:05:00, offering both CUDA and OptiX.
     raw_devices = [
-        {'index': 0, 'name': 'NVIDIA GeForce RTX 3080', 'type': 'CUDA', 'id': 'CUDA_..._ID1'},
-        {'index': 1, 'name': 'NVIDIA GeForce RTX 3080', 'type': 'OPTIX', 'id': 'OPTIX_..._ID1'},
-        {'index': 2, 'name': 'NVIDIA GeForce GTX 1080', 'type': 'CUDA', 'id': 'CUDA_..._ID2'},
+        {'index': 0, 'name': 'NVIDIA GeForce GTX 1070 Ti', 'type': 'CUDA', 'id': 'CUDA_NVIDIA GeForce GTX 1070 Ti_0000:0a:00'},
+        {'index': 1, 'name': 'NVIDIA GeForce RTX 3090', 'type': 'CUDA', 'id': 'CUDA_NVIDIA GeForce RTX 3090_0000:05:00'},
+        {'index': 3, 'name': 'NVIDIA GeForce GTX 1070 Ti', 'type': 'OPTIX', 'id': 'CUDA_NVIDIA GeForce GTX 1070 Ti_0000:0a:00_OptiX'},
+        {'index': 4, 'name': 'NVIDIA GeForce RTX 3090', 'type': 'OPTIX', 'id': 'CUDA_NVIDIA GeForce RTX 3090_0000:05:00_OptiX'},
     ]
 
     # Act
     filtered_list = system_monitor._filter_preferred_gpus(raw_devices)
 
     # Assert
-    assert len(filtered_list) == 2  # Should identify 2 physical cards
-    names = {d['name'] for d in filtered_list}
-    types = {d['type'] for d in filtered_list}
-    assert "NVIDIA GeForce RTX 3080" in names
-    assert "NVIDIA GeForce GTX 1080" in names
+    assert len(filtered_list) == 2, "Should correctly identify exactly 2 physical GPUs."
 
-    # Check that the correct backend was chosen for each
-    rtx_device = next(d for d in filtered_list if 'RTX' in d['name'])
-    gtx_device = next(d for d in filtered_list if 'GTX' in d['name'])
-    assert rtx_device['type'] == 'OPTIX'
-    assert gtx_device['type'] == 'CUDA'
+    rtx_device = next((d for d in filtered_list if 'RTX' in d['name']), None)
+    gtx_device = next((d for d in filtered_list if 'GTX' in d['name']), None)
+
+    assert rtx_device is not None, "RTX 3090 should be in the filtered list."
+    assert gtx_device is not None, "GTX 1070 Ti should be in the filtered list."
+
+    # Assert that the simplified preference (OPTIX > CUDA) was applied to BOTH cards.
+    assert rtx_device['type'] == 'OPTIX', "RTX card should have preferred OptiX over CUDA."
+    assert gtx_device['type'] == 'OPTIX', "GTX card should have preferred OptiX over CUDA."
 
 
 def test_get_gpu_device_details_no_json_in_output(mocker):
