@@ -40,6 +40,14 @@ NO_TIME_STDOUT = "Blender render complete\n"
 PROGRESS_BAR_TIME_STDOUT = "Fra:1 Mem:158.90M | Time:00:09.53 | Remaining:00:20.23"
 
 
+@pytest.fixture(autouse=True)
+def reset_job_processor_state():
+    """Fixture to reset the module-level GPU assignment map before each test."""
+    job_processor._gpu_assignment_map.clear()
+    yield
+    job_processor._gpu_assignment_map.clear()
+
+
 @pytest.fixture
 def mock_job_exec_deps(mocker):
     """
@@ -206,7 +214,28 @@ def test_gpu_job_isolates_single_gpu_when_index_is_set(mocker, mock_job_exec_dep
     written_script = mock_write.call_args.args[0]
     assert "target_gpu_index = 1" in written_script
     # This loop logic ensures other GPUs are disabled
-    assert "device.use = (i == target_gpu_index)" in written_script
+    assert "device.use = is_target" in written_script
+
+
+def test_render_script_generation_with_gpu_index_override(mocker, mock_job_exec_deps):
+    """
+    Verifies that the `gpu_index_override` parameter correctly generates a script
+    to isolate a single GPU, taking precedence over FORCE_GPU_INDEX.
+    """
+    # Arrange: Set both the global force flag and the override. Override should win.
+    mocker.patch.object(config, 'FORCE_GPU_INDEX', '0')
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA'])
+    mock_write = mock_job_exec_deps["script_write"]
+    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'GPU',
+                'render_engine': 'CYCLES', 'blender_version': '4.5.0'}
+
+    # Act: Pass the override index to the function
+    job_processor.execute_blender_job(job_data, assigned_gpu_index=1)
+
+    # Assert
+    written_script = mock_write.call_args.args[0]
+    assert "target_gpu_index = 1" in written_script # Asserts the override was used
+    assert "target_gpu_index = 0" not in written_script # Asserts the global flag was ignored
 
 
 # --- NEW TEST SUITE FOR POLLING LOGIC ---
@@ -216,6 +245,7 @@ class TestJobPolling:
         """Mocks dependencies for get_and_claim_job."""
         mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
         mocker.patch.object(config, 'FORCE_GPU_ONLY', False)
+        mocker.patch.object(config, 'GPU_SPLIT_MODE', False) # Default to off
         mock_requests_get = mocker.patch('requests.get')
         mock_requests_get.return_value.json.return_value = [] # No jobs by default
         mock_detect_gpu = mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices')
@@ -254,3 +284,42 @@ class TestJobPolling:
         mock_requests_get.assert_called_once()
         call_params = mock_requests_get.call_args.kwargs.get('params', {})
         assert 'gpu_available' not in call_params
+
+    def test_get_next_available_gpu(self, mocker):
+        """Tests the logic for finding the next free GPU index."""
+        # --- FIX: Mock detect_gpu_devices as well, since it's called first ---
+        mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA', 'CUDA'])
+        # Mock having 2 detected GPUs
+        mocker.patch('sethlans_worker_agent.system_monitor.get_system_info', return_value={
+            'available_tools': {'gpu_devices_details': [{}, {}]}
+        })
+
+        # Case 1: No GPUs are busy
+        job_processor._gpu_assignment_map.clear()
+        assert job_processor._get_next_available_gpu() == 0
+
+        # Case 2: GPU 0 is busy
+        job_processor._gpu_assignment_map = {0: 123}
+        assert job_processor._get_next_available_gpu() == 1
+
+        # Case 3: All GPUs are busy
+        job_processor._gpu_assignment_map = {0: 123, 1: 456}
+        assert job_processor._get_next_available_gpu() is None
+
+    def test_claim_job_in_split_mode_when_gpus_are_busy(self, mocker, mock_poll_deps):
+        """
+        In GPU split mode, if all GPUs are busy, the worker should not attempt to claim a job.
+        """
+        mock_requests_get, mock_detect_gpu = mock_poll_deps
+        mock_detect_gpu.return_value = ['CUDA', 'CUDA']
+        mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
+        mocker.patch('sethlans_worker_agent.job_processor._get_next_available_gpu', return_value=None)
+        mock_requests_patch = mocker.patch('requests.patch')
+
+        # Provide a job for the worker to find
+        mock_requests_get.return_value.json.return_value = [{'id': 1, 'render_device': 'GPU'}]
+
+        job_processor.get_and_claim_job(1)
+
+        # Assert that the claim (PATCH request) was never made
+        mock_requests_patch.assert_not_called()

@@ -42,23 +42,65 @@ import platform
 import threading
 import psutil
 import tempfile
+from typing import Optional
 
 from sethlans_worker_agent import config, asset_manager, system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
 
+# --- NEW: State tracking for GPU assignments in split mode ---
+# A simple map of {gpu_device_index: job_id}
+_gpu_assignment_map = {}
 
-def _generate_render_config_script(render_engine, render_device, render_settings):
+
+def _get_next_available_gpu() -> Optional[int]:
+    """
+    Finds the index of the first available GPU that is not currently assigned a job.
+
+    This function is used when GPU split mode is active to determine which GPU
+    a new job should be assigned to.
+
+    Returns:
+        An integer representing the device index of a free GPU, or None if all
+        GPUs are currently busy.
+    """
+    detected_gpus = system_monitor.detect_gpu_devices()
+    if not detected_gpus:
+        return None
+
+    # We are interested in the system-wide device indices, not Blender's internal ones.
+    # The number of non-CPU devices gives us the range of valid indices (0, 1, ...).
+    # This assumes a stable device order from Blender.
+    try:
+        # The detect_gpus.py script provides full device info
+        gpu_info = system_monitor.get_system_info()['available_tools'].get('gpu_devices_details', [])
+        num_gpus = len(gpu_info)
+    except Exception:
+        # Fallback for safety, less accurate
+        num_gpus = len(detected_gpus)
+
+    busy_indices = set(_gpu_assignment_map.keys())
+    for i in range(num_gpus):
+        if i not in busy_indices:
+            return i
+
+    return None
+
+
+def _generate_render_config_script(render_engine, render_device, render_settings, gpu_index_override: Optional[int] = None):
     """
     Generates the content for a Python script to configure Blender's render settings.
+
     This is executed via the `--python` command-line argument to ensure settings
-    are applied before the render begins.
+    are applied before the render begins. It now supports isolating a specific GPU.
 
     Args:
         render_engine (str): The requested render engine (e.g., 'CYCLES').
         render_device (str): The requested render device ('CPU', 'GPU', or 'ANY').
         render_settings (dict): A dictionary of user-defined settings to override.
+        gpu_index_override (int, optional): A specific GPU device index to use.
+            This takes precedence over FORCE_GPU_INDEX. Defaults to None.
 
     Returns:
         str: The complete Python script as a string.
@@ -84,30 +126,35 @@ def _generate_render_config_script(render_engine, render_device, render_settings
                 script_lines.append(f"prefs.compute_device_type = '{chosen_backend}'")
                 script_lines.append("prefs.get_devices()")
 
-                # --- NEW: Logic for selecting a single GPU by index ---
-                if config.FORCE_GPU_INDEX is not None:
+                # Determine which GPU index to target, with override priority
+                target_index = None
+                if gpu_index_override is not None:
+                    target_index = gpu_index_override
+                    logger.info(f"GPU split mode: Targeting specific GPU index {target_index}.")
+                elif config.FORCE_GPU_INDEX is not None:
                     try:
                         target_index = int(config.FORCE_GPU_INDEX)
-                        logger.warning(f"FORCE_GPU_INDEX is set to {target_index}. Attempting to isolate this GPU.")
-                        script_lines.append(f"target_gpu_index = {target_index}")
-                        script_lines.append("non_cpu_devices = [d for d in prefs.devices if d.type != 'CPU']")
-                        script_lines.append("if 0 <= target_gpu_index < len(non_cpu_devices):")
-                        script_lines.append("    for i, device in enumerate(prefs.devices):")
-                        script_lines.append("        if device.type != 'CPU':")
-                        script_lines.append("            device.use = (i == target_gpu_index)")
-                        script_lines.append(f"    print(f'Successfully isolated GPU at index {{target_gpu_index}}.')")
-                        script_lines.append("else:")
-                        script_lines.append(
-                            f"    print(f'WARNING: GPU index {{target_gpu_index}} is out of range. Using all available GPUs.')")
-                        script_lines.append("    for device in prefs.devices:")
-                        script_lines.append("        if device.type != 'CPU': device.use = True")
-
+                        logger.warning(f"FORCE_GPU_INDEX is set globally to {target_index}.")
                     except (ValueError, TypeError):
-                        logger.error(
-                            f"Invalid SETHLANS_FORCE_GPU_INDEX value: '{config.FORCE_GPU_INDEX}'. Must be an integer. Using all GPUs.")
-                        script_lines.append("# Invalid GPU index provided, using all available GPUs")
-                        script_lines.append("for device in prefs.devices:")
-                        script_lines.append("    if device.type != 'CPU': device.use = True")
+                        logger.error(f"Invalid SETHLANS_FORCE_GPU_INDEX: '{config.FORCE_GPU_INDEX}'. Using all GPUs.")
+
+                if target_index is not None:
+                    script_lines.append(f"target_gpu_index = {target_index}")
+                    script_lines.append("non_cpu_devices = [d for d in prefs.devices if d.type != 'CPU']")
+                    script_lines.append("if 0 <= target_gpu_index < len(non_cpu_devices):")
+                    # Note: We iterate through the full device list to get the absolute index
+                    script_lines.append("    for i, device in enumerate(prefs.devices):")
+                    script_lines.append("        if device.type != 'CPU':")
+                    # This logic is tricky. Blender's device indices are absolute.
+                    # We need to map our simple index (0, 1, 2 for GPUs) to Blender's list.
+                    script_lines.append("            # This logic assumes non_cpu_devices are indexed from 0")
+                    script_lines.append("            is_target = (non_cpu_devices.index(device) == target_gpu_index)")
+                    script_lines.append("            device.use = is_target")
+                    script_lines.append(f"    print(f'Successfully isolated GPU at index {{target_gpu_index}}.')")
+                    script_lines.append("else:")
+                    script_lines.append(f"    print(f'WARNING: GPU index {{target_gpu_index}} is out of range. Using all available GPUs.')")
+                    script_lines.append("    for device in prefs.devices:")
+                    script_lines.append("        if device.type != 'CPU': device.use = True")
                 else:
                     # Default behavior: enable all detected GPUs
                     script_lines.append("for device in prefs.devices:")
@@ -222,6 +269,8 @@ def get_and_claim_job(worker_id):
     capabilities. If a job is available, it attempts to claim it by updating the `assigned_worker`
     field. Upon a successful claim, it initiates the rendering process.
 
+    In GPU split mode, it will first check for an available GPU slot before attempting to claim a job.
+
     Args:
         worker_id (int): The unique ID of the worker, as assigned by the manager.
     """
@@ -252,19 +301,28 @@ def get_and_claim_job(worker_id):
 
         if available_jobs:
             job_to_claim = available_jobs[0]
+            assigned_gpu_index = None
+
+            # --- NEW: Check for available GPU slot in split mode ---
+            is_splittable_gpu_job = job_to_claim.get('render_device') in ('GPU', 'ANY')
+            if config.GPU_SPLIT_MODE and is_splittable_gpu_job:
+                assigned_gpu_index = _get_next_available_gpu()
+                if assigned_gpu_index is None:
+                    logger.info("GPU split mode is active, but all GPUs are busy. Skipping claim.")
+                    return  # Will poll again after interval
+
             job_id = job_to_claim.get('id')
             job_name = job_to_claim.get('name', 'Unnamed Job')
             claim_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
-            logger.info(
-                f"Found {len(available_jobs)} available job(s). Attempting to claim job '{job_name}' (ID: {job_id})...")
+            logger.info(f"Found {len(available_jobs)} available job(s). Attempting to claim job '{job_name}' (ID: {job_id})...")
             claim_response = requests.patch(claim_url, json={"assigned_worker": worker_id}, timeout=5)
 
             if claim_response.status_code == 200:
                 logger.info(f"Successfully claimed job '{job_name}'! Starting render...")
                 update_job_status(claim_url, {"status": "RENDERING"})
                 success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = execute_blender_job(
-                    job_to_claim)
+                    job_to_claim, assigned_gpu_index=assigned_gpu_index)
 
                 job_update_payload = {
                     "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
@@ -318,28 +376,18 @@ def _stream_reader(stream, output_list):
         stream.close()
 
 
-def execute_blender_job(job_data):
+def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     """
-    Executes a Blender render job as a subprocess, monitoring for cancellation
-    and reading its output in a thread-safe manner.
-
-    This function first prepares the environment by downloading the required asset
-    and Blender version. It then constructs a command with a dynamically generated
-    Python script to ensure consistent render settings. The subprocess is
-
-    monitored for completion or a cancellation signal from the manager.
+    Executes a Blender render job as a subprocess, with optional assignment to a specific GPU.
 
     Args:
         job_data (dict): The full job dictionary received from the manager API.
+        assigned_gpu_index (int, optional): The device index of the GPU this job should
+            be exclusively assigned to. Defaults to None.
 
     Returns:
-        tuple: A tuple containing:
-            - bool: True if the render was successful, False otherwise.
-            - bool: True if the job was canceled, False otherwise.
-            - str: The captured stdout from the Blender process.
-            - str: The captured stderr from the Blender process.
-            - str: A human-readable error message, if applicable.
-            - str or None: The final output file path if successful, otherwise None.
+        tuple: A tuple containing success status, cancellation status, outputs,
+               error message, and the final output file path.
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
@@ -351,6 +399,10 @@ def execute_blender_job(job_data):
     render_settings = job_data.get('render_settings', {})
     render_device = job_data.get('render_device', 'CPU')
     temp_script_path = None
+
+    if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
+        _gpu_assignment_map[assigned_gpu_index] = job_id
+        logger.info(f"Assigned job {job_id} to GPU {assigned_gpu_index}. Current assignments: {_gpu_assignment_map}")
 
     logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
     os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
@@ -370,7 +422,9 @@ def execute_blender_job(job_data):
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
 
     try:
-        script_content = _generate_render_config_script(render_engine, render_device, render_settings)
+        script_content = _generate_render_config_script(
+            render_engine, render_device, render_settings, gpu_index_override=assigned_gpu_index
+        )
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
             temp_script_path = f.name
             f.write(script_content)
@@ -442,6 +496,10 @@ def execute_blender_job(job_data):
     finally:
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
+        # --- NEW: Release the GPU from the assignment map ---
+        if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
+            if _gpu_assignment_map.pop(assigned_gpu_index, None) is not None:
+                logger.info(f"Released GPU {assigned_gpu_index} from job {job_id}. Current assignments: {_gpu_assignment_map}")
 
     stdout_output, stderr_output = "".join(stdout_lines), "".join(stderr_lines)
     success, final_output_path = False, None
