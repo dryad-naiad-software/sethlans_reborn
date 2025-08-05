@@ -146,7 +146,7 @@ def _generate_render_config_script(render_engine, render_device, render_settings
                     script_lines.append("for device in prefs.devices: device.use = False")
                     script_lines.append("if 0 <= target_gpu_index < len(non_cpu_devices):")
                     script_lines.append("    target_device = non_cpu_devices[target_gpu_index]")
-                    script_lines.append("    print(f'Isolating GPU: {{target_device.name}}')")
+                    script_lines.append("    print(f'Isolating GPU: {target_device.name}')")
                     # Then, enable only the target GPU.
                     script_lines.append("    target_device.use = True")
                     script_lines.append("else:")
@@ -451,7 +451,6 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
             f.write(script_content)
             logger.debug(f"Generated override script at {temp_script_path}:\n{script_content}")
 
-        # --- NEW: Save a copy of the script for debugging ---
         try:
             log_dir = config.WORKER_LOG_DIR
             log_dir.mkdir(exist_ok=True)
@@ -536,16 +535,17 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     stdout_output, stderr_output = "".join(stdout_lines), "".join(stderr_lines)
     success, final_output_path = False, None
 
+    # --- FIX: Revert Blender output to DEBUG level for normal operation ---
     if stdout_lines:
-        logger.info(f"--- [Job {job_id}] Blender STDOUT ---")
+        logger.debug(f"--- [Job {job_id}] Blender STDOUT ---")
         for line in stdout_lines:
             if line.strip():
-                logger.info(f"[Job {job_id}] {line.strip()}")
+                logger.debug(f"[Job {job_id}] {line.strip()}")
     if stderr_lines:
-        logger.warning(f"--- [Job {job_id}] Blender STDERR ---")
+        logger.debug(f"--- [Job {job_id}] Blender STDERR ---")
         for line in stderr_lines:
             if line.strip():
-                logger.warning(f"[Job {job_id}] {line.strip()}")
+                logger.debug(f"[Job {job_id}] {line.strip()}")
 
     if was_canceled:
         error_message = "Job was canceled by user request."
