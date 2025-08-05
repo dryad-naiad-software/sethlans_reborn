@@ -53,7 +53,6 @@ def test_get_system_info(mocker):
     mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA', 'OPTIX'])
     mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[{'name': 'RTX 4090'}])
 
-
     info = system_monitor.get_system_info()
 
     assert info['available_tools']['blender'] == ["4.1.1"]
@@ -78,7 +77,7 @@ def test_detect_gpu_devices_success(mocker):
     devices = system_monitor.detect_gpu_devices()
 
     # Assert
-    assert devices == ['CUDA', 'HIP', 'OPTIX'] # Should be sorted alphabetically
+    assert devices == ['CUDA', 'HIP', 'OPTIX']  # Should be sorted alphabetically
 
 
 def test_detect_gpu_devices_force_cpu_only_mode(mocker):
@@ -158,7 +157,7 @@ def test_register_with_manager_lts_not_found(mocker):
     """
     mocker.patch.object(system_monitor, 'WORKER_ID', None)
     mocker.patch.object(
-        blender_release_parser, 'get_blender_releases', return_value={'4.1.0': {}} # No 4.5 versions
+        blender_release_parser, 'get_blender_releases', return_value={'4.1.0': {}}  # No 4.5 versions
     )
     mock_ensure_blender = mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available')
 
@@ -183,16 +182,18 @@ def test_send_heartbeat_success(mocker):
 def test_get_gpu_device_details_success(mocker):
     """
     Tests that get_gpu_device_details successfully calls the detection script
-    and parses its JSON output from Blender's multi-line stdout, ignoring stderr.
+    and parses its JSON output from Blender's multi-line stdout.
     """
     # Arrange
     mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
-    mock_gpu_data = [{"name": "NVIDIA GeForce RTX 4090", "type": "OPTIX"}]
-    # Simulate the full, multi-line output from Blender, including the new logging to stderr
-    mock_blender_stdout = f"Blender 4.5.1\n{json.dumps(mock_gpu_data)}\nBlender quit\n"
-    mock_blender_stderr = "[2025-08-05 04:53:27] [INFO] [detect_gpus] Starting GPU detection inside Blender...\n"
-    mock_run.return_value = MagicMock(stdout=mock_blender_stdout, stderr=mock_blender_stderr, returncode=0)
+    mock_gpu_data = [{"index": 0, "name": "NVIDIA GeForce RTX 4090", "type": "OPTIX", "id": "OPTIX_..._123"}]
+    # Simulate the full, multi-line output from Blender
+    mock_blender_output = f"Blender 4.5.1\n{json.dumps(mock_gpu_data)}\nBlender quit\n"
+    mock_run.return_value = MagicMock(stdout=mock_blender_output, stderr="", returncode=0)
+    # The filter function should be called with the raw data
+    mock_filter = mocker.patch('sethlans_worker_agent.system_monitor._filter_preferred_gpus',
+                               return_value=mock_gpu_data)
 
     # Act
     details = system_monitor.get_gpu_device_details()
@@ -200,6 +201,35 @@ def test_get_gpu_device_details_success(mocker):
     # Assert
     assert details == mock_gpu_data
     mock_run.assert_called_once()
+    mock_filter.assert_called_once_with(mock_gpu_data)
+
+
+def test_filter_preferred_gpus_logic():
+    """
+    Tests the GPU filtering and prioritization logic with a complex mix of devices.
+    """
+    # Arrange: 2 physical cards, one RTX (supports OPTIX/CUDA), one GTX (supports CUDA only)
+    raw_devices = [
+        {'index': 0, 'name': 'NVIDIA GeForce RTX 3080', 'type': 'CUDA', 'id': 'CUDA_..._ID1'},
+        {'index': 1, 'name': 'NVIDIA GeForce RTX 3080', 'type': 'OPTIX', 'id': 'OPTIX_..._ID1'},
+        {'index': 2, 'name': 'NVIDIA GeForce GTX 1080', 'type': 'CUDA', 'id': 'CUDA_..._ID2'},
+    ]
+
+    # Act
+    filtered_list = system_monitor._filter_preferred_gpus(raw_devices)
+
+    # Assert
+    assert len(filtered_list) == 2  # Should identify 2 physical cards
+    names = {d['name'] for d in filtered_list}
+    types = {d['type'] for d in filtered_list}
+    assert "NVIDIA GeForce RTX 3080" in names
+    assert "NVIDIA GeForce GTX 1080" in names
+
+    # Check that the correct backend was chosen for each
+    rtx_device = next(d for d in filtered_list if 'RTX' in d['name'])
+    gtx_device = next(d for d in filtered_list if 'GTX' in d['name'])
+    assert rtx_device['type'] == 'OPTIX'
+    assert gtx_device['type'] == 'CUDA'
 
 
 def test_get_gpu_device_details_no_json_in_output(mocker):

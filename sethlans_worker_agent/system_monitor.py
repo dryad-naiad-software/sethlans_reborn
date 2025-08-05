@@ -41,6 +41,7 @@ import tempfile
 import os
 import sys
 import json
+from collections import defaultdict
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
@@ -54,6 +55,61 @@ IP_ADDRESS = socket.gethostbyname(HOSTNAME)
 OS_INFO = f"{platform.system()} {platform.release()}"
 _gpu_devices_cache = None
 _gpu_details_cache = None
+
+
+def _filter_preferred_gpus(devices):
+    """
+    Filters a raw list of Blender devices to one preferred entry per physical card.
+
+    - Groups devices by a physical identifier (e.g., PCI bus ID).
+    - For each physical card, it selects the best backend:
+      - Prefers 'OPTIX' for cards with 'RTX' in the name.
+      - Prefers 'CUDA' for cards with 'GTX' in the name.
+      - Falls back to a default preference list otherwise.
+
+    Args:
+        devices (list): The raw list of device dictionaries from Blender.
+
+    Returns:
+        list: A filtered and sorted list containing one device dictionary
+              per physical GPU.
+    """
+    physical_gpus = defaultdict(list)
+    for device in devices:
+        # Heuristic: The last part of the ID string after '_' is often the
+        # unique physical device identifier (like a PCI bus address).
+        physical_id = device.get('id', '').split('_')[-1]
+        if physical_id:
+            physical_gpus[physical_id].append(device)
+
+    preferred_devices = []
+    for physical_id, device_options in physical_gpus.items():
+        if not device_options:
+            continue
+
+        best_option = None
+        device_name = device_options[0].get('name', '').upper()
+        available_backends = {d['type'] for d in device_options}
+
+        if 'RTX' in device_name and 'OPTIX' in available_backends:
+            best_option = next((d for d in device_options if d['type'] == 'OPTIX'), None)
+        elif 'GTX' in device_name and 'CUDA' in available_backends:
+            best_option = next((d for d in device_options if d['type'] == 'CUDA'), None)
+
+        # Fallback for other cards (e.g., AMD, Intel) or if specific logic fails
+        if not best_option:
+            backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
+            for backend in backend_preference:
+                if backend in available_backends:
+                    best_option = next((d for d in device_options if d['type'] == backend), None)
+                    if best_option:
+                        break
+
+        if best_option:
+            preferred_devices.append(best_option)
+
+    # Sort by the Blender device index to maintain a stable order
+    return sorted(preferred_devices, key=lambda d: d['index'])
 
 
 def get_gpu_device_details():
@@ -85,11 +141,9 @@ def get_gpu_device_details():
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=90)
 
-        # --- ADDED: Log raw output for debugging ---
         logger.debug(f"detect_gpus.py stdout:\n{result.stdout}")
         logger.debug(f"detect_gpus.py stderr:\n{result.stderr}")
 
-        # Find the JSON line in the output, ignoring Blender's other stdout messages.
         json_line = None
         for line in result.stdout.strip().splitlines():
             if line.strip().startswith('[') and line.strip().endswith(']'):
@@ -97,7 +151,11 @@ def get_gpu_device_details():
                 break
 
         if json_line:
-            _gpu_details_cache = json.loads(json_line)
+            raw_devices = json.loads(json_line)
+            preferred_devices = _filter_preferred_gpus(raw_devices)
+            logger.info(
+                f"Detected {len(raw_devices)} logical devices, filtered to {len(preferred_devices)} preferred physical devices.")
+            _gpu_details_cache = preferred_devices
             return _gpu_details_cache
         else:
             logger.warning("Could not find a valid JSON line in detect_gpus.py output.")
@@ -130,13 +188,13 @@ def detect_gpu_devices():
         _gpu_devices_cache = []
         return _gpu_devices_cache
 
-    # Get the detailed list of all GPU devices
-    detailed_gpus = get_gpu_device_details()
+    # Get the filtered, preferred list of all GPU devices
+    preferred_gpus = get_gpu_device_details()
 
     # Extract the unique 'type' of each device (e.g., 'OPTIX', 'CUDA')
     # and cache the result.
-    if detailed_gpus:
-        unique_backends = sorted(list(set(device['type'] for device in detailed_gpus)))
+    if preferred_gpus:
+        unique_backends = sorted(list(set(device['type'] for device in preferred_gpus)))
         _gpu_devices_cache = unique_backends
     else:
         _gpu_devices_cache = []

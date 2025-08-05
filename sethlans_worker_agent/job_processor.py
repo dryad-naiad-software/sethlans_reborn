@@ -59,26 +59,19 @@ def _get_next_available_gpu() -> Optional[int]:
     Finds the index of the first available GPU that is not currently assigned a job.
 
     This function is used when GPU split mode is active to determine which GPU
-    a new job should be assigned to.
+    a new job should be assigned to. It checks the number of detected GPUs against
+    the internal assignment map.
 
     Returns:
         An integer representing the device index of a free GPU, or None if all
         GPUs are currently busy.
     """
-    detected_gpus = system_monitor.detect_gpu_devices()
-    if not detected_gpus:
-        return None
+    # Use the detailed GPU info to get an accurate count of physical devices.
+    gpu_info = system_monitor.get_gpu_device_details()
+    num_gpus = len(gpu_info)
 
-    # We are interested in the system-wide device indices, not Blender's internal ones.
-    # The number of non-CPU devices gives us the range of valid indices (0, 1, ...).
-    # This assumes a stable device order from Blender.
-    try:
-        # The detect_gpus.py script provides full device info
-        gpu_info = system_monitor.get_system_info()['available_tools'].get('gpu_devices_details', [])
-        num_gpus = len(gpu_info)
-    except Exception:
-        # Fallback for safety, less accurate
-        num_gpus = len(detected_gpus)
+    if num_gpus == 0:
+        return None
 
     busy_indices = set(_gpu_assignment_map.keys())
     for i in range(num_gpus):
@@ -146,10 +139,12 @@ def _generate_render_config_script(render_engine, render_device, render_settings
                 if target_index is not None:
                     script_lines.append(f"target_gpu_index = {target_index}")
                     script_lines.append("non_cpu_devices = [d for d in prefs.devices if d.type != 'CPU']")
+                    # First, disable all devices to ensure a clean slate.
                     script_lines.append("for device in prefs.devices: device.use = False")
                     script_lines.append("if 0 <= target_gpu_index < len(non_cpu_devices):")
                     script_lines.append("    target_device = non_cpu_devices[target_gpu_index]")
                     script_lines.append("    print(f'Isolating GPU: {{target_device.name}}')")
+                    # Then, enable only the target GPU.
                     script_lines.append("    target_device.use = True")
                     script_lines.append("else:")
                     script_lines.append(f"    print(f'WARNING: GPU index {{target_gpu_index}} is out of valid range [0, {{len(non_cpu_devices)-1}}]. Using all GPUs.')")

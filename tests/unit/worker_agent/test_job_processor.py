@@ -290,12 +290,8 @@ class TestJobPolling:
 
     def test_get_next_available_gpu(self, mocker):
         """Tests the logic for finding the next free GPU index."""
-        # --- FIX: Mock detect_gpu_devices as well, since it's called first ---
-        mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA', 'CUDA'])
         # Mock having 2 detected GPUs
-        mocker.patch('sethlans_worker_agent.system_monitor.get_system_info', return_value={
-            'available_tools': {'gpu_devices_details': [{}, {}]}
-        })
+        mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[{}, {}])
 
         # Case 1: No GPUs are busy
         job_processor._gpu_assignment_map.clear()
