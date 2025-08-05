@@ -42,6 +42,7 @@ import platform
 import threading
 import psutil
 import tempfile
+import shutil
 from typing import Optional
 
 from sethlans_worker_agent import config, asset_manager, system_monitor
@@ -49,7 +50,6 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
 
-# --- NEW: State tracking for GPU assignments in split mode ---
 # A simple map of {gpu_device_index: job_id}
 _gpu_assignment_map = {}
 
@@ -124,7 +124,6 @@ def _generate_render_config_script(render_engine, render_device, render_settings
 
             if chosen_backend:
                 script_lines.append(f"prefs.compute_device_type = '{chosen_backend}'")
-                # --- NEW: Add print for diagnostic logging ---
                 script_lines.append(f"print(f'Using compute backend: {chosen_backend}')")
                 script_lines.append("prefs.get_devices()")
 
@@ -301,7 +300,6 @@ def get_and_claim_job(worker_id):
             job_to_claim = available_jobs[0]
             assigned_gpu_index = None
 
-            # --- NEW: Check for available GPU slot in split mode ---
             is_splittable_gpu_job = job_to_claim.get('render_device') in ('GPU', 'ANY')
             if config.GPU_SPLIT_MODE and is_splittable_gpu_job:
                 assigned_gpu_index = _get_next_available_gpu()
@@ -396,18 +394,14 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
     logger.info(f"[Job {job_id}] Received job '{job_name}'. Job execution started at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
 
-    # --- NEW: Log which physical GPU is being targeted ---
-    # Determine which GPU index will be targeted for logging purposes.
-    # The script generation logic gives precedence to the split-mode index.
     final_gpu_index_to_log = assigned_gpu_index
     if final_gpu_index_to_log is None and config.FORCE_GPU_INDEX is not None:
         try:
             final_gpu_index_to_log = int(config.FORCE_GPU_INDEX)
         except (ValueError, TypeError):
-            pass  # Let the script generator handle the invalid value warning
+            pass
 
     if final_gpu_index_to_log is not None:
-        # Fetch details for the assigned GPU to make logs more descriptive.
         all_physical_gpus = system_monitor.get_gpu_device_details()
         if 0 <= final_gpu_index_to_log < len(all_physical_gpus):
             gpu_details = all_physical_gpus[final_gpu_index_to_log]
@@ -456,6 +450,18 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
             temp_script_path = f.name
             f.write(script_content)
             logger.debug(f"Generated override script at {temp_script_path}:\n{script_content}")
+
+        # --- NEW: Save a copy of the script for debugging ---
+        try:
+            log_dir = config.WORKER_LOG_DIR
+            log_dir.mkdir(exist_ok=True)
+            debug_script_name = f"job_{job_id}_overrides.py"
+            debug_script_path = log_dir / debug_script_name
+            shutil.copy(temp_script_path, debug_script_path)
+            logger.info(f"[Job {job_id}] Saved a copy of the render script to: {debug_script_path}")
+        except Exception as copy_e:
+            logger.warning(f"[Job {job_id}] Could not save a debug copy of the render script: {copy_e}")
+
         command.extend(["--python", temp_script_path])
     except Exception as e:
         error_msg = f"Failed to generate render settings script: {e}"
@@ -523,7 +529,6 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     finally:
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
-        # --- NEW: Release the GPU from the assignment map ---
         if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
             if _gpu_assignment_map.pop(assigned_gpu_index, None) is not None:
                 logger.info(f"Released GPU {assigned_gpu_index} from job {job_id}. Current assignments: {_gpu_assignment_map}")
@@ -531,7 +536,6 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     stdout_output, stderr_output = "".join(stdout_lines), "".join(stderr_lines)
     success, final_output_path = False, None
 
-    # --- NEW: Log captured stdout/stderr for diagnostics ---
     if stdout_lines:
         logger.info(f"--- [Job {job_id}] Blender STDOUT ---")
         for line in stdout_lines:
@@ -554,7 +558,6 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
         error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"
 
-    # --- NEW: Final result logging ---
     logger.info(f"[Job {job_id}] Job execution finished at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
     if success:
         logger.info(f"[Job {job_id}] Result: SUCCESS. Output file: {final_output_path}")

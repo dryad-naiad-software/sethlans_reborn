@@ -62,10 +62,11 @@ def _filter_preferred_gpus(devices):
     """
     Filters a raw list of Blender devices to one preferred entry per physical card.
 
-    - Groups devices by a physical identifier. For NVIDIA GPUs, this is the
-      base device ID string before the '_OptiX' suffix.
-    - For each physical card, it selects the best backend based on a fixed
-      preference order.
+    - Groups devices by a physical identifier.
+    - For each physical card, it selects the best backend:
+      - Prefers 'OPTIX' for NVIDIA cards with 'RTX' in the name.
+      - Prefers 'CUDA' for all other NVIDIA cards.
+      - Falls back to a default preference list for non-NVIDIA cards.
 
     Args:
         devices (list): The raw list of device dictionaries from Blender.
@@ -77,7 +78,7 @@ def _filter_preferred_gpus(devices):
     physical_gpus = defaultdict(list)
     for device in devices:
         device_id_str = device.get('id', '')
-        # --- FIX: The true physical ID is the base ID before the _OptiX suffix ---
+        # The true physical ID is the base ID before the optional _OptiX suffix
         physical_id = device_id_str.removesuffix('_OptiX')
         physical_gpus[physical_id].append(device)
 
@@ -87,16 +88,26 @@ def _filter_preferred_gpus(devices):
             continue
 
         best_option = None
+        device_name = device_options[0].get('name', '').upper()
         available_backends = {d['type'] for d in device_options}
 
-        # Simplified preference order: Trust observed results where OptiX is often
-        # more stable or performant if available.
-        backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
-        for backend in backend_preference:
-            if backend in available_backends:
-                best_option = next((d for d in device_options if d['type'] == backend), None)
-                if best_option:
-                    break
+        # --- NEW: Implement user-specified preference logic ---
+        if 'NVIDIA' in device_name:
+            if 'RTX' in device_name and 'OPTIX' in available_backends:
+                best_option = next((d for d in device_options if d['type'] == 'OPTIX'), None)
+
+            # Fallback for non-RTX cards or if OptiX isn't available
+            if not best_option and 'CUDA' in available_backends:
+                best_option = next((d for d in device_options if d['type'] == 'CUDA'), None)
+
+        # Fallback for non-NVIDIA cards (e.g., AMD, Intel) or if the above logic somehow fails
+        if not best_option:
+            backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
+            for backend in backend_preference:
+                if backend in available_backends:
+                    best_option = next((d for d in device_options if d['type'] == backend), None)
+                    if best_option:
+                        break
 
         if best_option:
             preferred_devices.append(best_option)
@@ -157,7 +168,8 @@ def get_gpu_device_details():
                     name = device.get('name', 'N/A')
                     backend = device.get('type', 'N/A')
                     dev_id = device.get('id', 'N/A')
-                    logger.info(f"  - [Physical GPU {i}] Name: {name} | Preferred Backend: {backend} | Blender Device ID: {dev_id}")
+                    logger.info(
+                        f"  - [Physical GPU {i}] Name: {name} | Preferred Backend: {backend} | Blender Device ID: {dev_id}")
 
             _gpu_details_cache = preferred_devices
             return _gpu_details_cache

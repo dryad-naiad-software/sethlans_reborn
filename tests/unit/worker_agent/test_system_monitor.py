@@ -206,13 +206,7 @@ def test_get_gpu_device_details_success(mocker):
 
 def test_filter_preferred_gpus_with_complex_devices():
     """
-    Tests the GPU filtering, grouping by PCI address, and preference logic.
-
-    This test validates two key behaviors:
-    1.  The regex correctly groups devices by physical PCI address, even when
-        the device ID string has an '_OptiX' suffix.
-    2.  The simplified preference logic correctly chooses the best backend
-        (OPTIX > CUDA) for all cards where both are available.
+    Tests the GPU filtering, grouping, and new preference logic (RTX->OptiX, GTX->CUDA).
     """
     # Arrange: 2 physical cards.
     # - A GTX 1070 Ti with PCI ID 0000:0a:00, offering both CUDA and OptiX.
@@ -236,9 +230,9 @@ def test_filter_preferred_gpus_with_complex_devices():
     assert rtx_device is not None, "RTX 3090 should be in the filtered list."
     assert gtx_device is not None, "GTX 1070 Ti should be in the filtered list."
 
-    # Assert that the simplified preference (OPTIX > CUDA) was applied to BOTH cards.
-    assert rtx_device['type'] == 'OPTIX', "RTX card should have preferred OptiX over CUDA."
-    assert gtx_device['type'] == 'OPTIX', "GTX card should have preferred OptiX over CUDA."
+    # Assert that the correct preference (RTX->OptiX, GTX->CUDA) was applied.
+    assert rtx_device['type'] == 'OPTIX', "RTX card should have preferred OptiX."
+    assert gtx_device['type'] == 'CUDA', "GTX card should have preferred CUDA."
 
 
 def test_get_gpu_device_details_no_json_in_output(mocker):
