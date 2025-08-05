@@ -248,7 +248,7 @@ class BaseE2ETest:
         # Prepare Blender installation for the worker
         cls._cache_blender_once()
         blender_dir_for_test = MOCK_TOOLS_DIR / "blender"
-        blender_dir_for_test.mkdir(parents=True)
+        blender_dir_for_test.mkdir(parents=True, exist_ok=True)
         shutil.copytree(cls._blender_cache_path, blender_dir_for_test / cls._blender_cache_path.name)
 
         # Start Manager
