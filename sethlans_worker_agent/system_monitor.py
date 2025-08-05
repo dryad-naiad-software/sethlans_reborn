@@ -60,6 +60,10 @@ def get_gpu_device_details():
     """
     Executes the detect_gpus.py script to get detailed info about each GPU.
 
+    This function runs a headless Blender instance to execute the script,
+    captures its standard output, and robustly parses it to find the JSON
+    array containing the GPU device information. The result is cached.
+
     Returns:
         list: A list of dictionaries, where each dictionary contains details
               about a detected GPU device (name, type, id, etc.). Returns an
@@ -69,7 +73,7 @@ def get_gpu_device_details():
     if _gpu_details_cache is not None:
         return _gpu_details_cache
 
-    blender_exe = tool_manager_instance.get_blender_executable_path(config.REQUIRED_LTS_VERSION_SERIES)
+    blender_exe = tool_manager_instance.ensure_blender_version_available(config.REQUIRED_LTS_VERSION_SERIES)
     if not blender_exe:
         logger.error("Cannot get GPU details: Blender executable not found.")
         _gpu_details_cache = []
@@ -80,8 +84,26 @@ def get_gpu_device_details():
 
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=90)
-        _gpu_details_cache = json.loads(result.stdout)
-        return _gpu_details_cache
+
+        # --- ADDED: Log raw output for debugging ---
+        logger.debug(f"detect_gpus.py stdout:\n{result.stdout}")
+        logger.debug(f"detect_gpus.py stderr:\n{result.stderr}")
+
+        # Find the JSON line in the output, ignoring Blender's other stdout messages.
+        json_line = None
+        for line in result.stdout.strip().splitlines():
+            if line.strip().startswith('[') and line.strip().endswith(']'):
+                json_line = line
+                break
+
+        if json_line:
+            _gpu_details_cache = json.loads(json_line)
+            return _gpu_details_cache
+        else:
+            logger.warning("Could not find a valid JSON line in detect_gpus.py output.")
+            _gpu_details_cache = []
+            return []
+
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
         logger.error(f"Failed to execute or parse detect_gpus.py script: {e}")
         _gpu_details_cache = []
@@ -90,19 +112,17 @@ def get_gpu_device_details():
 
 def detect_gpu_devices():
     """
-    Dynamically detects available Cycles GPU rendering devices by actively testing each backend.
+    Detects available Cycles GPU rendering backends (e.g., CUDA, OPTIX).
 
-    This function spawns a headless Blender process to programmatically query for all available
-    render devices (e.g., CUDA, OPTIX, METAL). The results are cached after the first successful
-    run to avoid repeated, slow subprocess calls. This process is bypassed if the
-    `FORCE_CPU_ONLY` configuration flag is set.
+    This function is a lightweight wrapper around `get_gpu_device_details`.
+    It calls the more detailed detection function and then extracts the unique
+    set of device types (backends) from the results. The result is cached.
 
     Returns:
-        list: A list of strings representing the detected GPU device backends (e.g., `['CUDA', 'OPTIX']`).
+        list: A list of unique strings for the detected GPU backends.
     """
     global _gpu_devices_cache
     if _gpu_devices_cache is not None:
-        logger.debug(f"Returning cached GPU devices: {_gpu_devices_cache}")
         return _gpu_devices_cache
 
     if config.FORCE_CPU_ONLY:
@@ -110,132 +130,19 @@ def detect_gpu_devices():
         _gpu_devices_cache = []
         return _gpu_devices_cache
 
-    # This is the old check for the E2E test harness, which is now superseded by FORCE_CPU_ONLY
-    if os.environ.get("SETHLANS_MOCK_CPU_ONLY") == "true":
-        logger.warning("Mocking CPU-only worker via legacy environment variable. No GPUs will be detected.")
+    # Get the detailed list of all GPU devices
+    detailed_gpus = get_gpu_device_details()
+
+    # Extract the unique 'type' of each device (e.g., 'OPTIX', 'CUDA')
+    # and cache the result.
+    if detailed_gpus:
+        unique_backends = sorted(list(set(device['type'] for device in detailed_gpus)))
+        _gpu_devices_cache = unique_backends
+    else:
         _gpu_devices_cache = []
-        return _gpu_devices_cache
 
-    logger.info("Detecting available GPU devices using Blender...")
-
-    local_blenders = tool_manager_instance.scan_for_local_blenders()
-    if not local_blenders:
-        logger.warning("No local Blender versions found to perform GPU check.")
-        _gpu_devices_cache = []  # Cache the empty result
-        return _gpu_devices_cache
-
-    latest_version = \
-        sorted([b['version'] for b in local_blenders], key=lambda v: [int(p) for p in v.split('.')], reverse=True)[0]
-    blender_exe = tool_manager_instance.get_blender_executable_path(latest_version)
-
-    if not blender_exe:
-        logger.error(f"Could not get executable path for Blender {latest_version}.")
-        _gpu_devices_cache = []  # Cache the empty result
-        return _gpu_devices_cache
-
-    if platform.system() == "Linux":
-        try:
-            logger.debug(f"Running 'ldd' dependency check on {blender_exe}")
-            ldd_result = subprocess.run(["ldd", blender_exe], capture_output=True, text=True, check=False)
-            if "not found" in ldd_result.stdout:
-                error_message = f"""
-####################################################################
-# ERROR: Blender is missing required system libraries.
-####################################################################
-Blender cannot start because some shared libraries are not installed on this system.
-This is common on minimal Linux installations (like CI runners or new servers).
-
-'ldd' output showing missing libraries:
-{ldd_result.stdout}
-To fix this, please install the missing libraries. For Debian/Ubuntu-based systems,
-a common set of required libraries can be installed with:
-
-sudo apt-get update && sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
-
-####################################################################
-"""
-                logger.critical("Blender dependency check failed.")
-                print(error_message, file=sys.stderr)
-                _gpu_devices_cache = []
-                return _gpu_devices_cache
-        except FileNotFoundError:
-            logger.warning("Could not find 'ldd' command to check Blender dependencies. Skipping check.")
-        except Exception as e:
-            logger.error(f"An unexpected error occurred during the ldd dependency check: {e}")
-
-    py_script = """
-import bpy
-import sys
-
-try:
-    found_backends = set()
-    prefs = bpy.context.preferences.addons['cycles'].preferences
-    possible_backends = [b[0] for b in prefs.get_device_types(bpy.context) if b[0] != 'CPU']
-
-    for backend in possible_backends:
-        try:
-            prefs.compute_device_type = backend
-        except TypeError:
-            continue
-
-        prefs.get_devices()
-
-        if any(d.type == backend for d in prefs.devices):
-            found_backends.add(backend)
-
-    # If any backends were found, print them. Otherwise, print nothing.
-    if found_backends:
-        print(','.join(sorted(list(found_backends))))
-
-except Exception as e:
-    # On failure, print to stderr for logging but nothing to stdout.
-    print(f"Error in GPU detection script: {e}", file=sys.stderr)
-"""
-
-    temp_script_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            temp_script_path = f.name
-            f.write(py_script)
-
-        command = [blender_exe, '--background', '--factory-startup', '--python', temp_script_path]
-
-        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=90)
-
-        logger.debug(f"Blender GPU detection stdout:\n{result.stdout}")
-        logger.debug(f"Blender GPU detection stderr:\n{result.stderr}")
-
-        if result.returncode != 0:
-            logger.warning(
-                f"Blender process for GPU detection exited with non-zero code {result.returncode}. Assuming no GPU is available.")
-            _gpu_devices_cache = []
-            return _gpu_devices_cache
-
-        gpu_devices = []
-        # Find the line that contains the comma-separated list of devices.
-        output_lines = result.stdout.strip().splitlines()
-        for line in output_lines:
-            if ' ' not in line and any(device in line for device in ['CUDA', 'OPTIX', 'HIP', 'METAL', 'ONEAPI']):
-                gpu_devices = line.strip().split(',')
-                break
-
-        _gpu_devices_cache = [device for device in gpu_devices if device]
-        logger.info(f"Detected and cached GPU Devices: {_gpu_devices_cache if _gpu_devices_cache else 'None'}")
-        return _gpu_devices_cache
-
-    except subprocess.TimeoutExpired as e:
-        if e.stdout: logger.error(f"Blender GPU detection stdout on timeout:\n{e.stdout}")
-        if e.stderr: logger.error(f"Blender GPU detection stderr on timeout:\n{e.stderr}")
-        logger.error(f"Blender process for GPU detection timed out. Assuming no GPU is available.")
-        _gpu_devices_cache = []
-        return _gpu_devices_cache
-    except FileNotFoundError:
-        logger.error(f"Blender executable not found at {blender_exe} for GPU detection.")
-        _gpu_devices_cache = []
-        return _gpu_devices_cache
-    finally:
-        if temp_script_path and os.path.exists(temp_script_path):
-            os.remove(temp_script_path)
+    logger.info(f"Detected and cached GPU backends: {_gpu_devices_cache if _gpu_devices_cache else 'None'}")
+    return _gpu_devices_cache
 
 
 def get_system_info():

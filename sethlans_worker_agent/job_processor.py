@@ -146,16 +146,14 @@ def _generate_render_config_script(render_engine, render_device, render_settings
                 if target_index is not None:
                     script_lines.append(f"target_gpu_index = {target_index}")
                     script_lines.append("non_cpu_devices = [d for d in prefs.devices if d.type != 'CPU']")
+                    script_lines.append("for device in prefs.devices: device.use = False")
                     script_lines.append("if 0 <= target_gpu_index < len(non_cpu_devices):")
                     script_lines.append("    target_device = non_cpu_devices[target_gpu_index]")
                     script_lines.append("    print(f'Isolating GPU: {{target_device.name}}')")
-                    script_lines.append("    for device in prefs.devices:")
-                    script_lines.append("        if device.type != 'CPU':")
-                    script_lines.append("            device.use = (device == target_device)")
+                    script_lines.append("    target_device.use = True")
                     script_lines.append("else:")
                     script_lines.append(f"    print(f'WARNING: GPU index {{target_gpu_index}} is out of valid range [0, {{len(non_cpu_devices)-1}}]. Using all GPUs.')")
-                    script_lines.append("    for device in prefs.devices:")
-                    script_lines.append("        if device.type != 'CPU': device.use = True")
+                    script_lines.append("    for device in non_cpu_devices: device.use = True")
                 else:
                     # Default behavior: enable all detected GPUs
                     script_lines.append("for device in prefs.devices:")

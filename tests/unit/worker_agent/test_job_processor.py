@@ -195,8 +195,8 @@ def test_command_omits_render_engine_flag(mock_job_exec_deps):
 
 def test_gpu_job_isolates_single_gpu_when_index_is_set(mocker, mock_job_exec_deps):
     """
-    Verifies that setting FORCE_GPU_INDEX generates a script that enables
-    only the specified GPU and disables all others.
+    Verifies that setting FORCE_GPU_INDEX generates a script that disables all
+    devices first, then enables only the specified GPU.
     """
     # Arrange
     mocker.patch.object(config, 'FORCE_GPU_INDEX', '1') # Target the second GPU (index 1)
@@ -213,8 +213,9 @@ def test_gpu_job_isolates_single_gpu_when_index_is_set(mocker, mock_job_exec_dep
     # Assert
     written_script = mock_write.call_args.args[0]
     assert "target_gpu_index = 1" in written_script
-    # This loop logic ensures other GPUs are disabled
-    assert "device.use = (device == target_device)" in written_script
+    # This logic ensures other GPUs are disabled
+    assert "for device in prefs.devices: device.use = False" in written_script
+    assert "target_device.use = True" in written_script
 
 
 def test_render_script_generation_with_gpu_index_override(mocker, mock_job_exec_deps):
@@ -235,7 +236,8 @@ def test_render_script_generation_with_gpu_index_override(mocker, mock_job_exec_
     # Assert
     written_script = mock_write.call_args.args[0]
     assert "target_gpu_index = 1" in written_script # Asserts the override was used
-    assert "device.use = (device == target_device)" in written_script
+    assert "for device in prefs.devices: device.use = False" in written_script
+    assert "target_device.use = True" in written_script
     assert "target_gpu_index = 0" not in written_script # Asserts the global flag was ignored
 
 

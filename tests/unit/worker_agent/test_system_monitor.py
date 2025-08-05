@@ -63,18 +63,22 @@ def test_get_system_info(mocker):
 
 def test_detect_gpu_devices_success(mocker):
     """
-    Tests successful GPU detection when Blender runs correctly.
+    Tests that detect_gpu_devices correctly extracts unique backends from the
+    detailed device list.
     """
-    mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
-    mocker.patch('platform.system', return_value="Windows")  # Avoid ldd check
-    mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
-    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
-    mock_run = mocker.patch('subprocess.run')
-    mock_run.return_value = MagicMock(stdout='CUDA,OPTIX\n', stderr='', returncode=0)
+    # Arrange
+    mock_details = [
+        {"name": "NVIDIA GeForce RTX 4090", "type": "OPTIX"},
+        {"name": "NVIDIA GeForce RTX 4090", "type": "CUDA"},
+        {"name": "AMD Radeon PRO W7900", "type": "HIP"}
+    ]
+    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=mock_details)
 
+    # Act
     devices = system_monitor.detect_gpu_devices()
 
-    assert devices == ['CUDA', 'OPTIX']
+    # Assert
+    assert devices == ['CUDA', 'HIP', 'OPTIX'] # Should be sorted alphabetically
 
 
 def test_detect_gpu_devices_force_cpu_only_mode(mocker):
@@ -83,42 +87,35 @@ def test_detect_gpu_devices_force_cpu_only_mode(mocker):
     """
     # Arrange: Force the config setting to True
     mocker.patch.object(config, 'FORCE_CPU_ONLY', True)
-    mock_run = mocker.patch('subprocess.run') # Mock subprocess to ensure it's not called
+    mock_get_details = mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details')
 
     # Act
     devices = system_monitor.detect_gpu_devices()
 
     # Assert
     assert devices == []
-    mock_run.assert_not_called()
+    mock_get_details.assert_not_called()
 
 
 def test_detect_gpu_devices_caches_result(mocker):
     """Ensures that GPU detection results are cached after the first call."""
     # Arrange
-    mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
-    mocker.patch('platform.system', return_value="Windows")
-    mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
-    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
-    mock_run = mocker.patch('subprocess.run')
-    mock_run.return_value = MagicMock(stdout='CUDA\n', stderr='', returncode=0)
+    mock_get_details = mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[])
 
-    # Act 1: First call should trigger the subprocess
-    devices_first_call = system_monitor.detect_gpu_devices()
+    # Act 1: First call should trigger the detailed check
+    system_monitor.detect_gpu_devices()
 
-    # Assert 1: Subprocess was called and result is correct
-    mock_run.assert_called_once()
-    assert devices_first_call == ['CUDA']
+    # Assert 1
+    mock_get_details.assert_called_once()
 
     # Reset mock to check for subsequent calls
-    mock_run.reset_mock()
+    mock_get_details.reset_mock()
 
     # Act 2: Second call should use the cache
-    devices_second_call = system_monitor.detect_gpu_devices()
+    system_monitor.detect_gpu_devices()
 
-    # Assert 2: Subprocess was NOT called, and the result is the same
-    mock_run.assert_not_called()
-    assert devices_second_call == ['CUDA']
+    # Assert 2: The detailed check was NOT called again
+    mock_get_details.assert_not_called()
 
 
 @pytest.mark.parametrize("versions, series, expected", [
@@ -186,13 +183,16 @@ def test_send_heartbeat_success(mocker):
 def test_get_gpu_device_details_success(mocker):
     """
     Tests that get_gpu_device_details successfully calls the detection script
-    and parses its JSON output.
+    and parses its JSON output from Blender's multi-line stdout, ignoring stderr.
     """
     # Arrange
-    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
+    mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
     mock_gpu_data = [{"name": "NVIDIA GeForce RTX 4090", "type": "OPTIX"}]
-    mock_run.return_value = MagicMock(stdout=json.dumps(mock_gpu_data), returncode=0)
+    # Simulate the full, multi-line output from Blender, including the new logging to stderr
+    mock_blender_stdout = f"Blender 4.5.1\n{json.dumps(mock_gpu_data)}\nBlender quit\n"
+    mock_blender_stderr = "[2025-08-05 04:53:27] [INFO] [detect_gpus] Starting GPU detection inside Blender...\n"
+    mock_run.return_value = MagicMock(stdout=mock_blender_stdout, stderr=mock_blender_stderr, returncode=0)
 
     # Act
     details = system_monitor.get_gpu_device_details()
@@ -202,13 +202,31 @@ def test_get_gpu_device_details_success(mocker):
     mock_run.assert_called_once()
 
 
+def test_get_gpu_device_details_no_json_in_output(mocker):
+    """
+    Tests that an empty list is returned if the script runs but produces
+    no valid JSON line in its output.
+    """
+    # Arrange
+    mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value='/mock/blender')
+    mock_run = mocker.patch('subprocess.run')
+    mock_blender_output = "Blender 4.5.1\nSome other warning or message\nBlender quit\n"
+    mock_run.return_value = MagicMock(stdout=mock_blender_output, returncode=0)
+
+    # Act
+    details = system_monitor.get_gpu_device_details()
+
+    # Assert
+    assert details == []
+
+
 def test_get_gpu_device_details_failure(mocker):
     """
     Tests that get_gpu_device_details returns an empty list if the script
-    execution fails or returns invalid JSON.
+    execution fails.
     """
     # Arrange
-    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
+    mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value='/mock/blender')
     mock_run = mocker.patch('subprocess.run')
     # Simulate a script failure
     mock_run.side_effect = subprocess.CalledProcessError(1, "cmd")
