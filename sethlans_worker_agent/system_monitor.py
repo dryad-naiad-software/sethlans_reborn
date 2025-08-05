@@ -118,7 +118,9 @@ def get_gpu_device_details():
 
     This function runs a headless Blender instance to execute the script,
     captures its standard output, and robustly parses it to find the JSON
-    array containing the GPU device information. The result is cached.
+    array containing the GPU device information. The result is cached. It also
+    logs a summary of the detected physical GPUs and their preferred backends
+    upon successful detection.
 
     Returns:
         list: A list of dictionaries, where each dictionary contains details
@@ -155,6 +157,16 @@ def get_gpu_device_details():
             preferred_devices = _filter_preferred_gpus(raw_devices)
             logger.info(
                 f"Detected {len(raw_devices)} logical devices, filtered to {len(preferred_devices)} preferred physical devices.")
+
+            # --- NEW: Log detailed physical GPU summary ---
+            if preferred_devices:
+                logger.info(f"Physical GPU detection complete. Found {len(preferred_devices)} physical GPUs.")
+                for i, device in enumerate(preferred_devices):
+                    name = device.get('name', 'N/A')
+                    backend = device.get('type', 'N/A')
+                    dev_id = device.get('id', 'N/A')
+                    logger.info(f"  - [Physical GPU {i}] Name: {name} | Preferred Backend: {backend} | Blender Device ID: {dev_id}")
+
             _gpu_details_cache = preferred_devices
             return _gpu_details_cache
         else:

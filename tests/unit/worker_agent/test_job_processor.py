@@ -77,6 +77,17 @@ def mock_job_exec_deps(mocker):
     mocker.patch('sethlans_worker_agent.asset_manager.ensure_asset_is_available',
                  return_value="/mock/local/scene.blend")
 
+    # --- NEW FIX: Mock the system_monitor dependency introduced for logging ---
+    # This prevents the call to the real subprocess.run in system_monitor.
+    mock_gpu_details_data = [
+        {'name': 'Mock Physical GPU 0', 'type': 'OPTIX', 'id': 'GPU_ID_0'},
+        {'name': 'Mock Physical GPU 1', 'type': 'OPTIX', 'id': 'GPU_ID_1'}
+    ]
+    mocker.patch(
+        'sethlans_worker_agent.system_monitor.get_gpu_device_details',
+        return_value=mock_gpu_details_data
+    )
+
     # Mock tempfile to capture script content
     mock_write_method = MagicMock()
     mock_temp_file_context = MagicMock()

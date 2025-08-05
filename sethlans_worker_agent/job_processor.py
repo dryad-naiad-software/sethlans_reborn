@@ -87,7 +87,9 @@ def _generate_render_config_script(render_engine, render_device, render_settings
 
     This script is executed by Blender to ensure settings are applied before
     rendering. It supports overriding the render engine, device, and other
-    user-defined settings.
+    user-defined settings. It also injects `print()` statements to provide
+    diagnostic logging about the chosen backend and device, which are captured
+    from Blender's standard output.
 
     For GPU jobs, it can be configured to isolate a single, specific GPU device
     by its index. This is controlled by the `gpu_index_override` (for split mode)
@@ -122,6 +124,8 @@ def _generate_render_config_script(render_engine, render_device, render_settings
 
             if chosen_backend:
                 script_lines.append(f"prefs.compute_device_type = '{chosen_backend}'")
+                # --- NEW: Add print for diagnostic logging ---
+                script_lines.append(f"print(f'Using compute backend: {chosen_backend}')")
                 script_lines.append("prefs.get_devices()")
 
                 # Determine which GPU index to target, with override priority
@@ -374,6 +378,10 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     """
     Executes a Blender render job as a subprocess, with optional assignment to a specific GPU.
 
+    This function now includes detailed, timed logging for each stage of the job's
+    lifecycle, from initial assignment to final result reporting. It also captures
+    and logs stdout from the Blender process for enhanced diagnostics.
+
     Args:
         job_data (dict): The full job dictionary received from the manager API.
         assigned_gpu_index (int, optional): The device index of the GPU this job should
@@ -385,6 +393,32 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
+
+    logger.info(f"[Job {job_id}] Received job '{job_name}'. Job execution started at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
+
+    # --- NEW: Log which physical GPU is being targeted ---
+    # Determine which GPU index will be targeted for logging purposes.
+    # The script generation logic gives precedence to the split-mode index.
+    final_gpu_index_to_log = assigned_gpu_index
+    if final_gpu_index_to_log is None and config.FORCE_GPU_INDEX is not None:
+        try:
+            final_gpu_index_to_log = int(config.FORCE_GPU_INDEX)
+        except (ValueError, TypeError):
+            pass  # Let the script generator handle the invalid value warning
+
+    if final_gpu_index_to_log is not None:
+        # Fetch details for the assigned GPU to make logs more descriptive.
+        all_physical_gpus = system_monitor.get_gpu_device_details()
+        if 0 <= final_gpu_index_to_log < len(all_physical_gpus):
+            gpu_details = all_physical_gpus[final_gpu_index_to_log]
+            gpu_name = gpu_details.get('name', 'N/A')
+            logger.info(f"[Job {job_id}] Assigning to [Physical GPU {final_gpu_index_to_log}] {gpu_name}.")
+        else:
+            logger.warning(
+                f"[Job {job_id}] Requested GPU index {final_gpu_index_to_log} is out of valid range. "
+                f"Blender will use all available GPUs."
+            )
+
     output_file_pattern = job_data.get('output_file_pattern')
     start_frame = job_data.get('start_frame', 1)
     end_frame = job_data.get('end_frame', 1)
@@ -398,7 +432,6 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         _gpu_assignment_map[assigned_gpu_index] = job_id
         logger.info(f"Assigned job {job_id} to GPU {assigned_gpu_index}. Current assignments: {_gpu_assignment_map}")
 
-    logger.info(f"Starting render for job '{job_name}' (ID: {job_id})...")
     os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
 
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
@@ -449,7 +482,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         if platform.system() == "Windows":
             popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        logger.debug("Attempting to launch Blender subprocess...")
+        logger.info(f"[Job {job_id}] Blender subprocess starting at {datetime.datetime.now(datetime.timezone.utc).isoformat()}...")
         process = subprocess.Popen(command, **popen_kwargs)
         logger.info(f"Blender subprocess launched with PID: {process.pid}")
 
@@ -476,9 +509,9 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
                     break
             time.sleep(2)
 
-        logger.info("Blender subprocess polling loop finished.")
         stdout_thread.join()
         stderr_thread.join()
+        logger.info(f"[Job {job_id}] Blender subprocess finished at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
 
         final_return_code = process.wait()
         logger.info(f"Blender subprocess finished with exit code: {final_return_code}")
@@ -498,6 +531,18 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     stdout_output, stderr_output = "".join(stdout_lines), "".join(stderr_lines)
     success, final_output_path = False, None
 
+    # --- NEW: Log captured stdout/stderr for diagnostics ---
+    if stdout_lines:
+        logger.info(f"--- [Job {job_id}] Blender STDOUT ---")
+        for line in stdout_lines:
+            if line.strip():
+                logger.info(f"[Job {job_id}] {line.strip()}")
+    if stderr_lines:
+        logger.warning(f"--- [Job {job_id}] Blender STDERR ---")
+        for line in stderr_lines:
+            if line.strip():
+                logger.warning(f"[Job {job_id}] {line.strip()}")
+
     if was_canceled:
         error_message = "Job was canceled by user request."
     elif final_return_code == 0:
@@ -509,7 +554,13 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
         error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"
 
-    logger.debug(f"--- STDOUT ---\n{stdout_output[-1000:]}")
-    logger.debug(f"--- STDERR ---\n{stderr_output}")
+    # --- NEW: Final result logging ---
+    logger.info(f"[Job {job_id}] Job execution finished at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
+    if success:
+        logger.info(f"[Job {job_id}] Result: SUCCESS. Output file: {final_output_path}")
+    elif was_canceled:
+        logger.info(f"[Job {job_id}] Result: CANCELED.")
+    else:
+        logger.error(f"[Job {job_id}] Result: FAILED. Error: {error_message}")
 
     return success, was_canceled, stdout_output, stderr_output, error_message, final_output_path
