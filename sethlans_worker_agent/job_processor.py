@@ -90,14 +90,19 @@ def _get_next_available_gpu() -> Optional[int]:
 
 def _generate_render_config_script(render_engine, render_device, render_settings, gpu_index_override: Optional[int] = None):
     """
-    Generates the content for a Python script to configure Blender's render settings.
+    Generates a Python script to configure Blender's render settings.
 
-    This is executed via the `--python` command-line argument to ensure settings
-    are applied before the render begins. It now supports isolating a specific GPU.
+    This script is executed by Blender to ensure settings are applied before
+    rendering. It supports overriding the render engine, device, and other
+    user-defined settings.
+
+    For GPU jobs, it can be configured to isolate a single, specific GPU device
+    by its index. This is controlled by the `gpu_index_override` (for split mode)
+    or the `SETHLANS_FORCE_GPU_INDEX` configuration setting.
 
     Args:
         render_engine (str): The requested render engine (e.g., 'CYCLES').
-        render_device (str): The requested render device ('CPU', 'GPU', or 'ANY').
+        render_device (str): The requested render device ('CPU', 'GPU', 'ANY').
         render_settings (dict): A dictionary of user-defined settings to override.
         gpu_index_override (int, optional): A specific GPU device index to use.
             This takes precedence over FORCE_GPU_INDEX. Defaults to None.
@@ -142,17 +147,13 @@ def _generate_render_config_script(render_engine, render_device, render_settings
                     script_lines.append(f"target_gpu_index = {target_index}")
                     script_lines.append("non_cpu_devices = [d for d in prefs.devices if d.type != 'CPU']")
                     script_lines.append("if 0 <= target_gpu_index < len(non_cpu_devices):")
-                    # Note: We iterate through the full device list to get the absolute index
-                    script_lines.append("    for i, device in enumerate(prefs.devices):")
+                    script_lines.append("    target_device = non_cpu_devices[target_gpu_index]")
+                    script_lines.append("    print(f'Isolating GPU: {{target_device.name}}')")
+                    script_lines.append("    for device in prefs.devices:")
                     script_lines.append("        if device.type != 'CPU':")
-                    # This logic is tricky. Blender's device indices are absolute.
-                    # We need to map our simple index (0, 1, 2 for GPUs) to Blender's list.
-                    script_lines.append("            # This logic assumes non_cpu_devices are indexed from 0")
-                    script_lines.append("            is_target = (non_cpu_devices.index(device) == target_gpu_index)")
-                    script_lines.append("            device.use = is_target")
-                    script_lines.append(f"    print(f'Successfully isolated GPU at index {{target_gpu_index}}.')")
+                    script_lines.append("            device.use = (device == target_device)")
                     script_lines.append("else:")
-                    script_lines.append(f"    print(f'WARNING: GPU index {{target_gpu_index}} is out of range. Using all available GPUs.')")
+                    script_lines.append(f"    print(f'WARNING: GPU index {{target_gpu_index}} is out of valid range [0, {{len(non_cpu_devices)-1}}]. Using all GPUs.')")
                     script_lines.append("    for device in prefs.devices:")
                     script_lines.append("        if device.type != 'CPU': device.use = True")
                 else:

@@ -214,7 +214,7 @@ def test_gpu_job_isolates_single_gpu_when_index_is_set(mocker, mock_job_exec_dep
     written_script = mock_write.call_args.args[0]
     assert "target_gpu_index = 1" in written_script
     # This loop logic ensures other GPUs are disabled
-    assert "device.use = is_target" in written_script
+    assert "device.use = (device == target_device)" in written_script
 
 
 def test_render_script_generation_with_gpu_index_override(mocker, mock_job_exec_deps):
@@ -235,6 +235,7 @@ def test_render_script_generation_with_gpu_index_override(mocker, mock_job_exec_
     # Assert
     written_script = mock_write.call_args.args[0]
     assert "target_gpu_index = 1" in written_script # Asserts the override was used
+    assert "device.use = (device == target_device)" in written_script
     assert "target_gpu_index = 0" not in written_script # Asserts the global flag was ignored
 
 
