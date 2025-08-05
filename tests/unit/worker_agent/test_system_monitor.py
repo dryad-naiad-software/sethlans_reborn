@@ -26,6 +26,7 @@
 import pytest
 import requests
 import subprocess
+import json
 from unittest.mock import MagicMock
 
 # Import the module and dependencies to be tested/mocked
@@ -38,6 +39,7 @@ from sethlans_worker_agent.utils import blender_release_parser
 def reset_system_monitor_cache():
     """Resets the module-level cache before each test to ensure isolation."""
     system_monitor._gpu_devices_cache = None
+    system_monitor._gpu_details_cache = None
 
 
 def test_get_system_info(mocker):
@@ -49,11 +51,14 @@ def test_get_system_info(mocker):
     mocker.patch.object(system_monitor, 'OS_INFO', "TestOS 11.0")
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
     mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA', 'OPTIX'])
+    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[{'name': 'RTX 4090'}])
+
 
     info = system_monitor.get_system_info()
 
     assert info['available_tools']['blender'] == ["4.1.1"]
     assert info['available_tools']['gpu_devices'] == ['CUDA', 'OPTIX']
+    assert info['available_tools']['gpu_devices_details'][0]['name'] == 'RTX 4090'
 
 
 def test_detect_gpu_devices_success(mocker):
@@ -176,3 +181,40 @@ def test_send_heartbeat_success(mocker):
     system_monitor.send_heartbeat()
 
     mock_post.assert_called_once()
+
+
+def test_get_gpu_device_details_success(mocker):
+    """
+    Tests that get_gpu_device_details successfully calls the detection script
+    and parses its JSON output.
+    """
+    # Arrange
+    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
+    mock_run = mocker.patch('subprocess.run')
+    mock_gpu_data = [{"name": "NVIDIA GeForce RTX 4090", "type": "OPTIX"}]
+    mock_run.return_value = MagicMock(stdout=json.dumps(mock_gpu_data), returncode=0)
+
+    # Act
+    details = system_monitor.get_gpu_device_details()
+
+    # Assert
+    assert details == mock_gpu_data
+    mock_run.assert_called_once()
+
+
+def test_get_gpu_device_details_failure(mocker):
+    """
+    Tests that get_gpu_device_details returns an empty list if the script
+    execution fails or returns invalid JSON.
+    """
+    # Arrange
+    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='/mock/blender')
+    mock_run = mocker.patch('subprocess.run')
+    # Simulate a script failure
+    mock_run.side_effect = subprocess.CalledProcessError(1, "cmd")
+
+    # Act
+    details = system_monitor.get_gpu_device_details()
+
+    # Assert
+    assert details == []

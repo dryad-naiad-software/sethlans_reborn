@@ -40,6 +40,7 @@ import subprocess
 import tempfile
 import os
 import sys
+import json
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
@@ -52,6 +53,39 @@ HOSTNAME = socket.gethostname()
 IP_ADDRESS = socket.gethostbyname(HOSTNAME)
 OS_INFO = f"{platform.system()} {platform.release()}"
 _gpu_devices_cache = None
+_gpu_details_cache = None
+
+
+def get_gpu_device_details():
+    """
+    Executes the detect_gpus.py script to get detailed info about each GPU.
+
+    Returns:
+        list: A list of dictionaries, where each dictionary contains details
+              about a detected GPU device (name, type, id, etc.). Returns an
+              empty list on failure.
+    """
+    global _gpu_details_cache
+    if _gpu_details_cache is not None:
+        return _gpu_details_cache
+
+    blender_exe = tool_manager_instance.get_blender_executable_path(config.REQUIRED_LTS_VERSION_SERIES)
+    if not blender_exe:
+        logger.error("Cannot get GPU details: Blender executable not found.")
+        _gpu_details_cache = []
+        return _gpu_details_cache
+
+    script_path = os.path.join(os.path.dirname(__file__), 'utils', 'detect_gpus.py')
+    command = [blender_exe, '--background', '--factory-startup', '--python', script_path]
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=90)
+        _gpu_details_cache = json.loads(result.stdout)
+        return _gpu_details_cache
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        logger.error(f"Failed to execute or parse detect_gpus.py script: {e}")
+        _gpu_details_cache = []
+        return _gpu_details_cache
 
 
 def detect_gpu_devices():
@@ -209,10 +243,12 @@ def get_system_info():
     Gathers a snapshot of the worker's system information.
 
     Returns:
-        dict: A dictionary containing the hostname, IP, OS, and available tools.
+        dict: A dictionary containing the hostname, IP, OS, and available tools,
+              now including detailed GPU information.
     """
     available_blenders = tool_manager_instance.scan_for_local_blenders()
     gpu_devices = detect_gpu_devices()
+    gpu_details = get_gpu_device_details()
 
     return {
         "hostname": HOSTNAME,
@@ -220,7 +256,8 @@ def get_system_info():
         "os": OS_INFO,
         "available_tools": {
             "blender": [v['version'] for v in available_blenders],
-            "gpu_devices": gpu_devices
+            "gpu_devices": gpu_devices,
+            "gpu_devices_details": gpu_details
         }
     }
 
