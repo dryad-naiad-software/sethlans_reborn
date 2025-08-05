@@ -61,6 +61,9 @@ JOB_POLLING_INTERVAL_SECONDS = get_config_value('worker', 'polling_interval', 5,
 # These settings are mutually exclusive and can be set via environment variables.
 FORCE_CPU_ONLY = os.getenv('SETHLANS_FORCE_CPU_ONLY', 'false').lower() == 'true'
 FORCE_GPU_ONLY = os.getenv('SETHLANS_FORCE_GPU_ONLY', 'false').lower() == 'true'
+# --- NEW: Allow specifying a single GPU index ---
+FORCE_GPU_INDEX = os.getenv('SETHLANS_FORCE_GPU_INDEX')
+
 
 if FORCE_CPU_ONLY and FORCE_GPU_ONLY:
     sys.stderr.write("ERROR: SETHLANS_FORCE_CPU_ONLY and SETHLANS_FORCE_GPU_ONLY are mutually exclusive. Set only one.\n")

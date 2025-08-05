@@ -83,9 +83,36 @@ def _generate_render_config_script(render_engine, render_device, render_settings
             if chosen_backend:
                 script_lines.append(f"prefs.compute_device_type = '{chosen_backend}'")
                 script_lines.append("prefs.get_devices()")
-                script_lines.append("for device in prefs.devices:")
-                script_lines.append("    if device.type != 'CPU':")
-                script_lines.append("        device.use = True")
+
+                # --- NEW: Logic for selecting a single GPU by index ---
+                if config.FORCE_GPU_INDEX is not None:
+                    try:
+                        target_index = int(config.FORCE_GPU_INDEX)
+                        logger.warning(f"FORCE_GPU_INDEX is set to {target_index}. Attempting to isolate this GPU.")
+                        script_lines.append(f"target_gpu_index = {target_index}")
+                        script_lines.append("non_cpu_devices = [d for d in prefs.devices if d.type != 'CPU']")
+                        script_lines.append("if 0 <= target_gpu_index < len(non_cpu_devices):")
+                        script_lines.append("    for i, device in enumerate(prefs.devices):")
+                        script_lines.append("        if device.type != 'CPU':")
+                        script_lines.append("            device.use = (i == target_gpu_index)")
+                        script_lines.append(f"    print(f'Successfully isolated GPU at index {{target_gpu_index}}.')")
+                        script_lines.append("else:")
+                        script_lines.append(
+                            f"    print(f'WARNING: GPU index {{target_gpu_index}} is out of range. Using all available GPUs.')")
+                        script_lines.append("    for device in prefs.devices:")
+                        script_lines.append("        if device.type != 'CPU': device.use = True")
+
+                    except (ValueError, TypeError):
+                        logger.error(
+                            f"Invalid SETHLANS_FORCE_GPU_INDEX value: '{config.FORCE_GPU_INDEX}'. Must be an integer. Using all GPUs.")
+                        script_lines.append("# Invalid GPU index provided, using all available GPUs")
+                        script_lines.append("for device in prefs.devices:")
+                        script_lines.append("    if device.type != 'CPU': device.use = True")
+                else:
+                    # Default behavior: enable all detected GPUs
+                    script_lines.append("for device in prefs.devices:")
+                    script_lines.append("    if device.type != 'CPU': device.use = True")
+
                 script_lines.append("bpy.context.scene.cycles.device = 'GPU'")
             else:
                 logger.warning("GPU requested but no compatible backend was detected. Falling back to CPU.")
@@ -299,6 +326,7 @@ def execute_blender_job(job_data):
     This function first prepares the environment by downloading the required asset
     and Blender version. It then constructs a command with a dynamically generated
     Python script to ensure consistent render settings. The subprocess is
+
     monitored for completion or a cancellation signal from the manager.
 
     Args:

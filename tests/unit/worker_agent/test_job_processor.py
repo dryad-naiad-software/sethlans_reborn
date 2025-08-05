@@ -185,6 +185,30 @@ def test_command_omits_render_engine_flag(mock_job_exec_deps):
     assert "-E" not in called_command
 
 
+def test_gpu_job_isolates_single_gpu_when_index_is_set(mocker, mock_job_exec_deps):
+    """
+    Verifies that setting FORCE_GPU_INDEX generates a script that enables
+    only the specified GPU and disables all others.
+    """
+    # Arrange
+    mocker.patch.object(config, 'FORCE_GPU_INDEX', '1') # Target the second GPU (index 1)
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA'])
+    mock_write = mock_job_exec_deps["script_write"]
+    job_data = {
+        'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'GPU',
+        'render_engine': 'CYCLES', 'blender_version': '4.5.0'
+    }
+
+    # Act
+    job_processor.execute_blender_job(job_data)
+
+    # Assert
+    written_script = mock_write.call_args.args[0]
+    assert "target_gpu_index = 1" in written_script
+    # This loop logic ensures other GPUs are disabled
+    assert "device.use = (i == target_gpu_index)" in written_script
+
+
 # --- NEW TEST SUITE FOR POLLING LOGIC ---
 class TestJobPolling:
     @pytest.fixture
