@@ -24,12 +24,10 @@
 # tests/unit/worker_agent/test_job_processor.py
 
 import pytest
-import os
-from unittest.mock import MagicMock, ANY
+from unittest.mock import MagicMock, call
 
 # Import the function to be tested and its dependencies
-from sethlans_worker_agent import job_processor, config, system_monitor
-from workers.constants import RenderSettings
+from sethlans_worker_agent import job_processor, config, api_handler
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 # --- Test data for time parsing ---
@@ -48,61 +46,6 @@ def reset_job_processor_state():
     job_processor._gpu_assignment_map.clear()
 
 
-@pytest.fixture
-def mock_job_exec_deps(mocker):
-    """
-    A fixture to provide a standard, complex mock setup for subprocess.Popen,
-    tempfile, and other dependencies for testing execute_blender_job.
-    This fixture returns a dictionary of key mocks for tests to use.
-    """
-    # Mock config directories
-    mocker.patch.object(config, 'WORKER_OUTPUT_DIR', '/mock/worker_output')
-    mocker.patch.object(config, 'WORKER_TEMP_DIR', '/mock/worker_temp')
-
-    # Mock subprocess management
-    mock_process = MagicMock()
-    mock_process.pid = 12345
-    mock_process.stdout.readline.side_effect = ['Blender render complete.\n', '']
-    mock_process.stderr.readline.side_effect = ['']
-    mock_process.poll.return_value = 0
-    mock_process.wait.return_value = 0
-    mock_popen = mocker.patch('subprocess.Popen', return_value=mock_process)
-    mocker.patch('time.sleep')
-
-    # Mock dependencies of execute_blender_job
-    mocker.patch('requests.get', return_value=MagicMock(status_code=200, json=lambda: {'status': 'RENDERING'}))
-    mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value="/mock/tools/blender")
-    mocker.patch('os.path.exists', return_value=True)
-    mocker.patch('os.makedirs')
-    mocker.patch('sethlans_worker_agent.asset_manager.ensure_asset_is_available',
-                 return_value="/mock/local/scene.blend")
-
-    # --- NEW FIX: Mock the system_monitor dependency introduced for logging ---
-    # This prevents the call to the real subprocess.run in system_monitor.
-    mock_gpu_details_data = [
-        {'name': 'Mock Physical GPU 0', 'type': 'OPTIX', 'id': 'GPU_ID_0'},
-        {'name': 'Mock Physical GPU 1', 'type': 'OPTIX', 'id': 'GPU_ID_1'}
-    ]
-    mocker.patch(
-        'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-        return_value=mock_gpu_details_data
-    )
-
-    # Mock tempfile to capture script content
-    mock_write_method = MagicMock()
-    mock_temp_file_context = MagicMock()
-    mock_temp_file_context.__enter__.return_value.name = "/mock/worker_temp/fake_script.py"
-    mock_temp_file_context.__enter__.return_value.write = mock_write_method
-    mocker.patch('tempfile.NamedTemporaryFile', return_value=mock_temp_file_context)
-    mocker.patch('os.remove')
-
-    return {
-        "popen": mock_popen,
-        "process": mock_process,
-        "script_write": mock_write_method
-    }
-
-
 @pytest.mark.parametrize("stdout, expected_seconds", [
     (VALID_STDOUT_SUB_SECOND, 1),
     (VALID_STDOUT_UNDER_AN_HOUR, 96),
@@ -119,184 +62,136 @@ def test_parse_render_time(stdout, expected_seconds):
     assert result == expected_seconds
 
 
-def test_command_always_includes_factory_startup(mock_job_exec_deps):
+# --- NEW: Test for get_and_claim_job wrapper ---
+def test_get_and_claim_job_wrapper(mocker):
     """
-    Verifies that --factory-startup is always used.
+    Tests that the main get_and_claim_job function correctly calls the new
+    poll and process functions in sequence.
     """
-    mock_popen = mock_job_exec_deps["popen"]
-    mock_job_data = {
-        'id': 1, 'asset': {'blend_file': 'http://a.blend'}, 'output_file_pattern': 'f',
-        'blender_version': '4.5.0'
-    }
+    mock_poll = mocker.patch('sethlans_worker_agent.job_processor.poll_and_claim_job')
+    mock_process = mocker.patch('sethlans_worker_agent.job_processor.process_claimed_job')
+    worker_id = 99
 
-    job_processor.execute_blender_job(mock_job_data)
+    # Case 1: A job is found and claimed
+    mock_job_data = {'id': 1, 'name': 'Test Job'}
+    mock_poll.return_value = mock_job_data
+    job_processor.get_and_claim_job(worker_id)
+    mock_poll.assert_called_once_with(worker_id)
+    mock_process.assert_called_once_with(mock_job_data)
 
-    assert "--factory-startup" in mock_popen.call_args.args[0]
-
-
-def test_gpu_job_generates_correct_script(mocker, mock_job_exec_deps):
-    """
-    Verifies that a GPU job generates a script to enable the best available GPU backend.
-    """
-    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['HIP', 'OPTIX'])
-    mock_write = mock_job_exec_deps["script_write"]
-
-    job_data = {
-        'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'GPU',
-        'render_engine': 'CYCLES', 'blender_version': '4.5.0'
-    }
-    job_processor.execute_blender_job(job_data)
-
-    written_script = mock_write.call_args.args[0]
-    assert "bpy.context.scene.render.engine = 'CYCLES'" in written_script
-    assert "prefs.compute_device_type = 'OPTIX'" in written_script
-    assert "bpy.context.scene.cycles.device = 'GPU'" in written_script
+    # Case 2: No job is found
+    mock_poll.reset_mock()
+    mock_process.reset_mock()
+    mock_poll.return_value = None
+    job_processor.get_and_claim_job(worker_id)
+    mock_poll.assert_called_once_with(worker_id)
+    mock_process.assert_not_called()
 
 
-def test_cpu_job_generates_correct_script(mocker, mock_job_exec_deps):
-    """Verifies that a CPU job generates a script that sets the device to CPU."""
-    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA'])
-    mock_write = mock_job_exec_deps["script_write"]
+# --- NEW: Test suite for process_claimed_job ---
+class TestProcessClaimedJob:
+    @pytest.fixture
+    def mock_process_deps(self, mocker):
+        """Mocks dependencies for process_claimed_job."""
+        mock_execute = mocker.patch('sethlans_worker_agent.blender_executor.execute_blender_job')
+        mock_update_status = mocker.patch('sethlans_worker_agent.api_handler.update_job_status')
+        mock_upload = mocker.patch('sethlans_worker_agent.api_handler.upload_render_output')
+        mock_os_remove = mocker.patch('os.remove')
+        mocker.patch('os.path.dirname', return_value='/mock/output')
+        mocker.patch('os.listdir', return_value=[]) # Simulate empty dir for rmdir
+        mocker.patch('os.rmdir')
+        mocker.patch('os.path.exists', return_value=True)
+        return mock_execute, mock_update_status, mock_upload, mock_os_remove
 
-    job_data = {
-        'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU',
-        'render_engine': 'CYCLES', 'blender_version': '4.5.0'
-    }
-    job_processor.execute_blender_job(job_data)
+    def test_process_job_success_workflow(self, mock_process_deps):
+        """
+        Tests the entire successful workflow: render, upload, report DONE.
+        """
+        mock_execute, mock_update_status, mock_upload, mock_os_remove = mock_process_deps
+        mock_execute.return_value = (True, False, VALID_STDOUT_UNDER_AN_HOUR, "", "", "/mock/output/file.png")
+        mock_upload.return_value = True
+        mock_job_data = {'id': 1, 'name': 'Success Job'}
 
-    written_script = mock_write.call_args.args[0]
-    assert "bpy.context.scene.render.engine = 'CYCLES'" in written_script
-    assert "bpy.context.scene.cycles.device = 'CPU'" in written_script
-    assert "prefs.compute_device_type" not in written_script
+        job_processor.process_claimed_job(mock_job_data)
 
+        # Assert status updates
+        update_calls = mock_update_status.call_args_list
+        assert len(update_calls) == 2
+        # First call sets status to RENDERING
+        assert update_calls[0].args == (1, {'status': 'RENDERING'})
+        # Second call reports final status
+        final_payload = update_calls[1].args[1]
+        assert final_payload['status'] == 'DONE'
+        assert final_payload['render_time_seconds'] == 96
 
-def test_workbench_job_skips_cycles_config(mocker, mock_job_exec_deps):
-    """
-    Verifies that a non-Cycles job does not attempt to configure Cycles devices.
-    """
-    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA'])
-    mock_write = mock_job_exec_deps["script_write"]
+        # Assert upload and cleanup
+        mock_upload.assert_called_once_with(1, "/mock/output/file.png")
+        mock_os_remove.assert_called_once_with("/mock/output/file.png")
 
-    job_data = {
-        'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU',
-        'render_engine': 'WORKBENCH', 'blender_version': '4.5.0'
-    }
-    job_processor.execute_blender_job(job_data)
+    def test_process_job_failure_workflow(self, mock_process_deps):
+        """
+        Tests the failure workflow: render fails, report ERROR.
+        """
+        mock_execute, mock_update_status, mock_upload, mock_os_remove = mock_process_deps
+        mock_execute.return_value = (False, False, "", "Blender crashed", "Blender crashed", None)
+        mock_job_data = {'id': 2, 'name': 'Failure Job'}
 
-    written_script = mock_write.call_args.args[0]
-    assert "bpy.context.scene.render.engine = 'WORKBENCH'" in written_script
-    assert "cycles.device" not in written_script
+        job_processor.process_claimed_job(mock_job_data)
 
+        # Assert final status update
+        final_payload = mock_update_status.call_args.args[1]
+        assert final_payload['status'] == 'ERROR'
+        assert final_payload['error_message'] == 'Blender crashed'
 
-def test_command_omits_render_engine_flag(mock_job_exec_deps):
-    """
-    Tests that the -E flag is no longer used, as it's handled by the script.
-    """
-    mock_popen = mock_job_exec_deps["popen"]
-    job_data = {
-        'id': 1, 'asset': {}, 'output_file_pattern': 'f',
-        'render_engine': 'CYCLES', 'blender_version': '4.5.0'
-    }
-
-    job_processor.execute_blender_job(job_data)
-
-    called_command = mock_popen.call_args.args[0]
-    assert "-E" not in called_command
-
-
-def test_gpu_job_isolates_single_gpu_when_index_is_set(mocker, mock_job_exec_deps):
-    """
-    Verifies that setting FORCE_GPU_INDEX generates a script that disables all
-    devices first, then enables only the specified GPU.
-    """
-    # Arrange
-    mocker.patch.object(config, 'FORCE_GPU_INDEX', '1') # Target the second GPU (index 1)
-    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA'])
-    mock_write = mock_job_exec_deps["script_write"]
-    job_data = {
-        'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'GPU',
-        'render_engine': 'CYCLES', 'blender_version': '4.5.0'
-    }
-
-    # Act
-    job_processor.execute_blender_job(job_data)
-
-    # Assert
-    written_script = mock_write.call_args.args[0]
-    assert "target_gpu_index = 1" in written_script
-    # This logic ensures other GPUs are disabled
-    assert "for device in prefs.devices: device.use = False" in written_script
-    assert "target_device.use = True" in written_script
+        # Assert no upload or cleanup happened
+        mock_upload.assert_not_called()
+        mock_os_remove.assert_not_called()
 
 
-def test_render_script_generation_with_gpu_index_override(mocker, mock_job_exec_deps):
-    """
-    Verifies that the `gpu_index_override` parameter correctly generates a script
-    to isolate a single GPU, taking precedence over FORCE_GPU_INDEX.
-    """
-    # Arrange: Set both the global force flag and the override. Override should win.
-    mocker.patch.object(config, 'FORCE_GPU_INDEX', '0')
-    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA'])
-    mock_write = mock_job_exec_deps["script_write"]
-    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'GPU',
-                'render_engine': 'CYCLES', 'blender_version': '4.5.0'}
-
-    # Act: Pass the override index to the function
-    job_processor.execute_blender_job(job_data, assigned_gpu_index=1)
-
-    # Assert
-    written_script = mock_write.call_args.args[0]
-    assert "target_gpu_index = 1" in written_script # Asserts the override was used
-    assert "for device in prefs.devices: device.use = False" in written_script
-    assert "target_device.use = True" in written_script
-    assert "target_gpu_index = 0" not in written_script # Asserts the global flag was ignored
-
-
-# --- NEW TEST SUITE FOR POLLING LOGIC ---
-class TestJobPolling:
+# --- REFACTORED: Test suite for poll_and_claim_job ---
+class TestPollAndClaimJob:
     @pytest.fixture
     def mock_poll_deps(self, mocker):
-        """Mocks dependencies for get_and_claim_job."""
+        """Mocks dependencies for poll_and_claim_job."""
         mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
         mocker.patch.object(config, 'FORCE_GPU_ONLY', False)
         mocker.patch.object(config, 'GPU_SPLIT_MODE', False) # Default to off
-        mock_requests_get = mocker.patch('requests.get')
-        mock_requests_get.return_value.json.return_value = [] # No jobs by default
+        mock_poll_api = mocker.patch('sethlans_worker_agent.api_handler.poll_for_available_jobs', return_value=None)
         mock_detect_gpu = mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices')
-        return mock_requests_get, mock_detect_gpu
+        return mock_poll_api, mock_detect_gpu
 
     def test_poll_in_force_cpu_mode(self, mocker, mock_poll_deps):
         """Worker in FORCE_CPU_ONLY mode should poll for gpu_available=false."""
-        mock_requests_get, _ = mock_poll_deps
+        mock_poll_api, _ = mock_poll_deps
         mocker.patch.object(config, 'FORCE_CPU_ONLY', True)
 
-        job_processor.get_and_claim_job(1)
+        job_processor.poll_and_claim_job(1)
 
-        mock_requests_get.assert_called_once()
-        call_params = mock_requests_get.call_args.kwargs.get('params', {})
+        mock_poll_api.assert_called_once()
+        call_params = mock_poll_api.call_args.args[0]
         assert call_params.get('gpu_available') == 'false'
 
     def test_poll_in_force_gpu_mode(self, mocker, mock_poll_deps):
         """Worker in FORCE_GPU_ONLY mode should poll for gpu_available=true."""
-        mock_requests_get, mock_detect_gpu = mock_poll_deps
+        mock_poll_api, mock_detect_gpu = mock_poll_deps
         mock_detect_gpu.return_value = ['CUDA'] # Simulate GPU present
         mocker.patch.object(config, 'FORCE_GPU_ONLY', True)
 
-        job_processor.get_and_claim_job(1)
+        job_processor.poll_and_claim_job(1)
 
-        mock_requests_get.assert_called_once()
-        call_params = mock_requests_get.call_args.kwargs.get('params', {})
+        mock_poll_api.assert_called_once()
+        call_params = mock_poll_api.call_args.args[0]
         assert call_params.get('gpu_available') == 'true'
 
     def test_poll_in_default_mode(self, mock_poll_deps):
         """A normal worker (no force flags) should not specify gpu_available, making it flexible."""
-        mock_requests_get, mock_detect_gpu = mock_poll_deps
+        mock_poll_api, mock_detect_gpu = mock_poll_deps
         mock_detect_gpu.return_value = ['CUDA']  # Simulate a GPU-capable worker
 
-        job_processor.get_and_claim_job(1)
+        job_processor.poll_and_claim_job(1)
 
-        mock_requests_get.assert_called_once()
-        call_params = mock_requests_get.call_args.kwargs.get('params', {})
+        mock_poll_api.assert_called_once()
+        call_params = mock_poll_api.call_args.args[0]
         assert 'gpu_available' not in call_params
 
     def test_get_next_available_gpu(self, mocker):
@@ -320,16 +215,33 @@ class TestJobPolling:
         """
         In GPU split mode, if all GPUs are busy, the worker should not attempt to claim a job.
         """
-        mock_requests_get, mock_detect_gpu = mock_poll_deps
+        mock_poll_api, mock_detect_gpu = mock_poll_deps
         mock_detect_gpu.return_value = ['CUDA', 'CUDA']
         mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
         mocker.patch('sethlans_worker_agent.job_processor._get_next_available_gpu', return_value=None)
-        mock_requests_patch = mocker.patch('requests.patch')
+        mock_claim_job_api = mocker.patch('sethlans_worker_agent.api_handler.claim_job')
 
         # Provide a job for the worker to find
-        mock_requests_get.return_value.json.return_value = [{'id': 1, 'render_device': 'GPU'}]
+        mock_poll_api.return_value = [{'id': 1, 'render_device': 'GPU'}]
 
-        job_processor.get_and_claim_job(1)
+        result = job_processor.poll_and_claim_job(1)
 
-        # Assert that the claim (PATCH request) was never made
-        mock_requests_patch.assert_not_called()
+        # Assert that the claim (PATCH request) was never made and None was returned
+        assert result is None
+        mock_claim_job_api.assert_not_called()
+
+    def test_poll_and_claim_job_returns_data_on_success(self, mocker, mock_poll_deps):
+        """
+        Verifies that on a successful claim, the function returns the job data dictionary.
+        """
+        mock_poll_api, _ = mock_poll_deps
+        mock_job = {'id': 1, 'name': 'Claim Me'}
+        mock_poll_api.return_value = [mock_job]
+        mock_claim_job_api = mocker.patch('sethlans_worker_agent.api_handler.claim_job', return_value=True)
+
+        result = job_processor.poll_and_claim_job(1)
+
+        assert result is not None
+        assert result['id'] == 1
+        assert result['name'] == 'Claim Me'
+        mock_claim_job_api.assert_called_once_with(1, 1)
