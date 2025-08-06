@@ -24,6 +24,7 @@
 # tests/unit/worker_agent/test_job_processor.py
 
 import pytest
+import threading
 from unittest.mock import MagicMock, call
 
 # Import the function to be tested and its dependencies
@@ -62,14 +63,14 @@ def test_parse_render_time(stdout, expected_seconds):
     assert result == expected_seconds
 
 
-# --- NEW: Test for get_and_claim_job wrapper ---
-def test_get_and_claim_job_wrapper(mocker):
+def test_get_and_claim_job_dispatches_thread(mocker):
     """
-    Tests that the main get_and_claim_job function correctly calls the new
-    poll and process functions in sequence.
+    Tests that the get_and_claim_job function correctly dispatches the
+    processing of a claimed job to a new thread.
     """
     mock_poll = mocker.patch('sethlans_worker_agent.job_processor.poll_and_claim_job')
-    mock_process = mocker.patch('sethlans_worker_agent.job_processor.process_claimed_job')
+    mock_process_func = mocker.patch('sethlans_worker_agent.job_processor.process_claimed_job')
+    mock_thread = mocker.patch('threading.Thread')
     worker_id = 99
 
     # Case 1: A job is found and claimed
@@ -77,15 +78,22 @@ def test_get_and_claim_job_wrapper(mocker):
     mock_poll.return_value = mock_job_data
     job_processor.get_and_claim_job(worker_id)
     mock_poll.assert_called_once_with(worker_id)
-    mock_process.assert_called_once_with(mock_job_data)
 
-    # Case 2: No job is found
+    # Assert that a Thread was created with the correct target and args
+    mock_thread.assert_called_once_with(target=mock_process_func, args=(mock_job_data,))
+    # Assert that the created thread instance was started
+    mock_thread.return_value.start.assert_called_once()
+
+    # Case 2: No job is found, so no thread should be created
     mock_poll.reset_mock()
-    mock_process.reset_mock()
+    mock_thread.reset_mock()
     mock_poll.return_value = None
     job_processor.get_and_claim_job(worker_id)
     mock_poll.assert_called_once_with(worker_id)
-    mock_process.assert_not_called()
+
+    # Assert that no thread was created or started
+    mock_thread.assert_not_called()
+    mock_thread.return_value.start.assert_not_called()
 
 
 # --- NEW: Test suite for process_claimed_job ---

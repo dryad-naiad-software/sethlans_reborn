@@ -27,7 +27,8 @@ The core module for the worker agent responsible for handling all render job tas
 
 This module orchestrates the job processing workflow by coordinating between the
 API handler (for manager communication) and the Blender executor (for running
-render processes).
+render processes). It supports concurrent job execution by dispatching each
+claimed job to a separate thread.
 """
 
 import datetime
@@ -35,6 +36,7 @@ import logging
 import math
 import os
 import re
+import threading
 from typing import Optional, Dict, Any
 
 from sethlans_worker_agent import config, system_monitor, blender_executor, api_handler
@@ -223,16 +225,18 @@ def process_claimed_job(job_data: Dict[str, Any]):
 
 def get_and_claim_job(worker_id):
     """
-    A wrapper function that polls for, claims, and processes one available job.
+    Polls for, claims, and processes one available job by dispatching it to a new thread.
 
-    This function orchestrates the main synchronous workflow for a worker's
+    This function orchestrates the main workflow for a worker's
     operational loop. It first calls `poll_and_claim_job` to acquire a job.
-    If a job is successfully claimed, it then calls `process_claimed_job` to
-    execute and report on it.
+    If a job is successfully claimed, it is handed off to the `process_claimed_job`
+    function, which is executed in a separate, non-blocking thread. This allows
+    the main worker loop to remain responsive and poll for additional jobs.
 
     Args:
         worker_id (int): The unique ID of the worker, as assigned by the manager.
     """
     job_data = poll_and_claim_job(worker_id)
     if job_data:
-        process_claimed_job(job_data)
+        job_thread = threading.Thread(target=process_claimed_job, args=(job_data,))
+        job_thread.start()
