@@ -42,7 +42,6 @@ import platform
 import threading
 import psutil
 import tempfile
-import shutil
 from typing import Optional
 
 from sethlans_worker_agent import config, asset_manager, system_monitor
@@ -451,16 +450,6 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
             f.write(script_content)
             logger.debug(f"Generated override script at {temp_script_path}:\n{script_content}")
 
-        try:
-            log_dir = config.WORKER_LOG_DIR
-            log_dir.mkdir(exist_ok=True)
-            debug_script_name = f"job_{job_id}_overrides.py"
-            debug_script_path = log_dir / debug_script_name
-            shutil.copy(temp_script_path, debug_script_path)
-            logger.info(f"[Job {job_id}] Saved a copy of the render script to: {debug_script_path}")
-        except Exception as copy_e:
-            logger.warning(f"[Job {job_id}] Could not save a debug copy of the render script: {copy_e}")
-
         command.extend(["--python", temp_script_path])
     except Exception as e:
         error_msg = f"Failed to generate render settings script: {e}"
@@ -535,17 +524,16 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     stdout_output, stderr_output = "".join(stdout_lines), "".join(stderr_lines)
     success, final_output_path = False, None
 
-    # --- FIX: Revert Blender output to DEBUG level for normal operation ---
     if stdout_lines:
         logger.debug(f"--- [Job {job_id}] Blender STDOUT ---")
         for line in stdout_lines:
             if line.strip():
                 logger.debug(f"[Job {job_id}] {line.strip()}")
     if stderr_lines:
-        logger.debug(f"--- [Job {job_id}] Blender STDERR ---")
+        logger.warning(f"--- [Job {job_id}] Blender STDERR ---")
         for line in stderr_lines:
             if line.strip():
-                logger.debug(f"[Job {job_id}] {line.strip()}")
+                logger.warning(f"[Job {job_id}] {line.strip()}")
 
     if was_canceled:
         error_message = "Job was canceled by user request."
