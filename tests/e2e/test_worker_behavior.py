@@ -28,6 +28,9 @@ End-to-end tests for core worker agent behavior and logic.
 
 import os
 import platform
+import queue
+import re
+import psutil
 import pytest
 import requests
 import uuid
@@ -117,3 +120,61 @@ class TestWorkerBehavior(BaseE2ETest):
         assert final_gpu_data['status'] == 'DONE'
         assert final_cpu_data['status'] == 'DONE'
         print("SUCCESS: Default GPU-capable worker successfully completed both CPU and GPU jobs.")
+
+    def test_automatic_thread_reduction_in_mixed_mode(self):
+        """
+        Verifies that a worker in default mixed-mode on a multi-core, GPU-capable
+        machine automatically reserves threads for GPU tasks when running a CPU job.
+        """
+        if not is_gpu_available() or psutil.cpu_count() <= 1:
+            pytest.skip("Requires a multi-core, GPU-capable host.")
+
+        print("\n--- E2E TEST: Automatic CPU Thread Reservation ---")
+
+        # 1. Stop default worker and start a fresh one to capture its specific logs
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+            self.worker_process.wait(timeout=10)
+
+        log_queue = queue.Queue()
+        # Start with no extra env vars to ensure default mixed-mode operation
+        self.start_worker(log_queue)
+
+        # 2. Submit a CPU job
+        job_payload = {
+            "name": f"E2E Auto-Threads Test {uuid.uuid4().hex[:8]}",
+            "project": self.project_id,
+            "asset_id": self.scene_asset_id,
+            "output_file_pattern": "e2e_auto_threads_####",
+            "start_frame": 1, "end_frame": 1,
+            "blender_version": self._blender_version_for_test,
+            "render_device": "CPU",
+        }
+        create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
+        assert create_response.status_code == 201
+        job_url = f"{MANAGER_URL}/jobs/{create_response.json()['id']}/"
+
+        # 3. Wait for completion
+        poll_for_completion(job_url)
+
+        # 4. Stop worker and get its logs
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+            self.worker_process.wait(timeout=10)
+        if self.worker_log_thread and self.worker_log_thread.is_alive():
+            self.worker_log_thread.join(timeout=5)
+
+        worker_logs = []
+        while not log_queue.empty():
+            worker_logs.append(log_queue.get_nowait())
+        full_log = "".join(worker_logs)
+
+        # 5. Verify the logs
+        expected_log_msg = "Applying automatic CPU thread limit for mixed-mode operation"
+        assert expected_log_msg in full_log, "Automatic thread limit log message not found."
+
+        # Find the command line and verify the --threads flag was used
+        command_match = re.search(r"Running Command: .* --threads \d+ .*", full_log)
+        assert command_match is not None, "The '--threads' flag was not found in the worker's command log."
+
+        print("SUCCESS: Worker correctly applied automatic thread reservation.")

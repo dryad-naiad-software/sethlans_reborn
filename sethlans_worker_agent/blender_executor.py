@@ -16,7 +16,7 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
-# Created by Gemini on 8/5/2025.
+# Created by Gemini on 8/5/205.
 # Dryad and Naiad Software LLC
 #
 # Project: sethlans_reborn
@@ -221,12 +221,26 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
 
-    # --- REFACTORED: Determine CPU thread limit (Priority 1: Manual Override) ---
+    # --- REFACTORED: Determine CPU thread limit ---
     cpu_threads_to_use = 0
-    # Manual override from config has the highest priority.
+    # Priority 1: Manual override from config has the highest priority.
     if config.CPU_THREADS > 0:
         cpu_threads_to_use = config.CPU_THREADS
         logger.info(f"Applying manual CPU thread limit from config: {cpu_threads_to_use} threads.")
+    # --- NEW: Priority 2: Automatic calculation for mixed-mode (CPU+GPU) workers ---
+    elif not config.FORCE_CPU_ONLY and not config.FORCE_GPU_ONLY:
+        gpus = system_monitor.get_gpu_device_details()
+        num_gpus = len(gpus)
+        if num_gpus > 0:
+            total_threads = system_monitor.get_cpu_thread_count()
+            # Reserve one thread per active GPU task to leave headroom.
+            calculated_threads = total_threads - num_gpus
+            # Ensure we always leave at least one thread for Blender.
+            cpu_threads_to_use = max(1, calculated_threads)
+            logger.info(
+                f"Applying automatic CPU thread limit for mixed-mode operation. "
+                f"Total: {total_threads}, GPUs: {num_gpus}, Blender Threads: {cpu_threads_to_use}"
+            )
 
     # Add the --threads flag if the job is CPU-bound and a limit is set.
     is_cpu_bound = render_device != 'GPU'

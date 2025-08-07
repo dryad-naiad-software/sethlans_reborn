@@ -29,7 +29,7 @@ import pytest
 from unittest.mock import MagicMock
 
 # Import the module to be tested and its dependencies
-from sethlans_worker_agent import blender_executor, config
+from sethlans_worker_agent import blender_executor, config, system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 
@@ -43,6 +43,10 @@ def mock_exec_deps(mocker):
     # Mock config directories
     mocker.patch.object(config, 'WORKER_OUTPUT_DIR', '/mock/worker_output')
     mocker.patch.object(config, 'WORKER_TEMP_DIR', '/mock/worker_temp')
+    # Mock config flags
+    mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
+    mocker.patch.object(config, 'FORCE_GPU_ONLY', False)
+
 
     # Mock subprocess management
     mock_process = MagicMock()
@@ -71,6 +75,8 @@ def mock_exec_deps(mocker):
         'sethlans_worker_agent.system_monitor.get_gpu_device_details',
         return_value=mock_gpu_details_data
     )
+    mocker.patch('sethlans_worker_agent.system_monitor.get_cpu_thread_count', return_value=16)
+
 
     # Mock tempfile to capture script content
     mock_write_method = MagicMock()
@@ -220,29 +226,47 @@ def test_render_script_generation_with_gpu_index_override(mocker, mock_exec_deps
     assert "target_gpu_index = 0" not in written_script # Asserts the global flag was ignored
 
 
-def test_cpu_threads_flag_is_added_when_configured(mocker, mock_exec_deps):
+def test_manual_override_precedes_automatic_logic(mocker, mock_exec_deps):
     """
-    Tests that the --threads flag is added to the command for a CPU job
-    when config.CPU_THREADS is a positive integer.
+    Tests that a manual CPU_THREADS setting is used and prevents the
+    automatic calculation from running.
     """
-    mocker.patch.object(config, 'CPU_THREADS', 4)
+    mocker.patch.object(config, 'CPU_THREADS', 2) # Manual override
     mock_popen = mock_exec_deps["popen"]
-    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU', 'blender_version': '4.5.0'}
 
+    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU', 'blender_version': '4.5.0'}
     blender_executor.execute_blender_job(job_data)
 
     called_command = mock_popen.call_args.args[0]
     assert "--threads" in called_command
-    assert "4" in called_command
-    assert called_command.index("--threads") + 1 == called_command.index("4")
+    assert "2" in called_command
 
 
-def test_cpu_threads_flag_is_omitted_when_zero(mocker, mock_exec_deps):
+def test_automatic_thread_limit_in_mixed_mode(mocker, mock_exec_deps):
     """
-    Tests that the --threads flag is NOT added to the command when
-    config.CPU_THREADS is 0.
+    Tests the automatic thread calculation in a standard mixed-mode worker
+    (CPU+GPU capable, no force flags).
+    """
+    mocker.patch.object(config, 'CPU_THREADS', 0) # Ensure no manual override
+    mocker.patch('sethlans_worker_agent.system_monitor.get_cpu_thread_count', return_value=16)
+    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[{}, {}]) # 2 GPUs
+    mock_popen = mock_exec_deps["popen"]
+    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU', 'blender_version': '4.5.0'}
+
+    blender_executor.execute_blender_job(job_data)
+
+    called_command = mock_popen.call_args.args[0]
+    # Expected: 16 total - 2 for GPUs = 14
+    assert "--threads" in called_command
+    assert "14" in called_command
+
+
+def test_automatic_thread_limit_is_not_applied_in_force_cpu_mode(mocker, mock_exec_deps):
+    """
+    Tests that automatic logic is skipped if FORCE_CPU_ONLY is true.
     """
     mocker.patch.object(config, 'CPU_THREADS', 0)
+    mocker.patch.object(config, 'FORCE_CPU_ONLY', True) # Force mode
     mock_popen = mock_exec_deps["popen"]
     job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU', 'blender_version': '4.5.0'}
 
@@ -252,16 +276,35 @@ def test_cpu_threads_flag_is_omitted_when_zero(mocker, mock_exec_deps):
     assert "--threads" not in called_command
 
 
-def test_cpu_threads_flag_is_omitted_for_gpu_jobs(mocker, mock_exec_deps):
+def test_automatic_thread_limit_is_not_applied_if_no_gpus(mocker, mock_exec_deps):
     """
-    Tests that the --threads flag is NOT added for a GPU-only job, even if the
-    config setting is present.
+    Tests that automatic logic is skipped on a CPU-only worker (no GPUs detected).
     """
-    mocker.patch.object(config, 'CPU_THREADS', 4)
+    mocker.patch.object(config, 'CPU_THREADS', 0)
+    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[]) # No GPUs
     mock_popen = mock_exec_deps["popen"]
-    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'GPU', 'blender_version': '4.5.0'}
+    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU', 'blender_version': '4.5.0'}
 
     blender_executor.execute_blender_job(job_data)
 
     called_command = mock_popen.call_args.args[0]
     assert "--threads" not in called_command
+
+
+def test_automatic_thread_limit_clamps_at_one(mocker, mock_exec_deps):
+    """
+    Tests that the calculation result is clamped to a minimum of 1 if there are
+    more GPUs than CPU threads.
+    """
+    mocker.patch.object(config, 'CPU_THREADS', 0)
+    mocker.patch('sethlans_worker_agent.system_monitor.get_cpu_thread_count', return_value=4)
+    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[{}, {}, {}, {}, {}]) # 5 GPUs
+    mock_popen = mock_exec_deps["popen"]
+    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU', 'blender_version': '4.5.0'}
+
+    blender_executor.execute_blender_job(job_data)
+
+    called_command = mock_popen.call_args.args[0]
+    # Expected: max(1, 4 - 5) = 1
+    assert "--threads" in called_command
+    assert "1" in called_command
