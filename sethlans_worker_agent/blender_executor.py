@@ -160,7 +160,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
     This function now includes detailed, timed logging for each stage of the job's
     lifecycle, from initial assignment to final result reporting. It also captures
-    and logs stdout from the Blender process for enhanced diagnostics.
+    and logs stdout from the Blender process for enhanced diagnostics. It can
+    also apply a CPU thread limit based on the worker's configuration.
 
     Args:
         job_data (dict): The full job dictionary received from the manager API.
@@ -219,6 +220,15 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     os.makedirs(os.path.dirname(resolved_output_pattern), exist_ok=True)
 
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
+
+    # --- NEW: Apply worker-configured CPU thread limit ---
+    # This flag is respected by Cycles for CPU rendering. It applies to 'CPU' jobs
+    # and 'ANY' jobs that fall back to CPU on a worker without a suitable GPU.
+    is_cpu_bound = render_device != 'GPU'
+    if is_cpu_bound and config.CPU_THREADS > 0:
+        logger.info(f"Applying CPU thread limit from worker configuration: {config.CPU_THREADS} threads.")
+        command.extend(["--threads", str(config.CPU_THREADS)])
+    # --- END NEW ---
 
     try:
         script_content = generate_render_config_script(

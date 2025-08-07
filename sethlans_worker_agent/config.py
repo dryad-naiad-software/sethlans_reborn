@@ -65,6 +65,8 @@ FORCE_GPU_ONLY = os.getenv('SETHLANS_FORCE_GPU_ONLY', 'false').lower() == 'true'
 FORCE_GPU_INDEX = os.getenv('SETHLANS_FORCE_GPU_INDEX')
 # --- NEW: Enable assigning one job per GPU ---
 GPU_SPLIT_MODE = os.getenv('SETHLANS_GPU_SPLIT_MODE', 'false').lower() == 'true'
+# --- NEW: Configure CPU threads for rendering. 0 = Blender default (all) ---
+CPU_THREADS = get_config_value('worker', 'cpu_threads', 0, is_int=True)
 
 
 if FORCE_CPU_ONLY and FORCE_GPU_ONLY:

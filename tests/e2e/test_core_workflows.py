@@ -29,6 +29,7 @@ single-frame CPU and GPU jobs.
 
 import platform
 import os
+import queue
 import pytest
 import requests
 import uuid
@@ -80,7 +81,7 @@ class TestCoreWorkflows(BaseE2ETest):
         print("Waiting for worker to claim the job and set timestamps...")
         start_time = time.time()
         job_claimed = False
-        while time.time() - start_time < 30: # 30 second timeout to claim
+        while time.time() - start_time < 30:  # 30 second timeout to claim
             response = requests.get(job_url)
             response.raise_for_status()
             data = response.json()
@@ -136,10 +137,66 @@ class TestCoreWorkflows(BaseE2ETest):
         job_url = f"{MANAGER_URL}/jobs/{job_id}/"
 
         print(f"Job submitted. Polling for completion at {job_url}...")
-        final_job_data = poll_for_completion(job_url, timeout_seconds=240) # Allow more time for GPU scene
+        final_job_data = poll_for_completion(job_url, timeout_seconds=240)  # Allow more time for GPU scene
 
         print("Verifying final job data and outputs...")
         assert final_job_data['render_time_seconds'] > 0
         verify_image_output(final_job_data['output_file'])
         verify_image_output(final_job_data['thumbnail'])
         print("SUCCESS: Single-frame GPU render workflow completed and verified.")
+
+    def test_cpu_render_with_thread_limit(self):
+        """
+        Tests that a worker with a configured CPU thread limit correctly
+        applies the --threads flag to the Blender command.
+
+        The worker is configured by setting the SETHLANS_WORKER_CPU_THREADS
+        environment variable, which is the name constructed by the config
+        system from the 'worker' section and 'cpu_threads' key.
+        """
+        print("\n--- E2E TEST: CPU Render with Thread Limit ---")
+        # 1. Stop default worker and start one with the thread limit
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+            self.worker_process.wait(timeout=10)
+
+        # Use a new queue to isolate logs for this specific worker run
+        log_queue = queue.Queue()
+        # --- FIX: Corrected environment variable name ---
+        self.start_worker(log_queue, extra_env={"SETHLANS_WORKER_CPU_THREADS": "2"})
+
+        # 2. Submit a CPU job
+        job_payload = {
+            "name": f"E2E CPU Thread Limit Test {uuid.uuid4().hex[:8]}",
+            "project": self.project_id,
+            "asset_id": self.scene_asset_id,
+            "output_file_pattern": "e2e_cpu_threads_####",
+            "start_frame": 1, "end_frame": 1,
+            "blender_version": self._blender_version_for_test,
+            "render_device": "CPU",
+        }
+        create_response = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
+        assert create_response.status_code == 201
+        job_url = f"{MANAGER_URL}/jobs/{create_response.json()['id']}/"
+
+        # 3. Wait for completion
+        print(f"Job submitted. Polling for completion at {job_url}...")
+        poll_for_completion(job_url)
+
+        # 4. Stop worker and inspect logs
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+            self.worker_process.wait(timeout=10)
+        if self.worker_log_thread and self.worker_log_thread.is_alive():
+            self.worker_log_thread.join(timeout=5)
+
+        worker_logs = []
+        while not log_queue.empty():
+            worker_logs.append(log_queue.get_nowait())
+        full_log = "".join(worker_logs)
+
+        # 5. Verify the command line in the log
+        assert "Running Command:" in full_log, "Could not find command log line."
+        assert "--threads 2" in full_log, "The '--threads 2' flag was not found in the worker's command log."
+
+        print("SUCCESS: Worker correctly applied the CPU thread limit.")

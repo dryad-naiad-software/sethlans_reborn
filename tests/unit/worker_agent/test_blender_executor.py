@@ -218,3 +218,50 @@ def test_render_script_generation_with_gpu_index_override(mocker, mock_exec_deps
     assert "for device in prefs.devices: device.use = False" in written_script
     assert "target_device.use = True" in written_script
     assert "target_gpu_index = 0" not in written_script # Asserts the global flag was ignored
+
+
+def test_cpu_threads_flag_is_added_when_configured(mocker, mock_exec_deps):
+    """
+    Tests that the --threads flag is added to the command for a CPU job
+    when config.CPU_THREADS is a positive integer.
+    """
+    mocker.patch.object(config, 'CPU_THREADS', 4)
+    mock_popen = mock_exec_deps["popen"]
+    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU', 'blender_version': '4.5.0'}
+
+    blender_executor.execute_blender_job(job_data)
+
+    called_command = mock_popen.call_args.args[0]
+    assert "--threads" in called_command
+    assert "4" in called_command
+    assert called_command.index("--threads") + 1 == called_command.index("4")
+
+
+def test_cpu_threads_flag_is_omitted_when_zero(mocker, mock_exec_deps):
+    """
+    Tests that the --threads flag is NOT added to the command when
+    config.CPU_THREADS is 0.
+    """
+    mocker.patch.object(config, 'CPU_THREADS', 0)
+    mock_popen = mock_exec_deps["popen"]
+    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'CPU', 'blender_version': '4.5.0'}
+
+    blender_executor.execute_blender_job(job_data)
+
+    called_command = mock_popen.call_args.args[0]
+    assert "--threads" not in called_command
+
+
+def test_cpu_threads_flag_is_omitted_for_gpu_jobs(mocker, mock_exec_deps):
+    """
+    Tests that the --threads flag is NOT added for a GPU-only job, even if the
+    config setting is present.
+    """
+    mocker.patch.object(config, 'CPU_THREADS', 4)
+    mock_popen = mock_exec_deps["popen"]
+    job_data = {'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'GPU', 'blender_version': '4.5.0'}
+
+    blender_executor.execute_blender_job(job_data)
+
+    called_command = mock_popen.call_args.args[0]
+    assert "--threads" not in called_command
