@@ -116,9 +116,10 @@ class TestProcessClaimedJob:
         mocker.patch('os.path.exists', return_value=True)
         return mock_execute, mock_update_status, mock_upload, mock_os_remove
 
-    def test_process_job_success_workflow(self, mock_process_deps):
+    def test_process_job_success_workflow(self, mocker, mock_process_deps):
         """
         Tests the entire successful workflow: render, upload, report DONE.
+        Also verifies that the initial status update includes the `started_at` timestamp.
         """
         mock_execute, mock_update_status, mock_upload, mock_os_remove = mock_process_deps
         mock_execute.return_value = (True, False, VALID_STDOUT_UNDER_AN_HOUR, "", "", "/mock/output/file.png")
@@ -130,8 +131,12 @@ class TestProcessClaimedJob:
         # Assert status updates
         update_calls = mock_update_status.call_args_list
         assert len(update_calls) == 2
-        # First call sets status to RENDERING
-        assert update_calls[0].args == (1, {'status': 'RENDERING'})
+        # --- FIX: First call sets status to RENDERING and includes started_at ---
+        initial_payload = update_calls[0].args[1]
+        assert initial_payload['status'] == 'RENDERING'
+        assert 'started_at' in initial_payload
+        assert isinstance(initial_payload['started_at'], str)
+
         # Second call reports final status
         final_payload = update_calls[1].args[1]
         assert final_payload['status'] == 'DONE'

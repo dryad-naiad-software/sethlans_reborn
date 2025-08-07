@@ -193,7 +193,7 @@ def process_claimed_job(job_data: Dict[str, Any]):
     Processes a job that has already been claimed by this worker.
 
     This function handles the entire execution lifecycle for a claimed job:
-    1. Updates the job status to 'RENDERING'.
+    1. Updates the job status to 'RENDERING' and sets the `started_at` timestamp.
     2. Executes the Blender render subprocess.
     3. Parses the result and determines the final status ('DONE', 'ERROR', etc.).
     4. Uploads the render output if successful.
@@ -207,7 +207,9 @@ def process_claimed_job(job_data: Dict[str, Any]):
     # This thread is now responsible for the lock that the main thread acquired.
     acquired_cpu_lock = job_data.get('_acquired_cpu_lock', False)
 
-    api_handler.update_job_status(job_id, {"status": "RENDERING"})
+    # --- FIX: Send started_at timestamp when beginning the job ---
+    start_time = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
+    api_handler.update_job_status(job_id, {"status": "RENDERING", "started_at": start_time})
 
     if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
         _gpu_assignment_map[assigned_gpu_index] = job_id

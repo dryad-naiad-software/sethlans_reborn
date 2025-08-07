@@ -224,6 +224,9 @@ class JobSerializer(serializers.ModelSerializer):
 
     This serializer is used by the API for creating, viewing, and updating jobs.
     It includes read-only fields for human-readable status and worker hostname.
+    Fields updated by the worker agent during its lifecycle (e.g., `assigned_worker`,
+    `started_at`, `completed_at`, `last_output`, `error_message`) are now
+    writable to allow status updates via PATCH requests.
     """
     assigned_worker_hostname = serializers.CharField(source='assigned_worker.hostname', read_only=True, help_text="The hostname of the worker assigned to this job.")
     status_display = serializers.CharField(source='get_status_display', read_only=True, help_text="The human-readable status of the job.")
@@ -265,9 +268,9 @@ class JobSerializer(serializers.ModelSerializer):
             'thumbnail',
         ]
         read_only_fields = [
-            'submitted_at', 'started_at', 'completed_at',
-            'last_output', 'error_message',
-            'status_display', 'assigned_worker_hostname',
+            'submitted_at',
+            'status_display',
+            'assigned_worker_hostname',
             'asset',
             'output_file',
             'thumbnail',
@@ -280,4 +283,8 @@ class JobSerializer(serializers.ModelSerializer):
             'animation': {'required': False},
             'render_time_seconds': {'required': False},
             'render_settings': {'required': False},
+            'started_at': {'required': False},
+            'completed_at': {'required': False},
+            'last_output': {'required': False},
+            'error_message': {'required': False},
         }

@@ -23,8 +23,9 @@
 #
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.text import slugify
+from django.utils import timezone
 from rest_framework import status
-from ..models import Job, Asset, Project, JobStatus
+from ..models import Job, Asset, Project, JobStatus, Worker
 from ..constants import RenderDevice
 from ._base import BaseMediaTestCase
 
@@ -112,6 +113,38 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         job.refresh_from_db()
         self.assertEqual(job.status, 'RENDERING')
+
+    def test_worker_can_claim_job_and_set_timestamps(self):
+        """
+        Regression test to confirm that a worker's PATCH request to claim a job
+        can successfully update `assigned_worker`, `status`, and `started_at`.
+        This verifies that these fields are not incorrectly marked as read-only.
+        """
+        # Arrange
+        worker = Worker.objects.create(hostname="test-worker-for-claim")
+        job_to_claim = Job.objects.get(name="CPU Job")
+        self.assertIsNone(job_to_claim.assigned_worker)
+        self.assertIsNone(job_to_claim.started_at)
+
+        claim_time = timezone.now()
+        claim_payload = {
+            "assigned_worker": worker.id,
+            "status": JobStatus.RENDERING,
+            "started_at": claim_time.isoformat()
+        }
+
+        # Act
+        response = self.client.patch(f"/api/jobs/{job_to_claim.id}/", claim_payload, format='json')
+
+        # Assert
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        job_to_claim.refresh_from_db()
+
+        self.assertEqual(job_to_claim.assigned_worker, worker)
+        self.assertEqual(job_to_claim.status, JobStatus.RENDERING)
+        self.assertIsNotNone(job_to_claim.started_at)
+        # Compare timestamps with a small tolerance for precision differences
+        self.assertAlmostEqual(job_to_claim.started_at, claim_time, delta=timezone.timedelta(seconds=1))
 
     def test_cancel_job_action(self):
         """

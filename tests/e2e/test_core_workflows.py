@@ -32,6 +32,7 @@ import os
 import pytest
 import requests
 import uuid
+import time
 
 from .shared_setup import BaseE2ETest, MANAGER_URL
 from .helpers import is_gpu_available, poll_for_completion, verify_image_output
@@ -47,6 +48,11 @@ class TestCoreWorkflows(BaseE2ETest):
     def test_single_frame_cpu_render(self):
         """
         Tests the complete lifecycle of a single-frame CPU render job.
+
+        This test now includes an explicit check to ensure that when a worker
+        claims a job, the `assigned_worker` and `started_at` fields are
+        correctly updated via the API. This serves as a regression test for
+        the serializer `read_only_fields` bug.
         """
         print("\n--- E2E TEST: Single-Frame CPU Render ---")
         job_payload = {
@@ -69,6 +75,26 @@ class TestCoreWorkflows(BaseE2ETest):
         assert create_response.status_code == 201
         job_id = create_response.json()['id']
         job_url = f"{MANAGER_URL}/jobs/{job_id}/"
+
+        # --- NEW: Regression test for serializer bug ---
+        print("Waiting for worker to claim the job and set timestamps...")
+        start_time = time.time()
+        job_claimed = False
+        while time.time() - start_time < 30: # 30 second timeout to claim
+            response = requests.get(job_url)
+            response.raise_for_status()
+            data = response.json()
+            if data['status'] == 'RENDERING':
+                print("Job is RENDERING. Verifying claim data...")
+                assert data['assigned_worker'] is not None, "Job is rendering but 'assigned_worker' is null."
+                assert data['started_at'] is not None, "Job is rendering but 'started_at' is null."
+                job_claimed = True
+                break
+            time.sleep(1)
+
+        assert job_claimed, "Worker failed to claim the job and update its status to RENDERING within the time limit."
+        print("SUCCESS: Worker correctly claimed job and updated timestamps.")
+        # --- End of regression test ---
 
         print(f"Job submitted. Polling for completion at {job_url}...")
         final_job_data = poll_for_completion(job_url)
