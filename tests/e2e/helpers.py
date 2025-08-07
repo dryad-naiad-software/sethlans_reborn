@@ -32,6 +32,7 @@ helps keep the test cases clean, readable, and DRY (Don't Repeat Yourself).
 import io
 import time
 
+import psutil
 import pytest
 import requests
 from PIL import Image
@@ -117,3 +118,12 @@ def is_gpu_available() -> bool:
     devices = system_monitor.detect_gpu_devices()
     system_monitor._gpu_devices_cache = None  # Clear cache for subsequent tests
     return len(devices) > 0
+
+def get_blender_process_count():
+    """Counts the number of currently running Blender processes."""
+    count = 0
+    for proc in psutil.process_iter(['name']):
+        # Use lower() for case-insensitive matching (e.g., blender.exe vs Blender.exe)
+        if 'blender' in proc.info['name'].lower():
+            count += 1
+    return count

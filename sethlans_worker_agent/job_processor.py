@@ -28,9 +28,8 @@ The core module for the worker agent responsible for handling all render job tas
 This module orchestrates the job processing workflow by coordinating between the
 API handler (for manager communication) and the Blender executor (for running
 render processes). It supports concurrent job execution by dispatching each
-claimed job to a separate thread.
+claimed job to a separate, non-blocking thread.
 """
-
 import datetime
 import logging
 import math
@@ -45,6 +44,8 @@ logger = logging.getLogger(__name__)
 
 # A simple map of {gpu_device_index: job_id}
 _gpu_assignment_map = {}
+# A thread-safe lock to ensure only one CPU-bound job runs at a time.
+_cpu_lock = threading.Lock()
 
 
 def _get_next_available_gpu() -> Optional[int]:
@@ -126,9 +127,9 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
         otherwise None.
     """
     detected_gpus = system_monitor.detect_gpu_devices()
-    gpu_available = len(detected_gpus) > 0
+    gpus_are_available = len(detected_gpus) > 0
 
-    if config.FORCE_GPU_ONLY and not gpu_available:
+    if config.FORCE_GPU_ONLY and not gpus_are_available:
         logger.info("FORCE_GPU_ONLY is enabled, but no GPUs were detected. Skipping job poll.")
         return None
 
@@ -149,18 +150,40 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
     job_id = job_to_claim.get('id')
     job_name = job_to_claim.get('name', 'Unnamed Job')
 
-    is_splittable_gpu_job = job_to_claim.get('render_device') in ('GPU', 'ANY')
+    # A job is effectively a CPU job if explicitly set OR if set to ANY on a CPU-only worker.
+    device_pref = job_to_claim.get('render_device')
+    is_effectively_cpu_job = (device_pref == 'CPU') or (device_pref == 'ANY' and not gpus_are_available)
+
+    # This will be passed to the processing thread if the claim succeeds.
+    acquired_cpu_lock = False
+
+    if is_effectively_cpu_job:
+        # Attempt to acquire the CPU lock without blocking.
+        acquired_cpu_lock = _cpu_lock.acquire(blocking=False)
+        if not acquired_cpu_lock:
+            logger.info("CPU is busy. Skipping claim for CPU-bound job.")
+            return None
+
+    is_splittable_gpu_job = device_pref in ('GPU', 'ANY')
     if config.GPU_SPLIT_MODE and is_splittable_gpu_job:
         assigned_gpu_index = _get_next_available_gpu()
         if assigned_gpu_index is None:
             logger.info("GPU split mode is active, but all GPUs are busy. Skipping claim.")
+            if acquired_cpu_lock:
+                _cpu_lock.release()
             return None
 
     logger.info(f"Found {len(available_jobs)} available job(s). Attempting to claim job '{job_name}' (ID: {job_id})...")
     if api_handler.claim_job(job_id, worker_id):
         logger.info(f"Successfully claimed job '{job_name}'!")
         job_to_claim['assigned_gpu_index'] = assigned_gpu_index
+        # Pass the lock ownership state to the job data
+        job_to_claim['_acquired_cpu_lock'] = acquired_cpu_lock
         return job_to_claim
+    else:
+        # If we acquired the lock but failed to claim the job, release the lock.
+        if acquired_cpu_lock:
+            _cpu_lock.release()
 
     return None
 
@@ -181,6 +204,8 @@ def process_claimed_job(job_data: Dict[str, Any]):
     """
     job_id = job_data.get('id')
     assigned_gpu_index = job_data.get('assigned_gpu_index')
+    # This thread is now responsible for the lock that the main thread acquired.
+    acquired_cpu_lock = job_data.get('_acquired_cpu_lock', False)
 
     api_handler.update_job_status(job_id, {"status": "RENDERING"})
 
@@ -192,6 +217,9 @@ def process_claimed_job(job_data: Dict[str, Any]):
         success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = blender_executor.execute_blender_job(
             job_data, assigned_gpu_index=assigned_gpu_index)
     finally:
+        if acquired_cpu_lock:
+            _cpu_lock.release()
+
         if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
             if _gpu_assignment_map.pop(assigned_gpu_index, None) is not None:
                 logger.info(f"Released GPU {assigned_gpu_index} from job {job_id}. Current assignments: {_gpu_assignment_map}")
@@ -238,5 +266,9 @@ def get_and_claim_job(worker_id):
     """
     job_data = poll_and_claim_job(worker_id)
     if job_data:
+        job_id = job_data.get('id')
+        logger.info(f"Dispatching job {job_id} to a new processing thread.")
         job_thread = threading.Thread(target=process_claimed_job, args=(job_data,))
         job_thread.start()
+        return True
+    return False

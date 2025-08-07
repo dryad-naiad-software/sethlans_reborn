@@ -41,10 +41,15 @@ PROGRESS_BAR_TIME_STDOUT = "Fra:1 Mem:158.90M | Time:00:09.53 | Remaining:00:20.
 
 @pytest.fixture(autouse=True)
 def reset_job_processor_state():
-    """Fixture to reset the module-level GPU assignment map before each test."""
+    """Fixture to reset module-level state and ensure locks are released."""
     job_processor._gpu_assignment_map.clear()
+    # Ensure the lock is always released in case a previous test failed uncleanly
+    if job_processor._cpu_lock.locked():
+        job_processor._cpu_lock.release()
     yield
     job_processor._gpu_assignment_map.clear()
+    if job_processor._cpu_lock.locked():
+        job_processor._cpu_lock.release()
 
 
 @pytest.mark.parametrize("stdout, expected_seconds", [
@@ -237,6 +242,46 @@ class TestPollAndClaimJob:
         # Assert that the claim (PATCH request) was never made and None was returned
         assert result is None
         mock_claim_job_api.assert_not_called()
+
+    def test_claim_job_skips_when_cpu_busy(self, mocker, mock_poll_deps):
+        """
+        Tests that if a CPU job is available but the CPU lock is held,
+        the worker skips the claim.
+        """
+        mock_poll_api, mock_detect_gpu = mock_poll_deps
+        mock_detect_gpu.return_value = []  # Simulate no GPUs
+        mock_claim_api = mocker.patch('sethlans_worker_agent.api_handler.claim_job')
+        mock_poll_api.return_value = [{'id': 5, 'render_device': 'CPU'}]
+
+        # Acquire the lock to simulate a busy CPU
+        job_processor._cpu_lock.acquire()
+        try:
+            result = job_processor.poll_and_claim_job(1)
+            assert result is None
+            mock_claim_api.assert_not_called()
+        finally:
+            job_processor._cpu_lock.release()
+
+    def test_claim_job_skips_any_job_when_cpu_only_and_busy(self, mocker, mock_poll_deps):
+        """
+        Tests that an 'ANY' device job is correctly skipped on a CPU-only
+        worker if the CPU lock is busy.
+        """
+        mock_poll_api, mock_detect_gpu = mock_poll_deps
+        mock_detect_gpu.return_value = []  # CRITICAL: Simulate a CPU-only worker
+        mock_claim_api = mocker.patch('sethlans_worker_agent.api_handler.claim_job')
+
+        # Provide an 'ANY' device job
+        mock_poll_api.return_value = [{'id': 6, 'render_device': 'ANY'}]
+
+        # Acquire the lock to simulate a busy CPU
+        job_processor._cpu_lock.acquire()
+        try:
+            result = job_processor.poll_and_claim_job(1)
+            assert result is None
+            mock_claim_api.assert_not_called()
+        finally:
+            job_processor._cpu_lock.release()
 
     def test_poll_and_claim_job_returns_data_on_success(self, mocker, mock_poll_deps):
         """

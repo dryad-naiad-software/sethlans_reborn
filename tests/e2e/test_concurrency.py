@@ -28,12 +28,14 @@ import queue
 import re
 import platform
 import os
+import time
 import pytest
 import requests
 import threading
 import uuid
+from datetime import datetime
 from .shared_setup import BaseE2ETest, MANAGER_URL
-from .helpers import poll_for_completion, is_gpu_available
+from .helpers import poll_for_completion, is_gpu_available, get_blender_process_count
 from workers.constants import RenderSettings
 from sethlans_worker_agent import system_monitor
 
@@ -109,6 +111,76 @@ class TestConcurrency(BaseE2ETest):
 
         print("\nSUCCESS: All concurrent animation jobs completed without database errors.")
 
+    def test_single_cpu_job_concurrency(self):
+        """
+        Verifies that the worker processes only one CPU job at a time by monitoring
+        job statuses and running system processes during the render.
+        """
+        print("\n--- E2E TEST: Single CPU Job Concurrency (Live Monitoring) ---")
+
+        # 1. Submit two CPU-only jobs.
+        job_payload_1 = {
+            "name": f"E2E CPU Concurrency Job 1 {uuid.uuid4().hex[:8]}",
+            "project": self.project_id,
+            "asset_id": self.scene_asset_id,
+            "output_file_pattern": "cpu_concurrency_1_####",
+            "start_frame": 1, "end_frame": 1,
+            "blender_version": self._blender_version_for_test,
+            "render_device": "CPU"
+        }
+        res1 = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload_1)
+        assert res1.status_code == 201
+        job_url_1 = f"{MANAGER_URL}/jobs/{res1.json()['id']}/"
+
+        job_payload_2 = {
+            "name": f"E2E CPU Concurrency Job 2 {uuid.uuid4().hex[:8]}",
+            "project": self.project_id,
+            "asset_id": self.scene_asset_id,
+            "output_file_pattern": "cpu_concurrency_2_####",
+            "start_frame": 1, "end_frame": 1,
+            "blender_version": self._blender_version_for_test,
+            "render_device": "CPU"
+        }
+        res2 = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload_2)
+        assert res2.status_code == 201
+        job_url_2 = f"{MANAGER_URL}/jobs/{res2.json()['id']}/"
+
+        # 2. Poll both jobs simultaneously, verifying state and process count.
+        start_time = time.time()
+        timeout_seconds = 120
+        print("Starting live monitoring of jobs and processes...")
+
+        while time.time() - start_time < timeout_seconds:
+            # A. Check running Blender processes
+            proc_count = get_blender_process_count()
+            assert proc_count <= 1, f"Concurrency error! Found {proc_count} Blender processes running simultaneously."
+
+            # B. Check job statuses from the API
+            status1 = requests.get(job_url_1).json().get('status')
+            status2 = requests.get(job_url_2).json().get('status')
+
+            print(
+                f"  [{int(time.time() - start_time)}s] Job 1: {status1}, Job 2: {status2}, Blender Procs: {proc_count}")
+
+            # C. Assert that one job waits while the other renders
+            if status1 == 'RENDERING':
+                assert status2 in ('QUEUED', 'DONE'), \
+                    f"Concurrency error! Job 2 status is '{status2}' while Job 1 is rendering."
+
+            if status2 == 'RENDERING':
+                assert status1 in ('QUEUED', 'DONE'), \
+                    f"Concurrency error! Job 1 status is '{status1}' while Job 2 is rendering."
+
+            # D. Exit condition
+            if status1 == 'DONE' and status2 == 'DONE':
+                print("Both jobs completed successfully.")
+                break
+
+            time.sleep(2)
+        else:
+            self.fail(f"Test timed out after {timeout_seconds} seconds.")
+
+        print("SUCCESS: Live monitoring confirmed sequential CPU job execution.")
 
     def test_multi_gpu_concurrent_rendering(self):
         """

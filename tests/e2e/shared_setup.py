@@ -314,11 +314,25 @@ class BaseE2ETest:
         if cls.worker_log_thread and cls.worker_log_thread.is_alive():
             cls.worker_log_thread.join(timeout=5)
 
-        # Print captured logs
-        print("\n--- CAPTURED WORKER LOGS ---")
+        # Print captured logs from stdout queue
+        print("\n--- CAPTURED WORKER STDOUT ---")
         while not cls.worker_log_queue.empty():
-            print(f"  [WORKER] {cls.worker_log_queue.get_nowait().strip()}")
-        print("--- END OF WORKER LOGS ---\n")
+            print(f"  [STDOUT] {cls.worker_log_queue.get_nowait().strip()}")
+        print("--- END OF WORKER STDOUT ---\n")
+
+        # Explicitly read and print the log file for diagnostics
+        log_file_path = worker_config.WORKER_LOG_DIR / 'worker.log'
+        print(f"--- READING WORKER LOG FILE: {log_file_path} ---")
+        if log_file_path.exists():
+            try:
+                with open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    print(f.read())
+            except Exception as e:
+                print(f"Error reading worker log file: {e}")
+        else:
+            print("Worker log file not found.")
+        print("--- END OF WORKER LOG FILE ---")
+
 
         # Clean up files now that processes are terminated
         print("Cleaning up filesystem artifacts...")
