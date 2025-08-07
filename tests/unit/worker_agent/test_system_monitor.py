@@ -27,6 +27,7 @@ import pytest
 import requests
 import subprocess
 import json
+import psutil
 from unittest.mock import MagicMock
 
 # Import the module and dependencies to be tested/mocked
@@ -40,6 +41,7 @@ def reset_system_monitor_cache():
     """Resets the module-level cache before each test to ensure isolation."""
     system_monitor._gpu_devices_cache = None
     system_monitor._gpu_details_cache = None
+    system_monitor._cpu_thread_count_cache = None
 
 
 def test_get_system_info(mocker):
@@ -269,3 +271,32 @@ def test_get_gpu_device_details_failure(mocker):
 
     # Assert
     assert details == []
+
+
+def test_get_cpu_thread_count(mocker):
+    """
+    Tests that get_cpu_thread_count calls psutil.cpu_count and caches the result.
+    """
+    mock_cpu_count = mocker.patch('psutil.cpu_count', return_value=16)
+
+    # First call
+    result1 = system_monitor.get_cpu_thread_count()
+    assert result1 == 16
+    mock_cpu_count.assert_called_once()
+
+    # Second call
+    result2 = system_monitor.get_cpu_thread_count()
+    assert result2 == 16
+    # Assert it was NOT called again (cache was used)
+    mock_cpu_count.assert_called_once()
+
+
+def test_get_cpu_thread_count_handles_exception(mocker):
+    """
+    Tests that get_cpu_thread_count falls back to 1 if psutil fails.
+    """
+    mock_cpu_count = mocker.patch('psutil.cpu_count', side_effect=Exception("Test error"))
+
+    result = system_monitor.get_cpu_thread_count()
+    assert result == 1
+    mock_cpu_count.assert_called_once()

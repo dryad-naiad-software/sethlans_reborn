@@ -221,14 +221,18 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
 
-    # --- NEW: Apply worker-configured CPU thread limit ---
-    # This flag is respected by Cycles for CPU rendering. It applies to 'CPU' jobs
-    # and 'ANY' jobs that fall back to CPU on a worker without a suitable GPU.
+    # --- REFACTORED: Determine CPU thread limit (Priority 1: Manual Override) ---
+    cpu_threads_to_use = 0
+    # Manual override from config has the highest priority.
+    if config.CPU_THREADS > 0:
+        cpu_threads_to_use = config.CPU_THREADS
+        logger.info(f"Applying manual CPU thread limit from config: {cpu_threads_to_use} threads.")
+
+    # Add the --threads flag if the job is CPU-bound and a limit is set.
     is_cpu_bound = render_device != 'GPU'
-    if is_cpu_bound and config.CPU_THREADS > 0:
-        logger.info(f"Applying CPU thread limit from worker configuration: {config.CPU_THREADS} threads.")
-        command.extend(["--threads", str(config.CPU_THREADS)])
-    # --- END NEW ---
+    if is_cpu_bound and cpu_threads_to_use > 0:
+        command.extend(["--threads", str(cpu_threads_to_use)])
+    # --- END REFACTORED SECTION ---
 
     try:
         script_content = generate_render_config_script(

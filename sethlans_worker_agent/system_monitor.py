@@ -43,6 +43,7 @@ import sys
 import json
 import re
 from collections import defaultdict
+import psutil  # --- NEW ---
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
@@ -56,6 +57,7 @@ IP_ADDRESS = socket.gethostbyname(HOSTNAME)
 OS_INFO = f"{platform.system()} {platform.release()}"
 _gpu_devices_cache = None
 _gpu_details_cache = None
+_cpu_thread_count_cache = None  # --- NEW ---
 
 
 def _filter_preferred_gpus(devices):
@@ -214,6 +216,30 @@ def detect_gpu_devices():
 
     logger.info(f"Detected and cached GPU backends: {_gpu_devices_cache if _gpu_devices_cache else 'None'}")
     return _gpu_devices_cache
+
+
+# --- NEW ---
+def get_cpu_thread_count():
+    """
+    Gets the number of logical CPU processors (threads) and caches the result.
+
+    Returns:
+        int: The total number of threads available on the system.
+    """
+    global _cpu_thread_count_cache
+    if _cpu_thread_count_cache is not None:
+        return _cpu_thread_count_cache
+
+    try:
+        count = psutil.cpu_count()
+        logger.info(f"Detected {count} logical CPU cores (threads).")
+        _cpu_thread_count_cache = count
+        return count
+    except Exception as e:
+        logger.error(f"Could not determine CPU thread count. Falling back to 1. Error: {e}")
+        _cpu_thread_count_cache = 1
+        return 1
+# --- END NEW ---
 
 
 def get_system_info():
