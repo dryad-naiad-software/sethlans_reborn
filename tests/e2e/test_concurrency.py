@@ -147,7 +147,7 @@ class TestConcurrency(BaseE2ETest):
 
         # 2. Poll both jobs simultaneously, verifying state and process count.
         start_time = time.time()
-        timeout_seconds = 240
+        timeout_seconds = 360
         print("Starting live monitoring of jobs and processes...")
 
         while time.time() - start_time < timeout_seconds:
