@@ -116,8 +116,8 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
     filters based on the worker's configured hardware capabilities. If a job is
     available, it attempts to claim it by updating the `assigned_worker` field.
 
-    In GPU split mode, it will first check for an available GPU slot before
-    attempting to claim a job.
+    In GPU split mode, it prioritizes GPUs for 'ANY' jobs but will fall back to
+    the CPU if all GPUs are busy.
 
     Args:
         worker_id (int): The unique ID of the worker, as assigned by the manager.
@@ -134,8 +134,6 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
         return None
 
     params = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
-
-    # Correctly set polling parameters based on forced hardware modes.
     if config.FORCE_GPU_ONLY:
         params['gpu_available'] = 'true'
     elif config.FORCE_CPU_ONLY:
@@ -146,44 +144,55 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
         return None
 
     job_to_claim = available_jobs[0]
-    assigned_gpu_index = None
     job_id = job_to_claim.get('id')
     job_name = job_to_claim.get('name', 'Unnamed Job')
-
-    # A job is effectively a CPU job if explicitly set OR if set to ANY on a CPU-only worker.
     device_pref = job_to_claim.get('render_device')
-    is_effectively_cpu_job = (device_pref == 'CPU') or (device_pref == 'ANY' and not gpus_are_available)
 
-    # This will be passed to the processing thread if the claim succeeds.
     acquired_cpu_lock = False
+    assigned_gpu_index = None
 
-    if is_effectively_cpu_job:
-        # Attempt to acquire the CPU lock without blocking.
-        acquired_cpu_lock = _cpu_lock.acquire(blocking=False)
-        if not acquired_cpu_lock:
-            logger.info("CPU is busy. Skipping claim for CPU-bound job.")
-            return None
+    # --- REFACTORED: Decoupled logic for resource acquisition ---
+    if config.GPU_SPLIT_MODE and gpus_are_available:
+        # In split mode, we must decide which resource (GPU or CPU) to use.
+        # Prioritize GPU for 'GPU' or 'ANY' jobs.
+        if device_pref in ('GPU', 'ANY'):
+            assigned_gpu_index = _get_next_available_gpu()
 
-    is_splittable_gpu_job = device_pref in ('GPU', 'ANY')
-    if config.GPU_SPLIT_MODE and is_splittable_gpu_job:
-        assigned_gpu_index = _get_next_available_gpu()
-        if assigned_gpu_index is None:
-            logger.info("GPU split mode is active, but all GPUs are busy. Skipping claim.")
-            if acquired_cpu_lock:
-                _cpu_lock.release()
-            return None
+        if assigned_gpu_index is not None:
+            logger.info(f"Found available GPU slot {assigned_gpu_index} for job '{job_name}'.")
+        else:
+            # No GPU available. Can we run on CPU as a fallback?
+            if device_pref in ('CPU', 'ANY'):
+                acquired_cpu_lock = _cpu_lock.acquire(blocking=False)
+                if acquired_cpu_lock:
+                    logger.info(f"All GPUs busy; claiming job '{job_name}' for CPU as fallback.")
+                else:
+                    logger.info("All GPUs and the CPU are busy. Skipping claim.")
+                    return None
+            else:  # The job was GPU-only and no GPUs are free.
+                logger.info("GPU split mode is active, but all GPUs are busy. Skipping claim for GPU-only job.")
+                return None
+    else:
+        # Not in split mode, or no GPUs. Only need to worry about the CPU lock.
+        is_cpu_job = (device_pref == 'CPU') or (device_pref == 'ANY' and not gpus_are_available)
+        if is_cpu_job:
+            acquired_cpu_lock = _cpu_lock.acquire(blocking=False)
+            if not acquired_cpu_lock:
+                logger.info("CPU is busy. Skipping claim for CPU-bound job.")
+                return None
 
+    # --- Unified Claim Attempt ---
     logger.info(f"Found {len(available_jobs)} available job(s). Attempting to claim job '{job_name}' (ID: {job_id})...")
     if api_handler.claim_job(job_id, worker_id):
         logger.info(f"Successfully claimed job '{job_name}'!")
         job_to_claim['assigned_gpu_index'] = assigned_gpu_index
-        # Pass the lock ownership state to the job data
         job_to_claim['_acquired_cpu_lock'] = acquired_cpu_lock
         return job_to_claim
     else:
-        # If we acquired the lock but failed to claim the job, release the lock.
+        # If we acquired a lock but the API claim failed (e.g., race condition), release the lock.
         if acquired_cpu_lock:
             _cpu_lock.release()
+            logger.debug(f"Released CPU lock after failed claim for job {job_id}.")
 
     return None
 

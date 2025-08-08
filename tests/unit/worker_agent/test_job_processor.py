@@ -229,24 +229,64 @@ class TestPollAndClaimJob:
         job_processor._gpu_assignment_map = {0: 123, 1: 456}
         assert job_processor._get_next_available_gpu() is None
 
-    def test_claim_job_in_split_mode_when_gpus_are_busy(self, mocker, mock_poll_deps):
+    def test_split_mode_claims_any_job_for_cpu_when_gpus_busy(self, mocker, mock_poll_deps):
         """
-        In GPU split mode, if all GPUs are busy, the worker should not attempt to claim a job.
+        Tests the key bug fix: an 'ANY' job falls back to CPU if GPUs are full.
         """
         mock_poll_api, mock_detect_gpu = mock_poll_deps
-        mock_detect_gpu.return_value = ['CUDA', 'CUDA']
+        mock_detect_gpu.return_value = ['CUDA']
         mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
         mocker.patch('sethlans_worker_agent.job_processor._get_next_available_gpu', return_value=None)
-        mock_claim_job_api = mocker.patch('sethlans_worker_agent.api_handler.claim_job')
+        mock_claim_api = mocker.patch('sethlans_worker_agent.api_handler.claim_job', return_value=True)
 
-        # Provide a job for the worker to find
-        mock_poll_api.return_value = [{'id': 1, 'render_device': 'GPU'}]
+        mock_poll_api.return_value = [{'id': 7, 'render_device': 'ANY'}]
 
         result = job_processor.poll_and_claim_job(1)
 
-        # Assert that the claim (PATCH request) was never made and None was returned
+        assert result is not None
+        assert result['id'] == 7
+        assert result['assigned_gpu_index'] is None  # No GPU assigned
+        assert result['_acquired_cpu_lock'] is True  # CPU lock was acquired
+        mock_claim_api.assert_called_once()
+
+    def test_split_mode_skips_gpu_job_when_gpus_busy(self, mocker, mock_poll_deps):
+        """
+        Tests that a 'GPU'-only job is correctly skipped if all GPUs are busy,
+        without attempting a CPU fallback.
+        """
+        mock_poll_api, mock_detect_gpu = mock_poll_deps
+        mock_detect_gpu.return_value = ['CUDA']
+        mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
+        mocker.patch('sethlans_worker_agent.job_processor._get_next_available_gpu', return_value=None)
+        mock_claim_api = mocker.patch('sethlans_worker_agent.api_handler.claim_job')
+
+        mock_poll_api.return_value = [{'id': 8, 'render_device': 'GPU'}]
+
+        result = job_processor.poll_and_claim_job(1)
+
         assert result is None
-        mock_claim_job_api.assert_not_called()
+        mock_claim_api.assert_not_called()
+
+    def test_split_mode_skips_any_job_when_all_resources_busy(self, mocker, mock_poll_deps):
+        """
+        Tests that an 'ANY' job is skipped if all GPUs AND the CPU are busy.
+        """
+        mock_poll_api, mock_detect_gpu = mock_poll_deps
+        mock_detect_gpu.return_value = ['CUDA']
+        mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
+        mocker.patch('sethlans_worker_agent.job_processor._get_next_available_gpu', return_value=None)
+        mock_claim_api = mocker.patch('sethlans_worker_agent.api_handler.claim_job')
+
+        mock_poll_api.return_value = [{'id': 9, 'render_device': 'ANY'}]
+
+        # Acquire the lock to simulate a busy CPU
+        job_processor._cpu_lock.acquire()
+        try:
+            result = job_processor.poll_and_claim_job(1)
+            assert result is None
+            mock_claim_api.assert_not_called()
+        finally:
+            job_processor._cpu_lock.release()
 
     def test_claim_job_skips_when_cpu_busy(self, mocker, mock_poll_deps):
         """

@@ -29,6 +29,7 @@ import re
 import platform
 import os
 import time
+import psutil
 import pytest
 import requests
 import threading
@@ -253,3 +254,99 @@ class TestConcurrency(BaseE2ETest):
             f"Expected jobs to be assigned to {num_gpus} unique GPUs, but only found {len(assigned_indices)}."
 
         print(f"SUCCESS: Verified concurrent job execution across all {num_gpus} GPUs.")
+
+    def test_any_job_falls_back_to_cpu_in_split_mode(self):
+        """
+        Verifies that in GPU split mode, with all GPUs occupied, the worker will
+        correctly fall back to using the CPU for a job with render_device='ANY'.
+        """
+        if not is_gpu_available() or psutil.cpu_count() <= 1:
+            pytest.skip("Requires a multi-core, GPU-capable host.")
+
+        system_monitor._gpu_details_cache = None
+        physical_gpus = system_monitor.get_gpu_device_details()
+        num_gpus = len(physical_gpus)
+
+        if num_gpus < 1:
+            pytest.skip("Requires at least one GPU.")
+
+        print(f"\n--- E2E TEST: 'ANY' Job CPU Fallback for {num_gpus} GPU(s) ---")
+
+        # 1. Stop default worker and start one in split mode
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+            self.worker_process.wait(timeout=10)
+
+        self.worker_log_queue = queue.Queue()
+        env = {"SETHLANS_GPU_SPLIT_MODE": "true"}
+        self.start_worker(self.worker_log_queue, extra_env=env)
+
+        # 2. Submit N GPU-only jobs to saturate all GPUs
+        gpu_job_urls = []
+        print(f"Submitting {num_gpus} GPU-only jobs to saturate GPUs...")
+        for i in range(num_gpus):
+            job_payload = {
+                "name": f"E2E GPU Saturation Job {i}-{uuid.uuid4().hex[:8]}",
+                "project": self.project_id,
+                "asset_id": self.bmw_asset_id,
+                "output_file_pattern": f"gpu_saturate_{i}_####",
+                "start_frame": 1, "end_frame": 1,
+                "blender_version": self._blender_version_for_test,
+                "render_device": "GPU",
+                "render_settings": {RenderSettings.RESOLUTION_PERCENTAGE: 25}
+            }
+            res = requests.post(f"{MANAGER_URL}/jobs/", json=job_payload)
+            assert res.status_code == 201
+            gpu_job_urls.append(f"{MANAGER_URL}/jobs/{res.json()['id']}/")
+
+        # 3. Wait until all GPU jobs are confirmed to be claimed (not queued).
+        print("Waiting for worker to claim all GPU saturation jobs...")
+        start_time = time.time()
+        while time.time() - start_time < 60:
+            statuses = [requests.get(url).json()['status'] for url in gpu_job_urls]
+            if all(s != 'QUEUED' for s in statuses):
+                print("All GPU saturation jobs have been claimed by the worker.")
+                break
+            time.sleep(2)
+        else:
+            pytest.fail("Not all GPU saturation jobs were claimed by the worker in time.")
+
+        # 4. Submit one 'ANY' device job that should fall back to CPU
+        print("Submitting one 'ANY' device job for CPU fallback...")
+        cpu_fallback_payload = {
+            "name": f"E2E CPU Fallback Job {uuid.uuid4().hex[:8]}",
+            "project": self.project_id,
+            "asset_id": self.scene_asset_id,  # Use a lighter scene for CPU
+            "output_file_pattern": "cpu_fallback_####",
+            "start_frame": 1, "end_frame": 1,
+            "blender_version": self._blender_version_for_test,
+            "render_device": "ANY",
+            "render_settings": {RenderSettings.SAMPLES: 10}
+        }
+        res = requests.post(f"{MANAGER_URL}/jobs/", json=cpu_fallback_payload)
+        assert res.status_code == 201
+        cpu_job_url = f"{MANAGER_URL}/jobs/{res.json()['id']}/"
+
+        # 5. Wait a moment and verify the CPU job is also rendering
+        print("Verifying that the fallback job was claimed by the CPU...")
+        start_time = time.time()
+        cpu_job_is_rendering = False
+        while time.time() - start_time < 30:
+            status_res = requests.get(cpu_job_url)
+            assert status_res.status_code == 200
+            current_status = status_res.json().get('status')
+            if current_status == 'RENDERING':
+                cpu_job_is_rendering = True
+                break
+            time.sleep(2)
+
+        assert cpu_job_is_rendering, "CPU fallback job did not enter RENDERING state in time."
+        print("CPU fallback job is in RENDERING state as expected.")
+
+        # 6. Poll for completion of all jobs to ensure they all finish
+        print("Polling for completion of all jobs...")
+        all_urls = gpu_job_urls + [cpu_job_url]
+        for url in all_urls:
+            poll_for_completion(url, timeout_seconds=360)
+
+        print("SUCCESS: All jobs completed. Fallback logic appears to be working.")
