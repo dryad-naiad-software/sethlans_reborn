@@ -3,16 +3,7 @@
     This script automates the creation of a new project and a variety of render jobs for manual stress testing.
 .DESCRIPTION
     This script submits a heavy workload to stress-test the Sethlans Reborn system. It creates a new project,
-    uploads all necessary assets, and then queues a diverse set of 9 render jobs, including:
-    - A targeted test to verify CPU fallback behavior on a multi-GPU worker.
-    - A standard single-frame CPU job.
-    - A long multi-frame animation job (HD 720p).
-    - A high-quality, GPU-accelerated tiled render job (Full HD 1080p).
-    - An animation job using the 'frame_step' feature.
-    - A GPU-accelerated TILED ANIMATION job.
-    - A high-sample CPU-only tiled job.
-    - An EEVEE-based animation.
-    - A very long, high-sample animation for endurance testing.
+    uploads all necessary assets, and then queues a diverse set of 9 render jobs.
 .NOTES
     Author: Mario Estrella
     Date: 2025-08-07
@@ -144,59 +135,33 @@ $animationAssetId = Upload-Asset -Name "Animation-Asset-$timestamp" -FilePath $a
 # --- Submit Jobs ---
 Write-Host "`n[STEP 3/3] Submitting render jobs..." -ForegroundColor Cyan
 
-# --- Job 1: NEW - GPU Saturation and CPU Fallback Test ---
-# This sequence is designed for a dual-GPU worker running in split mode.
-# It submits two heavy GPU-only jobs to occupy both GPUs, then submits an
-# 'ANY' device job that should be forced to run on the CPU.
-Write-Host "`n  --- Submitting Dual-GPU Saturation and CPU Fallback Test ---" -ForegroundColor Yellow
-# Job 1.1: Saturate GPU 0
-Write-Host "    Submitting job to saturate GPU 0..."
-$gpuSaturatePayload1 = @{
-    name = "GPU-Saturate-1-$timestamp"
+# --- Job 1: Natural Concurrency and CPU Fallback Test ---
+# This sequence submits 3 identical, heavy 'ANY' device jobs. On a dual-GPU
+# worker in split mode, this should result in 2 jobs on the GPUs and 1 on the CPU.
+Write-Host "`n  --- Submitting Natural Concurrency Test (2 GPU + 1 CPU) ---" -ForegroundColor Yellow
+Write-Host "    Submitting 3 identical 'ANY' device jobs..."
+$fallbackBasePayload = @{
     project = $projectId
-    asset_id = $bmwAssetId
-    output_file_pattern = "gpu_saturate_1_####"
+    asset_id = [int]$bmwAssetId
+    output_file_pattern = "natural_fallback_####"
     start_frame = 1
     end_frame = 1
-    render_device = "GPU"
+    render_device = "ANY"
     render_settings = @{ "cycles.samples" = 1024 }
 }
-Invoke-ApiCall -Method "POST" -Url "$apiUrl/jobs/" -Body $gpuSaturatePayload1 | Out-Null
 
-# Job 1.2: Saturate GPU 1
-Write-Host "    Submitting job to saturate GPU 1..."
-$gpuSaturatePayload2 = @{
-    name = "GPU-Saturate-2-$timestamp"
-    project = $projectId
-    asset_id = $bmwAssetId
-    output_file_pattern = "gpu_saturate_2_####"
-    start_frame = 1
-    end_frame = 1
-    render_device = "GPU"
-    render_settings = @{ "cycles.samples" = 1024 }
+foreach ($i in 1..3) {
+    $payload = $fallbackBasePayload.Clone()
+    $payload.name = "Natural-Fallback-$i-$timestamp"
+    Invoke-ApiCall -Method "POST" -Url "$apiUrl/jobs/" -Body $payload | Out-Null
 }
-Invoke-ApiCall -Method "POST" -Url "$apiUrl/jobs/" -Body $gpuSaturatePayload2 | Out-Null
-
-# Job 1.3: CPU Fallback Job
-Write-Host "    Submitting 'ANY' device job to test CPU fallback (4 frames)..."
-$cpuFallbackPayload = @{
-    name = "CPU-Fallback-Anim-$timestamp"
-    project = $projectId
-    asset_id = $animationAssetId
-    output_file_pattern = "cpu_fallback_####"
-    start_frame = 1
-    end_frame = 4
-    render_device = "ANY" # This job should fall back to the CPU
-    render_settings = @{ "cycles.samples" = 500 }
-}
-Invoke-ApiCall -Method "POST" -Url "$apiUrl/animations/" -Body $cpuFallbackPayload | Out-Null
 
 # --- Job 2: Standard Single-Frame CPU Job ---
 Write-Host "`n  Submitting standard single-frame CPU job..."
 $cpuJobPayload = @{
     name = "CPU-Single-Frame-$timestamp"
     project = $projectId
-    asset_id = $simpleSceneAssetId
+    asset_id = [int]$simpleSceneAssetId
     output_file_pattern = "cpu_render_####"
     start_frame = 1
     end_frame = 1
@@ -210,11 +175,11 @@ Write-Host "  Submitting long multi-frame animation job (75 frames)..."
 $animPayload = @{
     name = "Long-Animation-720p-$timestamp"
     project = $projectId
-    asset_id = $animationAssetId
+    asset_id = [int]$animationAssetId
     output_file_pattern = "anim_render_720p_####"
     start_frame = 1
     end_frame = 75
-    render_device = "ANY" # IMPROVEMENT: Changed to ANY to test flexible assignment
+    render_device = "ANY"
     render_settings = @{ "cycles.samples" = 256; "render.resolution_x" = 1280; "render.resolution_y" = 720 }
 }
 Invoke-ApiCall -Method "POST" -Url "$apiUrl/animations/" -Body $animPayload | Out-Null
@@ -224,7 +189,7 @@ Write-Host "  Submitting high-quality GPU-accelerated tiled job (4x4 tiles)..."
 $tiledPayload = @{
     name = "GPU-Tiled-Job-1080p-$timestamp"
     project = $projectId
-    asset_id = $bmwAssetId
+    asset_id = [int]$bmwAssetId
     final_resolution_x = 1920
     final_resolution_y = 1080
     tile_count_x = 4
@@ -239,12 +204,12 @@ Write-Host "  Submitting animation with frame step (100 frames, step 5)..."
 $frameStepPayload = @{
     name = "Frame-Step-Animation-$timestamp"
     project = $projectId
-    asset_id = $animationAssetId
+    asset_id = [int]$animationAssetId
     output_file_pattern = "frame_step_anim_####"
     start_frame = 1
     end_frame = 100
     frame_step = 5
-    render_device = "ANY" # IMPROVEMENT: Changed to ANY
+    render_device = "ANY"
     render_settings = @{ "cycles.samples" = 128; "render.resolution_percentage" = 75 }
 }
 Invoke-ApiCall -Method "POST" -Url "$apiUrl/animations/" -Body $frameStepPayload | Out-Null
@@ -254,7 +219,7 @@ Write-Host "  Submitting tiled animation job (2x2 tiles)..."
 $tiledAnimPayload = @{
     name = "Tiled-Animation-$timestamp"
     project = $projectId
-    asset_id = $animationAssetId
+    asset_id = [int]$animationAssetId
     output_file_pattern = "tiled_anim_####"
     start_frame = 1
     end_frame = 10
@@ -267,9 +232,9 @@ Invoke-ApiCall -Method "POST" -Url "$apiUrl/animations/" -Body $tiledAnimPayload
 # --- Job 7: CPU-intensive Tiled Job ---
 Write-Host "  Submitting CPU-intensive tiled job (3x3 tiles, 1024 samples)..."
 $cpuTiledPayload = @{
-    name = "CPU-Tiled-Job-High-Samples-$timestamp"
+    name = "CPU-Tiled-High-Samples-$timestamp"
     project = $projectId
-    asset_id = $bmwAssetId
+    asset_id = [int]$bmwAssetId
     final_resolution_x = 1280
     final_resolution_y = 720
     tile_count_x = 3
@@ -284,22 +249,22 @@ Write-Host "  Submitting EEVEE animation job (50 frames)..."
 $eeveeAnimPayload = @{
     name = "EEVEE-Animation-$timestamp"
     project = $projectId
-    asset_id = $animationAssetId
+    asset_id = [int]$animationAssetId
     output_file_pattern = "eevee_anim_####"
     start_frame = 1
     end_frame = 50
     render_engine = "BLENDER_EEVEE_NEXT"
-    render_device = "ANY" # IMPROVEMENT: Changed to ANY
+    render_device = "ANY"
     render_settings = @{ "eevee.taa_render_samples" = 16; "render.resolution_percentage" = 50 }
 }
 Invoke-ApiCall -Method "POST" -Url "$apiUrl/animations/" -Body $eeveeAnimPayload | Out-Null
 
-# --- Job 9: NEW - Very Long Animation (GPU) ---
+# --- Job 9: Very Long Animation (GPU) ---
 Write-Host "  Submitting VERY long animation job (150 frames, 500 samples)..."
 $veryLongAnimPayload = @{
     name = "Very-Long-Animation-$timestamp"
     project = $projectId
-    asset_id = $animationAssetId
+    asset_id = [int]$animationAssetId
     output_file_pattern = "very_long_anim_####"
     start_frame = 1
     end_frame = 150
