@@ -47,7 +47,8 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 logger = logging.getLogger(__name__)
 
 
-def generate_render_config_script(render_engine, render_device, render_settings, gpu_index_override: Optional[int] = None):
+def generate_render_config_script(job_id, render_engine, render_device, render_settings,
+                                  gpu_index_override: Optional[int] = None, is_cpu_fallback: bool = False):
     """
     Generates a Python script to configure Blender's render settings.
 
@@ -62,11 +63,14 @@ def generate_render_config_script(render_engine, render_device, render_settings,
     or the `SETHLANS_FORCE_GPU_INDEX` configuration setting.
 
     Args:
+        job_id (int): The ID of the job for logging purposes.
         render_engine (str): The requested render engine (e.g., 'CYCLES').
         render_device (str): The requested render device ('CPU', 'GPU', 'ANY').
         render_settings (dict): A dictionary of user-defined settings to override.
         gpu_index_override (int, optional): A specific GPU device index to use.
             This takes precedence over FORCE_GPU_INDEX. Defaults to None.
+        is_cpu_fallback (bool): If True, forces a CPU device configuration,
+            overriding an 'ANY' preference. Defaults to False.
 
     Returns:
         str: The complete Python script as a string.
@@ -80,10 +84,12 @@ def generate_render_config_script(render_engine, render_device, render_settings,
     # 2. Only configure Cycles-specific device settings if the engine is Cycles.
     if render_engine == 'CYCLES':
         detected_gpus = system_monitor.detect_gpu_devices()
-        use_gpu = (render_device == 'GPU') or (render_device == 'ANY' and detected_gpus)
+        # Determine if GPU should be used. The `is_cpu_fallback` flag is critical here to override
+        # the 'ANY' preference when the job processor has decided to use the CPU.
+        use_gpu = not is_cpu_fallback and ((render_device == 'GPU') or (render_device == 'ANY' and detected_gpus))
 
         if use_gpu:
-            logger.info(f"Configuring job for GPU rendering. Available backends: {detected_gpus}")
+            logger.info(f"[Job {job_id}] Configuring job for GPU rendering. Available backends: {detected_gpus}")
             script_lines.append("prefs = bpy.context.preferences.addons['cycles'].preferences")
             backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
             chosen_backend = next((b for b in backend_preference if b in detected_gpus), None)
@@ -125,10 +131,10 @@ def generate_render_config_script(render_engine, render_device, render_settings,
 
                 script_lines.append("bpy.context.scene.cycles.device = 'GPU'")
             else:
-                logger.warning("GPU requested but no compatible backend was detected. Falling back to CPU.")
+                logger.warning(f"GPU requested but no compatible backend was detected. Falling back to CPU.")
                 script_lines.append("bpy.context.scene.cycles.device = 'CPU'")
         else:
-            logger.info("Configuring job for CPU rendering.")
+            logger.info(f"[Job {job_id}] Configuring job for CPU rendering.")
             script_lines.append("bpy.context.scene.cycles.device = 'CPU'")
 
     # --- User Overrides ---
@@ -174,6 +180,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
+    render_device = job_data.get('render_device', 'CPU')
 
     logger.info(f"[Job {job_id}] Received job '{job_name}'. Job execution started at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
 
@@ -202,7 +209,6 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     blender_version_req = job_data.get('blender_version')
     render_engine = job_data.get('render_engine', 'CYCLES')
     render_settings = job_data.get('render_settings', {})
-    render_device = job_data.get('render_device', 'CPU')
     temp_script_path = None
 
     os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
@@ -249,8 +255,20 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     # --- END REFACTORED SECTION ---
 
     try:
+        # Determine if this is a CPU fallback scenario
+        gpus_on_system = system_monitor.get_gpu_device_details()
+        is_cpu_fallback_case = (
+                render_device == 'ANY' and
+                assigned_gpu_index is None and
+                len(gpus_on_system) > 0
+        )
+        if is_cpu_fallback_case:
+            logger.info(f"[Job {job_id}] [CPU Fallback] Forcing CPU configuration for 'ANY' job as all GPUs are busy.")
+
         script_content = generate_render_config_script(
-            render_engine, render_device, render_settings, gpu_index_override=assigned_gpu_index
+            job_id, render_engine, render_device, render_settings,
+            gpu_index_override=assigned_gpu_index,
+            is_cpu_fallback=is_cpu_fallback_case
         )
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
             temp_script_path = f.name

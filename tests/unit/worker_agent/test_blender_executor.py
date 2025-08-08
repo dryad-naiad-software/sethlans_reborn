@@ -144,6 +144,30 @@ def test_cpu_job_generates_correct_script(mocker, mock_exec_deps):
     assert "prefs.compute_device_type" not in written_script
 
 
+def test_any_job_on_gpu_system_forces_cpu_when_fallback_is_true(mocker, mock_exec_deps):
+    """
+    Verifies that an 'ANY' job on a GPU system generates a CPU-only script
+    when the job processor has determined it's a CPU fallback case.
+    """
+    # Arrange: Simulate a GPU-capable system
+    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA'])
+    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[{'name': 'GPU'}])
+    mock_write = mock_exec_deps["script_write"]
+    job_data = {
+        'id': 1, 'asset': {}, 'output_file_pattern': 'f', 'render_device': 'ANY',
+        'render_engine': 'CYCLES', 'blender_version': '4.5.0'
+    }
+
+    # Act: Execute the job with assigned_gpu_index=None, simulating the fallback scenario
+    blender_executor.execute_blender_job(job_data, assigned_gpu_index=None)
+
+    # Assert: The generated script must configure for CPU and not GPU
+    written_script = mock_write.call_args.args[0]
+    assert "bpy.context.scene.cycles.device = 'CPU'" in written_script
+    assert "prefs.compute_device_type" not in written_script
+    assert "bpy.context.scene.cycles.device = 'GPU'" not in written_script
+
+
 def test_workbench_job_skips_cycles_config(mocker, mock_exec_deps):
     """
     Verifies that a non-Cycles job does not attempt to configure Cycles devices.

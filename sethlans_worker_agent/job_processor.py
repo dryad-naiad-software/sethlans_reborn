@@ -192,7 +192,6 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
         # If we acquired a lock but the API claim failed (e.g., race condition), release the lock.
         if acquired_cpu_lock:
             _cpu_lock.release()
-            logger.debug(f"Released CPU lock after failed claim for job {job_id}.")
 
     return None
 

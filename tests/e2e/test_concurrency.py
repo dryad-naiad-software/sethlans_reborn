@@ -349,4 +349,40 @@ class TestConcurrency(BaseE2ETest):
         for url in all_urls:
             poll_for_completion(url, timeout_seconds=360)
 
-        print("SUCCESS: All jobs completed. Fallback logic appears to be working.")
+        print("All jobs completed. Verifying logs for correct CPU fallback configuration...")
+
+        # 7. Stop the worker and verify its logs
+        if self.worker_process and self.worker_process.poll() is None:
+            self.worker_process.kill()
+            self.worker_process.wait(timeout=10)
+        if self.worker_log_thread and self.worker_log_thread.is_alive():
+            self.worker_log_thread.join(timeout=5)
+
+        worker_logs = []
+        while not self.worker_log_queue.empty():
+            worker_logs.append(self.worker_log_queue.get_nowait())
+        full_log = "".join(worker_logs)
+
+        cpu_job_id = res.json()['id']
+
+        # --- NEW: Explicitly print the key log message for verification ---
+        key_log_pattern = re.compile(
+            rf".*\[Job {cpu_job_id}\] \[CPU Fallback\] Forcing CPU configuration.*"
+        )
+        match = key_log_pattern.search(full_log)
+        if match:
+            print(f"\n[VERIFICATION] Found key log message in worker output:\n  >> {match.group(0).strip()}\n")
+        # --- END NEW SECTION ---
+
+        # Assertions to confirm the correct logic path was taken
+        fallback_log_pattern = re.compile(
+            rf"\[Job {cpu_job_id}\] \[CPU Fallback\] Forcing CPU configuration for 'ANY' job"
+        )
+        cpu_config_log_pattern = re.compile(rf"\[Job {cpu_job_id}\].*Configuring job for CPU rendering")
+        gpu_config_log_pattern = re.compile(rf"\[Job {cpu_job_id}\].*Configuring job for GPU rendering")
+
+        assert fallback_log_pattern.search(full_log), "Log did not contain the CPU fallback message."
+        assert cpu_config_log_pattern.search(full_log), "Log did not contain the CPU configuration message."
+        assert not gpu_config_log_pattern.search(full_log), "Log incorrectly contained a GPU configuration message."
+
+        print("SUCCESS: Log verification confirmed correct CPU fallback behavior.")
