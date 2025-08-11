@@ -26,9 +26,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- CHANGE ---
-      # This step will now only run on GitHub-hosted Linux runners. It will be
-      # skipped on your self-hosted runner.
       - name: Install System Dependencies (GitHub-Hosted Linux)
         if: runner.os == 'Linux' && !contains(join(matrix.os), 'self-hosted')
         run: |
@@ -41,10 +38,15 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # --- CHANGE ---
+      # This step now explicitly sets the pyenv version and uses the full path
+      # to the python executable to create the venv. This resolves the
+      # "python: command not found" error.
       - name: Create and activate venv (Self-Hosted)
         if: contains(join(matrix.os), 'self-hosted')
         run: |
-          python -m venv venv
+          pyenv global ${{ matrix.python-version }}
+          $(pyenv which python) -m venv venv
           echo "PATH=$PWD/venv/bin:$PATH" >> $GITHUB_ENV
           echo "VIRTUAL_ENV=$PWD/venv" >> $GITHUB_ENV
 
