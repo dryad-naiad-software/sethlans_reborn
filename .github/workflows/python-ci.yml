@@ -10,7 +10,6 @@ on:
 
 jobs:
   # --- JOB 1: GitHub-Hosted Runners ---
-  # This job runs the standard matrix on GitHub's infrastructure.
   build-and-test-github:
     name: Test on ${{ matrix.os }} (Python ${{ matrix.python-version }})
     strategy:
@@ -18,24 +17,19 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.12", "3.13"]
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Install System Dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
-
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
       - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
@@ -43,33 +37,26 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Cache Managed Blender Tools
         id: blender-cache
         uses: actions/cache@v4
         with:
           path: sethlans_worker_agent/managed_tools
           key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('sethlans_worker_agent/config.py') }}
-
       - name: Lint with flake8
         run: |
           # Exclude common virtual environment directories from linting.
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv
-
       - name: Run Unit Tests
         run: pytest tests/unit
-
       - name: Run End-to-End Tests (Windows & Linux)
         if: runner.os != 'macOS'
         run: pytest tests/e2e
-
-      # --- E2E Tests and Diagnostics for macOS ---
       - name: macOS E2E Tests & Diagnostics
         if: runner.os == 'macOS'
         run: |
@@ -83,14 +70,12 @@ jobs:
             ls -laR sethlans_worker_agent/managed_tools/blender/
             exit 1
           )
-        continue-on-error: true # To allow artifact upload even on failure
-
+        continue-on-error: true
       - name: Attempt to Unmount Any Lingering DMGs (macOS)
         if: runner.os == 'macOS' && always()
         run: |
           echo "Attempting to detach any lingering BlenderMount volumes..."
           hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
-
       - name: Upload Test Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,23 +89,17 @@ jobs:
             !**/*.blend
           if-no-files-found: ignore
 
-  # --- JOB 2: Self-Hosted GPU Runner ---
-  # This job runs only on your specialized self-hosted runner.
-  build-and-test-self-hosted:
-    name: Test on Self-Hosted GPU (Python ${{ matrix.python-version }})
+  # --- JOB 2: Self-Hosted Linux GPU Runner ---
+  build-and-test-self-hosted-linux:
+    name: Test on Self-Hosted Linux GPU (Python ${{ matrix.python-version }})
     runs-on: [self-hosted, linux, x64, gpu]
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
-        # --- CHANGE ---
-        # This job will now only run for Python 3.13.
         python-version: ["3.13"]
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Create and activate venv
         shell: bash
         run: |
@@ -131,7 +110,6 @@ jobs:
           $(pyenv which python) -m venv venv
           echo "PATH=$PWD/venv/bin:$PATH" >> $GITHUB_ENV
           echo "VIRTUAL_ENV=$PWD/venv" >> $GITHUB_ENV
-
       - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
@@ -139,36 +117,108 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Cache Managed Blender Tools
         id: blender-cache
         uses: actions/cache@v4
         with:
           path: sethlans_worker_agent/managed_tools
           key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('sethlans_worker_agent/config.py') }}
-
       - name: Lint with flake8
         run: |
-          # Exclude the virtual environment directory from linting.
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv
-
       - name: Run Unit Tests
         run: pytest tests/unit
-
       - name: Run End-to-End Tests
         run: pytest tests/e2e
-
       - name: Upload Test Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts-self-hosted-py${{ matrix.python-version }}
+          name: test-artifacts-self-hosted-linux-py${{ matrix.python-version }}
+          path: |
+            logs/manager.log
+            sethlans_worker_agent/logs/worker.log
+            sethlans_worker_agent/worker_output/
+            test_artifacts/
+            !**/*.blend
+          if-no-files-found: ignore
+
+  # --- JOB 3: Self-Hosted Apple Silicon Mac Runner ---
+  build-and-test-self-hosted-macos:
+    name: Test on Self-Hosted Apple Silicon (Python ${{ matrix.python-version }})
+    runs-on: [self-hosted, macos, arm64, metal]
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Create and activate venv
+        shell: bash
+        run: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init --path)"
+          pyenv global ${{ matrix.python-version }}
+          $(pyenv which python) -m venv venv
+          echo "PATH=$PWD/venv/bin:$PATH" >> $GITHUB_ENV
+          echo "VIRTUAL_ENV=$PWD/venv" >> $GITHUB_ENV
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          # --- CHANGE ---
+          # Switched from ~/Library/Caches/pip to the more standard ~/.cache/pip
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Cache Managed Blender Tools
+        id: blender-cache
+        uses: actions/cache@v4
+        with:
+          path: sethlans_worker_agent/managed_tools
+          key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('sethlans_worker_agent/config.py') }}
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv
+      - name: Run Unit Tests
+        run: pytest tests/unit
+      # --- CHANGE ---
+      # Replaced the simple E2E test with the robust diagnostic steps from the GitHub-hosted job.
+      - name: macOS E2E Tests & Diagnostics
+        run: |
+          df -h
+          mkdir -p sethlans_worker_agent/managed_tools/blender/
+          ls -la sethlans_worker_agent/managed_tools/blender/
+          pytest tests/e2e || (
+            echo "E2E tests failed. Collecting post-run diagnostic info..."
+            df -h
+            mount
+            ls -laR sethlans_worker_agent/managed_tools/blender/
+            exit 1
+          )
+        continue-on-error: true
+      - name: Attempt to Unmount Any Lingering DMGs (macOS)
+        if: always()
+        run: |
+          echo "Attempting to detach any lingering BlenderMount volumes..."
+          hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
+      - name: Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-self-hosted-macos-py${{ matrix.python-version }}
           path: |
             logs/manager.log
             sethlans_worker_agent/logs/worker.log
