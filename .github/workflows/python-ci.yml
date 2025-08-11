@@ -1,3 +1,5 @@
+# .github/workflows/ci.yml
+
 name: Sethlans Reborn CI
 
 on:
@@ -11,7 +13,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os:
+          - [ubuntu-latest]
+          - [windows-latest]
+          - [macos-latest]
+          - [self-hosted, linux, x64, gpu]
         python-version: ["3.12", "3.13"]
 
     runs-on: ${{ matrix.os }}
@@ -20,16 +26,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install System Dependencies (Linux)
-        if: runner.os == 'Linux'
+      # --- CHANGE ---
+      # This step will now only run on GitHub-hosted Linux runners. It will be
+      # skipped on your self-hosted runner.
+      - name: Install System Dependencies (GitHub-Hosted Linux)
+        if: runner.os == 'Linux' && !contains(join(matrix.os), 'self-hosted')
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }} (GitHub-Hosted)
+        if: "!contains(join(matrix.os), 'self-hosted')"
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Create and activate venv (Self-Hosted)
+        if: contains(join(matrix.os), 'self-hosted')
+        run: |
+          python -m venv venv
+          echo "PATH=$PWD/venv/bin:$PATH" >> $GITHUB_ENV
+          echo "VIRTUAL_ENV=$PWD/venv" >> $GITHUB_ENV
 
       - name: Cache pip dependencies
         uses: actions/cache@v4
