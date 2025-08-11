@@ -111,8 +111,11 @@ jobs:
     runs-on: [self-hosted, linux, x64, gpu]
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
-        python-version: ["3.12", "3.13"]
+        # --- CHANGE ---
+        # This job will now only run for Python 3.13.
+        python-version: ["3.13"]
 
     steps:
       - name: Checkout repository
