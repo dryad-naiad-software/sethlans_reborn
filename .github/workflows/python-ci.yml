@@ -9,15 +9,14 @@ on:
     branches: [ "master" ]
 
 jobs:
-  build-and-test:
+  # --- JOB 1: GitHub-Hosted Runners ---
+  # This job runs the standard matrix on GitHub's infrastructure.
+  build-and-test-github:
+    name: Test on ${{ matrix.os }} (Python ${{ matrix.python-version }})
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - [ubuntu-latest]
-          - [windows-latest]
-          - [macos-latest]
-          - [self-hosted, linux, x64, gpu]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.12", "3.13"]
 
     runs-on: ${{ matrix.os }}
@@ -26,24 +25,105 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install System Dependencies (GitHub-Hosted Linux)
-        if: runner.os == 'Linux' && !contains(join(matrix.os), 'self-hosted')
+      - name: Install System Dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
 
-      - name: Set up Python ${{ matrix.python-version }} (GitHub-Hosted)
-        if: "!contains(join(matrix.os), 'self-hosted')"
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      # --- CHANGE ---
-      # This step now explicitly sets the pyenv version and uses the full path
-      # to the python executable to create the venv. This resolves the
-      # "python: command not found" error.
-      - name: Create and activate venv (Self-Hosted)
-        if: contains(join(matrix.os), 'self-hosted')
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Cache Managed Blender Tools
+        id: blender-cache
+        uses: actions/cache@v4
+        with:
+          path: sethlans_worker_agent/managed_tools
+          key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('sethlans_worker_agent/config.py') }}
+
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Run Unit Tests
+        run: pytest tests/unit
+
+      - name: Run End-to-End Tests (Windows & Linux)
+        if: runner.os != 'macOS'
+        run: pytest tests/e2e
+
+      # --- E2E Tests and Diagnostics for macOS ---
+      - name: macOS E2E Tests & Diagnostics
+        if: runner.os == 'macOS'
+        run: |
+          df -h
+          mkdir -p sethlans_worker_agent/managed_tools/blender/
+          ls -la sethlans_worker_agent/managed_tools/blender/
+          pytest tests/e2e || (
+            echo "E2E tests failed. Collecting post-run diagnostic info..."
+            df -h
+            mount
+            ls -laR sethlans_worker_agent/managed_tools/blender/
+            exit 1
+          )
+        continue-on-error: true # To allow artifact upload even on failure
+
+      - name: Attempt to Unmount Any Lingering DMGs (macOS)
+        if: runner.os == 'macOS' && always()
+        run: |
+          echo "Attempting to detach any lingering BlenderMount volumes..."
+          hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
+
+      - name: Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            logs/manager.log
+            sethlans_worker_agent/logs/worker.log
+            sethlans_worker_agent/worker_output/
+            test_artifacts/
+            !**/*.blend
+          if-no-files-found: ignore
+
+  # --- JOB 2: Self-Hosted GPU Runner ---
+  # This job runs only on your specialized self-hosted runner.
+  build-and-test-self-hosted:
+    name: Test on Self-Hosted GPU (Python ${{ matrix.python-version }})
+    # --- CHANGE ---
+    # The "needs" key has been removed, so this job will start at the same
+    # time as the 'build-and-test-github' job.
+    runs-on: [self-hosted, linux, x64, gpu]
+    defaults:
+      run:
+        shell: bash -l {0} # Use login shell ONLY for this job
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create and activate venv
         run: |
           pyenv global ${{ matrix.python-version }}
           $(pyenv which python) -m venv venv
@@ -78,58 +158,14 @@ jobs:
       - name: Run Unit Tests
         run: pytest tests/unit
 
-      # --- E2E Tests for non-macOS ---
-      - name: Run End-to-End Tests (Windows & Linux)
-        if: runner.os != 'macOS'
+      - name: Run End-to-End Tests
         run: pytest tests/e2e
 
-      # --- E2E Tests and Diagnostics for macOS ---
-      - name: 1. Check Initial Disk Space (macOS)
-        if: runner.os == 'macOS'
-        run: df -h
-
-      - name: 2. Check Initial Permissions (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          echo "Checking permissions for target directory..."
-          mkdir -p sethlans_worker_agent/managed_tools/blender/
-          ls -la sethlans_worker_agent/managed_tools/blender/
-
-      - name: 3. Run End-to-End Tests (macOS)
-        if: runner.os == 'macOS'
-        id: e2e_tests
-        continue-on-error: true
-        run: pytest tests/e2e
-
-      - name: 4. Check E2E Test Outcome (macOS)
-        if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'
-        run: echo "E2E tests failed. Collecting post-run diagnostic info..."
-
-      - name: 5. Check Disk Space After Failure (macOS)
-        if: runner.os == 'macOS' && failure()
-        run: df -h
-
-      - name: 6. List All Mounted Volumes (macOS)
-        if: runner.os == 'macOS' && failure()
-        run: mount
-
-      - name: 7. Recursively List Files in Target Directory (macOS)
-        if: runner.os == 'macOS' && failure()
-        run: |
-          echo "Listing all files in the Blender tools directory..."
-          ls -laR sethlans_worker_agent/managed_tools/blender/
-
-      - name: 8. Attempt to Unmount Any Lingering DMGs (macOS)
-        if: runner.os == 'macOS' && always()
-        run: |
-          echo "Attempting to detach any lingering BlenderMount volumes..."
-          hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
-
-      - name: 9. Upload Test Artifacts
+      - name: Upload Test Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: test-artifacts-self-hosted-py${{ matrix.python-version }}
           path: |
             logs/manager.log
             sethlans_worker_agent/logs/worker.log
@@ -137,9 +173,3 @@ jobs:
             test_artifacts/
             !**/*.blend
           if-no-files-found: ignore
-
-      - name: 10. Fail job if E2E tests failed (macOS)
-        if: runner.os == 'macOS' && steps.e2e_tests.outcome == 'failure'
-        run: |
-          echo "Failing the job because end-to-end tests failed."
-          exit 1
