@@ -168,7 +168,7 @@ $filesFound     = $FilesToDump.Count
 $filesProcessed = 0
 $filesFailed    = 0
 
-$MaxChunkSizeChars = 40000
+$MaxChunkSizeChars = 100000
 $chunks            = @()
 $currentChunk      = ""
 

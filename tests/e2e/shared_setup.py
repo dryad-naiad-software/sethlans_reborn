@@ -183,7 +183,8 @@ class BaseE2ETest:
 
         Applies a stability fix for macOS CI runners by forcing the worker
         into CPU-only mode for most tests. This is disabled for test suites
-        that specifically need to validate hardware detection.
+        that specifically need to validate hardware detection. This fix is also
+        bypassed if the `SETHLANS_SELF_HOSTED_RUNNER` environment variable is set.
         """
         print("Starting Worker Agent...")
         test_env = os.environ.copy()
@@ -196,14 +197,16 @@ class BaseE2ETest:
             test_env.update(extra_env)
 
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+        is_self_hosted = os.environ.get("SETHLANS_SELF_HOSTED_RUNNER") == "true"
         force_flag_is_set = "SETHLANS_FORCE_CPU_ONLY" in test_env or "SETHLANS_FORCE_GPU_ONLY" in test_env
 
-        # FIX: The hardware reporting test is in `TestWorkerBehavior`, not the non-existent
-        # `TestWorkerRegistration`. This fix ensures the stability flag is NOT applied to
-        # the test that validates hardware detection.
-        if platform.system() == "Darwin" and is_ci and cls.__name__ != 'TestWorkerBehavior' and not force_flag_is_set:
-            print(f"\n[CI-FIX] macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode.")
+        # This stability fix forces standard (non-self-hosted) macOS CI runners into CPU mode.
+        if (platform.system() == "Darwin" and is_ci and not is_self_hosted and
+                cls.__name__ != 'TestWorkerBehavior' and not force_flag_is_set):
+            print(f"\n[CI-FIX] Standard macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode for stability.")
             test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
+        elif is_self_hosted:
+            print("\n[INFO] Self-hosted runner detected. Tests will run with full hardware capabilities.")
 
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
         cls.worker_process = subprocess.Popen(
