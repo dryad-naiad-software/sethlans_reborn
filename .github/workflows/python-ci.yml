@@ -107,13 +107,8 @@ jobs:
   # This job runs only on your specialized self-hosted runner.
   build-and-test-self-hosted:
     name: Test on Self-Hosted GPU (Python ${{ matrix.python-version }})
-    # --- CHANGE ---
-    # The "needs" key has been removed, so this job will start at the same
-    # time as the 'build-and-test-github' job.
     runs-on: [self-hosted, linux, x64, gpu]
-    defaults:
-      run:
-        shell: bash -l {0} # Use login shell ONLY for this job
+    # We remove the login shell default and will initialize pyenv manually.
     strategy:
       fail-fast: false
       matrix:
@@ -123,8 +118,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --- CHANGE ---
+      # Explicitly initialize pyenv to ensure it's available in the PATH.
+      # This is the most robust way to solve the "command not found" error.
       - name: Create and activate venv
+        shell: bash
         run: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init --path)"
           pyenv global ${{ matrix.python-version }}
           $(pyenv which python) -m venv venv
           echo "PATH=$PWD/venv/bin:$PATH" >> $GITHUB_ENV
