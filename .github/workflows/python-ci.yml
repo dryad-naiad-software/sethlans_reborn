@@ -58,8 +58,9 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          # Exclude common virtual environment directories from linting.
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv
 
       - name: Run Unit Tests
         run: pytest tests/unit
@@ -108,7 +109,6 @@ jobs:
   build-and-test-self-hosted:
     name: Test on Self-Hosted GPU (Python ${{ matrix.python-version }})
     runs-on: [self-hosted, linux, x64, gpu]
-    # We remove the login shell default and will initialize pyenv manually.
     strategy:
       fail-fast: false
       matrix:
@@ -118,9 +118,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- CHANGE ---
-      # Explicitly initialize pyenv to ensure it's available in the PATH.
-      # This is the most robust way to solve the "command not found" error.
       - name: Create and activate venv
         shell: bash
         run: |
@@ -154,8 +151,9 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          # Exclude the virtual environment directory from linting.
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv
 
       - name: Run Unit Tests
         run: pytest tests/unit
