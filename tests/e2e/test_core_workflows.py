@@ -36,7 +36,7 @@ import uuid
 import time
 
 from .shared_setup import BaseE2ETest, MANAGER_URL
-from .helpers import is_gpu_available, poll_for_completion, verify_image_output
+from .helpers import is_gpu_available, poll_for_completion, verify_image_output, is_self_hosted_runner
 from workers.constants import RenderSettings
 
 
@@ -112,8 +112,9 @@ class TestCoreWorkflows(BaseE2ETest):
         This test is skipped at runtime if no compatible GPU is detected.
         """
         # Perform the check at runtime, after setup_class has prepared Blender.
-        if not is_gpu_available() or (platform.system() == "Darwin" and "CI" in os.environ):
-            pytest.skip("Skipping GPU test: No compatible GPU or running in unstable macOS CI.")
+        is_standard_mac_ci = platform.system() == "Darwin" and "CI" in os.environ and not is_self_hosted_runner()
+        if not is_gpu_available() or is_standard_mac_ci:
+            pytest.skip("Skipping GPU test: No compatible GPU or running in standard macOS CI.")
 
         print("\n--- E2E TEST: Single-Frame GPU Render ---")
         job_payload = {

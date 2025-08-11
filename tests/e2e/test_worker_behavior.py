@@ -35,7 +35,7 @@ import pytest
 import requests
 import uuid
 from .shared_setup import BaseE2ETest, MANAGER_URL
-from .helpers import is_gpu_available, poll_for_completion
+from .helpers import is_gpu_available, poll_for_completion, is_self_hosted_runner
 from sethlans_worker_agent import system_monitor
 
 
@@ -76,7 +76,8 @@ class TestWorkerBehavior(BaseE2ETest):
         Verifies that a default (non-forced) GPU-capable worker can process
         both CPU-only and GPU-only jobs.
         """
-        if not is_gpu_available() or (platform.system() == "Darwin" and "CI" in os.environ):
+        is_standard_mac_ci = platform.system() == "Darwin" and "CI" in os.environ and not is_self_hosted_runner()
+        if not is_gpu_available() or is_standard_mac_ci:
             pytest.skip("Requires a stable GPU-capable host.")
 
         print("\n--- E2E TEST: Default Worker Job Flexibility ---")

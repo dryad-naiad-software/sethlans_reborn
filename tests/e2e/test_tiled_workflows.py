@@ -32,7 +32,7 @@ import requests
 import uuid
 
 from .shared_setup import BaseE2ETest, MANAGER_URL
-from .helpers import poll_for_completion, verify_image_output, is_gpu_available
+from .helpers import poll_for_completion, verify_image_output, is_gpu_available, is_self_hosted_runner
 from workers.constants import RenderSettings
 
 
@@ -42,8 +42,8 @@ class TestTiledWorkflows(BaseE2ETest):
     """
 
     @pytest.mark.skipif(
-        platform.system() == "Darwin" and "CI" in os.environ,
-        reason="Tiled rendering is skipped on unstable macOS CI environment"
+        platform.system() == "Darwin" and "CI" in os.environ and not is_self_hosted_runner(),
+        reason="Tiled rendering is skipped on standard (non-self-hosted) macOS CI environment"
     )
     def test_single_frame_tiled_render(self):
         """

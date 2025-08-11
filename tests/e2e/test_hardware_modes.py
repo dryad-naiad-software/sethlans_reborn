@@ -33,7 +33,7 @@ import requests
 import uuid
 
 from .shared_setup import BaseE2ETest, MANAGER_URL
-from .helpers import is_gpu_available, poll_for_completion
+from .helpers import is_gpu_available, poll_for_completion, is_self_hosted_runner
 
 
 class TestHardwareModes(BaseE2ETest):
@@ -105,7 +105,8 @@ class TestHardwareModes(BaseE2ETest):
         Verifies that a worker in FORCE_GPU_ONLY mode will process a GPU
         job while leaving a CPU-only job in the queue.
         """
-        if not is_gpu_available() or (platform.system() == "Darwin" and "CI" in os.environ):
+        is_standard_mac_ci = platform.system() == "Darwin" and "CI" in os.environ and not is_self_hosted_runner()
+        if not is_gpu_available() or is_standard_mac_ci:
             pytest.skip("Requires a stable GPU-capable host.")
 
         print("\n--- E2E TEST: Forced GPU Mode (Job Filtering) ---")

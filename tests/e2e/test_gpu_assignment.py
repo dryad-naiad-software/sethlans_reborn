@@ -33,7 +33,7 @@ import platform
 import os
 
 from .shared_setup import BaseE2ETest, MANAGER_URL
-from .helpers import poll_for_completion, is_gpu_available
+from .helpers import poll_for_completion, is_gpu_available, is_self_hosted_runner
 from sethlans_worker_agent import system_monitor
 from workers.constants import RenderSettings
 
@@ -58,9 +58,9 @@ class TestGpuAssignment(BaseE2ETest):
         The test is skipped if no compatible GPUs are found on the host machine or
         if running in an unstable macOS CI environment.
         """
-        # --- FIX: Add skip logic for macOS CI ---
-        if not is_gpu_available() or (platform.system() == "Darwin" and "CI" in os.environ):
-            pytest.skip("Skipping GPU assignment test: No compatible GPU or running in unstable macOS CI.")
+        is_standard_mac_ci = platform.system() == "Darwin" and "CI" in os.environ and not is_self_hosted_runner()
+        if not is_gpu_available() or is_standard_mac_ci:
+            pytest.skip("Skipping GPU assignment test: No compatible GPU or running in standard macOS CI.")
 
         system_monitor._gpu_details_cache = None  # Force a fresh detection for the test
         physical_gpus = system_monitor.get_gpu_device_details()

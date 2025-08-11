@@ -36,7 +36,7 @@ import threading
 import uuid
 from datetime import datetime
 from .shared_setup import BaseE2ETest, MANAGER_URL
-from .helpers import poll_for_completion, is_gpu_available, get_blender_process_count
+from .helpers import poll_for_completion, is_gpu_available, get_blender_process_count, is_self_hosted_runner
 from workers.constants import RenderSettings
 from sethlans_worker_agent import system_monitor
 
@@ -188,8 +188,9 @@ class TestConcurrency(BaseE2ETest):
         Verifies that a worker in GPU split mode can process multiple jobs in
         parallel on different physical GPUs.
         """
-        if not is_gpu_available() or (platform.system() == "Darwin" and "CI" in os.environ):
-            pytest.skip("Skipping multi-GPU test: No stable GPU or running in macOS CI.")
+        is_standard_mac_ci = platform.system() == "Darwin" and "CI" in os.environ and not is_self_hosted_runner()
+        if not is_gpu_available() or is_standard_mac_ci:
+            pytest.skip("Skipping multi-GPU test: No stable GPU or running in standard macOS CI.")
 
         system_monitor._gpu_details_cache = None
         physical_gpus = system_monitor.get_gpu_device_details()

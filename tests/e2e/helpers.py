@@ -30,6 +30,7 @@ for job completion and verifying the integrity of rendered image outputs. This
 helps keep the test cases clean, readable, and DRY (Don't Repeat Yourself).
 """
 import io
+import os
 import time
 
 import psutil
@@ -118,6 +119,18 @@ def is_gpu_available() -> bool:
     devices = system_monitor.detect_gpu_devices()
     system_monitor._gpu_devices_cache = None  # Clear cache for subsequent tests
     return len(devices) > 0
+
+
+def is_self_hosted_runner() -> bool:
+    """
+    Checks if the tests are running on a self-hosted CI runner by checking
+    the `SETHLANS_SELF_HOSTED_RUNNER` environment variable.
+
+    Returns:
+        bool: True if the environment variable is set to 'true', False otherwise.
+    """
+    return os.environ.get("SETHLANS_SELF_HOSTED_RUNNER") == "true"
+
 
 def get_blender_process_count():
     """Counts the number of currently running Blender processes."""
