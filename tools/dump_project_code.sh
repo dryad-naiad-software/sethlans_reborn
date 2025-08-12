@@ -62,7 +62,7 @@ build_prune_clause() {
 }
 
 # Get project root:
-# If CWD leaf is 'dev_scripts', use its parent; else use CWD.
+# If CWD leaf is 'tools', use its parent; else use CWD.
 get_project_root() {
   local cwd root
   cwd="$(pwd)"

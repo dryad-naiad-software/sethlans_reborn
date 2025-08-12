@@ -8,7 +8,7 @@
     2. Python worker agent tests located in 'tests/unit/'.
 
     It explicitly excludes the end-to-end tests found in 'tests/e2e/'.
-    The test results, including verbose output, are saved to dev_scripts\results\unit_test_results.txt.
+    The test results, including verbose output, are saved to tools\results\unit_test_results.txt.
 
 .NOTES
     Author: Sethlans Reborn Development
@@ -19,7 +19,7 @@
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..") | Select-Object -ExpandProperty Path
 
-# Prepare results directory under dev_scripts/results
+# Prepare results directory under tools/results
 $ResultsDir = Join-Path $ScriptDir "results"
 if (-not (Test-Path $ResultsDir)) {
     New-Item -ItemType Directory -Path $ResultsDir -Force | Out-Null

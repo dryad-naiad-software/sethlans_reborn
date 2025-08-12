@@ -9,7 +9,7 @@
 #       2. Python worker agent tests located in the 'tests/unit/' directory.
 #
 #     It explicitly excludes the end-to-end tests found in 'tests/e2e/'.
-#     The test results, including verbose output, are saved to dev_scripts/results/unit_test_results.txt.
+#     The test results, including verbose output, are saved to tools/results/unit_test_results.txt.
 #
 # NOTES
 #     Author: Sethlans Reborn Development
@@ -22,7 +22,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(realpath "$SCRIPT_DIR/..")"
 
-# Prepare results directory under dev_scripts/results
+# Prepare results directory under tools/results
 RESULTS_DIR="$SCRIPT_DIR/results"
 mkdir -p "$RESULTS_DIR"
 RESULTS_FILE="$RESULTS_DIR/unit_test_results.txt"

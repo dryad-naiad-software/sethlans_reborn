@@ -16,7 +16,7 @@ $ExcludeNames = @(
     "managed_tools",
     "render_test_output",
     "project_code_dump_chunks",
-    "dev_scripts"
+    "tools"
 )
 
 # ► NEW: explicit file names (relative) to ignore
@@ -94,7 +94,7 @@ function Get-TreeListing {
 
 $Current      = Get-Location
 $currentPath  = $Current.Path
-if ((Split-Path -Leaf $currentPath) -ieq 'dev_scripts') {
+if ((Split-Path -Leaf $currentPath) -ieq 'tools') {
     $ProjectRootPath = Split-Path -Parent $currentPath
     if (-not $ProjectRootPath) { $ProjectRootPath = $currentPath }
 } else {

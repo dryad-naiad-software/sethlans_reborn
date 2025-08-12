@@ -9,7 +9,7 @@
 
     It specifically targets the tests located in the 'tests/e2e/' directory.
     The test results, including verbose output and setup/teardown logs, are
-    saved to dev_scripts\results\e2e_test_results.txt.
+    saved to tools\results\e2e_test_results.txt.
 
 .NOTES
     Author: Sethlans Reborn Development
@@ -20,7 +20,7 @@
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..") | Select-Object -ExpandProperty Path
 
-# Prepare results directory under dev_scripts/results
+# Prepare results directory under tools/results
 $ResultsDir = Join-Path $ScriptDir "results"
 if (-not (Test-Path $ResultsDir)) {
     New-Item -ItemType Directory -Path $ResultsDir -Force | Out-Null

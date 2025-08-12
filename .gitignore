@@ -137,5 +137,5 @@ test_e2e_db.sqlite3
 /media/
 manual_test_output/
 /chat_template.txt
-/dev_scripts/results/
+/tools/results/
 test_artifacts/

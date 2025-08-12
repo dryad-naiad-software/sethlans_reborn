@@ -10,7 +10,7 @@
 #
 #     It specifically targets the tests located in the 'tests/e2e/' directory.
 #     The test results, including verbose output and setup/teardown logs, are
-#     saved to dev_scripts/results/e2e_test_results.txt.
+#     saved to tools/results/e2e_test_results.txt.
 #
 # NOTES
 #     Author: Sethlans Reborn Development
@@ -23,7 +23,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(realpath "$SCRIPT_DIR/..")"
 
-# Prepare results directory under dev_scripts/results
+# Prepare results directory under tools/results
 RESULTS_DIR="$SCRIPT_DIR/results"
 mkdir -p "$RESULTS_DIR"
 RESULTS_FILE="$RESULTS_DIR/e2e_test_results.txt"

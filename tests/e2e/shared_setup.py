@@ -50,6 +50,7 @@ import requests
 from sethlans_worker_agent import config as worker_config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser, file_operations
+from tests.e2e.helpers import is_self_hosted_runner
 
 # --- Test Constants ---
 MANAGER_URL = worker_config.MANAGER_API_URL.rstrip('/')
@@ -197,16 +198,15 @@ class BaseE2ETest:
             test_env.update(extra_env)
 
         is_ci = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
-        is_self_hosted = os.environ.get("SETHLANS_SELF_HOSTED_RUNNER") == "true"
         force_flag_is_set = "SETHLANS_FORCE_CPU_ONLY" in test_env or "SETHLANS_FORCE_GPU_ONLY" in test_env
 
         # This stability fix forces standard (non-self-hosted) macOS CI runners into CPU mode.
-        if (platform.system() == "Darwin" and is_ci and not is_self_hosted and
+        if (platform.system() == "Darwin" and is_ci and not is_self_hosted_runner() and
                 cls.__name__ != 'TestWorkerBehavior' and not force_flag_is_set):
             print(f"\n[CI-FIX] Standard macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode for stability.")
             test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
-        elif is_self_hosted:
-            print("\n[INFO] Self-hosted runner detected. Tests will run with full hardware capabilities.")
+        elif is_self_hosted_runner():
+            print("\n[INFO] Self-hosted runner detected. Worker will start with full hardware capabilities.")
 
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
         cls.worker_process = subprocess.Popen(

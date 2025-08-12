@@ -124,12 +124,17 @@ def is_gpu_available() -> bool:
 def is_self_hosted_runner() -> bool:
     """
     Checks if the tests are running on a self-hosted CI runner by checking
-    the `SETHLANS_SELF_HOSTED_RUNNER` environment variable.
+    the `SETHLANS_SELF_HOSTED_RUNNER` environment variable. This check is
+    case-insensitive and includes diagnostic logging.
 
     Returns:
         bool: True if the environment variable is set to 'true', False otherwise.
     """
-    return os.environ.get("SETHLANS_SELF_HOSTED_RUNNER") == "true"
+    val = os.environ.get("SETHLANS_SELF_HOSTED_RUNNER", "false")
+    result = val.lower() == "true"
+    # Add diagnostic logging to help debug CI environment issues
+    print(f'[CI-DEBUG] Checked SETHLANS_SELF_HOSTED_RUNNER: got "{val}", evaluated to {result}.')
+    return result
 
 
 def get_blender_process_count():
