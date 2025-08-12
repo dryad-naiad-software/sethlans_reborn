@@ -1,20 +1,6 @@
 # tests/e2e/helpers.py
-#
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created By Mario Estrella on 8/1/2025.
@@ -32,6 +18,7 @@ helps keep the test cases clean, readable, and DRY (Don't Repeat Yourself).
 import io
 import os
 import time
+import logging
 
 import psutil
 import pytest
@@ -39,6 +26,8 @@ import requests
 from PIL import Image
 
 from sethlans_worker_agent import system_monitor
+
+logger = logging.getLogger(__name__)
 
 
 def poll_for_completion(api_url: str, timeout_seconds: int = 240, interval_seconds: int = 2) -> dict:
@@ -69,7 +58,7 @@ def poll_for_completion(api_url: str, timeout_seconds: int = 240, interval_secon
             assert status != 'ERROR', f"Job at {api_url} failed with status 'ERROR'. Details: {data.get('error_message')}"
             return data
 
-        print(f"  Polling {api_url}... Status is {status}. Waiting {interval_seconds}s.")
+        logger.info("Polling %s... Status is %s. Waiting %ss.", api_url, status, interval_seconds)
         time.sleep(interval_seconds)
 
     raise TimeoutError(f"Job at {api_url} did not complete within {timeout_seconds} seconds.")
@@ -133,7 +122,7 @@ def is_self_hosted_runner() -> bool:
     val = os.environ.get("SETHLANS_SELF_HOSTED_RUNNER", "false")
     result = val.lower() == "true"
     # Add diagnostic logging to help debug CI environment issues
-    print(f'[CI-DEBUG] Checked SETHLANS_SELF_HOSTED_RUNNER: got "{val}", evaluated to {result}.')
+    logger.debug('Checked SETHLANS_SELF_HOSTED_RUNNER: got "%s", evaluated to %s.', val, result)
     return result
 
 

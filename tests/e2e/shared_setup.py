@@ -1,19 +1,5 @@
-#
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 #
 # Created by Mario Estrella on 7/31/2025.
@@ -43,6 +29,7 @@ import platform
 import tempfile
 import queue
 import threading
+import logging
 from pathlib import Path
 
 import requests
@@ -51,6 +38,8 @@ from sethlans_worker_agent import config as worker_config
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser, file_operations
 from tests.e2e.helpers import is_self_hosted_runner
+
+logger = logging.getLogger(__name__)
 
 # --- Test Constants ---
 MANAGER_URL = worker_config.MANAGER_API_URL.rstrip('/')
@@ -114,8 +103,8 @@ class BaseE2ETest:
 
             # Add improved logging to show the server's validation error on failure.
             if response.status_code != 201:
-                print(f"ERROR: Asset upload for '{name}' failed with status {response.status_code}.")
-                print(f"Response body: {response.text}")
+                logger.error("Asset upload for '%s' failed with status %s.", name, response.status_code)
+                logger.error("Response body: %s", response.text)
 
             response.raise_for_status()
             return response.json()['id']
@@ -128,7 +117,7 @@ class BaseE2ETest:
         ensures Blender is downloaded only once per full test session.
         """
         if cls._blender_version_for_test is None:
-            print(f"\nDynamically determining latest patch for Blender {E2E_BLENDER_SERIES}.x series...")
+            logger.info("Dynamically determining latest patch for Blender %s.x series...", E2E_BLENDER_SERIES)
             releases = blender_release_parser.get_blender_releases()
             latest_patch_for_series = next((v for v in releases if v.startswith(E2E_BLENDER_SERIES + '.')), None)
 
@@ -136,7 +125,7 @@ class BaseE2ETest:
                 raise RuntimeError(f"Cannot find any patch release for Blender series {E2E_BLENDER_SERIES}")
 
             cls._blender_version_for_test = latest_patch_for_series
-            print(f"Found latest patch: {cls._blender_version_for_test}")
+            logger.info("Found latest patch: %s", cls._blender_version_for_test)
 
         cache_root = Path(tempfile.gettempdir()) / "sethlans_e2e_cache"
         cache_root.mkdir(exist_ok=True)
@@ -145,10 +134,10 @@ class BaseE2ETest:
         cls._blender_cache_path = cache_root / blender_install_dir_name
 
         if cls._blender_cache_path.exists():
-            print(f"\nBlender {cls._blender_version_for_test} found in persistent cache: {cls._blender_cache_path}")
+            logger.info("Blender %s found in persistent cache: %s", cls._blender_version_for_test, cls._blender_cache_path)
             return
 
-        print(f"\nBlender {cls._blender_version_for_test} not found in cache. Downloading and extracting once...")
+        logger.info("Blender %s not found in cache. Downloading and extracting once...", cls._blender_version_for_test)
         releases = blender_release_parser.get_blender_releases()
         release_info = releases.get(cls._blender_version_for_test, {}).get(platform_id)
         if not release_info or not all(k in release_info for k in ['url', 'sha256']):
@@ -162,7 +151,7 @@ class BaseE2ETest:
 
             file_operations.extract_archive(downloaded_archive, str(cache_root))
             file_operations.cleanup_archive(downloaded_archive)
-            print(f"Successfully cached Blender to {cls._blender_cache_path}")
+            logger.info("Successfully cached Blender to %s", cls._blender_cache_path)
         except Exception as e:
             if cls._blender_cache_path.exists(): shutil.rmtree(cls._blender_cache_path)
             cls._blender_cache_path = None
@@ -187,7 +176,7 @@ class BaseE2ETest:
         that specifically need to validate hardware detection. This fix is also
         bypassed if the `SETHLANS_SELF_HOSTED_RUNNER` environment variable is set.
         """
-        print("Starting Worker Agent...")
+        logger.info("Starting Worker Agent...")
         test_env = os.environ.copy()
         test_env.update({
             "SETHLANS_DB_NAME": str(TEST_DB_NAME),  # Pass absolute path as string
@@ -203,10 +192,10 @@ class BaseE2ETest:
         # This stability fix forces standard (non-self-hosted) macOS CI runners into CPU mode.
         if (platform.system() == "Darwin" and is_ci and not is_self_hosted_runner() and
                 cls.__name__ != 'TestWorkerBehavior' and not force_flag_is_set):
-            print(f"\n[CI-FIX] Standard macOS CI detected for {cls.__name__}. Forcing worker into CPU-only mode for stability.")
+            logger.warning("[CI-FIX] Standard macOS CI detected for %s. Forcing worker into CPU-only mode for stability.", cls.__name__)
             test_env["SETHLANS_FORCE_CPU_ONLY"] = "true"
         elif is_self_hosted_runner():
-            print("\n[INFO] Self-hosted runner detected. Worker will start with full hardware capabilities.")
+            logger.info("Self-hosted runner detected. Worker will start with full hardware capabilities.")
 
         worker_command = [sys.executable, "-m", "sethlans_worker_agent.agent", "--loglevel", "DEBUG"]
         cls.worker_process = subprocess.Popen(
@@ -219,14 +208,14 @@ class BaseE2ETest:
         cls.worker_log_thread.daemon = True
         cls.worker_log_thread.start()
 
-        print("Waiting for worker to complete registration and initial setup...")
+        logger.info("Waiting for worker to complete registration and initial setup...")
         start_time = time.time()
         while time.time() - start_time < 180:
             try:
                 line = log_queue.get(timeout=1)
-                print(f"  [SETUP LOG] {line.strip()}")
+                logger.debug("[SETUP LOG] %s", line.strip())
                 if "Loop finished. Sleeping for" in line:
-                    print("Worker is ready!")
+                    logger.info("Worker is ready!")
                     return
             except queue.Empty:
                 if cls.worker_process.poll() is not None:
@@ -236,7 +225,7 @@ class BaseE2ETest:
     @classmethod
     def setup_class(cls):
         """Set up the environment once for all tests in this class."""
-        print(f"\n--- SETUP: {cls.__name__} ---")
+        logger.info("--- SETUP: %s ---", cls.__name__)
         # Clean up previous run artifacts that are not handled by session setup
         if os.path.exists(TEST_DB_NAME): os.remove(TEST_DB_NAME)
         if MOCK_TOOLS_DIR.exists():
@@ -261,10 +250,10 @@ class BaseE2ETest:
             "DJANGO_SETTINGS_MODULE": "config.settings",
             "SETHLANS_MEDIA_ROOT": str(MEDIA_ROOT_FOR_TEST)
         })
-        print("Running migrations...")
+        logger.info("Running migrations...")
         subprocess.run([sys.executable, "manage.py", "migrate"], cwd=PROJECT_ROOT, env=test_env, check=True,
                        capture_output=True)
-        print(f"Starting Django manager on port {worker_config.MANAGER_PORT}...")
+        logger.info("Starting Django manager on port %s...", worker_config.MANAGER_PORT)
         manager_command = [sys.executable, "manage.py", "runserver", str(worker_config.MANAGER_PORT), "--noreload"]
         cls.manager_process = subprocess.Popen(manager_command, cwd=PROJECT_ROOT, env=test_env,
                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -272,7 +261,7 @@ class BaseE2ETest:
 
         # Create shared test assets with unique names for this test run
         unique_suffix = int(time.time())
-        print(f"Creating E2E test project and assets with unique suffix: {unique_suffix}...")
+        logger.info("Creating E2E test project and assets with unique suffix: %s...", unique_suffix)
         project_payload = {"name": f"E2E-Test-Project-{unique_suffix}"}
         response = requests.post(f"{MANAGER_URL}/projects/", json=project_payload)
         response.raise_for_status()
@@ -292,11 +281,11 @@ class BaseE2ETest:
     @classmethod
     def teardown_class(cls):
         """Tear down the environment after all tests in this class have run."""
-        print(f"\n--- TEARDOWN: {cls.__name__} ---")
+        logger.info("--- TEARDOWN: %s ---", cls.__name__)
 
         # Use robust, platform-specific process termination
         if cls.worker_process and cls.worker_process.poll() is None:
-            print(f"Terminating worker process (PID: {cls.worker_process.pid})...")
+            logger.info("Terminating worker process (PID: %s)...", cls.worker_process.pid)
             if platform.system() == "Windows":
                 subprocess.run(f"taskkill /F /T /PID {cls.worker_process.pid}", check=False, capture_output=True,
                                shell=True)
@@ -304,7 +293,7 @@ class BaseE2ETest:
                 cls.worker_process.kill()
 
         if cls.manager_process and cls.manager_process.poll() is None:
-            print(f"Terminating manager process (PID: {cls.manager_process.pid})...")
+            logger.info("Terminating manager process (PID: %s)...", cls.manager_process.pid)
             if platform.system() == "Windows":
                 subprocess.run(f"taskkill /F /T /PID {cls.manager_process.pid}", check=False, capture_output=True,
                                shell=True)
@@ -318,33 +307,35 @@ class BaseE2ETest:
             cls.worker_log_thread.join(timeout=5)
 
         # Print captured logs from stdout queue
-        print("\n--- CAPTURED WORKER STDOUT ---")
+        logger.info("--- CAPTURED WORKER STDOUT ---")
         while not cls.worker_log_queue.empty():
-            print(f"  [STDOUT] {cls.worker_log_queue.get_nowait().strip()}")
-        print("--- END OF WORKER STDOUT ---\n")
+            logger.info("[STDOUT] %s", cls.worker_log_queue.get_nowait().strip())
+        logger.info("--- END OF WORKER STDOUT ---")
 
         # Explicitly read and print the log file for diagnostics
         log_file_path = worker_config.WORKER_LOG_DIR / 'worker.log'
-        print(f"--- READING WORKER LOG FILE: {log_file_path} ---")
+        logger.info("--- READING WORKER LOG FILE: %s ---", log_file_path)
         if log_file_path.exists():
             try:
                 with open(log_file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    print(f.read())
+                    # Log file content line by line for better readability in CI
+                    for line in f:
+                        logger.info("[LOGFILE] %s", line.strip())
             except Exception as e:
-                print(f"Error reading worker log file: {e}")
+                logger.error("Error reading worker log file: %s", e)
         else:
-            print("Worker log file not found.")
-        print("--- END OF WORKER LOG FILE ---")
+            logger.warning("Worker log file not found.")
+        logger.info("--- END OF WORKER LOG FILE ---")
 
 
         # Clean up files now that processes are terminated
-        print("Cleaning up filesystem artifacts...")
+        logger.info("Cleaning up filesystem artifacts...")
         if os.path.exists(TEST_DB_NAME):
             try:
                 os.remove(TEST_DB_NAME)
-                print(f"Removed test database: {TEST_DB_NAME}")
+                logger.info("Removed test database: %s", TEST_DB_NAME)
             except OSError as e:
-                print(f"Error removing test database {TEST_DB_NAME}: {e}")
+                logger.error("Error removing test database %s: %s", TEST_DB_NAME, e)
 
         # Artifact directories are now cleaned up by session-level hooks.
         # We only clean up class-specific items here.
@@ -358,4 +349,4 @@ class BaseE2ETest:
         if "SETHLANS_MOCK_CPU_ONLY" in os.environ:
             del os.environ["SETHLANS_MOCK_CPU_ONLY"]
 
-        print("Teardown complete.")
+        logger.info("Teardown complete.")

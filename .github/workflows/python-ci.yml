@@ -1,5 +1,3 @@
-# .github/workflows/ci.yml
-
 name: Sethlans Reborn CI
 
 on:
@@ -97,6 +95,9 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.13"]
+    # --- CHANGE: Set the environment variable for this job ---
+    env:
+      SETHLANS_SELF_HOSTED_RUNNER: "true"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -156,6 +157,9 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.13"]
+    # --- CHANGE: Set the environment variable for this job ---
+    env:
+      SETHLANS_SELF_HOSTED_RUNNER: "true"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -193,19 +197,9 @@ jobs:
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv
       - name: Run Unit Tests
         run: pytest tests/unit
-      - name: macOS E2E Tests & Diagnostics
-        run: |
-          df -h
-          mkdir -p sethlans_worker_agent/managed_tools/blender/
-          ls -la sethlans_worker_agent/managed_tools/blender/
-          pytest tests/e2e || (
-            echo "E2E tests failed. Collecting post-run diagnostic info..."
-            df -h
-            mount
-            ls -laR sethlans_worker_agent/managed_tools/blender/
-            exit 1
-          )
-        continue-on-error: true
+      # --- CHANGE: Simplified E2E test step for stable self-hosted runner ---
+      - name: Run End-to-End Tests
+        run: pytest tests/e2e
       - name: Attempt to Unmount Any Lingering DMGs (macOS)
         if: always()
         run: |
