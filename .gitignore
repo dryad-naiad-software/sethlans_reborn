@@ -124,6 +124,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# OS / Sync
+desktop.ini
+.sync*
+.nextcloudsync*
+
 # IDEs
 .idea/
 
@@ -131,8 +136,14 @@ dmypy.json
 .claude/
 CLAUDE.md
 
+# Development workflow (internal agent docs, brainstorming, specs)
+development/
+
 # Test render artifacts
 tests/assets/*.png
+
+# Dev scripts output
+dev_scripts/results/
 
 # Sethlans Reborn specific
 logs/
