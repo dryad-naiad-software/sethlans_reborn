@@ -124,6 +124,16 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# IDEs
+.idea/
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Test render artifacts
+tests/assets/*.png
+
 # Sethlans Reborn specific
 logs/
 manager.ini
