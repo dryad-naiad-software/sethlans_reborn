@@ -33,7 +33,7 @@ class Animation(models.Model):
         max_length=40,
         validators=[MinLengthValidator(4)]
     )
-    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='animations')
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='animations')
     output_file_pattern = models.CharField(max_length=1024)
     start_frame = models.IntegerField()
     end_frame = models.IntegerField()

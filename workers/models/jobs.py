@@ -43,7 +43,7 @@ class TiledJob(models.Model):
         max_length=40,
         validators=[MinLengthValidator(4)]
     )
-    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='tiled_jobs')
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='tiled_jobs')
     final_resolution_x = models.IntegerField()
     final_resolution_y = models.IntegerField()
     tile_count_x = models.IntegerField(default=4)
@@ -93,7 +93,7 @@ class Job(models.Model):
         help_text="A unique name for the render job within its asset.",
         validators=[MinLengthValidator(4)]
     )
-    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='jobs')
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='jobs')
     output_file_pattern = models.CharField(max_length=1024, help_text="Output file path pattern (e.g., //render/#.png)")
     start_frame = models.IntegerField(default=1)
     end_frame = models.IntegerField(default=1)
