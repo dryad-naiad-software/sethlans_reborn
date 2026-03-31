@@ -7,13 +7,30 @@
 # mestrella@dryadandnaiad.com
 # Project: sethlans_reborn
 #
+import io
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.text import slugify
 from django.utils import timezone
+from PIL import Image
 from rest_framework import status
 from ..models import Job, Asset, Project, JobStatus, Worker
 from ..constants import RenderDevice
+from ..views.jobs import JobViewSet
 from ._base import BaseMediaTestCase
+
+
+def _make_test_image(fmt='PNG', size=(4, 4)):
+    """Create a minimal valid image file for upload tests."""
+    buf = io.BytesIO()
+    Image.new('RGBA', size, (255, 0, 0, 255)).save(buf, format=fmt)
+    buf.seek(0)
+    ext = fmt.lower()
+    return SimpleUploadedFile(
+        f"render_result.{ext}", buf.read(),
+        content_type=f"image/{ext}"
+    )
+
 
 class JobViewSetTests(BaseMediaTestCase):
     def setUp(self):
@@ -148,11 +165,11 @@ class JobViewSetTests(BaseMediaTestCase):
 
     def test_upload_job_output_file(self):
         """
-        Tests the /upload_output/ action for a job.
+        Tests the /upload_output/ action for a job with a valid image.
         """
         job = Job.objects.create(name="Job for Upload", asset=self.asset)
         url = f"/api/jobs/{job.id}/upload_output/"
-        uploaded_file = SimpleUploadedFile("render_result.png", b"fake-png-image-data", content_type="image/png")
+        uploaded_file = _make_test_image()
         response = self.client.post(url, {"output_file": uploaded_file}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         job.refresh_from_db()
@@ -160,7 +177,59 @@ class JobViewSetTests(BaseMediaTestCase):
         project_short_id = str(self.project.id)[:8]
         slug = slugify(job.name)
         job_dir = f"{slug}-{job.id}"
-        self.assertTrue(job.output_file.name.startswith(f"assets/{project_short_id}/outputs/{job_dir}/"))
+        self.assertTrue(job.output_file.name.startswith(
+            f"assets/{project_short_id}/outputs/{job_dir}/"
+        ))
+
+    def test_upload_rejects_non_image_file(self):
+        """
+        Tests that uploading a non-image file returns 400.
+        """
+        job = Job.objects.create(name="Job Non Image", asset=self.asset)
+        url = f"/api/jobs/{job.id}/upload_output/"
+        bad_file = SimpleUploadedFile(
+            "malware.exe", b"MZ\x90\x00not-an-image",
+            content_type="application/octet-stream"
+        )
+        response = self.client.post(url, {"output_file": bad_file}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not a valid image", response.data["error"])
+
+    def test_upload_rejects_oversized_file(self):
+        """
+        Tests that uploading a file exceeding the size limit returns 400.
+        """
+        job = Job.objects.create(name="Job Oversize", asset=self.asset)
+        url = f"/api/jobs/{job.id}/upload_output/"
+        # Create a valid image then override size reporting
+        uploaded_file = _make_test_image()
+        # Temporarily lower the limit to trigger the check
+        original = JobViewSet.MAX_UPLOAD_SIZE
+        try:
+            JobViewSet.MAX_UPLOAD_SIZE = 1  # 1 byte limit
+            response = self.client.post(
+                url, {"output_file": uploaded_file}, format='multipart'
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("exceeds", response.data["error"])
+        finally:
+            JobViewSet.MAX_UPLOAD_SIZE = original
+
+    def test_upload_sanitizes_filename(self):
+        """
+        Tests that path traversal and unsafe characters are stripped
+        from the uploaded filename.
+        """
+        job = Job.objects.create(name="Job Sanitize", asset=self.asset)
+        url = f"/api/jobs/{job.id}/upload_output/"
+        img = _make_test_image()
+        img.name = "../../etc/passwd.png"
+        response = self.client.post(url, {"output_file": img}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        job.refresh_from_db()
+        # The saved filename should not contain path traversal
+        self.assertNotIn("..", job.output_file.name)
+        self.assertNotIn("etc/", job.output_file.name)
 
     def test_job_filtering_for_cpu_worker(self):
         """

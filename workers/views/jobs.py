@@ -8,10 +8,14 @@
 # workers/views/jobs.py
 
 import logging
+import os
+import re
 
+from django.conf import settings as django_settings
 from django.db import transaction
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from PIL import Image
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
@@ -165,14 +169,8 @@ class JobViewSet(viewsets.ModelViewSet):
         Action for a worker to upload the final rendered output file for a job.
 
         Expects a multipart/form-data request with a file field named `output_file`.
+        Validates the file is a valid image within the configured size limit.
         Saving the file will trigger a signal to generate the thumbnail.
-
-        Args:
-            request: The request object containing the uploaded file.
-            pk: The primary key of the job to attach the file to.
-
-        Returns:
-            A Response containing the updated job data.
         """
         job = self.get_object()
         file_obj = request.data.get('output_file')
@@ -183,8 +181,66 @@ class JobViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        job.output_file.save(file_obj.name, file_obj, save=True)
+        error = self._validate_upload(file_obj)
+        if error:
+            return Response(
+                {"error": error},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        logger.info(f"Received output file for job ID {job.id}. Saved to {job.output_file.name}")
+        safe_name = self._sanitize_filename(file_obj.name)
+        job.output_file.save(safe_name, file_obj, save=True)
+
+        logger.info(
+            f"Received output file for job ID {job.id}. "
+            f"Saved to {job.output_file.name}"
+        )
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # -- Upload validation helpers --
+
+    # 100 MB default, overridable via settings
+    MAX_UPLOAD_SIZE = getattr(
+        django_settings, 'FILE_UPLOAD_MAX_MEMORY_SIZE', 104857600
+    )
+
+    @classmethod
+    def _validate_upload(cls, file_obj):
+        """
+        Validate that the uploaded file is within size limits and is a
+        genuine image that Pillow can open.
+
+        Returns an error message string, or None if valid.
+        """
+        if file_obj.size > cls.MAX_UPLOAD_SIZE:
+            limit_mb = cls.MAX_UPLOAD_SIZE / (1024 * 1024)
+            size_mb = file_obj.size / (1024 * 1024)
+            return (
+                f"File size {size_mb:.1f}MB exceeds the "
+                f"{limit_mb:.0f}MB limit."
+            )
+
+        # Verify the file is a valid image using Pillow
+        try:
+            file_obj.seek(0)
+            with Image.open(file_obj) as img:
+                img.verify()
+            file_obj.seek(0)
+        except Exception:
+            return "Uploaded file is not a valid image."
+
+        return None
+
+    @staticmethod
+    def _sanitize_filename(filename):
+        """
+        Strip path components and replace unsafe characters so the
+        filename is safe for storage.
+        """
+        # Take only the basename to strip directory traversal
+        name = os.path.basename(filename)
+        # Replace anything that is not alphanumeric, dot, hyphen,
+        # or underscore with an underscore
+        name = re.sub(r'[^\w.\-]', '_', name)
+        return name or 'output.png'

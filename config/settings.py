@@ -222,3 +222,9 @@ SPECTACULAR_SETTINGS = {
 
 # Delete old thumbnail files before saving new ones
 WORKERS_DELETE_OLD_THUMBNAILS = True
+
+# --- Upload Size Limits ---
+# Maximum size for request body (100MB) — covers multipart file uploads
+DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 MB
+# Maximum size for a single uploaded file (100MB)
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 MB
