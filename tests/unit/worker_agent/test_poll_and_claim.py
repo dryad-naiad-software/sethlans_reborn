@@ -64,24 +64,26 @@ class TestPollAndClaimJob:
         call_params = mock_poll_api.call_args.args[0]
         assert 'gpu_available' not in call_params
 
-    def test_get_next_available_gpu(self, mocker):
-        """Tests the logic for finding the next free GPU index."""
+    def test_reserve_next_available_gpu(self, mocker):
+        """Tests the atomic find-and-reserve logic for the next free GPU."""
         mocker.patch(
             'sethlans_worker_agent.system_monitor.get_gpu_device_details',
             return_value=[{}, {}]
         )
 
-        # Case 1: No GPUs are busy
+        # Case 1: No GPUs are busy — reserves GPU 0
         job_processor._gpu_assignment_map.clear()
-        assert job_processor._get_next_available_gpu() == 0
+        assert job_processor._reserve_next_available_gpu(100) == 0
+        assert job_processor._gpu_assignment_map[0] == 100
 
-        # Case 2: GPU 0 is busy
+        # Case 2: GPU 0 is busy — reserves GPU 1
         job_processor._gpu_assignment_map = {0: 123}
-        assert job_processor._get_next_available_gpu() == 1
+        assert job_processor._reserve_next_available_gpu(200) == 1
+        assert job_processor._gpu_assignment_map[1] == 200
 
-        # Case 3: All GPUs are busy
+        # Case 3: All GPUs are busy — returns None
         job_processor._gpu_assignment_map = {0: 123, 1: 456}
-        assert job_processor._get_next_available_gpu() is None
+        assert job_processor._reserve_next_available_gpu(300) is None
 
     def test_split_mode_claims_any_job_for_cpu_when_gpus_busy(
         self, mocker, mock_poll_deps
@@ -91,7 +93,7 @@ class TestPollAndClaimJob:
         mock_detect_gpu.return_value = ['CUDA']
         mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
         mocker.patch(
-            'sethlans_worker_agent.job_processor._get_next_available_gpu',
+            'sethlans_worker_agent.job_processor._reserve_next_available_gpu',
             return_value=None
         )
         mock_claim_api = mocker.patch(
@@ -119,7 +121,7 @@ class TestPollAndClaimJob:
         mock_detect_gpu.return_value = ['CUDA']
         mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
         mocker.patch(
-            'sethlans_worker_agent.job_processor._get_next_available_gpu',
+            'sethlans_worker_agent.job_processor._reserve_next_available_gpu',
             return_value=None
         )
         mock_claim_api = mocker.patch(
@@ -141,7 +143,7 @@ class TestPollAndClaimJob:
         mock_detect_gpu.return_value = ['CUDA']
         mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
         mocker.patch(
-            'sethlans_worker_agent.job_processor._get_next_available_gpu',
+            'sethlans_worker_agent.job_processor._reserve_next_available_gpu',
             return_value=None
         )
         mock_claim_api = mocker.patch(

@@ -30,21 +30,25 @@ logger = logging.getLogger(__name__)
 
 # A simple map of {gpu_device_index: job_id}
 _gpu_assignment_map = {}
+# A thread-safe lock to protect all access to _gpu_assignment_map.
+_gpu_lock = threading.Lock()
 # A thread-safe lock to ensure only one CPU-bound job runs at a time.
 _cpu_lock = threading.Lock()
 
 
-def _get_next_available_gpu() -> Optional[int]:
+def _reserve_next_available_gpu(job_id: int) -> Optional[int]:
     """
-    Finds the index of the first available GPU that is not currently assigned a job.
+    Atomically finds and reserves the first available GPU for a job.
 
-    This function is used when GPU split mode is active to determine which GPU
-    a new job should be assigned to. It checks the number of detected GPUs against
-    the internal assignment map.
+    This function acquires _gpu_lock to ensure the check-then-reserve
+    operation is atomic, preventing two threads from reserving the same GPU.
+
+    Args:
+        job_id: The ID of the job to reserve the GPU for.
 
     Returns:
-        An integer representing the device index of a free GPU, or None if all
-        GPUs are currently busy.
+        An integer representing the device index of the reserved GPU,
+        or None if all GPUs are currently busy.
     """
     # Use the detailed GPU info to get an accurate count of physical devices.
     gpu_info = system_monitor.get_gpu_device_details()
@@ -53,10 +57,12 @@ def _get_next_available_gpu() -> Optional[int]:
     if num_gpus == 0:
         return None
 
-    busy_indices = set(_gpu_assignment_map.keys())
-    for i in range(num_gpus):
-        if i not in busy_indices:
-            return i
+    with _gpu_lock:
+        busy_indices = set(_gpu_assignment_map.keys())
+        for i in range(num_gpus):
+            if i not in busy_indices:
+                _gpu_assignment_map[i] = job_id
+                return i
 
     return None
 
@@ -142,7 +148,7 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
         # In split mode, we must decide which resource (GPU or CPU) to use.
         # Prioritize GPU for 'GPU' or 'ANY' jobs.
         if device_pref in ('GPU', 'ANY'):
-            assigned_gpu_index = _get_next_available_gpu()
+            assigned_gpu_index = _reserve_next_available_gpu(job_id)
 
         if assigned_gpu_index is not None:
             logger.info(f"Found available GPU slot {assigned_gpu_index} for job '{job_name}'.")
@@ -175,9 +181,12 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
         job_to_claim['_acquired_cpu_lock'] = acquired_cpu_lock
         return job_to_claim
     else:
-        # If we acquired a lock but the API claim failed (e.g., race condition), release the lock.
+        # Claim failed (e.g., race condition). Release any acquired resources.
         if acquired_cpu_lock:
             _cpu_lock.release()
+        if assigned_gpu_index is not None:
+            with _gpu_lock:
+                _gpu_assignment_map.pop(assigned_gpu_index, None)
 
     return None
 
@@ -206,8 +215,9 @@ def process_claimed_job(job_data: Dict[str, Any]):
     api_handler.update_job_status(job_id, {"status": "RENDERING", "started_at": start_time})
 
     if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
-        _gpu_assignment_map[assigned_gpu_index] = job_id
-        logger.info(f"Assigned job {job_id} to GPU {assigned_gpu_index}. Current assignments: {_gpu_assignment_map}")
+        with _gpu_lock:
+            current = dict(_gpu_assignment_map)
+        logger.info(f"Job {job_id} reserved GPU {assigned_gpu_index}. Current assignments: {current}")
 
     try:
         success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = blender_executor.execute_blender_job(
@@ -217,8 +227,13 @@ def process_claimed_job(job_data: Dict[str, Any]):
             _cpu_lock.release()
 
         if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
-            if _gpu_assignment_map.pop(assigned_gpu_index, None) is not None:
-                logger.info(f"Released GPU {assigned_gpu_index} from job {job_id}. Current assignments: {_gpu_assignment_map}")
+            with _gpu_lock:
+                removed = _gpu_assignment_map.pop(assigned_gpu_index, None)
+                if removed is not None:
+                    logger.info(
+                        f"Released GPU {assigned_gpu_index} from job {job_id}. "
+                        f"Current assignments: {dict(_gpu_assignment_map)}"
+                    )
 
     job_update_payload = {
         "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
