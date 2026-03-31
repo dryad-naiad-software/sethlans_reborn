@@ -11,6 +11,7 @@
 from django.db import models
 from django.utils import timezone
 from django.core.validators import MinLengthValidator
+from django.core.exceptions import ValidationError
 from django.db.models import Sum
 from ..constants import TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 from .upload_paths import animation_frame_output_upload_path, thumbnail_upload_path
@@ -49,6 +50,16 @@ class Animation(models.Model):
     total_render_time_seconds = models.IntegerField(default=0, help_text="The cumulative render time of all completed frames in this animation.")
     tiling_config = models.CharField(max_length=10, choices=TilingConfiguration.choices, default=TilingConfiguration.NONE, help_text="Grid size for tiled rendering of each frame.")
     thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the latest completed frame.", max_length=512)
+
+    def clean(self):
+        if self.end_frame < self.start_frame:
+            raise ValidationError({
+                'end_frame': 'end_frame must be greater than or equal to start_frame.'
+            })
+        if self.frame_step <= 0:
+            raise ValidationError({
+                'frame_step': 'frame_step must be a positive integer.'
+            })
 
     def get_tile_counts(self):
         """

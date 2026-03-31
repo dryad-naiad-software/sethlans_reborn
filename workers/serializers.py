@@ -16,6 +16,7 @@ ensuring data integrity and providing a clear contract for frontend and
 worker agent interactions.
 """
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus, AnimationFrame
 
@@ -111,12 +112,21 @@ class AnimationSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """
-        Custom validation to ensure the selected `Asset` belongs to the `Project`.
+        Custom validation to ensure the selected `Asset` belongs to the `Project`
+        and that model-level constraints (frame range, frame step) are satisfied.
         """
         project = data.get('project')
         asset = data.get('asset')
         if project and asset and asset.project != project:
             raise serializers.ValidationError("The selected Asset does not belong to the selected Project.")
+
+        # Run model-level clean() validation
+        instance = Animation(**data)
+        try:
+            instance.clean()
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.message_dict)
+
         return data
 
     def get_total_frames(self, obj):
@@ -189,12 +199,21 @@ class TiledJobSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """
-        Custom validation to ensure the selected `Asset` belongs to the `Project`.
+        Custom validation to ensure the selected `Asset` belongs to the `Project`
+        and that model-level constraints (tile counts) are satisfied.
         """
         project = data.get('project')
         asset = data.get('asset')
         if project and asset and asset.project != project:
             raise serializers.ValidationError("The selected Asset does not belong to the selected Project.")
+
+        # Run model-level clean() validation
+        instance = TiledJob(**data)
+        try:
+            instance.clean()
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.message_dict)
+
         return data
 
     def get_total_tiles(self, obj):

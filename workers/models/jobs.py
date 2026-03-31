@@ -12,6 +12,7 @@ import uuid
 from django.db import models
 from django.utils import timezone
 from django.core.validators import MinLengthValidator
+from django.core.exceptions import ValidationError
 from ..constants import TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 from .upload_paths import job_output_upload_path, tiled_job_output_upload_path, thumbnail_upload_path
 from .projects import Asset
@@ -61,6 +62,16 @@ class TiledJob(models.Model):
                                    help_text="The final, assembled output image.", max_length=512)
     thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True,
                                   help_text="A preview thumbnail of the final assembled image.", max_length=512)
+
+    def clean(self):
+        if self.tile_count_x <= 0:
+            raise ValidationError({
+                'tile_count_x': 'tile_count_x must be a positive integer.'
+            })
+        if self.tile_count_y <= 0:
+            raise ValidationError({
+                'tile_count_y': 'tile_count_y must be a positive integer.'
+            })
 
     def __str__(self):
         return self.name
