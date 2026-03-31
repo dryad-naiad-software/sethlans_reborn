@@ -70,7 +70,7 @@ def test_get_and_claim_job_dispatches_thread(mocker):
     mock_poll.assert_called_once_with(worker_id)
 
     mock_thread.assert_called_once_with(
-        target=mock_process_func, args=(mock_job_data,)
+        target=mock_process_func, args=(mock_job_data,), name='job-1'
     )
     mock_thread.return_value.start.assert_called_once()
 
