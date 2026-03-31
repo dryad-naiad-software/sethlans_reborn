@@ -96,10 +96,10 @@ cd sethlans_reborn
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-pip install -r requirements.txt
+pip install -r manager/requirements.txt
 ```
 
-Copy `manager.ini.example` to `manager.ini` and adjust settings as needed:
+Copy `manager/manager.ini.example` to `manager/manager.ini` and adjust settings as needed:
 
 ```ini
 [server]
@@ -114,7 +114,7 @@ port = 7075
 Start the manager (applies migrations automatically):
 
 ```bash
-python run_manager.py
+python manager/run_manager.py
 ```
 
 The API is available at `http://127.0.0.1:7075/api/` and docs at `http://127.0.0.1:7075/api/docs/`.
@@ -124,10 +124,10 @@ The API is available at `http://127.0.0.1:7075/api/` and docs at `http://127.0.0
 The worker can run on the same machine or any machine on the network.
 
 ```bash
-pip install -r sethlans_worker_agent/requirements_worker.txt
+pip install -r worker/requirements.txt
 ```
 
-Copy `sethlans_worker_agent/config.ini.example` to `sethlans_worker_agent/config.ini`:
+Copy `worker/config.ini.example` to `worker/config.ini`:
 
 ```ini
 [manager]
@@ -146,8 +146,8 @@ required_lts_version_series = 4.5
 Start the agent:
 
 ```bash
-python -m sethlans_worker_agent.agent
-python -m sethlans_worker_agent.agent --loglevel DEBUG  # verbose logging
+python worker/run_worker.py
+python worker/run_worker.py --loglevel DEBUG  # verbose logging
 ```
 
 ### Configuration Hierarchy
@@ -180,7 +180,7 @@ Worker env vars use the pattern `SETHLANS_{SECTION}_{KEY}` (e.g., `SETHLANS_MANA
 
 ```bash
 # Unit tests (fast, fully mocked)
-pytest tests/unit
+pytest manager/tests worker/tests manager/workers
 
 # End-to-end tests (downloads Blender, runs real renders)
 pytest tests/e2e
@@ -205,31 +205,43 @@ The GitHub Actions workflow runs on every push and PR to `master` across three e
 ## Project Structure
 
 ```
-config/                              Django settings, urls, wsgi/asgi
-workers/                             Main Django app
-  models/                            Project, Asset, Job, TiledJob, Animation, AnimationFrame, Worker
-  views/                             DRF ViewSets (projects, jobs, assets, animations, tiled_jobs, heartbeat)
-  serializers/                       DRF serializers by domain
-  signals.py                         Post-save handlers (assembly, thumbnails, manifests)
-  constants.py                       Enums: RenderEngine, RenderDevice, TilingConfiguration, etc.
-  image_assembler.py                 Tile assembly logic (Pillow)
-  image_utils.py                     Thumbnail generation
-  manifest_generator.py              Project manifest file generation
-sethlans_worker_agent/
-  agent.py                           Entry point & main loop
-  config.py                          Config hierarchy: env vars > config.ini > defaults
-  api_handler.py                     HTTP communication with manager (retry + backoff)
-  job_processor.py                   Job polling, claiming, GPU/CPU resource locking
-  blender_executor.py                Blender subprocess execution
-  render_script.py                   Blender Python script generation
-  tool_manager.py                    Blender download/version management
-  asset_manager.py                   .blend file caching
-  hardware_detection.py              GPU/CPU detection via headless Blender
-  system_monitor.py                  Worker registration and heartbeats
-  utils/                             GPU detection script, release parser, file ops
-tests/
-  unit/                              Mock-based tests (worker agent + Django models/signals)
-  e2e/                               Full integration tests (real Django server + worker + Blender)
+manager/                                 Django manager (server)
+  sethlans_manager/                      Django settings package (settings, urls, wsgi/asgi)
+  workers/                               Main Django app
+    models/                              Project, Asset, Job, TiledJob, Animation, AnimationFrame, Worker
+    views/                               DRF ViewSets (projects, jobs, assets, animations, tiled_jobs, heartbeat)
+    serializers/                         DRF serializers by domain
+    signals.py                           Post-save handlers (assembly, thumbnails, manifests)
+    constants.py                         Enums: RenderEngine, RenderDevice, TilingConfiguration, etc.
+    image_assembler.py                   Tile assembly logic (Pillow)
+    image_utils.py                       Thumbnail generation
+    manifest_generator.py                Project manifest file generation
+  manage.py
+  run_manager.py
+  requirements.txt                       Manager runtime deps
+  manager.ini.example
+  tests/                                 Manager unit tests
+worker/                                  Worker agent (client)
+  sethlans_worker_agent/                 Python package
+    agent.py                             Entry point & main loop
+    config.py                            Config hierarchy: env vars > config.ini > defaults
+    api_handler.py                       HTTP communication with manager (retry + backoff)
+    job_processor.py                     Job polling, claiming, GPU/CPU resource locking
+    blender_executor.py                  Blender subprocess execution
+    render_script.py                     Blender Python script generation
+    tool_manager.py                      Blender download/version management
+    asset_manager.py                     .blend file caching
+    hardware_detection.py                GPU/CPU detection via headless Blender
+    system_monitor.py                    Worker registration and heartbeats
+    utils/                               GPU detection script, release parser, file ops
+  run_worker.py                          Worker entry point
+  requirements.txt                       Worker runtime deps
+  config.ini.example
+  tests/                                 Worker unit tests
+tests/                                   Cross-component tests
+  e2e/                                   Full integration tests (real Django server + worker + Blender)
+  assets/                                Shared test fixtures
+requirements-dev.txt                     Shared test/dev deps (pytest, flake8)
 ```
 
 ---

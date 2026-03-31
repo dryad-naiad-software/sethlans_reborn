@@ -5,8 +5,8 @@
 #
 # DESCRIPTION
 #     This script executes the full unit test suite, which includes:
-#       1. Django application tests located in the 'workers/' directory.
-#       2. Python worker agent tests located in the 'tests/unit/' directory.
+#       1. Django application tests located in 'manager/workers/' and 'manager/tests/'.
+#       2. Python worker agent tests located in 'worker/tests/'.
 #
 #     It explicitly excludes the end-to-end tests found in 'tests/e2e/'.
 #     The test results, including verbose output, are saved to tools/results/unit_test_results.txt.
@@ -30,11 +30,12 @@ RESULTS_FILE="$RESULTS_DIR/unit_test_results.txt"
 echo "Starting all unit tests (Django + Worker Agent)..."
 
 # Construct paths to test targets
-WORKER_TESTS="$PROJECT_ROOT/workers"
-AGENT_TESTS="$PROJECT_ROOT/tests/unit"
+MANAGER_TESTS="$PROJECT_ROOT/manager/tests"
+WORKER_TESTS="$PROJECT_ROOT/manager/workers"
+AGENT_TESTS="$PROJECT_ROOT/worker/tests"
 
 # Define and run the pytest command
-command="pytest -s -v \"$AGENT_TESTS\" \"$WORKER_TESTS\""
+command="pytest -s -v \"$MANAGER_TESTS\" \"$AGENT_TESTS\" \"$WORKER_TESTS\""
 
 # Execute, teeing output to file
 eval "$command" 2>&1 | tee "$RESULTS_FILE"

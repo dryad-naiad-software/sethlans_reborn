@@ -146,13 +146,14 @@ tests/assets/*.png
 dev_scripts/results/
 
 # Sethlans Reborn specific
-logs/
-manager.ini
-sethlans_worker_agent/config.ini
-sethlans_worker_agent/managed_tools/
-sethlans_worker_agent/managed_assets/
-sethlans_worker_agent/worker_output/
-sethlans_worker_agent/temp/
+manager/logs/
+manager/manager.ini
+worker/sethlans_worker_agent/config.ini
+worker/sethlans_worker_agent/managed_tools/
+worker/sethlans_worker_agent/managed_assets/
+worker/sethlans_worker_agent/worker_output/
+worker/sethlans_worker_agent/temp/
+worker/sethlans_worker_agent/logs/
 sethlans_e2e_cache/
 test_e2e_db.sqlite3
 /media/

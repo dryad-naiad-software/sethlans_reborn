@@ -23,9 +23,15 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# --- Root Paths ---
+# The root directory of the worker package (worker/).
+WORKER_ROOT = Path(__file__).resolve().parent.parent
+# The root directory of the entire repository.
+REPO_ROOT = WORKER_ROOT.parent
+
 # --- Config File Loading ---
 config_parser = configparser.ConfigParser()
-config_file_path = Path(__file__).resolve().parent / 'config.ini'
+config_file_path = WORKER_ROOT / 'config.ini'
 if config_file_path.exists():
     config_parser.read(config_file_path)
 
@@ -131,8 +137,6 @@ if FORCE_CPU_ONLY and FORCE_GPU_ONLY:
 
 
 # --- Worker Agent Paths ---
-# The root directory of the entire project.
-PROJECT_ROOT_FOR_WORKER = Path(__file__).resolve().parent.parent
 # The root directory of the worker agent module.
 WORKER_AGENT_DIR = Path(__file__).resolve().parent
 
@@ -148,9 +152,9 @@ WORKER_LOG_DIR = WORKER_AGENT_DIR / 'logs'
 
 
 # Paths to test .blend files used in the end-to-end test suite.
-TEST_BLEND_FILE_PATH = PROJECT_ROOT_FOR_WORKER / 'tests' / 'assets' / 'test_scene.blend'
-BENCHMARK_BLEND_FILE_PATH = PROJECT_ROOT_FOR_WORKER / 'tests' / 'assets' / 'bmw27.blend'
-ANIMATION_BLEND_FILE_PATH = PROJECT_ROOT_FOR_WORKER / 'tests' / 'assets' / 'animation.blend'
+TEST_BLEND_FILE_PATH = REPO_ROOT / 'tests' / 'assets' / 'test_scene.blend'
+BENCHMARK_BLEND_FILE_PATH = REPO_ROOT / 'tests' / 'assets' / 'bmw27.blend'
+ANIMATION_BLEND_FILE_PATH = REPO_ROOT / 'tests' / 'assets' / 'animation.blend'
 
 
 # --- Tool Discovery & Download Configuration ---

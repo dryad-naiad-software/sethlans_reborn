@@ -138,10 +138,13 @@ def start_worker(cls, log_queue, extra_env=None):
     """
     logger.info("Starting Worker Agent...")
     test_env = os.environ.copy()
+    worker_python_path = str(PROJECT_ROOT / "worker")
+    existing_pythonpath = test_env.get("PYTHONPATH", "")
     test_env.update({
         "SETHLANS_DB_NAME": str(TEST_DB_NAME),
-        "DJANGO_SETTINGS_MODULE": "config.settings",
+        "DJANGO_SETTINGS_MODULE": "sethlans_manager.settings",
         "SETHLANS_MEDIA_ROOT": str(MEDIA_ROOT_FOR_TEST),
+        "PYTHONPATH": os.pathsep.join(filter(None, [worker_python_path, existing_pythonpath])),
     })
     if extra_env:
         test_env.update(extra_env)
@@ -175,7 +178,7 @@ def start_worker(cls, log_queue, extra_env=None):
         "--loglevel", "DEBUG",
     ]
     cls.worker_process = subprocess.Popen(
-        worker_command, cwd=PROJECT_ROOT, env=test_env,
+        worker_command, cwd=str(PROJECT_ROOT / "worker"), env=test_env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding='utf-8', errors='replace',
     )
@@ -211,23 +214,28 @@ def start_manager():
         subprocess.Popen: The manager process handle.
     """
     test_env = os.environ.copy()
+    manager_python_path = str(PROJECT_ROOT / "manager")
+    existing_pythonpath = test_env.get("PYTHONPATH", "")
     test_env.update({
         "SETHLANS_DB_NAME": str(TEST_DB_NAME),
-        "DJANGO_SETTINGS_MODULE": "config.settings",
+        "DJANGO_SETTINGS_MODULE": "sethlans_manager.settings",
         "SETHLANS_MEDIA_ROOT": str(MEDIA_ROOT_FOR_TEST),
+        "PYTHONPATH": os.pathsep.join(filter(None, [manager_python_path, existing_pythonpath])),
     })
+    manage_py = str(PROJECT_ROOT / "manager" / "manage.py")
     logger.info("Running migrations...")
     subprocess.run(
-        [sys.executable, "manage.py", "migrate"],
-        cwd=PROJECT_ROOT, env=test_env, check=True, capture_output=True,
+        [sys.executable, manage_py, "migrate"],
+        cwd=str(PROJECT_ROOT / "manager"), env=test_env,
+        check=True, capture_output=True,
     )
     logger.info("Starting Django manager on port %s...", worker_config.MANAGER_PORT)
     manager_command = [
-        sys.executable, "manage.py", "runserver",
+        sys.executable, manage_py, "runserver",
         str(worker_config.MANAGER_PORT), "--noreload",
     ]
     manager_process = subprocess.Popen(
-        manager_command, cwd=PROJECT_ROOT, env=test_env,
+        manager_command, cwd=str(PROJECT_ROOT / "manager"), env=test_env,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     time.sleep(5)  # Wait for manager to start

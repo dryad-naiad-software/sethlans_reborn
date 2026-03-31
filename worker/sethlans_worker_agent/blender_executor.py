@@ -181,7 +181,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
     try:
         popen_kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "encoding": 'utf-8',
-                        "errors": 'surrogateescape', "cwd": config.PROJECT_ROOT_FOR_WORKER}
+                        "errors": 'surrogateescape', "cwd": config.WORKER_ROOT}
         if platform.system() == "Windows":
             popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
