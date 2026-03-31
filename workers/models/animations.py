@@ -50,6 +50,37 @@ class Animation(models.Model):
     tiling_config = models.CharField(max_length=10, choices=TilingConfiguration.choices, default=TilingConfiguration.NONE, help_text="Grid size for tiled rendering of each frame.")
     thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the latest completed frame.", max_length=512)
 
+    def get_tile_counts(self):
+        """
+        Parse tiling_config and return (tile_count_x, tile_count_y).
+
+        Validates the format is 'NxM' where both N and M are positive
+        integers. Raises ValueError with a clear message on malformed
+        input.
+        """
+        config = self.tiling_config
+        parts = config.split('x')
+        if len(parts) != 2:
+            raise ValueError(
+                f"Invalid tiling_config format '{config}': "
+                f"expected 'NxM' (e.g., '2x2')."
+            )
+        try:
+            tile_count_x = int(parts[0])
+            tile_count_y = int(parts[1])
+        except ValueError:
+            raise ValueError(
+                f"Invalid tiling_config '{config}': "
+                f"both values must be integers."
+            )
+        if tile_count_x <= 0 or tile_count_y <= 0:
+            raise ValueError(
+                f"Invalid tiling_config '{config}': "
+                f"tile counts must be positive integers, "
+                f"got ({tile_count_x}, {tile_count_y})."
+            )
+        return tile_count_x, tile_count_y
+
     def __str__(self):
         return self.name
 

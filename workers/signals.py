@@ -79,8 +79,8 @@ def handle_job_completion(sender, instance, **kwargs):
     if instance.animation_frame and instance.status == JobStatus.DONE:
         frame = instance.animation_frame
         animation = frame.animation
-        tile_counts = [int(i) for i in animation.tiling_config.split("x")]
-        total_tiles_for_frame = tile_counts[0] * tile_counts[1]
+        tile_count_x, tile_count_y = animation.get_tile_counts()
+        total_tiles_for_frame = tile_count_x * tile_count_y
         completed_tiles = frame.tile_jobs.filter(status=JobStatus.DONE).count()
         if completed_tiles >= total_tiles_for_frame:
             logger.info(

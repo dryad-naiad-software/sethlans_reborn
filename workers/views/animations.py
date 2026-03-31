@@ -86,8 +86,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
         else:
             # --- Tiled Animation Job Spawning ---
             logger.info(f"Spawning tiled jobs for animation '{animation.name}' with config {animation.tiling_config}")
-            tile_counts = [int(i) for i in animation.tiling_config.split('x')]
-            tile_count_x, tile_count_y = tile_counts[0], tile_counts[1]
+            tile_count_x, tile_count_y = animation.get_tile_counts()
             tile_width = 1.0 / tile_count_x
             tile_height = 1.0 / tile_count_y
 

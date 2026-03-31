@@ -66,8 +66,7 @@ def assemble_animation_frame_image(animation_frame_id):
 
         final_image = Image.new('RGBA', (final_resolution_x, final_resolution_y))
 
-        tile_counts = [int(i) for i in animation.tiling_config.split('x')]
-        tile_count_x, tile_count_y = tile_counts[0], tile_counts[1]
+        tile_count_x, tile_count_y = animation.get_tile_counts()
         tile_pixel_width = final_resolution_x // tile_count_x
         tile_pixel_height = final_resolution_y // tile_count_y
 
