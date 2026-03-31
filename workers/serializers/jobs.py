@@ -1,0 +1,210 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (c) 2025 Dryad and Naiad Software LLC
+#
+# Created by Mario Estrella on 07/22/2025.
+# Dryad and Naiad Software LLC
+# mestrella@dryadandnaiad.com
+# Project: sethlans_reborn
+# workers/serializers/jobs.py
+"""
+Serializers for the Job and TiledJob models, including status transition validation.
+"""
+
+from django.core.exceptions import ValidationError as DjangoValidationError
+from rest_framework import serializers
+from ..models import Job, TiledJob, JobStatus, Asset, Project
+from .projects import ProjectSerializer
+from .assets import AssetSerializer
+
+# Valid job status transitions: QUEUED->RENDERING->DONE/ERROR/CANCELED
+VALID_STATUS_TRANSITIONS = {
+    JobStatus.QUEUED: [JobStatus.RENDERING, JobStatus.CANCELED],
+    JobStatus.RENDERING: [JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELED],
+    JobStatus.ERROR: [JobStatus.QUEUED],
+    JobStatus.DONE: [],
+    JobStatus.CANCELED: [JobStatus.QUEUED],
+}
+
+
+class TiledJobSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the `TiledJob` model.
+
+    Includes calculated fields for progress and tile counts.
+    """
+    progress = serializers.SerializerMethodField(
+        help_text="Human-readable progress string (e.g., '3 of 10 tiles complete')."
+    )
+    total_tiles = serializers.SerializerMethodField(
+        help_text="The total number of tiles in the job."
+    )
+    completed_tiles = serializers.SerializerMethodField(
+        help_text="The number of tiles that are in a 'DONE' status."
+    )
+
+    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
+    project_details = ProjectSerializer(source='project', read_only=True)
+    asset = AssetSerializer(read_only=True)
+    asset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Asset.objects.all(), source='asset', write_only=True
+    )
+
+    class Meta:
+        model = TiledJob
+        fields = [
+            'id', 'name', 'status', 'progress', 'total_tiles', 'completed_tiles',
+            'project', 'project_details', 'asset', 'asset_id',
+            'final_resolution_x', 'final_resolution_y', 'tile_count_x', 'tile_count_y',
+            'blender_version', 'render_engine', 'render_device', 'cycles_feature_set',
+            'render_settings',
+            'submitted_at', 'completed_at', 'total_render_time_seconds',
+            'output_file', 'thumbnail'
+        ]
+        read_only_fields = (
+            'id', 'status', 'progress', 'total_tiles', 'completed_tiles',
+            'submitted_at', 'completed_at', 'total_render_time_seconds',
+            'asset', 'project_details', 'output_file', 'thumbnail'
+        )
+        extra_kwargs = {
+            'project': {'write_only': True}
+        }
+
+    def validate(self, data):
+        """
+        Custom validation to ensure the selected `Asset` belongs to the `Project`
+        and that model-level constraints (tile counts) are satisfied.
+        """
+        project = data.get('project')
+        asset = data.get('asset')
+        if project and asset and asset.project != project:
+            raise serializers.ValidationError(
+                "The selected Asset does not belong to the selected Project."
+            )
+
+        # Run model-level clean() validation
+        instance = TiledJob(**data)
+        try:
+            instance.clean()
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.message_dict)
+
+        return data
+
+    def get_total_tiles(self, obj):
+        """
+        Calculates the total number of tiles for the job.
+        """
+        return obj.tile_count_x * obj.tile_count_y
+
+    def get_completed_tiles(self, obj):
+        """
+        Counts the number of completed child jobs. Prefers annotated
+        count from the queryset to avoid N+1 queries.
+        """
+        annotated = getattr(obj, 'annotated_completed_tiles', None)
+        if annotated is not None:
+            return annotated
+        return obj.jobs.filter(status=JobStatus.DONE).count()
+
+    def get_progress(self, obj):
+        """
+        Generates a human-readable progress string for the tiled job.
+        """
+        completed = self.get_completed_tiles(obj)
+        total = self.get_total_tiles(obj)
+        if total == 0:
+            return "0 of 0 tiles complete"
+        return f"{completed} of {total} tiles complete"
+
+
+class JobSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the `Job` model.
+
+    This serializer is used by the API for creating, viewing, and updating jobs.
+    It includes read-only fields for human-readable status and worker hostname.
+    Fields updated by the worker agent during its lifecycle (e.g., `assigned_worker`,
+    `started_at`, `completed_at`, `last_output`, `error_message`) are now
+    writable to allow status updates via PATCH requests.
+    """
+    assigned_worker_hostname = serializers.CharField(
+        source='assigned_worker.hostname', read_only=True,
+        help_text="The hostname of the worker assigned to this job."
+    )
+    status_display = serializers.CharField(
+        source='get_status_display', read_only=True,
+        help_text="The human-readable status of the job."
+    )
+    asset = AssetSerializer(read_only=True)
+    asset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Asset.objects.all(), source='asset', write_only=True
+    )
+
+    def validate_status(self, value):
+        """
+        Enforce valid job status transitions.
+
+        Only fires on updates (when self.instance exists). Rejects any
+        transition not defined in VALID_STATUS_TRANSITIONS.
+        """
+        if self.instance is not None:
+            current_status = self.instance.status
+            allowed = VALID_STATUS_TRANSITIONS.get(current_status, [])
+            if value not in allowed:
+                raise serializers.ValidationError(
+                    f"Invalid status transition from {current_status} to {value}."
+                )
+        return value
+
+    class Meta:
+        model = Job
+        fields = [
+            'id',
+            'name',
+            'asset',
+            'asset_id',
+            'output_file_pattern',
+            'start_frame',
+            'end_frame',
+            'status',
+            'status_display',
+            'assigned_worker',
+            'assigned_worker_hostname',
+            'animation',
+            'tiled_job',
+            'animation_frame',
+            'submitted_at',
+            'started_at',
+            'completed_at',
+            'blender_version',
+            'render_engine',
+            'render_device',
+            'cycles_feature_set',
+            'render_settings',
+            'last_output',
+            'error_message',
+            'render_time_seconds',
+            'output_file',
+            'thumbnail',
+        ]
+        read_only_fields = [
+            'submitted_at',
+            'status_display',
+            'assigned_worker_hostname',
+            'asset',
+            'output_file',
+            'thumbnail',
+            'tiled_job',
+            'animation_frame',
+            'assigned_worker',
+        ]
+        extra_kwargs = {
+            'status': {'required': False},
+            'animation': {'required': False},
+            'render_time_seconds': {'required': False},
+            'render_settings': {'required': False},
+            'started_at': {'required': False},
+            'completed_at': {'required': False},
+            'last_output': {'required': False},
+            'error_message': {'required': False},
+        }
