@@ -201,10 +201,37 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
                 response = requests.get(job_url, timeout=5)
                 if response.status_code == 200 and response.json().get('status') == 'CANCELED':
                     logger.warning(f"Cancellation signal for job ID {job_id} received. Terminating process tree.")
-                    parent = psutil.Process(process.pid)
-                    for child in parent.children(recursive=True):
-                        child.kill()
-                    parent.kill()
+                    try:
+                        parent = psutil.Process(process.pid)
+                        children = parent.children(recursive=True)
+                        # Step 1: Send SIGTERM to allow graceful shutdown
+                        for child in children:
+                            try:
+                                child.terminate()
+                            except psutil.NoSuchProcess:
+                                pass
+                        try:
+                            parent.terminate()
+                        except psutil.NoSuchProcess:
+                            pass
+                        logger.info(f"[Job {job_id}] Sent SIGTERM to process tree. Waiting up to 5s for graceful exit.")
+                        # Step 2: Wait for processes to exit gracefully
+                        _, alive = psutil.wait_procs(children + [parent], timeout=5)
+                        # Step 3: Force-kill any survivors
+                        if alive:
+                            logger.warning(
+                                f"[Job {job_id}] {len(alive)} process(es) did not exit after SIGTERM. Escalating to SIGKILL."
+                            )
+                            for p in alive:
+                                try:
+                                    p.kill()
+                                except psutil.NoSuchProcess:
+                                    pass
+                            logger.info(f"[Job {job_id}] Sent SIGKILL to remaining processes.")
+                        else:
+                            logger.info(f"[Job {job_id}] All processes exited gracefully after SIGTERM.")
+                    except psutil.NoSuchProcess:
+                        logger.info(f"[Job {job_id}] Process already exited before termination signal.")
                     was_canceled = True
                     break
             except (requests.exceptions.RequestException, psutil.NoSuchProcess):
