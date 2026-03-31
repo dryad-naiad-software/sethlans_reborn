@@ -44,66 +44,66 @@ def update_project_manifest(project_id: str):
         logger.error(f"Cannot generate manifest: Project with ID {project_id} not found.")
         return
 
-    # Define the path for the manifest file using the short UUID
-    project_short_id = str(project.id)[:8]
-    manifest_path = Path(settings.MEDIA_ROOT) / 'assets' / project_short_id / 'manifest.txt'
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Gather data
-    assets = Asset.objects.filter(project=project)
-    animations = Animation.objects.filter(project=project)
-    tiled_jobs = TiledJob.objects.filter(project=project)
-    # Standalone jobs are linked via asset, not directly to the project
-    standalone_jobs = Job.objects.filter(
-        asset__project=project,
-        animation__isnull=True,
-        tiled_job__isnull=True
-    )
-
-    # Build the manifest content
-    content = []
-    content.append("Project Manifest")
-    content.append("=" * 20)
-    content.append(f"Project Name: {project.name}")
-    content.append(f"Project UUID: {project.id}")
-    content.append(f"Generated: {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    content.append("\n" + ("-" * 3) + " Assets " + ("-" * 3))
-
-    if not assets:
-        content.append("No assets found for this project.")
-    else:
-        for asset in assets:
-            file_name = Path(asset.blend_file.name).name
-            content.append(f"- {asset.name} (File: {file_name})")
-
-    content.append("\n" + ("-" * 3) + " Render Jobs " + ("-" * 3))
-
-    job_found = False
-    if animations:
-        job_found = True
-        for anim in animations:
-            content.append(f"\n[Animation] {anim.name}")
-            content.append(f"  - Asset: {anim.asset.name}")
-
-    if tiled_jobs:
-        job_found = True
-        for tj in tiled_jobs:
-            content.append(f"\n[Tiled Job] {tj.name}")
-            content.append(f"  - Asset: {tj.asset.name}")
-
-    if standalone_jobs:
-        job_found = True
-        for job in standalone_jobs:
-            content.append(f"\n[Job] {job.name}")
-            content.append(f"  - Asset: {job.asset.name}")
-
-    if not job_found:
-        content.append("No jobs found for this project.")
-
-    # Write to file
     try:
+        # Define the path for the manifest file using the short UUID
+        project_short_id = str(project.id)[:8]
+        manifest_path = Path(settings.MEDIA_ROOT) / 'assets' / project_short_id / 'manifest.txt'
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Gather data
+        assets = Asset.objects.filter(project=project)
+        animations = Animation.objects.filter(project=project)
+        tiled_jobs = TiledJob.objects.filter(project=project)
+        # Standalone jobs are linked via asset, not directly to the project
+        standalone_jobs = Job.objects.filter(
+            asset__project=project,
+            animation__isnull=True,
+            tiled_job__isnull=True
+        )
+
+        # Build the manifest content
+        content = []
+        content.append("Project Manifest")
+        content.append("=" * 20)
+        content.append(f"Project Name: {project.name}")
+        content.append(f"Project UUID: {project.id}")
+        content.append(f"Generated: {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        content.append("\n" + ("-" * 3) + " Assets " + ("-" * 3))
+
+        if not assets:
+            content.append("No assets found for this project.")
+        else:
+            for asset in assets:
+                file_name = Path(asset.blend_file.name).name
+                content.append(f"- {asset.name} (File: {file_name})")
+
+        content.append("\n" + ("-" * 3) + " Render Jobs " + ("-" * 3))
+
+        job_found = False
+        if animations:
+            job_found = True
+            for anim in animations:
+                content.append(f"\n[Animation] {anim.name}")
+                content.append(f"  - Asset: {anim.asset.name}")
+
+        if tiled_jobs:
+            job_found = True
+            for tj in tiled_jobs:
+                content.append(f"\n[Tiled Job] {tj.name}")
+                content.append(f"  - Asset: {tj.asset.name}")
+
+        if standalone_jobs:
+            job_found = True
+            for job in standalone_jobs:
+                content.append(f"\n[Job] {job.name}")
+                content.append(f"  - Asset: {job.asset.name}")
+
+        if not job_found:
+            content.append("No jobs found for this project.")
+
+        # Write to file
         with open(manifest_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(content))
         logger.info(f"Successfully updated manifest for project '{project.name}'.")
-    except IOError as e:
-        logger.error(f"Failed to write manifest for project '{project.name}': {e}")
+    except Exception as e:
+        logger.error(f"Failed to generate manifest for project '{project.name}': {e}")

@@ -8,6 +8,7 @@
 
 import logging
 
+from django.db import transaction
 from django.utils import timezone
 from django.db.models import Sum
 from django.db.models.signals import post_save
@@ -61,7 +62,7 @@ def handle_manifest_update(sender, instance, created, **kwargs):
 
     if project_id:
         logger.debug(f"Signal received from {sender.__name__} for project {project_id}. Updating manifest.")
-        update_project_manifest(project_id)
+        transaction.on_commit(lambda pid=project_id: update_project_manifest(pid))
     else:
         logger.warning(f"Could not determine project ID from saved {sender.__name__} instance. Manifest not updated.")
 
