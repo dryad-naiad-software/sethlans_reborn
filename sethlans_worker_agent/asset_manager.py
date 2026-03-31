@@ -58,7 +58,16 @@ def ensure_asset_is_available(asset_data):
     # Strip the leading slash to make it a relative path
     relative_path = parsed_url.path.lstrip('/')
 
-    local_path = Path(config.MANAGED_ASSETS_DIR) / relative_path
+    base_dir = Path(config.MANAGED_ASSETS_DIR).resolve()
+    local_path = (base_dir / relative_path).resolve()
+
+    # Verify the resolved path stays within the managed assets directory
+    if not local_path.is_relative_to(base_dir):
+        logger.error(
+            f"Path traversal detected in asset URL: resolved path "
+            f"'{local_path}' escapes base directory '{base_dir}'"
+        )
+        return None
 
     # Check if the file already exists in our local cache
     if local_path.exists():

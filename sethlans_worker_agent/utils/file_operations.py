@@ -21,12 +21,14 @@ import hashlib
 import json
 import logging
 import os
+import pathlib
 import requests
 import shutil
 import platform
 import subprocess
 import tarfile
 import time
+import zipfile
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -173,6 +175,32 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
             subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], check=False)
 
 
+def _safe_zip_extract(archive_path, extract_to):
+    """
+    Extracts a zip archive with path traversal protection.
+
+    Every member path is resolved and verified to stay within the
+    target extraction directory. Members with absolute paths or ``..``
+    components that would escape the target are rejected.
+
+    Args:
+        archive_path (str): The full path to the zip archive.
+        extract_to (str): The destination directory for extraction.
+
+    Raises:
+        ValueError: If any member path resolves outside the target.
+    """
+    target = pathlib.Path(extract_to).resolve()
+    with zipfile.ZipFile(archive_path, 'r') as zf:
+        for member in zf.namelist():
+            member_path = (target / member).resolve()
+            if not member_path.is_relative_to(target):
+                raise ValueError(
+                    f"Zip archive contains path traversal entry: {member}"
+                )
+        zf.extractall(path=extract_to)
+
+
 def extract_archive(archive_path, extract_to):
     """
     Extracts an archive to a specified directory, handling different formats.
@@ -201,14 +229,14 @@ def extract_archive(archive_path, extract_to):
         with tarfile.open(archive_path, 'r:xz') as tar:
             tar.extractall(path=extract_to, filter='data')
         extracted_dir_name = archive_name[:-7]
+    elif archive_path.endswith(".zip"):
+        logger.info(f"Extracting {archive_path} to {extract_to} using zipfile...")
+        _safe_zip_extract(archive_path, extract_to)
+        extracted_dir_name = archive_name[:-4]
     else:
-        # For .zip and other formats, shutil is still fine.
         logger.info(f"Extracting {archive_path} to {extract_to} using shutil...")
         shutil.unpack_archive(archive_path, extract_to)
-        if archive_name.endswith('.zip'):
-            extracted_dir_name = archive_name[:-4]
-        else:
-            extracted_dir_name = archive_name
+        extracted_dir_name = archive_name
 
     full_extracted_path = os.path.join(extract_to, extracted_dir_name)
     logger.info(f"Extraction complete to {full_extracted_path}.")

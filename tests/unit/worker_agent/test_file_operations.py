@@ -8,7 +8,6 @@
 # Project: sethlans_reborn
 #
 import pytest
-import requests
 import tempfile
 import os
 import hashlib
@@ -70,6 +69,7 @@ def test_verify_hash():
         # Clean up the temporary file
         os.remove(tmp_path)
 
+
 # --- NEW: Test for DMG vs standard archive handling ---
 def test_extract_archive_handles_dmg_on_mac(mocker):
     """Tests that the extract function calls the DMG handler on macOS for .dmg files."""
@@ -92,10 +92,13 @@ def test_extract_archive_handles_dmg_on_mac(mocker):
     ("Darwin", "/tmp/archive.zip"),
     ("Windows", "/tmp/archive.zip"),
 ])
-def test_extract_archive_uses_shutil_for_zip(mocker, system, archive_path):
-    """Tests that the extract function calls shutil.unpack_archive for non-tar cases."""
+def test_extract_archive_uses_safe_zip_for_zip(mocker, system, archive_path):
+    """Tests that zip archives are handled by the secure _safe_zip_extract helper."""
     # Arrange
     mocker.patch('platform.system', return_value=system)
+    mock_safe_zip = mocker.patch(
+        'sethlans_worker_agent.utils.file_operations._safe_zip_extract'
+    )
     mock_shutil_unpack = mocker.patch('shutil.unpack_archive')
     mock_tarfile_open = mocker.patch('tarfile.open')
 
@@ -103,7 +106,8 @@ def test_extract_archive_uses_shutil_for_zip(mocker, system, archive_path):
     file_operations.extract_archive(archive_path, "/tmp/extract_to")
 
     # Assert
-    mock_shutil_unpack.assert_called_once_with(archive_path, "/tmp/extract_to")
+    mock_safe_zip.assert_called_once_with(archive_path, "/tmp/extract_to")
+    mock_shutil_unpack.assert_not_called()
     mock_tarfile_open.assert_not_called()
 
 
@@ -124,6 +128,167 @@ def test_extract_archive_uses_tarfile_for_tar_xz(mocker):
     # Check that extractall was called on the context manager's return value
     mock_tarfile_context.__enter__().extractall.assert_called_once_with(path=extract_to, filter='data')
     mock_shutil_unpack.assert_not_called()
+
+
+def test_safe_zip_extract_rejects_path_traversal():
+    """Tests that _safe_zip_extract raises ValueError for path traversal entries."""
+    import zipfile
+    import io
+
+    # Create a zip in memory with a path traversal entry
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr("../../etc/malicious.txt", "pwned")
+    buf.seek(0)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "evil.zip")
+        with open(zip_path, 'wb') as f:
+            f.write(buf.read())
+
+        extract_dir = os.path.join(tmpdir, "extract")
+        os.makedirs(extract_dir)
+
+        with pytest.raises(ValueError, match="path traversal"):
+            file_operations._safe_zip_extract(zip_path, extract_dir)
+
+
+def test_safe_zip_extract_allows_normal_zip():
+    """Tests that _safe_zip_extract works for a normal zip without traversal."""
+    import zipfile
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr("blender-4.0/blender", "binary data")
+        zf.writestr("blender-4.0/readme.txt", "hello")
+    buf.seek(0)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "good.zip")
+        with open(zip_path, 'wb') as f:
+            f.write(buf.read())
+
+        extract_dir = os.path.join(tmpdir, "extract")
+        os.makedirs(extract_dir)
+
+        file_operations._safe_zip_extract(zip_path, extract_dir)
+
+        assert os.path.exists(
+            os.path.join(extract_dir, "blender-4.0", "blender")
+        )
+        assert os.path.exists(
+            os.path.join(extract_dir, "blender-4.0", "readme.txt")
+        )
+
+
+def test_safe_zip_extract_rejects_absolute_path_member():
+    """Tests that _safe_zip_extract rejects members with absolute paths."""
+    import zipfile
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr("/etc/passwd", "root:x:0:0")
+    buf.seek(0)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "abs_path.zip")
+        with open(zip_path, 'wb') as f:
+            f.write(buf.read())
+
+        extract_dir = os.path.join(tmpdir, "extract")
+        os.makedirs(extract_dir)
+
+        # Absolute paths resolve outside the extract dir on some systems;
+        # on Windows they stay relative. Either way the check should catch
+        # any escape or allow it safely.
+        try:
+            file_operations._safe_zip_extract(zip_path, extract_dir)
+            # If it didn't raise, verify the extracted file is inside the target
+            import pathlib
+            for name in ["etc/passwd", "etc\\passwd"]:
+                candidate = os.path.join(extract_dir, name)
+                if os.path.exists(candidate):
+                    resolved = pathlib.Path(candidate).resolve()
+                    assert resolved.is_relative_to(
+                        pathlib.Path(extract_dir).resolve()
+                    )
+        except ValueError as e:
+            assert "path traversal" in str(e)
+
+
+def test_safe_zip_extract_rejects_mixed_traversal_entries():
+    """Tests rejection when only some members are malicious."""
+    import zipfile
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr("safe/readme.txt", "hello")
+        zf.writestr("../../evil.txt", "pwned")
+    buf.seek(0)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "mixed.zip")
+        with open(zip_path, 'wb') as f:
+            f.write(buf.read())
+
+        extract_dir = os.path.join(tmpdir, "extract")
+        os.makedirs(extract_dir)
+
+        with pytest.raises(ValueError, match="path traversal"):
+            file_operations._safe_zip_extract(zip_path, extract_dir)
+
+        # Verify that no files were extracted (the check runs before extractall)
+        assert not os.path.exists(os.path.join(extract_dir, "safe", "readme.txt"))
+
+
+def test_safe_zip_extract_allows_empty_zip():
+    """An empty zip should extract without error."""
+    import zipfile
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w'):
+        pass  # empty archive
+    buf.seek(0)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "empty.zip")
+        with open(zip_path, 'wb') as f:
+            f.write(buf.read())
+
+        extract_dir = os.path.join(tmpdir, "extract")
+        os.makedirs(extract_dir)
+
+        # Should not raise
+        file_operations._safe_zip_extract(zip_path, extract_dir)
+
+
+def test_safe_zip_extract_allows_nested_directories():
+    """Deeply nested but safe directory structures should extract fine."""
+    import zipfile
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr("a/b/c/d/e/file.txt", "deep nesting")
+    buf.seek(0)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "deep.zip")
+        with open(zip_path, 'wb') as f:
+            f.write(buf.read())
+
+        extract_dir = os.path.join(tmpdir, "extract")
+        os.makedirs(extract_dir)
+
+        file_operations._safe_zip_extract(zip_path, extract_dir)
+
+        assert os.path.exists(
+            os.path.join(extract_dir, "a", "b", "c", "d", "e", "file.txt")
+        )
 
 
 def test_cleanup_archive(mocker):
