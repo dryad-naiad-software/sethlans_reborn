@@ -16,6 +16,7 @@ from django.db.models import Sum
 from ..constants import TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
 from .upload_paths import animation_frame_output_upload_path, thumbnail_upload_path
 from .projects import Project, Asset
+from .jobs import JobStatus
 
 class AnimationFrameStatus(models.TextChoices):
     PENDING = 'PENDING', 'Pending'
@@ -38,7 +39,7 @@ class Animation(models.Model):
     start_frame = models.IntegerField()
     end_frame = models.IntegerField()
     frame_step = models.IntegerField(default=1, help_text="Number of frames to advance animation between renders (e.g., a step of 2 renders every other frame).")
-    status = models.CharField(max_length=50, default='QUEUED')
+    status = models.CharField(max_length=50, choices=JobStatus.choices, default=JobStatus.QUEUED)
     submitted_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     blender_version = models.CharField(max_length=100, default="4.5", help_text="e.g., '4.5' or '4.1.1'")
