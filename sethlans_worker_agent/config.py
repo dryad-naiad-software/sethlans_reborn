@@ -21,6 +21,8 @@ import logging
 import configparser
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 # --- Config File Loading ---
 config_parser = configparser.ConfigParser()
 config_file_path = Path(__file__).resolve().parent / 'config.ini'
@@ -49,16 +51,66 @@ def get_config_value(section, key, default, is_int=False):
     return int(default) if is_int else default
 
 
+def _validate_int(name, value, default, min_val=None, max_val=None):
+    """
+    Validates an integer config value against optional bounds.
+
+    Returns the value if valid, or the default with a logged warning.
+    """
+    if not isinstance(value, int):
+        logger.warning(
+            "Config '%s' has non-integer value '%s'. "
+            "Falling back to default: %s", name, value, default
+        )
+        return default
+    if min_val is not None and value < min_val:
+        logger.warning(
+            "Config '%s' value %d is below minimum %d. "
+            "Falling back to default: %d", name, value, min_val, default
+        )
+        return default
+    if max_val is not None and value > max_val:
+        logger.warning(
+            "Config '%s' value %d exceeds maximum %d. "
+            "Falling back to default: %d", name, value, max_val, default
+        )
+        return default
+    return value
+
+
+def _validate_non_empty_string(name, value, default):
+    """
+    Validates that a string config value is non-empty.
+
+    Returns the value if valid, or the default with a logged warning.
+    """
+    if not isinstance(value, str) or not value.strip():
+        logger.warning(
+            "Config '%s' is empty or not a string. "
+            "Falling back to default: '%s'", name, default
+        )
+        return default
+    return value
+
+
 # --- Manager API Configuration ---
 MANAGER_PORT = get_config_value('manager', 'port', 7075, is_int=True)
+MANAGER_PORT = _validate_int('manager.port', MANAGER_PORT, 7075, 1, 65535)
 MANAGER_HOST = get_config_value('manager', 'host', '127.0.0.1')
+MANAGER_HOST = _validate_non_empty_string('manager.host', MANAGER_HOST, '127.0.0.1')
 # The base URL for the central Django Manager's API.
 MANAGER_API_URL = f"http://{MANAGER_HOST}:{MANAGER_PORT}/api/"
 
 
 # --- Worker Operation Intervals ---
 HEARTBEAT_INTERVAL_SECONDS = get_config_value('worker', 'heartbeat_interval', 30, is_int=True)
+HEARTBEAT_INTERVAL_SECONDS = _validate_int(
+    'worker.heartbeat_interval', HEARTBEAT_INTERVAL_SECONDS, 30, 1, 3600
+)
 JOB_POLLING_INTERVAL_SECONDS = get_config_value('worker', 'polling_interval', 5, is_int=True)
+JOB_POLLING_INTERVAL_SECONDS = _validate_int(
+    'worker.polling_interval', JOB_POLLING_INTERVAL_SECONDS, 5, 1, 3600
+)
 
 # --- Worker Hardware Configuration ---
 # These settings are mutually exclusive and can be set via environment variables.
@@ -70,6 +122,7 @@ FORCE_GPU_INDEX = os.getenv('SETHLANS_FORCE_GPU_INDEX')
 GPU_SPLIT_MODE = os.getenv('SETHLANS_GPU_SPLIT_MODE', 'false').lower() == 'true'
 # --- NEW: Configure CPU threads for rendering. 0 = Blender default (all) ---
 CPU_THREADS = get_config_value('worker', 'cpu_threads', 0, is_int=True)
+CPU_THREADS = _validate_int('worker.cpu_threads', CPU_THREADS, 0, 0, 1024)
 
 
 if FORCE_CPU_ONLY and FORCE_GPU_ONLY:
@@ -158,7 +211,9 @@ PLATFORM_BLENDER_MAP = {
 CURRENT_PLATFORM_BLENDER_DETAILS = PLATFORM_BLENDER_MAP.get((platform.system(), platform.machine().lower()))
 if not CURRENT_PLATFORM_BLENDER_DETAILS:
     print(
-        f"[WARNING] Unsupported OS/Architecture for Blender management: ({platform.system()}, {platform.machine().lower()}). Auto-download may not work.")
+        f"[WARNING] Unsupported OS/Architecture for Blender management: "
+        f"({platform.system()}, {platform.machine().lower()}). "
+        f"Auto-download may not work.")
 
 
 def configure_worker_logging(log_level_str="INFO"):
