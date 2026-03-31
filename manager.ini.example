@@ -11,3 +11,14 @@
 [server]
 # The port the Django development server will run on.
 port = 7075
+
+[security]
+# Django secret key — generate a unique value for production.
+# You can generate one with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+# secret_key = your-unique-secret-key-here
+
+# Set to False for production deployments.
+# debug = False
+
+# Comma-separated list of allowed hostnames.
+# allowed_hosts = sethlans.example.com, 192.168.1.100

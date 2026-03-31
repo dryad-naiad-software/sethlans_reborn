@@ -9,23 +9,63 @@
 #
 
 from pathlib import Path
+import configparser
 import os
 import logging
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# --- Manager Configuration (manager.ini) ---
+# Hierarchy: env vars > manager.ini > defaults
+_INSECURE_DEFAULT_KEY = (
+    'django-insecure-^&r@p#+r6h*!@!1u=l!0j_z%z!%^n#b=2#h&l16b%c!0609t'
+)
 
-# Quick-start development settings - unsuitable for production
+_config = configparser.ConfigParser()
+_config_file_path = BASE_DIR / 'manager.ini'
+if _config_file_path.exists():
+    _config.read(_config_file_path)
+
+
+def _get_config(section, key, env_var, default):
+    """Read a setting: env var > manager.ini > default."""
+    value = os.getenv(env_var)
+    if value is not None:
+        return value
+    if _config.has_option(section, key):
+        return _config.get(section, key)
+    return default
+
+
+# --- Security Settings ---
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-^&r@p#+r6h*!@!1u=l!0j_z%z!%^n#b=2#h&l16b%c!0609t'
+SECRET_KEY = _get_config(
+    'security', 'secret_key', 'SETHLANS_SECURITY_SECRET_KEY',
+    _INSECURE_DEFAULT_KEY
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+_debug_raw = _get_config(
+    'security', 'debug', 'SETHLANS_SECURITY_DEBUG', 'True'
+)
+DEBUG = _debug_raw.lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = []
+_hosts_raw = _get_config(
+    'security', 'allowed_hosts', 'SETHLANS_SECURITY_ALLOWED_HOSTS', '*'
+)
+ALLOWED_HOSTS = [
+    h.strip() for h in _hosts_raw.split(',') if h.strip()
+]
+
+# Warn if using the insecure default secret key
+_logger = logging.getLogger('django')
+if SECRET_KEY == _INSECURE_DEFAULT_KEY:
+    _logger.warning(
+        "Using insecure default SECRET_KEY. Set a unique key in "
+        "manager.ini [security] or SETHLANS_SECURITY_SECRET_KEY "
+        "environment variable before deploying to production."
+    )
 
 
 # Application definition
