@@ -274,12 +274,18 @@ def get_and_claim_job(worker_id):
 
     Args:
         worker_id (int): The unique ID of the worker, as assigned by the manager.
+
+    Returns:
+        The started Thread if a job was dispatched, or None if no job was claimed.
     """
     job_data = poll_and_claim_job(worker_id)
     if job_data:
         job_id = job_data.get('id')
         logger.info(f"Dispatching job {job_id} to a new processing thread.")
-        job_thread = threading.Thread(target=process_claimed_job, args=(job_data,))
+        job_thread = threading.Thread(
+            target=process_claimed_job, args=(job_data,),
+            name=f"job-{job_id}"
+        )
         job_thread.start()
-        return True
-    return False
+        return job_thread
+    return None
