@@ -152,7 +152,7 @@ jobs:
   # --- JOB 3: Self-Hosted Apple Silicon Mac Runner ---
   build-and-test-self-hosted-macos:
     name: Test on Self-Hosted Apple Silicon (Python ${{ matrix.python-version }})
-    runs-on: [self-hosted, macos, arm64, metal]
+    runs-on: [self-hosted, macos, arm64]
     strategy:
       fail-fast: false
       matrix:
