@@ -70,10 +70,10 @@ class SupportedBlenderVersions(models.TextChoices):
     This is used to populate UI dropdowns and for API validation, ensuring
     the worker agents are capable of processing the jobs.
     """
-    V4_5_LTS = "4.5.1", "Blender 4.5.1 (LTS)"
+    V4_5_LTS = "4.5.8", "Blender 4.5.8 (LTS)"
     V4_4 = "4.4.3", "Blender 4.4.3"
     V4_3 = "4.3.2", "Blender 4.3.2"
-    V4_2_LTS = "4.2.12", "Blender 4.2.12 (LTS)"
+    V4_2_LTS = "4.2.19", "Blender 4.2.19 (LTS)"
     V4_1 = "4.1.1", "Blender 4.1.1"
     V4_0 = "4.0.2", "Blender 4.0.2"
 

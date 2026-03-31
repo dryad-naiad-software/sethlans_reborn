@@ -169,7 +169,7 @@ Worker env vars use the pattern `SETHLANS_{SECTION}_{KEY}` (e.g., `SETHLANS_MANA
 | Cycles Feature Set | Supported, Experimental |
 | GPU Backends | OptiX, CUDA, HIP, Metal, oneAPI |
 | Tiling Grids | None, 2x2, 3x3, 4x4, 5x5 |
-| Blender Versions | 4.0.2, 4.1.1, 4.2.12 (LTS), 4.3.2, 4.4.3, 4.5.1 (LTS) |
+| Blender Versions | 4.0.2, 4.1.1, 4.2.19 (LTS), 4.3.2, 4.4.3, 4.5.8 (LTS) |
 | Render Settings | JSON overrides for any `bpy` property path (samples, resolution, etc.) |
 
 ---
