@@ -183,8 +183,7 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
 
     # --- Parent Animation Status Update ---
     if instance.status == AnimationFrameStatus.DONE and animation.status == JobStatus.QUEUED:
-        animation.status = JobStatus.RENDERING
-        animation.save(update_fields=["status"])
+        Animation.objects.filter(pk=animation.pk).update(status=JobStatus.RENDERING)
 
     expected_frames_count = len(
         range(animation.start_frame, animation.end_frame + 1, animation.frame_step)
@@ -198,9 +197,8 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
         )
         time_aggregate = completed_frames.aggregate(total=Sum("render_time_seconds"))
         total_time = time_aggregate["total"] or 0
-        animation.status = JobStatus.DONE
-        animation.completed_at = timezone.now()
-        animation.total_render_time_seconds = total_time
-        animation.save(
-            update_fields=["status", "completed_at", "total_render_time_seconds"]
+        Animation.objects.filter(pk=animation.pk).update(
+            status=JobStatus.DONE,
+            completed_at=timezone.now(),
+            total_render_time_seconds=total_time,
         )
