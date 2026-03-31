@@ -48,7 +48,8 @@ class TestGpuAssignment(BaseE2ETest):
         if not is_gpu_available() or is_standard_mac_ci:
             pytest.skip("Skipping GPU assignment test: No compatible GPU or running in standard macOS CI.")
 
-        system_monitor._gpu_details_cache = None  # Force a fresh detection for the test
+        from sethlans_worker_agent import hardware_detection
+        hardware_detection._gpu_details_cache = None  # Force a fresh detection
         physical_gpus = system_monitor.get_gpu_device_details()
         num_gpus = len(physical_gpus)
 

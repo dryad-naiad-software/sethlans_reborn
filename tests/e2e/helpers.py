@@ -89,7 +89,9 @@ def verify_image_output(image_url: str, expected_size: tuple = None):
                 assert max_val > 10, "Image is unexpectedly dark or completely black."
 
                 if expected_size:
-                    assert img_data.size == expected_size, f"Image size mismatch. Expected {expected_size}, got {img_data.size}."
+                    assert img_data.size == expected_size, (
+                        f"Image size mismatch. Expected {expected_size}, got {img_data.size}."
+                    )
     except Exception as e:
         pytest.fail(f"Image verification failed for {image_url}: {e}")
 
@@ -104,9 +106,10 @@ def is_gpu_available() -> bool:
     Returns:
         bool: True if one or more GPU devices are detected, False otherwise.
     """
-    system_monitor._gpu_devices_cache = None  # Ensure a fresh check
+    from sethlans_worker_agent import hardware_detection
+    hardware_detection._gpu_devices_cache = None  # Ensure a fresh check
     devices = system_monitor.detect_gpu_devices()
-    system_monitor._gpu_devices_cache = None  # Clear cache for subsequent tests
+    hardware_detection._gpu_devices_cache = None  # Clear cache for subsequent tests
     return len(devices) > 0
 
 
@@ -134,3 +137,30 @@ def get_blender_process_count():
         if 'blender' in proc.info['name'].lower():
             count += 1
     return count
+
+
+def stop_worker_and_collect_logs(test_instance):
+    """
+    Stops the worker process, joins the log reader thread, and returns
+    the full captured log output as a single string.
+
+    This is useful for tests that restart the worker in a special mode
+    and need to verify log output after the test completes.
+
+    Args:
+        test_instance: A test class instance with ``worker_process``,
+            ``worker_log_thread``, and ``worker_log_queue`` attributes.
+
+    Returns:
+        str: The concatenated worker log output.
+    """
+    if test_instance.worker_process and test_instance.worker_process.poll() is None:
+        test_instance.worker_process.kill()
+        test_instance.worker_process.wait(timeout=10)
+    if test_instance.worker_log_thread and test_instance.worker_log_thread.is_alive():
+        test_instance.worker_log_thread.join(timeout=5)
+
+    lines = []
+    while not test_instance.worker_log_queue.empty():
+        lines.append(test_instance.worker_log_queue.get_nowait())
+    return "".join(lines)

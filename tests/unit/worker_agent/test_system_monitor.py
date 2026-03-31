@@ -17,7 +17,7 @@ import psutil
 from unittest.mock import MagicMock
 
 # Import the module and dependencies to be tested/mocked
-from sethlans_worker_agent import system_monitor, config
+from sethlans_worker_agent import system_monitor, config, hardware_detection
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
 
@@ -25,21 +25,21 @@ from sethlans_worker_agent.utils import blender_release_parser
 @pytest.fixture(autouse=True)
 def reset_system_monitor_cache():
     """Resets the module-level cache before each test to ensure isolation."""
-    system_monitor._gpu_devices_cache = None
-    system_monitor._gpu_details_cache = None
-    system_monitor._cpu_thread_count_cache = None
+    hardware_detection._gpu_devices_cache = None
+    hardware_detection._gpu_details_cache = None
+    hardware_detection._cpu_thread_count_cache = None
 
 
 def test_get_system_info(mocker):
     """
     Tests that system information, including GPU devices, is gathered correctly.
     """
-    mocker.patch.object(system_monitor, 'HOSTNAME', "test-host")
-    mocker.patch.object(system_monitor, 'IP_ADDRESS', "192.168.1.1")
-    mocker.patch.object(system_monitor, 'OS_INFO', "TestOS 11.0")
+    mocker.patch.object(hardware_detection, 'HOSTNAME', "test-host")
+    mocker.patch.object(hardware_detection, 'IP_ADDRESS', "192.168.1.1")
+    mocker.patch.object(hardware_detection, 'OS_INFO', "TestOS 11.0")
     mocker.patch.object(tool_manager_instance, 'scan_for_local_blenders', return_value=[{'version': '4.1.1'}])
-    mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=['CUDA', 'OPTIX'])
-    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[{'name': 'RTX 4090'}])
+    mocker.patch('sethlans_worker_agent.hardware_detection.detect_gpu_devices', return_value=['CUDA', 'OPTIX'])
+    mocker.patch('sethlans_worker_agent.hardware_detection.get_gpu_device_details', return_value=[{'name': 'RTX 4090'}])
 
     info = system_monitor.get_system_info()
 
@@ -59,7 +59,7 @@ def test_detect_gpu_devices_success(mocker):
         {"name": "NVIDIA GeForce RTX 4090", "type": "CUDA"},
         {"name": "AMD Radeon PRO W7900", "type": "HIP"}
     ]
-    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=mock_details)
+    mocker.patch('sethlans_worker_agent.hardware_detection.get_gpu_device_details', return_value=mock_details)
 
     # Act
     devices = system_monitor.detect_gpu_devices()
@@ -74,7 +74,7 @@ def test_detect_gpu_devices_force_cpu_only_mode(mocker):
     """
     # Arrange: Force the config setting to True
     mocker.patch.object(config, 'FORCE_CPU_ONLY', True)
-    mock_get_details = mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details')
+    mock_get_details = mocker.patch('sethlans_worker_agent.hardware_detection.get_gpu_device_details')
 
     # Act
     devices = system_monitor.detect_gpu_devices()
@@ -87,7 +87,7 @@ def test_detect_gpu_devices_force_cpu_only_mode(mocker):
 def test_detect_gpu_devices_caches_result(mocker):
     """Ensures that GPU detection results are cached after the first call."""
     # Arrange
-    mock_get_details = mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[])
+    mock_get_details = mocker.patch('sethlans_worker_agent.hardware_detection.get_gpu_device_details', return_value=[])
 
     # Act 1: First call should trigger the detailed check
     system_monitor.detect_gpu_devices()
@@ -180,7 +180,7 @@ def test_get_gpu_device_details_success(mocker):
     mock_blender_output = f"Blender 4.5.1\n{json.dumps(mock_gpu_data)}\nBlender quit\n"
     mock_run.return_value = MagicMock(stdout=mock_blender_output, stderr="", returncode=0)
     # The filter function should be called with the raw data
-    mock_filter = mocker.patch('sethlans_worker_agent.system_monitor._filter_preferred_gpus',
+    mock_filter = mocker.patch('sethlans_worker_agent.hardware_detection._filter_preferred_gpus',
                                return_value=mock_gpu_data)
 
     # Act

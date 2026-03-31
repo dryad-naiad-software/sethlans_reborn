@@ -17,6 +17,8 @@ This module is primarily responsible for:
 - Downloading and extracting new Blender versions from official mirrors.
 - Verifying downloaded files using SHA256 hashes.
 - Providing the correct executable path for a given Blender version.
+
+Platform-specific utilities have been extracted to the platform_utils module.
 """
 
 import logging
@@ -27,6 +29,7 @@ import stat  # <-- ADDED IMPORT
 from pathlib import Path
 from . import config
 from .utils import file_operations, blender_release_parser
+from .platform_utils import get_platform_identifier, get_executable_path_for_blender
 
 logger = logging.getLogger(__name__)
 
@@ -84,47 +87,26 @@ class ToolManager:
         """
         Determines the platform identifier string (e.g., 'windows-x64').
 
-        This is used to match the worker's OS and architecture with the correct
-        Blender download file.
+        Delegates to the standalone function in platform_utils.
 
         Returns:
-            str or None: The platform identifier string, or None if the platform is not supported.
+            str or None: The platform identifier string, or None if not supported.
         """
-        system = platform.system().lower()
-        arch = platform.machine().lower()
-
-        if system == "windows":
-            return "windows-x64" if "64" in arch else "windows-x86"
-        elif system == "linux":
-            if arch == "x86_64":
-                return "linux-x64"
-            elif arch == "aarch64":
-                return "linux-arm64"
-        elif system == "darwin":  # macOS
-            return "macos-arm64" if "arm" in arch or "aarch64" in arch else "macos-x64"
-        return None
+        return get_platform_identifier()
 
     def _get_executable_path_for_install(self, install_dir_name):
         """
         Constructs the full path to the Blender executable within an install folder.
 
-        This handles the different file paths for the Blender executable on
-        Windows, Linux, and macOS.
+        Delegates to the standalone function in platform_utils.
 
         Args:
-            install_dir_name (str): The name of the installation directory (e.g., 'blender-4.1.1-windows-x64').
+            install_dir_name (str): The name of the installation directory.
 
         Returns:
-            str: The full path to the Blender executable.
+            Path: The full path to the Blender executable.
         """
-        base_path = self.blender_dir / install_dir_name
-        if platform.system() == "Windows":
-            return base_path / "blender.exe"
-        elif platform.system() == "Darwin":  # macOS
-            # The .app is a directory, so we need to point inside it
-            return base_path / "Blender.app" / "Contents" / "MacOS" / "Blender"
-        else:  # Linux
-            return base_path / "blender"
+        return get_executable_path_for_blender(self.blender_dir, install_dir_name)
 
     def get_blender_executable_path(self, version_str):
         """
