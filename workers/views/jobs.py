@@ -9,6 +9,7 @@
 
 import logging
 
+from django.db import transaction
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, status, viewsets
@@ -17,7 +18,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
 from ..constants import RenderDevice
-from ..models import Job, JobStatus
+from ..models import Job, JobStatus, Worker
 from ..serializers import JobSerializer
 
 logger = logging.getLogger(__name__)
@@ -81,13 +82,80 @@ class JobViewSet(viewsets.ModelViewSet):
         Returns:
             A Response containing the updated job data.
         """
+        from workers.serializers import VALID_STATUS_TRANSITIONS
+
         job = self.get_object()
+        allowed = VALID_STATUS_TRANSITIONS.get(job.status, [])
+        if JobStatus.CANCELED not in allowed:
+            return Response(
+                {"error": f"Cannot cancel a job in '{job.status}' status."},
+                status=status.HTTP_409_CONFLICT,
+            )
         old_status = job.status
         job.status = JobStatus.CANCELED
         if not job.completed_at:
             job.completed_at = timezone.now()
         job.save()
         logger.info(f"Job '{job.name}' (ID: {job.id}) CANCELED. Status: {old_status} -> {job.status}.")
+        serializer = self.get_serializer(job)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def claim(self, request, pk=None):
+        """
+        Atomically claim a job for a worker.
+
+        Uses SELECT FOR UPDATE to lock the job row, preventing race
+        conditions where multiple workers claim the same job.
+
+        Expects a JSON body with `worker_id` (the Worker primary key).
+
+        Returns:
+            200 on success with updated job data.
+            400 if worker_id is missing or invalid.
+            404 if job not found.
+            409 if job is already claimed or not in QUEUED status.
+        """
+        worker_id = request.data.get('worker_id')
+        if not worker_id:
+            return Response(
+                {"error": "Missing 'worker_id' in request body."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            worker = Worker.objects.get(pk=worker_id)
+        except Worker.DoesNotExist:
+            return Response(
+                {"error": f"Worker with id '{worker_id}' not found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                job = Job.objects.select_for_update().get(pk=pk)
+
+                if job.status != JobStatus.QUEUED or job.assigned_worker is not None:
+                    return Response(
+                        {"error": "Job is not available for claiming."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                job.status = JobStatus.RENDERING
+                job.assigned_worker = worker
+                job.started_at = timezone.now()
+                job.save()
+
+        except Job.DoesNotExist:
+            return Response(
+                {"error": "Job not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        logger.info(
+            f"Job '{job.name}' (ID: {job.pk}) claimed by worker "
+            f"'{worker.hostname}' (ID: {worker.pk})."
+        )
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

@@ -10,6 +10,7 @@
 import logging
 import os
 
+from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 
@@ -33,6 +34,7 @@ class TiledJobViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'project']
 
+    @transaction.atomic
     def perform_create(self, serializer):
         """
         Spawns individual `Job` objects for each tile of the render after the parent

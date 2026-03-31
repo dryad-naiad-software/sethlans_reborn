@@ -46,11 +46,11 @@ def test_claim_job_success(mocker):
     """
     Tests that claim_job returns True on a 200 OK response.
     """
-    mock_patch = mocker.patch('requests.patch')
-    mock_patch.return_value.status_code = 200
+    mock_post = mocker.patch('requests.post')
+    mock_post.return_value.status_code = 200
     result = api_handler.claim_job(1, 101)
     assert result is True
-    mock_patch.assert_called_once_with(f"{config.MANAGER_API_URL}jobs/1/", json={"assigned_worker": 101}, timeout=5)
+    mock_post.assert_called_once_with(f"{config.MANAGER_API_URL}jobs/1/claim/", json={"worker_id": 101}, timeout=5)
 
 
 @pytest.mark.parametrize("status_code", [409, 404, 500])
@@ -58,8 +58,8 @@ def test_claim_job_failure(mocker, status_code):
     """
     Tests that claim_job returns False on non-200 responses.
     """
-    mock_patch = mocker.patch('requests.patch')
-    mock_patch.return_value.status_code = status_code
+    mock_post = mocker.patch('requests.post')
+    mock_post.return_value.status_code = status_code
     result = api_handler.claim_job(1, 101)
     assert result is False
 

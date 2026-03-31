@@ -19,6 +19,15 @@ worker agent interactions.
 from rest_framework import serializers
 from .models import Worker, Job, JobStatus, Animation, Asset, Project, TiledJob, TiledJobStatus, AnimationFrame
 
+# Valid job status transitions: QUEUED->RENDERING->DONE/ERROR/CANCELED
+VALID_STATUS_TRANSITIONS = {
+    JobStatus.QUEUED: [JobStatus.RENDERING, JobStatus.CANCELED],
+    JobStatus.RENDERING: [JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELED],
+    JobStatus.ERROR: [JobStatus.QUEUED],
+    JobStatus.DONE: [],
+    JobStatus.CANCELED: [JobStatus.QUEUED],
+}
+
 class ProjectSerializer(serializers.ModelSerializer):
     """
     Serializer for the `Project` model.
@@ -221,6 +230,21 @@ class JobSerializer(serializers.ModelSerializer):
         queryset=Asset.objects.all(), source='asset', write_only=True
     )
 
+    def validate_status(self, value):
+        """
+        Enforce valid job status transitions.
+
+        Only fires on updates (when self.instance exists). Rejects any
+        transition not defined in VALID_STATUS_TRANSITIONS.
+        """
+        if self.instance is not None:
+            current_status = self.instance.status
+            allowed = VALID_STATUS_TRANSITIONS.get(current_status, [])
+            if value not in allowed:
+                raise serializers.ValidationError(
+                    f"Invalid status transition from {current_status} to {value}."
+                )
+        return value
 
     class Meta:
         model = Job
@@ -261,11 +285,11 @@ class JobSerializer(serializers.ModelSerializer):
             'output_file',
             'thumbnail',
             'tiled_job',
-            'animation_frame'
+            'animation_frame',
+            'assigned_worker',
         ]
         extra_kwargs = {
             'status': {'required': False},
-            'assigned_worker': {'required': False},
             'animation': {'required': False},
             'render_time_seconds': {'required': False},
             'render_settings': {'required': False},

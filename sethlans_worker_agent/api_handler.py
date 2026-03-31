@@ -53,7 +53,7 @@ def poll_for_available_jobs(params: Dict[str, str]) -> Optional[List[Dict[str, A
 
 def claim_job(job_id: int, worker_id: int) -> bool:
     """
-    Attempts to claim a specific job for this worker via a PATCH request.
+    Attempts to atomically claim a specific job for this worker via POST.
 
     Args:
         job_id (int): The ID of the job to claim.
@@ -64,9 +64,9 @@ def claim_job(job_id: int, worker_id: int) -> bool:
         False if the job was claimed by another worker (HTTP 409).
         False for any other error.
     """
-    claim_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
+    claim_url = f"{config.MANAGER_API_URL}jobs/{job_id}/claim/"
     try:
-        claim_response = requests.patch(claim_url, json={"assigned_worker": worker_id}, timeout=5)
+        claim_response = requests.post(claim_url, json={"worker_id": worker_id}, timeout=5)
 
         if claim_response.status_code == 200:
             return True
