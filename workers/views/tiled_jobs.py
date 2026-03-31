@@ -11,11 +11,12 @@ import logging
 import os
 
 from django.db import transaction
+from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 
 from ..constants import RenderEngine, RenderSettings
-from ..models import Job, TiledJob
+from ..models import Job, JobStatus, TiledJob
 from ..serializers import TiledJobSerializer
 
 logger = logging.getLogger(__name__)
@@ -29,10 +30,18 @@ class TiledJobViewSet(viewsets.ModelViewSet):
     automatically spawn a child `Job` for each tile in the specified grid.
     These tile jobs contain the necessary render border overrides.
     """
-    queryset = TiledJob.objects.all().order_by('-submitted_at')
     serializer_class = TiledJobSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'project']
+
+    def get_queryset(self):
+        return TiledJob.objects.annotate(
+            annotated_completed_tiles=Count(
+                'jobs', filter=Q(jobs__status=JobStatus.DONE)
+            ),
+        ).select_related(
+            'project', 'asset', 'asset__project'
+        ).order_by('-submitted_at')
 
     @transaction.atomic
     def perform_create(self, serializer):

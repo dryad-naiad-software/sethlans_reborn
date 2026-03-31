@@ -11,11 +11,12 @@ import logging
 import os
 
 from django.db import transaction
+from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 
 from ..constants import RenderEngine, RenderSettings, TilingConfiguration
-from ..models import Animation, AnimationFrame, Job
+from ..models import Animation, AnimationFrame, Job, JobStatus
 from ..serializers import AnimationSerializer
 
 logger = logging.getLogger(__name__)
@@ -29,10 +30,23 @@ class AnimationViewSet(viewsets.ModelViewSet):
     and automatically spawn a child `Job` for each frame in the sequence,
     or a grid of `Job`s for tiled animations.
     """
-    queryset = Animation.objects.all().order_by('-submitted_at')
     serializer_class = AnimationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'project']
+
+    def get_queryset(self):
+        return Animation.objects.annotate(
+            annotated_completed_jobs=Count(
+                'jobs', filter=Q(jobs__status=JobStatus.DONE)
+            ),
+            annotated_completed_frames=Count(
+                'frames', filter=Q(frames__status='DONE')
+            ),
+        ).select_related(
+            'project', 'asset', 'asset__project'
+        ).prefetch_related(
+            'frames'
+        ).order_by('-submitted_at')
 
     @transaction.atomic
     def perform_create(self, serializer):

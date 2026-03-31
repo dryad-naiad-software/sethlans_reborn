@@ -127,11 +127,18 @@ class AnimationSerializer(serializers.ModelSerializer):
 
     def get_completed_frames(self, obj):
         """
-        Counts the number of completed frames. This logic differs based on
-        whether the animation is tiled or a standard sequence.
+        Counts the number of completed frames. Prefers annotated counts
+        from the queryset to avoid N+1 queries, falling back to a direct
+        query when annotations are not present.
         """
         if obj.tiling_config != 'NONE':
+            annotated = getattr(obj, 'annotated_completed_frames', None)
+            if annotated is not None:
+                return annotated
             return obj.frames.filter(status='DONE').count()
+        annotated = getattr(obj, 'annotated_completed_jobs', None)
+        if annotated is not None:
+            return annotated
         return obj.jobs.filter(status=JobStatus.DONE).count()
 
     def get_progress(self, obj):
@@ -198,8 +205,12 @@ class TiledJobSerializer(serializers.ModelSerializer):
 
     def get_completed_tiles(self, obj):
         """
-        Counts the number of completed child jobs.
+        Counts the number of completed child jobs. Prefers annotated
+        count from the queryset to avoid N+1 queries.
         """
+        annotated = getattr(obj, 'annotated_completed_tiles', None)
+        if annotated is not None:
+            return annotated
         return obj.jobs.filter(status=JobStatus.DONE).count()
 
     def get_progress(self, obj):
