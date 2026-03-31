@@ -117,11 +117,10 @@ class JobViewSetTests(BaseMediaTestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, 'RENDERING')
 
-    def test_worker_can_claim_job_and_set_timestamps(self):
+    def test_worker_can_claim_job_via_atomic_endpoint(self):
         """
-        Regression test to confirm that a worker's PATCH request to claim a job
-        can successfully update `assigned_worker`, `status`, and `started_at`.
-        This verifies that these fields are not incorrectly marked as read-only.
+        Tests that a worker can claim a job via POST /api/jobs/{id}/claim/.
+        Verifies assigned_worker, status, and started_at are set correctly.
         """
         # Arrange
         worker = Worker.objects.create(hostname="test-worker-for-claim")
@@ -129,15 +128,12 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertIsNone(job_to_claim.assigned_worker)
         self.assertIsNone(job_to_claim.started_at)
 
-        claim_time = timezone.now()
-        claim_payload = {
-            "assigned_worker": worker.id,
-            "status": JobStatus.RENDERING,
-            "started_at": claim_time.isoformat()
-        }
-
         # Act
-        response = self.client.patch(f"/api/jobs/{job_to_claim.id}/", claim_payload, format='json')
+        response = self.client.post(
+            f"/api/jobs/{job_to_claim.id}/claim/",
+            {"worker_id": worker.id},
+            format='json'
+        )
 
         # Assert
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -146,8 +142,6 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertEqual(job_to_claim.assigned_worker, worker)
         self.assertEqual(job_to_claim.status, JobStatus.RENDERING)
         self.assertIsNotNone(job_to_claim.started_at)
-        # Compare timestamps with a small tolerance for precision differences
-        self.assertAlmostEqual(job_to_claim.started_at, claim_time, delta=timezone.timedelta(seconds=1))
 
     def test_cancel_job_action(self):
         """
