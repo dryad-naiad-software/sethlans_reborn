@@ -189,8 +189,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         process = subprocess.Popen(command, **popen_kwargs)
         logger.info(f"Blender subprocess launched with PID: {process.pid}")
 
-        stdout_thread = threading.Thread(target=_stream_reader, args=(process.stdout, stdout_lines))
-        stderr_thread = threading.Thread(target=_stream_reader, args=(process.stderr, stderr_lines))
+        stdout_thread = threading.Thread(target=_stream_reader, args=(process.stdout, stdout_lines), daemon=True)
+        stderr_thread = threading.Thread(target=_stream_reader, args=(process.stderr, stderr_lines), daemon=True)
         stdout_thread.start()
         stderr_thread.start()
         job_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
@@ -239,8 +239,12 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
                     break
             time.sleep(2)
 
-        stdout_thread.join()
-        stderr_thread.join()
+        stdout_thread.join(timeout=10)
+        if stdout_thread.is_alive():
+            logger.warning(f"[Job {job_id}] stdout reader thread did not finish within 10s timeout.")
+        stderr_thread.join(timeout=10)
+        if stderr_thread.is_alive():
+            logger.warning(f"[Job {job_id}] stderr reader thread did not finish within 10s timeout.")
         logger.info(f"[Job {job_id}] Blender subprocess finished at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
 
         final_return_code = process.wait()
