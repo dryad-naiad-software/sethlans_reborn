@@ -31,7 +31,6 @@ class Animation(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='animations')
     name = models.CharField(
         max_length=40,
-        unique=True,
         validators=[MinLengthValidator(4)]
     )
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='animations')
@@ -94,6 +93,14 @@ class Animation(models.Model):
 
     def __str__(self):
         return self.name
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['project', 'name'],
+                name='unique_animation_name_per_project'
+            ),
+        ]
 
 class AnimationFrame(models.Model):
     """

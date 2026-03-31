@@ -41,7 +41,6 @@ class TiledJob(models.Model):
     project = models.ForeignKey('workers.Project', on_delete=models.CASCADE, related_name='tiled_jobs')
     name = models.CharField(
         max_length=40,
-        unique=True,
         validators=[MinLengthValidator(4)]
     )
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='tiled_jobs')
@@ -78,6 +77,12 @@ class TiledJob(models.Model):
 
     class Meta:
         ordering = ['-submitted_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['project', 'name'],
+                name='unique_tiledjob_name_per_project'
+            ),
+        ]
 
 class Job(models.Model):
     """
@@ -85,8 +90,7 @@ class Job(models.Model):
     """
     name = models.CharField(
         max_length=40,
-        unique=True,
-        help_text="A unique name for the render job.",
+        help_text="A unique name for the render job within its asset.",
         validators=[MinLengthValidator(4)]
     )
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name='jobs')
@@ -121,3 +125,9 @@ class Job(models.Model):
         ordering = ['-submitted_at']
         verbose_name = "Render Job"
         verbose_name_plural = "Render Jobs"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['asset', 'name'],
+                name='unique_job_name_per_asset'
+            ),
+        ]
