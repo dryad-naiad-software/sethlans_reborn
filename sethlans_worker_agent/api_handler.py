@@ -17,6 +17,7 @@ render outputs.
 """
 import logging
 import os
+import time
 from typing import Optional, Dict, Any, List
 
 import requests
@@ -24,6 +25,70 @@ import requests
 from sethlans_worker_agent import config
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 3
+BACKOFF_BASE = 1  # seconds
+
+
+def _is_retryable(exception=None, response=None):
+    """Check if a request failure is transient and worth retrying."""
+    if exception is not None:
+        return isinstance(exception, (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ))
+    if response is not None:
+        return response.status_code >= 500
+    return False
+
+
+def _retry_request(request_func, *args, **kwargs):
+    """
+    Execute a requests call with retry and exponential backoff.
+
+    Retries on connection errors, timeouts, and 5xx responses.
+    Does NOT retry on 4xx (client errors) or successful responses.
+
+    Args:
+        request_func: The requests method to call (e.g., requests.get).
+        *args: Positional arguments for request_func.
+        **kwargs: Keyword arguments for request_func.
+
+    Returns:
+        The requests.Response object on success or last attempt.
+
+    Raises:
+        requests.exceptions.RequestException: If all retries are exhausted
+        and the last attempt raised an exception.
+    """
+    last_exception = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = request_func(*args, **kwargs)
+            if _is_retryable(response=response) and attempt < MAX_RETRIES:
+                wait = BACKOFF_BASE * (2 ** (attempt - 1))
+                logger.warning(
+                    f"Retry {attempt}/{MAX_RETRIES}: server returned "
+                    f"{response.status_code}, waiting {wait}s..."
+                )
+                time.sleep(wait)
+                continue
+            return response
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout) as e:
+            last_exception = e
+            if attempt < MAX_RETRIES:
+                wait = BACKOFF_BASE * (2 ** (attempt - 1))
+                logger.warning(
+                    f"Retry {attempt}/{MAX_RETRIES}: {type(e).__name__}, "
+                    f"waiting {wait}s..."
+                )
+                time.sleep(wait)
+            else:
+                raise
+        except requests.exceptions.RequestException:
+            raise
+    raise last_exception
 
 
 def poll_for_available_jobs(params: Dict[str, str]) -> Optional[List[Dict[str, Any]]]:
@@ -41,7 +106,7 @@ def poll_for_available_jobs(params: Dict[str, str]) -> Optional[List[Dict[str, A
     poll_url = f"{config.MANAGER_API_URL}jobs/"
     logger.debug(f"Polling for jobs with params: {params}")
     try:
-        response = requests.get(poll_url, params=params, timeout=10)
+        response = _retry_request(requests.get, poll_url, params=params, timeout=10)
         response.raise_for_status()
         available_jobs = response.json()
         if available_jobs:
@@ -66,7 +131,7 @@ def claim_job(job_id: int, worker_id: int) -> bool:
     """
     claim_url = f"{config.MANAGER_API_URL}jobs/{job_id}/claim/"
     try:
-        claim_response = requests.post(claim_url, json={"worker_id": worker_id}, timeout=5)
+        claim_response = _retry_request(requests.post, claim_url, json={"worker_id": worker_id}, timeout=5)
 
         if claim_response.status_code == 200:
             return True
@@ -91,7 +156,7 @@ def update_job_status(job_id: int, payload: Dict[str, Any]):
     """
     update_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
     try:
-        response = requests.patch(update_url, json=payload, timeout=5)
+        response = _retry_request(requests.patch, update_url, json=payload, timeout=5)
         response.raise_for_status()
         logger.debug(f"Successfully sent status update for job {job_id}. Payload: {payload}")
     except requests.exceptions.RequestException as e:
@@ -119,7 +184,7 @@ def upload_render_output(job_id: int, output_file_path: str) -> bool:
     try:
         with open(output_file_path, 'rb') as f:
             files = {'output_file': (os.path.basename(output_file_path), f, 'image/png')}
-            response = requests.post(upload_url, files=files, timeout=60)
+            response = _retry_request(requests.post, upload_url, files=files, timeout=60)
             response.raise_for_status()
         logger.info(f"Successfully uploaded output file for job {job_id}.")
         return True

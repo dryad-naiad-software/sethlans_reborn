@@ -20,9 +20,11 @@ Functions are re-exported here for backward compatibility.
 """
 
 import logging
+
 import requests
 
 from sethlans_worker_agent import config
+from sethlans_worker_agent.api_handler import _retry_request
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
 
@@ -118,7 +120,9 @@ def register_with_manager():
 
     logger.info(f"Sending registration heartbeat to {heartbeat_url}...")
     try:
-        response = requests.post(heartbeat_url, json=payload, timeout=10)
+        response = _retry_request(
+            requests.post, heartbeat_url, json=payload, timeout=10
+        )
         response.raise_for_status()
 
         data = response.json()
@@ -155,7 +159,9 @@ def send_heartbeat():
     payload = {"hostname": HOSTNAME}
 
     try:
-        response = requests.post(heartbeat_url, json=payload, timeout=5)
+        response = _retry_request(
+            requests.post, heartbeat_url, json=payload, timeout=5
+        )
         response.raise_for_status()
         logger.debug("Periodic heartbeat successful.")
     except requests.exceptions.RequestException as e:

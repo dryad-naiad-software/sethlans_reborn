@@ -130,6 +130,7 @@ def test_register_with_manager_lts_success(mocker):
     )
     mocker.patch('sethlans_worker_agent.system_monitor.get_system_info', return_value={})
     mock_post = mocker.patch('requests.post')
+    mock_post.return_value.status_code = 200
     mock_post.return_value.json.return_value = {'id': 123}
 
     worker_id = system_monitor.register_with_manager()
@@ -161,6 +162,7 @@ def test_send_heartbeat_success(mocker):
     """
     mocker.patch.object(system_monitor, 'WORKER_ID', 123)
     mock_post = mocker.patch('requests.post')
+    mock_post.return_value.status_code = 200
 
     system_monitor.send_heartbeat()
 
