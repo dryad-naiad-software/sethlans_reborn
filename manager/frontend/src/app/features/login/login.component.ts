@@ -2,20 +2,32 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, inject } from '@angular/core';
+import {
+  ReactiveFormsModule,
+  FormBuilder,
+  FormGroup,
+  Validators,
+} from '@angular/forms';
 import { Router } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-login',
   standalone: true,
   imports: [
-    FormsModule, MatCardModule, MatFormFieldModule,
-    MatInputModule, MatButtonModule,
+    ReactiveFormsModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatButtonModule,
+    MatProgressSpinnerModule,
   ],
   template: `
     <div class="login-container">
@@ -24,22 +36,32 @@ import { MatButtonModule } from '@angular/material/button';
           <mat-card-title>Sethlans Manager Login</mat-card-title>
         </mat-card-header>
         <mat-card-content>
-          <form (ngSubmit)="onLogin()">
+          <form [formGroup]="form" (ngSubmit)="onLogin()">
             <mat-form-field class="full-width">
               <mat-label>Username</mat-label>
-              <input matInput [(ngModel)]="username" name="username" />
+              <input matInput formControlName="username" />
             </mat-form-field>
             <mat-form-field class="full-width">
               <mat-label>Password</mat-label>
-              <input matInput type="password" [(ngModel)]="password" name="password" />
+              <input matInput type="password" formControlName="password" />
             </mat-form-field>
-            <button mat-raised-button color="primary" type="submit" class="full-width">
-              Login
+            @if (errorMessage) {
+              <p class="error-message">{{ errorMessage }}</p>
+            }
+            <button
+              mat-raised-button
+              color="primary"
+              type="submit"
+              class="full-width"
+              [disabled]="form.invalid || submitting"
+            >
+              @if (submitting) {
+                <mat-spinner diameter="20" />
+              } @else {
+                Login
+              }
             </button>
           </form>
-          <p class="hint">
-            Authentication is not yet implemented. Click login to proceed.
-          </p>
         </mat-card-content>
       </mat-card>
     </div>
@@ -56,22 +78,40 @@ import { MatButtonModule } from '@angular/material/button';
       padding: 24px;
     }
     .full-width { width: 100%; }
-    .hint {
-      margin-top: 16px;
-      text-align: center;
-      color: #999;
-      font-size: 13px;
+    .error-message {
+      color: #f44336;
+      font-size: 14px;
+      margin: 0 0 16px;
     }
   `],
 })
 export class LoginComponent {
-  username = '';
-  password = '';
+  private readonly fb = inject(FormBuilder);
+  private readonly router = inject(Router);
+  private readonly authService = inject(AuthService);
 
-  constructor(private readonly router: Router) {}
+  form: FormGroup = this.fb.group({
+    username: ['', Validators.required],
+    password: ['', Validators.required],
+  });
+
+  errorMessage = '';
+  submitting = false;
 
   onLogin(): void {
-    // Stub: no real authentication, just navigate to dashboard
-    this.router.navigate(['/']);
+    if (this.form.invalid || this.submitting) {
+      return;
+    }
+    this.submitting = true;
+    this.errorMessage = '';
+    const { username, password } = this.form.value;
+    this.authService.login(username, password).subscribe({
+      next: () => this.router.navigate(['/']),
+      error: (err: HttpErrorResponse) => {
+        this.submitting = false;
+        this.errorMessage =
+          err.error?.detail || err.error?.message || 'Login failed.';
+      },
+    });
   }
 }

@@ -2,14 +2,29 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { CanActivateFn } from '@angular/router';
+import { inject } from '@angular/core';
+import { CanActivateFn, Router } from '@angular/router';
+import { map, catchError, of } from 'rxjs';
+import { AuthService } from '../services/auth.service';
 
 /**
- * Stubbed auth guard that always allows access.
- * When authentication is implemented, this will check for valid credentials
- * and redirect to /login if not authenticated.
+ * Auth guard that checks session validity before allowing route access.
+ * If not authenticated, attempts to verify session via getCurrentUser().
+ * On failure (401), redirects to /login.
  */
 export const authGuard: CanActivateFn = () => {
-  // TODO: Check authentication state when auth is enabled
-  return true;
+  const authService = inject(AuthService);
+  const router = inject(Router);
+
+  if (authService.isAuthenticated$.value) {
+    return true;
+  }
+
+  return authService.getCurrentUser().pipe(
+    map(() => true),
+    catchError(() => {
+      router.navigate(['/login']);
+      return of(false);
+    })
+  );
 };

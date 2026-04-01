@@ -2,19 +2,21 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component } from '@angular/core';
-import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { Component, inject } from '@angular/core';
+import { AsyncPipe } from '@angular/common';
+import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatListModule } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
-import { AuthBannerComponent } from './shared/components/auth-banner.component';
+import { AuthService } from './core/services/auth.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [
+    AsyncPipe,
     RouterOutlet,
     RouterLink,
     RouterLinkActive,
@@ -23,7 +25,6 @@ import { AuthBannerComponent } from './shared/components/auth-banner.component';
     MatListModule,
     MatIconModule,
     MatButtonModule,
-    AuthBannerComponent,
   ],
   template: `
     <mat-toolbar color="primary">
@@ -31,9 +32,13 @@ import { AuthBannerComponent } from './shared/components/auth-banner.component';
         <mat-icon>menu</mat-icon>
       </button>
       <span>Sethlans Manager</span>
+      <span class="toolbar-spacer"></span>
+      @if (authService.isAuthenticated$ | async) {
+        <button mat-icon-button (click)="onLogout()" aria-label="Logout">
+          <mat-icon>logout</mat-icon>
+        </button>
+      }
     </mat-toolbar>
-
-    <app-auth-banner />
 
     <mat-sidenav-container class="sidenav-container">
       <mat-sidenav #sidenav mode="side" opened class="sidenav">
@@ -81,7 +86,7 @@ import { AuthBannerComponent } from './shared/components/auth-banner.component';
   `,
   styles: [`
     .sidenav-container {
-      height: calc(100vh - 64px - 48px);
+      height: calc(100vh - 64px);
     }
     .sidenav {
       width: 220px;
@@ -92,8 +97,21 @@ import { AuthBannerComponent } from './shared/components/auth-banner.component';
     .active {
       background-color: rgba(0, 0, 0, 0.04);
     }
+    .toolbar-spacer {
+      flex: 1 1 auto;
+    }
   `],
 })
 export class AppComponent {
+  readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
+
   title = 'Sethlans Manager';
+
+  onLogout(): void {
+    this.authService.logout().subscribe({
+      next: () => this.router.navigate(['/login']),
+      error: () => this.router.navigate(['/login']),
+    });
+  }
 }
