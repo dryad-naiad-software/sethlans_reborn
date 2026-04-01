@@ -11,8 +11,10 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes as perm_classes
 from rest_framework.response import Response
+
+from ..permissions import IsAdmin
 
 from ..models import Job, Project, Worker
 
@@ -30,6 +32,7 @@ from ..models import Job, Project, Worker
     )
 )
 @api_view(['GET'])
+@perm_classes([IsAdmin])
 def dashboard_stats(request):
     """
     Returns aggregate statistics for the manager dashboard.

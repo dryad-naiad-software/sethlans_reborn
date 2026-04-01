@@ -13,6 +13,7 @@ from rest_framework import viewsets
 
 from ..constants import RenderEngine, RenderSettings
 from ..models import Job, JobStatus, TiledJob
+from ..permissions import IsAdmin
 from ..serializers import TiledJobSerializer
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class TiledJobViewSet(viewsets.ModelViewSet):
     automatically spawn a child `Job` for each tile in the specified grid.
     These tile jobs contain the necessary render border overrides.
     """
+    permission_classes = [IsAdmin]
     serializer_class = TiledJobSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'project']

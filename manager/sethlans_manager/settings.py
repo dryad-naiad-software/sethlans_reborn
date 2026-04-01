@@ -41,7 +41,7 @@ SECRET_KEY = _get_config(
 )
 
 _debug_raw = _get_config(
-    'security', 'debug', 'SETHLANS_SECURITY_DEBUG', 'True'
+    'security', 'debug', 'SETHLANS_SECURITY_DEBUG', 'False'
 )
 DEBUG = _debug_raw.lower() in ('true', '1', 'yes')
 
@@ -55,11 +55,23 @@ ALLOWED_HOSTS = [
 # Warn if using the insecure default secret key
 _logger = logging.getLogger('django')
 if SECRET_KEY == _INSECURE_DEFAULT_KEY:
+    if not DEBUG:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            "Cannot run with the default SECRET_KEY when DEBUG is False. "
+            "Set a unique key in manager.ini or "
+            "SETHLANS_SECURITY_SECRET_KEY."
+        )
     _logger.warning(
         "Using insecure default SECRET_KEY. Set a unique key in "
         "manager.ini [security] or SETHLANS_SECURITY_SECRET_KEY "
         "environment variable before deploying to production."
     )
+
+# Enrollment key for worker registration
+ENROLLMENT_KEY = _get_config(
+    'security', 'enrollment_key', 'SETHLANS_SECURITY_ENROLLMENT_KEY', ''
+)
 
 
 # Application definition
@@ -74,6 +86,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Third-party apps
     'rest_framework',
+    'rest_framework.authtoken',
     'django_filters',
     'drf_spectacular',
     # Your custom apps here
@@ -121,7 +134,7 @@ DB_NAME = os.getenv('SETHLANS_DB_NAME', BASE_DIR / 'db.sqlite3')
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': DB_NAME, # Use the new variable here
+        'NAME': DB_NAME,  # Use the new variable here
         'OPTIONS': {
             'timeout': 30,
         },
@@ -178,94 +191,25 @@ WHITENOISE_ROOT = BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# --- NEW: Logging Configuration ---
-# Get default log level from environment variable, fallback to INFO for production-like verbosity
-LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
+# --- Logging Configuration ---
+from .logging_config import LOGGING  # noqa: E402, F401
 
-# Create logs directory if it doesn't exist
-LOGS_DIR = BASE_DIR / 'logs'
-LOGS_DIR.mkdir(exist_ok=True)
-
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False, # Keep Django's default loggers
-
-    'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
-            'style': '{',
-            'datefmt': '%Y-%m-%d %H:%M:%S',
-        },
-        'simple': {
-            'format': '{levelname} {message}',
-            'style': '{',
-        },
-        'standard': { # Custom format for standard application logs
-            'format': '[{asctime}] [{levelname}] [{name}] {message}',
-            'style': '{',
-            'datefmt': '%Y-%m-%d %H:%M:%S',
-        },
-    },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'standard',
-            'level': 'DEBUG',
-        },
-        'file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': LOGS_DIR / 'manager.log',
-            'level': 'INFO',
-            'formatter': 'standard',
-            'maxBytes': 1024 * 1024 * 5, # 5 MB
-            'backupCount': 5,
-        },
-    },
-    'loggers': {
-        '': {
-            'handlers': ['console', 'file'],
-            'level': LOG_LEVEL,
-            'propagate': True,
-        },
-        'workers': {
-            'handlers': ['console', 'file'],
-            'level': LOG_LEVEL,
-            'propagate': False,
-        },
-        'django': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'django.request': {
-            'handlers': ['console', 'file'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'django.db.backends': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-    },
-}
-
-# --- NEW: Media Files (User Uploads) Configuration ---
+# --- Media Files (User Uploads) Configuration ---
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.getenv('SETHLANS_MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
+MEDIA_ROOT = os.getenv(
+    'SETHLANS_MEDIA_ROOT', os.path.join(BASE_DIR, 'media')
+)
+
+# --- Session Cookie Configuration ---
+SESSION_COOKIE_HTTPONLY = True  # Default, but explicit for clarity
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_AGE = 86400  # 24 hours
+# SESSION_COOKIE_SECURE is intentionally omitted -- Sethlans runs over HTTP
+# on a LAN. For security, use a wired network.
 
 # --- DRF Configuration ---
-REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-}
-
-# --- DRF Spectacular Configuration ---
-SPECTACULAR_SETTINGS = {
-    'TITLE': 'Sethlans Reborn API',
-    'DESCRIPTION': 'RESTful API for the distributed Blender rendering system.',
-    'VERSION': '1.0.0',
-    'SERVE_INCLUDE_SCHEMA': False,
-}
+from .drf_config import REST_FRAMEWORK, SPECTACULAR_SETTINGS  # noqa: E402, F401
 
 # Delete old thumbnail files before saving new ones
 WORKERS_DELETE_OLD_THUMBNAILS = True

@@ -24,6 +24,17 @@ def factory():
     return APIRequestFactory()
 
 
+@pytest.fixture(autouse=True)
+def _bypass_permissions(mocker):
+    """
+    These tests verify claim logic, not auth. Bypass permission
+    checks so tests remain focused on the claim state machine.
+    """
+    mocker.patch.object(
+        JobViewSet, 'check_permissions', return_value=None,
+    )
+
+
 @pytest.fixture
 def mock_worker(mocker):
     """Create a mock Worker object with pk=1."""

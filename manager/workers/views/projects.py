@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from ..models import Project
+from ..permissions import IsAdmin
 from ..serializers import ProjectSerializer
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     Projects serve as the top-level organizational entity for assets and jobs.
     They can be paused to temporarily stop workers from processing their jobs.
     """
+    permission_classes = [IsAdmin]
     queryset = Project.objects.all().order_by('-created_at')
     serializer_class = ProjectSerializer
 

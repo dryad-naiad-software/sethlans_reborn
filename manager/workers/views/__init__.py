@@ -9,6 +9,13 @@ from .tiled_jobs import TiledJobViewSet
 from .assets import AssetViewSet
 from .jobs import JobViewSet
 from .stats import dashboard_stats
+from .auth import (
+    csrf_view,
+    login_view,
+    logout_view,
+    user_view,
+    regenerate_enrollment_key_view,
+)
 
 __all__ = [
     "ProjectViewSet",
@@ -18,4 +25,9 @@ __all__ = [
     "AssetViewSet",
     "JobViewSet",
     "dashboard_stats",
+    "csrf_view",
+    "login_view",
+    "logout_view",
+    "user_view",
+    "regenerate_enrollment_key_view",
 ]

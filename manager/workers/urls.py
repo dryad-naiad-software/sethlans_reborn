@@ -8,6 +8,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     WorkerHeartbeatViewSet, JobViewSet, AnimationViewSet,
     AssetViewSet, ProjectViewSet, TiledJobViewSet, dashboard_stats,
+    csrf_view, login_view, logout_view, user_view,
+    regenerate_enrollment_key_view,
 )
 
 # Create a router instance
@@ -22,6 +24,16 @@ router.register(r'tiled-jobs', TiledJobViewSet, basename='tiledjob')
 
 urlpatterns = [
     path('stats/', dashboard_stats, name='dashboard-stats'),
+    # Auth endpoints
+    path('auth/csrf/', csrf_view, name='auth-csrf'),
+    path('auth/login/', login_view, name='auth-login'),
+    path('auth/logout/', logout_view, name='auth-logout'),
+    path('auth/user/', user_view, name='auth-user'),
+    path(
+        'auth/regenerate_enrollment_key/',
+        regenerate_enrollment_key_view,
+        name='auth-regenerate-enrollment-key',
+    ),
     # Include all router URLs at the root of /api/
     path('', include(router.urls)),
 ]

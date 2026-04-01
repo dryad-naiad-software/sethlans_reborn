@@ -13,6 +13,7 @@ from rest_framework import viewsets
 
 from ..constants import RenderEngine, RenderSettings, TilingConfiguration
 from ..models import Animation, AnimationFrame, Job, JobStatus
+from ..permissions import IsAdmin
 from ..serializers import AnimationSerializer
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
     and automatically spawn a child `Job` for each frame in the sequence,
     or a grid of `Job`s for tiled animations.
     """
+    permission_classes = [IsAdmin]
     serializer_class = AnimationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'project']
