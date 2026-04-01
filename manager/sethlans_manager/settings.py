@@ -102,7 +102,7 @@ ROOT_URLCONF = 'sethlans_manager.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'frontend' / 'dist' / 'browser'],
+        'DIRS': [BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -171,7 +171,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'frontend' / 'dist' / 'browser']
+STATICFILES_DIRS = [BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser']
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
