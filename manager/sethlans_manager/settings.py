@@ -260,7 +260,12 @@ LOGGING = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.getenv('SETHLANS_MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
 
-# --- NEW: DRF Spectacular Configuration ---
+# --- DRF Configuration ---
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# --- DRF Spectacular Configuration ---
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Sethlans Reborn API',
     'DESCRIPTION': 'RESTful API for the distributed Blender rendering system.',
