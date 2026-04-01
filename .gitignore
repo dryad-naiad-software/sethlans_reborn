@@ -145,6 +145,11 @@ tests/assets/*.png
 # Dev scripts output
 dev_scripts/results/
 
+# Node.js / Angular frontend
+node_modules/
+manager/frontend/dist/
+manager/frontend/.angular/
+
 # Sethlans Reborn specific
 manager/logs/
 manager/manager.ini
