@@ -44,37 +44,42 @@ def get_manager_port():
     return '7075'
 
 
+MANAGER_DIR = Path(__file__).resolve().parent
+MANAGE_PY = str(MANAGER_DIR / 'manage.py')
+
+
 if __name__ == "__main__":
     port = get_manager_port()
 
-    # --- New Migration Step ---
+    # --- Migration Step ---
     print("--- Applying database migrations... ---")
     try:
-        migrate_command = [sys.executable, "manage.py", "migrate"]
-        subprocess.run(migrate_command, check=True)
+        subprocess.run(
+            [sys.executable, MANAGE_PY, "migrate"],
+            check=True,
+        )
         print("--- Migrations applied successfully. ---")
     except subprocess.CalledProcessError as e:
-        print(f"\n[ERROR] Database migration failed. Please check your models and settings. Error: {e}",
-              file=sys.stderr)
-        sys.exit(1)
-    except FileNotFoundError:
         print(
-            "\n[ERROR] 'manage.py' not found. Make sure you are running this script "
-            "from the project's root directory.",
-            file=sys.stderr
+            f"\n[ERROR] Database migration failed. Error: {e}",
+            file=sys.stderr,
         )
         sys.exit(1)
 
     # --- Run Server Step ---
-    server_command = [sys.executable, "manage.py", "runserver", port]
-
     print(f"\n--- Starting Sethlans Manager on port {port} ---")
-    print(f"--- To stop the server, press CTRL+C ---")
+    print("--- To stop the server, press CTRL+C ---")
 
     try:
-        subprocess.run(server_command, check=True)
+        subprocess.run(
+            [sys.executable, MANAGE_PY, "runserver", port],
+            check=True,
+        )
     except KeyboardInterrupt:
         print("\n--- Sethlans Manager stopped ---")
     except subprocess.CalledProcessError as e:
-        print(f"\n[ERROR] The manager server failed to start. Error: {e}", file=sys.stderr)
+        print(
+            f"\n[ERROR] The manager server failed to start. Error: {e}",
+            file=sys.stderr,
+        )
         sys.exit(1)
