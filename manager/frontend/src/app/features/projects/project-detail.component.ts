@@ -1,6 +1,6 @@
 import { Component, inject, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -13,7 +13,7 @@ import { ProjectService, Project } from '../../core/services/project.service';
   selector: 'app-project-detail',
   standalone: true,
   imports: [
-    CommonModule, RouterLink, MatCardModule,
+    CommonModule, MatCardModule,
     MatButtonModule, MatIconModule, MatProgressSpinnerModule, MatTabsModule,
   ],
   template: `

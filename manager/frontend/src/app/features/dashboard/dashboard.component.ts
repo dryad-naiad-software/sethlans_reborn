@@ -25,16 +25,16 @@ import { StatsService, DashboardStats } from '../../core/services/stats.service'
         </mat-card>
         <mat-card>
           <mat-card-header>
-            <mat-icon mat-card-avatar>work</mat-icon>
-            <mat-card-title>{{ stats.totalJobs }}</mat-card-title>
-            <mat-card-subtitle>Total Jobs</mat-card-subtitle>
+            <mat-icon mat-card-avatar>queue</mat-icon>
+            <mat-card-title>{{ stats.queuedJobs }}</mat-card-title>
+            <mat-card-subtitle>Queued Jobs</mat-card-subtitle>
           </mat-card-header>
         </mat-card>
         <mat-card>
           <mat-card-header>
             <mat-icon mat-card-avatar>play_circle</mat-icon>
             <mat-card-title>{{ stats.activeJobs }}</mat-card-title>
-            <mat-card-subtitle>Active Jobs</mat-card-subtitle>
+            <mat-card-subtitle>Rendering</mat-card-subtitle>
           </mat-card-header>
         </mat-card>
         <mat-card>

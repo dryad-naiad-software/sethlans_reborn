@@ -1,17 +1,24 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, forkJoin, map } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { poll } from './polling.util';
 
 export interface DashboardStats {
   totalProjects: number;
-  totalJobs: number;
   activeJobs: number;
   completedJobs: number;
   errorJobs: number;
+  queuedJobs: number;
   totalWorkers: number;
   activeWorkers: number;
+}
+
+interface StatsResponse {
+  workers: { total: number; active: number };
+  jobs: { queued: number; rendering: number; done: number; error: number };
+  projects: { total: number };
+  recent_completions: unknown[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -19,30 +26,17 @@ export class StatsService {
   private readonly http = inject(HttpClient);
   private readonly apiBase = environment.apiBaseUrl;
 
-  /**
-   * Aggregates stats from multiple endpoints.
-   * Will be refined once a dedicated stats endpoint exists.
-   */
   getStats(): Observable<DashboardStats> {
-    return forkJoin({
-      projects: this.http.get<unknown[]>(`${this.apiBase}/projects/`),
-      jobs: this.http.get<unknown[]>(`${this.apiBase}/jobs/`),
-      workers: this.http.get<unknown[]>(`${this.apiBase}/heartbeat/`),
-    }).pipe(
-      map(({ projects, jobs, workers }) => {
-        const jobStatuses = jobs.map((j: Record<string, unknown>) => j['status'] as string);
-        return {
-          totalProjects: projects.length,
-          totalJobs: jobs.length,
-          activeJobs: jobStatuses.filter(s => s === 'RENDERING').length,
-          completedJobs: jobStatuses.filter(s => s === 'DONE').length,
-          errorJobs: jobStatuses.filter(s => s === 'ERROR').length,
-          totalWorkers: workers.length,
-          activeWorkers: workers.filter(
-            (w: Record<string, unknown>) => w['status'] === 'ACTIVE'
-          ).length,
-        };
-      }),
+    return this.http.get<StatsResponse>(`${this.apiBase}/stats/`).pipe(
+      map(data => ({
+        totalProjects: data.projects.total,
+        queuedJobs: data.jobs.queued,
+        activeJobs: data.jobs.rendering,
+        completedJobs: data.jobs.done,
+        errorJobs: data.jobs.error,
+        totalWorkers: data.workers.total,
+        activeWorkers: data.workers.active,
+      })),
     );
   }
 
