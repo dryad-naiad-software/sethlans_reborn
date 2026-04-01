@@ -38,6 +38,10 @@ _MUTABLE_CONFIG_KEYS = frozenset({
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
 _INDEX_PATH = os.path.join(_STATIC_DIR, 'index.html')
 
+# Lock serializing all config mutations to prevent race conditions
+# (e.g., two concurrent requests toggling FORCE_CPU/GPU both to True).
+_config_lock = threading.Lock()
+
 # Module-level server reference for shutdown
 _server = None
 _server_thread = None
@@ -100,7 +104,7 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
         except ValueError:
             self.send_error(400, 'Invalid Content-Length')
             return None
-        if length > MAX_REQUEST_BODY:
+        if length < 0 or length > MAX_REQUEST_BODY:
             self._send_json({'error': 'Request body too large'}, 413)
             return None
         return self.rfile.read(length)
@@ -168,36 +172,46 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
         self._send_json({'status': 'updated', 'key': key, 'value': value})
 
 
+def _parse_bool(value):
+    """Parse a boolean from JSON payload."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ('true', '1', 'yes')
+    return bool(value)
+
+
 def _apply_config_change(key, value):
     """Apply a validated config change. Raises ValueError on bad input."""
-    if key == 'POLLING_INTERVAL':
-        val = int(value)
-        if not (1 <= val <= 3600):
-            raise ValueError('Polling interval must be 1-3600')
-        config.JOB_POLLING_INTERVAL_SECONDS = val
-    elif key == 'HEARTBEAT_INTERVAL':
-        val = int(value)
-        if not (1 <= val <= 3600):
-            raise ValueError('Heartbeat interval must be 1-3600')
-        config.HEARTBEAT_INTERVAL_SECONDS = val
-    elif key == 'FORCE_CPU_ONLY':
-        val = bool(value)
-        new_gpu = config.FORCE_GPU_ONLY
-        if val:
-            new_gpu = False  # Mutual exclusion
-        _validate_force_modes(val, new_gpu)
-        config.FORCE_CPU_ONLY = val
-        config.FORCE_GPU_ONLY = new_gpu
-    elif key == 'FORCE_GPU_ONLY':
-        val = bool(value)
-        new_cpu = config.FORCE_CPU_ONLY
-        if val:
-            new_cpu = False  # Mutual exclusion
-        _validate_force_modes(new_cpu, val)
-        config.FORCE_CPU_ONLY = new_cpu
-        config.FORCE_GPU_ONLY = val
-    elif key == 'GPU_SPLIT_MODE':
-        config.GPU_SPLIT_MODE = bool(value)
+    with _config_lock:
+        if key == 'POLLING_INTERVAL':
+            val = int(value)
+            if not (1 <= val <= 3600):
+                raise ValueError('Polling interval must be 1-3600')
+            config.JOB_POLLING_INTERVAL_SECONDS = val
+        elif key == 'HEARTBEAT_INTERVAL':
+            val = int(value)
+            if not (1 <= val <= 3600):
+                raise ValueError('Heartbeat interval must be 1-3600')
+            config.HEARTBEAT_INTERVAL_SECONDS = val
+        elif key == 'FORCE_CPU_ONLY':
+            val = _parse_bool(value)
+            new_gpu = config.FORCE_GPU_ONLY
+            if val:
+                new_gpu = False  # Mutual exclusion
+            _validate_force_modes(val, new_gpu)
+            config.FORCE_CPU_ONLY = val
+            config.FORCE_GPU_ONLY = new_gpu
+        elif key == 'FORCE_GPU_ONLY':
+            val = _parse_bool(value)
+            new_cpu = config.FORCE_CPU_ONLY
+            if val:
+                new_cpu = False  # Mutual exclusion
+            _validate_force_modes(new_cpu, val)
+            config.FORCE_CPU_ONLY = new_cpu
+            config.FORCE_GPU_ONLY = val
+        elif key == 'GPU_SPLIT_MODE':
+            config.GPU_SPLIT_MODE = _parse_bool(value)
 
 
 def start_server():

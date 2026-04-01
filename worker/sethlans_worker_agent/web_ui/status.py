@@ -18,7 +18,7 @@ from sethlans_worker_agent.hardware_detection import (
     HOSTNAME, IP_ADDRESS, OS_INFO,
     get_gpu_device_details, get_cpu_thread_count,
 )
-from sethlans_worker_agent.system_monitor import WORKER_ID
+from sethlans_worker_agent import system_monitor
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
@@ -34,10 +34,11 @@ def get_status_snapshot():
         dict: Status data suitable for JSON serialization.
     """
     # --- Read WORKER_ID ---
-    # WORKER_ID is a module-level global read from HTTP threads. This is
-    # safe on CPython due to the GIL (simple attribute reads of immutable
-    # types are atomic), but we document the assumption here.
-    worker_id = WORKER_ID
+    # Access WORKER_ID via module attribute at call time, not import time,
+    # so we see the current value after register_with_manager() updates it.
+    # Safe on CPython: the GIL makes simple attribute reads of immutable
+    # types atomic.
+    worker_id = system_monitor.WORKER_ID
 
     # --- GPU allocation (acquires _gpu_lock, then releases) ---
     gpu_allocation_raw = job_processor.get_gpu_assignment_snapshot()
