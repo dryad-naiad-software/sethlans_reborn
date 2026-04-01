@@ -1,0 +1,37 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { environment } from '../../../environments/environment';
+import { poll } from './polling.util';
+
+export interface Worker {
+  id: number;
+  hostname: string;
+  ip_address: string;
+  port: number;
+  status: string;
+  cpu_name: string;
+  gpu_name: string;
+  os: string;
+  ui_url: string | null;
+  last_heartbeat: string;
+  created_at: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class WorkerService {
+  private readonly http = inject(HttpClient);
+  private readonly baseUrl = `${environment.apiBaseUrl}/heartbeat`;
+
+  list(): Observable<Worker[]> {
+    return this.http.get<Worker[]>(`${this.baseUrl}/`);
+  }
+
+  pollList(): Observable<Worker[]> {
+    return poll(() => this.list());
+  }
+
+  get(id: number): Observable<Worker> {
+    return this.http.get<Worker>(`${this.baseUrl}/${id}/`);
+  }
+}
