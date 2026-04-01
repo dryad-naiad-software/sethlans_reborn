@@ -153,7 +153,7 @@ manager/frontend/.angular/
 # Sethlans Reborn specific
 manager/logs/
 manager/manager.ini
-worker/sethlans_worker_agent/config.ini
+worker/config.ini
 worker/sethlans_worker_agent/managed_tools/
 worker/sethlans_worker_agent/managed_assets/
 worker/sethlans_worker_agent/worker_output/
