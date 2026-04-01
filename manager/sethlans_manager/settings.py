@@ -81,7 +81,6 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'django_filters',
-    'pytest_django',
     'drf_spectacular',
     # Your custom apps here
     'workers',
