@@ -165,6 +165,42 @@ def test_send_heartbeat_success(mocker):
     mock_post.assert_called_once()
 
 
+def test_send_heartbeat_includes_available_tools(mocker):
+    """
+    Tests that periodic heartbeats include the full system info
+    (with available_tools) so the manager gets updated version lists.
+    """
+    mocker.patch.object(system_monitor, 'WORKER_ID', 123)
+    mocker.patch.object(config, 'API_TOKEN', 'test-token-abc123')
+
+    mock_sys_info = {
+        'hostname': 'test-host',
+        'ip_address': '192.168.1.1',
+        'os': 'TestOS',
+        'available_tools': {
+            'blender': ['4.5.0', '4.5.1'],
+            'gpu_devices': ['CUDA'],
+            'gpu_devices_details': [{'name': 'Test GPU'}]
+        }
+    }
+    mocker.patch(
+        'sethlans_worker_agent.system_monitor.get_system_info',
+        return_value=mock_sys_info
+    )
+
+    mock_heartbeat = mocker.patch(
+        'sethlans_worker_agent.api_handler.send_authenticated_heartbeat',
+        return_value={'id': 123}
+    )
+
+    system_monitor.send_heartbeat()
+
+    mock_heartbeat.assert_called_once()
+    sent_payload = mock_heartbeat.call_args[0][0]
+    assert 'available_tools' in sent_payload
+    assert sent_payload['available_tools']['blender'] == ['4.5.0', '4.5.1']
+
+
 def test_get_gpu_device_details_success(mocker):
     """
     Tests that get_gpu_device_details successfully calls the detection script

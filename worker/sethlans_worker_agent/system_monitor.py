@@ -195,6 +195,9 @@ def register_with_manager():
 def send_heartbeat():
     """
     Sends a periodic heartbeat to the manager using auth headers.
+
+    Includes the full system info (with available_tools) so the
+    manager always has up-to-date version lists for claim validation.
     """
     if not WORKER_ID:
         logger.warning(
@@ -202,5 +205,6 @@ def send_heartbeat():
         )
         return
 
-    payload = {"hostname": HOSTNAME, "ui_url": _get_ui_url()}
+    payload = get_system_info()
+    payload['ui_url'] = _get_ui_url()
     api_handler.send_authenticated_heartbeat(payload)

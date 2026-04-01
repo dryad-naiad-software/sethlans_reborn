@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+import threading
+
 import pytest
-import re
 from unittest.mock import MagicMock
 
 # Import the ToolManager instance and its dependencies for mocking
-from sethlans_worker_agent.tool_manager import tool_manager_instance
-from sethlans_worker_agent import config
+from sethlans_worker_agent.tool_manager import ToolManager, tool_manager_instance
 from sethlans_worker_agent.utils import file_operations, blender_release_parser
 
 
@@ -138,7 +138,8 @@ def test_get_blender_download_info_from_parser(mocker):
 def mock_ensure_deps(mocker):
     """Fixture to mock all dependencies for ensure_blender_version_available."""
     mocker.patch.object(tool_manager_instance, '_create_tools_directory_if_not_exists')
-    mocker.patch.object(tool_manager_instance, '_resolve_version', side_effect=lambda v: v) # Pass through by default
+    # Pass through by default
+    mocker.patch.object(tool_manager_instance, '_resolve_version', side_effect=lambda v: v)
     mock_get_exe = mocker.patch.object(tool_manager_instance, 'get_blender_executable_path')
     mock_get_info = mocker.patch.object(tool_manager_instance, '_get_blender_download_info')
 
@@ -237,3 +238,122 @@ def test_get_platform_identifier_parameterized(mocker, system, machine, expected
     result = tool_manager_instance._get_platform_identifier()
 
     assert result == expected_id
+
+
+# --- Tests for reference counting ---
+
+@pytest.fixture(autouse=True)
+def reset_version_usage():
+    """Reset the singleton's reference counts between tests."""
+    tool_manager_instance._version_usage.clear()
+    yield
+    tool_manager_instance._version_usage.clear()
+
+
+@pytest.fixture
+def fresh_tm(tmp_path, mocker):
+    """Create a fresh ToolManager with a temporary tools directory."""
+    mocker.patch(
+        'sethlans_worker_agent.config.MANAGED_TOOLS_DIR',
+        str(tmp_path / 'tools')
+    )
+    mgr = ToolManager()
+    mgr.blender_dir.mkdir(parents=True, exist_ok=True)
+    return mgr
+
+
+class TestReferenceCounting:
+    """Tests for acquire_version / release_version / is_version_in_use."""
+
+    def test_acquire_increments_usage(self):
+        assert not tool_manager_instance.is_version_in_use('4.5.0')
+        tool_manager_instance.acquire_version('4.5.0')
+        assert tool_manager_instance.is_version_in_use('4.5.0')
+
+    def test_release_decrements_usage(self):
+        tool_manager_instance.acquire_version('4.5.0')
+        tool_manager_instance.release_version('4.5.0')
+        assert not tool_manager_instance.is_version_in_use('4.5.0')
+
+    def test_multiple_acquires_require_matching_releases(self):
+        tool_manager_instance.acquire_version('4.5.0')
+        tool_manager_instance.acquire_version('4.5.0')
+        tool_manager_instance.release_version('4.5.0')
+        assert tool_manager_instance.is_version_in_use('4.5.0')
+        tool_manager_instance.release_version('4.5.0')
+        assert not tool_manager_instance.is_version_in_use('4.5.0')
+
+    def test_release_without_acquire_does_not_go_negative(self):
+        tool_manager_instance.release_version('4.5.0')
+        assert not tool_manager_instance.is_version_in_use('4.5.0')
+        with tool_manager_instance._usage_lock:
+            assert '4.5.0' not in tool_manager_instance._version_usage
+
+    def test_independent_versions_tracked_separately(self):
+        tool_manager_instance.acquire_version('4.5.0')
+        tool_manager_instance.acquire_version('4.4.0')
+        tool_manager_instance.release_version('4.5.0')
+        assert not tool_manager_instance.is_version_in_use('4.5.0')
+        assert tool_manager_instance.is_version_in_use('4.4.0')
+
+    def test_thread_safety(self):
+        """Concurrent acquires and releases should not corrupt state."""
+        errors = []
+
+        def worker():
+            try:
+                for _ in range(100):
+                    tool_manager_instance.acquire_version('4.5.0')
+                for _ in range(100):
+                    tool_manager_instance.release_version('4.5.0')
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        assert not tool_manager_instance.is_version_in_use('4.5.0')
+
+
+class TestRemoveBlenderVersion:
+    """Tests for remove_blender_version with reference counting."""
+
+    def test_remove_refuses_when_version_in_use(self, fresh_tm):
+        install_dir = fresh_tm.blender_dir / 'blender-4.5.0-windows-x64'
+        install_dir.mkdir()
+
+        fresh_tm.acquire_version('4.5.0')
+        # Mock platform so path construction works
+        fresh_tm._get_platform_identifier = lambda: 'windows-x64'
+        result = fresh_tm.remove_blender_version('4.5.0')
+        assert result is False
+        assert install_dir.exists()
+
+    def test_remove_succeeds_when_version_not_in_use(self, fresh_tm):
+        install_dir = fresh_tm.blender_dir / 'blender-4.5.0-windows-x64'
+        install_dir.mkdir()
+
+        fresh_tm._get_platform_identifier = lambda: 'windows-x64'
+        result = fresh_tm.remove_blender_version('4.5.0')
+        assert result is True
+        assert not install_dir.exists()
+
+    def test_remove_succeeds_after_release(self, fresh_tm):
+        install_dir = fresh_tm.blender_dir / 'blender-4.5.0-windows-x64'
+        install_dir.mkdir()
+
+        fresh_tm._get_platform_identifier = lambda: 'windows-x64'
+        fresh_tm.acquire_version('4.5.0')
+        assert fresh_tm.remove_blender_version('4.5.0') is False
+        fresh_tm.release_version('4.5.0')
+        assert fresh_tm.remove_blender_version('4.5.0') is True
+        assert not install_dir.exists()
+
+    def test_remove_nonexistent_version_returns_false(self, fresh_tm):
+        fresh_tm._get_platform_identifier = lambda: 'windows-x64'
+        result = fresh_tm.remove_blender_version('9.9.9')
+        assert result is False

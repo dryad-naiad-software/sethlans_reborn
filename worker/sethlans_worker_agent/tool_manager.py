@@ -2,23 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Manages the discovery, download, and local caching of external tools.
+Manages Blender version discovery, download, and local caching.
 
-This module is primarily responsible for:
-- Scanning for locally installed Blender versions.
-- Resolving partial version strings (e.g., '4.5') to the latest available patch.
-- Downloading and extracting new Blender versions from official mirrors.
-- Verifying downloaded files using SHA256 hashes.
-- Providing the correct executable path for a given Blender version.
-
-Platform-specific utilities have been extracted to the platform_utils module.
+Includes reference counting to prevent version cleanup from deleting
+directories while renders are in progress.
 """
 
 import logging
 import platform
 import os
 import re
-import stat  # <-- ADDED IMPORT
+import shutil
+import stat
+import threading
 from pathlib import Path
 from . import config
 from .utils import file_operations, blender_release_parser
@@ -28,36 +24,63 @@ logger = logging.getLogger(__name__)
 
 
 class ToolManager:
-    """
-    Manages the download, extraction, and path resolution of tools like Blender.
-
-    This class centralizes all the logic for tool management, ensuring a consistent
-    and robust approach to handling external dependencies across different operating
-    systems and architectures.
-    """
+    """Manages the download, extraction, and path resolution of Blender."""
 
     def __init__(self):
         self.tools_dir = Path(config.MANAGED_TOOLS_DIR)
         self.blender_dir = self.tools_dir / "blender"
+        # Reference counting for safe version cleanup.
+        # Tracks how many active renders are using each version.
+        self._version_usage = {}  # {version_str: int}
+        self._usage_lock = threading.Lock()
+
+    def acquire_version(self, version):
+        """
+        Increment usage count for a Blender version before render.
+
+        Must be called before starting a render subprocess. The
+        corresponding release_version() call must be in a finally block.
+        """
+        with self._usage_lock:
+            self._version_usage[version] = (
+                self._version_usage.get(version, 0) + 1
+            )
+            logger.debug(
+                f"Acquired version {version}. "
+                f"Usage count: {self._version_usage[version]}"
+            )
+
+    def release_version(self, version):
+        """
+        Decrement usage count for a Blender version after render.
+
+        Must be called in a finally block after the render completes
+        or fails to prevent version leak.
+        """
+        with self._usage_lock:
+            count = self._version_usage.get(version, 0) - 1
+            if count <= 0:
+                self._version_usage.pop(version, None)
+            else:
+                self._version_usage[version] = count
+            logger.debug(
+                f"Released version {version}. "
+                f"Usage count: {max(0, count)}"
+            )
+
+    def is_version_in_use(self, version):
+        """Check if a Blender version has active renders using it."""
+        with self._usage_lock:
+            return self._version_usage.get(version, 0) > 0
 
     def _create_tools_directory_if_not_exists(self):
-        """
-        Creates the base directory for managed Blender installations if it's missing.
-        """
+        """Create the base directory for managed Blender installations if missing."""
         if not self.blender_dir.exists():
             logger.info(f"Creating managed tools directory at {self.blender_dir}...")
             self.blender_dir.mkdir(parents=True, exist_ok=True)
 
     def scan_for_local_blenders(self):
-        """
-        Scans the managed tools directory for already downloaded Blender versions.
-
-        The method expects subdirectories named in the format `blender-X.Y.Z-platform`.
-        It verifies that the executable exists before considering an installation valid.
-
-        Returns:
-            list: A list of dictionaries, e.g., `[{'version': '4.1.1', 'platform': 'windows-x64'}]`.
-        """
+        """Scan for installed Blender versions with valid executables."""
         self._create_tools_directory_if_not_exists()
         found_blenders = []
         logger.debug(f"Scanning for local Blender versions in: {self.blender_dir}")
@@ -77,40 +100,15 @@ class ToolManager:
         return found_blenders
 
     def _get_platform_identifier(self):
-        """
-        Determines the platform identifier string (e.g., 'windows-x64').
-
-        Delegates to the standalone function in platform_utils.
-
-        Returns:
-            str or None: The platform identifier string, or None if not supported.
-        """
+        """Return the platform identifier string (e.g., 'windows-x64')."""
         return get_platform_identifier()
 
     def _get_executable_path_for_install(self, install_dir_name):
-        """
-        Constructs the full path to the Blender executable within an install folder.
-
-        Delegates to the standalone function in platform_utils.
-
-        Args:
-            install_dir_name (str): The name of the installation directory.
-
-        Returns:
-            Path: The full path to the Blender executable.
-        """
+        """Return the full path to the Blender executable in an install folder."""
         return get_executable_path_for_blender(self.blender_dir, install_dir_name)
 
     def get_blender_executable_path(self, version_str):
-        """
-        Gets the path to a specific Blender version, assuming it's already installed.
-
-        Args:
-            version_str (str): The full version string (e.g., '4.1.1').
-
-        Returns:
-            str or None: The absolute path to the Blender executable, or None if not found.
-        """
+        """Return the executable path for an installed version, or None."""
         platform_id = self._get_platform_identifier()
         install_dir_name = f"blender-{version_str}-{platform_id}"
         exe_path = self._get_executable_path_for_install(install_dir_name)
@@ -122,17 +120,7 @@ class ToolManager:
         return None
 
     def _get_blender_download_info(self):
-        """
-        Fetches or loads Blender download information from cache or the web.
-
-        First, it checks for a local cache file. If the cache is not found or is
-        invalid, it scrapes the official Blender download site for all available
-        releases and saves the data to a local cache file for future use.
-
-        Returns:
-            dict: A dictionary mapping Blender version strings to their download
-                  information (URL, SHA256 hash).
-        """
+        """Fetch or load Blender download info from cache or the web."""
         if os.path.exists(config.BLENDER_VERSIONS_CACHE_FILE):
             try:
                 with open(config.BLENDER_VERSIONS_CACHE_FILE, 'r') as f:
@@ -149,21 +137,7 @@ class ToolManager:
         return info
 
     def _resolve_version(self, requested_version):
-        """
-        Resolves a full X.Y.Z version from a partial X.Y version string.
-
-        It prioritizes finding the latest patch version that is already
-        locally installed. If no local versions match, it falls back to
-        checking the latest available version on the web.
-
-        Args:
-            requested_version (str): The requested version, either in full
-                                     ('4.5.1') or partial ('4.5') format.
-
-        Returns:
-            str or None: The full version string, or None if no matching
-                         version can be resolved.
-        """
+        """Resolve a partial X.Y version to full X.Y.Z, or pass through X.Y.Z."""
         if re.fullmatch(r'\d+\.\d+\.\d+', requested_version):
             return requested_version  # Already a full version
 
@@ -194,22 +168,7 @@ class ToolManager:
         return None
 
     def ensure_blender_version_available(self, requested_version):
-        """
-        Ensures the requested Blender version is available, downloading and
-        installing it if necessary.
-
-        This is the main public method of the `ToolManager` class. It orchestrates
-        the entire process: resolving the version, checking local installations,
-        downloading from the web, verifying the integrity with a SHA256 hash,
-        and finally extracting the archive and setting permissions.
-
-        Args:
-            requested_version (str): The requested Blender version (e.g., '4.5' or '4.5.1').
-
-        Returns:
-            str or None: The absolute path to the Blender executable if successful,
-                         otherwise None.
-        """
+        """Ensure a Blender version is installed, downloading if necessary."""
         self._create_tools_directory_if_not_exists()
 
         full_version = self._resolve_version(requested_version)
@@ -273,6 +232,66 @@ class ToolManager:
             os.chmod(final_exe_path, st.st_mode | stat.S_IEXEC)
 
         return final_exe_path
+
+    def remove_blender_version(self, version_str):
+        """
+        Remove a Blender version's installation directory.
+
+        Refuses to delete if the version is currently in use by an
+        active render (reference count > 0), preventing the TOCTOU
+        race between cleanup and job start.
+
+        Args:
+            version_str: Full version string (e.g., '4.2.19').
+
+        Returns:
+            True if the directory was removed, False otherwise.
+        """
+        if self.is_version_in_use(version_str):
+            logger.warning(
+                f"Cannot remove Blender {version_str}: "
+                f"version is currently in use by an active render."
+            )
+            return False
+
+        platform_id = self._get_platform_identifier()
+        if not platform_id:
+            logger.error(
+                "Cannot determine platform for version removal."
+            )
+            return False
+
+        install_dir = (
+            self.blender_dir / f"blender-{version_str}-{platform_id}"
+        )
+        if not install_dir.exists():
+            logger.debug(
+                f"Directory does not exist, nothing to remove: "
+                f"{install_dir}"
+            )
+            return False
+
+        # Validate the path stays within blender_dir to prevent
+        # path traversal attacks.
+        resolved = install_dir.resolve()
+        if not str(resolved).startswith(
+            str(self.blender_dir.resolve())
+        ):
+            logger.error(f"Path traversal detected: {install_dir}")
+            return False
+
+        try:
+            shutil.rmtree(install_dir)
+            logger.info(
+                f"Removed Blender version directory: {install_dir}"
+            )
+            return True
+        except OSError as e:
+            logger.error(
+                f"Failed to remove Blender directory "
+                f"{install_dir}: {e}"
+            )
+            return False
 
 
 # Singleton instance

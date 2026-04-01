@@ -102,6 +102,11 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     if not blender_to_use:
         return False, False, "", "", f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job.", None
 
+    # Acquire a reference count on this version to prevent cleanup
+    # from deleting it while the render is in progress.
+    resolved_version = blender_version_req
+    tool_manager_instance.acquire_version(resolved_version)
+
     logger.info(f"Using Blender executable: {blender_to_use}")
     resolved_output_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, output_file_pattern))
     os.makedirs(os.path.dirname(resolved_output_pattern), exist_ok=True)
@@ -250,6 +255,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         logger.critical(error_message, exc_info=True)
         final_return_code = -1
     finally:
+        # Release the version reference count so cleanup can proceed.
+        tool_manager_instance.release_version(resolved_version)
         # Clean up live output tracking for this job
         with _output_lock:
             _last_output_lines.pop(job_id, None)
