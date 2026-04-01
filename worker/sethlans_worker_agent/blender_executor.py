@@ -19,9 +19,8 @@ import time
 from typing import Optional
 
 import psutil
-import requests
 
-from sethlans_worker_agent import config, asset_manager, system_monitor
+from sethlans_worker_agent import config, asset_manager, system_monitor, api_handler
 from sethlans_worker_agent.render_script import generate_render_config_script
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
@@ -191,13 +190,11 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         stderr_thread = threading.Thread(target=_stream_reader, args=(process.stderr, stderr_lines), daemon=True)
         stdout_thread.start()
         stderr_thread.start()
-        job_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
 
         while process.poll() is None:
             logger.debug(f"Polling subprocess... still running. Checking for cancellation signal.")
             try:
-                response = requests.get(job_url, timeout=5)
-                if response.status_code == 200 and response.json().get('status') == 'CANCELED':
+                if api_handler.get_job_status(job_id) == 'CANCELED':
                     logger.warning(f"Cancellation signal for job ID {job_id} received. Terminating process tree.")
                     try:
                         parent = psutil.Process(process.pid)
@@ -232,7 +229,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
                         logger.info(f"[Job {job_id}] Process already exited before termination signal.")
                     was_canceled = True
                     break
-            except (requests.exceptions.RequestException, psutil.NoSuchProcess):
+            except psutil.NoSuchProcess:
                 if not psutil.pid_exists(process.pid):
                     break
             time.sleep(2)

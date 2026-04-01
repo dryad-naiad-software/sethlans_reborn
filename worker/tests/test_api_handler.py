@@ -6,7 +6,6 @@ Unit tests for the api_handler module.
 """
 import pytest
 import requests
-from unittest.mock import MagicMock
 
 from sethlans_worker_agent import api_handler, config
 
@@ -25,7 +24,7 @@ def test_poll_for_available_jobs_success(mocker):
     result = api_handler.poll_for_available_jobs(params)
 
     assert result == mock_job_list
-    mock_get.assert_called_once_with(f"{config.MANAGER_API_URL}jobs/", params=params, timeout=10)
+    mock_get.assert_called_once_with(f"{config.MANAGER_API_URL}jobs/", params=params, headers={}, timeout=10)
 
 
 def test_poll_for_available_jobs_failure(mocker):
@@ -46,7 +45,10 @@ def test_claim_job_success(mocker):
     mock_post.return_value.status_code = 200
     result = api_handler.claim_job(1, 101)
     assert result is True
-    mock_post.assert_called_once_with(f"{config.MANAGER_API_URL}jobs/1/claim/", json={"worker_id": 101}, timeout=5)
+    mock_post.assert_called_once_with(
+        f"{config.MANAGER_API_URL}jobs/1/claim/",
+        json={"worker_id": 101}, headers={}, timeout=5
+    )
 
 
 @pytest.mark.parametrize("status_code", [409, 404, 500])
@@ -69,7 +71,10 @@ def test_update_job_status(mocker):
     mock_patch.return_value.status_code = 200
     payload = {'status': 'DONE'}
     api_handler.update_job_status(5, payload)
-    mock_patch.assert_called_once_with(f"{config.MANAGER_API_URL}jobs/5/", json=payload, timeout=5)
+    mock_patch.assert_called_once_with(
+        f"{config.MANAGER_API_URL}jobs/5/",
+        json=payload, headers={}, timeout=5
+    )
 
 
 def test_upload_render_output(mocker):

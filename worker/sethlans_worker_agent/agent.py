@@ -22,7 +22,7 @@ import signal
 import threading
 import time
 import sys
-from sethlans_worker_agent import job_processor, system_monitor, config
+from sethlans_worker_agent import job_processor, system_monitor, config, api_handler
 from sethlans_worker_agent.web_ui import start_server, stop_server
 
 # --- Argument Parsing ---
@@ -161,10 +161,18 @@ def main():
             # Heartbeats continue regardless of pause state.
             system_monitor.send_heartbeat()
 
-            # Skip job polling when paused (A-NF7).
+            # Skip job polling when paused (A-NF7) or auth failed.
             if job_processor.is_paused():
                 logger.debug("Worker is paused. Skipping job poll.")
                 _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
+                continue
+
+            if api_handler.is_auth_failed():
+                logger.warning(
+                    "Authentication failed. Skipping job poll. "
+                    "Heartbeats will continue."
+                )
+                _shutdown_event.wait(config.HEARTBEAT_INTERVAL_SECONDS)
                 continue
 
             thread = job_processor.get_and_claim_job(worker_id)

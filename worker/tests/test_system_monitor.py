@@ -3,10 +3,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 import pytest
-import requests
 import subprocess
 import json
-import psutil
 from unittest.mock import MagicMock
 
 # Import the module and dependencies to be tested/mocked
@@ -115,6 +113,7 @@ def test_register_with_manager_lts_success(mocker):
     Tests the full successful registration flow, including finding and downloading the LTS Blender.
     """
     mocker.patch.object(system_monitor, 'WORKER_ID', None)
+    mocker.patch.object(config, 'API_TOKEN', 'test-token-abc123')
     mocker.patch.object(
         blender_release_parser, 'get_blender_releases', return_value={'4.5.0': {}, '4.5.1': {}}
     )
@@ -125,6 +124,7 @@ def test_register_with_manager_lts_success(mocker):
     mock_post = mocker.patch('requests.post')
     mock_post.return_value.status_code = 200
     mock_post.return_value.json.return_value = {'id': 123}
+    mock_post.return_value.raise_for_status.return_value = None
 
     worker_id = system_monitor.register_with_manager()
 
@@ -154,8 +154,11 @@ def test_send_heartbeat_success(mocker):
     Tests that a heartbeat is sent correctly when the worker is registered.
     """
     mocker.patch.object(system_monitor, 'WORKER_ID', 123)
+    mocker.patch.object(config, 'API_TOKEN', 'test-token-abc123')
     mock_post = mocker.patch('requests.post')
     mock_post.return_value.status_code = 200
+    mock_post.return_value.raise_for_status.return_value = None
+    mock_post.return_value.json.return_value = {'id': 123}
 
     system_monitor.send_heartbeat()
 
@@ -194,11 +197,17 @@ def test_filter_preferred_gpus_with_complex_devices():
     # Arrange: 2 physical cards.
     # - A GTX 1070 Ti with PCI ID 0000:0a:00, offering both CUDA and OptiX.
     # - An RTX 3090 with PCI ID 0000:05:00, offering both CUDA and OptiX.
+    gtx_cuda_id = 'CUDA_NVIDIA GeForce GTX 1070 Ti_0000:0a:00'
+    rtx_cuda_id = 'CUDA_NVIDIA GeForce RTX 3090_0000:05:00'
     raw_devices = [
-        {'index': 0, 'name': 'NVIDIA GeForce GTX 1070 Ti', 'type': 'CUDA', 'id': 'CUDA_NVIDIA GeForce GTX 1070 Ti_0000:0a:00'},
-        {'index': 1, 'name': 'NVIDIA GeForce RTX 3090', 'type': 'CUDA', 'id': 'CUDA_NVIDIA GeForce RTX 3090_0000:05:00'},
-        {'index': 3, 'name': 'NVIDIA GeForce GTX 1070 Ti', 'type': 'OPTIX', 'id': 'CUDA_NVIDIA GeForce GTX 1070 Ti_0000:0a:00_OptiX'},
-        {'index': 4, 'name': 'NVIDIA GeForce RTX 3090', 'type': 'OPTIX', 'id': 'CUDA_NVIDIA GeForce RTX 3090_0000:05:00_OptiX'},
+        {'index': 0, 'name': 'NVIDIA GeForce GTX 1070 Ti',
+         'type': 'CUDA', 'id': gtx_cuda_id},
+        {'index': 1, 'name': 'NVIDIA GeForce RTX 3090',
+         'type': 'CUDA', 'id': rtx_cuda_id},
+        {'index': 3, 'name': 'NVIDIA GeForce GTX 1070 Ti',
+         'type': 'OPTIX', 'id': gtx_cuda_id + '_OptiX'},
+        {'index': 4, 'name': 'NVIDIA GeForce RTX 3090',
+         'type': 'OPTIX', 'id': rtx_cuda_id + '_OptiX'},
     ]
 
     # Act

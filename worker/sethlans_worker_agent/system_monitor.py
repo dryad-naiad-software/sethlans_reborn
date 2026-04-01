@@ -6,19 +6,20 @@ Handles system monitoring and communication between the worker and manager.
 
 This module is responsible for:
 - Registering the worker with the central manager.
+- Enrolling with the manager using a pre-shared key (when no token exists).
 - Sending periodic heartbeats to maintain a live connection.
 - Ensuring the required Blender LTS version is installed before registration.
 
 Hardware detection has been extracted to the hardware_detection module.
+Enrollment logic has been extracted to the enrollment module.
 Functions are re-exported here for backward compatibility.
 """
 
 import logging
 
-import requests
-
 from sethlans_worker_agent import config
-from sethlans_worker_agent.api_handler import _retry_request
+from sethlans_worker_agent import api_handler
+from sethlans_worker_agent.enrollment import check_auth_config, enroll_with_manager
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import blender_release_parser
 
@@ -65,16 +66,18 @@ def _get_ui_url():
 
 def _find_latest_lts_patch(all_versions, lts_series):
     """
-    Helper function to find the highest patch version for a given LTS series.
+    Helper to find the highest patch version for a given LTS series.
 
     Args:
-        all_versions (list): A list of all available Blender version strings.
-        lts_series (str): The major.minor version series to check (e.g., '4.5').
+        all_versions (list): All available Blender version strings.
+        lts_series (str): The major.minor series (e.g., '4.5').
 
     Returns:
-        str or None: The latest patch version string, or None if none found.
+        str or None: The latest patch version string, or None.
     """
-    lts_patches = [v for v in all_versions if v.startswith(lts_series + '.')]
+    lts_patches = [
+        v for v in all_versions if v.startswith(lts_series + '.')
+    ]
     if not lts_patches:
         return None
     return sorted(
@@ -84,21 +87,13 @@ def _find_latest_lts_patch(all_versions, lts_series):
     )[0]
 
 
-def register_with_manager():
+def _ensure_blender_available():
     """
-    Ensures the latest Blender LTS version is installed and registers the worker.
-
-    This is a critical bootstrap function that runs at the start of the worker
-    agent's lifecycle. It first attempts to find or download the required
-    Blender version before sending a full system information payload to the
-    manager.
+    Ensure the latest Blender LTS version is downloaded and available.
 
     Returns:
-        int or None: The ID assigned to the worker by the manager, or None
-                     if registration fails.
+        The Blender executable path, or None on failure.
     """
-    global WORKER_ID
-
     logger.info(
         f"Ensuring latest Blender LTS "
         f"({config.REQUIRED_LTS_VERSION_SERIES}.x) is available..."
@@ -118,7 +113,8 @@ def register_with_manager():
     if not latest_lts_version:
         logger.critical(
             f"No versions found for LTS series "
-            f"{config.REQUIRED_LTS_VERSION_SERIES}. Registration aborted."
+            f"{config.REQUIRED_LTS_VERSION_SERIES}. "
+            f"Registration aborted."
         )
         return None
 
@@ -132,55 +128,79 @@ def register_with_manager():
         )
         return None
 
-    heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
+    return lts_blender
+
+
+def register_with_manager():
+    """
+    Ensures Blender is available, then registers/enrolls with the manager.
+
+    Authentication flow:
+    1. If API_TOKEN is set, use it for a standard authenticated heartbeat.
+    2. If API_TOKEN is empty but ENROLLMENT_KEY is set, perform enrollment.
+    3. If neither is set, log a critical error and return None.
+
+    Enrollment MUST complete before the worker enters the polling loop.
+    Blender downloads come from download.blender.org (not manager API),
+    so they don't need auth and happen before enrollment.
+
+    Returns:
+        int or None: The worker ID, or None on failure.
+    """
+    global WORKER_ID
+
+    if not _ensure_blender_available():
+        return None
+
+    auth_state = check_auth_config()
     payload = get_system_info()
     payload['ui_url'] = _get_ui_url()
 
-    logger.info(f"Sending registration heartbeat to {heartbeat_url}...")
-    try:
-        response = _retry_request(
-            requests.post, heartbeat_url, json=payload, timeout=10
+    if auth_state == 'none':
+        logger.critical(
+            "No API token or enrollment key configured. "
+            "Cannot communicate with manager."
         )
-        response.raise_for_status()
-
-        data = response.json()
-        WORKER_ID = data.get('id')
-
-        if WORKER_ID:
-            logger.info(
-                f"Heartbeat successful. Worker is registered as ID: "
-                f"{WORKER_ID}"
-            )
-            return WORKER_ID
-        else:
-            logger.error("Heartbeat response did not include a worker ID.")
-            return None
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Could not send registration heartbeat: {e}")
         return None
+
+    if auth_state == 'enroll':
+        logger.info("No API token found. Attempting enrollment...")
+        worker_id = enroll_with_manager(payload)
+        if worker_id:
+            WORKER_ID = worker_id
+            return WORKER_ID
+        return None
+
+    # auth_state == 'token': authenticated heartbeat with existing token.
+    logger.info(
+        "Using existing API token for registration heartbeat."
+    )
+    data = api_handler.send_authenticated_heartbeat(payload)
+    if not data:
+        logger.error("Registration heartbeat failed.")
+        return None
+
+    WORKER_ID = data.get('id')
+    if WORKER_ID:
+        logger.info(
+            f"Heartbeat successful. Worker is registered as "
+            f"ID: {WORKER_ID}"
+        )
+        return WORKER_ID
+
+    logger.error("Heartbeat response did not include a worker ID.")
+    return None
 
 
 def send_heartbeat():
     """
-    Sends a simple, periodic heartbeat to the manager.
-
-    This function only sends the worker's hostname to the `/api/heartbeat/`
-    endpoint, relying on the manager to update the `last_seen` timestamp
-    for the corresponding worker record.
+    Sends a periodic heartbeat to the manager using auth headers.
     """
     if not WORKER_ID:
-        logger.warning("Cannot send heartbeat, worker is not registered.")
+        logger.warning(
+            "Cannot send heartbeat, worker is not registered."
+        )
         return
 
-    heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
     payload = {"hostname": HOSTNAME, "ui_url": _get_ui_url()}
-
-    try:
-        response = _retry_request(
-            requests.post, heartbeat_url, json=payload, timeout=5
-        )
-        response.raise_for_status()
-        logger.debug("Periodic heartbeat successful.")
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"Could not send periodic heartbeat: {e}")
+    api_handler.send_authenticated_heartbeat(payload)

@@ -4,6 +4,19 @@ host = 127.0.0.1
 # The port the Manager server is running on.
 port = 7075
 
+# --- Authentication ---
+# WARNING: Tokens and enrollment keys are transmitted over HTTP in cleartext.
+# Use a wired network for security. HTTPS support is a future enhancement.
+#
+# Pre-shared enrollment key provided by the manager admin.
+# Used for initial registration. Leave empty after enrollment completes.
+enrollment_key =
+# API token received after successful enrollment.
+# This is written automatically by the worker -- do not edit manually.
+# Set restrictive permissions on this file: chmod 600 config.ini
+# On Windows, restrict access via file Properties > Security tab.
+api_token =
+
 [worker]
 # How often (in seconds) the worker sends a heartbeat to the manager.
 heartbeat_interval = 30
