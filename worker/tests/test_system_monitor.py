@@ -122,6 +122,7 @@ def test_register_with_manager_lts_success(mocker):
     Tests the full successful registration flow, including finding and downloading the LTS Blender.
     """
     mocker.patch.object(system_monitor, 'WORKER_ID', None)
+    mocker.patch.object(config, 'API_TOKEN', 'test-token-abc123')
     mocker.patch.object(
         blender_release_parser, 'get_blender_releases', return_value={'4.5.0': {}, '4.5.1': {}}
     )
@@ -132,6 +133,7 @@ def test_register_with_manager_lts_success(mocker):
     mock_post = mocker.patch('requests.post')
     mock_post.return_value.status_code = 200
     mock_post.return_value.json.return_value = {'id': 123}
+    mock_post.return_value.raise_for_status.return_value = None
 
     worker_id = system_monitor.register_with_manager()
 
@@ -161,8 +163,11 @@ def test_send_heartbeat_success(mocker):
     Tests that a heartbeat is sent correctly when the worker is registered.
     """
     mocker.patch.object(system_monitor, 'WORKER_ID', 123)
+    mocker.patch.object(config, 'API_TOKEN', 'test-token-abc123')
     mock_post = mocker.patch('requests.post')
     mock_post.return_value.status_code = 200
+    mock_post.return_value.raise_for_status.return_value = None
+    mock_post.return_value.json.return_value = {'id': 123}
 
     system_monitor.send_heartbeat()
 

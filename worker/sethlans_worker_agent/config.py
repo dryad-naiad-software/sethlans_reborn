@@ -34,6 +34,10 @@ config_parser = configparser.ConfigParser()
 config_file_path = WORKER_ROOT / 'config.ini'
 if config_file_path.exists():
     config_parser.read(config_file_path)
+else:
+    logger.warning(
+        "config.ini not found at %s. Using defaults.", config_file_path
+    )
 
 
 # --- Helper function to get config value with override ---
@@ -107,6 +111,12 @@ MANAGER_HOST = _validate_non_empty_string('manager.host', MANAGER_HOST, '127.0.0
 # The base URL for the central Django Manager's API.
 MANAGER_API_URL = f"http://{MANAGER_HOST}:{MANAGER_PORT}/api/"
 
+# --- Manager Authentication ---
+# Pre-shared enrollment key provided by the admin for initial registration.
+ENROLLMENT_KEY = get_config_value('manager', 'enrollment_key', '')
+# Permanent API token received after successful enrollment. Initially empty.
+API_TOKEN = get_config_value('manager', 'api_token', '')
+
 
 # --- Worker Operation Intervals ---
 HEARTBEAT_INTERVAL_SECONDS = get_config_value('worker', 'heartbeat_interval', 30, is_int=True)
@@ -158,6 +168,7 @@ MANAGED_ASSETS_DIR = WORKER_AGENT_DIR / 'managed_assets'
 WORKER_OUTPUT_DIR = WORKER_AGENT_DIR / 'worker_output'
 WORKER_TEMP_DIR = WORKER_AGENT_DIR / 'temp'
 WORKER_LOG_DIR = WORKER_AGENT_DIR / 'logs'
+FAILED_UPLOADS_DIR = WORKER_AGENT_DIR / 'failed_uploads'
 
 
 # Paths to test .blend files used in the end-to-end test suite.
