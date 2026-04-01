@@ -1,7 +1,6 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
-# tests/unit/worker_agent/test_gpu_lock_concurrency.py
+# SPDX-License-Identifier: GPL-2.0-or-later
 """
 Unit tests for GPU lock concurrency safety in job_processor.
 

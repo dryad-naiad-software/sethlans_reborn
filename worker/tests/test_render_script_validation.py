@@ -1,13 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-#
-# Created by Mario Estrella on 07/22/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
-# tests/unit/worker_agent/test_render_script_validation.py
 """
 Unit tests for input validation and command injection prevention
 in the render_script module (GitHub issue #4).

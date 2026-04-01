@@ -1,13 +1,6 @@
-# tests/e2e/test_manifests.py
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-#
-# Created by Mario Estrella on 8/2/2025.
-# Dryad and Naiad Software LLC
-#
-# Project: sethlans_reborn
-#
 """
 End-to-end tests for the automatic project manifest generation. 📝
 """

@@ -1,13 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-#
-# Created by Mario Estrella on 8/5/2025.
-# Dryad and Naiad Software LLC
-#
-# Project: sethlans_reborn
-#
-# tests/unit/worker_agent/test_blender_executor.py
 """
 Unit tests for script generation and command construction in blender_executor.
 """

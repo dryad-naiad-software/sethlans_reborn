@@ -1,13 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-#
-# Created By Mario Estrella on 8/1/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
-# tests/e2e/test_core_workflows.py
 """
 End-to-end tests for the most fundamental rendering workflows, including
 single-frame CPU and GPU jobs.

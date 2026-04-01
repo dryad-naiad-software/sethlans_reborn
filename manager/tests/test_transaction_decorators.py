@@ -1,7 +1,6 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
-# tests/unit/workers/test_transaction_decorators.py
+# SPDX-License-Identifier: GPL-2.0-or-later
 """
 Unit tests verifying that perform_create methods on AnimationViewSet
 and TiledJobViewSet are wrapped with @transaction.atomic.

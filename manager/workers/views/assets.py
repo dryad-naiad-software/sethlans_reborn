@@ -1,11 +1,6 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
-# Created by Mario Estrella on 07/22/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-# workers/views/assets.py
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view

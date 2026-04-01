@@ -1,13 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-#
-# Created by Mario Estrella on 07/22/2025.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
-# sethlans_worker_agent/tool_manager.py
 """
 Manages the discovery, download, and local caching of external tools.
 

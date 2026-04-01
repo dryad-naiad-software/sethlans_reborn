@@ -1,9 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-# Project: sethlans_reborn
-#
-# worker/tests/test_web_ui_status.py
 """
 Unit tests for the worker web UI status snapshot assembly.
 

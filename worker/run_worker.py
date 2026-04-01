@@ -1,13 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright (c) 2025 Dryad and Naiad Software LLC
-#
-#
-# Created by Mario Estrella on 3/31/2026.
-# Dryad and Naiad Software LLC
-# mestrella@dryadandnaiad.com
-# Project: sethlans_reborn
-#
-# run_worker.py
 """
 A user-friendly script to run the Sethlans Reborn Worker Agent.
 
