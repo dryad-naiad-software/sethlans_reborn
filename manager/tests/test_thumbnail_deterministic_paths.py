@@ -9,7 +9,7 @@ from django.core.files.base import ContentFile
 from django.utils.text import slugify
 from PIL import Image
 
-from workers.models import Project
+from workers.models import Project, SupportedBlenderVersion
 from workers.models.projects import Asset
 from workers.models.animations import Animation, AnimationFrame
 
@@ -35,7 +35,11 @@ def test_animation_thumbnail_deterministic_and_replaced(settings, tmp_path):
     # Enable deletion so storage doesn't generate a new unique name
     settings.WORKERS_DELETE_OLD_THUMBNAILS = True
 
-    proj = Project.objects.create(name="deterministic-proj")
+    sv = SupportedBlenderVersion.objects.create(
+        major=4, minor=5, series="4.5",
+        resolved_version="4.5.8", is_default=True,
+    )
+    proj = Project.objects.create(name="deterministic-proj", blender_version=sv)
     asset = Asset.objects.create(name="deterministic-asset", project=proj, blend_file=b"x")
 
     anim = Animation.objects.create(

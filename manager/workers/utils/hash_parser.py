@@ -8,7 +8,7 @@ This module fetches a `.sha256` file from a URL and parses its contents,
 returning a dictionary that maps filenames to their corresponding SHA256 hashes.
 This is used to verify the integrity of downloaded Blender archives.
 
-NOTE: This file is duplicated in manager/workers/utils/hash_parser.py.
+NOTE: This file is duplicated in worker/sethlans_worker_agent/utils/hash_parser.py.
 Keep both in sync.
 """
 

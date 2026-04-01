@@ -57,21 +57,6 @@ class TilingConfiguration(models.TextChoices):
     TILE_5X5 = '5x5', '5x5 (25 Tiles)'
 
 
-class SupportedBlenderVersions(models.TextChoices):
-    """
-    Defines the officially supported Blender versions.
-
-    This is used to populate UI dropdowns and for API validation, ensuring
-    the worker agents are capable of processing the jobs.
-    """
-    V4_5_LTS = "4.5.8", "Blender 4.5.8 (LTS)"
-    V4_4 = "4.4.3", "Blender 4.4.3"
-    V4_3 = "4.3.2", "Blender 4.3.2"
-    V4_2_LTS = "4.2.19", "Blender 4.2.19 (LTS)"
-    V4_1 = "4.1.1", "Blender 4.1.1"
-    V4_0 = "4.0.2", "Blender 4.0.2"
-
-
 class RenderSettings:
     """
     Defines the string keys for the `render_settings` dictionary override.

@@ -9,7 +9,7 @@ import pytest
 from django.core.files.base import ContentFile
 from PIL import Image
 
-from workers.models import Project
+from workers.models import Project, SupportedBlenderVersion
 from workers.models.projects import Asset
 from workers.models.animations import Animation, AnimationFrame
 from workers.constants import TilingConfiguration
@@ -34,7 +34,11 @@ def _png_bytes(color, size=(32, 32)):
 def test_animation_thumbnail_updates_on_each_frame(settings, tmp_path):
     settings.MEDIA_ROOT = tmp_path.as_posix()
 
-    project = Project.objects.create(name="anim-progress-proj")
+    sv = SupportedBlenderVersion.objects.create(
+        major=4, minor=5, series="4.5",
+        resolved_version="4.5.8", is_default=True,
+    )
+    project = Project.objects.create(name="anim-progress-proj", blender_version=sv)
     asset = Asset.objects.create(name="anim-progress-asset", project=project, blend_file=b"dummy")
 
     # Using 2 frames is enough to prove progression

@@ -7,9 +7,13 @@ Serializers for the Animation and AnimationFrame models.
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
-from ..models import Animation, AnimationFrame, Asset, Project, JobStatus
+from ..models import (
+    Animation, AnimationFrame, Asset, Project, JobStatus,
+    SupportedBlenderVersion,
+)
 from .projects import ProjectSerializer
 from .assets import AssetSerializer
+from .blender_versions import EffectiveBlenderVersionSerializer
 
 
 class AnimationFrameSerializer(serializers.ModelSerializer):
@@ -48,6 +52,11 @@ class AnimationSerializer(serializers.ModelSerializer):
     asset_id = serializers.PrimaryKeyRelatedField(
         queryset=Asset.objects.all(), source='asset', write_only=True
     )
+    blender_version = serializers.PrimaryKeyRelatedField(
+        queryset=SupportedBlenderVersion.objects.all(),
+        required=False, allow_null=True,
+    )
+    effective_blender_version = EffectiveBlenderVersionSerializer(read_only=True)
 
     class Meta:
         model = Animation
@@ -55,7 +64,8 @@ class AnimationSerializer(serializers.ModelSerializer):
             'id', 'name', 'status', 'progress', 'total_frames', 'completed_frames',
             'project', 'project_details', 'asset', 'asset_id', 'output_file_pattern',
             'start_frame', 'end_frame', 'frame_step',
-            'blender_version', 'render_engine', 'render_device', 'cycles_feature_set',
+            'blender_version', 'effective_blender_version',
+            'render_engine', 'render_device', 'cycles_feature_set',
             'render_settings', 'tiling_config',
             'submitted_at', 'completed_at',
             'total_render_time_seconds', 'thumbnail', 'frames'
@@ -64,7 +74,7 @@ class AnimationSerializer(serializers.ModelSerializer):
             'status', 'progress', 'total_frames', 'completed_frames',
             'submitted_at', 'completed_at',
             'total_render_time_seconds', 'asset', 'project_details',
-            'thumbnail', 'frames'
+            'thumbnail', 'frames', 'effective_blender_version',
         )
         extra_kwargs = {
             'project': {'write_only': True}

@@ -7,9 +7,10 @@ Serializers for the Job and TiledJob models, including status transition validat
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
-from ..models import Job, TiledJob, JobStatus, Asset, Project
+from ..models import Job, TiledJob, JobStatus, Asset, Project, SupportedBlenderVersion
 from .projects import ProjectSerializer
 from .assets import AssetSerializer
+from .blender_versions import EffectiveBlenderVersionSerializer
 
 # Valid job status transitions: QUEUED->RENDERING->DONE/ERROR/CANCELED
 VALID_STATUS_TRANSITIONS = {
@@ -43,6 +44,11 @@ class TiledJobSerializer(serializers.ModelSerializer):
     asset_id = serializers.PrimaryKeyRelatedField(
         queryset=Asset.objects.all(), source='asset', write_only=True
     )
+    blender_version = serializers.PrimaryKeyRelatedField(
+        queryset=SupportedBlenderVersion.objects.all(),
+        required=False, allow_null=True,
+    )
+    effective_blender_version = EffectiveBlenderVersionSerializer(read_only=True)
 
     class Meta:
         model = TiledJob
@@ -50,7 +56,8 @@ class TiledJobSerializer(serializers.ModelSerializer):
             'id', 'name', 'status', 'progress', 'total_tiles', 'completed_tiles',
             'project', 'project_details', 'asset', 'asset_id',
             'final_resolution_x', 'final_resolution_y', 'tile_count_x', 'tile_count_y',
-            'blender_version', 'render_engine', 'render_device', 'cycles_feature_set',
+            'blender_version', 'effective_blender_version',
+            'render_engine', 'render_device', 'cycles_feature_set',
             'render_settings',
             'submitted_at', 'completed_at', 'total_render_time_seconds',
             'output_file', 'thumbnail'
@@ -58,7 +65,8 @@ class TiledJobSerializer(serializers.ModelSerializer):
         read_only_fields = (
             'id', 'status', 'progress', 'total_tiles', 'completed_tiles',
             'submitted_at', 'completed_at', 'total_render_time_seconds',
-            'asset', 'project_details', 'output_file', 'thumbnail'
+            'asset', 'project_details', 'output_file', 'thumbnail',
+            'effective_blender_version',
         )
         extra_kwargs = {
             'project': {'write_only': True}
@@ -134,6 +142,11 @@ class JobSerializer(serializers.ModelSerializer):
     asset_id = serializers.PrimaryKeyRelatedField(
         queryset=Asset.objects.all(), source='asset', write_only=True
     )
+    blender_version = serializers.PrimaryKeyRelatedField(
+        queryset=SupportedBlenderVersion.objects.all(),
+        required=False, allow_null=True,
+    )
+    effective_blender_version = EffectiveBlenderVersionSerializer(read_only=True)
 
     def validate_status(self, value):
         """
@@ -172,6 +185,7 @@ class JobSerializer(serializers.ModelSerializer):
             'started_at',
             'completed_at',
             'blender_version',
+            'effective_blender_version',
             'render_engine',
             'render_device',
             'cycles_feature_set',
@@ -192,6 +206,7 @@ class JobSerializer(serializers.ModelSerializer):
             'tiled_job',
             'animation_frame',
             'assigned_worker',
+            'effective_blender_version',
         ]
         extra_kwargs = {
             'status': {'required': False},

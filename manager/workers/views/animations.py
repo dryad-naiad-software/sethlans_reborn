@@ -49,7 +49,8 @@ class AnimationViewSet(viewsets.ModelViewSet):
                 'frames', filter=Q(frames__status='DONE')
             ),
         ).select_related(
-            'project', 'asset', 'asset__project'
+            'project', 'asset', 'asset__project',
+            'blender_version', 'asset__project__blender_version',
         ).prefetch_related(
             'frames'
         ).order_by('-submitted_at')

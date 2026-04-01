@@ -7,9 +7,10 @@ import logging
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from ..models import Project
+from ..models import Project, SupportedBlenderVersion
 from ..permissions import IsAdmin
 from ..serializers import ProjectSerializer
 
@@ -34,8 +35,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
     They can be paused to temporarily stop workers from processing their jobs.
     """
     permission_classes = [IsAdmin]
-    queryset = Project.objects.all().order_by('-created_at')
+    queryset = Project.objects.select_related('blender_version').order_by('-created_at')
     serializer_class = ProjectSerializer
+
+    def perform_create(self, serializer):
+        if SupportedBlenderVersion.objects.count() == 0:
+            raise ValidationError(
+                "At least one supported Blender version must be "
+                "configured before creating projects."
+            )
+        serializer.save()
 
     @action(detail=True, methods=['post'])
     def pause(self, request, pk=None):

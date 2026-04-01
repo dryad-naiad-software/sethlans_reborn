@@ -10,7 +10,7 @@ from django.utils.text import slugify
 from PIL import Image
 from pathlib import Path
 
-from workers.models import Project
+from workers.models import Project, SupportedBlenderVersion
 from workers.models.projects import Asset
 from workers.models.animations import Animation, AnimationFrame
 
@@ -40,7 +40,11 @@ def test_animation_thumbnail_old_file_deleted_and_no_orphans(settings, tmp_path)
     settings.MEDIA_ROOT = tmp_path.as_posix()
     settings.WORKERS_DELETE_OLD_THUMBNAILS = True
 
-    project = Project.objects.create(name="thumb-clean-proj")
+    sv = SupportedBlenderVersion.objects.create(
+        major=4, minor=5, series="4.5",
+        resolved_version="4.5.8", is_default=True,
+    )
+    project = Project.objects.create(name="thumb-clean-proj", blender_version=sv)
     asset = Asset.objects.create(name="thumb-clean-asset", project=project, blend_file=b"dummy")
 
     animation = Animation.objects.create(
