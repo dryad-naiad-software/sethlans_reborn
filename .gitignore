@@ -166,3 +166,8 @@ manual_test_output/
 /chat_template.txt
 /tools/results/
 test_artifacts/
+
+# Temporary files (MCP tools, screenshots, etc.)
+temp/
+.playwright-mcp/
+*.png
