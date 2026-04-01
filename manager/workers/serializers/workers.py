@@ -20,5 +20,5 @@ class WorkerSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = Worker
-        fields = ['id', 'hostname', 'ip_address', 'os', 'last_seen', 'is_active', 'available_tools']
+        fields = ['id', 'hostname', 'ip_address', 'os', 'last_seen', 'is_active', 'available_tools', 'ui_url']
         read_only_fields = ['last_seen']

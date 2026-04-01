@@ -12,7 +12,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from .views import WorkerHeartbeatViewSet, JobViewSet, AnimationViewSet, AssetViewSet, ProjectViewSet, TiledJobViewSet
+from .views import (
+    WorkerHeartbeatViewSet, JobViewSet, AnimationViewSet,
+    AssetViewSet, ProjectViewSet, TiledJobViewSet, dashboard_stats,
+)
 
 # Create a router instance
 router = DefaultRouter()
@@ -25,6 +28,7 @@ router.register(r'assets', AssetViewSet, basename='asset')
 router.register(r'tiled-jobs', TiledJobViewSet, basename='tiledjob')
 
 urlpatterns = [
+    path('stats/', dashboard_stats, name='dashboard-stats'),
     # Include all router URLs at the root of /api/
     path('', include(router.urls)),
 ]

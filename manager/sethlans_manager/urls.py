@@ -27,21 +27,34 @@ Including another URLconf
 # sethlans_manager/urls.py
 
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.conf import settings
-from django.conf.urls.static import static
+from django.views.generic import TemplateView
+from django.views.static import serve as static_serve
 
 # --- NEW: Import DRF Spectacular views ---
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    # --- NEW: API documentation URLs ---
+    # --- API documentation URLs ---
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/', include('workers.urls')),
-]
 
-# --- NEW: Serve media files during development ---
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    # Always-on media file serving. This is appropriate because the app is a
+    # locally-installed render farm manager, not a public internet deployment.
+    re_path(
+        r'^media/(?P<path>.*)$',
+        static_serve,
+        {'document_root': settings.MEDIA_ROOT},
+    ),
+
+    # SPA catch-all — serves the Angular index.html for any route not matched
+    # above. Ordering is load-bearing: API, admin, media, and static prefixes
+    # are excluded so Django handles them normally.
+    re_path(
+        r'^(?!api/|admin/|media/|static/).*$',
+        TemplateView.as_view(template_name='index.html'),
+    ),
+]

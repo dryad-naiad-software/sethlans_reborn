@@ -13,6 +13,7 @@ from .animations import AnimationViewSet
 from .tiled_jobs import TiledJobViewSet
 from .assets import AssetViewSet
 from .jobs import JobViewSet
+from .stats import dashboard_stats
 
 __all__ = [
     "ProjectViewSet",
@@ -21,4 +22,5 @@ __all__ = [
     "TiledJobViewSet",
     "AssetViewSet",
     "JobViewSet",
+    "dashboard_stats",
 ]

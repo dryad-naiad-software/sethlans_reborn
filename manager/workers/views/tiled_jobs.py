@@ -13,6 +13,7 @@ import os
 from django.db import transaction
 from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
 
 from ..constants import RenderEngine, RenderSettings
@@ -22,6 +23,14 @@ from ..serializers import TiledJobSerializer
 logger = logging.getLogger(__name__)
 
 
+@extend_schema_view(
+    list=extend_schema(tags=['Management UI']),
+    retrieve=extend_schema(tags=['Management UI']),
+    create=extend_schema(tags=['Management UI']),
+    update=extend_schema(tags=['Management UI']),
+    partial_update=extend_schema(tags=['Management UI']),
+    destroy=extend_schema(tags=['Management UI']),
+)
 class TiledJobViewSet(viewsets.ModelViewSet):
     """
     API endpoint for creating and managing Tiled Render jobs.

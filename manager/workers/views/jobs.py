@@ -15,6 +15,7 @@ from django.conf import settings as django_settings
 from django.db import transaction
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from PIL import Image
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
@@ -28,6 +29,17 @@ from ..serializers import JobSerializer
 logger = logging.getLogger(__name__)
 
 
+@extend_schema_view(
+    list=extend_schema(tags=['Management UI']),
+    retrieve=extend_schema(tags=['Management UI']),
+    create=extend_schema(tags=['Management UI']),
+    update=extend_schema(tags=['Management UI']),
+    partial_update=extend_schema(tags=['Management UI']),
+    destroy=extend_schema(tags=['Management UI']),
+    cancel=extend_schema(tags=['Management UI']),
+    claim=extend_schema(tags=['Worker Agent']),
+    upload_output=extend_schema(tags=['Worker Agent']),
+)
 class JobViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows render jobs to be viewed or created.

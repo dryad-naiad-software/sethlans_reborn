@@ -20,6 +20,7 @@ class Worker(models.Model):
     last_seen = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
     available_tools = models.JSONField(default=dict, blank=True)
+    ui_url = models.URLField(max_length=255, null=True, blank=True)
 
     def __str__(self):
         return self.hostname
