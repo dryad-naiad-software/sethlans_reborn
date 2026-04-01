@@ -136,6 +136,15 @@ if FORCE_CPU_ONLY and FORCE_GPU_ONLY:
     sys.exit(1)
 
 
+# --- Worker Web UI Configuration ---
+UI_ENABLED = get_config_value('worker', 'ui_enabled', 'true')
+UI_ENABLED = UI_ENABLED.lower() in ('true', '1', 'yes') if isinstance(UI_ENABLED, str) else bool(UI_ENABLED)
+UI_PORT = get_config_value('worker', 'ui_port', 7076, is_int=True)
+UI_PORT = _validate_int('worker.ui_port', UI_PORT, 7076, 1, 65535)
+UI_BIND_ADDRESS = get_config_value('worker', 'ui_bind_address', '127.0.0.1')
+UI_TOKEN = get_config_value('worker', 'ui_token', '')
+
+
 # --- Worker Agent Paths ---
 # The root directory of the worker agent module.
 WORKER_AGENT_DIR = Path(__file__).resolve().parent

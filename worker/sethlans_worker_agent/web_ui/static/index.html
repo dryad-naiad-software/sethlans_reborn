@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sethlans Worker Dashboard</title>
+<style>
+  :root { --bg: #1a1a2e; --card: #16213e; --accent: #0f3460; --text: #e0e0e0; --ok: #4ecca3; --err: #e74c3c; --warn: #f39c12; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 1rem; }
+  h1 { color: var(--ok); margin-bottom: 0.5rem; font-size: 1.4rem; }
+  h2 { color: var(--ok); font-size: 1rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--accent); padding-bottom: 0.25rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-top: 1rem; }
+  .card { background: var(--card); border-radius: 8px; padding: 1rem; border: 1px solid var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--accent); }
+  th { color: var(--ok); }
+  .status-ok { color: var(--ok); }
+  .status-err { color: var(--err); }
+  .status-warn { color: var(--warn); }
+  #error-banner { display: none; background: var(--err); color: #fff; padding: 0.5rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
+  .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+  .badge-paused { background: var(--warn); color: #000; }
+  .badge-active { background: var(--ok); color: #000; }
+  .mono { font-family: monospace; font-size: 0.8rem; word-break: break-all; }
+  .empty { color: #666; font-style: italic; }
+</style>
+</head>
+<body>
+<h1>Sethlans Worker Dashboard</h1>
+<div id="status-line"></div>
+<div id="error-banner"></div>
+<div class="grid">
+  <div class="card">
+    <h2>System Info</h2>
+    <table>
+      <tr><th>Hostname</th><td id="w-hostname"></td></tr>
+      <tr><th>IP Address</th><td id="w-ip"></td></tr>
+      <tr><th>OS</th><td id="w-os"></td></tr>
+      <tr><th>Worker ID</th><td id="w-id"></td></tr>
+      <tr><th>Registration</th><td id="w-reg"></td></tr>
+      <tr><th>Manager</th><td id="w-manager"></td></tr>
+      <tr><th>Status</th><td id="w-paused"></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Hardware</h2>
+    <table>
+      <tr><th>CPU Threads</th><td id="hw-cpu"></td></tr>
+    </table>
+    <h2 style="margin-top:0.5rem">GPUs</h2>
+    <div id="hw-gpus"></div>
+  </div>
+  <div class="card">
+    <h2>Configuration</h2>
+    <table>
+      <tr><th>Polling Interval</th><td id="cfg-poll"></td></tr>
+      <tr><th>Heartbeat Interval</th><td id="cfg-hb"></td></tr>
+      <tr><th>Force CPU</th><td id="cfg-cpu"></td></tr>
+      <tr><th>Force GPU</th><td id="cfg-gpu"></td></tr>
+      <tr><th>GPU Split Mode</th><td id="cfg-split"></td></tr>
+      <tr><th>Blender Version</th><td id="cfg-blender"></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Blender Tools</h2>
+    <div id="tools-list"></div>
+  </div>
+  <div class="card" style="grid-column: 1 / -1">
+    <h2>Active Jobs</h2>
+    <div id="active-jobs"></div>
+  </div>
+  <div class="card">
+    <h2>GPU Allocation</h2>
+    <div id="gpu-alloc"></div>
+  </div>
+  <div class="card">
+    <h2>Recent Completed Jobs</h2>
+    <div id="recent-jobs"></div>
+  </div>
+</div>
+<script>
+(function() {
+  'use strict';
+  var POLL_MS = 5000;
+
+  function setText(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = val != null ? String(val) : '';
+  }
+
+  function clearChildren(el) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+  }
+
+  function createEl(tag, text, cls) {
+    var el = document.createElement(tag);
+    if (text != null) el.textContent = String(text);
+    if (cls) el.className = cls;
+    return el;
+  }
+
+  function buildTable(headers, rows) {
+    var tbl = document.createElement('table');
+    var thead = document.createElement('thead');
+    var tr = document.createElement('tr');
+    headers.forEach(function(h) { tr.appendChild(createEl('th', h)); });
+    thead.appendChild(tr);
+    tbl.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    rows.forEach(function(row) {
+      var rtr = document.createElement('tr');
+      row.forEach(function(cell) {
+        var td = document.createElement('td');
+        if (typeof cell === 'object' && cell.nodeType) {
+          td.appendChild(cell);
+        } else {
+          td.textContent = cell != null ? String(cell) : '';
+        }
+        rtr.appendChild(td);
+      });
+      tbody.appendChild(rtr);
+    });
+    tbl.appendChild(tbody);
+    return tbl;
+  }
+
+  function updateDashboard(data) {
+    var w = data.worker || {};
+    setText('w-hostname', w.hostname);
+    setText('w-ip', w.ip_address);
+    setText('w-os', w.os);
+    setText('w-id', w.worker_id);
+    setText('w-reg', w.registration_status);
+    setText('w-manager', w.manager_url);
+
+    var pausedEl = document.getElementById('w-paused');
+    clearChildren(pausedEl);
+    if (w.paused) {
+      pausedEl.appendChild(createEl('span', 'PAUSED', 'badge badge-paused'));
+    } else {
+      pausedEl.appendChild(createEl('span', 'ACTIVE', 'badge badge-active'));
+    }
+
+    var hw = data.hardware || {};
+    setText('hw-cpu', hw.cpu_threads);
+
+    var gpuDiv = document.getElementById('hw-gpus');
+    clearChildren(gpuDiv);
+    var gpus = hw.gpus || [];
+    if (gpus.length === 0) {
+      gpuDiv.appendChild(createEl('p', 'No GPUs detected', 'empty'));
+    } else {
+      var rows = gpus.map(function(g) {
+        return [g.name, g.type, g.vram != null ? g.vram + ' MB' : 'N/A'];
+      });
+      gpuDiv.appendChild(buildTable(['Name', 'Backend', 'VRAM'], rows));
+    }
+
+    var cfg = data.config || {};
+    setText('cfg-poll', cfg.polling_interval + 's');
+    setText('cfg-hb', cfg.heartbeat_interval + 's');
+    setText('cfg-cpu', cfg.force_cpu ? 'Yes' : 'No');
+    setText('cfg-gpu', cfg.force_gpu ? 'Yes' : 'No');
+    setText('cfg-split', cfg.gpu_split_mode ? 'Yes' : 'No');
+    setText('cfg-blender', cfg.blender_version);
+
+    var toolsDiv = document.getElementById('tools-list');
+    clearChildren(toolsDiv);
+    var tools = data.tools || [];
+    if (tools.length === 0) {
+      toolsDiv.appendChild(createEl('p', 'No Blender versions installed', 'empty'));
+    } else {
+      tools.forEach(function(v) {
+        toolsDiv.appendChild(createEl('div', v, 'mono'));
+      });
+    }
+
+    var ajDiv = document.getElementById('active-jobs');
+    clearChildren(ajDiv);
+    var jobs = data.active_jobs || [];
+    if (jobs.length === 0) {
+      ajDiv.appendChild(createEl('p', 'No active jobs', 'empty'));
+    } else {
+      var jrows = jobs.map(function(j) {
+        var output = createEl('span', j.last_output_line || '', 'mono');
+        return [j.job_id, j.name, j.render_engine, j.device_used, j.gpu_index != null ? j.gpu_index : '-', j.start_time, output];
+      });
+      ajDiv.appendChild(buildTable(['ID', 'Name', 'Engine', 'Device', 'GPU', 'Started', 'Output'], jrows));
+    }
+
+    var allocDiv = document.getElementById('gpu-alloc');
+    clearChildren(allocDiv);
+    var alloc = data.gpu_allocation || {};
+    var allocKeys = Object.keys(alloc);
+    if (allocKeys.length === 0) {
+      allocDiv.appendChild(createEl('p', 'No GPU assignments', 'empty'));
+    } else {
+      var arows = allocKeys.map(function(k) { return ['GPU ' + k, 'Job ' + alloc[k]]; });
+      allocDiv.appendChild(buildTable(['GPU Index', 'Job ID'], arows));
+    }
+
+    var rjDiv = document.getElementById('recent-jobs');
+    clearChildren(rjDiv);
+    var recent = data.recent_jobs || [];
+    if (recent.length === 0) {
+      rjDiv.appendChild(createEl('p', 'No completed jobs', 'empty'));
+    } else {
+      var rrows = recent.map(function(j) {
+        var statusEl = createEl('span', j.status);
+        statusEl.className = j.status === 'DONE' ? 'status-ok' : j.status === 'ERROR' ? 'status-err' : '';
+        return [j.job_id, j.name, statusEl, j.render_time_seconds != null ? j.render_time_seconds + 's' : '-', j.completed_at || ''];
+      });
+      rjDiv.appendChild(buildTable(['ID', 'Name', 'Status', 'Time', 'Completed'], rrows));
+    }
+
+    document.getElementById('error-banner').style.display = 'none';
+    setText('status-line', 'Last updated: ' + new Date().toLocaleTimeString());
+  }
+
+  function pollStatus() {
+    fetch('/api/status')
+      .then(function(r) { return r.json(); })
+      .then(updateDashboard)
+      .catch(function(err) {
+        var banner = document.getElementById('error-banner');
+        banner.textContent = 'Connection lost: ' + err.message;
+        banner.style.display = 'block';
+      });
+  }
+
+  pollStatus();
+  setInterval(pollStatus, POLL_MS);
+})();
+</script>
+</body>
+</html>

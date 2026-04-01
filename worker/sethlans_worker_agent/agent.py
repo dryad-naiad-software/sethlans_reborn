@@ -29,6 +29,7 @@ import threading
 import time
 import sys
 from sethlans_worker_agent import job_processor, system_monitor, config
+from sethlans_worker_agent.web_ui import start_server, stop_server
 
 # --- Argument Parsing ---
 parser = argparse.ArgumentParser(description="Sethlans Reborn Worker Agent")
@@ -156,13 +157,22 @@ def main():
                 new_id = system_monitor.register_with_manager()
                 if new_id:
                     worker_id = new_id
+                    # Start web UI after registration (A-NF9)
+                    start_server()
                 else:
                     logger.error("Failed to register with manager. Retrying in 30 seconds...")
                     _shutdown_event.wait(30)
                     continue
 
-            # If registered, perform regular heartbeat and check for jobs.
+            # Heartbeats continue regardless of pause state.
             system_monitor.send_heartbeat()
+
+            # Skip job polling when paused (A-NF7).
+            if job_processor.is_paused():
+                logger.debug("Worker is paused. Skipping job poll.")
+                _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
+                continue
+
             thread = job_processor.get_and_claim_job(worker_id)
             if thread is not None:
                 with _active_threads_lock:
@@ -183,6 +193,7 @@ def main():
 
     # --- Graceful shutdown sequence ---
     logger.info("Shutdown event set. Stopping polling loop.")
+    stop_server()
     _wait_for_active_threads()
     logger.info("Sethlans Reborn Worker Agent shut down cleanly.")
 

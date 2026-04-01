@@ -9,22 +9,20 @@
 #
 # sethlans_worker_agent/job_processor.py
 """
-The core module for the worker agent responsible for handling all render job tasks.
+Job processing: polling, claiming, execution, and resource management.
 
-This module orchestrates the job processing workflow by coordinating between the
-API handler (for manager communication) and the Blender executor (for running
-render processes). It supports concurrent job execution by dispatching each
-claimed job to a separate, non-blocking thread.
+Lock ordering convention (alphabetical):
+    _gpu_lock < _active_jobs_lock < _cpu_lock
+No code path may acquire a later lock while holding an earlier one.
 """
 import datetime
 import logging
-import math
 import os
-import re
 import threading
 from typing import Optional, Dict, Any
 
 from sethlans_worker_agent import config, system_monitor, blender_executor, api_handler
+from sethlans_worker_agent.utils.render_time_parser import parse_render_time
 
 logger = logging.getLogger(__name__)
 
@@ -32,25 +30,25 @@ logger = logging.getLogger(__name__)
 _gpu_assignment_map = {}
 # A thread-safe lock to protect all access to _gpu_assignment_map.
 _gpu_lock = threading.Lock()
+
+# Active jobs dict: {job_id: {metadata}} for status endpoint visibility.
+_active_jobs = {}
+_active_jobs_lock = threading.Lock()
+
 # A thread-safe lock to ensure only one CPU-bound job runs at a time.
 _cpu_lock = threading.Lock()
 
+# Pause event: when set, the main loop skips job polling.
+# Heartbeats continue; in-flight jobs complete normally.
+_pause_event = threading.Event()
+
+# Recent completed jobs ring buffer (last 20).
+_recent_jobs = []
+_recent_jobs_lock = threading.Lock()
+
 
 def _reserve_next_available_gpu(job_id: int) -> Optional[int]:
-    """
-    Atomically finds and reserves the first available GPU for a job.
-
-    This function acquires _gpu_lock to ensure the check-then-reserve
-    operation is atomic, preventing two threads from reserving the same GPU.
-
-    Args:
-        job_id: The ID of the job to reserve the GPU for.
-
-    Returns:
-        An integer representing the device index of the reserved GPU,
-        or None if all GPUs are currently busy.
-    """
-    # Use the detailed GPU info to get an accurate count of physical devices.
+    """Atomically find and reserve the first available GPU for a job."""
     gpu_info = system_monitor.get_gpu_device_details()
     num_gpus = len(gpu_info)
 
@@ -67,56 +65,13 @@ def _reserve_next_available_gpu(job_id: int) -> Optional[int]:
     return None
 
 
-def _parse_render_time(stdout_text):
-    """
-    Parses Blender's stdout log content to find the total render time by
-    finding the unique final summary line containing "(Saving:)".
-
-    Args:
-        stdout_text (str): The full stdout log from the Blender subprocess.
-
-    Returns:
-        int or None: The total render time in seconds, rounded up to the nearest
-                     whole number, or None if the time could not be parsed.
-    """
-    time_line_regex = re.compile(r"Time: (?:(\d{2}):)?(\d{2}):(\d{2}\.\d{2})")
-
-    for line in stdout_text.splitlines():
-        if "(Saving:" in line:
-            match = time_line_regex.search(line)
-            if match:
-                try:
-                    hours_str, minutes_str, seconds_str = match.groups()
-                    hours = int(hours_str) if hours_str else 0
-                    minutes = int(minutes_str)
-                    seconds = float(seconds_str)
-                    total_seconds = int(math.ceil((hours * 3600) + (minutes * 60) + seconds))
-                    logger.info(f"Parsed render time: {total_seconds} seconds from line: '{line.strip()}'")
-                    return total_seconds
-                except (IndexError, ValueError) as e:
-                    logger.warning(f"Found summary line but failed to parse time: '{line.strip()}' - {e}")
-                    return None
-    logger.warning("Could not find the final 'Time: ... (Saving: ...)' summary line in the render output.")
-    return None
-
-
 def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
     """
     Polls the manager for an available job and attempts to claim it.
 
-    This function sends a request to the manager's job list endpoint, applying
-    filters based on the worker's configured hardware capabilities. If a job is
-    available, it attempts to claim it by updating the `assigned_worker` field.
-
-    In GPU split mode, it prioritizes GPUs for 'ANY' jobs but will fall back to
-    the CPU if all GPUs are busy.
-
-    Args:
-        worker_id (int): The unique ID of the worker, as assigned by the manager.
-
-    Returns:
-        A dictionary containing the job data if a job was successfully claimed,
-        otherwise None.
+    Filters by hardware capabilities, prioritizes GPUs in split mode,
+    and falls back to CPU when GPUs are busy. Returns claimed job data
+    dict with resource assignments, or None.
     """
     detected_gpus = system_monitor.detect_gpu_devices()
     gpus_are_available = len(detected_gpus) > 0
@@ -143,17 +98,13 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
     acquired_cpu_lock = False
     assigned_gpu_index = None
 
-    # --- REFACTORED: Decoupled logic for resource acquisition ---
     if config.GPU_SPLIT_MODE and gpus_are_available:
-        # In split mode, we must decide which resource (GPU or CPU) to use.
-        # Prioritize GPU for 'GPU' or 'ANY' jobs.
         if device_pref in ('GPU', 'ANY'):
             assigned_gpu_index = _reserve_next_available_gpu(job_id)
 
         if assigned_gpu_index is not None:
             logger.info(f"Found available GPU slot {assigned_gpu_index} for job '{job_name}'.")
         else:
-            # No GPU available. Can we run on CPU as a fallback?
             if device_pref in ('CPU', 'ANY'):
                 acquired_cpu_lock = _cpu_lock.acquire(blocking=False)
                 if acquired_cpu_lock:
@@ -161,11 +112,10 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
                 else:
                     logger.info("All GPUs and the CPU are busy. Skipping claim.")
                     return None
-            else:  # The job was GPU-only and no GPUs are free.
-                logger.info("GPU split mode is active, but all GPUs are busy. Skipping claim for GPU-only job.")
+            else:
+                logger.info("GPU split mode active, all GPUs busy. Skipping GPU-only job.")
                 return None
     else:
-        # Not in split mode, or no GPUs. Only need to worry about the CPU lock.
         is_cpu_job = (device_pref == 'CPU') or (device_pref == 'ANY' and not gpus_are_available)
         if is_cpu_job:
             acquired_cpu_lock = _cpu_lock.acquire(blocking=False)
@@ -173,12 +123,35 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
                 logger.info("CPU is busy. Skipping claim for CPU-bound job.")
                 return None
 
-    # --- Unified Claim Attempt ---
-    logger.info(f"Found {len(available_jobs)} available job(s). Attempting to claim job '{job_name}' (ID: {job_id})...")
+    logger.info(f"Attempting to claim job '{job_name}' (ID: {job_id})...")
     if api_handler.claim_job(job_id, worker_id):
         logger.info(f"Successfully claimed job '{job_name}'!")
+        config_snapshot = {
+            'force_cpu': config.FORCE_CPU_ONLY,
+            'force_gpu': config.FORCE_GPU_ONLY,
+            'gpu_split_mode': config.GPU_SPLIT_MODE,
+        }
         job_to_claim['assigned_gpu_index'] = assigned_gpu_index
         job_to_claim['_acquired_cpu_lock'] = acquired_cpu_lock
+        job_to_claim['_config_snapshot'] = config_snapshot
+
+        device_used = 'CPU'
+        if assigned_gpu_index is not None:
+            device_used = 'GPU'
+        elif not acquired_cpu_lock and device_pref == 'GPU':
+            device_used = 'GPU'
+
+        with _active_jobs_lock:
+            _active_jobs[job_id] = {
+                'job_id': job_id,
+                'name': job_name,
+                'render_engine': job_to_claim.get('render_engine', ''),
+                'render_device': device_pref,
+                'gpu_index': assigned_gpu_index,
+                'device_used': device_used,
+                'start_time': datetime.datetime.now(
+                    datetime.timezone.utc).isoformat(),
+            }
         return job_to_claim
     else:
         # Claim failed (e.g., race condition). Release any acquired resources.
@@ -191,30 +164,37 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _finalize_and_upload(success, was_canceled, job_id, path):
+    """Determine final status, upload output if successful, clean up."""
+    if not success:
+        return "CANCELED" if was_canceled else "ERROR"
+    if path and api_handler.upload_render_output(job_id, path):
+        try:
+            os.remove(path)
+            parent = os.path.dirname(path)
+            if not os.listdir(parent):
+                os.rmdir(parent)
+        except OSError as e:
+            logger.warning(f"Could not clean up render output: {e}")
+    return "DONE"
+
+
 def process_claimed_job(job_data: Dict[str, Any]):
     """
-    Processes a job that has already been claimed by this worker.
+    Processes a claimed job: renders via Blender, uploads output, reports status.
 
-    This function handles the entire execution lifecycle for a claimed job:
-    1. Updates the job status to 'RENDERING' and sets the `started_at` timestamp.
-    2. Executes the Blender render subprocess.
-    3. Parses the result and determines the final status ('DONE', 'ERROR', etc.).
-    4. Uploads the render output if successful.
-    5. Reports the final status and metadata back to the manager.
-
-    Args:
-        job_data (dict): The dictionary of job data returned from a successful claim.
+    Handles the full lifecycle including resource cleanup in the finally block.
+    GPU release is unconditional based on actual allocation, not current config.
     """
     job_id = job_data.get('id')
+    job_name = job_data.get('name', 'Unnamed Job')
     assigned_gpu_index = job_data.get('assigned_gpu_index')
-    # This thread is now responsible for the lock that the main thread acquired.
     acquired_cpu_lock = job_data.get('_acquired_cpu_lock', False)
 
-    # --- FIX: Send started_at timestamp when beginning the job ---
     start_time = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
     api_handler.update_job_status(job_id, {"status": "RENDERING", "started_at": start_time})
 
-    if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
+    if assigned_gpu_index is not None:
         with _gpu_lock:
             current = dict(_gpu_assignment_map)
         logger.info(f"Job {job_id} reserved GPU {assigned_gpu_index}. Current assignments: {current}")
@@ -226,7 +206,10 @@ def process_claimed_job(job_data: Dict[str, Any]):
         if acquired_cpu_lock:
             _cpu_lock.release()
 
-        if config.GPU_SPLIT_MODE and assigned_gpu_index is not None:
+        # Release GPU unconditionally based on what was ACTUALLY ALLOCATED,
+        # not current config state. This prevents GPU slot leaks when
+        # GPU_SPLIT_MODE is toggled mid-job via control endpoints.
+        if assigned_gpu_index is not None:
             with _gpu_lock:
                 removed = _gpu_assignment_map.pop(assigned_gpu_index, None)
                 if removed is not None:
@@ -235,49 +218,38 @@ def process_claimed_job(job_data: Dict[str, Any]):
                         f"Current assignments: {dict(_gpu_assignment_map)}"
                     )
 
-    job_update_payload = {
-        "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'),
-        "last_output": stdout, "error_message": blender_error_msg}
-    render_time = _parse_render_time(stdout)
+        # Remove from active jobs tracking
+        with _active_jobs_lock:
+            _active_jobs.pop(job_id, None)
+
+    completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
+    job_update_payload = {"completed_at": completed_at, "last_output": stdout, "error_message": blender_error_msg}
+    render_time = parse_render_time(stdout)
     if render_time is not None:
         job_update_payload["render_time_seconds"] = render_time
 
-    if success:
-        job_update_payload["status"] = "DONE"
-        if final_output_path and api_handler.upload_render_output(job_id, final_output_path):
-            try:
-                logger.info(f"Cleaning up local render output: {final_output_path}")
-                os.remove(final_output_path)
-                output_dir = os.path.dirname(final_output_path)
-                if not os.listdir(output_dir):
-                    os.rmdir(output_dir)
-            except OSError as e:
-                logger.warning(f"Could not clean up temporary render file or directory: {e}")
-    elif was_canceled:
-        job_update_payload["status"] = "CANCELED"
-    else:
-        job_update_payload["status"] = "ERROR"
+    job_update_payload["status"] = _finalize_and_upload(
+        success, was_canceled, job_id, final_output_path
+    )
 
     api_handler.update_job_status(job_id, job_update_payload)
     logger.info(f"Successfully reported final status '{job_update_payload['status']}' for job {job_id}.")
 
+    with _recent_jobs_lock:
+        _recent_jobs.append({
+            'job_id': job_id,
+            'name': job_name,
+            'status': job_update_payload["status"],
+            'render_time_seconds': render_time,
+            'completed_at': completed_at,
+        })
+        # Keep only the last 20 entries
+        if len(_recent_jobs) > 20:
+            _recent_jobs[:] = _recent_jobs[-20:]
+
 
 def get_and_claim_job(worker_id):
-    """
-    Polls for, claims, and processes one available job by dispatching it to a new thread.
-
-    This function orchestrates the main workflow for a worker's
-    operational loop. It first calls `poll_and_claim_job` to acquire a job.
-    If a job is successfully claimed, it is handed off to the `process_claimed_job`
-    function, which is executed in a separate, non-blocking thread. This allows
-    the main worker loop to remain responsive and poll for additional jobs.
-
-    Args:
-        worker_id (int): The unique ID of the worker, as assigned by the manager.
-
-    Returns:
-        The started Thread if a job was dispatched, or None if no job was claimed.
-    """
+    """Poll, claim, and dispatch a job to a new thread. Returns the Thread or None."""
     job_data = poll_and_claim_job(worker_id)
     if job_data:
         job_id = job_data.get('id')
@@ -289,3 +261,38 @@ def get_and_claim_job(worker_id):
         job_thread.start()
         return job_thread
     return None
+
+
+def pause():
+    """Pause job polling. In-flight jobs continue; heartbeats continue."""
+    _pause_event.set()
+    logger.info("Worker paused. Job polling suspended.")
+
+
+def resume():
+    """Resume job polling after a pause."""
+    _pause_event.clear()
+    logger.info("Worker resumed. Job polling active.")
+
+
+def is_paused():
+    """Return True if the worker is currently paused."""
+    return _pause_event.is_set()
+
+
+def get_active_jobs_snapshot():
+    """Return a copy of the active jobs dict under the lock."""
+    with _active_jobs_lock:
+        return dict(_active_jobs)
+
+
+def get_gpu_assignment_snapshot():
+    """Return a copy of the GPU assignment map under the lock."""
+    with _gpu_lock:
+        return dict(_gpu_assignment_map)
+
+
+def get_recent_jobs_snapshot():
+    """Return a copy of the recent completed jobs list under the lock."""
+    with _recent_jobs_lock:
+        return list(_recent_jobs)

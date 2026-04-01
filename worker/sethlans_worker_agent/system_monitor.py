@@ -46,6 +46,29 @@ logger = logging.getLogger(__name__)
 WORKER_ID = None
 
 
+def _is_loopback(addr):
+    """Check if an address is a loopback address."""
+    return addr in ('127.0.0.1', 'localhost', '::1')
+
+
+def _get_ui_url():
+    """
+    Build the UI URL for heartbeat payloads.
+
+    Returns None if UI is disabled or bound to a loopback address
+    (since the link would be useless from the manager's browser).
+    """
+    if not config.UI_ENABLED:
+        return None
+    if _is_loopback(config.UI_BIND_ADDRESS):
+        return None
+    if config.UI_BIND_ADDRESS == '0.0.0.0':
+        ui_host = IP_ADDRESS
+    else:
+        ui_host = config.UI_BIND_ADDRESS
+    return f"http://{ui_host}:{config.UI_PORT}"
+
+
 def _find_latest_lts_patch(all_versions, lts_series):
     """
     Helper function to find the highest patch version for a given LTS series.
@@ -117,6 +140,7 @@ def register_with_manager():
 
     heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
     payload = get_system_info()
+    payload['ui_url'] = _get_ui_url()
 
     logger.info(f"Sending registration heartbeat to {heartbeat_url}...")
     try:
@@ -156,7 +180,7 @@ def send_heartbeat():
         return
 
     heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
-    payload = {"hostname": HOSTNAME}
+    payload = {"hostname": HOSTNAME, "ui_url": _get_ui_url()}
 
     try:
         response = _retry_request(
