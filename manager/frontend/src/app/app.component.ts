@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+//
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 import { Component } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { MatToolbarModule } from '@angular/material/toolbar';

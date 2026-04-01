@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+//
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 import { Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';

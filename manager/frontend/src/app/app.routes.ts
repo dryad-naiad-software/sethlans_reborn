@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+//
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
 

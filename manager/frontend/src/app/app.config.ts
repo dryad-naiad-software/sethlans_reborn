@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+//
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
