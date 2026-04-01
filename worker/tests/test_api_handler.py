@@ -12,7 +12,6 @@ Unit tests for the api_handler module.
 """
 import pytest
 import requests
-from unittest.mock import MagicMock
 
 from sethlans_worker_agent import api_handler, config
 

@@ -10,10 +10,8 @@
 #
 
 import pytest
-import requests
 import subprocess
 import json
-import psutil
 from unittest.mock import MagicMock
 
 # Import the module and dependencies to be tested/mocked
@@ -206,11 +204,17 @@ def test_filter_preferred_gpus_with_complex_devices():
     # Arrange: 2 physical cards.
     # - A GTX 1070 Ti with PCI ID 0000:0a:00, offering both CUDA and OptiX.
     # - An RTX 3090 with PCI ID 0000:05:00, offering both CUDA and OptiX.
+    gtx_cuda_id = 'CUDA_NVIDIA GeForce GTX 1070 Ti_0000:0a:00'
+    rtx_cuda_id = 'CUDA_NVIDIA GeForce RTX 3090_0000:05:00'
     raw_devices = [
-        {'index': 0, 'name': 'NVIDIA GeForce GTX 1070 Ti', 'type': 'CUDA', 'id': 'CUDA_NVIDIA GeForce GTX 1070 Ti_0000:0a:00'},
-        {'index': 1, 'name': 'NVIDIA GeForce RTX 3090', 'type': 'CUDA', 'id': 'CUDA_NVIDIA GeForce RTX 3090_0000:05:00'},
-        {'index': 3, 'name': 'NVIDIA GeForce GTX 1070 Ti', 'type': 'OPTIX', 'id': 'CUDA_NVIDIA GeForce GTX 1070 Ti_0000:0a:00_OptiX'},
-        {'index': 4, 'name': 'NVIDIA GeForce RTX 3090', 'type': 'OPTIX', 'id': 'CUDA_NVIDIA GeForce RTX 3090_0000:05:00_OptiX'},
+        {'index': 0, 'name': 'NVIDIA GeForce GTX 1070 Ti',
+         'type': 'CUDA', 'id': gtx_cuda_id},
+        {'index': 1, 'name': 'NVIDIA GeForce RTX 3090',
+         'type': 'CUDA', 'id': rtx_cuda_id},
+        {'index': 3, 'name': 'NVIDIA GeForce GTX 1070 Ti',
+         'type': 'OPTIX', 'id': gtx_cuda_id + '_OptiX'},
+        {'index': 4, 'name': 'NVIDIA GeForce RTX 3090',
+         'type': 'OPTIX', 'id': rtx_cuda_id + '_OptiX'},
     ]
 
     # Act
