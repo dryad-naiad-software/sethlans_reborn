@@ -4,6 +4,8 @@
 
 .DESCRIPTION
     Commands:
+      dev                      Full dev environment: setup + build + start manager
+      dev -Clean               Clean first, then setup + build + start
       setup                    First-time manager setup (config, deps, DB, admin, frontend)
       start manager            Start the Django manager server
       start worker             Start the worker agent
@@ -11,22 +13,26 @@
       clean [manager|worker]   Remove generated artifacts (default: all)
 
 .PARAMETER Command
-    The action to perform: setup, start, build, clean
+    The action to perform: dev, setup, start, build, clean
 
 .PARAMETER Target
     Target component for start/clean: manager, worker
+
+.PARAMETER Clean
+    Wipe all artifacts before setup (dev only).
 
 .PARAMETER Force
     Skip confirmation prompts (clean only).
 
 .EXAMPLE
+    .\tools\sethlans.ps1 dev
+    .\tools\sethlans.ps1 dev -Clean
     .\tools\sethlans.ps1 setup
     .\tools\sethlans.ps1 start manager
     .\tools\sethlans.ps1 start worker
     .\tools\sethlans.ps1 build
     .\tools\sethlans.ps1 clean
     .\tools\sethlans.ps1 clean manager -Force
-    .\tools\sethlans.ps1 clean worker -Force
 
 .NOTES
     Author: Sethlans Reborn Development
@@ -40,6 +46,7 @@ param(
     [Parameter(Position = 1)]
     [string]$Target,
 
+    [switch]$Clean,
     [switch]$Force
 )
 
@@ -57,10 +64,12 @@ $AgentDir = Join-Path $WorkerDir "sethlans_worker_agent"
 # ── Helpers ──────────────────────────────────────────────────────
 
 function Show-Usage {
-    Write-Host "Usage: .\tools\sethlans.ps1 <command> [target] [-Force]"
+    Write-Host "Usage: .\tools\sethlans.ps1 <command> [target] [options]"
     Write-Host ""
     Write-Host "Commands:"
-    Write-Host "  setup                    First-time manager setup"
+    Write-Host "  dev                      Full dev environment: setup + build + start"
+    Write-Host "  dev -Clean               Clean everything first, then setup from scratch"
+    Write-Host "  setup                    First-time manager setup (config, deps, DB, admin, frontend)"
     Write-Host "  start manager            Start the Django manager server"
     Write-Host "  start worker             Start the worker agent"
     Write-Host "  build                    Build Angular frontend + collect static files"
@@ -69,6 +78,7 @@ function Show-Usage {
     Write-Host "  clean worker             Clean worker artifacts only"
     Write-Host ""
     Write-Host "Options:"
+    Write-Host "  -Clean                   Wipe all artifacts before setup (dev only)"
     Write-Host "  -Force                   Skip confirmation prompts (clean only)"
 }
 
@@ -80,7 +90,6 @@ function Remove-IfExists {
                 Remove-Item -Recurse -Force $Path -ErrorAction Stop
                 Write-Host "[OK] Removed $Label"
             } catch {
-                # Retry without locked files — remove what we can
                 Remove-Item -Recurse -Force $Path -ErrorAction SilentlyContinue
                 if (Test-Path $Path) {
                     Write-Host "[!!] Partially removed $Label (some files locked by another process)"
@@ -116,15 +125,9 @@ function Remove-PyCache {
     }
 }
 
-# ── setup ────────────────────────────────────────────────────────
+# ── Shared steps ─────────────────────────────────────────────────
 
-function Invoke-Setup {
-    Write-Host "============================================================"
-    Write-Host "  Sethlans Manager - First Time Setup"
-    Write-Host "============================================================"
-
-    Write-Host ""
-    Write-Host "--- Step 1: Configuration ---"
+function Invoke-GenerateConfig {
     python (Join-Path $ManagerDir "setup.py") --config-only 2>$null
     if ($LASTEXITCODE -ne 0) {
         python -c @"
@@ -172,19 +175,140 @@ with open(config_path, 'w') as f:
     config.write(f)
 "@
     }
+}
 
-    Write-Host ""
-    Write-Host "--- Step 2: Python dependencies ---"
+function Invoke-InstallDeps {
     $reqFile = Join-Path $ManagerDir "requirements.txt"
     if (Test-Path $reqFile) {
         pip install -q -r $reqFile
         Write-Host "[OK] Manager dependencies installed"
     }
+}
+
+function Invoke-RunMigrations {
+    python $ManagePy migrate
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Migrations failed"
+        exit 1
+    }
+    Write-Host "[OK] Migrations applied"
+}
+
+function Invoke-BuildFrontend {
+    if (-not (Test-Path $FrontendDir)) {
+        Write-Host "[SKIP] Frontend directory not found"
+        return
+    }
+
+    if (-not (Test-Path (Join-Path $FrontendDir "node_modules"))) {
+        Write-Host "Installing frontend dependencies..."
+        npm install --prefix $FrontendDir
+    }
+
+    Write-Host "Building Angular frontend..."
+    npm run build --prefix $FrontendDir
+    Write-Host "[OK] Frontend built"
+}
+
+function Invoke-CollectStatic {
+    if (-not (Test-Path $ConfigFile)) {
+        Write-Host "[ERROR] manager.ini not found - cannot collect static files"
+        return
+    }
+    python $ManagePy collectstatic --noinput
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] collectstatic failed"
+        exit 1
+    }
+    Write-Host "[OK] Static files collected"
+}
+
+# ── dev ──────────────────────────────────────────────────────────
+
+function Invoke-Dev {
+    Write-Host "============================================================"
+    Write-Host "  Sethlans Reborn - Development Environment"
+    Write-Host "============================================================"
+
+    # Step 0: Clean (optional)
+    if ($Clean) {
+        Write-Host ""
+        Write-Host "--- Cleaning all artifacts ---"
+        Invoke-CleanManager
+        Write-Host ""
+        Invoke-CleanWorker
+        Write-Host ""
+        Invoke-CleanShared
+        Write-Host ""
+        Write-Host "[OK] Clean complete."
+    }
+
+    # Step 1: Configuration
+    Write-Host ""
+    Write-Host "--- Configuration ---"
+    Invoke-GenerateConfig
+
+    # Step 2: Python dependencies
+    Write-Host ""
+    Write-Host "--- Python dependencies ---"
+    Invoke-InstallDeps
+
+    # Step 3: Database
+    Write-Host ""
+    Write-Host "--- Database migrations ---"
+    Invoke-RunMigrations
+
+    # Step 4: Admin user (only if none exists)
+    python $ManagePy shell -c "from django.contrib.auth import get_user_model; exit(0 if get_user_model().objects.filter(is_superuser=True).exists() else 1)" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "--- Create admin account ---"
+        try {
+            python $ManagePy createsuperuser
+        } catch {
+            Write-Host "[SKIP] Admin creation skipped"
+        }
+    } else {
+        Write-Host "[OK] Admin account exists"
+    }
+
+    # Step 5: Frontend
+    Write-Host ""
+    Write-Host "--- Frontend build ---"
+    Invoke-BuildFrontend
+
+    # Step 6: Static files
+    Write-Host ""
+    Write-Host "--- Static files ---"
+    Invoke-CollectStatic
+
+    # Step 7: Start
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "  Starting Sethlans Manager on port 7075"
+    Write-Host "============================================================"
+    Write-Host ""
+    python $ManagePy runserver 7075
+}
+
+# ── setup ────────────────────────────────────────────────────────
+
+function Invoke-Setup {
+    Write-Host "============================================================"
+    Write-Host "  Sethlans Manager - First Time Setup"
+    Write-Host "============================================================"
+
+    Write-Host ""
+    Write-Host "--- Step 1: Configuration ---"
+    Invoke-GenerateConfig
+
+    Write-Host ""
+    Write-Host "--- Step 2: Python dependencies ---"
+    Invoke-InstallDeps
 
     Write-Host ""
     Write-Host "--- Step 3: Database migrations ---"
-    python $ManagePy migrate
-    Write-Host "[OK] Migrations applied"
+    Invoke-RunMigrations
 
     Write-Host ""
     Write-Host "--- Step 4: Create admin account ---"
@@ -198,7 +322,11 @@ with open(config_path, 'w') as f:
 
     Write-Host ""
     Write-Host "--- Step 5: Frontend build ---"
-    Invoke-Build
+    Invoke-BuildFrontend
+
+    Write-Host ""
+    Write-Host "--- Step 6: Static files ---"
+    Invoke-CollectStatic
 
     Write-Host ""
     Write-Host "============================================================"
@@ -246,19 +374,17 @@ function Invoke-Build {
         exit 1
     }
 
-    if (-not (Test-Path (Join-Path $FrontendDir "node_modules"))) {
-        Write-Host "--- Installing frontend dependencies ---"
-        npm install --prefix $FrontendDir
+    if (-not (Test-Path $ConfigFile)) {
+        Write-Host "[ERROR] manager.ini not found. Run: .\tools\sethlans.ps1 setup"
+        exit 1
     }
 
-    Write-Host "--- Building Angular frontend ---"
-    npm run build --prefix $FrontendDir
-    Write-Host "[OK] Frontend built"
+    Write-Host "--- Frontend ---"
+    Invoke-BuildFrontend
 
     Write-Host ""
-    Write-Host "--- Collecting static files ---"
-    python $ManagePy collectstatic --noinput
-    Write-Host "[OK] Static files collected"
+    Write-Host "--- Static files ---"
+    Invoke-CollectStatic
 }
 
 # ── clean ────────────────────────────────────────────────────────
@@ -335,6 +461,7 @@ function Invoke-Clean {
 # ── Main dispatch ────────────────────────────────────────────────
 
 switch ($Command) {
+    "dev"   { Invoke-Dev }
     "setup" { Invoke-Setup }
     "start" {
         switch ($Target) {

@@ -14,8 +14,9 @@ set -euo pipefail
 
 # --- Configuration ---
 API_URL="${API_URL:-http://127.0.0.1:7075/api}"
-# UPDATE THIS PATH if your project is located elsewhere.
-BASE_ASSET_PATH="${BASE_ASSET_PATH:-/home/mestrella/sethlans_reborn/tests/assets}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(realpath "$SCRIPT_DIR/..")"
+BASE_ASSET_PATH="${BASE_ASSET_PATH:-$PROJECT_ROOT/tests/assets}"
 BMW_ASSET_PATH="$BASE_ASSET_PATH/bmw27.blend"
 
 # --- Generate Unique Names ---

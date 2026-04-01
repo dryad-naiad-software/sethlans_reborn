@@ -7,6 +7,8 @@
 #     bash tools/sethlans.sh <command> [target] [options]
 #
 #     Commands:
+#       dev                      Full dev environment: setup + build + start manager
+#       dev --clean              Clean first, then setup + build + start
 #       setup                    First-time manager setup (config, deps, DB, admin, frontend)
 #       start manager            Start the Django manager server
 #       start worker             Start the worker agent
@@ -14,6 +16,7 @@
 #       clean [manager|worker]   Remove generated artifacts (default: all)
 #
 #     Options:
+#       --clean                  Wipe all artifacts before setup (dev only)
 #       --force, -f              Skip confirmation prompts (clean only)
 #
 # NOTES
@@ -38,7 +41,9 @@ usage() {
     echo "Usage: bash tools/sethlans.sh <command> [target] [options]"
     echo ""
     echo "Commands:"
-    echo "  setup                    First-time manager setup"
+    echo "  dev                      Full dev environment: setup + build + start"
+    echo "  dev --clean              Clean everything first, then setup from scratch"
+    echo "  setup                    First-time manager setup (config, deps, DB, admin, frontend)"
     echo "  start manager            Start the Django manager server"
     echo "  start worker             Start the worker agent"
     echo "  build                    Build Angular frontend + collect static files"
@@ -47,6 +52,7 @@ usage() {
     echo "  clean worker             Clean worker artifacts only"
     echo ""
     echo "Options:"
+    echo "  --clean                  Wipe all artifacts before setup (dev only)"
     echo "  --force, -f              Skip confirmation prompts (clean only)"
 }
 
@@ -81,15 +87,9 @@ remove_pycache() {
     fi
 }
 
-# ── setup ────────────────────────────────────────────────────────
+# ── generate_config ──────────────────────────────────────────────
 
-cmd_setup() {
-    echo "============================================================"
-    echo "  Sethlans Manager - First Time Setup"
-    echo "============================================================"
-
-    echo ""
-    echo "--- Step 1: Configuration ---"
+generate_config() {
     python "$MANAGER_DIR/setup.py" --config-only 2>/dev/null || python -c "
 import configparser, secrets
 from pathlib import Path
@@ -134,18 +134,136 @@ if not config.get('security', 'debug', fallback=''):
 with open(config_path, 'w') as f:
     config.write(f)
 "
+}
 
-    echo ""
-    echo "--- Step 2: Python dependencies ---"
+# ── install_deps ─────────────────────────────────────────────────
+
+install_deps() {
     if [ -f "$MANAGER_DIR/requirements.txt" ]; then
         pip install -q -r "$MANAGER_DIR/requirements.txt"
         echo "[OK] Manager dependencies installed"
     fi
+}
+
+# ── run_migrations ───────────────────────────────────────────────
+
+run_migrations() {
+    python "$MANAGE_PY" migrate
+    echo "[OK] Migrations applied"
+}
+
+# ── build_frontend ───────────────────────────────────────────────
+
+build_frontend() {
+    if [ ! -d "$FRONTEND_DIR" ]; then
+        echo "[SKIP] Frontend directory not found"
+        return
+    fi
+
+    if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
+        echo "Installing frontend dependencies..."
+        npm install --prefix "$FRONTEND_DIR"
+    fi
+
+    echo "Building Angular frontend..."
+    npm run build --prefix "$FRONTEND_DIR"
+    echo "[OK] Frontend built"
+}
+
+# ── collect_static ───────────────────────────────────────────────
+
+collect_static() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "[ERROR] manager.ini not found — cannot collect static files"
+        return 1
+    fi
+    python "$MANAGE_PY" collectstatic --noinput
+    echo "[OK] Static files collected"
+}
+
+# ── dev ──────────────────────────────────────────────────────────
+
+cmd_dev() {
+    local do_clean="$1"
+
+    echo "============================================================"
+    echo "  Sethlans Reborn - Development Environment"
+    echo "============================================================"
+
+    # Step 0: Clean (optional)
+    if [ "$do_clean" = true ]; then
+        echo ""
+        echo "--- Cleaning all artifacts ---"
+        clean_manager
+        echo ""
+        clean_worker
+        echo ""
+        clean_shared
+        echo ""
+        echo "[OK] Clean complete."
+    fi
+
+    # Step 1: Configuration
+    echo ""
+    echo "--- Configuration ---"
+    generate_config
+
+    # Step 2: Python dependencies
+    echo ""
+    echo "--- Python dependencies ---"
+    install_deps
+
+    # Step 3: Database
+    echo ""
+    echo "--- Database migrations ---"
+    run_migrations
+
+    # Step 4: Admin user (only if fresh DB)
+    if ! python "$MANAGE_PY" shell -c "from django.contrib.auth import get_user_model; exit(0 if get_user_model().objects.filter(is_superuser=True).exists() else 1)" 2>/dev/null; then
+        echo ""
+        echo "--- Create admin account ---"
+        python "$MANAGE_PY" createsuperuser || echo "[SKIP] Admin creation skipped"
+    else
+        echo "[OK] Admin account exists"
+    fi
+
+    # Step 5: Frontend
+    echo ""
+    echo "--- Frontend build ---"
+    build_frontend
+
+    # Step 6: Static files
+    echo ""
+    echo "--- Static files ---"
+    collect_static
+
+    # Step 7: Start
+    echo ""
+    echo "============================================================"
+    echo "  Starting Sethlans Manager on port 7075"
+    echo "============================================================"
+    echo ""
+    python "$MANAGE_PY" runserver 7075
+}
+
+# ── setup ────────────────────────────────────────────────────────
+
+cmd_setup() {
+    echo "============================================================"
+    echo "  Sethlans Manager - First Time Setup"
+    echo "============================================================"
+
+    echo ""
+    echo "--- Step 1: Configuration ---"
+    generate_config
+
+    echo ""
+    echo "--- Step 2: Python dependencies ---"
+    install_deps
 
     echo ""
     echo "--- Step 3: Database migrations ---"
-    python "$MANAGE_PY" migrate
-    echo "[OK] Migrations applied"
+    run_migrations
 
     echo ""
     echo "--- Step 4: Create admin account ---"
@@ -155,7 +273,11 @@ with open(config_path, 'w') as f:
 
     echo ""
     echo "--- Step 5: Frontend build ---"
-    cmd_build
+    build_frontend
+
+    echo ""
+    echo "--- Step 6: Static files ---"
+    collect_static
 
     echo ""
     echo "============================================================"
@@ -203,19 +325,17 @@ cmd_build() {
         exit 1
     fi
 
-    if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-        echo "--- Installing frontend dependencies ---"
-        npm install --prefix "$FRONTEND_DIR"
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "[ERROR] manager.ini not found. Run: bash tools/sethlans.sh setup"
+        exit 1
     fi
 
-    echo "--- Building Angular frontend ---"
-    npm run build --prefix "$FRONTEND_DIR"
-    echo "[OK] Frontend built"
+    echo "--- Frontend ---"
+    build_frontend
 
     echo ""
-    echo "--- Collecting static files ---"
-    python "$MANAGE_PY" collectstatic --noinput
-    echo "[OK] Static files collected"
+    echo "--- Static files ---"
+    collect_static
 }
 
 # ── clean ────────────────────────────────────────────────────────
@@ -295,15 +415,20 @@ cmd_clean() {
 COMMAND="${1:-}"
 TARGET="${2:-}"
 FORCE=false
+CLEAN=false
 
-# Parse --force/-f from any position
+# Parse flags from any position
 for arg in "$@"; do
-    if [[ "$arg" == "--force" || "$arg" == "-f" ]]; then
-        FORCE=true
-    fi
+    case "$arg" in
+        --force|-f) FORCE=true ;;
+        --clean)    CLEAN=true ;;
+    esac
 done
 
 case "$COMMAND" in
+    dev)
+        cmd_dev "$CLEAN"
+        ;;
     setup)
         cmd_setup
         ;;
@@ -323,7 +448,7 @@ case "$COMMAND" in
     clean)
         case "$TARGET" in
             manager|worker) cmd_clean "$TARGET" "$FORCE" ;;
-            ""|--force|-f)  cmd_clean "all" "$FORCE" ;;
+            ""|--force|-f|--clean) cmd_clean "all" "$FORCE" ;;
             *)
                 echo "[ERROR] Usage: bash tools/sethlans.sh clean [manager|worker]"
                 exit 1

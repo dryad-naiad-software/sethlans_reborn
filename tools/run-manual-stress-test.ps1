@@ -12,8 +12,9 @@
 
 # --- Configuration ---
 $apiUrl = "http://127.0.0.1:7075/api"
-# UPDATE THIS PATH if your project is located elsewhere.
-$baseAssetPath = "C:\Users\mestrella\sethlans_reborn\tests\assets"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..") | Select-Object -ExpandProperty Path
+$baseAssetPath = Join-Path $ProjectRoot "tests" "assets"
 $bmwAssetPath = Join-Path $baseAssetPath "bmw27.blend"
 $simpleSceneAssetPath = Join-Path $baseAssetPath "test_scene.blend"
 $animationAssetPath = Join-Path $baseAssetPath "animation.blend"
