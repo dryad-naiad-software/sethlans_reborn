@@ -102,7 +102,7 @@ def get_status_snapshot():
             'force_cpu': config.FORCE_CPU_ONLY,
             'force_gpu': config.FORCE_GPU_ONLY,
             'gpu_split_mode': config.GPU_SPLIT_MODE,
-            'blender_version': config.REQUIRED_LTS_VERSION_SERIES,
+            'blender_versions': tool_versions,
         },
         'active_jobs': active_jobs,
         'gpu_allocation': gpu_allocation,

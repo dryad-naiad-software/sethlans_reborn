@@ -95,6 +95,20 @@ def _filter_preferred_gpus(devices):
     return sorted(preferred_devices, key=lambda d: d['index'])
 
 
+def _find_any_blender_executable():
+    """Find the executable path for any locally installed Blender version.
+
+    Used for GPU detection which only needs *some* Blender binary, not
+    a specific version. Returns None if no versions are installed.
+    """
+    local_blenders = tool_manager_instance.scan_for_local_blenders()
+    if not local_blenders:
+        return None
+    # Use the first available version.
+    version = local_blenders[0]['version']
+    return tool_manager_instance.get_blender_executable_path(version)
+
+
 def get_gpu_device_details():
     """
     Executes the detect_gpus.py script to get detailed info about each GPU.
@@ -114,9 +128,9 @@ def get_gpu_device_details():
     if _gpu_details_cache is not None:
         return _gpu_details_cache
 
-    blender_exe = tool_manager_instance.ensure_blender_version_available(config.REQUIRED_LTS_VERSION_SERIES)
+    blender_exe = _find_any_blender_executable()
     if not blender_exe:
-        logger.error("Cannot get GPU details: Blender executable not found.")
+        logger.error("Cannot get GPU details: no Blender executable available.")
         _gpu_details_cache = []
         return _gpu_details_cache
 

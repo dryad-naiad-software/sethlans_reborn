@@ -23,7 +23,6 @@ def mock_status_deps(mocker):
     mocker.patch.object(config, 'FORCE_CPU_ONLY', False)
     mocker.patch.object(config, 'FORCE_GPU_ONLY', False)
     mocker.patch.object(config, 'GPU_SPLIT_MODE', True)
-    mocker.patch.object(config, 'REQUIRED_LTS_VERSION_SERIES', '4.5')
 
     mocker.patch(
         'sethlans_worker_agent.web_ui.status.HOSTNAME', 'test-host'
@@ -145,7 +144,7 @@ class TestGetStatusSnapshot:
         assert cfg['force_cpu'] is False
         assert cfg['force_gpu'] is False
         assert cfg['gpu_split_mode'] is True
-        assert cfg['blender_version'] == '4.5'
+        assert cfg['blender_versions'] == ['4.5.1']
 
     def test_no_sensitive_paths_in_response(self, mock_status_deps):
         """managed_tools_dir and other paths must not appear."""

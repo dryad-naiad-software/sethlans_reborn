@@ -15,6 +15,7 @@ import threading
 from typing import Optional, Dict, Any
 
 from sethlans_worker_agent import config, system_monitor, blender_executor, api_handler
+from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils.render_time_parser import parse_render_time
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,13 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
         params['gpu_available'] = 'true'
     elif config.FORCE_CPU_ONLY:
         params['gpu_available'] = 'false'
+
+    # Include installed Blender versions for version-aware filtering (P3-F1).
+    installed = tool_manager_instance.scan_for_local_blenders()
+    if installed:
+        params['available_versions'] = ','.join(
+            b['version'] for b in installed
+        )
 
     available_jobs = api_handler.poll_for_available_jobs(params)
     if not available_jobs:

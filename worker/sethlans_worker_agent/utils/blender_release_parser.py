@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
+# NOTE: This file is duplicated in manager/workers/utils/blender_release_parser.py.
+# Keep both in sync when making changes.
 """
 Utility for dynamically scraping the official Blender download site.
 

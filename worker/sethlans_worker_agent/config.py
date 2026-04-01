@@ -192,9 +192,6 @@ BLENDER_MIRROR_BASE_URLS = [
 # The local file path for the cached list of available Blender versions.
 BLENDER_VERSIONS_CACHE_FILE = MANAGED_TOOLS_DIR / 'blender_versions_cache.json'
 
-# The required major.minor LTS version series for the worker to install.
-REQUIRED_LTS_VERSION_SERIES = "4.5"
-
 
 # --- Platform and Architecture-specific Blender Download/Executable Mappings ---
 # A dictionary mapping Python's platform.system()/platform.machine() output

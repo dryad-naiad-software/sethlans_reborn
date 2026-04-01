@@ -23,6 +23,7 @@ import threading
 import time
 import sys
 from sethlans_worker_agent import job_processor, system_monitor, config, api_handler
+from sethlans_worker_agent import version_sync
 from sethlans_worker_agent.web_ui import start_server, stop_server
 
 # --- Argument Parsing ---
@@ -123,6 +124,20 @@ def _wait_for_active_threads():
             logger.info(f"Thread '{t.name}' finished successfully.")
 
 
+def _should_skip_polling():
+    """Check if job polling should be skipped this cycle. Returns wait time or None."""
+    if job_processor.is_paused():
+        logger.debug("Worker is paused. Skipping job poll.")
+        return config.JOB_POLLING_INTERVAL_SECONDS
+    if api_handler.is_auth_failed():
+        logger.warning("Authentication failed. Skipping job poll. Heartbeats will continue.")
+        return config.HEARTBEAT_INTERVAL_SECONDS
+    if not system_monitor.are_versions_ready():
+        logger.warning("No required Blender versions installed yet. Skipping job poll.")
+        return config.HEARTBEAT_INTERVAL_SECONDS
+    return None
+
+
 # --- Main Application Logic ---
 def main():
     """
@@ -158,21 +173,25 @@ def main():
                     _shutdown_event.wait(30)
                     continue
 
+            # Determine if worker is currently busy rendering.
+            active_jobs = job_processor.get_active_jobs_snapshot()
+            is_busy = len(active_jobs) > 0
+
             # Heartbeats continue regardless of pause state.
-            system_monitor.send_heartbeat()
+            # Pass busy state so version sync can defer downloads (P2-F6).
+            system_monitor.send_heartbeat(
+                is_busy=is_busy, active_jobs=active_jobs
+            )
 
-            # Skip job polling when paused (A-NF7) or auth failed.
-            if job_processor.is_paused():
-                logger.debug("Worker is paused. Skipping job poll.")
-                _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
-                continue
+            # Process any pending downloads/removals when idle (P2-F6).
+            if not is_busy:
+                version_sync.process_pending_downloads()
+                version_sync.process_pending_removals(active_jobs)
 
-            if api_handler.is_auth_failed():
-                logger.warning(
-                    "Authentication failed. Skipping job poll. "
-                    "Heartbeats will continue."
-                )
-                _shutdown_event.wait(config.HEARTBEAT_INTERVAL_SECONDS)
+            # Skip job polling when paused, auth failed, or versions not ready.
+            skip_wait = _should_skip_polling()
+            if skip_wait is not None:
+                _shutdown_event.wait(skip_wait)
                 continue
 
             thread = job_processor.get_and_claim_job(worker_id)

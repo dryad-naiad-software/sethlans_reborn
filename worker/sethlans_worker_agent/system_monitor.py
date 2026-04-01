@@ -8,10 +8,11 @@ This module is responsible for:
 - Registering the worker with the central manager.
 - Enrolling with the manager using a pre-shared key (when no token exists).
 - Sending periodic heartbeats to maintain a live connection.
-- Ensuring the required Blender LTS version is installed before registration.
+- Triggering version synchronization based on heartbeat responses.
 
 Hardware detection has been extracted to the hardware_detection module.
 Enrollment logic has been extracted to the enrollment module.
+Version sync logic lives in the version_sync module.
 Functions are re-exported here for backward compatibility.
 """
 
@@ -20,8 +21,7 @@ import logging
 from sethlans_worker_agent import config
 from sethlans_worker_agent import api_handler
 from sethlans_worker_agent.enrollment import check_auth_config, enroll_with_manager
-from sethlans_worker_agent.tool_manager import tool_manager_instance
-from sethlans_worker_agent.utils import blender_release_parser
+from sethlans_worker_agent import version_sync
 
 # Re-export hardware detection functions for backward compatibility
 from sethlans_worker_agent.hardware_detection import (  # noqa: F401
@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 
 # --- Module-level state ---
 WORKER_ID = None
+
+# Tracks whether all required versions are installed and the worker
+# is ready to poll for jobs. Set after successful registration download.
+_versions_ready = False
 
 
 def _is_loopback(addr):
@@ -64,93 +68,40 @@ def _get_ui_url():
     return f"http://{ui_host}:{config.UI_PORT}"
 
 
-def _find_latest_lts_patch(all_versions, lts_series):
+def _process_heartbeat_versions(response_data, is_busy=False, active_jobs=None):
     """
-    Helper to find the highest patch version for a given LTS series.
+    Process version requirements from a heartbeat response.
 
-    Args:
-        all_versions (list): All available Blender version strings.
-        lts_series (str): The major.minor series (e.g., '4.5').
+    Downloads missing versions and cleans up unrequired ones.
+    When is_busy is True, downloads are queued for later (P2-F6).
 
-    Returns:
-        str or None: The latest patch version string, or None.
+    Returns True if at least one required version is installed.
     """
-    lts_patches = [
-        v for v in all_versions if v.startswith(lts_series + '.')
-    ]
-    if not lts_patches:
-        return None
-    return sorted(
-        lts_patches,
-        key=lambda v: [int(p) for p in v.split('.')],
-        reverse=True
-    )[0]
+    global _versions_ready
+    if active_jobs is None:
+        active_jobs = {}
 
-
-def _ensure_blender_available():
-    """
-    Ensure the latest Blender LTS version is downloaded and available.
-
-    Returns:
-        The Blender executable path, or None on failure.
-    """
-    logger.info(
-        f"Ensuring latest Blender LTS "
-        f"({config.REQUIRED_LTS_VERSION_SERIES}.x) is available..."
-    )
-
-    all_releases = blender_release_parser.get_blender_releases()
-    if not all_releases:
-        logger.critical(
-            "Could not fetch Blender release list from download site. "
-            "Registration aborted."
-        )
-        return None
-
-    latest_lts_version = _find_latest_lts_patch(
-        all_releases.keys(), config.REQUIRED_LTS_VERSION_SERIES
-    )
-    if not latest_lts_version:
-        logger.critical(
-            f"No versions found for LTS series "
-            f"{config.REQUIRED_LTS_VERSION_SERIES}. "
-            f"Registration aborted."
-        )
-        return None
-
-    lts_blender = tool_manager_instance.ensure_blender_version_available(
-        latest_lts_version
-    )
-    if not lts_blender:
-        logger.critical(
-            f"Could not acquire Blender {latest_lts_version}. "
-            f"Registration aborted."
-        )
-        return None
-
-    return lts_blender
+    ready = version_sync.sync_versions(response_data, is_busy, active_jobs)
+    _versions_ready = ready
+    return ready
 
 
 def register_with_manager():
     """
-    Ensures Blender is available, then registers/enrolls with the manager.
+    Registers/enrolls with the manager, then downloads required versions.
 
     Authentication flow:
     1. If API_TOKEN is set, use it for a standard authenticated heartbeat.
     2. If API_TOKEN is empty but ENROLLMENT_KEY is set, perform enrollment.
     3. If neither is set, log a critical error and return None.
 
-    Enrollment MUST complete before the worker enters the polling loop.
-    Blender downloads come from download.blender.org (not manager API),
-    so they don't need auth and happen before enrollment.
+    After successful heartbeat, downloads ALL required Blender versions
+    before allowing the worker to poll for jobs (P2-F4).
 
     Returns:
         int or None: The worker ID, or None on failure.
     """
-    global WORKER_ID
-
-    if not _ensure_blender_available():
-        return None
+    global WORKER_ID, _versions_ready
 
     auth_state = check_auth_config()
     payload = get_system_info()
@@ -163,48 +114,80 @@ def register_with_manager():
         )
         return None
 
+    response_data = None
+
     if auth_state == 'enroll':
         logger.info("No API token found. Attempting enrollment...")
         worker_id = enroll_with_manager(payload)
-        if worker_id:
-            WORKER_ID = worker_id
-            return WORKER_ID
-        return None
+        if not worker_id:
+            return None
+        WORKER_ID = worker_id
+        # After enrollment, send an authenticated heartbeat to get versions.
+        response_data = api_handler.send_authenticated_heartbeat(payload)
+    else:
+        # auth_state == 'token': authenticated heartbeat with existing token.
+        logger.info("Using existing API token for registration heartbeat.")
+        response_data = api_handler.send_authenticated_heartbeat(payload)
+        if not response_data:
+            logger.error("Registration heartbeat failed.")
+            return None
 
-    # auth_state == 'token': authenticated heartbeat with existing token.
-    logger.info(
-        "Using existing API token for registration heartbeat."
-    )
-    data = api_handler.send_authenticated_heartbeat(payload)
-    if not data:
-        logger.error("Registration heartbeat failed.")
-        return None
+        WORKER_ID = response_data.get('id')
+        if not WORKER_ID:
+            logger.error("Heartbeat response did not include a worker ID.")
+            return None
 
-    WORKER_ID = data.get('id')
-    if WORKER_ID:
-        logger.info(
-            f"Heartbeat successful. Worker is registered as "
-            f"ID: {WORKER_ID}"
-        )
-        return WORKER_ID
+    logger.info(f"Heartbeat successful. Worker is registered as ID: {WORKER_ID}")
 
-    logger.error("Heartbeat response did not include a worker ID.")
-    return None
+    # Download all required versions before entering the poll loop (P2-F4).
+    if response_data:
+        ready = _process_heartbeat_versions(response_data)
+        if not ready:
+            logger.critical(
+                "Failed to install any required Blender versions. "
+                "Will retry on next heartbeat cycle."
+            )
+            # Return the worker ID but mark versions as not ready.
+            # The main loop will skip polling until versions are available.
+            _versions_ready = False
+    else:
+        logger.warning("No heartbeat response data for version sync.")
+        _versions_ready = False
+
+    return WORKER_ID
 
 
-def send_heartbeat():
+def send_heartbeat(is_busy=False, active_jobs=None):
     """
     Sends a periodic heartbeat to the manager using auth headers.
 
     Includes the full system info (with available_tools) so the
     manager always has up-to-date version lists for claim validation.
+
+    Processes the required_blender_versions from the response to
+    keep installed versions in sync with manager requirements.
+
+    Args:
+        is_busy: True if the worker is currently rendering.
+        active_jobs: Dict of active jobs for in-use version checks.
     """
+    global _versions_ready
     if not WORKER_ID:
-        logger.warning(
-            "Cannot send heartbeat, worker is not registered."
-        )
+        logger.warning("Cannot send heartbeat, worker is not registered.")
         return
 
     payload = get_system_info()
     payload['ui_url'] = _get_ui_url()
-    api_handler.send_authenticated_heartbeat(payload)
+
+    response_data = api_handler.send_authenticated_heartbeat(payload)
+    if response_data:
+        ready = _process_heartbeat_versions(
+            response_data, is_busy=is_busy,
+            active_jobs=active_jobs or {}
+        )
+        _versions_ready = ready
+
+
+def are_versions_ready():
+    """Return True if at least one required Blender version is installed."""
+    return _versions_ready

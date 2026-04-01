@@ -33,26 +33,24 @@ class ToolManager:
         # Tracks how many active renders are using each version.
         self._version_usage = {}  # {version_str: int}
         self._usage_lock = threading.Lock()
+        # Tracks versions currently being downloaded/extracted.
+        # scan_for_local_blenders() excludes these to prevent reporting
+        # partially-extracted directories as available (P2-F5).
+        self._downloading_versions = set()
+        self._download_lock = threading.Lock()
 
     def acquire_version(self, version):
-        """
-        Increment usage count for a Blender version before render.
+        """Increment usage count for a Blender version before render.
 
         Must be called before starting a render subprocess. The
         corresponding release_version() call must be in a finally block.
         """
         with self._usage_lock:
-            self._version_usage[version] = (
-                self._version_usage.get(version, 0) + 1
-            )
-            logger.debug(
-                f"Acquired version {version}. "
-                f"Usage count: {self._version_usage[version]}"
-            )
+            self._version_usage[version] = self._version_usage.get(version, 0) + 1
+            logger.debug(f"Acquired version {version}. Usage count: {self._version_usage[version]}")
 
     def release_version(self, version):
-        """
-        Decrement usage count for a Blender version after render.
+        """Decrement usage count for a Blender version after render.
 
         Must be called in a finally block after the render completes
         or fails to prevent version leak.
@@ -63,10 +61,7 @@ class ToolManager:
                 self._version_usage.pop(version, None)
             else:
                 self._version_usage[version] = count
-            logger.debug(
-                f"Released version {version}. "
-                f"Usage count: {max(0, count)}"
-            )
+            logger.debug(f"Released version {version}. Usage count: {max(0, count)}")
 
     def is_version_in_use(self, version):
         """Check if a Blender version has active renders using it."""
@@ -80,7 +75,7 @@ class ToolManager:
             self.blender_dir.mkdir(parents=True, exist_ok=True)
 
     def scan_for_local_blenders(self):
-        """Scan for installed Blender versions with valid executables."""
+        """Scan for installed Blender versions, excluding those mid-download."""
         self._create_tools_directory_if_not_exists()
         found_blenders = []
         logger.debug(f"Scanning for local Blender versions in: {self.blender_dir}")
@@ -97,6 +92,16 @@ class ToolManager:
                     if Path(exe_path).is_file():
                         logger.info(f"  Found managed Blender version: {version} for {platform_str}")
                         found_blenders.append({"version": version, "platform": platform_str})
+
+        # Exclude versions that are currently being downloaded or extracted
+        # to prevent reporting partial installations as available (P2-F5).
+        with self._download_lock:
+            downloading = set(self._downloading_versions)
+        if downloading:
+            found_blenders = [
+                b for b in found_blenders
+                if b['version'] not in downloading
+            ]
         return found_blenders
 
     def _get_platform_identifier(self):
@@ -185,6 +190,20 @@ class ToolManager:
 
         # 2. If not, find download URL
         logger.info(f"Version {full_version} not found locally. Attempting to download.")
+
+        # Mark version as downloading so scan excludes it (P2-F5).
+        with self._download_lock:
+            self._downloading_versions.add(full_version)
+        try:
+            result = self._download_and_install(full_version)
+        finally:
+            with self._download_lock:
+                self._downloading_versions.discard(full_version)
+
+        return result
+
+    def _download_and_install(self, full_version):
+        """Download, verify, extract, and set permissions for a Blender version."""
         blender_releases = self._get_blender_download_info()
         platform_id = self._get_platform_identifier()
 
@@ -200,7 +219,6 @@ class ToolManager:
             logger.error(f"Could not find a download URL for Blender {full_version} on platform {platform_id}.")
             return None
 
-        # 3. Download, Verify, and Extract
         try:
             download_path = file_operations.download_file(url, self.blender_dir)
 
@@ -215,7 +233,6 @@ class ToolManager:
                 os.remove(download_path)
                 return None
 
-            # Only extract if hash is present and verified
             file_operations.extract_archive(download_path, self.blender_dir)
             file_operations.cleanup_archive(download_path)
 
@@ -223,11 +240,9 @@ class ToolManager:
             logger.critical(f"An error occurred during download/extraction: {e}", exc_info=True)
             return None
 
-        # --- 4. NEW: Verify path and set permissions ---
         final_exe_path = self.get_blender_executable_path(full_version)
         if final_exe_path and platform.system() != "Windows":
             logger.info(f"Setting execute permission on {final_exe_path}")
-            # Get current permissions and add execute bit for owner
             st = os.stat(final_exe_path)
             os.chmod(final_exe_path, st.st_mode | stat.S_IEXEC)
 
@@ -235,7 +250,7 @@ class ToolManager:
 
     def remove_blender_version(self, version_str):
         """
-        Remove a Blender version's installation directory.
+        Remove a specific Blender version's installation directory (P4-F4).
 
         Refuses to delete if the version is currently in use by an
         active render (reference count > 0), preventing the TOCTOU
@@ -256,41 +271,26 @@ class ToolManager:
 
         platform_id = self._get_platform_identifier()
         if not platform_id:
-            logger.error(
-                "Cannot determine platform for version removal."
-            )
+            logger.error("Cannot determine platform for version removal.")
             return False
 
-        install_dir = (
-            self.blender_dir / f"blender-{version_str}-{platform_id}"
-        )
+        install_dir = self.blender_dir / f"blender-{version_str}-{platform_id}"
         if not install_dir.exists():
-            logger.debug(
-                f"Directory does not exist, nothing to remove: "
-                f"{install_dir}"
-            )
+            logger.debug(f"Directory does not exist, nothing to remove: {install_dir}")
             return False
 
-        # Validate the path stays within blender_dir to prevent
-        # path traversal attacks.
+        # Validate the path stays within blender_dir to prevent traversal.
         resolved = install_dir.resolve()
-        if not str(resolved).startswith(
-            str(self.blender_dir.resolve())
-        ):
+        if not str(resolved).startswith(str(self.blender_dir.resolve())):
             logger.error(f"Path traversal detected: {install_dir}")
             return False
 
         try:
             shutil.rmtree(install_dir)
-            logger.info(
-                f"Removed Blender version directory: {install_dir}"
-            )
+            logger.info(f"Removed Blender version directory: {install_dir}")
             return True
         except OSError as e:
-            logger.error(
-                f"Failed to remove Blender directory "
-                f"{install_dir}: {e}"
-            )
+            logger.error(f"Failed to remove Blender directory {install_dir}: {e}")
             return False
 
 
