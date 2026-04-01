@@ -12,6 +12,7 @@
 import pytest
 
 from sethlans_worker_agent import job_processor
+from sethlans_worker_agent.utils.render_time_parser import parse_render_time
 
 # --- Test data for time parsing ---
 VALID_STDOUT_UNDER_AN_HOUR = (
@@ -44,8 +45,8 @@ PROGRESS_BAR_TIME_STDOUT = (
     ("", None)
 ])
 def test_parse_render_time(stdout, expected_seconds):
-    """Tests the _parse_render_time function with various inputs."""
-    result = job_processor._parse_render_time(stdout)
+    """Tests the parse_render_time function with various inputs."""
+    result = parse_render_time(stdout)
     assert result == expected_seconds
 
 

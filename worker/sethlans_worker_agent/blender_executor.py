@@ -31,36 +31,38 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
 
+# Thread-safe dict of last Blender stdout line per job ID.
+# Lock ordering: this lock (_output_lock) comes after _cpu_lock.
+_last_output_lines = {}
+_output_lock = threading.Lock()
 
-def _stream_reader(stream, output_list):
+
+def get_last_output_line(job_id):
+    """Return the last Blender stdout line for a given job, or None."""
+    with _output_lock:
+        return _last_output_lines.get(job_id)
+
+
+def _stream_reader(stream, output_list, job_id=None):
     """
-    Helper function to read a subprocess stream line by line into a list.
-    This runs in a separate thread to prevent I/O deadlocks.
+    Read a subprocess stream line by line into a list.
+    Optionally updates the shared _last_output_lines dict for live status.
     """
     try:
         for line in iter(stream.readline, ''):
             output_list.append(line)
+            if job_id is not None:
+                with _output_lock:
+                    _last_output_lines[job_id] = line.rstrip()
     finally:
         stream.close()
 
 
 def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     """
-    Executes a Blender render job as a subprocess, with optional assignment to a specific GPU.
+    Execute a Blender render job as a subprocess.
 
-    This function now includes detailed, timed logging for each stage of the job's
-    lifecycle, from initial assignment to final result reporting. It also captures
-    and logs stdout from the Blender process for enhanced diagnostics. It can
-    also apply a CPU thread limit based on the worker's configuration.
-
-    Args:
-        job_data (dict): The full job dictionary received from the manager API.
-        assigned_gpu_index (int, optional): The device index of the GPU this job should
-            be exclusively assigned to. Defaults to None.
-
-    Returns:
-        tuple: A tuple containing success status, cancellation status, outputs,
-               error message, and the final output file path.
+    Returns (success, was_canceled, stdout, stderr, error_msg, output_path).
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
@@ -189,7 +191,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         process = subprocess.Popen(command, **popen_kwargs)
         logger.info(f"Blender subprocess launched with PID: {process.pid}")
 
-        stdout_thread = threading.Thread(target=_stream_reader, args=(process.stdout, stdout_lines), daemon=True)
+        stdout_thread = threading.Thread(target=_stream_reader, args=(process.stdout, stdout_lines, job_id), daemon=True)
         stderr_thread = threading.Thread(target=_stream_reader, args=(process.stderr, stderr_lines), daemon=True)
         stdout_thread.start()
         stderr_thread.start()
@@ -255,6 +257,9 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         logger.critical(error_message, exc_info=True)
         final_return_code = -1
     finally:
+        # Clean up live output tracking for this job
+        with _output_lock:
+            _last_output_lines.pop(job_id, None)
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
 
