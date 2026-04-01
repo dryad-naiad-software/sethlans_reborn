@@ -252,7 +252,10 @@ class JobViewSetTests(BaseMediaTestCase):
         """
         Tests that a worker poll correctly excludes jobs from paused projects.
         """
-        paused_project = Project.objects.create(name="Paused Project", is_paused=True)
+        paused_project = Project.objects.create(
+            name="Paused Project", is_paused=True,
+            blender_version=self.default_version,
+        )
         paused_asset = Asset.objects.create(name="Paused Asset", project=paused_project,
                                             blend_file=SimpleUploadedFile("p.blend", b"d"))
         Job.objects.create(name="Paused Job", asset=paused_asset, status=JobStatus.QUEUED)

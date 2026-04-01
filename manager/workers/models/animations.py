@@ -36,7 +36,13 @@ class Animation(models.Model):
     status = models.CharField(max_length=50, choices=JobStatus.choices, default=JobStatus.QUEUED)
     submitted_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
-    blender_version = models.CharField(max_length=100, default="4.5", help_text="e.g., '4.5' or '4.1.1'")
+    blender_version = models.ForeignKey(
+        'workers.SupportedBlenderVersion',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='animations',
+        help_text="Optional version override; inherits from project when null.",
+    )
     render_engine = models.CharField(max_length=50, choices=RenderEngine.choices, default=RenderEngine.CYCLES)
     render_device = models.CharField(max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY)
     cycles_feature_set = models.CharField(max_length=50, choices=CyclesFeatureSet.choices, default=CyclesFeatureSet.SUPPORTED)
@@ -85,6 +91,11 @@ class Animation(models.Model):
                 f"got ({tile_count_x}, {tile_count_y})."
             )
         return tile_count_x, tile_count_y
+
+    @property
+    def effective_blender_version(self):
+        """Return explicit override or inherit from project."""
+        return self.blender_version or self.asset.project.blender_version
 
     def __str__(self):
         return self.name

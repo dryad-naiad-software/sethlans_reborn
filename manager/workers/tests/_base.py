@@ -7,7 +7,8 @@ import shutil
 import tempfile
 from django.test import override_settings
 from rest_framework.test import APITestCase
-from ..models import Project
+from ..models import Project, SupportedBlenderVersion
+
 
 class BaseMediaTestCase(APITestCase):
     """
@@ -32,4 +33,11 @@ class BaseMediaTestCase(APITestCase):
         super().tearDownClass()
 
     def setUp(self):
-        self.project = Project.objects.create(name="Default Test Project")
+        self.default_version = SupportedBlenderVersion.objects.create(
+            major=4, minor=5, series="4.5",
+            resolved_version="4.5.8", is_default=True,
+        )
+        self.project = Project.objects.create(
+            name="Default Test Project",
+            blender_version=self.default_version,
+        )

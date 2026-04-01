@@ -21,6 +21,12 @@ class Project(models.Model):
         unique=True,
         validators=[MinLengthValidator(4)]
     )
+    blender_version = models.ForeignKey(
+        'workers.SupportedBlenderVersion',
+        on_delete=models.PROTECT,
+        related_name='projects',
+        help_text="The Blender version series used for all jobs in this project.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     is_paused = models.BooleanField(
         default=False,

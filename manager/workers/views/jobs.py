@@ -3,15 +3,12 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 import logging
-import os
 import re
 
-from django.conf import settings as django_settings
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from PIL import Image
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -22,6 +19,10 @@ from ..constants import RenderDevice
 from ..models import Job, JobStatus, Worker
 from ..permissions import IsAdmin, IsWorker
 from ..serializers import JobSerializer
+from .upload_helpers import sanitize_filename, validate_upload
+
+VERSION_REGEX = re.compile(r'^\d+\.\d+\.\d+$')
+MAX_AVAILABLE_VERSIONS = 20
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +77,14 @@ class JobViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Overrides the default queryset to allow filtering based on worker GPU capability
-        and to exclude jobs from paused projects when workers poll for jobs.
-
-        If a worker polls with `gpu_available=true`, only jobs that can use a GPU are returned.
-        If a worker polls with `gpu_available=false`, only jobs that can use a CPU are returned.
-        If a worker is not polling (i.e., this is a regular API request), all jobs are returned.
+        Overrides the default queryset to allow filtering based on worker GPU capability,
+        Blender version compatibility, and to exclude jobs from paused projects when
+        workers poll for jobs.
         """
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().select_related(
+            'blender_version',
+            'asset__project__blender_version',
+        )
         gpu_available_param = self.request.query_params.get('gpu_available')
 
         # A worker poll is identified by the presence of these specific query parameters.
@@ -92,10 +93,9 @@ class JobViewSet(viewsets.ModelViewSet):
             and 'assigned_worker__isnull' in self.request.query_params
         )
 
-        # Filter out jobs from paused projects ONLY when a worker is polling for available work.
-        # This allows direct access to a job's details via its ID even if paused.
         if is_worker_poll:
             queryset = queryset.filter(asset__project__is_paused=False)
+            queryset = self._apply_version_filter(queryset)
 
         if gpu_available_param == 'true':
             logger.debug("Filtering jobs for a GPU-capable worker. Including GPU and ANY jobs.")
@@ -105,6 +105,33 @@ class JobViewSet(viewsets.ModelViewSet):
             return queryset.filter(render_device__in=[RenderDevice.CPU, RenderDevice.ANY])
 
         return queryset
+
+    def _apply_version_filter(self, queryset):
+        """Filter by available_versions query param (series-level matching)."""
+        from rest_framework.exceptions import ValidationError
+
+        param = self.request.query_params.get('available_versions')
+        if not param:
+            return queryset
+
+        versions = [v.strip() for v in param.split(',') if v.strip()]
+        if len(versions) > MAX_AVAILABLE_VERSIONS:
+            raise ValidationError(
+                f"Maximum {MAX_AVAILABLE_VERSIONS} versions allowed."
+            )
+        for v in versions:
+            if not VERSION_REGEX.match(v):
+                raise ValidationError(f"Invalid version format: {v}")
+
+        # Extract series from full versions for series-level matching
+        series_list = list({'.'.join(v.split('.')[:2]) for v in versions})
+        return queryset.filter(
+            models.Q(blender_version__series__in=series_list)
+            | models.Q(
+                blender_version__isnull=True,
+                asset__project__blender_version__series__in=series_list,
+            )
+        )
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
@@ -179,11 +206,28 @@ class JobViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                job = Job.objects.select_for_update().get(pk=pk)
+                job = Job.objects.select_for_update().select_related(
+                    'blender_version',
+                    'asset__project__blender_version',
+                ).get(pk=pk)
 
                 if job.status != JobStatus.QUEUED or job.assigned_worker is not None:
                     return Response(
                         {"error": "Job is not available for claiming."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                # Version compatibility check (defense-in-depth)
+                effective = job.effective_blender_version
+                if effective and not worker.has_blender_version(
+                    effective.resolved_version,
+                ):
+                    return Response(
+                        {"error": (
+                            "Worker does not have required Blender "
+                            f"version {effective.resolved_version} "
+                            "installed."
+                        )},
                         status=status.HTTP_409_CONFLICT,
                     )
 
@@ -224,14 +268,14 @@ class JobViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        error = self._validate_upload(file_obj)
+        error = validate_upload(file_obj)
         if error:
             return Response(
                 {"error": error},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        safe_name = self._sanitize_filename(file_obj.name)
+        safe_name = sanitize_filename(file_obj.name)
         job.output_file.save(safe_name, file_obj, save=True)
 
         logger.info(
@@ -240,50 +284,3 @@ class JobViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-    # -- Upload validation helpers --
-
-    # 100 MB default, overridable via settings
-    MAX_UPLOAD_SIZE = getattr(
-        django_settings, 'FILE_UPLOAD_MAX_MEMORY_SIZE', 104857600
-    )
-
-    @classmethod
-    def _validate_upload(cls, file_obj):
-        """
-        Validate that the uploaded file is within size limits and is a
-        genuine image that Pillow can open.
-
-        Returns an error message string, or None if valid.
-        """
-        if file_obj.size > cls.MAX_UPLOAD_SIZE:
-            limit_mb = cls.MAX_UPLOAD_SIZE / (1024 * 1024)
-            size_mb = file_obj.size / (1024 * 1024)
-            return (
-                f"File size {size_mb:.1f}MB exceeds the "
-                f"{limit_mb:.0f}MB limit."
-            )
-
-        # Verify the file is a valid image using Pillow
-        try:
-            file_obj.seek(0)
-            with Image.open(file_obj) as img:
-                img.verify()
-            file_obj.seek(0)
-        except Exception:
-            return "Uploaded file is not a valid image."
-
-        return None
-
-    @staticmethod
-    def _sanitize_filename(filename):
-        """
-        Strip path components and replace unsafe characters so the
-        filename is safe for storage.
-        """
-        # Take only the basename to strip directory traversal
-        name = os.path.basename(filename)
-        # Replace anything that is not alphanumeric, dot, hyphen,
-        # or underscore with an underscore
-        name = re.sub(r'[^\w.\-]', '_', name)
-        return name or 'output.png'

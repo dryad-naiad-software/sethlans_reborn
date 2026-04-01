@@ -45,7 +45,13 @@ class TiledJob(models.Model):
     status = models.CharField(max_length=50, choices=TiledJobStatus.choices, default=TiledJobStatus.QUEUED)
     submitted_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
-    blender_version = models.CharField(max_length=100, default="4.5")
+    blender_version = models.ForeignKey(
+        'workers.SupportedBlenderVersion',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='tiled_jobs',
+        help_text="Optional version override; inherits from project when null.",
+    )
     render_engine = models.CharField(max_length=50, choices=RenderEngine.choices, default=RenderEngine.CYCLES)
     render_device = models.CharField(max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY)
     cycles_feature_set = models.CharField(max_length=50, choices=CyclesFeatureSet.choices, default=CyclesFeatureSet.SUPPORTED)
@@ -55,6 +61,11 @@ class TiledJob(models.Model):
                                    help_text="The final, assembled output image.", max_length=512)
     thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True,
                                   help_text="A preview thumbnail of the final assembled image.", max_length=512)
+
+    @property
+    def effective_blender_version(self):
+        """Return explicit override or inherit from project."""
+        return self.blender_version or self.asset.project.blender_version
 
     def clean(self):
         if self.tile_count_x <= 0:
@@ -96,7 +107,13 @@ class Job(models.Model):
     submitted_at = models.DateTimeField(default=timezone.now)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
-    blender_version = models.CharField(max_length=100, default="4.5", help_text="e.g., '4.5' or '4.1.1'")
+    blender_version = models.ForeignKey(
+        'workers.SupportedBlenderVersion',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='jobs',
+        help_text="Optional version override; inherits from project when null.",
+    )
     render_engine = models.CharField(max_length=50, choices=RenderEngine.choices, default=RenderEngine.CYCLES)
     render_device = models.CharField(max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY)
     cycles_feature_set = models.CharField(max_length=50, choices=CyclesFeatureSet.choices, default=CyclesFeatureSet.SUPPORTED)
@@ -111,6 +128,11 @@ class Job(models.Model):
     render_time_seconds = models.IntegerField(null=True, blank=True, help_text="The total time in seconds this job took to render.")
     output_file = models.FileField(upload_to=job_output_upload_path, null=True, blank=True, help_text="The final rendered output file uploaded by the worker.", max_length=512)
     thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the final render.", max_length=512)
+
+    @property
+    def effective_blender_version(self):
+        """Return explicit override or inherit from project."""
+        return self.blender_version or self.asset.project.blender_version
 
     def __str__(self):
         return f"{self.name} ({self.status})"

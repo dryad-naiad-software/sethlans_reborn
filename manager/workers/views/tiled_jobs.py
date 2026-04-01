@@ -46,7 +46,8 @@ class TiledJobViewSet(viewsets.ModelViewSet):
                 'jobs', filter=Q(jobs__status=JobStatus.DONE)
             ),
         ).select_related(
-            'project', 'asset', 'asset__project'
+            'project', 'asset', 'asset__project',
+            'blender_version', 'asset__project__blender_version',
         ).order_by('-submitted_at')
 
     @transaction.atomic
