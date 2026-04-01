@@ -60,9 +60,9 @@ class JobViewSet(viewsets.ModelViewSet):
         if self.action in ('claim', 'upload_output'):
             return [IsWorker()]
         elif self.action in ('list', 'retrieve'):
-            return [IsAdmin() | IsWorker()]
+            return [(IsAdmin | IsWorker)()]
         elif self.action == 'partial_update':
-            return [IsAdmin() | IsWorker()]
+            return [(IsAdmin | IsWorker)()]
         else:
             return [IsAdmin()]
 
@@ -163,6 +163,16 @@ class JobViewSet(viewsets.ModelViewSet):
                 {"error": "Missing 'worker_id' in request body."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Prevent worker identity spoofing: the authenticated worker
+        # must match the worker_id in the request body.
+        if hasattr(request.user, 'worker_profile'):
+            if str(request.user.worker_profile.pk) != str(worker_id):
+                return Response(
+                    {"detail": "Cannot claim jobs on behalf of "
+                     "another worker."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         try:
             worker = Worker.objects.get(pk=worker_id)
