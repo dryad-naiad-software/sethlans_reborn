@@ -149,6 +149,7 @@ dev_scripts/results/
 node_modules/
 manager/frontend/dist/
 manager/frontend/.angular/
+manager/staticfiles/
 
 # Sethlans Reborn specific
 manager/logs/
