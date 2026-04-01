@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -22,7 +22,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from ..models import Worker
+from ..models import SupportedBlenderVersion, Worker
 from ..permissions import IsAdmin
 from ..rate_limiter import InMemoryRateLimiter
 from ..serializers import WorkerSerializer
@@ -150,6 +150,12 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         )
         if isinstance(result, Response):
             return result
+        # Append required Blender versions to every heartbeat response
+        result['required_blender_versions'] = list(
+            SupportedBlenderVersion.objects.values(
+                'series', version=models.F('resolved_version'),
+            )
+        )
         return Response(result, status=status.HTTP_200_OK)
 
     def _handle_full_registration(self, request, hostname):
@@ -205,9 +211,11 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         worker.ui_url = self._validate_ui_url(
             request.data.get('ui_url'),
         )
-        worker.save(
-            update_fields=['last_seen', 'is_active', 'ui_url'],
-        )
+        update_fields = ['last_seen', 'is_active', 'ui_url']
+        if 'available_tools' in request.data:
+            worker.available_tools = request.data['available_tools']
+            update_fields.append('available_tools')
+        worker.save(update_fields=update_fields)
         logger.debug("Worker heartbeat. Hostname: %s", hostname)
         return WorkerSerializer(worker).data
 
@@ -235,14 +243,6 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
             hostname,
         )
         return None
-
-    @staticmethod
-    def _get_worker_or_404(pk):
-        """Return Worker by pk or None."""
-        try:
-            return Worker.objects.select_related('user').get(pk=pk)
-        except Worker.DoesNotExist:
-            return None
 
     @staticmethod
     def _require_worker_with_user(pk):
@@ -275,13 +275,12 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
     @extend_schema(tags=['Management UI'])
     @action(detail=True, methods=['post'], url_path='regenerate_token')
     def regenerate_token(self, request, pk=None):
-        """Delete old token and create a new one. Returns new value."""
+        """Delete old token and create a new one. Returns new key."""
         worker, err = self._require_worker_with_user(pk)
         if err:
             return err
         Token.objects.filter(user=worker.user).delete()
         token = Token.objects.create(user=worker.user)
-        logger.info("Token regenerated for worker %s", worker.hostname)
         return Response({"token": token.key})
 
     @extend_schema(tags=['Management UI'])
@@ -293,6 +292,4 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
             return err
         Token.objects.filter(user=worker.user).delete()
         logger.info("Forced re-enrollment for worker %s", worker.hostname)
-        return Response(
-            {"detail": "Token revoked. Worker will re-enroll."},
-        )
+        return Response({"detail": "Token revoked. Worker will re-enroll."})

@@ -25,6 +25,11 @@ class Worker(models.Model):
     available_tools = models.JSONField(default=dict, blank=True)
     ui_url = models.URLField(max_length=255, null=True, blank=True)
 
+    def has_blender_version(self, version_str):
+        """Check if this worker has a specific Blender version installed."""
+        blender_list = (self.available_tools or {}).get('blender', [])
+        return version_str in blender_list
+
     def __str__(self):
         return self.hostname
 
