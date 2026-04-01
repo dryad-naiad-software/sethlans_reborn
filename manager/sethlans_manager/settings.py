@@ -47,7 +47,7 @@ SECRET_KEY = _get_config(
 )
 
 _debug_raw = _get_config(
-    'security', 'debug', 'SETHLANS_SECURITY_DEBUG', 'True'
+    'security', 'debug', 'SETHLANS_SECURITY_DEBUG', 'False'
 )
 DEBUG = _debug_raw.lower() in ('true', '1', 'yes')
 
@@ -61,11 +61,23 @@ ALLOWED_HOSTS = [
 # Warn if using the insecure default secret key
 _logger = logging.getLogger('django')
 if SECRET_KEY == _INSECURE_DEFAULT_KEY:
+    if not DEBUG:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            "Cannot run with the default SECRET_KEY when DEBUG is False. "
+            "Set a unique key in manager.ini or "
+            "SETHLANS_SECURITY_SECRET_KEY."
+        )
     _logger.warning(
         "Using insecure default SECRET_KEY. Set a unique key in "
         "manager.ini [security] or SETHLANS_SECURITY_SECRET_KEY "
         "environment variable before deploying to production."
     )
+
+# Enrollment key for worker registration
+ENROLLMENT_KEY = _get_config(
+    'security', 'enrollment_key', 'SETHLANS_SECURITY_ENROLLMENT_KEY', ''
+)
 
 
 # Application definition
@@ -80,6 +92,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Third-party apps
     'rest_framework',
+    'rest_framework.authtoken',
     'django_filters',
     'drf_spectacular',
     # Your custom apps here
@@ -260,8 +273,23 @@ LOGGING = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.getenv('SETHLANS_MEDIA_ROOT', os.path.join(BASE_DIR, 'media'))
 
+# --- Session Cookie Configuration ---
+SESSION_COOKIE_HTTPONLY = True  # Default, but explicit for clarity
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_AGE = 86400  # 24 hours
+# SESSION_COOKIE_SECURE is intentionally omitted -- Sethlans runs over HTTP
+# on a LAN. For security, use a wired network.
+
 # --- DRF Configuration ---
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
@@ -271,6 +299,27 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'RESTful API for the distributed Blender rendering system.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'SECURITY': [
+        {'sessionAuth': []},
+        {'tokenAuth': []},
+    ],
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'sessionAuth': {
+                'type': 'apiKey',
+                'in': 'cookie',
+                'name': 'sessionid',
+            },
+            'tokenAuth': {
+                'type': 'apiKey',
+                'in': 'header',
+                'name': 'Authorization',
+                'description': (
+                    'Token-based auth. Format: "Token <api_token>"'
+                ),
+            },
+        },
+    },
 }
 
 # Delete old thumbnail files before saving new ones

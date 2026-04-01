@@ -13,6 +13,7 @@ from rest_framework import viewsets
 from rest_framework.parsers import FileUploadParser, MultiPartParser
 
 from ..models import Asset
+from ..permissions import IsAdminOrWorkerReadOnly
 from ..serializers import AssetSerializer
 
 
@@ -29,6 +30,7 @@ class AssetViewSet(viewsets.ModelViewSet):
     API endpoint for uploading and managing .blend file assets.
     Assets are uploaded as multipart/form-data.
     """
+    permission_classes = [IsAdminOrWorkerReadOnly]
     queryset = Asset.objects.all()
     serializer_class = AssetSerializer
     parser_classes = (MultiPartParser, FileUploadParser)

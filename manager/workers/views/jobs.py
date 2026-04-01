@@ -19,11 +19,13 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from PIL import Image
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
 from ..constants import RenderDevice
 from ..models import Job, JobStatus, Worker
+from ..permissions import IsAdmin, IsWorker
 from ..serializers import JobSerializer
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,29 @@ class JobViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'assigned_worker', 'animation', 'asset__project', 'tiled_job']
     search_fields = ['name', 'asset__name', 'asset__project__name']
     ordering_fields = ['submitted_at', 'status', 'name']
+
+    def get_permissions(self):
+        if self.action in ('claim', 'upload_output'):
+            return [IsWorker()]
+        elif self.action in ('list', 'retrieve'):
+            return [IsAdmin() | IsWorker()]
+        elif self.action == 'partial_update':
+            return [IsAdmin() | IsWorker()]
+        else:
+            return [IsAdmin()]
+
+    def _check_worker_owns_job(self, request, job):
+        """Verify that a worker-authenticated user owns this job."""
+        if hasattr(request.user, 'worker_profile'):
+            if request.user.worker_profile != job.assigned_worker:
+                raise PermissionDenied(
+                    "You do not have permission to modify this job."
+                )
+
+    def perform_update(self, serializer):
+        """Check worker ownership before allowing partial_update."""
+        self._check_worker_owns_job(self.request, serializer.instance)
+        serializer.save()
 
     def get_queryset(self):
         """
@@ -185,6 +210,7 @@ class JobViewSet(viewsets.ModelViewSet):
         Saving the file will trigger a signal to generate the thumbnail.
         """
         job = self.get_object()
+        self._check_worker_owns_job(request, job)
         file_obj = request.data.get('output_file')
 
         if not file_obj:

@@ -8,12 +8,21 @@
 # Project: sethlans_reborn
 #
 # workers/models/worker.py
+from django.conf import settings
 from django.db import models
+
 
 class Worker(models.Model):
     """
     Represents a single rendering machine in the distributed system.
     """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='worker_profile',
+    )
     hostname = models.CharField(max_length=255, unique=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     os = models.CharField(max_length=100, blank=True, default='')
@@ -27,4 +36,3 @@ class Worker(models.Model):
 
     class Meta:
         ordering = ['hostname']
-

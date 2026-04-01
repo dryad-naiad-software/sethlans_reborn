@@ -18,7 +18,19 @@ class WorkerSerializer(serializers.ModelSerializer):
     """
     Serializer for the `Worker` model.
     """
+    has_token = serializers.SerializerMethodField()
+
     class Meta:
         model = Worker
-        fields = ['id', 'hostname', 'ip_address', 'os', 'last_seen', 'is_active', 'available_tools', 'ui_url']
-        read_only_fields = ['last_seen']
+        fields = [
+            'id', 'hostname', 'ip_address', 'os', 'last_seen',
+            'is_active', 'available_tools', 'ui_url', 'has_token',
+        ]
+        read_only_fields = ['last_seen', 'has_token']
+
+    def get_has_token(self, obj):
+        """Return whether the worker has an active auth token."""
+        if not obj.user_id:
+            return False
+        from rest_framework.authtoken.models import Token
+        return Token.objects.filter(user_id=obj.user_id).exists()

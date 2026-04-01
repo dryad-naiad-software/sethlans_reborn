@@ -14,9 +14,13 @@ from django.core.validators import URLValidator
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
+from rest_framework.authtoken.models import Token
+from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from ..models import Worker
+from ..permissions import IsAdmin
 from ..serializers import WorkerSerializer
 
 logger = logging.getLogger(__name__)
@@ -28,12 +32,21 @@ logger = logging.getLogger(__name__)
 )
 class WorkerHeartbeatViewSet(viewsets.ViewSet):
     """
-    API endpoint for workers to send heartbeats and register with the manager.
-
-    A POST request with full system information will either register a new worker
-    or update an existing one. Subsequent POSTs with just the hostname will
-    simply update the 'last_seen' timestamp.
+    API endpoint for workers to send heartbeats and register with the
+    manager. Also provides admin actions for token management.
     """
+
+    def get_permissions(self):
+        if self.action == 'create':
+            # AllowAny is intentional: unauthenticated workers use this
+            # endpoint for enrollment with X-Enrollment-Key header
+            return [AllowAny()]
+        elif self.action in (
+            'revoke_token', 'regenerate_token', 'force_reenroll',
+        ):
+            return [IsAdmin()]
+        else:
+            return [IsAdmin()]
 
     @staticmethod
     def _validate_ui_url(raw_url):
@@ -47,10 +60,18 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
             return None
 
     def list(self, request):
-        """Lists all registered workers."""
+        """Lists all registered workers with has_token status."""
         workers = Worker.objects.all()
         serializer = WorkerSerializer(workers, many=True)
-        return Response(serializer.data)
+        data = serializer.data
+        for item, worker in zip(data, workers):
+            has_token = False
+            if worker.user_id:
+                has_token = Token.objects.filter(
+                    user_id=worker.user_id
+                ).exists()
+            item['has_token'] = has_token
+        return Response(data)
 
     def create(self, request):
         """
@@ -64,29 +85,38 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         """
         hostname = request.data.get('hostname')
         if not hostname:
-            return Response({"detail": "Hostname is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Hostname is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Differentiate between a full registration and a simple heartbeat
-        is_full_registration = 'os' in request.data or 'available_tools' in request.data
+        is_full_registration = (
+            'os' in request.data or 'available_tools' in request.data
+        )
 
         if is_full_registration:
-            # Handle initial registration or a full update of worker info
             ui_url = self._validate_ui_url(request.data.get('ui_url'))
             worker, created = Worker.objects.update_or_create(
                 hostname=hostname,
                 defaults={
                     'ip_address': request.data.get('ip_address'),
                     'os': request.data.get('os'),
-                    'available_tools': request.data.get('available_tools', {}),
+                    'available_tools': request.data.get(
+                        'available_tools', {}
+                    ),
                     'last_seen': timezone.now(),
                     'is_active': True,
                     'ui_url': ui_url,
                 }
             )
-            log_msg = "registration/full update" if not created else "registration"
-            logger.info(f"Worker {log_msg}. Hostname: {worker.hostname}")
+            action_str = (
+                "registration" if created else "registration/full update"
+            )
+            logger.info(
+                f"Worker {action_str}. Hostname: {worker.hostname}"
+            )
         else:
-            # Handle a simple, periodic heartbeat to keep the worker alive
             try:
                 worker = Worker.objects.get(hostname=hostname)
                 worker.last_seen = timezone.now()
@@ -94,13 +124,91 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
                 worker.ui_url = self._validate_ui_url(
                     request.data.get('ui_url')
                 )
-                worker.save(update_fields=['last_seen', 'is_active', 'ui_url'])
-                logger.debug(f"Worker periodic heartbeat. Hostname: {worker.hostname}")
+                worker.save(
+                    update_fields=['last_seen', 'is_active', 'ui_url']
+                )
+                logger.debug(
+                    "Worker periodic heartbeat. "
+                    f"Hostname: {worker.hostname}"
+                )
             except Worker.DoesNotExist:
                 return Response(
-                    {"detail": "Worker not found. Please re-register with full system info."},
-                    status=status.HTTP_404_NOT_FOUND
+                    {"detail": "Worker not found. "
+                     "Please re-register with full system info."},
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
         serializer = WorkerSerializer(worker)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(tags=['Management UI'])
+    @action(detail=True, methods=['post'], url_path='revoke_token')
+    def revoke_token(self, request, pk=None):
+        """Delete the DRF Token associated with a worker's User."""
+        worker = self._get_worker_or_404(pk)
+        if not worker:
+            return Response(
+                {"detail": "Worker not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not worker.user:
+            return Response(
+                {"detail": "Worker has no linked user."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        Token.objects.filter(user=worker.user).delete()
+        logger.info(f"Token revoked for worker {worker.hostname}")
+        return Response({"detail": "Token revoked."})
+
+    @extend_schema(tags=['Management UI'])
+    @action(detail=True, methods=['post'], url_path='regenerate_token')
+    def regenerate_token(self, request, pk=None):
+        """Delete old token and create a new one. Returns new value."""
+        worker = self._get_worker_or_404(pk)
+        if not worker:
+            return Response(
+                {"detail": "Worker not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not worker.user:
+            return Response(
+                {"detail": "Worker has no linked user."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        Token.objects.filter(user=worker.user).delete()
+        token = Token.objects.create(user=worker.user)
+        logger.info(
+            f"Token regenerated for worker {worker.hostname}"
+        )
+        return Response({"token": token.key})
+
+    @extend_schema(tags=['Management UI'])
+    @action(detail=True, methods=['post'], url_path='force_reenroll')
+    def force_reenroll(self, request, pk=None):
+        """Revoke token so the worker re-enrolls on next heartbeat."""
+        worker = self._get_worker_or_404(pk)
+        if not worker:
+            return Response(
+                {"detail": "Worker not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not worker.user:
+            return Response(
+                {"detail": "Worker has no linked user."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        Token.objects.filter(user=worker.user).delete()
+        logger.info(
+            f"Forced re-enrollment for worker {worker.hostname}"
+        )
+        return Response(
+            {"detail": "Token revoked. Worker will re-enroll."}
+        )
+
+    @staticmethod
+    def _get_worker_or_404(pk):
+        """Return Worker by pk or None."""
+        try:
+            return Worker.objects.select_related('user').get(pk=pk)
+        except Worker.DoesNotExist:
+            return None
