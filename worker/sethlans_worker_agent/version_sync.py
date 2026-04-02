@@ -17,6 +17,7 @@ downloads via _downloading_versions (protected by _download_lock).
 """
 
 import logging
+import time
 import threading
 from typing import Dict, List, Set
 
@@ -31,6 +32,33 @@ _pending_lock = threading.Lock()
 # Queued version removals deferred because of active renders (P5-F6).
 _pending_removals: List[str] = []
 _pending_removals_lock = threading.Lock()
+
+# Backoff tracking for failed downloads.
+_failed_versions: Dict[str, Dict] = {}
+_failed_lock = threading.Lock()
+_BACKOFF_BASE, _BACKOFF_MAX = 60, 1800  # seconds
+
+
+def _is_in_backoff(version):
+    with _failed_lock:
+        info = _failed_versions.get(version)
+        return bool(info and time.time() < info['next_retry'])
+
+
+def _record_failure(version):
+    with _failed_lock:
+        info = _failed_versions.get(version, {'attempts': 0})
+        info['attempts'] += 1
+        delay = min(_BACKOFF_BASE * 2 ** info['attempts'], _BACKOFF_MAX)
+        info['next_retry'] = time.time() + delay
+        _failed_versions[version] = info
+        attempts = info['attempts']
+    logger.warning(f"Blender {version} failed (attempt {attempts}). Retry in {delay}s.")
+
+
+def _clear_failure(version):
+    with _failed_lock:
+        _failed_versions.pop(version, None)
 
 
 def parse_required_versions(heartbeat_response):
@@ -113,13 +141,17 @@ def download_versions(actions):
         version = action.get('version', '')
         if not version:
             continue
+        if _is_in_backoff(version):
+            logger.info(f"Skipping Blender {version} -- in backoff period.")
+            continue
         logger.info(f"Downloading required Blender version {version}...")
         result = tool_manager_instance.ensure_blender_version_available(version)
         if result:
             success_count += 1
+            _clear_failure(version)
             logger.info(f"Successfully installed Blender {version}.")
         else:
-            logger.error(f"Failed to download Blender {version}.")
+            _record_failure(version)
     return success_count
 
 
@@ -135,19 +167,23 @@ def upgrade_patch_versions(actions, installed_versions):
             continue
         if _version_tuple(new_version) <= _version_tuple(old_version):
             continue
+        if _is_in_backoff(new_version):
+            logger.info(f"Skipping upgrade to {new_version} -- in backoff period.")
+            continue
+        _clear_failure(old_version)
 
         logger.info(f"Upgrading {series}: {old_version} -> {new_version}")
         result = tool_manager_instance.ensure_blender_version_available(new_version)
         if result:
-            # Verify new version is valid before removing old one.
             new_exe = tool_manager_instance.get_blender_executable_path(new_version)
             if new_exe:
                 tool_manager_instance.remove_blender_version(old_version)
+                _clear_failure(new_version)
                 success_count += 1
             else:
-                logger.error(f"New version {new_version} not valid after download. Keeping {old_version}.")
+                _record_failure(new_version)
         else:
-            logger.error(f"Failed to download {new_version}. Keeping {old_version}.")
+            _record_failure(new_version)
     return success_count
 
 
