@@ -11,7 +11,6 @@ builds the Angular frontend.
 Run from anywhere: python manager/setup.py
 """
 import configparser
-import getpass
 import os
 import secrets
 import subprocess
@@ -92,36 +91,20 @@ def run_migrations():
 
 
 def create_admin():
-    """Create an admin superuser interactively."""
+    """Create a default dev admin account (testuser/test12345)."""
     print("\n--- Create admin account ---")
-    print("(Skip with Ctrl+C if admin already exists)\n")
-    try:
-        username = input("Admin username: ").strip()
-        if not username:
-            print("[SKIP] No username provided")
-            return
-        email = input("Admin email (optional): ").strip()
-        while True:
-            password = getpass.getpass("Admin password: ")
-            confirm = getpass.getpass("Confirm password: ")
-            if password == confirm:
-                break
-            print("Passwords don't match. Try again.")
-
-        result = subprocess.run(
-            [sys.executable, str(MANAGE_PY), 'createsuperuser',
-             '--username', username,
-             '--email', email or '',
-             '--noinput'],
-            cwd=str(MANAGER_DIR),
-            env={**os.environ, 'DJANGO_SUPERUSER_PASSWORD': password},
-        )
-        if result.returncode == 0:
-            print(f"[OK] Admin '{username}' created")
-        else:
-            print("[WARN] Admin creation failed (may already exist)")
-    except KeyboardInterrupt:
-        print("\n[SKIP] Admin creation skipped")
+    result = subprocess.run(
+        [sys.executable, str(MANAGE_PY), 'createsuperuser',
+         '--username', 'testuser',
+         '--email', '',
+         '--noinput'],
+        cwd=str(MANAGER_DIR),
+        env={**os.environ, 'DJANGO_SUPERUSER_PASSWORD': 'test12345'},
+    )
+    if result.returncode == 0:
+        print("[OK] Dev admin created (testuser / test12345)")
+    else:
+        print("[OK] Admin already exists, skipping")
 
 
 def build_frontend():

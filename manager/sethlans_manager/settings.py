@@ -178,12 +178,13 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser']
+_FRONTEND_DIST = BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'
+STATICFILES_DIRS = [_FRONTEND_DIST] if _FRONTEND_DIST.is_dir() else []
 
 # Serve Angular dist files (JS chunks, CSS) at root URL paths.
 # Angular outputs files like /main-xxx.js and /chunk-xxx.js at root level,
 # not under /static/. WHITENOISE_ROOT makes these accessible without a prefix.
-WHITENOISE_ROOT = BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'
+WHITENOISE_ROOT = _FRONTEND_DIST if _FRONTEND_DIST.is_dir() else None
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
