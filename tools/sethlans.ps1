@@ -156,7 +156,7 @@ function Invoke-Dev {
 
     Write-Host ""
     Write-Host "--- Python dependencies ---"
-    pip install -r (Join-Path $ManagerDir "requirements.txt")
+    pip install -r (Join-Path $ManagerDir "requirements.txt") -r (Join-Path $ProjectRoot "requirements-dev.txt")
 
     Write-Host ""
     Write-Host "--- Database migrations ---"

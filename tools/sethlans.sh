@@ -146,7 +146,7 @@ cmd_dev() {
 
     echo ""
     echo "--- Python dependencies ---"
-    pip install -r "$MANAGER_DIR/requirements.txt"
+    pip install -r "$MANAGER_DIR/requirements.txt" -r "$PROJECT_ROOT/requirements-dev.txt"
 
     echo ""
     echo "--- Database migrations ---"
