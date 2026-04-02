@@ -147,12 +147,9 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        is_full = 'os' in request.data or 'available_tools' in request.data
-        result = (
-            self._handle_full_registration(request, hostname)
-            if is_full
-            else self._handle_heartbeat(request, hostname)
-        )
+        handler = (self._handle_full_registration if 'os' in request.data
+                   else self._handle_heartbeat)
+        result = handler(request, hostname)
         if isinstance(result, Response):
             return result
         # Append required Blender versions to every heartbeat response
@@ -195,8 +192,10 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
                 },
             )
 
-        action_str = "registration" if created else "re-registration"
-        logger.info("Worker %s. Hostname: %s", action_str, hostname)
+        if created:
+            logger.info("Worker registration. Hostname: %s", hostname)
+        else:
+            logger.debug("Worker re-registration. Hostname: %s", hostname)
         data = WorkerSerializer(worker).data
         data['token'] = token.key
         return data

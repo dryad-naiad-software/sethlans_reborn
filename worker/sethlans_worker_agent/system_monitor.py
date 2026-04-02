@@ -177,6 +177,7 @@ def send_heartbeat(is_busy=False, active_jobs=None):
         return
 
     payload = get_system_info()
+    payload.pop('os', None)
     payload['ui_url'] = _get_ui_url()
 
     response_data = api_handler.send_authenticated_heartbeat(payload)
