@@ -167,6 +167,13 @@ def handle_dmg_extraction_on_mac(dmg_path, extract_to):
             subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], check=False)
 
 
+def _win_long_path(path_str):
+    """On Windows, return an extended-length path to bypass MAX_PATH."""
+    if platform.system() == 'Windows':
+        return f"\\\\?\\{path_str}"
+    return path_str
+
+
 def _safe_zip_extract(archive_path, extract_to):
     """
     Extracts a zip archive with path traversal protection.
@@ -190,7 +197,7 @@ def _safe_zip_extract(archive_path, extract_to):
                 raise ValueError(
                     f"Zip archive contains path traversal entry: {member}"
                 )
-        zf.extractall(path=extract_to)
+        zf.extractall(path=_win_long_path(str(target)))
 
 
 def extract_archive(archive_path, extract_to):
@@ -219,7 +226,8 @@ def extract_archive(archive_path, extract_to):
     elif archive_path.endswith(".tar.xz"):
         logger.info(f"Extracting {archive_path} to {extract_to} using tarfile with 'data' filter...")
         with tarfile.open(archive_path, 'r:xz') as tar:
-            tar.extractall(path=extract_to, filter='data')
+            resolved = str(pathlib.Path(extract_to).resolve())
+            tar.extractall(path=_win_long_path(resolved), filter='data')
         extracted_dir_name = archive_name[:-7]
     elif archive_path.endswith(".zip"):
         logger.info(f"Extracting {archive_path} to {extract_to} using zipfile...")
