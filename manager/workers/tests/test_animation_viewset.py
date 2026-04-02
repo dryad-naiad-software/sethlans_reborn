@@ -5,8 +5,11 @@
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from ..models import Animation, Job, Asset
-from ..constants import RenderSettings, TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
+from ..constants import (
+    RenderSettings, TilingConfiguration, RenderDevice,
+)
 from ._base import BaseMediaTestCase
+
 
 class AnimationViewSetTests(BaseMediaTestCase):
     def setUp(self):
@@ -24,7 +27,6 @@ class AnimationViewSetTests(BaseMediaTestCase):
             "output_file_pattern": "//renders/anim_####",
             "start_frame": 1,
             "end_frame": 5,
-            "blender_version": "4.1.1",
             "render_device": RenderDevice.GPU,
         }
         response = self.client.post(self.url, data, format='json')
@@ -39,7 +41,10 @@ class AnimationViewSetTests(BaseMediaTestCase):
         self.assertEqual(first_job.asset, self.asset)
 
     def test_animation_progress_tracking(self):
-        anim = Animation.objects.create(name="Progress Test", project=self.project, asset=self.asset, start_frame=1, end_frame=10)
+        anim = Animation.objects.create(
+            name="Progress Test", project=self.project,
+            asset=self.asset, start_frame=1, end_frame=10,
+        )
         for i in range(1, 11):
             Job.objects.create(animation=anim, name=f"Job_{i}", asset=self.asset, start_frame=i, end_frame=i)
         Job.objects.filter(animation=anim, start_frame__in=[1, 2, 3]).update(status="DONE")

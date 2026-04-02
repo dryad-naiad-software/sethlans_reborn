@@ -108,11 +108,14 @@ def test_extract_archive_uses_safe_zip_for_zip(mocker, system, archive_path):
 
 def test_extract_archive_uses_tarfile_for_tar_xz(mocker):
     """
-    Tests that .tar.xz archives are handled by the tarfile module with the 'data' filter.
+    Tests that .tar.xz archives are handled by the tarfile module
+    with the 'data' filter.
     """
     mocker.patch('platform.system', return_value="Linux")
     mock_tarfile_context = MagicMock()
-    mock_tarfile_open = mocker.patch('tarfile.open', return_value=mock_tarfile_context)
+    mock_tarfile_open = mocker.patch(
+        'tarfile.open', return_value=mock_tarfile_context,
+    )
     mock_shutil_unpack = mocker.patch('shutil.unpack_archive')
 
     archive_path = "/tmp/archive.tar.xz"
@@ -120,8 +123,13 @@ def test_extract_archive_uses_tarfile_for_tar_xz(mocker):
     file_operations.extract_archive(archive_path, extract_to)
 
     mock_tarfile_open.assert_called_once_with(archive_path, 'r:xz')
-    # Check that extractall was called on the context manager's return value
-    mock_tarfile_context.__enter__().extractall.assert_called_once_with(path=extract_to, filter='data')
+    # The code resolves extract_to via pathlib then _win_long_path,
+    # so compare the resolved path on this platform.
+    import pathlib
+    resolved = str(pathlib.Path(extract_to).resolve())
+    mock_tarfile_context.__enter__().extractall.assert_called_once_with(
+        path=resolved, filter='data',
+    )
     mock_shutil_unpack.assert_not_called()
 
 

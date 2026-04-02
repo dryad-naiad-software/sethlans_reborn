@@ -8,6 +8,7 @@ import pytest
 import requests
 
 from sethlans_worker_agent import api_handler, config
+from sethlans_worker_agent.api_auth import get_auth_headers
 
 
 def test_poll_for_available_jobs_success(mocker):
@@ -24,7 +25,10 @@ def test_poll_for_available_jobs_success(mocker):
     result = api_handler.poll_for_available_jobs(params)
 
     assert result == mock_job_list
-    mock_get.assert_called_once_with(f"{config.MANAGER_API_URL}jobs/", params=params, headers={}, timeout=10)
+    mock_get.assert_called_once_with(
+        f"{config.MANAGER_API_URL}jobs/",
+        params=params, headers=get_auth_headers(), timeout=10,
+    )
 
 
 def test_poll_for_available_jobs_failure(mocker):
@@ -32,7 +36,10 @@ def test_poll_for_available_jobs_failure(mocker):
     Tests that poll_for_available_jobs returns None on a network error.
     """
     mocker.patch('time.sleep')
-    mocker.patch('requests.get', side_effect=requests.exceptions.RequestException)
+    mocker.patch(
+        'requests.get',
+        side_effect=requests.exceptions.RequestException,
+    )
     result = api_handler.poll_for_available_jobs({})
     assert result is None
 
@@ -47,7 +54,8 @@ def test_claim_job_success(mocker):
     assert result is True
     mock_post.assert_called_once_with(
         f"{config.MANAGER_API_URL}jobs/1/claim/",
-        json={"worker_id": 101}, headers={}, timeout=5
+        json={"worker_id": 101},
+        headers=get_auth_headers(), timeout=5,
     )
 
 
@@ -73,16 +81,18 @@ def test_update_job_status(mocker):
     api_handler.update_job_status(5, payload)
     mock_patch.assert_called_once_with(
         f"{config.MANAGER_API_URL}jobs/5/",
-        json=payload, headers={}, timeout=5
+        json=payload, headers=get_auth_headers(), timeout=5,
     )
 
 
 def test_upload_render_output(mocker):
     """
-    Tests that upload_render_output makes the correct multipart POST request.
+    Tests that upload_render_output makes the correct multipart POST.
     """
     mocker.patch('os.path.exists', return_value=True)
-    mocker.patch('builtins.open', mocker.mock_open(read_data=b'file_content'))
+    mocker.patch(
+        'builtins.open', mocker.mock_open(read_data=b'file_content'),
+    )
     mock_post = mocker.patch('requests.post')
     mock_post.return_value.status_code = 200
 
@@ -91,5 +101,7 @@ def test_upload_render_output(mocker):
     assert result is True
     mock_post.assert_called_once()
     args, kwargs = mock_post.call_args
-    assert args[0] == f"{config.MANAGER_API_URL}jobs/10/upload_output/"
+    assert args[0] == (
+        f"{config.MANAGER_API_URL}jobs/10/upload_output/"
+    )
     assert 'files' in kwargs

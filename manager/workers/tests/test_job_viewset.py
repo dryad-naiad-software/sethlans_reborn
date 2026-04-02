@@ -6,12 +6,10 @@ import io
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.text import slugify
-from django.utils import timezone
 from PIL import Image
 from rest_framework import status
-from ..models import Job, Asset, Project, JobStatus, Worker
+from ..models import Job, Asset, Project, JobStatus
 from ..constants import RenderDevice
-from ..views.jobs import JobViewSet
 from ._base import BaseMediaTestCase
 
 
@@ -118,13 +116,15 @@ class JobViewSetTests(BaseMediaTestCase):
         Verifies assigned_worker, status, and started_at are set correctly.
         """
         # Arrange
-        worker = Worker.objects.create(hostname="test-worker-for-claim")
+        worker_client, worker = self._make_worker_client(
+            hostname="test-worker-for-claim",
+        )
         job_to_claim = Job.objects.get(name="CPU Job")
         self.assertIsNone(job_to_claim.assigned_worker)
         self.assertIsNone(job_to_claim.started_at)
 
         # Act
-        response = self.client.post(
+        response = worker_client.post(
             f"/api/jobs/{job_to_claim.id}/claim/",
             {"worker_id": worker.id},
             format='json'
@@ -152,14 +152,27 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertEqual(job.status, JobStatus.CANCELED)
         self.assertEqual(response.data['status'], JobStatus.CANCELED)
 
+    def _create_assigned_job(self, worker, name="Job for Upload"):
+        """Create a job and assign it to the given worker."""
+        job = Job.objects.create(
+            name=name, asset=self.asset,
+            status=JobStatus.RENDERING, assigned_worker=worker,
+        )
+        return job
+
     def test_upload_job_output_file(self):
         """
         Tests the /upload_output/ action for a job with a valid image.
         """
-        job = Job.objects.create(name="Job for Upload", asset=self.asset)
+        worker_client, worker = self._make_worker_client(
+            "upload-worker",
+        )
+        job = self._create_assigned_job(worker)
         url = f"/api/jobs/{job.id}/upload_output/"
         uploaded_file = _make_test_image()
-        response = self.client.post(url, {"output_file": uploaded_file}, format='multipart')
+        response = worker_client.post(
+            url, {"output_file": uploaded_file}, format='multipart',
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         job.refresh_from_db()
         self.assertIsNotNone(job.output_file)
@@ -174,46 +187,64 @@ class JobViewSetTests(BaseMediaTestCase):
         """
         Tests that uploading a non-image file returns 400.
         """
-        job = Job.objects.create(name="Job Non Image", asset=self.asset)
+        worker_client, worker = self._make_worker_client(
+            "upload-worker-2",
+        )
+        job = self._create_assigned_job(worker, "Job Non Image")
         url = f"/api/jobs/{job.id}/upload_output/"
         bad_file = SimpleUploadedFile(
             "malware.exe", b"MZ\x90\x00not-an-image",
             content_type="application/octet-stream"
         )
-        response = self.client.post(url, {"output_file": bad_file}, format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response = worker_client.post(
+            url, {"output_file": bad_file}, format='multipart',
+        )
+        self.assertEqual(
+            response.status_code, status.HTTP_400_BAD_REQUEST,
+        )
         self.assertIn("not a valid image", response.data["error"])
 
     def test_upload_rejects_oversized_file(self):
         """
         Tests that uploading a file exceeding the size limit returns 400.
         """
-        job = Job.objects.create(name="Job Oversize", asset=self.asset)
+        import workers.views.upload_helpers as _upload_mod
+
+        worker_client, worker = self._make_worker_client(
+            "upload-worker-3",
+        )
+        job = self._create_assigned_job(worker, "Job Oversize")
         url = f"/api/jobs/{job.id}/upload_output/"
-        # Create a valid image then override size reporting
         uploaded_file = _make_test_image()
-        # Temporarily lower the limit to trigger the check
-        original = JobViewSet.MAX_UPLOAD_SIZE
+        original = _upload_mod.MAX_UPLOAD_SIZE
         try:
-            JobViewSet.MAX_UPLOAD_SIZE = 1  # 1 byte limit
-            response = self.client.post(
-                url, {"output_file": uploaded_file}, format='multipart'
+            _upload_mod.MAX_UPLOAD_SIZE = 1  # 1 byte limit
+            response = worker_client.post(
+                url, {"output_file": uploaded_file},
+                format='multipart',
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.status_code, status.HTTP_400_BAD_REQUEST,
+            )
             self.assertIn("exceeds", response.data["error"])
         finally:
-            JobViewSet.MAX_UPLOAD_SIZE = original
+            _upload_mod.MAX_UPLOAD_SIZE = original
 
     def test_upload_sanitizes_filename(self):
         """
         Tests that path traversal and unsafe characters are stripped
         from the uploaded filename.
         """
-        job = Job.objects.create(name="Job Sanitize", asset=self.asset)
+        worker_client, worker = self._make_worker_client(
+            "upload-worker-4",
+        )
+        job = self._create_assigned_job(worker, "Job Sanitize")
         url = f"/api/jobs/{job.id}/upload_output/"
         img = _make_test_image()
         img.name = "../../etc/passwd.png"
-        response = self.client.post(url, {"output_file": img}, format='multipart')
+        response = worker_client.post(
+            url, {"output_file": img}, format='multipart',
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         job.refresh_from_db()
         # The saved filename should not contain path traversal
@@ -221,13 +252,10 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertNotIn("etc/", job.output_file.name)
 
     def test_job_filtering_for_cpu_worker(self):
-        """
-        Tests that a worker polling with gpu_available=false sees only CPU and ANY jobs.
-        """
+        """Worker with gpu_available=false sees only CPU and ANY jobs."""
         params = {'gpu_available': 'false', 'status': 'QUEUED'}
         response = self.client.get(self.url, params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         names = {job['name'] for job in response.data}
         self.assertEqual(len(names), 2)
         self.assertIn("CPU Job", names)
@@ -235,13 +263,10 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertNotIn("GPU Job", names)
 
     def test_job_filtering_for_gpu_worker(self):
-        """
-        Tests that a worker polling with gpu_available=true sees only GPU and ANY jobs.
-        """
+        """Worker with gpu_available=true sees only GPU and ANY jobs."""
         params = {'gpu_available': 'true', 'status': 'QUEUED'}
         response = self.client.get(self.url, params)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         names = {job['name'] for job in response.data}
         self.assertEqual(len(names), 2)
         self.assertIn("GPU Job", names)
@@ -249,9 +274,7 @@ class JobViewSetTests(BaseMediaTestCase):
         self.assertNotIn("CPU Job", names)
 
     def test_job_filtering_skips_paused_projects(self):
-        """
-        Tests that a worker poll correctly excludes jobs from paused projects.
-        """
+        """Worker poll excludes jobs from paused projects."""
         paused_project = Project.objects.create(
             name="Paused Project", is_paused=True,
             blender_version=self.default_version,

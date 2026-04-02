@@ -56,6 +56,10 @@ def test_scan_for_local_blenders(mocker):
     Tests that the scanner correctly identifies directories that represent
     valid, executable Blender installations.
     """
+    # Clear the singleton's scan cache so mocked iterdir is used.
+    tool_manager_instance._scan_cache = None
+    tool_manager_instance._scan_cache_time = 0.0
+
     mock_dir_valid = MagicMock()
     mock_dir_valid.name = "blender-4.1.1-windows-x64"
     mock_dir_valid.is_dir.return_value = True
@@ -65,9 +69,14 @@ def test_scan_for_local_blenders(mocker):
     mock_dir_invalid_name.is_dir.return_value = True
 
     mocker.patch('pathlib.Path.exists', return_value=True)
-    mocker.patch('pathlib.Path.iterdir', return_value=[mock_dir_valid, mock_dir_invalid_name])
+    mocker.patch(
+        'pathlib.Path.iterdir',
+        return_value=[mock_dir_valid, mock_dir_invalid_name],
+    )
     mocker.patch('pathlib.Path.is_file', return_value=True)
-    mocker.patch.object(tool_manager_instance, '_get_executable_path_for_install')
+    mocker.patch.object(
+        tool_manager_instance, '_get_executable_path_for_install',
+    )
 
     found = tool_manager_instance.scan_for_local_blenders()
 

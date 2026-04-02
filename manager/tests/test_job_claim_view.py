@@ -67,11 +67,14 @@ class TestJobClaimAction:
         mocker.patch.object(
             Worker.objects, 'get', return_value=mock_worker
         )
+        mock_select_related = MagicMock()
+        mock_select_related.get.return_value = mock_queued_job
         mock_select_for_update = MagicMock()
-        mock_select_for_update.get.return_value = mock_queued_job
+        mock_select_for_update.select_related.return_value = mock_select_related
         mocker.patch.object(
             Job.objects, 'select_for_update', return_value=mock_select_for_update
         )
+        mock_queued_job.effective_blender_version = None
         mock_serializer_data = {"id": 42, "status": "RENDERING"}
         mocker.patch.object(
             JobViewSet, 'get_serializer',
@@ -98,8 +101,10 @@ class TestJobClaimAction:
         rendering_job.assigned_worker = mock_worker
 
         mocker.patch.object(Worker.objects, 'get', return_value=mock_worker)
+        mock_sr = MagicMock()
+        mock_sr.get.return_value = rendering_job
         mock_sfu = MagicMock()
-        mock_sfu.get.return_value = rendering_job
+        mock_sfu.select_related.return_value = mock_sr
         mocker.patch.object(Job.objects, 'select_for_update', return_value=mock_sfu)
 
         request = factory.post('/api/jobs/42/claim/', {'worker_id': 1}, format='json')
@@ -142,8 +147,10 @@ class TestJobClaimAction:
         POST /api/jobs/999/claim/ when the job PK does not exist returns 404.
         """
         mocker.patch.object(Worker.objects, 'get', return_value=mock_worker)
+        mock_sr = MagicMock()
+        mock_sr.get.side_effect = Job.DoesNotExist
         mock_sfu = MagicMock()
-        mock_sfu.get.side_effect = Job.DoesNotExist
+        mock_sfu.select_related.return_value = mock_sr
         mocker.patch.object(Job.objects, 'select_for_update', return_value=mock_sfu)
 
         request = factory.post(
@@ -165,8 +172,10 @@ class TestJobClaimAction:
         done_job.assigned_worker = None
 
         mocker.patch.object(Worker.objects, 'get', return_value=mock_worker)
+        mock_sr = MagicMock()
+        mock_sr.get.return_value = done_job
         mock_sfu = MagicMock()
-        mock_sfu.get.return_value = done_job
+        mock_sfu.select_related.return_value = mock_sr
         mocker.patch.object(Job.objects, 'select_for_update', return_value=mock_sfu)
 
         request = factory.post(
@@ -192,8 +201,10 @@ class TestJobClaimAction:
         assigned_job.assigned_worker = mock_worker  # Already assigned
 
         mocker.patch.object(Worker.objects, 'get', return_value=mock_worker)
+        mock_sr = MagicMock()
+        mock_sr.get.return_value = assigned_job
         mock_sfu = MagicMock()
-        mock_sfu.get.return_value = assigned_job
+        mock_sfu.select_related.return_value = mock_sr
         mocker.patch.object(Job.objects, 'select_for_update', return_value=mock_sfu)
 
         request = factory.post(

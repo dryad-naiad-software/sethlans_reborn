@@ -34,9 +34,9 @@ def _png_bytes(color, size=(32, 32)):
 def test_animation_thumbnail_updates_on_each_frame(settings, tmp_path):
     settings.MEDIA_ROOT = tmp_path.as_posix()
 
-    sv = SupportedBlenderVersion.objects.create(
-        major=4, minor=5, series="4.5",
-        resolved_version="4.5.8", is_default=True,
+    sv, _ = SupportedBlenderVersion.objects.get_or_create(
+        series="4.5",
+        defaults=dict(major=4, minor=5, resolved_version="4.5.8", is_default=True),
     )
     project = Project.objects.create(name="anim-progress-proj", blender_version=sv)
     asset = Asset.objects.create(name="anim-progress-asset", project=project, blend_file=b"dummy")
