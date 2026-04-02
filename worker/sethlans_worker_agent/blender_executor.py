@@ -87,7 +87,13 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     output_file_pattern = job_data.get('output_file_pattern')
     start_frame = job_data.get('start_frame', 1)
     end_frame = job_data.get('end_frame', 1)
-    blender_version_req = job_data.get('blender_version')
+    # Use effective_blender_version (which resolves project defaults)
+    # when no explicit blender_version override is set on the job.
+    effective = job_data.get('effective_blender_version') or {}
+    blender_version_req = effective.get(
+        'resolved_version',
+        job_data.get('blender_version'),
+    )
     render_engine = job_data.get('render_engine', 'CYCLES')
     render_settings = job_data.get('render_settings', {})
     temp_script_path = None
