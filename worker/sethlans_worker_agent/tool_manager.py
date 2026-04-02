@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import stat
+import time
 import threading
 from pathlib import Path
 from . import config
@@ -38,6 +39,7 @@ class ToolManager:
         # partially-extracted directories as available (P2-F5).
         self._downloading_versions = set()
         self._download_lock = threading.Lock()
+        self._scan_cache, self._scan_cache_time = None, 0.0
 
     def acquire_version(self, version):
         """Increment usage count for a Blender version before render.
@@ -76,33 +78,28 @@ class ToolManager:
 
     def scan_for_local_blenders(self):
         """Scan for installed Blender versions, excluding those mid-download."""
-        self._create_tools_directory_if_not_exists()
-        found_blenders = []
-        logger.debug(f"Scanning for local Blender versions in: {self.blender_dir}")
-
-        for subdir in self.blender_dir.iterdir():
-            if subdir.is_dir():
-                # Expected format: blender-4.1.1-windows-x64
-                parts = subdir.name.split('-')
-                if len(parts) == 4 and parts[0] == 'blender':
-                    version = parts[1]
-                    platform_str = f"{parts[2]}-{parts[3]}"
-
-                    exe_path = self._get_executable_path_for_install(subdir.name)
-                    if Path(exe_path).is_file():
-                        logger.info(f"  Found managed Blender version: {version} for {platform_str}")
-                        found_blenders.append({"version": version, "platform": platform_str})
-
-        # Exclude versions that are currently being downloaded or extracted
-        # to prevent reporting partial installations as available (P2-F5).
+        if self._scan_cache is not None and (time.time() - self._scan_cache_time) < 30:
+            found = list(self._scan_cache)
+        else:
+            self._create_tools_directory_if_not_exists()
+            found = []
+            logger.debug(f"Scanning for local Blender versions in: {self.blender_dir}")
+            for subdir in self.blender_dir.iterdir():
+                if subdir.is_dir():
+                    parts = subdir.name.split('-')
+                    if len(parts) == 4 and parts[0] == 'blender':
+                        version = parts[1]
+                        platform_str = f"{parts[2]}-{parts[3]}"
+                        exe_path = self._get_executable_path_for_install(subdir.name)
+                        if Path(exe_path).is_file():
+                            logger.debug(f"  Found managed Blender version: {version} for {platform_str}")
+                            found.append({"version": version, "platform": platform_str})
+            self._scan_cache, self._scan_cache_time = found, time.time()
+            found = list(found)
+        # Always apply download exclusion filter (P2-F5).
         with self._download_lock:
             downloading = set(self._downloading_versions)
-        if downloading:
-            found_blenders = [
-                b for b in found_blenders
-                if b['version'] not in downloading
-            ]
-        return found_blenders
+        return [b for b in found if b['version'] not in downloading]
 
     def _get_platform_identifier(self):
         """Return the platform identifier string (e.g., 'windows-x64')."""
@@ -191,9 +188,9 @@ class ToolManager:
         # 2. If not, find download URL
         logger.info(f"Version {full_version} not found locally. Attempting to download.")
 
-        # Mark version as downloading so scan excludes it (P2-F5).
-        with self._download_lock:
+        with self._download_lock:  # Mark as downloading so scan excludes it (P2-F5).
             self._downloading_versions.add(full_version)
+        self._scan_cache = None
         try:
             result = self._download_and_install(full_version)
         finally:
@@ -235,6 +232,7 @@ class ToolManager:
 
             file_operations.extract_archive(download_path, self.blender_dir)
             file_operations.cleanup_archive(download_path)
+            self._scan_cache = None
 
         except Exception as e:
             logger.critical(f"An error occurred during download/extraction: {e}", exc_info=True)
@@ -287,6 +285,7 @@ class ToolManager:
 
         try:
             shutil.rmtree(install_dir)
+            self._scan_cache = None
             logger.info(f"Removed Blender version directory: {install_dir}")
             return True
         except OSError as e:
