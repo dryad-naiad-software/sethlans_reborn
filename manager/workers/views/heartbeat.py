@@ -48,11 +48,7 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         return [IsAdmin()]
 
     def get_authenticators(self):
-        """
-        Use TokenAuthentication only for ``create`` to skip CSRF.
-        Derive the action from ``action_map`` since ``self.action``
-        is not yet set when this runs during ``initialize_request``.
-        """
+        """Use TokenAuthentication for create to skip CSRF."""
         cur_action = getattr(self, 'action', None)
         if cur_action is None:
             action_map = getattr(self, 'action_map', {})
@@ -110,7 +106,12 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         return Response(data)
 
     def create(self, request):
-        """Worker registration / heartbeat with enrollment key auth."""
+        """Worker enrollment (key-based) or authenticated heartbeat."""
+        # Token-authenticated workers skip enrollment key check
+        if isinstance(request.auth, Token):
+            return self._process_heartbeat(request)
+
+        # Enrollment path: rate limit + key validation
         client_ip = self._get_client_ip(request)
         if _enrollment_rate_limiter.is_rate_limited(client_ip):
             return Response(
@@ -135,6 +136,10 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        return self._process_heartbeat(request)
+
+    def _process_heartbeat(self, request):
+        """Validate hostname and dispatch to registration or heartbeat."""
         hostname = request.data.get('hostname')
         if not hostname:
             return Response(
