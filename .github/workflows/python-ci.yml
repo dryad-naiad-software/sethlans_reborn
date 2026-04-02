@@ -200,8 +200,9 @@ jobs:
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv
       - name: Run Unit Tests
-        run: pytest manager/tests worker/tests manager/workers
-      # --- CHANGE: Simplified E2E test step for stable self-hosted runner ---
+        run: pytest tests/unit
+      - name: Run Integration Tests
+        run: pytest tests/integration
       - name: Run End-to-End Tests
         run: pytest tests/e2e
       - name: Attempt to Unmount Any Lingering DMGs (macOS)
