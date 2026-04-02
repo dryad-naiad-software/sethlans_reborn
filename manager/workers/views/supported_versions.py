@@ -13,7 +13,12 @@ import logging
 from django.db import models, transaction
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
+
+from ..utils.blender_series_cache import (
+    get_available_series, trigger_background_refresh,
+)
 
 from ..models import (
     Animation, Job, Project, SupportedBlenderVersion, TiledJob, JobStatus,
@@ -42,6 +47,21 @@ class SupportedBlenderVersionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrWorkerReadOnly]
     serializer_class = SupportedBlenderVersionSerializer
     queryset = SupportedBlenderVersion.objects.all()
+
+    @extend_schema(tags=['Management UI'])
+    @action(detail=False, methods=['get'], url_path='available_series')
+    def available_series(self, request):
+        """Return Blender series from download.blender.org, minus already-added."""
+        trigger_background_refresh()
+        data = get_available_series()
+        existing = set(
+            SupportedBlenderVersion.objects.values_list('series', flat=True)
+        )
+        filtered = [s for s in data['series'] if s not in existing]
+        return Response({
+            'series': filtered,
+            'cache_ready': data['cache_ready'],
+        })
 
     def destroy(self, request, *args, **kwargs):
         version = self.get_object()

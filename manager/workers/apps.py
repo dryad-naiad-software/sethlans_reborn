@@ -4,6 +4,7 @@
 
 from django.apps import AppConfig
 
+
 class WorkersConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "workers"
@@ -11,3 +12,8 @@ class WorkersConfig(AppConfig):
     def ready(self):
         # Ensure signal handlers are registered when the app loads
         from . import signals  # noqa: F401
+
+        # Populate Blender series cache in the background
+        import threading
+        from .utils.blender_series_cache import populate_cache
+        threading.Thread(target=populate_cache, daemon=True).start()
