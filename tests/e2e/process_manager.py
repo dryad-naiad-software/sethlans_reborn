@@ -100,12 +100,14 @@ def start_manager(env, port):
         subprocess.Popen: The manager process.
     """
     cmd = [
-        sys.executable, MANAGE_PY, "runserver",
-        f"0.0.0.0:{port}", "--noreload",
+        sys.executable, "-u", MANAGE_PY, "runserver",
+        f"127.0.0.1:{port}", "--noreload",
     ]
     stdout_f, stderr_f = _open_log_files("manager")
+    # Force unbuffered output so log files are readable in real time.
+    unbuffered_env = dict(env, PYTHONUNBUFFERED="1")
     popen_kwargs = {
-        "env": env,
+        "env": unbuffered_env,
         "stdout": stdout_f,
         "stderr": stderr_f,
     }
@@ -125,10 +127,11 @@ def start_worker(env):
     Returns:
         subprocess.Popen: The worker process.
     """
-    cmd = [sys.executable, WORKER_ENTRY, "--loglevel", "DEBUG"]
+    cmd = [sys.executable, "-u", WORKER_ENTRY, "--loglevel", "DEBUG"]
     stdout_f, stderr_f = _open_log_files("worker")
+    unbuffered_env = dict(env, PYTHONUNBUFFERED="1")
     popen_kwargs = {
-        "env": env,
+        "env": unbuffered_env,
         "stdout": stdout_f,
         "stderr": stderr_f,
     }
