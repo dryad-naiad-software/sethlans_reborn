@@ -192,6 +192,24 @@ def _read_log_files(proc):
     return _close_and_read(stdout_f), _close_and_read(stderr_f)
 
 
+def _peek_log_files(proc):
+    """Read log files without closing them (safe while process runs)."""
+    log_files = getattr(proc, '_log_files', None)
+    if not log_files:
+        return "", ""
+    stdout_f, stderr_f = log_files
+    contents = []
+    for f in (stdout_f, stderr_f):
+        try:
+            # Flush parent's write buffer, then read from disk.
+            f.flush()
+            with open(f.name, "r", errors="replace") as fh:
+                contents.append(fh.read())
+        except Exception:
+            contents.append("")
+    return contents[0], contents[1]
+
+
 def kill_process_tree(proc):
     """
     Kill a process and all its children using psutil.
@@ -262,9 +280,7 @@ def wait_for_manager(base_url, timeout=60, proc=None):
     detail = ""
     if proc is not None:
         alive = proc.poll() is None
-        stdout, stderr = ("", "")
-        if not alive:
-            stdout, stderr = _read_log_files(proc)
+        stdout, stderr = _peek_log_files(proc)
         detail = (
             f"\nProcess alive: {alive}, returncode: {proc.returncode}"
             f"\n--- STDOUT (last 2000 chars) ---\n{stdout[-2000:]}"
