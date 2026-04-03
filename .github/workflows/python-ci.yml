@@ -47,9 +47,9 @@ jobs:
           key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('worker/sethlans_worker_agent/config.py') }}
       - name: Lint with flake8
         run: |
-          # Exclude common virtual environment directories from linting.
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv
+          # Exclude common virtual environment directories, Blender managed tools, and node_modules from linting.
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv,managed_tools,node_modules
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv,managed_tools,node_modules
       - name: Run Unit Tests
         run: pytest tests/unit
       - name: Run Integration Tests
@@ -132,8 +132,8 @@ jobs:
           key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('worker/sethlans_worker_agent/config.py') }}
       - name: Lint with flake8
         run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv,managed_tools,node_modules
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv,managed_tools,node_modules
       - name: Run Unit Tests
         run: pytest tests/unit
       - name: Run Integration Tests
@@ -197,8 +197,8 @@ jobs:
           key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('worker/sethlans_worker_agent/config.py') }}
       - name: Lint with flake8
         run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv,managed_tools,node_modules
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv,managed_tools,node_modules
       - name: Run Unit Tests
         run: pytest tests/unit
       - name: Run Integration Tests
