@@ -57,20 +57,9 @@ jobs:
       - name: Run End-to-End Tests (Windows & Linux)
         if: runner.os != 'macOS'
         run: pytest tests/e2e
-      - name: macOS E2E Tests & Diagnostics
+      - name: Run End-to-End Tests (macOS)
         if: runner.os == 'macOS'
-        run: |
-          df -h
-          mkdir -p worker/sethlans_worker_agent/managed_tools/blender/
-          ls -la worker/sethlans_worker_agent/managed_tools/blender/
-          pytest tests/e2e || (
-            echo "E2E tests failed. Collecting post-run diagnostic info..."
-            df -h
-            mount
-            ls -laR worker/sethlans_worker_agent/managed_tools/blender/
-            exit 1
-          )
-        continue-on-error: true
+        run: pytest tests/e2e
       - name: Attempt to Unmount Any Lingering DMGs (macOS)
         if: runner.os == 'macOS' && always()
         run: |

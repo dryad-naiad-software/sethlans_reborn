@@ -225,11 +225,28 @@ def kill_process_tree(proc):
     return _read_log_files(proc)
 
 
-def wait_for_manager(base_url, timeout=60):
-    """Poll the manager until it responds to HTTP requests."""
+def wait_for_manager(base_url, timeout=60, proc=None):
+    """Poll the manager until it responds to HTTP requests.
+
+    Args:
+        base_url: The manager's HTTP base URL.
+        timeout: Maximum seconds to wait.
+        proc: The manager subprocess.Popen — if supplied, we check
+              whether the process has crashed on each poll iteration
+              and surface its stderr/stdout in the error message.
+    """
     import requests
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        # Fail fast if the manager process has exited.
+        if proc is not None and proc.poll() is not None:
+            stdout, stderr = _read_log_files(proc)
+            raise RuntimeError(
+                f"Manager process (PID {proc.pid}) exited with "
+                f"code {proc.returncode} before becoming ready.\n"
+                f"--- STDOUT ---\n{stdout[-2000:]}\n"
+                f"--- STDERR ---\n{stderr[-2000:]}"
+            )
         try:
             resp = requests.get(
                 f"{base_url}/api/auth/csrf/", timeout=3,
@@ -240,9 +257,22 @@ def wait_for_manager(base_url, timeout=60):
         except requests.ConnectionError:
             pass
         time.sleep(1)
+
+    # Timeout reached — collect whatever output we can.
+    detail = ""
+    if proc is not None:
+        alive = proc.poll() is None
+        stdout, stderr = ("", "")
+        if not alive:
+            stdout, stderr = _read_log_files(proc)
+        detail = (
+            f"\nProcess alive: {alive}, returncode: {proc.returncode}"
+            f"\n--- STDOUT (last 2000 chars) ---\n{stdout[-2000:]}"
+            f"\n--- STDERR (last 2000 chars) ---\n{stderr[-2000:]}"
+        )
     raise TimeoutError(
         f"Manager at {base_url} did not become ready "
-        f"within {timeout}s"
+        f"within {timeout}s{detail}"
     )
 
 

@@ -89,7 +89,7 @@ class TestCoreWorkflows:
 
         setup_database(cls.manager_env)
         cls.manager_proc = start_manager(cls.manager_env, cls.port)
-        wait_for_manager(cls.base_url)
+        wait_for_manager(cls.base_url, proc=cls.manager_proc)
 
         cls.session = requests.Session()
         admin_login(
