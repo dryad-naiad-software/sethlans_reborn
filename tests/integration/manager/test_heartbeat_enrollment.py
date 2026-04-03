@@ -9,6 +9,8 @@ token-authenticated heartbeats, required_blender_versions,
 and token revocation forcing re-enrollment.
 """
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.authtoken.models import Token
@@ -147,6 +149,12 @@ class TestTokenAuthenticatedHeartbeat:
     ):
         """Token-authenticated heartbeat updates worker fields."""
         worker, client = worker_with_token
+        # Backdate last_seen so the heartbeat is guaranteed to advance it,
+        # even on fast CI runners where create + heartbeat can share a
+        # microsecond timestamp.
+        past = worker.last_seen - timedelta(seconds=10)
+        Worker.objects.filter(pk=worker.pk).update(last_seen=past)
+        worker.refresh_from_db()
         old_last_seen = worker.last_seen
 
         new_tools = {'blender': ['4.2.19', '4.3.0']}
