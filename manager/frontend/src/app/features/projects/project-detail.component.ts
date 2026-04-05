@@ -2,29 +2,29 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component, inject, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatCardModule } from '@angular/material/card';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { Subscription, switchMap } from 'rxjs';
 import { ProjectService, Project } from '../../core/services/project.service';
 import { AssetService, Asset } from '../../core/services/asset.service';
 import { poll } from '../../core/services/polling.util';
-import { JobCreateFormComponent } from './job-create-form.component';
+import { JobCreateFormComponent, JobCreateDialogData } from './job-create-form.component';
 import { ProjectJobsTableComponent } from './project-jobs-table.component';
 
 @Component({
   selector: 'app-project-detail',
   standalone: true,
   imports: [
-    DatePipe, RouterLink, MatButtonModule, MatIconModule, MatCardModule,
+    DatePipe, RouterLink, MatButtonModule, MatIconModule,
     MatDividerModule, MatProgressSpinnerModule, MatSnackBarModule,
-    JobCreateFormComponent, ProjectJobsTableComponent,
+    MatDialogModule, ProjectJobsTableComponent,
   ],
   template: `
     @if (loading) {
@@ -38,6 +38,9 @@ import { ProjectJobsTableComponent } from './project-jobs-table.component';
           <p class="subtitle">
             Blender {{ project.blender_version_details.series }}
             ({{ project.blender_version_details.resolved_version }})
+            @if (asset) {
+              &middot; {{ asset.name }}
+            }
             &middot; Created {{ project.created_at | date:'mediumDate' }}
           </p>
           <p class="status-line">
@@ -73,27 +76,14 @@ import { ProjectJobsTableComponent } from './project-jobs-table.component';
 
       <mat-divider />
 
-      @if (asset) {
-        <section class="section">
-          <h2>Asset</h2>
-          <p>{{ asset.name }} &middot; Uploaded {{ asset.created_at | date:'mediumDate' }}</p>
-        </section>
-        <mat-divider />
-      }
-
-      <section class="section">
-        <app-job-create-form
-          [projectId]="project.id"
-          [assetId]="asset?.id ?? 0"
-          (jobCreated)="onJobCreated()" />
-      </section>
-
-      <mat-divider />
-
-      <section class="section">
+      <div class="jobs-header">
         <h2>Jobs</h2>
-        <app-project-jobs-table #jobsTable [projectId]="project.id" />
-      </section>
+        <button mat-raised-button color="primary" (click)="openCreateRender()"
+                [disabled]="!asset">
+          <mat-icon>add</mat-icon> Create Render
+        </button>
+      </div>
+      <app-project-jobs-table [projectId]="project.id" />
     } @else {
       <p>Project not found.</p>
     }
@@ -111,8 +101,8 @@ import { ProjectJobsTableComponent } from './project-jobs-table.component';
       background: #fff3e0; border-radius: 4px; margin: 12px 0;
     }
     mat-divider { margin: 16px 0; }
-    .section { margin: 16px 0; }
-    section h2 { margin-bottom: 8px; }
+    .jobs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .jobs-header h2 { margin: 0; }
   `],
 })
 export class ProjectDetailComponent implements OnInit, OnDestroy {
@@ -121,10 +111,9 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   private readonly projectService = inject(ProjectService);
   private readonly assetService = inject(AssetService);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly dialog = inject(MatDialog);
   private projectSub?: Subscription;
   private assetSub?: Subscription;
-
-  @ViewChild('jobsTable') jobsTable?: ProjectJobsTableComponent;
 
   project: Project | null = null;
   asset: Asset | null = null;
@@ -136,7 +125,7 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
     this.projectSub = this.route.paramMap.pipe(
       switchMap(params => {
         const id = params.get('id')!;
-        this.startAssetPolling(id);
+        this.fetchAsset(id);
         return poll(() => this.projectService.get(id));
       }),
     ).subscribe({
@@ -179,11 +168,19 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
     });
   }
 
-  onJobCreated(): void {
-    // Jobs table is already polling, so the new job will appear automatically
+  openCreateRender(): void {
+    if (!this.project || !this.asset) return;
+    const data: JobCreateDialogData = {
+      projectId: this.project.id,
+      assetId: this.asset.id,
+    };
+    this.dialog.open(JobCreateFormComponent, {
+      width: '700px',
+      data,
+    });
   }
 
-  private startAssetPolling(projectId: string): void {
+  private fetchAsset(projectId: string): void {
     this.assetSub?.unsubscribe();
     this.assetSub = this.assetService.list({ project: projectId }).subscribe({
       next: (assets) => { this.asset = assets.length > 0 ? assets[0] : null; },

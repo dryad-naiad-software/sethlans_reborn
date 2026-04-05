@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
+import { Component, inject, Inject } from '@angular/core';
+import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
 import {
   ReactiveFormsModule, FormGroup, FormControl, Validators,
@@ -27,94 +28,98 @@ import {
 
 type RenderType = 'single' | 'tiled' | 'animation';
 
+export interface JobCreateDialogData {
+  projectId: string;
+  assetId: number;
+}
+
 @Component({
   selector: 'app-job-create-form',
   standalone: true,
   imports: [
-    FormsModule, ReactiveFormsModule, MatCardModule, MatFormFieldModule,
+    FormsModule, ReactiveFormsModule, MatDialogModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatRadioModule,
     MatButtonModule, MatIconModule, MatSnackBarModule,
   ],
   template: `
-    <mat-card>
-      <mat-card-header><mat-card-title>Create Render</mat-card-title></mat-card-header>
-      <mat-card-content>
-        <mat-radio-group [(ngModel)]="renderType" class="type-selector">
-          <mat-radio-button value="single"><mat-icon>image</mat-icon> Single</mat-radio-button>
-          <mat-radio-button value="tiled"><mat-icon>grid_view</mat-icon> Tiled</mat-radio-button>
-          <mat-radio-button value="animation"><mat-icon>movie</mat-icon> Animation</mat-radio-button>
-        </mat-radio-group>
-        <form [formGroup]="form" (ngSubmit)="onSubmit()" class="render-form">
-          <div class="form-row">
-            <mat-form-field><mat-label>Name</mat-label>
-              <input matInput formControlName="name" /></mat-form-field>
-            <mat-form-field><mat-label>Engine</mat-label>
-              <mat-select formControlName="renderEngine">
-                @for (e of engines; track e.value) {
-                  <mat-option [value]="e.value">{{ e.label }}</mat-option>
+    <h2 mat-dialog-title>Create Render</h2>
+    <mat-dialog-content>
+      <mat-radio-group [(ngModel)]="renderType" class="type-selector">
+        <mat-radio-button value="single"><mat-icon>image</mat-icon> Single</mat-radio-button>
+        <mat-radio-button value="tiled"><mat-icon>grid_view</mat-icon> Tiled</mat-radio-button>
+        <mat-radio-button value="animation"><mat-icon>movie</mat-icon> Animation</mat-radio-button>
+      </mat-radio-group>
+      <form [formGroup]="form" class="render-form">
+        <div class="form-row">
+          <mat-form-field><mat-label>Name</mat-label>
+            <input matInput formControlName="name" /></mat-form-field>
+          <mat-form-field><mat-label>Engine</mat-label>
+            <mat-select formControlName="renderEngine">
+              @for (e of engines; track e.value) {
+                <mat-option [value]="e.value">{{ e.label }}</mat-option>
+              }</mat-select></mat-form-field>
+          <mat-form-field><mat-label>Device</mat-label>
+            <mat-select formControlName="renderDevice">
+              @for (d of devices; track d.value) {
+                <mat-option [value]="d.value">{{ d.label }}</mat-option>
+              }</mat-select></mat-form-field>
+        </div>
+        <div class="form-row">
+          <mat-form-field><mat-label>Samples</mat-label>
+            <input matInput type="number" formControlName="samples" /></mat-form-field>
+          <mat-form-field><mat-label>Resolution X</mat-label>
+            <input matInput type="number" formControlName="resolutionX" /></mat-form-field>
+          <span class="res-x">x</span>
+          <mat-form-field><mat-label>Resolution Y</mat-label>
+            <input matInput type="number" formControlName="resolutionY" /></mat-form-field>
+        </div>
+        <div class="form-row">
+          @if (renderType === 'single') {
+            <mat-form-field><mat-label>Frame</mat-label>
+              <input matInput type="number" formControlName="frame" /></mat-form-field>
+          }
+          @if (renderType === 'tiled') {
+            <mat-form-field><mat-label>Tiling</mat-label>
+              <mat-select formControlName="tilingConfig">
+                @for (t of tilingOptions; track t.value) {
+                  <mat-option [value]="t.value">{{ t.label }}</mat-option>
                 }</mat-select></mat-form-field>
-            <mat-form-field><mat-label>Device</mat-label>
-              <mat-select formControlName="renderDevice">
-                @for (d of devices; track d.value) {
-                  <mat-option [value]="d.value">{{ d.label }}</mat-option>
+          }
+          @if (renderType === 'animation') {
+            <mat-form-field><mat-label>Start Frame</mat-label>
+              <input matInput type="number" formControlName="startFrame" /></mat-form-field>
+            <mat-form-field><mat-label>End Frame</mat-label>
+              <input matInput type="number" formControlName="endFrame" />
+              @if (form.hasError('endFrameBeforeStart')) {
+                <mat-error>End frame must be >= start frame</mat-error>
+              }</mat-form-field>
+            <mat-form-field><mat-label>Frame Step</mat-label>
+              <input matInput type="number" formControlName="frameStep" /></mat-form-field>
+            <mat-form-field><mat-label>Tiling</mat-label>
+              <mat-select formControlName="animTilingConfig">
+                @for (t of animTilingOptions; track t.value) {
+                  <mat-option [value]="t.value">{{ t.label }}</mat-option>
                 }</mat-select></mat-form-field>
-          </div>
-          <div class="form-row">
-            <mat-form-field><mat-label>Samples</mat-label>
-              <input matInput type="number" formControlName="samples" /></mat-form-field>
-            <mat-form-field><mat-label>Resolution X</mat-label>
-              <input matInput type="number" formControlName="resolutionX" /></mat-form-field>
-            <span class="res-x">x</span>
-            <mat-form-field><mat-label>Resolution Y</mat-label>
-              <input matInput type="number" formControlName="resolutionY" /></mat-form-field>
-          </div>
-          <div class="form-row">
-            @if (renderType === 'single') {
-              <mat-form-field><mat-label>Frame</mat-label>
-                <input matInput type="number" formControlName="frame" /></mat-form-field>
-            }
-            @if (renderType === 'tiled') {
-              <mat-form-field><mat-label>Tiling</mat-label>
-                <mat-select formControlName="tilingConfig">
-                  @for (t of tilingOptions; track t.value) {
-                    <mat-option [value]="t.value">{{ t.label }}</mat-option>
-                  }</mat-select></mat-form-field>
-            }
-            @if (renderType === 'animation') {
-              <mat-form-field><mat-label>Start Frame</mat-label>
-                <input matInput type="number" formControlName="startFrame" /></mat-form-field>
-              <mat-form-field><mat-label>End Frame</mat-label>
-                <input matInput type="number" formControlName="endFrame" />
-                @if (form.hasError('endFrameBeforeStart')) {
-                  <mat-error>End frame must be >= start frame</mat-error>
-                }</mat-form-field>
-              <mat-form-field><mat-label>Frame Step</mat-label>
-                <input matInput type="number" formControlName="frameStep" /></mat-form-field>
-              <mat-form-field><mat-label>Tiling</mat-label>
-                <mat-select formControlName="animTilingConfig">
-                  @for (t of animTilingOptions; track t.value) {
-                    <mat-option [value]="t.value">{{ t.label }}</mat-option>
-                  }</mat-select></mat-form-field>
-            }
-            <mat-form-field><mat-label>Output Format</mat-label>
-              <mat-select formControlName="outputFormat">
-                @for (f of outputFormats; track f.value) {
-                  <mat-option [value]="f.value">{{ f.label }}</mat-option>
-                }</mat-select></mat-form-field>
-          </div>
-          <div class="form-actions">
-            <button mat-flat-button color="primary" type="submit"
-                    [disabled]="form.invalid || submitting">
-              @switch (renderType) {
-                @case ('single') { Create Job }
-                @case ('tiled') { Create Tiled Job }
-                @case ('animation') { Create Animation }
-              }
-            </button>
-          </div>
-        </form>
-      </mat-card-content>
-    </mat-card>
+          }
+          <mat-form-field><mat-label>Output Format</mat-label>
+            <mat-select formControlName="outputFormat">
+              @for (f of outputFormats; track f.value) {
+                <mat-option [value]="f.value">{{ f.label }}</mat-option>
+              }</mat-select></mat-form-field>
+        </div>
+      </form>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-button mat-dialog-close>Cancel</button>
+      <button mat-flat-button color="primary"
+              [disabled]="form.invalid || submitting" (click)="onSubmit()">
+        @switch (renderType) {
+          @case ('single') { Create Job }
+          @case ('tiled') { Create Tiled Job }
+          @case ('animation') { Create Animation }
+        }
+      </button>
+    </mat-dialog-actions>
   `,
   styles: [`
     .type-selector { display: flex; gap: 24px; margin-bottom: 16px; }
@@ -123,14 +128,11 @@ type RenderType = 'single' | 'tiled' | 'animation';
     .form-row { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
     .form-row mat-form-field { flex: 1; min-width: 120px; }
     .res-x { padding-top: 12px; }
-    .form-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
   `],
 })
 export class JobCreateFormComponent {
-  @Input() projectId = '';
-  @Input() assetId = 0;
-  @Output() jobCreated = new EventEmitter<string>();
-
+  private readonly dialogRef = inject(MatDialogRef<JobCreateFormComponent>);
+  private readonly data: JobCreateDialogData = inject(MAT_DIALOG_DATA);
   private readonly jobService = inject(JobService);
   private readonly tiledJobService = inject(TiledJobService);
   private readonly animationService = inject(AnimationService);
@@ -184,7 +186,7 @@ export class JobCreateFormComponent {
 
   private createSingle(v: ReturnType<typeof this.form.getRawValue>): void {
     this.jobService.create({
-      name: v.name!, asset_id: this.assetId,
+      name: v.name!, asset_id: this.data.assetId,
       output_file_pattern: generateOutputFilePattern(v.name!),
       start_frame: v.frame!, end_frame: v.frame!,
       render_engine: v.renderEngine!, render_device: v.renderDevice!,
@@ -195,7 +197,7 @@ export class JobCreateFormComponent {
   private createTiled(v: ReturnType<typeof this.form.getRawValue>): void {
     const t = parseTilingConfig(v.tilingConfig!);
     this.tiledJobService.create({
-      name: v.name!, project: this.projectId, asset_id: this.assetId,
+      name: v.name!, project: this.data.projectId, asset_id: this.data.assetId,
       final_resolution_x: v.resolutionX!, final_resolution_y: v.resolutionY!,
       tile_count_x: t.tile_count_x, tile_count_y: t.tile_count_y,
       render_engine: v.renderEngine!, render_device: v.renderDevice!,
@@ -205,7 +207,7 @@ export class JobCreateFormComponent {
 
   private createAnim(v: ReturnType<typeof this.form.getRawValue>): void {
     this.animationService.create({
-      name: v.name!, project: this.projectId, asset_id: this.assetId,
+      name: v.name!, project: this.data.projectId, asset_id: this.data.assetId,
       output_file_pattern: generateOutputFilePattern(v.name!),
       start_frame: v.startFrame!, end_frame: v.endFrame!, frame_step: v.frameStep!,
       tiling_config: v.animTilingConfig!,
@@ -217,7 +219,7 @@ export class JobCreateFormComponent {
   private done(name: string): void {
     this.submitting = false;
     this.snackBar.open(`Created "${name}"`, 'Dismiss', { duration: 3000 });
-    this.jobCreated.emit(name);
+    this.dialogRef.close(name);
   }
 
   private fail(err: { error?: Record<string, unknown> }): void {
