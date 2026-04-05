@@ -4,14 +4,18 @@
 
 .DESCRIPTION
     Commands:
-      dev     Full dev environment: config + deps + db + admin + frontend + start
-      clean   Nuke all development artifacts (no confirmation)
-      start   Start manager + worker (assumes already set up)
+      dev      Full dev environment: config + deps + db + admin + frontend + start
+      clean    Nuke all development artifacts (no confirmation)
+      start    Start manager + worker (assumes already set up)
+      manager  Start manager only
+      worker   Start worker only
 
 .EXAMPLE
     .\tools\sethlans.ps1 dev
     .\tools\sethlans.ps1 clean
     .\tools\sethlans.ps1 start
+    .\tools\sethlans.ps1 manager
+    .\tools\sethlans.ps1 worker
 #>
 
 param(
@@ -29,15 +33,46 @@ $ConfigFile = Join-Path $ManagerDir "manager.ini"
 $ManagePy = Join-Path $ManagerDir "manage.py"
 $WorkerDir = Join-Path $ProjectRoot "worker"
 $AgentDir = Join-Path $WorkerDir "sethlans_worker_agent"
+$PidDir = Join-Path $ProjectRoot ".pids"
 
 # ── Helpers ──────────────────────────────────────────────────────
 
 function Show-Usage {
     Write-Host "Usage: .\tools\sethlans.ps1 <command>"
     Write-Host ""
-    Write-Host "  dev     Setup everything from scratch and start services"
-    Write-Host "  clean   Remove all development artifacts"
-    Write-Host "  start   Start manager + worker (must run dev first)"
+    Write-Host "  dev      Setup everything from scratch and start services"
+    Write-Host "  clean    Remove all development artifacts"
+    Write-Host "  start    Start manager + worker (must run dev first)"
+    Write-Host "  manager  Start manager in the background"
+    Write-Host "  worker   Start worker in the background"
+    Write-Host "  stop     Stop background manager and/or worker"
+    Write-Host "  status   Show running manager/worker processes"
+}
+
+function Ensure-Dirs {
+    if (-not (Test-Path $PidDir)) { New-Item -ItemType Directory -Path $PidDir -Force | Out-Null }
+}
+
+function Get-SavedPid($name) {
+    $pidFile = Join-Path $PidDir "$name.pid"
+    if (Test-Path $pidFile) {
+        $savedId = (Get-Content $pidFile -Raw).Trim()
+        if ($savedId -and (Get-Process -Id $savedId -ErrorAction SilentlyContinue)) {
+            return [int]$savedId
+        }
+        Remove-Item $pidFile -ErrorAction SilentlyContinue
+    }
+    return $null
+}
+
+function Save-Pid($name, $procId) {
+    Ensure-Dirs
+    Set-Content -Path (Join-Path $PidDir "$name.pid") -Value $procId
+}
+
+function Remove-Pid($name) {
+    $pidFile = Join-Path $PidDir "$name.pid"
+    if (Test-Path $pidFile) { Remove-Item $pidFile -ErrorAction SilentlyContinue }
 }
 
 function Invoke-GenerateConfig {
@@ -112,35 +147,18 @@ with open(r'$workerConfig', 'w') as f:
 
 function Invoke-StartServices {
     Write-Host ""
-    Write-Host "--- Starting manager (background) on port 7075 ---"
-
-    $managerProcess = Start-Process -FilePath "python" -ArgumentList "$ManagePy", "runserver", "7075" `
-        -PassThru -NoNewWindow
-
-    Start-Sleep -Seconds 2
-
-    if ($managerProcess.HasExited) {
-        Write-Host "[ERROR] Manager failed to start"
-        exit 1
-    }
-    Write-Host "[OK] Manager running (PID $($managerProcess.Id))"
+    Invoke-Manager
 
     $workerConfig = Join-Path $WorkerDir "config.ini"
-    try {
-        if (Test-Path $workerConfig) {
-            Write-Host ""
-            Write-Host "--- Starting worker (foreground) ---"
-            python (Join-Path $WorkerDir "run_worker.py")
-        } else {
-            Write-Host "[!!] No worker config - manager running alone. Ctrl+C to stop."
-            Wait-Process -Id $managerProcess.Id
-        }
-    } finally {
-        if (-not $managerProcess.HasExited) {
-            Stop-Process -Id $managerProcess.Id -Force -ErrorAction SilentlyContinue
-            Write-Host "[OK] Manager stopped"
-        }
+    if (Test-Path $workerConfig) {
+        Write-Host ""
+        Invoke-Worker
+    } else {
+        Write-Host "[!!] No worker config - manager running alone"
     }
+
+    Write-Host ""
+    Invoke-Status
 }
 
 # ── dev ──────────────────────────────────────────────────────────
@@ -251,17 +269,128 @@ function Invoke-Start {
         exit 1
     }
 
+    Invoke-StartServices
+}
+
+# ── manager ──────────────────────────────────────────────────────
+
+function Invoke-Manager {
+    if (-not (Test-Path $ConfigFile)) {
+        Write-Host "[ERROR] manager.ini not found. Run: .\tools\sethlans.ps1 dev"
+        exit 1
+    }
+
+    $existing = Get-SavedPid "manager"
+    if ($existing) {
+        Write-Host "[OK] Manager already running (PID $existing)"
+        return
+    }
+
     Write-Host "--- Applying migrations ---"
     python $ManagePy migrate
 
-    Invoke-StartServices
+    Ensure-Dirs
+    $outLog = Join-Path $env:TEMP "sethlans_manager_out.log"
+    $errLog = Join-Path $env:TEMP "sethlans_manager_err.log"
+    $proc = Start-Process -FilePath "python" -ArgumentList "$ManagePy", "runserver", "0.0.0.0:7075" `
+        -PassThru -NoNewWindow -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+
+    Start-Sleep -Seconds 2
+    if ($proc.HasExited) {
+        Write-Host "[ERROR] Manager failed to start"
+        exit 1
+    }
+
+    Save-Pid "manager" $proc.Id
+    Write-Host "[OK] Manager started in background (PID $($proc.Id))"
+    Write-Host "     Stop: .\tools\sethlans.ps1 stop"
+}
+
+# ── worker ───────────────────────────────────────────────────────
+
+function Invoke-Worker {
+    $workerConfig = Join-Path $WorkerDir "config.ini"
+    if (-not (Test-Path $workerConfig)) {
+        Write-Host "[ERROR] Worker config.ini not found. Run: .\tools\sethlans.ps1 dev"
+        exit 1
+    }
+
+    $existing = Get-SavedPid "worker"
+    if ($existing) {
+        Write-Host "[OK] Worker already running (PID $existing)"
+        return
+    }
+
+    Ensure-Dirs
+    $outLog = Join-Path $env:TEMP "sethlans_worker_out.log"
+    $errLog = Join-Path $env:TEMP "sethlans_worker_err.log"
+    $proc = Start-Process -FilePath "python" -ArgumentList (Join-Path $WorkerDir "run_worker.py") `
+        -PassThru -NoNewWindow -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+
+    Start-Sleep -Seconds 2
+    if ($proc.HasExited) {
+        Write-Host "[ERROR] Worker failed to start"
+        exit 1
+    }
+
+    Save-Pid "worker" $proc.Id
+    Write-Host "[OK] Worker started in background (PID $($proc.Id))"
+    Write-Host "     Stop: .\tools\sethlans.ps1 stop"
+}
+
+# ── stop ─────────────────────────────────────────────────────────
+
+function Invoke-Stop {
+    $stopped = $false
+
+    $managerPid = Get-SavedPid "manager"
+    if ($managerPid) {
+        Stop-Process -Id $managerPid -Force -ErrorAction SilentlyContinue
+        Remove-Pid "manager"
+        Write-Host "[OK] Manager stopped (PID $managerPid)"
+        $stopped = $true
+    }
+
+    $workerPid = Get-SavedPid "worker"
+    if ($workerPid) {
+        Stop-Process -Id $workerPid -Force -ErrorAction SilentlyContinue
+        Remove-Pid "worker"
+        Write-Host "[OK] Worker stopped (PID $workerPid)"
+        $stopped = $true
+    }
+
+    if (-not $stopped) {
+        Write-Host "[OK] No running services found"
+    }
+}
+
+# ── status ───────────────────────────────────────────────────────
+
+function Invoke-Status {
+    $managerPid = Get-SavedPid "manager"
+    if ($managerPid) {
+        Write-Host "Manager:  running (PID $managerPid)"
+    } else {
+        Write-Host "Manager:  not running"
+    }
+
+    $workerPid = Get-SavedPid "worker"
+    if ($workerPid) {
+        Write-Host "Worker:   running (PID $workerPid)"
+    } else {
+        Write-Host "Worker:   not running"
+    }
 }
 
 # ── Main dispatch ────────────────────────────────────────────────
 
 switch ($Command) {
-    "dev"   { Invoke-Dev }
-    "clean" { Invoke-Clean }
-    "start" { Invoke-Start }
-    default { Show-Usage; exit 1 }
+    "dev"     { Invoke-Dev }
+    "clean"   { Invoke-Clean }
+    "start"   { Invoke-Start }
+    "manager" { Invoke-Manager }
+    "worker"  { Invoke-Worker }
+    "stop"    { Invoke-Stop }
+    "status"  { Invoke-Status }
+    default   { Show-Usage; exit 1 }
 }

@@ -31,12 +31,11 @@ ui_enabled = true
 # Port for the web UI HTTP server.
 ui_port = 7076
 # Bind address for the web UI.
-# Default: 127.0.0.1 (localhost only - most secure)
-# Set to 0.0.0.0 to allow access from other machines on the network.
-# WARNING: Binding to 0.0.0.0 exposes the dashboard and control endpoints
-# to your entire network. Ensure a strong password is set and consider
-# firewall rules to restrict access.
-ui_bind_address = 127.0.0.1
+# Default: 0.0.0.0 (all interfaces - accessible from network).
+# Set to 127.0.0.1 to restrict to localhost only.
+# NOTE: Control endpoints require password authentication.
+# Change the default password via the dashboard on first use.
+ui_bind_address = 0.0.0.0
 # Password hash and salt for control endpoint authentication.
 # These are written automatically when you set a password at first startup.
 # Do NOT edit these manually. To reset, delete both lines and restart.

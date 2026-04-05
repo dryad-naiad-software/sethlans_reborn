@@ -174,3 +174,4 @@ temp/
 .playwright-mcp/
 *.png
 .tmp
+.pids/

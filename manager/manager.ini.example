@@ -9,7 +9,11 @@
 # precedence over the 'port' value defined here.
 
 [server]
-# The port the Django development server will run on.
+# Bind address for the manager server.
+# Default: 0.0.0.0 (all interfaces — accessible from network)
+# Set to 127.0.0.1 to restrict to localhost only.
+host = 0.0.0.0
+# The port the manager server will run on.
 port = 7075
 
 [security]

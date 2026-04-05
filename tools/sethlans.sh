@@ -3,9 +3,11 @@
 # Unified CLI for Sethlans Reborn development.
 #
 # Commands:
-#   dev     Full dev environment: config + deps + db + admin + frontend + start
-#   clean   Nuke all development artifacts (no confirmation)
-#   start   Start manager + worker (assumes already set up)
+#   dev      Full dev environment: config + deps + db + admin + frontend + start
+#   clean    Nuke all development artifacts (no confirmation)
+#   start    Start manager + worker (assumes already set up)
+#   manager  Start manager only
+#   worker   Start worker only
 
 set -euo pipefail
 
@@ -18,22 +20,47 @@ MANAGE_PY="$MANAGER_DIR/manage.py"
 WORKER_DIR="$PROJECT_ROOT/worker"
 AGENT_DIR="$WORKER_DIR/sethlans_worker_agent"
 
-MANAGER_PID=""
+PID_DIR="$PROJECT_ROOT/.pids"
 
 usage() {
     echo "Usage: bash tools/sethlans.sh <command>"
     echo ""
-    echo "  dev     Setup everything from scratch and start services"
-    echo "  clean   Remove all development artifacts"
-    echo "  start   Start manager + worker (must run dev first)"
+    echo "  dev      Setup everything from scratch and start services"
+    echo "  clean    Remove all development artifacts"
+    echo "  start    Start manager + worker (must run dev first)"
+    echo "  manager  Start manager in the background"
+    echo "  worker   Start worker in the background"
+    echo "  stop     Stop background manager and/or worker"
+    echo "  status   Show running manager/worker processes"
 }
 
-cleanup() {
-    if [ -n "$MANAGER_PID" ] && kill -0 "$MANAGER_PID" 2>/dev/null; then
-        kill "$MANAGER_PID" 2>/dev/null
-        wait "$MANAGER_PID" 2>/dev/null || true
-        echo "[OK] Manager stopped"
+ensure_dirs() {
+    mkdir -p "$PID_DIR"
+}
+
+get_saved_pid() {
+    local name="$1"
+    local pid_file="$PID_DIR/$name.pid"
+    if [ -f "$pid_file" ]; then
+        local pid
+        pid=$(cat "$pid_file")
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "$pid"
+            return
+        fi
+        rm -f "$pid_file"
     fi
+    echo ""
+}
+
+save_pid() {
+    local name="$1" pid="$2"
+    ensure_dirs
+    echo "$pid" > "$PID_DIR/$name.pid"
+}
+
+remove_pid() {
+    rm -f "$PID_DIR/$1.pid"
 }
 
 generate_config() {
@@ -108,29 +135,19 @@ with open('$worker_config', 'w') as f:
 }
 
 start_services() {
-    trap cleanup EXIT INT TERM
-
     echo ""
-    echo "--- Starting manager (background) on port 7075 ---"
-    python "$MANAGE_PY" runserver 7075 &
-    MANAGER_PID=$!
-    sleep 2
-
-    if ! kill -0 "$MANAGER_PID" 2>/dev/null; then
-        echo "[ERROR] Manager failed to start"
-        exit 1
-    fi
-    echo "[OK] Manager running (PID $MANAGER_PID)"
+    cmd_manager
 
     local worker_config="$WORKER_DIR/config.ini"
     if [ -f "$worker_config" ]; then
         echo ""
-        echo "--- Starting worker (foreground) ---"
-        python "$WORKER_DIR/run_worker.py"
+        cmd_worker
     else
-        echo "[!!] No worker config — manager running alone. Ctrl+C to stop."
-        wait "$MANAGER_PID"
+        echo "[!!] No worker config — manager running alone"
     fi
+
+    echo ""
+    cmd_status
 }
 
 # ── dev ─────────────────────────────────────────────────────────
@@ -221,17 +238,132 @@ cmd_start() {
         exit 1
     fi
 
+    start_services
+}
+
+# ── manager ─────────────────────────────────────────────────────
+
+cmd_manager() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "[ERROR] manager.ini not found. Run: bash tools/sethlans.sh dev"
+        exit 1
+    fi
+
+    local existing
+    existing=$(get_saved_pid "manager")
+    if [ -n "$existing" ]; then
+        echo "[OK] Manager already running (PID $existing)"
+        return
+    fi
+
     echo "--- Applying migrations ---"
     python "$MANAGE_PY" migrate
 
-    start_services
+    ensure_dirs
+    nohup python "$MANAGE_PY" runserver 0.0.0.0:7075 > /dev/null 2>&1 &
+    local pid=$!
+    sleep 2
+
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "[ERROR] Manager failed to start"
+        exit 1
+    fi
+
+    save_pid "manager" "$pid"
+    echo "[OK] Manager started in background (PID $pid)"
+    echo "     Stop: bash tools/sethlans.sh stop"
+}
+
+# ── worker ──────────────────────────────────────────────────────
+
+cmd_worker() {
+    local worker_config="$WORKER_DIR/config.ini"
+    if [ ! -f "$worker_config" ]; then
+        echo "[ERROR] Worker config.ini not found. Run: bash tools/sethlans.sh dev"
+        exit 1
+    fi
+
+    local existing
+    existing=$(get_saved_pid "worker")
+    if [ -n "$existing" ]; then
+        echo "[OK] Worker already running (PID $existing)"
+        return
+    fi
+
+    ensure_dirs
+    nohup python "$WORKER_DIR/run_worker.py" > /dev/null 2>&1 &
+    local pid=$!
+    sleep 2
+
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "[ERROR] Worker failed to start"
+        exit 1
+    fi
+
+    save_pid "worker" "$pid"
+    echo "[OK] Worker started in background (PID $pid)"
+    echo "     Stop: bash tools/sethlans.sh stop"
+}
+
+# ── stop ────────────────────────────────────────────────────────
+
+cmd_stop() {
+    local stopped=false
+
+    local manager_pid
+    manager_pid=$(get_saved_pid "manager")
+    if [ -n "$manager_pid" ]; then
+        kill "$manager_pid" 2>/dev/null
+        wait "$manager_pid" 2>/dev/null || true
+        remove_pid "manager"
+        echo "[OK] Manager stopped (PID $manager_pid)"
+        stopped=true
+    fi
+
+    local worker_pid
+    worker_pid=$(get_saved_pid "worker")
+    if [ -n "$worker_pid" ]; then
+        kill "$worker_pid" 2>/dev/null
+        wait "$worker_pid" 2>/dev/null || true
+        remove_pid "worker"
+        echo "[OK] Worker stopped (PID $worker_pid)"
+        stopped=true
+    fi
+
+    if [ "$stopped" = false ]; then
+        echo "[OK] No running services found"
+    fi
+}
+
+# ── status ──────────────────────────────────────────────────────
+
+cmd_status() {
+    local manager_pid
+    manager_pid=$(get_saved_pid "manager")
+    if [ -n "$manager_pid" ]; then
+        echo "Manager:  running (PID $manager_pid)"
+    else
+        echo "Manager:  not running"
+    fi
+
+    local worker_pid
+    worker_pid=$(get_saved_pid "worker")
+    if [ -n "$worker_pid" ]; then
+        echo "Worker:   running (PID $worker_pid)"
+    else
+        echo "Worker:   not running"
+    fi
 }
 
 # ── Main ────────────────────────────────────────────────────────
 
 case "${1:-}" in
-    dev)   cmd_dev ;;
-    clean) cmd_clean ;;
-    start) cmd_start ;;
-    *)     usage; exit 1 ;;
+    dev)     cmd_dev ;;
+    clean)   cmd_clean ;;
+    start)   cmd_start ;;
+    manager) cmd_manager ;;
+    worker)  cmd_worker ;;
+    stop)    cmd_stop ;;
+    status)  cmd_status ;;
+    *)       usage; exit 1 ;;
 esac

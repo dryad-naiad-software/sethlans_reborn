@@ -55,14 +55,12 @@ def _get_ui_url():
     """
     Build the UI URL for heartbeat payloads.
 
-    Returns None if UI is disabled or bound to a loopback address
-    (since the link would be useless from the manager's browser).
+    Returns None only if UI is disabled. Uses the worker's IP address
+    so the manager UI can link to the worker dashboard.
     """
     if not config.UI_ENABLED:
         return None
-    if _is_loopback(config.UI_BIND_ADDRESS):
-        return None
-    if config.UI_BIND_ADDRESS == '0.0.0.0':
+    if config.UI_BIND_ADDRESS in ('0.0.0.0', '127.0.0.1', 'localhost', '::1'):
         ui_host = IP_ADDRESS
     else:
         ui_host = config.UI_BIND_ADDRESS
