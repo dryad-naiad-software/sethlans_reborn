@@ -7,6 +7,7 @@ from .projects import Project, Asset
 from .workers import Worker
 from .jobs import JobStatus, TiledJobStatus, TiledJob, Job
 from .animations import AnimationFrameStatus, Animation, AnimationFrame
+from .queue_setting import QueueSetting
 
 __all__ = [
     "SupportedBlenderVersion",
@@ -14,4 +15,5 @@ __all__ = [
     "Worker",
     "JobStatus", "TiledJobStatus", "TiledJob", "Job",
     "AnimationFrameStatus", "Animation", "AnimationFrame",
+    "QueueSetting",
 ]

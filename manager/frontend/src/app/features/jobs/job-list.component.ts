@@ -10,8 +10,12 @@ import { MatTableModule } from '@angular/material/table';
 import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { Subscription, Subject, switchMap, startWith } from 'rxjs';
 import { JobService, Job, JobFilter } from '../../core/services/job.service';
+import { QueueSettingService, QueueStatus } from '../../core/services/queue-setting.service';
 
 @Component({
   selector: 'app-job-list',
@@ -19,9 +23,27 @@ import { JobService, Job, JobFilter } from '../../core/services/job.service';
   imports: [
     CommonModule, RouterLink, FormsModule, MatTableModule,
     MatSelectModule, MatFormFieldModule, MatProgressSpinnerModule,
+    MatButtonModule, MatIconModule, MatSnackBarModule,
   ],
   template: `
-    <h1>Jobs</h1>
+    <div class="page-header">
+      <h1>Jobs</h1>
+      <div class="queue-controls">
+        @if (queuePaused) {
+          <button mat-raised-button color="primary" (click)="resumeQueue()">
+            <mat-icon>play_arrow</mat-icon> Resume Queue
+          </button>
+        } @else {
+          <button mat-raised-button color="warn" (click)="pauseQueue()">
+            <mat-icon>pause</mat-icon> Pause Queue
+          </button>
+        }
+      </div>
+    </div>
+
+    <div class="queue-status" [class.paused]="queuePaused" [class.active]="!queuePaused">
+      Queue: {{ queuePaused ? 'Paused' : 'Active' }}
+    </div>
 
     <div class="filters">
       <mat-form-field>
@@ -32,6 +54,7 @@ import { JobService, Job, JobFilter } from '../../core/services/job.service';
           <mat-option value="RENDERING">Rendering</mat-option>
           <mat-option value="DONE">Done</mat-option>
           <mat-option value="ERROR">Error</mat-option>
+          <mat-option value="CANCELED">Canceled</mat-option>
         </mat-select>
       </mat-form-field>
     </div>
@@ -68,18 +91,34 @@ import { JobService, Job, JobFilter } from '../../core/services/job.service';
     }
   `,
   styles: [`
+    .page-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+    }
+    .page-header h1 { margin: 0; }
+    .queue-controls { display: flex; gap: 8px; }
+    .queue-status {
+      font-size: 14px; font-weight: 500; margin-bottom: 16px;
+      padding: 4px 12px; border-radius: 4px; display: inline-block;
+    }
+    .queue-status.active { color: #2e7d32; background: #e8f5e9; }
+    .queue-status.paused { color: #e65100; background: #fff3e0; }
     .filters { margin-bottom: 16px; }
     .full-width { width: 100%; }
   `],
 })
 export class JobListComponent implements OnInit, OnDestroy {
   private readonly jobService = inject(JobService);
+  private readonly queueSettingService = inject(QueueSettingService);
+  private readonly snackBar = inject(MatSnackBar);
   private readonly filterChange$ = new Subject<void>();
   private sub?: Subscription;
+  private queueSub?: Subscription;
 
   jobs: Job[] = [];
   loading = true;
   statusFilter = '';
+  queuePaused = false;
   displayedColumns = ['id', 'status', 'render_engine', 'worker', 'submitted_at'];
 
   ngOnInit(): void {
@@ -94,9 +133,36 @@ export class JobListComponent implements OnInit, OnDestroy {
       next: (jobs) => { this.jobs = jobs; this.loading = false; },
       error: () => { this.loading = false; },
     });
+
+    this.queueSub = this.queueSettingService.pollStatus().subscribe({
+      next: (status) => { this.queuePaused = status.queue_paused; },
+    });
   }
 
-  ngOnDestroy(): void { this.sub?.unsubscribe(); }
+  ngOnDestroy(): void {
+    this.sub?.unsubscribe();
+    this.queueSub?.unsubscribe();
+  }
 
   applyFilter(): void { this.filterChange$.next(); }
+
+  pauseQueue(): void {
+    this.queueSettingService.pause().subscribe({
+      next: (status) => {
+        this.queuePaused = status.queue_paused;
+        this.snackBar.open('Queue paused', 'Dismiss', { duration: 3000 });
+      },
+      error: () => this.snackBar.open('Failed to pause queue', 'Dismiss', { duration: 5000 }),
+    });
+  }
+
+  resumeQueue(): void {
+    this.queueSettingService.resume().subscribe({
+      next: (status) => {
+        this.queuePaused = status.queue_paused;
+        this.snackBar.open('Queue resumed', 'Dismiss', { duration: 3000 });
+      },
+      error: () => this.snackBar.open('Failed to resume queue', 'Dismiss', { duration: 5000 }),
+    });
+  }
 }

@@ -84,13 +84,13 @@ describe('ProjectJobsTableComponent', () => {
   let mockAnimationService: jasmine.SpyObj<AnimationService>;
 
   beforeEach(async () => {
-    mockJobService = jasmine.createSpyObj('JobService', ['pollList']);
-    mockTiledJobService = jasmine.createSpyObj('TiledJobService', ['pollList']);
-    mockAnimationService = jasmine.createSpyObj('AnimationService', ['pollList']);
+    mockJobService = jasmine.createSpyObj('JobService', ['list']);
+    mockTiledJobService = jasmine.createSpyObj('TiledJobService', ['list']);
+    mockAnimationService = jasmine.createSpyObj('AnimationService', ['list']);
 
-    mockJobService.pollList.and.returnValue(of([makeJob()]));
-    mockTiledJobService.pollList.and.returnValue(of([makeTiledJob()]));
-    mockAnimationService.pollList.and.returnValue(of([makeAnimation()]));
+    mockJobService.list.and.returnValue(of([makeJob()]));
+    mockTiledJobService.list.and.returnValue(of([makeTiledJob()]));
+    mockAnimationService.list.and.returnValue(of([makeAnimation()]));
 
     await TestBed.configureTestingModule({
       imports: [ProjectJobsTableComponent, NoopAnimationsModule],
@@ -115,7 +115,7 @@ describe('ProjectJobsTableComponent', () => {
 
   it('should have correct table columns', () => {
     expect(component.columns).toEqual(
-      ['name', 'type', 'status', 'worker', 'time', 'createdAt']);
+      ['name', 'type', 'status', 'worker', 'time', 'createdAt', 'actions']);
   });
 
   describe('when projectId is set', () => {
@@ -167,7 +167,7 @@ describe('ProjectJobsTableComponent', () => {
         id: 2, name: 'Tile 1', tiled_job: 'tiled-uuid',
         submitted_at: '2025-06-01T00:00:00Z',
       });
-      mockJobService.pollList.and.returnValue(of([makeJob(), childJob]));
+      mockJobService.list.and.returnValue(of([makeJob(), childJob]));
 
       component.ngOnChanges({
         projectId: new SimpleChange('proj-uuid', 'proj-uuid', false),
@@ -181,9 +181,9 @@ describe('ProjectJobsTableComponent', () => {
   describe('worker display', () => {
     it('should show hostname when assigned', () => {
       const job = makeJob({ assigned_worker_hostname: 'worker-01' });
-      mockJobService.pollList.and.returnValue(of([job]));
-      mockTiledJobService.pollList.and.returnValue(of([]));
-      mockAnimationService.pollList.and.returnValue(of([]));
+      mockJobService.list.and.returnValue(of([job]));
+      mockTiledJobService.list.and.returnValue(of([]));
+      mockAnimationService.list.and.returnValue(of([]));
 
       component.projectId = 'proj-uuid';
       component.ngOnChanges({

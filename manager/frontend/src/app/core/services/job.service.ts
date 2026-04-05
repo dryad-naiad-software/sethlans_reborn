@@ -87,4 +87,16 @@ export class JobService {
   create(data: CreateJobRequest): Observable<Job> {
     return this.http.post<Job>(`${this.baseUrl}/`, data);
   }
+
+  cancel(id: number): Observable<Job> {
+    return this.http.post<Job>(`${this.baseUrl}/${id}/cancel/`, {});
+  }
+
+  requeue(id: number): Observable<Job> {
+    return this.http.post<Job>(`${this.baseUrl}/${id}/requeue/`, {});
+  }
+
+  delete(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${id}/`);
+  }
 }

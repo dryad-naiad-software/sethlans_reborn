@@ -7,7 +7,8 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     WorkerHeartbeatViewSet, JobViewSet, AnimationViewSet,
-    AssetViewSet, ProjectViewSet, TiledJobViewSet,
+    AssetViewSet, ProjectViewSet, QueueSettingViewSet,
+    TiledJobViewSet,
     SupportedBlenderVersionViewSet, dashboard_stats,
     csrf_view, login_view, logout_view, user_view,
     regenerate_enrollment_key_view, shutdown_view,
@@ -22,6 +23,7 @@ router.register(r'heartbeat', WorkerHeartbeatViewSet, basename='heartbeat')
 router.register(r'animations', AnimationViewSet, basename='animation')
 router.register(r'assets', AssetViewSet, basename='asset')
 router.register(r'tiled-jobs', TiledJobViewSet, basename='tiledjob')
+router.register(r'queue-settings', QueueSettingViewSet, basename='queuesetting')
 router.register(r'supported-versions', SupportedBlenderVersionViewSet, basename='supportedversion')
 
 urlpatterns = [

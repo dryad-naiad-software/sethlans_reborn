@@ -12,14 +12,13 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
 from ..constants import RenderDevice
-from ..models import Job, JobStatus, Worker
+from ..models import Job, JobStatus, QueueSetting
 from ..permissions import IsAdmin, IsWorker
 from ..serializers import JobSerializer
-from .upload_helpers import sanitize_filename, validate_upload
+from .job_worker_actions import JobWorkerActionsMixin
 
 VERSION_REGEX = re.compile(r'^\d+\.\d+\.\d+$')
 MAX_AVAILABLE_VERSIONS = 20
@@ -35,10 +34,11 @@ logger = logging.getLogger(__name__)
     partial_update=extend_schema(tags=['Management UI']),
     destroy=extend_schema(tags=['Management UI']),
     cancel=extend_schema(tags=['Management UI']),
+    requeue=extend_schema(tags=['Management UI']),
     claim=extend_schema(tags=['Worker Agent']),
     upload_output=extend_schema(tags=['Worker Agent']),
 )
-class JobViewSet(viewsets.ModelViewSet):
+class JobViewSet(JobWorkerActionsMixin, viewsets.ModelViewSet):
     """
     API endpoint that allows render jobs to be viewed or created.
 
@@ -94,6 +94,8 @@ class JobViewSet(viewsets.ModelViewSet):
         )
 
         if is_worker_poll:
+            if QueueSetting.get_instance().queue_paused:
+                return queryset.none()
             queryset = queryset.filter(asset__project__is_paused=False)
             queryset = self._apply_version_filter(queryset)
 
@@ -138,104 +140,29 @@ class JobViewSet(viewsets.ModelViewSet):
         """
         Cancels a render job, setting its status to 'CANCELED'.
 
-        Args:
-            request: The request object.
-            pk: The primary key of the job to cancel.
+        Uses SELECT FOR UPDATE to prevent a race where a worker completes
+        a job between the status check and the status mutation.
 
         Returns:
             A Response containing the updated job data.
         """
         from workers.serializers import VALID_STATUS_TRANSITIONS
 
-        job = self.get_object()
-        allowed = VALID_STATUS_TRANSITIONS.get(job.status, [])
-        if JobStatus.CANCELED not in allowed:
-            return Response(
-                {"error": f"Cannot cancel a job in '{job.status}' status."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        old_status = job.status
-        job.status = JobStatus.CANCELED
-        if not job.completed_at:
-            job.completed_at = timezone.now()
-        job.save()
-        logger.info(f"Job '{job.name}' (ID: {job.id}) CANCELED. Status: {old_status} -> {job.status}.")
-        serializer = self.get_serializer(job)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['post'])
-    def claim(self, request, pk=None):
-        """
-        Atomically claim a job for a worker.
-
-        Uses SELECT FOR UPDATE to lock the job row, preventing race
-        conditions where multiple workers claim the same job.
-
-        Expects a JSON body with `worker_id` (the Worker primary key).
-
-        Returns:
-            200 on success with updated job data.
-            400 if worker_id is missing or invalid.
-            404 if job not found.
-            409 if job is already claimed or not in QUEUED status.
-        """
-        worker_id = request.data.get('worker_id')
-        if not worker_id:
-            return Response(
-                {"error": "Missing 'worker_id' in request body."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Prevent worker identity spoofing: the authenticated worker
-        # must match the worker_id in the request body.
-        if hasattr(request.user, 'worker_profile'):
-            if str(request.user.worker_profile.pk) != str(worker_id):
-                return Response(
-                    {"detail": "Cannot claim jobs on behalf of "
-                     "another worker."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-        try:
-            worker = Worker.objects.get(pk=worker_id)
-        except Worker.DoesNotExist:
-            return Response(
-                {"error": f"Worker with id '{worker_id}' not found."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         try:
             with transaction.atomic():
-                job = Job.objects.select_for_update().select_related(
-                    'blender_version',
-                    'asset__project__blender_version',
-                ).get(pk=pk)
+                job = Job.objects.select_for_update().get(pk=pk)
 
-                if job.status != JobStatus.QUEUED or job.assigned_worker is not None:
+                allowed = VALID_STATUS_TRANSITIONS.get(job.status, [])
+                if JobStatus.CANCELED not in allowed:
                     return Response(
-                        {"error": "Job is not available for claiming."},
+                        {"error": f"Cannot cancel a job in '{job.status}' status."},
                         status=status.HTTP_409_CONFLICT,
                     )
-
-                # Version compatibility check (defense-in-depth)
-                effective = job.effective_blender_version
-                if effective and not worker.has_blender_version(
-                    effective.resolved_version,
-                ):
-                    return Response(
-                        {"error": (
-                            "Worker does not have required Blender "
-                            f"version {effective.resolved_version} "
-                            "installed."
-                        )},
-                        status=status.HTTP_409_CONFLICT,
-                    )
-
-                job.status = JobStatus.RENDERING
-                job.assigned_worker = worker
-                job.started_at = timezone.now()
+                old_status = job.status
+                job.status = JobStatus.CANCELED
+                if not job.completed_at:
+                    job.completed_at = timezone.now()
                 job.save()
-
         except Job.DoesNotExist:
             return Response(
                 {"error": "Job not found."},
@@ -243,44 +170,59 @@ class JobViewSet(viewsets.ModelViewSet):
             )
 
         logger.info(
-            f"Job '{job.name}' (ID: {job.pk}) claimed by worker "
-            f"'{worker.hostname}' (ID: {worker.pk})."
+            f"Job '{job.name}' (ID: {job.id}) CANCELED. "
+            f"Status: {old_status} -> {job.status}."
         )
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser])
-    def upload_output(self, request, pk=None):
+    @action(detail=True, methods=['post'])
+    def requeue(self, request, pk=None):
         """
-        Action for a worker to upload the final rendered output file for a job.
+        Requeue a failed or canceled job, resetting it to QUEUED status.
 
-        Expects a multipart/form-data request with a file field named `output_file`.
-        Validates the file is a valid image within the configured size limit.
-        Saving the file will trigger a signal to generate the thumbnail.
+        Uses SELECT FOR UPDATE to prevent races with concurrent worker
+        updates. Only jobs in ERROR or CANCELED status can be requeued.
+
+        Returns:
+            200 on success with updated job data.
+            404 if job not found.
+            409 if job status does not allow requeue.
         """
-        job = self.get_object()
-        self._check_worker_owns_job(request, job)
-        file_obj = request.data.get('output_file')
+        from workers.serializers import VALID_STATUS_TRANSITIONS
 
-        if not file_obj:
+        try:
+            with transaction.atomic():
+                job = Job.objects.select_for_update().get(pk=pk)
+
+                allowed = VALID_STATUS_TRANSITIONS.get(job.status, [])
+                if JobStatus.QUEUED not in allowed:
+                    return Response(
+                        {"error": f"Cannot requeue a job in '{job.status}' status."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                old_status = job.status
+                job.status = JobStatus.QUEUED
+                job.assigned_worker = None
+                job.started_at = None
+                job.completed_at = None
+                job.error_message = ''
+                job.last_output = ''
+                job.auto_requeue_count = 0
+                job.save(update_fields=[
+                    'status', 'assigned_worker', 'started_at',
+                    'completed_at', 'error_message', 'last_output',
+                    'auto_requeue_count',
+                ])
+        except Job.DoesNotExist:
             return Response(
-                {"error": "Missing 'output_file' in request."},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": "Job not found."},
+                status=status.HTTP_404_NOT_FOUND,
             )
-
-        error = validate_upload(file_obj)
-        if error:
-            return Response(
-                {"error": error},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        safe_name = sanitize_filename(file_obj.name)
-        job.output_file.save(safe_name, file_obj, save=True)
 
         logger.info(
-            f"Received output file for job ID {job.id}. "
-            f"Saved to {job.output_file.name}"
+            f"Job '{job.name}' (ID: {job.id}) requeued from {old_status}."
         )
-        serializer = self.get_serializer(job)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(
+            self.get_serializer(job).data, status=status.HTTP_200_OK,
+        )

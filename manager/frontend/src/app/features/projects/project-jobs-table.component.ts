@@ -2,19 +2,24 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
-import { inject } from '@angular/core';
+import {
+  Component, EventEmitter, Input, OnChanges, OnDestroy,
+  Output, SimpleChanges, inject,
+} from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { Subscription, combineLatest, of } from 'rxjs';
+import { Subscription, Subject, combineLatest, of, merge, interval, startWith, switchMap } from 'rxjs';
 import { catchError } from 'rxjs/operators';
+import { environment } from '../../../environments/environment';
 import { JobService, Job } from '../../core/services/job.service';
 import { TiledJobService, TiledJob } from '../../core/services/tiled-job.service';
 import { AnimationService, Animation } from '../../core/services/animation.service';
+import { ProjectJobActionsComponent } from './project-job-actions.component';
 
 export interface JobTableRow {
+  id: number | string;
   name: string;
   type: 'single' | 'tiled' | 'animation';
   status: string;
@@ -45,7 +50,10 @@ function isTopLevelJob(job: Job): boolean {
 @Component({
   selector: 'app-project-jobs-table',
   standalone: true,
-  imports: [DatePipe, MatTableModule, MatIconModule, MatProgressSpinnerModule],
+  imports: [
+    DatePipe, MatTableModule, MatIconModule, MatProgressSpinnerModule,
+    ProjectJobActionsComponent,
+  ],
   template: `
     @if (loading) {
       <mat-spinner diameter="32" />
@@ -83,6 +91,15 @@ function isTopLevelJob(job: Job): boolean {
           <th mat-header-cell *matHeaderCellDef>Created</th>
           <td mat-cell *matCellDef="let r">{{ r.createdAt | date:'mediumDate' }}</td>
         </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef>Actions</th>
+          <td mat-cell *matCellDef="let r">
+            <app-project-job-actions [row]="r"
+              (canceled)="triggerRefresh()"
+              (requeued)="triggerRefresh()"
+              (deleted)="triggerRefresh()" />
+          </td>
+        </ng-container>
         <tr mat-header-row *matHeaderRowDef="columns"></tr>
         <tr mat-row *matRowDef="let row; columns: columns"></tr>
       </table>
@@ -110,15 +127,17 @@ function isTopLevelJob(job: Job): boolean {
 })
 export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
   @Input() projectId = '';
+  @Output() activeJobCount = new EventEmitter<number>();
 
   private readonly jobService = inject(JobService);
   private readonly tiledJobService = inject(TiledJobService);
   private readonly animationService = inject(AnimationService);
+  private readonly refresh$ = new Subject<void>();
   private sub?: Subscription;
 
   rows: JobTableRow[] = [];
   loading = true;
-  columns = ['name', 'type', 'status', 'worker', 'time', 'createdAt'];
+  columns = ['name', 'type', 'status', 'worker', 'time', 'createdAt', 'actions'];
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId'] && this.projectId) this.startPolling();
@@ -126,7 +145,7 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void { this.sub?.unsubscribe(); }
 
-  refresh(): void { /* polling handles it */ }
+  triggerRefresh(): void { this.refresh$.next(); }
 
   typeIcon(type: string): string {
     return type === 'tiled' ? 'grid_view' : type === 'animation' ? 'movie' : 'image';
@@ -144,20 +163,31 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
     this.sub?.unsubscribe();
     this.loading = true;
 
-    const jobs$ = this.jobService.pollList({ asset__project: this.projectId })
-      .pipe(catchError(() => of([] as Job[])));
-    const tiled$ = this.tiledJobService.pollList({ project: this.projectId })
-      .pipe(catchError(() => of([] as TiledJob[])));
-    const anims$ = this.animationService.pollList({ project: this.projectId })
-      .pipe(catchError(() => of([] as Animation[])));
+    const tick$ = merge(
+      this.refresh$,
+      interval(environment.pollingIntervalMs),
+    ).pipe(startWith(0));
 
-    this.sub = combineLatest([jobs$, tiled$, anims$]).subscribe({
+    this.sub = tick$.pipe(
+      switchMap(() => {
+        const jobs$ = this.jobService.list({ asset__project: this.projectId })
+          .pipe(catchError(() => of([] as Job[])));
+        const tiled$ = this.tiledJobService.list({ project: this.projectId })
+          .pipe(catchError(() => of([] as TiledJob[])));
+        const anims$ = this.animationService.list({ project: this.projectId })
+          .pipe(catchError(() => of([] as Animation[])));
+        return combineLatest([jobs$, tiled$, anims$]);
+      }),
+    ).subscribe({
       next: ([jobs, tiled, anims]) => {
         this.rows = [
           ...jobs.filter(isTopLevelJob).map(j => this.mapJob(j)),
           ...tiled.map(t => this.mapTiled(t)),
           ...anims.map(a => this.mapAnim(a)),
         ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        this.activeJobCount.emit(
+          this.rows.filter(r => r.status === 'QUEUED' || r.status === 'RENDERING').length,
+        );
         this.loading = false;
       },
       error: () => { this.loading = false; },
@@ -166,7 +196,7 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
 
   private mapJob(j: Job): JobTableRow {
     return {
-      name: j.name, type: 'single', status: j.status,
+      id: j.id, name: j.name, type: 'single', status: j.status,
       worker: j.assigned_worker_hostname || '--',
       time: formatTime(j.render_time_seconds), createdAt: j.submitted_at,
     };
@@ -174,14 +204,14 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
 
   private mapTiled(t: TiledJob): JobTableRow {
     return {
-      name: t.name, type: 'tiled', status: t.status, worker: '--',
+      id: t.id, name: t.name, type: 'tiled', status: t.status, worker: '--',
       time: formatTime(t.total_render_time_seconds), createdAt: t.submitted_at,
     };
   }
 
   private mapAnim(a: Animation): JobTableRow {
     return {
-      name: a.name, type: 'animation', status: a.status, worker: '--',
+      id: a.id, name: a.name, type: 'animation', status: a.status, worker: '--',
       time: formatTime(a.total_render_time_seconds), createdAt: a.submitted_at,
     };
   }

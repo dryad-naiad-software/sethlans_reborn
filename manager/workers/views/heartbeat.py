@@ -27,6 +27,7 @@ from ..models import SupportedBlenderVersion, Worker
 from ..permissions import IsAdmin
 from ..rate_limiter import InMemoryRateLimiter
 from ..serializers import WorkerSerializer
+from .stuck_jobs import requeue_stuck_jobs
 from .token_actions import WorkerTokenActionsMixin
 
 logger = logging.getLogger(__name__)
@@ -271,6 +272,7 @@ class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
             update_fields.extend(['available_tools', 'gpu_name'])
         worker.save(update_fields=update_fields)
         logger.debug("Worker heartbeat. Hostname: %s", hostname)
+        requeue_stuck_jobs()
         return WorkerSerializer(worker).data
 
     @staticmethod

@@ -54,4 +54,8 @@ export class ProjectService {
   unpause(id: string): Observable<Project> {
     return this.http.post<Project>(`${this.baseUrl}/${id}/unpause/`, {});
   }
+
+  cancelAllJobs(id: string): Observable<{ canceled: number }> {
+    return this.http.post<{ canceled: number }>(`${this.baseUrl}/${id}/cancel_all_jobs/`, {});
+  }
 }

@@ -8,6 +8,7 @@ from .animations import AnimationViewSet
 from .tiled_jobs import TiledJobViewSet
 from .assets import AssetViewSet
 from .jobs import JobViewSet
+from .queue_settings import QueueSettingViewSet
 from .supported_versions import SupportedBlenderVersionViewSet
 from .stats import dashboard_stats
 from .auth import (
@@ -26,6 +27,7 @@ __all__ = [
     "TiledJobViewSet",
     "AssetViewSet",
     "JobViewSet",
+    "QueueSettingViewSet",
     "SupportedBlenderVersionViewSet",
     "dashboard_stats",
     "csrf_view",

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component, inject, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, ViewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,12 +11,13 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { Subscription, switchMap } from 'rxjs';
+import { Subscription, switchMap, filter } from 'rxjs';
 import { ProjectService, Project } from '../../core/services/project.service';
 import { AssetService, Asset } from '../../core/services/asset.service';
 import { poll } from '../../core/services/polling.util';
 import { JobCreateFormComponent, JobCreateDialogData } from './job-create-form.component';
 import { ProjectJobsTableComponent } from './project-jobs-table.component';
+import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 
 @Component({
   selector: 'app-project-detail',
@@ -78,12 +79,19 @@ import { ProjectJobsTableComponent } from './project-jobs-table.component';
 
       <div class="jobs-header">
         <h2>Jobs</h2>
-        <button mat-raised-button color="primary" (click)="openCreateRender()"
-                [disabled]="!asset">
-          <mat-icon>add</mat-icon> Create Job
-        </button>
+        <div class="jobs-actions">
+          <button mat-raised-button color="warn" (click)="cancelAllJobs()"
+                  [disabled]="activeJobCount === 0">
+            <mat-icon>cancel</mat-icon> Cancel All
+          </button>
+          <button mat-raised-button color="primary" (click)="openCreateRender()"
+                  [disabled]="!asset">
+            <mat-icon>add</mat-icon> Create Job
+          </button>
+        </div>
       </div>
-      <app-project-jobs-table [projectId]="project.id" />
+      <app-project-jobs-table #jobsTable [projectId]="project.id"
+        (activeJobCount)="activeJobCount = $event" />
     } @else {
       <p>Project not found.</p>
     }
@@ -103,9 +111,12 @@ import { ProjectJobsTableComponent } from './project-jobs-table.component';
     mat-divider { margin: 16px 0; }
     .jobs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .jobs-header h2 { margin: 0; }
+    .jobs-actions { display: flex; gap: 8px; }
   `],
 })
 export class ProjectDetailComponent implements OnInit, OnDestroy {
+  @ViewChild('jobsTable') jobsTable?: ProjectJobsTableComponent;
+
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly projectService = inject(ProjectService);
@@ -120,6 +131,7 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   loading = true;
   showDeleteConfirm = false;
   deleting = false;
+  activeJobCount = 0;
 
   ngOnInit(): void {
     this.projectSub = this.route.paramMap.pipe(
@@ -165,6 +177,24 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
         this.deleting = false;
         this.snackBar.open('Failed to delete project', 'Dismiss', { duration: 5000 });
       },
+    });
+  }
+
+  cancelAllJobs(): void {
+    if (!this.project) return;
+    const data: ConfirmDialogData = {
+      title: 'Cancel All Jobs',
+      message: 'Cancel all queued and in-progress jobs for this project?',
+    };
+    this.dialog.open(ConfirmDialogComponent, { data }).afterClosed().pipe(
+      filter((confirmed: boolean) => confirmed === true),
+      switchMap(() => this.projectService.cancelAllJobs(this.project!.id)),
+    ).subscribe({
+      next: (res) => {
+        this.snackBar.open(`Canceled ${res.canceled} jobs`, 'Dismiss', { duration: 3000 });
+        this.jobsTable?.triggerRefresh();
+      },
+      error: () => this.snackBar.open('Failed to cancel jobs', 'Dismiss', { duration: 5000 }),
     });
   }
 
