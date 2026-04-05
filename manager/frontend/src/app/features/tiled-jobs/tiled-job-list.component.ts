@@ -43,7 +43,7 @@ import { TiledJobService, TiledJob } from '../../core/services/tiled-job.service
         </ng-container>
         <ng-container matColumnDef="tiling">
           <th mat-header-cell *matHeaderCellDef>Tiling</th>
-          <td mat-cell *matCellDef="let t">{{ t.tiling_configuration }}</td>
+          <td mat-cell *matCellDef="let t">{{ t.tile_count_x }}x{{ t.tile_count_y }}</td>
         </ng-container>
         <ng-container matColumnDef="status">
           <th mat-header-cell *matHeaderCellDef>Status</th>

@@ -18,20 +18,18 @@ import { JobService, Job } from '../../core/services/job.service';
     @if (loading) {
       <mat-spinner diameter="40" />
     } @else if (job) {
-      <h1>Job #{{ job.id }}</h1>
+      <h1>Job #{{ job.id }} — {{ job.name }}</h1>
 
       <mat-card>
         <mat-card-content>
           <div class="detail-grid">
-            <div><strong>Status:</strong> {{ job.status }}</div>
+            <div><strong>Status:</strong> {{ job.status_display }}</div>
             <div><strong>Render Engine:</strong> {{ job.render_engine }}</div>
             <div><strong>Render Device:</strong> {{ job.render_device }}</div>
             <div><strong>Cycles Feature Set:</strong> {{ job.cycles_feature_set }}</div>
-            <div><strong>Frame:</strong> {{ job.frame_number }}</div>
-            <div><strong>Tile:</strong> ({{ job.tile_x }}, {{ job.tile_y }})</div>
-            <div><strong>Worker:</strong> {{ job.worker ?? 'Unassigned' }}</div>
-            <div><strong>Created:</strong> {{ job.created_at | date:'medium' }}</div>
-            <div><strong>Updated:</strong> {{ job.updated_at | date:'medium' }}</div>
+            <div><strong>Frames:</strong> {{ job.start_frame }} - {{ job.end_frame }}</div>
+            <div><strong>Worker:</strong> {{ job.assigned_worker_hostname ?? 'Unassigned' }}</div>
+            <div><strong>Submitted:</strong> {{ job.submitted_at | date:'medium' }}</div>
           </div>
         </mat-card-content>
       </mat-card>

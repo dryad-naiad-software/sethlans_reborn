@@ -27,10 +27,8 @@ import { AnimationService, Animation } from '../../core/services/animation.servi
         <mat-card-content>
           <p><strong>Status:</strong> {{ animation.status }}</p>
           <p><strong>Frames:</strong> {{ animation.start_frame }} - {{ animation.end_frame }}</p>
-          <p><strong>Progress:</strong></p>
-          <mat-progress-bar mode="determinate" [value]="animation.progress" />
-          <p>{{ animation.progress }}% complete</p>
-          <p><strong>Created:</strong> {{ animation.created_at | date:'medium' }}</p>
+          <p><strong>Progress:</strong> {{ animation.progress }}</p>
+          <p><strong>Submitted:</strong> {{ animation.submitted_at | date:'medium' }}</p>
         </mat-card-content>
       </mat-card>
 

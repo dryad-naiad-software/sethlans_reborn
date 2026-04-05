@@ -31,17 +31,17 @@ import { AssetService, Asset } from '../../core/services/asset.service';
       <mat-spinner diameter="40" />
     } @else {
       <table mat-table [dataSource]="assets" class="full-width">
-        <ng-container matColumnDef="filename">
-          <th mat-header-cell *matHeaderCellDef>Filename</th>
-          <td mat-cell *matCellDef="let a">{{ a.filename }}</td>
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>Name</th>
+          <td mat-cell *matCellDef="let a">{{ a.name }}</td>
         </ng-container>
-        <ng-container matColumnDef="project">
-          <th mat-header-cell *matHeaderCellDef>Project</th>
-          <td mat-cell *matCellDef="let a">{{ a.project }}</td>
+        <ng-container matColumnDef="blend_file">
+          <th mat-header-cell *matHeaderCellDef>File</th>
+          <td mat-cell *matCellDef="let a">{{ a.blend_file }}</td>
         </ng-container>
-        <ng-container matColumnDef="uploaded_at">
+        <ng-container matColumnDef="created_at">
           <th mat-header-cell *matHeaderCellDef>Uploaded</th>
-          <td mat-cell *matCellDef="let a">{{ a.uploaded_at | date }}</td>
+          <td mat-cell *matCellDef="let a">{{ a.created_at | date }}</td>
         </ng-container>
         <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
         <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
@@ -58,7 +58,7 @@ export class AssetListComponent implements OnInit {
 
   assets: Asset[] = [];
   loading = true;
-  displayedColumns = ['filename', 'project', 'uploaded_at'];
+  displayedColumns = ['name', 'blend_file', 'created_at'];
 
   ngOnInit(): void {
     this.assetService.list().subscribe({

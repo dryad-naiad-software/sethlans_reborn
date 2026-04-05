@@ -26,11 +26,9 @@ import { TiledJobService, TiledJob } from '../../core/services/tiled-job.service
       <mat-card>
         <mat-card-content>
           <p><strong>Status:</strong> {{ tiledJob.status }}</p>
-          <p><strong>Tiling:</strong> {{ tiledJob.tiling_configuration }}</p>
-          <p><strong>Progress:</strong></p>
-          <mat-progress-bar mode="determinate" [value]="tiledJob.progress" />
-          <p>{{ tiledJob.progress }}% complete</p>
-          <p><strong>Created:</strong> {{ tiledJob.created_at | date:'medium' }}</p>
+          <p><strong>Tiling:</strong> {{ tiledJob.tile_count_x }}x{{ tiledJob.tile_count_y }}</p>
+          <p><strong>Progress:</strong> {{ tiledJob.progress }}</p>
+          <p><strong>Submitted:</strong> {{ tiledJob.submitted_at | date:'medium' }}</p>
         </mat-card-content>
       </mat-card>
 
@@ -96,13 +94,13 @@ export class TiledJobDetailComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.sub = this.route.paramMap.pipe(
       switchMap(params =>
-        this.tiledJobService.pollDetail(Number(params.get('id')))
+        this.tiledJobService.pollDetail(params.get('id')!)
       ),
     ).subscribe({
       next: (job) => {
         this.tiledJob = job;
         this.loading = false;
-        this.buildGrid(job.tiling_configuration);
+        this.buildGrid(`${job.tile_count_x}x${job.tile_count_y}`);
       },
       error: () => { this.loading = false; },
     });

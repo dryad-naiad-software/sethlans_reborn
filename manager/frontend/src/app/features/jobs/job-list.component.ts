@@ -56,11 +56,11 @@ import { JobService, Job, JobFilter } from '../../core/services/job.service';
         </ng-container>
         <ng-container matColumnDef="worker">
           <th mat-header-cell *matHeaderCellDef>Worker</th>
-          <td mat-cell *matCellDef="let j">{{ j.worker ?? 'Unassigned' }}</td>
+          <td mat-cell *matCellDef="let j">{{ j.assigned_worker_hostname ?? 'Unassigned' }}</td>
         </ng-container>
-        <ng-container matColumnDef="created_at">
+        <ng-container matColumnDef="submitted_at">
           <th mat-header-cell *matHeaderCellDef>Created</th>
-          <td mat-cell *matCellDef="let j">{{ j.created_at | date }}</td>
+          <td mat-cell *matCellDef="let j">{{ j.submitted_at | date }}</td>
         </ng-container>
         <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
         <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
@@ -80,7 +80,7 @@ export class JobListComponent implements OnInit, OnDestroy {
   jobs: Job[] = [];
   loading = true;
   statusFilter = '';
-  displayedColumns = ['id', 'status', 'render_engine', 'worker', 'created_at'];
+  displayedColumns = ['id', 'status', 'render_engine', 'worker', 'submitted_at'];
 
   ngOnInit(): void {
     this.sub = this.filterChange$.pipe(

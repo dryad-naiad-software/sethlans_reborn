@@ -4,17 +4,18 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, of } from 'rxjs';
+import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { poll } from './polling.util';
+import { SupportedVersion } from './supported-version.service';
 
 export interface Project {
-  id: number;
+  id: string;
   name: string;
-  description: string;
-  status: string;
+  blender_version: number;
+  blender_version_details: SupportedVersion;
   created_at: string;
-  updated_at: string;
+  is_paused: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -30,27 +31,27 @@ export class ProjectService {
     return poll(() => this.list());
   }
 
-  get(id: number): Observable<Project> {
+  get(id: string): Observable<Project> {
     return this.http.get<Project>(`${this.baseUrl}/${id}/`);
   }
 
-  create(data: Partial<Project>): Observable<Project> {
+  pollDetail(id: string): Observable<Project> {
+    return poll(() => this.get(id));
+  }
+
+  create(data: { name: string; blender_version: number }): Observable<Project> {
     return this.http.post<Project>(`${this.baseUrl}/`, data);
   }
 
-  update(id: number, data: Partial<Project>): Observable<Project> {
-    return this.http.patch<Project>(`${this.baseUrl}/${id}/`, data);
-  }
-
-  delete(id: number): Observable<void> {
+  delete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/`);
   }
 
-  pause(id: number): Observable<Project> {
+  pause(id: string): Observable<Project> {
     return this.http.post<Project>(`${this.baseUrl}/${id}/pause/`, {});
   }
 
-  unpause(id: number): Observable<Project> {
+  unpause(id: string): Observable<Project> {
     return this.http.post<Project>(`${this.baseUrl}/${id}/unpause/`, {});
   }
 }

@@ -3,31 +3,63 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { poll } from './polling.util';
+import { Project } from './project.service';
+import { Asset } from './asset.service';
+import { EffectiveBlenderVersion } from './job.service';
+
+export interface AnimationFrame {
+  id: number;
+  frame_number: number;
+  status: string;
+  output_file: string | null;
+  thumbnail: string | null;
+  render_time_seconds: number | null;
+}
 
 export interface Animation {
   id: number;
-  project: number;
   name: string;
+  status: string;
+  progress: string;
+  total_frames: number;
+  completed_frames: number;
+  project: string;
+  project_details: Project;
+  asset: Asset;
+  output_file_pattern: string;
   start_frame: number;
   end_frame: number;
-  status: string;
-  progress: number;
-  created_at: string;
-  updated_at: string;
+  frame_step: number;
+  blender_version: number | null;
+  effective_blender_version: EffectiveBlenderVersion;
+  render_engine: string;
+  render_device: string;
+  cycles_feature_set: string;
+  render_settings: Record<string, unknown>;
+  tiling_config: string;
+  submitted_at: string;
+  completed_at: string | null;
+  total_render_time_seconds: number;
+  thumbnail: string | null;
+  frames: AnimationFrame[];
 }
 
 export interface CreateAnimationRequest {
-  project: number;
+  name: string;
+  project: string;
+  asset_id: number;
+  output_file_pattern: string;
   start_frame: number;
   end_frame: number;
-  render_engine?: string;
-  render_device?: string;
-  tiling_enabled?: boolean;
-  tiling_configuration?: string;
+  frame_step: number;
+  tiling_config: string;
+  render_engine: string;
+  render_device: string;
+  render_settings?: Record<string, unknown>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -35,12 +67,14 @@ export class AnimationService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${environment.apiBaseUrl}/animations`;
 
-  list(): Observable<Animation[]> {
-    return this.http.get<Animation[]>(`${this.baseUrl}/`);
+  list(filters?: { project?: string }): Observable<Animation[]> {
+    let params = new HttpParams();
+    if (filters?.project) params = params.set('project', filters.project);
+    return this.http.get<Animation[]>(`${this.baseUrl}/`, { params });
   }
 
-  pollList(): Observable<Animation[]> {
-    return poll(() => this.list());
+  pollList(filters?: { project?: string }): Observable<Animation[]> {
+    return poll(() => this.list(filters));
   }
 
   get(id: number): Observable<Animation> {
