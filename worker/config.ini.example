@@ -1,5 +1,7 @@
 [manager]
 # The hostname or IP address of the Sethlans Manager server.
+# Use the manager's real network IP, not 127.0.0.1, so the
+# dashboard link works and remote workers can connect.
 host = 127.0.0.1
 # The port the Manager server is running on.
 port = 7075

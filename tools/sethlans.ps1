@@ -135,12 +135,15 @@ print(c.get('security', 'enrollment_key', fallback=''))
 
     Copy-Item (Join-Path $WorkerDir "config.ini.example") $workerConfig
     python -c @"
-import configparser
+import configparser, socket
 c = configparser.ConfigParser()
 c.read(r'$workerConfig')
+host_ip = socket.gethostbyname(socket.gethostname())
+c.set('manager', 'host', host_ip)
 c.set('manager', 'enrollment_key', '$enrollmentKey')
 with open(r'$workerConfig', 'w') as f:
     c.write(f)
+print(f'[OK] Manager host set to {host_ip}')
 "@
     Write-Host "[OK] Worker config.ini created with enrollment key"
 }

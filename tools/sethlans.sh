@@ -124,12 +124,15 @@ print(c.get('security', 'enrollment_key', fallback=''))
 
     cp "$WORKER_DIR/config.ini.example" "$worker_config"
     python -c "
-import configparser
+import configparser, socket
 c = configparser.ConfigParser()
 c.read('$worker_config')
+host_ip = socket.gethostbyname(socket.gethostname())
+c.set('manager', 'host', host_ip)
 c.set('manager', 'enrollment_key', '$enrollment_key')
 with open('$worker_config', 'w') as f:
     c.write(f)
+print(f'[OK] Manager host set to {host_ip}')
 "
     echo "[OK] Worker config.ini created with enrollment key"
 }
