@@ -58,7 +58,7 @@ function isTopLevelJob(job: Job): boolean {
     @if (loading) {
       <mat-spinner diameter="32" />
     } @else if (rows.length === 0) {
-      <p class="empty">No jobs yet. Use the form above to create a render.</p>
+      <p class="empty">No jobs yet. Click "Create Job" to get started.</p>
     } @else {
       <table mat-table [dataSource]="rows" class="full-width">
         <ng-container matColumnDef="name">
