@@ -41,6 +41,17 @@
   .modal input { width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 0.85rem; box-sizing: border-box; }
   .modal-buttons { margin-top: 1.25rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
   .modal-error { color: var(--err); font-size: 0.8rem; margin-top: 0.5rem; min-height: 1rem; }
+  .cfg-input { width: 60px; padding: 0.2rem 0.4rem; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 0.85rem; text-align: right; }
+  .cfg-input:focus { outline: 1px solid var(--ok); }
+  .toggle { position: relative; display: inline-block; width: 36px; height: 20px; vertical-align: middle; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; inset: 0; background: var(--accent); border-radius: 10px; cursor: pointer; transition: background 0.2s; }
+  .toggle .slider::before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: var(--text); border-radius: 50%; transition: transform 0.2s; }
+  .toggle input:checked + .slider { background: var(--ok); }
+  .toggle input:checked + .slider::before { transform: translateX(16px); }
+  .cfg-status { font-size: 0.75rem; margin-left: 0.5rem; }
+  .cfg-status.ok { color: var(--ok); }
+  .cfg-status.err { color: var(--err); }
 </style>
 </head>
 <body>
@@ -94,12 +105,11 @@
   <div class="card">
     <h2>Configuration</h2>
     <table>
-      <tr><th>Polling Interval</th><td id="cfg-poll"></td></tr>
-      <tr><th>Heartbeat Interval</th><td id="cfg-hb"></td></tr>
-      <tr><th>Force CPU</th><td id="cfg-cpu"></td></tr>
-      <tr><th>Force GPU</th><td id="cfg-gpu"></td></tr>
-      <tr><th>GPU Split Mode</th><td id="cfg-split"></td></tr>
-      <tr><th>Blender Version</th><td id="cfg-blender"></td></tr>
+      <tr><th>Polling Interval</th><td><input type="number" class="cfg-input" id="cfg-poll" min="1" max="3600" onchange="updateConfig('POLLING_INTERVAL',this.value,this)"> s<span class="cfg-status" id="cfg-poll-status"></span></td></tr>
+      <tr><th>Heartbeat Interval</th><td><input type="number" class="cfg-input" id="cfg-hb" min="1" max="3600" onchange="updateConfig('HEARTBEAT_INTERVAL',this.value,this)"> s<span class="cfg-status" id="cfg-hb-status"></span></td></tr>
+      <tr><th>Force CPU</th><td><label class="toggle"><input type="checkbox" id="cfg-cpu" onchange="updateConfig('FORCE_CPU_ONLY',this.checked,this)"><span class="slider"></span></label><span class="cfg-status" id="cfg-cpu-status"></span></td></tr>
+      <tr><th>Force GPU</th><td><label class="toggle"><input type="checkbox" id="cfg-gpu" onchange="updateConfig('FORCE_GPU_ONLY',this.checked,this)"><span class="slider"></span></label><span class="cfg-status" id="cfg-gpu-status"></span></td></tr>
+      <tr><th>GPU Split Mode</th><td><label class="toggle"><input type="checkbox" id="cfg-split" onchange="updateConfig('GPU_SPLIT_MODE',this.checked,this)"><span class="slider"></span></label><span class="cfg-status" id="cfg-split-status"></span></td></tr>
     </table>
   </div>
   <div class="card">
@@ -198,12 +208,16 @@
     }
 
     var cfg = data.config || {};
-    setText('cfg-poll', cfg.polling_interval + 's');
-    setText('cfg-hb', cfg.heartbeat_interval + 's');
-    setText('cfg-cpu', cfg.force_cpu ? 'Yes' : 'No');
-    setText('cfg-gpu', cfg.force_gpu ? 'Yes' : 'No');
-    setText('cfg-split', cfg.gpu_split_mode ? 'Yes' : 'No');
-    setText('cfg-blender', cfg.blender_version);
+    var pollEl = document.getElementById('cfg-poll');
+    var hbEl = document.getElementById('cfg-hb');
+    if (pollEl && document.activeElement !== pollEl) pollEl.value = cfg.polling_interval;
+    if (hbEl && document.activeElement !== hbEl) hbEl.value = cfg.heartbeat_interval;
+    var cpuEl = document.getElementById('cfg-cpu');
+    var gpuEl = document.getElementById('cfg-gpu');
+    var splitEl = document.getElementById('cfg-split');
+    if (cpuEl) cpuEl.checked = !!cfg.force_cpu;
+    if (gpuEl) gpuEl.checked = !!cfg.force_gpu;
+    if (splitEl) splitEl.checked = !!cfg.gpu_split_mode;
 
     var toolsDiv = document.getElementById('tools-list');
     clearChildren(toolsDiv);
@@ -321,6 +335,31 @@
     if (pw) sessionStorage.setItem('workerUIPassword', pw);
     return pw;
   }
+
+  function updateConfig(key, value, el) {
+    var password = getPassword();
+    if (!password) return;
+    var statusId = el.id + '-status';
+    var statusEl = document.getElementById(statusId);
+    fetch('/api/control/update', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + password, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key, value: value })
+    }).then(function(r) {
+      if (r.ok) {
+        if (statusEl) { statusEl.textContent = 'Saved'; statusEl.className = 'cfg-status ok'; }
+        setTimeout(function() { if (statusEl) statusEl.textContent = ''; }, 2000);
+      } else {
+        if (r.status === 401) { sessionStorage.removeItem('workerUIPassword'); }
+        r.json().then(function(d) {
+          if (statusEl) { statusEl.textContent = d.error || 'Error'; statusEl.className = 'cfg-status err'; }
+        });
+      }
+    }).catch(function(err) {
+      if (statusEl) { statusEl.textContent = err.message; statusEl.className = 'cfg-status err'; }
+    });
+  }
+  window.updateConfig = updateConfig;
 
   function shutdownWorker() {
     if (!confirm('Are you sure you want to shut down this worker?')) return;
