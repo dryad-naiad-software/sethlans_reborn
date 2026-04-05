@@ -129,9 +129,8 @@ def get_gpu_device_details():
 
     blender_exe = _find_any_blender_executable()
     if not blender_exe:
-        logger.error("Cannot get GPU details: no Blender executable available.")
-        _gpu_details_cache = []
-        return _gpu_details_cache
+        logger.warning("Cannot detect GPUs yet: no Blender executable available.")
+        return []  # Don't cache — retry after Blender is downloaded
 
     script_path = os.path.join(os.path.dirname(__file__), 'utils', 'detect_gpus.py')
     command = [blender_exe, '--background', '--factory-startup', '--python', script_path]
@@ -201,8 +200,12 @@ def detect_gpu_devices():
     if preferred_gpus:
         unique_backends = sorted(list(set(device['type'] for device in preferred_gpus)))
         _gpu_devices_cache = unique_backends
-    else:
+    elif _find_any_blender_executable():
+        # Blender is available but found no GPUs — cache the empty result
         _gpu_devices_cache = []
+    else:
+        # No Blender yet — don't cache, retry after download
+        return []
 
     logger.info(f"Detected and cached GPU backends: {_gpu_devices_cache if _gpu_devices_cache else 'None'}")
     return _gpu_devices_cache
