@@ -86,8 +86,8 @@ def _reset_job_processor_state():
 
 @pytest.fixture(autouse=True)
 def _reset_web_ui_auth():
-    """Reset the web_ui auth module's cached token between tests."""
+    """Reset the web_ui auth module's cached state between tests."""
     from sethlans_worker_agent.web_ui import auth
-    auth._token = None
+    auth.reset_cache()
     yield
-    auth._token = None
+    auth.reset_cache()

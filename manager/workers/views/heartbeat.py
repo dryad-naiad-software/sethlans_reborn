@@ -6,6 +6,7 @@ import configparser
 import hmac
 import logging
 import os
+import re
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -18,16 +19,19 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
-from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from ..constants import WorkerStatus
 from ..models import SupportedBlenderVersion, Worker
 from ..permissions import IsAdmin
 from ..rate_limiter import InMemoryRateLimiter
 from ..serializers import WorkerSerializer
+from .token_actions import WorkerTokenActionsMixin
 
 logger = logging.getLogger(__name__)
+
+WORKER_ACCEPTED_STATUSES = {WorkerStatus.IDLE, WorkerStatus.RENDERING}
 
 # Rate limiter for enrollment: 5 attempts per IP per 5 minutes
 _enrollment_rate_limiter = InMemoryRateLimiter(
@@ -35,11 +39,27 @@ _enrollment_rate_limiter = InMemoryRateLimiter(
 )
 
 
+def _validate_worker_status(raw_status):
+    """Validate status from worker payload. Returns a valid status string."""
+    if raw_status in WORKER_ACCEPTED_STATUSES:
+        return raw_status
+    return WorkerStatus.IDLE
+
+
+def _sanitize_cpu_name(cpu_name):
+    """Sanitize cpu_name input, rejecting strings with HTML/script chars."""
+    if not isinstance(cpu_name, str):
+        return ''
+    if not re.match(r'^[\w\s\-().@,/#+]*$', cpu_name, re.ASCII):
+        return ''
+    return cpu_name
+
+
 @extend_schema_view(
     list=extend_schema(tags=['Worker Agent']),
     create=extend_schema(tags=['Worker Agent']),
 )
-class WorkerHeartbeatViewSet(viewsets.ViewSet):
+class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
     """Worker enrollment, heartbeats, and admin token management."""
 
     def get_permissions(self):
@@ -91,6 +111,21 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
             return xff.split(',')[0].strip()
         return request.META.get('REMOTE_ADDR', '')
 
+    @staticmethod
+    def _extract_gpu_name(available_tools):
+        """Extract GPU name(s) from available_tools JSON."""
+        if not isinstance(available_tools, dict):
+            return ''
+        details = available_tools.get('gpu_devices_details', [])
+        if not isinstance(details, list):
+            return ''
+        names = [
+            d.get('name', '') for d in details
+            if isinstance(d, dict) and d.get('name')
+        ]
+        result = ', '.join(names)
+        return result[:255]
+
     def list(self, request):
         """Lists all registered workers with has_token status."""
         token_exists = Token.objects.filter(
@@ -99,11 +134,11 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         workers = Worker.objects.annotate(
             _has_token=Exists(token_exists),
         )
-        serializer = WorkerSerializer(workers, many=True)
-        data = serializer.data
-        for item, worker in zip(data, workers):
-            item['has_token'] = worker._has_token
-        return Response(data)
+        serializer = WorkerSerializer(
+            workers, many=True,
+            context={'now': timezone.now()},
+        )
+        return Response(serializer.data)
 
     def create(self, request):
         """Worker enrollment (key-based) or authenticated heartbeat."""
@@ -115,8 +150,7 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         client_ip = self._get_client_ip(request)
         if _enrollment_rate_limiter.is_rate_limited(client_ip):
             return Response(
-                {"detail": "Too many enrollment attempts. "
-                 "Try again later."},
+                {"detail": "Too many enrollment attempts. Try again later."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
@@ -172,23 +206,29 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
             )
             if user is None:
                 return Response(
-                    {"detail": "Could not create worker user "
-                     "after retries."},
+                    {"detail": "Could not create worker user after retries."},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
             token, _ = Token.objects.get_or_create(user=user)
+            raw_status = request.data.get('status', 'IDLE')
+            available_tools = request.data.get('available_tools', {})
             worker, created = Worker.objects.update_or_create(
                 hostname=hostname,
                 defaults={
                     'ip_address': request.data.get('ip_address'),
                     'os': request.data.get('os'),
-                    'available_tools': request.data.get(
-                        'available_tools', {},
-                    ),
+                    'available_tools': available_tools,
                     'last_seen': timezone.now(),
                     'is_active': True,
                     'ui_url': ui_url,
                     'user': user,
+                    'cpu_name': _sanitize_cpu_name(
+                        request.data.get('cpu_name', ''),
+                    ),
+                    'gpu_name': self._extract_gpu_name(
+                        available_tools,
+                    ),
+                    'status': _validate_worker_status(raw_status),
                 },
             )
 
@@ -206,8 +246,7 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
             worker = Worker.objects.get(hostname=hostname)
         except Worker.DoesNotExist:
             return Response(
-                {"detail": "Worker not found. "
-                 "Please re-register with full system info."},
+                {"detail": "Worker not found. Re-register with full system info."},
                 status=status.HTTP_404_NOT_FOUND,
             )
         worker.last_seen = timezone.now()
@@ -215,10 +254,21 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
         worker.ui_url = self._validate_ui_url(
             request.data.get('ui_url'),
         )
-        update_fields = ['last_seen', 'is_active', 'ui_url']
+        raw_status = request.data.get('status', worker.status)
+        worker.cpu_name = _sanitize_cpu_name(
+            request.data.get('cpu_name', worker.cpu_name),
+        )
+        worker.status = _validate_worker_status(raw_status)
+        update_fields = [
+            'last_seen', 'is_active', 'ui_url',
+            'cpu_name', 'status',
+        ]
         if 'available_tools' in request.data:
             worker.available_tools = request.data['available_tools']
-            update_fields.append('available_tools')
+            worker.gpu_name = self._extract_gpu_name(
+                request.data['available_tools'],
+            )
+            update_fields.extend(['available_tools', 'gpu_name'])
         worker.save(update_fields=update_fields)
         logger.debug("Worker heartbeat. Hostname: %s", hostname)
         return WorkerSerializer(worker).data
@@ -242,58 +292,5 @@ class WorkerHeartbeatViewSet(viewsets.ViewSet):
                 return user
             except IntegrityError:
                 continue
-        logger.error(
-            "Failed to create user for worker '%s' after 10 retries.",
-            hostname,
-        )
+        logger.error("Failed to create user for worker '%s' after 10 retries.", hostname)
         return None
-
-    @staticmethod
-    def _require_worker_with_user(pk):
-        """Return (worker, None) or (None, error Response)."""
-        try:
-            worker = Worker.objects.select_related('user').get(pk=pk)
-        except Worker.DoesNotExist:
-            return None, Response(
-                {"detail": "Worker not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        if not worker.user:
-            return None, Response(
-                {"detail": "Worker has no linked user."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return worker, None
-
-    @extend_schema(tags=['Management UI'])
-    @action(detail=True, methods=['post'], url_path='revoke_token')
-    def revoke_token(self, request, pk=None):
-        """Delete the DRF Token associated with a worker's User."""
-        worker, err = self._require_worker_with_user(pk)
-        if err:
-            return err
-        Token.objects.filter(user=worker.user).delete()
-        logger.info("Token revoked for worker %s", worker.hostname)
-        return Response({"detail": "Token revoked."})
-
-    @extend_schema(tags=['Management UI'])
-    @action(detail=True, methods=['post'], url_path='regenerate_token')
-    def regenerate_token(self, request, pk=None):
-        """Delete old token and create a new one. Returns new key."""
-        worker, err = self._require_worker_with_user(pk)
-        if err:
-            return err
-        Token.objects.filter(user=worker.user).delete()
-        token = Token.objects.create(user=worker.user)
-        return Response({"token": token.key})
-
-    @extend_schema(tags=['Management UI'])
-    @action(detail=True, methods=['post'], url_path='force_reenroll')
-    def force_reenroll(self, request, pk=None):
-        """Revoke token so the worker re-enrolls on next heartbeat."""
-        worker, err = self._require_worker_with_user(pk)
-        if err:
-            return err
-        Token.objects.filter(user=worker.user).delete()
-        logger.info("Forced re-enrollment for worker %s", worker.hostname)
-        return Response({"detail": "Token revoked. Worker will re-enroll."})

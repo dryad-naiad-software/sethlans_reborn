@@ -27,6 +27,7 @@ from sethlans_worker_agent import version_sync
 from sethlans_worker_agent.hardware_detection import (  # noqa: F401
     detect_gpu_devices,
     get_gpu_device_details,
+    get_cpu_name,
     get_cpu_thread_count,
     get_system_info,
     _filter_preferred_gpus,
@@ -106,6 +107,7 @@ def register_with_manager():
     auth_state = check_auth_config()
     payload = get_system_info()
     payload['ui_url'] = _get_ui_url()
+    payload['status'] = 'IDLE'
 
     if auth_state == 'none':
         logger.critical(
@@ -179,6 +181,7 @@ def send_heartbeat(is_busy=False, active_jobs=None):
     payload = get_system_info()
     payload.pop('os', None)
     payload['ui_url'] = _get_ui_url()
+    payload['status'] = 'RENDERING' if is_busy else 'IDLE'
 
     response_data = api_handler.send_authenticated_heartbeat(payload)
     if response_data:

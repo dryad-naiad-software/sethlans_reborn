@@ -173,3 +173,4 @@ test_artifacts/
 temp/
 .playwright-mcp/
 *.png
+.tmp

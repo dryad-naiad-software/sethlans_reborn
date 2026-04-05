@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import { Component, OnInit, inject } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import {
@@ -10,6 +13,7 @@ import {
   SupportedVersion,
   DeletePreview,
 } from '../../core/services/supported-version.service';
+import { ShutdownService } from '../../core/services/shutdown.service';
 import { AddVersionFormComponent } from './add-version-form.component';
 import { VersionTableComponent } from './version-table.component';
 
@@ -17,6 +21,9 @@ import { VersionTableComponent } from './version-table.component';
   selector: 'app-settings',
   standalone: true,
   imports: [
+    MatButtonModule,
+    MatDividerModule,
+    MatIconModule,
     MatProgressSpinnerModule,
     MatSnackBarModule,
     AddVersionFormComponent,
@@ -49,15 +56,57 @@ import { VersionTableComponent } from './version-table.component';
         (confirmDelete)="onConfirmDelete($event)"
         (cancelDelete)="onCancelDelete()" />
     }
+
+    <mat-divider class="shutdown-divider" />
+
+    <h2>System</h2>
+    <p class="shutdown-description">
+      Shut down the Sethlans manager process. All connected workers will
+      stop receiving new jobs. This action cannot be undone from the UI.
+    </p>
+    @if (shutdownConfirmVisible) {
+      <p class="shutdown-warning">
+        Are you sure? The manager will stop and this page will become
+        unreachable.
+      </p>
+      <button mat-flat-button color="warn"
+              [disabled]="shuttingDown"
+              (click)="onConfirmShutdown()">
+        @if (shuttingDown) {
+          Shutting down...
+        } @else {
+          Confirm Shutdown
+        }
+      </button>
+      <button mat-button
+              [disabled]="shuttingDown"
+              (click)="shutdownConfirmVisible = false">
+        Cancel
+      </button>
+    } @else {
+      <button mat-flat-button color="warn" (click)="shutdownConfirmVisible = true">
+        <mat-icon>power_settings_new</mat-icon>
+        Shut Down Manager
+      </button>
+    }
   `,
   styles: [`
     h2 { margin-top: 24px; }
     .loading { display: flex; justify-content: center; padding: 48px; }
     app-add-version-form { display: block; margin-bottom: 24px; }
+    .shutdown-divider { margin-top: 32px; }
+    .shutdown-description { color: rgba(0, 0, 0, 0.6); margin-bottom: 16px; }
+    .shutdown-warning {
+      color: #d32f2f;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+    button + button { margin-left: 8px; }
   `],
 })
 export class SettingsComponent implements OnInit {
   private readonly service = inject(SupportedVersionService);
+  private readonly shutdownService = inject(ShutdownService);
   private readonly snackBar = inject(MatSnackBar);
 
   versions: SupportedVersion[] = [];
@@ -69,6 +118,8 @@ export class SettingsComponent implements OnInit {
   settingDefaultId: number | null = null;
   availableSeries: string[] = [];
   cacheReady = false;
+  shutdownConfirmVisible = false;
+  shuttingDown = false;
 
   ngOnInit(): void {
     this.loadVersions();
@@ -167,5 +218,22 @@ export class SettingsComponent implements OnInit {
   onCancelDelete(): void {
     this.expandedDeleteId = null;
     this.deletePreview = null;
+  }
+
+  onConfirmShutdown(): void {
+    this.shuttingDown = true;
+    this.shutdownService.shutdown().subscribe({
+      next: () => {
+        this.snackBar.open(
+          'Manager is shutting down...', 'Dismiss', { duration: 10000 },
+        );
+      },
+      error: () => {
+        this.shuttingDown = false;
+        this.snackBar.open(
+          'Failed to shut down manager', 'Dismiss', { duration: 5000 },
+        );
+      },
+    });
   }
 }

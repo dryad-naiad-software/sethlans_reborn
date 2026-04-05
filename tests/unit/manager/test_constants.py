@@ -13,6 +13,8 @@ from workers.constants import (
     RenderDevice,
     TilingConfiguration,
     RenderSettings,
+    WorkerStatus,
+    WORKER_STALENESS_SECONDS,
 )
 
 
@@ -128,3 +130,35 @@ class TestRenderSettings:
                 continue
             val = getattr(RenderSettings, attr)
             assert "." in val, f"{attr}={val} is not dot-separated"
+
+
+# ---- WorkerStatus ----
+
+class TestWorkerStatus:
+    def test_idle_value(self):
+        assert WorkerStatus.IDLE.value == "IDLE"
+
+    def test_rendering_value(self):
+        assert WorkerStatus.RENDERING.value == "RENDERING"
+
+    def test_offline_value(self):
+        assert WorkerStatus.OFFLINE.value == "OFFLINE"
+
+    def test_choices_count(self):
+        assert len(WorkerStatus.choices) == 3
+
+    def test_labels(self):
+        assert WorkerStatus.IDLE.label == "Idle"
+        assert WorkerStatus.RENDERING.label == "Rendering"
+        assert WorkerStatus.OFFLINE.label == "Offline"
+
+
+# ---- WORKER_STALENESS_SECONDS ----
+
+class TestWorkerStalenessSeconds:
+    def test_default_value(self):
+        assert WORKER_STALENESS_SECONDS == 90
+
+    def test_is_positive_integer(self):
+        assert isinstance(WORKER_STALENESS_SECONDS, int)
+        assert WORKER_STALENESS_SECONDS > 0

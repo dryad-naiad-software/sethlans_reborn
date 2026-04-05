@@ -7,7 +7,7 @@ Embedded HTTP server for the worker web UI.
 
 Uses stdlib http.server.ThreadingHTTPServer in a daemon thread.
 Serves the static HTML dashboard, a JSON status endpoint, and
-authenticated control endpoints for pause/resume/config changes.
+authenticated control endpoints for pause/resume/shutdown/config changes.
 """
 
 import json
@@ -17,7 +17,9 @@ import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 from sethlans_worker_agent import config, job_processor
-from sethlans_worker_agent.web_ui.auth import validate_token, get_token
+from sethlans_worker_agent.web_ui.auth import (
+    validate_password, is_password_configured,
+)
 from sethlans_worker_agent.web_ui.status import get_status_snapshot
 
 logger = logging.getLogger(__name__)
@@ -86,13 +88,19 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
             self.send_error(404, 'Not Found')
 
     def _check_auth(self):
-        """Validate Bearer token. Returns True if authorized."""
+        """Validate Bearer password. Returns True if authorized."""
+        if not is_password_configured():
+            self._send_json(
+                {'error': 'No password configured. '
+                 'Control endpoints are disabled.'}, 403
+            )
+            return False
         auth = self.headers.get('Authorization', '')
         if not auth.startswith('Bearer '):
             self._send_json({'error': 'Unauthorized'}, 401)
             return False
-        token = auth[7:]
-        if not validate_token(token):
+        password = auth[7:]
+        if not validate_password(password):
             self._send_json({'error': 'Unauthorized'}, 401)
             return False
         return True
@@ -141,10 +149,19 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
         elif action == 'resume':
             job_processor.resume()
             self._send_json({'status': 'resumed'})
+        elif action == 'shutdown':
+            self._handle_shutdown()
         elif action == 'update':
             self._handle_config_update(body_bytes)
         else:
             self.send_error(404, 'Unknown action')
+
+    def _handle_shutdown(self):
+        """Trigger a graceful shutdown of the worker agent."""
+        from sethlans_worker_agent.agent import _shutdown_event
+        logger.info("Shutdown requested via web UI.")
+        self._send_json({'status': 'shutting_down'})
+        _shutdown_event.set()
 
     def _handle_config_update(self, body_bytes):
         """Process a config update request."""
@@ -219,8 +236,7 @@ def start_server():
     """
     Start the web UI HTTP server in a daemon thread.
 
-    Ensures the auth token is available (generating if needed)
-    before binding the server socket.
+    Logs a warning if no password is configured (read-only mode).
     """
     global _server, _server_thread
 
@@ -228,8 +244,10 @@ def start_server():
         logger.info("Worker Web UI is disabled.")
         return
 
-    # Ensure token exists (generates and persists if needed)
-    get_token()
+    if not is_password_configured():
+        logger.warning(
+            "No UI password configured. Dashboard is read-only."
+        )
 
     bind_addr = config.UI_BIND_ADDRESS
     port = config.UI_PORT

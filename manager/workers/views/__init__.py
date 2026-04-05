@@ -17,6 +17,7 @@ from .auth import (
     user_view,
     regenerate_enrollment_key_view,
 )
+from .shutdown import shutdown_view
 
 __all__ = [
     "ProjectViewSet",
@@ -32,4 +33,5 @@ __all__ = [
     "logout_view",
     "user_view",
     "regenerate_enrollment_key_view",
+    "shutdown_view",
 ]

@@ -28,16 +28,19 @@ def web_ui(mocker, tmp_path):
     """
     Start the web UI server on a random high port.
 
-    Patches config to enable UI and sets a known token.
-    Yields a dict with base_url and token. Stops server on teardown.
+    Uses auth.set_password() to configure a known PBKDF2-hashed
+    password.  Yields a dict with base_url and password.
+    Stops server on teardown.
     """
-    test_token = "test-integration-token-abc123"
+    test_password = "test-integration-pw123"
     mocker.patch.object(config, 'UI_ENABLED', True)
     mocker.patch.object(config, 'UI_BIND_ADDRESS', '127.0.0.1')
-    mocker.patch.object(config, 'UI_TOKEN', test_token)
 
-    # Reset cached token so get_token() reads from config
-    auth._token = None
+    # Reset auth cache, then set a known password (hashed)
+    auth.reset_cache()
+    # Patch config_file_path so set_password writes to tmp
+    mocker.patch.object(config, 'config_file_path', tmp_path / 'config.ini')
+    auth.set_password(test_password)
 
     # Find a free port
     import socket
@@ -71,10 +74,11 @@ def web_ui(mocker, tmp_path):
 
     yield {
         'base_url': f'http://127.0.0.1:{port}',
-        'token': test_token,
+        'token': test_password,
     }
 
     server.stop_server()
+    auth.reset_cache()
 
 
 def _get(url, headers=None):

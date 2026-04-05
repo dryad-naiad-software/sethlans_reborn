@@ -34,10 +34,11 @@ ui_port = 7076
 # Default: 127.0.0.1 (localhost only - most secure)
 # Set to 0.0.0.0 to allow access from other machines on the network.
 # WARNING: Binding to 0.0.0.0 exposes the dashboard and control endpoints
-# to your entire network. Ensure the ui_token is kept secret and consider
+# to your entire network. Ensure a strong password is set and consider
 # firewall rules to restrict access.
 ui_bind_address = 127.0.0.1
-# Authentication token for control endpoints (pause, resume, config changes).
-# If left empty, a random token will be auto-generated on first start
-# and written back to this file. The token is also printed to stdout.
-ui_token =
+# Password hash and salt for control endpoint authentication.
+# These are written automatically when you set a password at first startup.
+# Do NOT edit these manually. To reset, delete both lines and restart.
+ui_password_hash =
+ui_password_salt =

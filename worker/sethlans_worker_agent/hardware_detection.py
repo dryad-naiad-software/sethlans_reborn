@@ -4,11 +4,9 @@
 """
 Detects and caches local hardware and software capabilities.
 
-This module is responsible for:
-- Detecting GPU devices via a headless Blender subprocess.
-- Filtering GPU devices to one preferred entry per physical card.
-- Caching GPU and CPU detection results.
-- Gathering system information for worker registration.
+Responsibilities: GPU device detection via headless Blender subprocess,
+GPU filtering to one preferred entry per physical card, CPU/GPU caching,
+and gathering system information for worker registration.
 """
 
 import json
@@ -22,6 +20,7 @@ from collections import defaultdict
 import psutil
 
 from sethlans_worker_agent import config
+from sethlans_worker_agent.cpu_detection import get_cpu_name  # noqa: F401
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
@@ -247,6 +246,7 @@ def get_system_info():
         "hostname": HOSTNAME,
         "ip_address": IP_ADDRESS,
         "os": OS_INFO,
+        "cpu_name": get_cpu_name(),
         "available_tools": {
             "blender": [v['version'] for v in available_blenders],
             "gpu_devices": gpu_devices,

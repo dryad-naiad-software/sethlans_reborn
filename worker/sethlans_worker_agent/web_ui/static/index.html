@@ -24,10 +24,17 @@
   .badge-active { background: var(--ok); color: #000; }
   .mono { font-family: monospace; font-size: 0.8rem; word-break: break-all; }
   .empty { color: #666; font-style: italic; }
+  .btn { padding: 0.3rem 0.8rem; border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: bold; }
+  .btn-danger { background: var(--err); color: #fff; border-color: var(--err); }
+  .btn-danger:hover { opacity: 0.85; }
+  .top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
 </style>
 </head>
 <body>
-<h1>Sethlans Worker Dashboard</h1>
+<div class="top-bar">
+  <h1>Sethlans Worker Dashboard</h1>
+  <button class="btn btn-danger" id="btn-shutdown" onclick="shutdownWorker()">Shutdown</button>
+</div>
 <div id="status-line"></div>
 <div id="error-banner"></div>
 <div class="grid">
@@ -228,6 +235,35 @@
         banner.style.display = 'block';
       });
   }
+
+  function getPassword() {
+    var pw = sessionStorage.getItem('workerUIPassword');
+    if (pw) return pw;
+    pw = prompt('Enter worker UI password:');
+    if (pw) sessionStorage.setItem('workerUIPassword', pw);
+    return pw;
+  }
+
+  function shutdownWorker() {
+    if (!confirm('Are you sure you want to shut down this worker?')) return;
+    var password = getPassword();
+    if (!password) return;
+    fetch('/api/control/shutdown', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + password, 'Content-Type': 'application/json' },
+      body: '{}'
+    }).then(function(r) {
+      if (r.ok) {
+        document.getElementById('error-banner').textContent = 'Worker is shutting down...';
+        document.getElementById('error-banner').style.display = 'block';
+        document.getElementById('btn-shutdown').disabled = true;
+      } else {
+        sessionStorage.removeItem('workerUIPassword');
+        alert('Shutdown failed: ' + r.status + ' ' + r.statusText);
+      }
+    }).catch(function(err) { alert('Shutdown failed: ' + err.message); });
+  }
+  window.shutdownWorker = shutdownWorker;
 
   pollStatus();
   setInterval(pollStatus, POLL_MS);

@@ -5,6 +5,8 @@
 from django.conf import settings
 from django.db import models
 
+from ..constants import WorkerStatus
+
 
 class Worker(models.Model):
     """
@@ -24,6 +26,13 @@ class Worker(models.Model):
     is_active = models.BooleanField(default=True)
     available_tools = models.JSONField(default=dict, blank=True)
     ui_url = models.URLField(max_length=255, null=True, blank=True)
+    cpu_name = models.CharField(max_length=255, blank=True, default='')
+    gpu_name = models.CharField(max_length=255, blank=True, default='')
+    status = models.CharField(
+        max_length=20,
+        choices=WorkerStatus.choices,
+        default=WorkerStatus.OFFLINE,
+    )
 
     def has_blender_version(self, version_str):
         """Check if this worker has a specific Blender version installed."""

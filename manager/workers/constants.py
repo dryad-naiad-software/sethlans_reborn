@@ -86,3 +86,19 @@ class RenderSettings:
     # Performance Settings
     TILE_X = "render.tile_x"
     TILE_Y = "render.tile_y"
+
+
+class WorkerStatus(models.TextChoices):
+    """
+    Defines the possible operational states of a worker.
+
+    IDLE and RENDERING are reported by the worker agent.
+    OFFLINE is derived by the manager when a worker's heartbeat is stale.
+    """
+    IDLE = 'IDLE', 'Idle'
+    RENDERING = 'RENDERING', 'Rendering'
+    OFFLINE = 'OFFLINE', 'Offline'
+
+
+# Workers reporting no heartbeat within this many seconds are considered OFFLINE.
+WORKER_STALENESS_SECONDS = 90

@@ -153,7 +153,8 @@ UI_ENABLED = UI_ENABLED.lower() in ('true', '1', 'yes') if isinstance(UI_ENABLED
 UI_PORT = get_config_value('worker', 'ui_port', 7076, is_int=True)
 UI_PORT = _validate_int('worker.ui_port', UI_PORT, 7076, 1, 65535)
 UI_BIND_ADDRESS = get_config_value('worker', 'ui_bind_address', '127.0.0.1')
-UI_TOKEN = get_config_value('worker', 'ui_token', '')
+UI_PASSWORD_HASH = get_config_value('worker', 'ui_password_hash', '')
+UI_PASSWORD_SALT = get_config_value('worker', 'ui_password_salt', '')
 
 
 # --- Worker Agent Paths ---

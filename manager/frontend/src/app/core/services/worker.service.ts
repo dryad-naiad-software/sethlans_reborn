@@ -12,14 +12,14 @@ export interface Worker {
   id: number;
   hostname: string;
   ip_address: string;
-  port: number;
   status: string;
   cpu_name: string;
   gpu_name: string;
   os: string;
   ui_url: string | null;
   last_heartbeat: string;
-  created_at: string;
+  is_active: boolean;
+  has_token: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
