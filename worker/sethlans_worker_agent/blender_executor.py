@@ -65,24 +65,18 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
     logger.info(f"[Job {job_id}] Received job '{job_name}'. Job execution started at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
 
-    final_gpu_index_to_log = assigned_gpu_index
-    if final_gpu_index_to_log is None and config.FORCE_GPU_INDEX is not None:
+    gpu_idx = assigned_gpu_index
+    if gpu_idx is None and config.FORCE_GPU_INDEX is not None:
         try:
-            final_gpu_index_to_log = int(config.FORCE_GPU_INDEX)
+            gpu_idx = int(config.FORCE_GPU_INDEX)
         except (ValueError, TypeError):
             pass
-
-    if final_gpu_index_to_log is not None:
-        all_physical_gpus = system_monitor.get_gpu_device_details()
-        if 0 <= final_gpu_index_to_log < len(all_physical_gpus):
-            gpu_details = all_physical_gpus[final_gpu_index_to_log]
-            gpu_name = gpu_details.get('name', 'N/A')
-            logger.info(f"[Job {job_id}] Assigning to [Physical GPU {final_gpu_index_to_log}] {gpu_name}.")
+    if gpu_idx is not None:
+        gpus = system_monitor.get_gpu_device_details()
+        if 0 <= gpu_idx < len(gpus):
+            logger.info(f"[Job {job_id}] Assigning to [Physical GPU {gpu_idx}] {gpus[gpu_idx].get('name', 'N/A')}.")
         else:
-            logger.warning(
-                f"[Job {job_id}] Requested GPU index {final_gpu_index_to_log} is out of valid range. "
-                f"Blender will use all available GPUs."
-            )
+            logger.warning(f"[Job {job_id}] GPU index {gpu_idx} out of range. Using all available GPUs.")
 
     output_file_pattern = job_data.get('output_file_pattern')
     start_frame = job_data.get('start_frame', 1)
@@ -114,7 +108,10 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     tool_manager_instance.acquire_version(resolved_version)
 
     logger.info(f"Using Blender executable: {blender_to_use}")
-    resolved_output_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, output_file_pattern))
+    # Strip Blender's // prefix (relative-to-blend convention) so it
+    # does not get interpreted as a UNC path on Windows.
+    clean_pattern = output_file_pattern.lstrip('/')
+    resolved_output_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, clean_pattern))
     os.makedirs(os.path.dirname(resolved_output_pattern), exist_ok=True)
 
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
@@ -272,16 +269,12 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     stdout_output, stderr_output = "".join(stdout_lines), "".join(stderr_lines)
     success, final_output_path = False, None
 
-    if stdout_lines:
-        logger.debug(f"--- [Job {job_id}] Blender STDOUT ---")
-        for line in stdout_lines:
-            if line.strip():
-                logger.debug(f"[Job {job_id}] {line.strip()}")
-    if stderr_lines:
-        logger.warning(f"--- [Job {job_id}] Blender STDERR ---")
-        for line in stderr_lines:
-            if line.strip():
-                logger.warning(f"[Job {job_id}] {line.strip()}")
+    for lines, level, label in [(stdout_lines, logger.debug, "STDOUT"), (stderr_lines, logger.warning, "STDERR")]:
+        if lines:
+            level(f"--- [Job {job_id}] Blender {label} ---")
+            for line in lines:
+                if line.strip():
+                    level(f"[Job {job_id}] {line.strip()}")
 
     if was_canceled:
         error_message = "Job was canceled by user request."
