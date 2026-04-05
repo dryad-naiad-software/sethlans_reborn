@@ -69,8 +69,6 @@ def get_status_snapshot():
         gpu_list.append({
             'name': gpu.get('name', 'Unknown'),
             'type': gpu.get('type', 'Unknown'),
-            # VRAM is best-effort; return null when unavailable
-            'vram': gpu.get('vram', None),
         })
 
     cpu_threads = get_cpu_thread_count()

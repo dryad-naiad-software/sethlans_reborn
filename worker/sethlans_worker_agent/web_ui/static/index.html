@@ -192,9 +192,9 @@
       gpuDiv.appendChild(createEl('p', 'No GPUs detected', 'empty'));
     } else {
       var rows = gpus.map(function(g) {
-        return [g.name, g.type, g.vram != null ? g.vram + ' MB' : 'N/A'];
+        return [g.name, g.type];
       });
-      gpuDiv.appendChild(buildTable(['Name', 'Backend', 'VRAM'], rows));
+      gpuDiv.appendChild(buildTable(['Name', 'Backend'], rows));
     }
 
     var cfg = data.config || {};
