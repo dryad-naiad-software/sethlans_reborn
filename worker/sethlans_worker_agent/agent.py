@@ -25,7 +25,6 @@ import sys
 from sethlans_worker_agent import job_processor, system_monitor, config, api_handler
 from sethlans_worker_agent import version_sync
 from sethlans_worker_agent.web_ui import start_server, stop_server
-from sethlans_worker_agent.web_ui.auth import prompt_for_password
 
 # --- Argument Parsing ---
 parser = argparse.ArgumentParser(description="Sethlans Reborn Worker Agent")
@@ -154,10 +153,6 @@ def main():
     signal.signal(signal.SIGTERM, _shutdown_handler)
 
     logger.info("Sethlans Reborn Worker Agent Starting...")
-
-    # Prompt user to set a web UI password if none is configured
-    if config.UI_ENABLED:
-        prompt_for_password()
 
     worker_id = None
 

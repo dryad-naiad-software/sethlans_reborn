@@ -27,7 +27,20 @@
   .btn { padding: 0.3rem 0.8rem; border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: bold; }
   .btn-danger { background: var(--err); color: #fff; border-color: var(--err); }
   .btn-danger:hover { opacity: 0.85; }
+  .btn-ok { background: var(--ok); color: #000; border-color: var(--ok); }
+  .btn-ok:hover { opacity: 0.85; }
+  .btn-secondary { background: transparent; color: var(--text); border-color: var(--accent); }
   .top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+  #pw-banner { display: none; background: var(--warn); color: #000; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; display: none; align-items: center; justify-content: space-between; }
+  #pw-banner .btn { margin-left: 1rem; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--card); border: 1px solid var(--accent); border-radius: 8px; padding: 1.5rem; width: 340px; }
+  .modal h2 { color: var(--ok); font-size: 1.1rem; margin-bottom: 1rem; border: none; }
+  .modal label { display: block; color: var(--text); font-size: 0.85rem; margin-bottom: 0.25rem; margin-top: 0.75rem; }
+  .modal input { width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 0.85rem; box-sizing: border-box; }
+  .modal-buttons { margin-top: 1.25rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
+  .modal-error { color: var(--err); font-size: 0.8rem; margin-top: 0.5rem; min-height: 1rem; }
 </style>
 </head>
 <body>
@@ -36,7 +49,27 @@
   <button class="btn btn-danger" id="btn-shutdown" onclick="shutdownWorker()">Shutdown</button>
 </div>
 <div id="status-line"></div>
+<div id="pw-banner">
+  <span>The default password is <strong>sethlans</strong>. Please change it to secure this dashboard.</span>
+  <button class="btn btn-ok" onclick="openPasswordModal()">Change Password</button>
+</div>
 <div id="error-banner"></div>
+<div class="modal-overlay" id="pw-modal">
+  <div class="modal">
+    <h2>Change Password</h2>
+    <label for="pw-current">Current password</label>
+    <input type="password" id="pw-current" />
+    <label for="pw-new">New password</label>
+    <input type="password" id="pw-new" />
+    <label for="pw-confirm">Confirm new password</label>
+    <input type="password" id="pw-confirm" />
+    <div class="modal-error" id="pw-error"></div>
+    <div class="modal-buttons">
+      <button class="btn btn-secondary" onclick="closePasswordModal()">Cancel</button>
+      <button class="btn btn-ok" onclick="setNewPassword()">Save</button>
+    </div>
+  </div>
+</div>
 <div class="grid">
   <div class="card">
     <h2>System Info</h2>
@@ -223,6 +256,7 @@
 
     document.getElementById('error-banner').style.display = 'none';
     setText('status-line', 'Last updated: ' + new Date().toLocaleTimeString());
+    checkPasswordSetup(data);
   }
 
   function pollStatus() {
@@ -235,6 +269,50 @@
         banner.style.display = 'block';
       });
   }
+
+  function checkPasswordSetup(data) {
+    var w = data.worker || {};
+    var el = document.getElementById('pw-banner');
+    if (el) el.style.display = w.password_configured === false ? 'flex' : 'none';
+  }
+
+  function openPasswordModal() {
+    document.getElementById('pw-current').value = '';
+    document.getElementById('pw-new').value = '';
+    document.getElementById('pw-confirm').value = '';
+    document.getElementById('pw-error').textContent = '';
+    document.getElementById('pw-modal').classList.add('open');
+  }
+  window.openPasswordModal = openPasswordModal;
+
+  function closePasswordModal() {
+    document.getElementById('pw-modal').classList.remove('open');
+  }
+  window.closePasswordModal = closePasswordModal;
+
+  function setNewPassword() {
+    var current = document.getElementById('pw-current').value;
+    var pw = document.getElementById('pw-new').value;
+    var confirm = document.getElementById('pw-confirm').value;
+    var errEl = document.getElementById('pw-error');
+    if (!current) { errEl.textContent = 'Enter current password'; return; }
+    if (pw.length < 4) { errEl.textContent = 'At least 4 characters'; return; }
+    if (pw !== confirm) { errEl.textContent = 'Passwords do not match'; return; }
+    errEl.textContent = '';
+    fetch('/api/control/set_password', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + current, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    }).then(function(r) {
+      if (r.ok) {
+        sessionStorage.setItem('workerUIPassword', pw);
+        closePasswordModal();
+        document.getElementById('pw-banner').style.display = 'none';
+      } else if (r.status === 401) { errEl.textContent = 'Wrong current password'; }
+      else { errEl.textContent = 'Failed to set password'; }
+    }).catch(function(err) { errEl.textContent = err.message; });
+  }
+  window.setNewPassword = setNewPassword;
 
   function getPassword() {
     var pw = sessionStorage.getItem('workerUIPassword');

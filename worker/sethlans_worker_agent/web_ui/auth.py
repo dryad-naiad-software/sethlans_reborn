@@ -9,8 +9,8 @@ Passwords are hashed with PBKDF2-SHA256 and stored as hex strings
 (ui_password_hash + ui_password_salt) in config.ini.  Plaintext
 passwords are never persisted.
 
-Interactive prompt at first run lets the user choose a password.
-If skipped, control endpoints are disabled (read-only dashboard).
+When no password is configured, a default password ("sethlans") is
+accepted. The dashboard prompts the user to change it on first load.
 """
 
 import configparser
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _ITERATIONS = 100_000
 _HASH_ALGO = 'sha256'
 _SALT_LENGTH = 16  # bytes
+_DEFAULT_PASSWORD = 'sethlans'
 
 # Module-level cache (loaded once from config.ini)
 _cached_hash = None
@@ -141,47 +142,14 @@ def validate_password(request_password):
     """
     Validate a plaintext password against the stored hash.
 
-    Returns False if no password is configured or if comparison fails.
+    When no password hash is configured, accepts the default password.
     Uses constant-time comparison to prevent timing attacks.
     """
     _load_cache()
     if _cached_hash is None or _cached_salt is None:
-        return False
+        return secrets.compare_digest(request_password, _DEFAULT_PASSWORD)
     candidate = _hash_password(request_password, _cached_salt)
     return secrets.compare_digest(candidate, _cached_hash)
-
-
-def prompt_for_password():
-    """
-    Interactively prompt the user to set a UI password at startup.
-
-    Called only when no password hash exists in config.ini. If the
-    user leaves the input blank, the password is skipped and control
-    endpoints remain disabled (read-only dashboard still works).
-    """
-    if is_password_configured():
-        return
-
-    print("\nNo worker UI password configured.")
-    try:
-        password = input(
-            "Set a password for the worker dashboard "
-            "(leave blank to skip): "
-        )
-    except (EOFError, KeyboardInterrupt):
-        print()
-        logger.info("Password prompt skipped (non-interactive).")
-        return
-
-    password = password.strip()
-    if not password:
-        logger.info(
-            "No password set. Web UI control endpoints disabled."
-        )
-        return
-
-    set_password(password)
-    print("Password saved. Use it to authenticate in the dashboard.\n")
 
 
 def reset_cache():

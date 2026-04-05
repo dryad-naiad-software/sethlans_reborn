@@ -18,7 +18,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 from sethlans_worker_agent import config, job_processor
 from sethlans_worker_agent.web_ui.auth import (
-    validate_password, is_password_configured,
+    validate_password, is_password_configured, set_password,
 )
 from sethlans_worker_agent.web_ui.status import get_status_snapshot
 
@@ -89,12 +89,6 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
 
     def _check_auth(self):
         """Validate Bearer password. Returns True if authorized."""
-        if not is_password_configured():
-            self._send_json(
-                {'error': 'No password configured. '
-                 'Control endpoints are disabled.'}, 403
-            )
-            return False
         auth = self.headers.get('Authorization', '')
         if not auth.startswith('Bearer '):
             self._send_json({'error': 'Unauthorized'}, 401)
@@ -151,6 +145,8 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
             self._send_json({'status': 'resumed'})
         elif action == 'shutdown':
             self._handle_shutdown()
+        elif action == 'set_password':
+            self._handle_set_password(body_bytes)
         elif action == 'update':
             self._handle_config_update(body_bytes)
         else:
@@ -162,6 +158,23 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
         logger.info("Shutdown requested via web UI.")
         self._send_json({'status': 'shutting_down'})
         _shutdown_event.set()
+
+    def _handle_set_password(self, body_bytes):
+        """Set a new password for the worker UI."""
+        try:
+            data = json.loads(body_bytes)
+        except (json.JSONDecodeError, ValueError):
+            self._send_json({'error': 'Invalid JSON'}, 400)
+            return
+        new_password = data.get('password', '')
+        if not new_password or len(new_password) < 4:
+            self._send_json(
+                {'error': 'Password must be at least 4 characters'},
+                400,
+            )
+            return
+        set_password(new_password)
+        self._send_json({'status': 'password_set'})
 
     def _handle_config_update(self, body_bytes):
         """Process a config update request."""
@@ -236,7 +249,8 @@ def start_server():
     """
     Start the web UI HTTP server in a daemon thread.
 
-    Logs a warning if no password is configured (read-only mode).
+    If no custom password is set, the default password is used and
+    the dashboard prompts the user to change it on first load.
     """
     global _server, _server_thread
 
@@ -245,8 +259,9 @@ def start_server():
         return
 
     if not is_password_configured():
-        logger.warning(
-            "No UI password configured. Dashboard is read-only."
+        logger.info(
+            "No custom UI password set. Using default. "
+            "Change it via the dashboard."
         )
 
     bind_addr = config.UI_BIND_ADDRESS

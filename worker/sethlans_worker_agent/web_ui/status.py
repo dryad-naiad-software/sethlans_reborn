@@ -15,6 +15,7 @@ convention documented in job_processor.py:
 import logging
 
 from sethlans_worker_agent import config, job_processor, blender_executor
+from sethlans_worker_agent.web_ui.auth import is_password_configured
 from sethlans_worker_agent.hardware_detection import (
     HOSTNAME, IP_ADDRESS, OS_INFO,
     get_gpu_device_details, get_cpu_thread_count,
@@ -91,6 +92,7 @@ def get_status_snapshot():
             'registration_status': registration_status,
             'manager_url': config.MANAGER_API_URL,
             'paused': paused,
+            'password_configured': is_password_configured(),
         },
         'hardware': {
             'gpus': gpu_list,
