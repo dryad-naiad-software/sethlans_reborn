@@ -103,9 +103,12 @@ class AnimationSerializer(serializers.ModelSerializer):
 
     def get_total_frames(self, obj):
         """
-        Calculates the total number of frames in the animation.
+        Calculates the total number of frames in the animation,
+        accounting for frame_step.
         """
-        return (obj.end_frame - obj.start_frame) + 1
+        if obj.frame_step <= 0:
+            return 0
+        return len(range(obj.start_frame, obj.end_frame + 1, obj.frame_step))
 
     def get_completed_frames(self, obj):
         """

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component, inject, Inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
 import {
@@ -25,13 +25,7 @@ import {
   parseTilingConfig, RENDER_ENGINES, RENDER_DEVICES, TILING_OPTIONS,
   ANIMATION_TILING_OPTIONS, OUTPUT_FORMATS,
 } from './render-payload.util';
-
-type RenderType = 'single' | 'tiled' | 'animation';
-
-export interface JobCreateDialogData {
-  projectId: string;
-  assetId: number;
-}
+import { RenderType, JobCreateDialogData } from './job-create-form.types';
 
 @Component({
   selector: 'app-job-create-form',
@@ -163,6 +157,26 @@ export class JobCreateFormComponent {
     frameStep: new FormControl(1, [Validators.required, Validators.min(1)]),
     animTilingConfig: new FormControl('NONE', Validators.required),
   }, { validators: [JobCreateFormComponent.frameRangeValidator] });
+
+  constructor() {
+    if (this.data.prefill) {
+      const p = this.data.prefill;
+      this.renderType = p.renderType;
+      this.form.patchValue({
+        renderEngine: p.renderEngine ?? 'CYCLES',
+        renderDevice: p.renderDevice ?? 'ANY',
+        samples: p.samples ?? 128,
+        resolutionX: p.resolutionX ?? 1920,
+        resolutionY: p.resolutionY ?? 1080,
+        frame: p.frame ?? 1,
+        tilingConfig: p.tilingConfig ?? '4x4',
+        startFrame: p.startFrame ?? 1,
+        endFrame: p.endFrame ?? 250,
+        frameStep: p.frameStep ?? 1,
+        animTilingConfig: p.animTilingConfig ?? 'NONE',
+      });
+    }
+  }
 
   private static frameRangeValidator(group: AbstractControl): ValidationErrors | null {
     const start = group.get('startFrame')?.value;

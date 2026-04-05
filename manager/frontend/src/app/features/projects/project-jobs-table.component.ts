@@ -10,6 +10,7 @@ import { DatePipe } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatDialog } from '@angular/material/dialog';
 import { Subscription, Subject, combineLatest, of, merge, interval, startWith, switchMap } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
@@ -17,35 +18,11 @@ import { JobService, Job } from '../../core/services/job.service';
 import { TiledJobService, TiledJob } from '../../core/services/tiled-job.service';
 import { AnimationService, Animation } from '../../core/services/animation.service';
 import { ProjectJobActionsComponent } from './project-job-actions.component';
+import { JobResultDialogComponent, JobResultDialogData } from './job-result-dialog.component';
+import { JobTableRow, STATUS_ICONS, formatTime, isTopLevelJob } from './project-jobs-table.util';
+import { JobPrefillData } from './job-create-form.types';
 
-export interface JobTableRow {
-  id: number | string;
-  name: string;
-  type: 'single' | 'tiled' | 'animation';
-  status: string;
-  worker: string;
-  time: string;
-  createdAt: string;
-}
-
-const STATUS_ICONS: Record<string, string> = {
-  QUEUED: 'hourglass_empty',
-  RENDERING: 'sync',
-  DONE: 'check_circle',
-  ERROR: 'error',
-  CANCELED: 'cancel',
-  ASSEMBLING: 'build',
-};
-
-function formatTime(seconds: number | null): string {
-  if (seconds == null || seconds <= 0) return '--';
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-}
-
-function isTopLevelJob(job: Job): boolean {
-  return job.animation === null && job.tiled_job === null && job.animation_frame === null;
-}
+export { JobTableRow } from './project-jobs-table.util';
 
 @Component({
   selector: 'app-project-jobs-table',
@@ -61,6 +38,18 @@ function isTopLevelJob(job: Job): boolean {
       <p class="empty">No jobs yet. Click "Create Job" to get started.</p>
     } @else {
       <table mat-table [dataSource]="rows" class="full-width">
+        <ng-container matColumnDef="thumbnail">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let r">
+            @if (r.status === 'DONE' && r.thumbnail && !r.thumbError) {
+              <img [src]="r.thumbnail" width="48" height="48" class="thumb-img"
+                   (error)="r.thumbError = true" (click)="openResult(r)"
+                   [alt]="r.name" />
+            } @else {
+              <div class="thumb-placeholder"><mat-icon>image</mat-icon></div>
+            }
+          </td>
+        </ng-container>
         <ng-container matColumnDef="name">
           <th mat-header-cell *matHeaderCellDef>Name</th>
           <td mat-cell *matCellDef="let r">{{ r.name }}</td>
@@ -95,9 +84,8 @@ function isTopLevelJob(job: Job): boolean {
           <th mat-header-cell *matHeaderCellDef>Actions</th>
           <td mat-cell *matCellDef="let r">
             <app-project-job-actions [row]="r"
-              (canceled)="triggerRefresh()"
-              (requeued)="triggerRefresh()"
-              (deleted)="triggerRefresh()" />
+              (canceled)="triggerRefresh()" (requeued)="triggerRefresh()"
+              (deleted)="triggerRefresh()" (viewResult)="openResult($event)" />
           </td>
         </ng-container>
         <tr mat-header-row *matHeaderRowDef="columns"></tr>
@@ -117,6 +105,13 @@ function isTopLevelJob(job: Job): boolean {
     .status-ERROR { color: #c62828; }
     .status-RENDERING { color: #1565c0; }
     .status-QUEUED { color: #9e9e9e; }
+    .thumb-img {
+      width: 48px; height: 48px; object-fit: cover; border-radius: 4px; cursor: pointer;
+    }
+    .thumb-placeholder {
+      width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+    }
+    .thumb-placeholder mat-icon { color: rgba(0,0,0,0.3); }
     .table-footer {
       display: flex; justify-content: space-between; padding: 8px 0;
       font-size: 13px; color: rgba(0,0,0,0.6);
@@ -128,16 +123,23 @@ function isTopLevelJob(job: Job): boolean {
 export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
   @Input() projectId = '';
   @Output() activeJobCount = new EventEmitter<number>();
+  @Output() rerender = new EventEmitter<JobPrefillData>();
+  @Output() animations = new EventEmitter<Animation[]>();
 
   private readonly jobService = inject(JobService);
   private readonly tiledJobService = inject(TiledJobService);
   private readonly animationService = inject(AnimationService);
+  private readonly dialog = inject(MatDialog);
   private readonly refresh$ = new Subject<void>();
   private sub?: Subscription;
 
+  private jobs: Job[] = [];
+  private tiledJobs: TiledJob[] = [];
+  private animList: Animation[] = [];
+
   rows: JobTableRow[] = [];
   loading = true;
-  columns = ['name', 'type', 'status', 'worker', 'time', 'createdAt', 'actions'];
+  columns = ['thumbnail', 'name', 'type', 'status', 'worker', 'time', 'createdAt', 'actions'];
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId'] && this.projectId) this.startPolling();
@@ -155,19 +157,36 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
     return type === 'tiled' ? 'Tiled' : type === 'animation' ? 'Animation' : 'Single';
   }
 
-  statusIcon(status: string): string {
-    return STATUS_ICONS[status] || 'help_outline';
+  statusIcon(status: string): string { return STATUS_ICONS[status] || 'help_outline'; }
+
+  openResult(row: JobTableRow): void {
+    if (row.status !== 'DONE') return;
+    const dialogData = this.buildDialogData(row);
+    if (!dialogData) return;
+    this.dialog.open(JobResultDialogComponent, {
+      width: '800px', maxWidth: '95vw', data: dialogData,
+    }).afterClosed().subscribe(result => {
+      if (result?.action === 'rerender') this.rerender.emit(result.prefill);
+    });
+  }
+
+  private buildDialogData(row: JobTableRow): JobResultDialogData | null {
+    if (row.type === 'single') {
+      const job = this.jobs.find(j => j.id === row.id);
+      return job ? { type: 'single', job } : null;
+    }
+    if (row.type === 'tiled') {
+      const tj = this.tiledJobs.find(t => t.id === row.id);
+      return tj ? { type: 'tiled', tiledJob: tj } : null;
+    }
+    const anim = this.animList.find(a => a.id === row.id);
+    return anim ? { type: 'animation', animation: anim } : null;
   }
 
   private startPolling(): void {
     this.sub?.unsubscribe();
     this.loading = true;
-
-    const tick$ = merge(
-      this.refresh$,
-      interval(environment.pollingIntervalMs),
-    ).pipe(startWith(0));
-
+    const tick$ = merge(this.refresh$, interval(environment.pollingIntervalMs)).pipe(startWith(0));
     this.sub = tick$.pipe(
       switchMap(() => {
         const jobs$ = this.jobService.list({ asset__project: this.projectId })
@@ -180,6 +199,9 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
       }),
     ).subscribe({
       next: ([jobs, tiled, anims]) => {
+        this.jobs = jobs;
+        this.tiledJobs = tiled;
+        this.animList = anims;
         this.rows = [
           ...jobs.filter(isTopLevelJob).map(j => this.mapJob(j)),
           ...tiled.map(t => this.mapTiled(t)),
@@ -188,6 +210,7 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
         this.activeJobCount.emit(
           this.rows.filter(r => r.status === 'QUEUED' || r.status === 'RENDERING').length,
         );
+        this.animations.emit(anims);
         this.loading = false;
       },
       error: () => { this.loading = false; },
@@ -199,6 +222,7 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
       id: j.id, name: j.name, type: 'single', status: j.status,
       worker: j.assigned_worker_hostname || '--',
       time: formatTime(j.render_time_seconds), createdAt: j.submitted_at,
+      thumbnail: j.thumbnail, outputFile: j.output_file,
     };
   }
 
@@ -206,6 +230,7 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
     return {
       id: t.id, name: t.name, type: 'tiled', status: t.status, worker: '--',
       time: formatTime(t.total_render_time_seconds), createdAt: t.submitted_at,
+      thumbnail: t.thumbnail, outputFile: t.output_file,
     };
   }
 
@@ -213,6 +238,7 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
     return {
       id: a.id, name: a.name, type: 'animation', status: a.status, worker: '--',
       time: formatTime(a.total_render_time_seconds), createdAt: a.submitted_at,
+      thumbnail: a.thumbnail, outputFile: null,
     };
   }
 }

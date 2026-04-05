@@ -115,7 +115,7 @@ describe('ProjectJobsTableComponent', () => {
 
   it('should have correct table columns', () => {
     expect(component.columns).toEqual(
-      ['name', 'type', 'status', 'worker', 'time', 'createdAt', 'actions']);
+      ['thumbnail', 'name', 'type', 'status', 'worker', 'time', 'createdAt', 'actions']);
   });
 
   describe('when projectId is set', () => {

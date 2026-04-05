@@ -10,13 +10,18 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { filter, switchMap } from 'rxjs';
 import { JobService } from '../../core/services/job.service';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
-import { JobTableRow } from './project-jobs-table.component';
+import { JobTableRow } from './project-jobs-table.util';
 
 @Component({
   selector: 'app-project-job-actions',
   standalone: true,
   imports: [MatButtonModule, MatIconModule, MatSnackBarModule, MatDialogModule],
   template: `
+    @if (row.status === 'DONE' && (row.outputFile || row.type === 'animation')) {
+      <button mat-icon-button (click)="viewResult.emit(row)" aria-label="View result">
+        <mat-icon>visibility</mat-icon>
+      </button>
+    }
     @if (row.type === 'single') {
       @if (row.status === 'QUEUED' || row.status === 'RENDERING') {
         <button mat-icon-button (click)="onCancel()" aria-label="Cancel job">
@@ -44,6 +49,7 @@ export class ProjectJobActionsComponent {
   @Output() canceled = new EventEmitter<void>();
   @Output() requeued = new EventEmitter<void>();
   @Output() deleted = new EventEmitter<void>();
+  @Output() viewResult = new EventEmitter<JobTableRow>();
 
   private readonly jobService = inject(JobService);
   private readonly snackBar = inject(MatSnackBar);

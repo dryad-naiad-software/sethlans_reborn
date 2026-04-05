@@ -84,3 +84,20 @@ export const ANIMATION_TILING_OPTIONS = [
 export const OUTPUT_FORMATS = [
   { value: 'PNG', label: 'PNG' },
 ];
+
+/**
+ * Reverse of buildRenderSettings(). Extracts display-friendly values
+ * from the render_settings JSON returned by the API.
+ */
+export function parseRenderSettings(
+  renderSettings: Record<string, unknown>,
+): { samples?: number; resolutionX?: number; resolutionY?: number } {
+  return {
+    samples: typeof renderSettings['cycles.samples'] === 'number'
+      ? renderSettings['cycles.samples'] : undefined,
+    resolutionX: typeof renderSettings['render.resolution_x'] === 'number'
+      ? renderSettings['render.resolution_x'] : undefined,
+    resolutionY: typeof renderSettings['render.resolution_y'] === 'number'
+      ? renderSettings['render.resolution_y'] : undefined,
+  };
+}

@@ -88,4 +88,8 @@ export class AnimationService {
   create(data: CreateAnimationRequest): Observable<Animation> {
     return this.http.post<Animation>(`${this.baseUrl}/`, data);
   }
+
+  download(id: number): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/${id}/download/`, { responseType: 'blob' });
+  }
 }

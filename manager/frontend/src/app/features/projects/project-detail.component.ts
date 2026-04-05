@@ -14,10 +14,16 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { Subscription, switchMap, filter } from 'rxjs';
 import { ProjectService, Project } from '../../core/services/project.service';
 import { AssetService, Asset } from '../../core/services/asset.service';
+import { Animation } from '../../core/services/animation.service';
 import { poll } from '../../core/services/polling.util';
-import { JobCreateFormComponent, JobCreateDialogData } from './job-create-form.component';
+import { JobCreateFormComponent } from './job-create-form.component';
+import { JobCreateDialogData, JobPrefillData } from './job-create-form.types';
 import { ProjectJobsTableComponent } from './project-jobs-table.component';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
+import {
+  AnimationFramesSectionComponent, FrameClickEvent,
+} from './animation-frames-section.component';
+import { JobResultDialogComponent } from './job-result-dialog.component';
 
 @Component({
   selector: 'app-project-detail',
@@ -25,23 +31,20 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
   imports: [
     DatePipe, RouterLink, MatButtonModule, MatIconModule,
     MatDividerModule, MatProgressSpinnerModule, MatSnackBarModule,
-    MatDialogModule, ProjectJobsTableComponent,
+    MatDialogModule, ProjectJobsTableComponent, AnimationFramesSectionComponent,
   ],
   template: `
     @if (loading) {
       <mat-spinner diameter="40" />
     } @else if (project) {
       <a mat-button routerLink="/projects"><mat-icon>arrow_back</mat-icon> Back</a>
-
       <div class="header">
         <div>
           <h1>{{ project.name }}</h1>
           <p class="subtitle">
             Blender {{ project.blender_version_details.series }}
             ({{ project.blender_version_details.resolved_version }})
-            @if (asset) {
-              &middot; {{ asset.name }}
-            }
+            @if (asset) { &middot; {{ asset.name }} }
             &middot; Created {{ project.created_at | date:'mediumDate' }}
           </p>
           <p class="status-line">
@@ -62,21 +65,17 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
           </button>
         </div>
       </div>
-
       @if (showDeleteConfirm) {
         <div class="delete-confirm">
           <mat-icon color="warn">warning</mat-icon>
           <span>Are you sure? This will delete the project, all assets, and all jobs permanently.</span>
           <button mat-button (click)="showDeleteConfirm = false">Cancel</button>
-          <button mat-flat-button color="warn" (click)="deleteProject()"
-                  [disabled]="deleting">
+          <button mat-flat-button color="warn" (click)="deleteProject()" [disabled]="deleting">
             @if (deleting) { Deleting... } @else { Confirm Delete }
           </button>
         </div>
       }
-
       <mat-divider />
-
       <div class="jobs-header">
         <h2>Jobs</h2>
         <div class="jobs-actions">
@@ -91,7 +90,13 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
         </div>
       </div>
       <app-project-jobs-table #jobsTable [projectId]="project.id"
-        (activeJobCount)="activeJobCount = $event" />
+        (activeJobCount)="activeJobCount = $event"
+        (animations)="doneAnimations = filterDone($event)"
+        (rerender)="openCreateRender($event)" />
+      @for (anim of doneAnimations; track anim.id) {
+        <app-animation-frames-section [animation]="anim"
+          (frameClick)="onFrameClick($event)" />
+      }
     } @else {
       <p>Project not found.</p>
     }
@@ -109,7 +114,9 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
       background: #fff3e0; border-radius: 4px; margin: 12px 0;
     }
     mat-divider { margin: 16px 0; }
-    .jobs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .jobs-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+    }
     .jobs-header h2 { margin: 0; }
     .jobs-actions { display: flex; gap: 8px; }
   `],
@@ -132,6 +139,7 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   showDeleteConfirm = false;
   deleting = false;
   activeJobCount = 0;
+  doneAnimations: Animation[] = [];
 
   ngOnInit(): void {
     this.projectSub = this.route.paramMap.pipe(
@@ -152,6 +160,10 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.projectSub?.unsubscribe();
     this.assetSub?.unsubscribe();
+  }
+
+  filterDone(anims: Animation[]): Animation[] {
+    return anims.filter(a => a.status === 'DONE');
   }
 
   togglePause(): void {
@@ -198,15 +210,20 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
     });
   }
 
-  openCreateRender(): void {
+  openCreateRender(prefill?: JobPrefillData): void {
     if (!this.project || !this.asset) return;
     const data: JobCreateDialogData = {
-      projectId: this.project.id,
-      assetId: this.asset.id,
+      projectId: this.project.id, assetId: this.asset.id,
+      ...(prefill ? { prefill } : {}),
     };
-    this.dialog.open(JobCreateFormComponent, {
-      width: '700px',
-      data,
+    this.dialog.open(JobCreateFormComponent, { width: '700px', data });
+  }
+
+  onFrameClick(event: FrameClickEvent): void {
+    this.dialog.open(JobResultDialogComponent, {
+      width: '800px', maxWidth: '95vw',
+      data: { type: 'animation' as const, animation: event.animation,
+              selectedFrameIndex: event.frameIndex },
     });
   }
 
