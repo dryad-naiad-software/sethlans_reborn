@@ -80,7 +80,7 @@ import { ProjectJobsTableComponent } from './project-jobs-table.component';
         <h2>Jobs</h2>
         <button mat-raised-button color="primary" (click)="openCreateRender()"
                 [disabled]="!asset">
-          <mat-icon>add</mat-icon> Create Render
+          <mat-icon>add</mat-icon> Create Job
         </button>
       </div>
       <app-project-jobs-table [projectId]="project.id" />

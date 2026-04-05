@@ -42,7 +42,7 @@ export interface JobCreateDialogData {
     MatButtonModule, MatIconModule, MatSnackBarModule,
   ],
   template: `
-    <h2 mat-dialog-title>Create Render</h2>
+    <h2 mat-dialog-title>Create Job</h2>
     <mat-dialog-content>
       <mat-radio-group [(ngModel)]="renderType" class="type-selector">
         <mat-radio-button value="single"><mat-icon>image</mat-icon> Single</mat-radio-button>
