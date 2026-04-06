@@ -133,6 +133,47 @@ class TestFinalizeAndUpload:
         # Even if upload fails, status returned is still DONE
         assert result == "DONE"
 
+    def test_success_with_thumbnail_cleanup(self, mocker, tmp_path):
+        mocker.patch(
+            'sethlans_worker_agent.api_handler.upload_render_output',
+            return_value=True
+        )
+        out_dir = tmp_path / 'output'
+        out_dir.mkdir()
+        out_file = out_dir / 'render.exr'
+        out_file.write_bytes(b'EXR')
+        thumb_file = out_dir / 'thumb_render.png'
+        thumb_file.write_bytes(b'PNG')
+
+        result = job_processor._finalize_and_upload(
+            True, False, 1, str(out_file),
+            thumbnail_path=str(thumb_file)
+        )
+        assert result == "DONE"
+        assert not out_file.exists()
+        assert not thumb_file.exists()
+
+    def test_thumbnail_path_passed_to_upload(self, mocker, tmp_path):
+        mock_upload = mocker.patch(
+            'sethlans_worker_agent.api_handler.upload_render_output',
+            return_value=True
+        )
+        out_dir = tmp_path / 'output'
+        out_dir.mkdir()
+        out_file = out_dir / 'render.exr'
+        out_file.write_bytes(b'EXR')
+        thumb_file = out_dir / 'thumb.png'
+        thumb_file.write_bytes(b'PNG')
+
+        job_processor._finalize_and_upload(
+            True, False, 1, str(out_file),
+            thumbnail_path=str(thumb_file)
+        )
+        mock_upload.assert_called_once_with(
+            1, str(out_file),
+            thumbnail_path=str(thumb_file)
+        )
+
 
 # --- _reserve_next_available_gpu ---
 

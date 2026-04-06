@@ -58,12 +58,13 @@ describe('render-payload.util', () => {
   });
 
   describe('buildRenderSettings', () => {
-    it('should include samples, resolution_x, and resolution_y', () => {
+    it('should include samples, resolution_x, resolution_y, and file_format', () => {
       const result = buildRenderSettings(128, 1920, 1080);
       expect(result).toEqual({
         'cycles.samples': 128,
         'render.resolution_x': 1920,
         'render.resolution_y': 1080,
+        'render.image_settings.file_format': 'PNG',
       });
     });
 
@@ -73,14 +74,45 @@ describe('render-payload.util', () => {
         'cycles.samples': 1,
         'render.resolution_x': 1,
         'render.resolution_y': 1,
+        'render.image_settings.file_format': 'PNG',
       });
+    });
+
+    it('should include jpeg quality when format is JPEG', () => {
+      const result = buildRenderSettings(128, 1920, 1080, 'JPEG', 85);
+      expect(result['render.image_settings.quality']).toBe(85);
+      expect(result['render.image_settings.file_format']).toBe('JPEG');
+    });
+
+    it('should include color_depth for OPEN_EXR format', () => {
+      const result = buildRenderSettings(128, 1920, 1080, 'OPEN_EXR', 90, '32');
+      expect(result['render.image_settings.color_depth']).toBe('32');
+      expect(result['render.image_settings.file_format']).toBe('OPEN_EXR');
+    });
+
+    it('should not include quality or color_depth for PNG', () => {
+      const result = buildRenderSettings(128, 1920, 1080, 'PNG');
+      expect(result['render.image_settings.quality']).toBeUndefined();
+      expect(result['render.image_settings.color_depth']).toBeUndefined();
     });
   });
 
   describe('buildTiledRenderSettings', () => {
-    it('should only include samples (no resolution)', () => {
+    it('should only include samples and file_format (no resolution)', () => {
       const result = buildTiledRenderSettings(256);
-      expect(result).toEqual({ 'cycles.samples': 256 });
+      expect(result).toEqual({
+        'cycles.samples': 256,
+        'render.image_settings.file_format': 'PNG',
+      });
+    });
+
+    it('should include jpeg quality when format is JPEG', () => {
+      const result = buildTiledRenderSettings(128, 'JPEG', 75);
+      expect(result).toEqual({
+        'cycles.samples': 128,
+        'render.image_settings.file_format': 'JPEG',
+        'render.image_settings.quality': 75,
+      });
     });
 
     it('should not include resolution keys', () => {
@@ -145,8 +177,12 @@ describe('render-payload.util', () => {
       expect(ANIMATION_TILING_OPTIONS.length).toBe(5);
     });
 
-    it('should have PNG as the only output format', () => {
-      expect(OUTPUT_FORMATS).toEqual([{ value: 'PNG', label: 'PNG' }]);
+    it('should have 8 output formats', () => {
+      expect(OUTPUT_FORMATS.length).toBe(8);
+      expect(OUTPUT_FORMATS.map(f => f.value)).toEqual([
+        'PNG', 'JPEG', 'OPEN_EXR', 'OPEN_EXR_MULTILAYER',
+        'TIFF', 'BMP', 'HDR', 'TARGA',
+      ]);
     });
   });
 });

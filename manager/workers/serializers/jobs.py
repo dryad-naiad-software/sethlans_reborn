@@ -8,9 +8,11 @@ Serializers for the Job and TiledJob models, including status transition validat
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from ..models import Job, TiledJob, JobStatus, Asset, Project, SupportedBlenderVersion
+from ..constants import PILLOW_COMPATIBLE_FORMATS, RenderSettings
 from .projects import ProjectSerializer
 from .assets import AssetSerializer
 from .blender_versions import EffectiveBlenderVersionSerializer
+from .validation_utils import validate_render_settings, validate_output_pattern_extension
 
 # Valid job status transitions: QUEUED->RENDERING->DONE/ERROR/CANCELED
 VALID_STATUS_TRANSITIONS = {
@@ -72,16 +74,33 @@ class TiledJobSerializer(serializers.ModelSerializer):
             'project': {'write_only': True}
         }
 
+    def validate_render_settings(self, value):
+        """Validate render_settings field values."""
+        return validate_render_settings(value)
+
     def validate(self, data):
         """
-        Custom validation to ensure the selected `Asset` belongs to the `Project`
-        and that model-level constraints (tile counts) are satisfied.
+        Custom validation to ensure the selected `Asset` belongs to the `Project`,
+        that model-level constraints (tile counts) are satisfied, and that the
+        output format is Pillow-compatible (required for tile assembly).
         """
         project = data.get('project')
         asset = data.get('asset')
         if project and asset and asset.project != project:
             raise serializers.ValidationError(
                 "The selected Asset does not belong to the selected Project."
+            )
+
+        # Validate format is Pillow-compatible for tiled rendering
+        render_settings = data.get('render_settings') or {}
+        file_format = render_settings.get(
+            RenderSettings.IMAGE_FILE_FORMAT, 'PNG'
+        )
+        if file_format not in PILLOW_COMPATIBLE_FORMATS:
+            allowed = ', '.join(sorted(PILLOW_COMPATIBLE_FORMATS))
+            raise serializers.ValidationError(
+                f"Output format '{file_format}' is not supported for "
+                f"tiled rendering. Tiled jobs support: {allowed}."
             )
 
         # Run model-level clean() validation
@@ -148,6 +167,10 @@ class JobSerializer(serializers.ModelSerializer):
     )
     effective_blender_version = EffectiveBlenderVersionSerializer(read_only=True)
 
+    def validate_render_settings(self, value):
+        """Validate render_settings field values."""
+        return validate_render_settings(value)
+
     def validate_status(self, value):
         """
         Enforce valid job status transitions.
@@ -170,6 +193,11 @@ class JobSerializer(serializers.ModelSerializer):
                     "Cannot start rendering a paused job."
                 )
         return value
+
+    def validate(self, data):
+        """Validate output_file_pattern extension matches selected format."""
+        validate_output_pattern_extension(data)
+        return data
 
     class Meta:
         model = Job

@@ -179,12 +179,14 @@ def update_job_status(job_id: int, payload: Dict[str, Any]):
         )
 
 
-def upload_render_output(job_id: int, output_file_path: str) -> bool:
+def upload_render_output(job_id: int, output_file_path: str,
+                         thumbnail_path: str = None) -> bool:
     """
     Uploads the rendered output file to the manager's API endpoint.
 
     On auth failure (401), retains the file in failed_uploads/ so
-    rendered output is not lost.
+    rendered output is not lost. Optionally includes a thumbnail PNG
+    as a second file field in the multipart request.
 
     Returns:
         True if the upload was successful, False otherwise.
@@ -199,24 +201,40 @@ def upload_render_output(job_id: int, output_file_path: str) -> bool:
     upload_url = f"{config.MANAGER_API_URL}jobs/{job_id}/upload_output/"
     logger.info(f"Uploading render output to {upload_url}...")
 
+    thumb_file = None
     try:
-        with open(output_file_path, 'rb') as f:
-            files = {
-                'output_file': (
-                    os.path.basename(output_file_path), f, 'image/png'
-                )
-            }
-            response = _retry_request(
-                requests.post, upload_url,
-                files=files, headers=get_auth_headers(), timeout=60
+        f = open(output_file_path, 'rb')
+        files = {
+            'output_file': (
+                os.path.basename(output_file_path), f,
+                'application/octet-stream'
             )
-            if response.status_code == 401:
-                handle_auth_response(response)
-                retain_failed_upload(job_id, output_file_path)
-                return False
-            if handle_auth_response(response):
-                return False
-            response.raise_for_status()
+        }
+        # Include thumbnail if available
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            try:
+                thumb_file = open(thumbnail_path, 'rb')
+                files['thumbnail'] = (
+                    os.path.basename(thumbnail_path),
+                    thumb_file, 'image/png'
+                )
+            except IOError as e:
+                logger.warning(
+                    f"Could not open thumbnail file "
+                    f"{thumbnail_path}: {e}. "
+                    f"Uploading without thumbnail."
+                )
+        response = _retry_request(
+            requests.post, upload_url,
+            files=files, headers=get_auth_headers(), timeout=60
+        )
+        if response.status_code == 401:
+            handle_auth_response(response)
+            retain_failed_upload(job_id, output_file_path)
+            return False
+        if handle_auth_response(response):
+            return False
+        response.raise_for_status()
         logger.info(
             f"Successfully uploaded output file for job {job_id}."
         )
@@ -232,6 +250,13 @@ def upload_render_output(job_id: int, output_file_path: str) -> bool:
             f"{output_file_path}"
         )
         return False
+    finally:
+        if thumb_file:
+            thumb_file.close()
+        try:
+            f.close()
+        except Exception:
+            pass
 
 
 def get_job_status(job_id: int) -> Optional[str]:

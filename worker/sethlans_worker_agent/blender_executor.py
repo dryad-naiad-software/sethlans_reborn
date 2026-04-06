@@ -2,11 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Handles the direct interaction with the Blender command-line executable.
+Blender subprocess execution: command construction, monitoring, and output.
 
-This module is responsible for constructing the full command-line arguments,
-executing the Blender subprocess, and monitoring its execution until completion.
-Script generation has been extracted to the render_script module.
+Script generation is in render_script.py; thumbnail passes in blender_thumbnail.py.
 """
 import datetime
 import logging
@@ -21,6 +19,7 @@ from typing import Optional
 import psutil
 
 from sethlans_worker_agent import config, asset_manager, system_monitor, api_handler
+from sethlans_worker_agent.format_utils import get_format_and_extension, EXR_HDR_FORMATS
 from sethlans_worker_agent.render_script import generate_render_config_script
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
@@ -57,7 +56,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     """
     Execute a Blender render job as a subprocess.
 
-    Returns (success, was_canceled, stdout, stderr, error_msg, output_path).
+    Returns (success, was_canceled, stdout, stderr, error_msg, output_path, thumbnail_path).
+    The thumbnail_path is set only for EXR/HDR jobs with a successful thumbnail pass.
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
@@ -96,52 +96,42 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
     if not local_blend_file_path:
-        return False, False, "", "", "Failed to download or find the required .blend file asset.", None
+        return False, False, "", "", "Failed to download or find the required .blend file asset.", None, None
 
     blender_to_use = tool_manager_instance.ensure_blender_version_available(blender_version_req)
     if not blender_to_use:
-        return False, False, "", "", f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job.", None
-
+        msg = f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job."
+        return False, False, "", "", msg, None, None
     # Acquire a reference count on this version to prevent cleanup
     # from deleting it while the render is in progress.
     resolved_version = blender_version_req
     tool_manager_instance.acquire_version(resolved_version)
 
     logger.info(f"Using Blender executable: {blender_to_use}")
-    # Strip Blender's // prefix (relative-to-blend convention) so it
-    # does not get interpreted as a UNC path on Windows.
+    # Strip Blender's // prefix to avoid UNC path interpretation on Windows
     clean_pattern = output_file_pattern.lstrip('/')
     resolved_output_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, clean_pattern))
     os.makedirs(os.path.dirname(resolved_output_pattern), exist_ok=True)
 
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
 
-    # --- REFACTORED: Determine CPU thread limit ---
+    # Determine CPU thread limit: config override > auto-calc for mixed mode
     cpu_threads_to_use = 0
-    # Priority 1: Manual override from config has the highest priority.
     if config.CPU_THREADS > 0:
         cpu_threads_to_use = config.CPU_THREADS
-        logger.info(f"Applying manual CPU thread limit from config: {cpu_threads_to_use} threads.")
-    # --- NEW: Priority 2: Automatic calculation for mixed-mode (CPU+GPU) workers ---
+        logger.info(f"Manual CPU thread limit from config: {cpu_threads_to_use} threads.")
     elif not config.FORCE_CPU_ONLY and not config.FORCE_GPU_ONLY:
         gpus = system_monitor.get_gpu_device_details()
-        num_gpus = len(gpus)
-        if num_gpus > 0:
+        if len(gpus) > 0:
             total_threads = system_monitor.get_cpu_thread_count()
-            # Reserve one thread per active GPU task to leave headroom.
-            calculated_threads = total_threads - num_gpus
-            # Ensure we always leave at least one thread for Blender.
-            cpu_threads_to_use = max(1, calculated_threads)
+            cpu_threads_to_use = max(1, total_threads - len(gpus))
             logger.info(
-                f"Applying automatic CPU thread limit for mixed-mode operation. "
-                f"Total: {total_threads}, GPUs: {num_gpus}, Blender Threads: {cpu_threads_to_use}"
+                f"Auto CPU thread limit: {total_threads} total, "
+                f"{len(gpus)} GPUs, {cpu_threads_to_use} Blender threads"
             )
 
-    # Add the --threads flag if the job is CPU-bound and a limit is set.
-    is_cpu_bound = render_device != 'GPU'
-    if is_cpu_bound and cpu_threads_to_use > 0:
+    if render_device != 'GPU' and cpu_threads_to_use > 0:
         command.extend(["--threads", str(cpu_threads_to_use)])
-    # --- END REFACTORED SECTION ---
 
     try:
         # Determine if this is a CPU fallback scenario
@@ -170,9 +160,10 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         logger.error(error_msg)
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
-        return False, False, "", "", error_msg, None
+        return False, False, "", "", error_msg, None, None
 
-    command.extend(["-o", resolved_output_pattern, "-F", "PNG"])
+    blender_format, _ext = get_format_and_extension(render_settings)
+    command.extend(["-o", resolved_output_pattern, "-F", blender_format])
 
     if start_frame == end_frame:
         command.extend(["-f", str(start_frame)])
@@ -258,8 +249,6 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         logger.critical(error_message, exc_info=True)
         final_return_code = -1
     finally:
-        # Release the version reference count so cleanup can proceed.
-        tool_manager_instance.release_version(resolved_version)
         # Clean up live output tracking for this job
         with _output_lock:
             _last_output_lines.pop(job_id, None)
@@ -267,25 +256,38 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
             os.remove(temp_script_path)
 
     stdout_output, stderr_output = "".join(stdout_lines), "".join(stderr_lines)
-    success, final_output_path = False, None
+    success, final_output_path, thumbnail_path = False, None, None
 
-    for lines, level, label in [(stdout_lines, logger.debug, "STDOUT"), (stderr_lines, logger.warning, "STDERR")]:
-        if lines:
-            level(f"--- [Job {job_id}] Blender {label} ---")
-            for line in lines:
-                if line.strip():
-                    level(f"[Job {job_id}] {line.strip()}")
+    try:
+        for lines, level, label in [(stdout_lines, logger.debug, "STDOUT"), (stderr_lines, logger.warning, "STDERR")]:
+            if lines:
+                level(f"--- [Job {job_id}] Blender {label} ---")
+                for line in lines:
+                    if line.strip():
+                        level(f"[Job {job_id}] {line.strip()}")
 
-    if was_canceled:
-        error_message = "Job was canceled by user request."
-    elif final_return_code == 0:
-        logger.info("Render command completed successfully.")
-        success = True
-        if start_frame == end_frame:
-            final_output_path = resolved_output_pattern.replace("####", f"{start_frame:04d}")
-    elif not error_message:
-        error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
-        error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"
+        if was_canceled:
+            error_message = "Job was canceled by user request."
+        elif final_return_code == 0:
+            logger.info("Render command completed successfully.")
+            success = True
+            if start_frame == end_frame:
+                final_output_path = resolved_output_pattern.replace("####", f"{start_frame:04d}")
+        elif not error_message:
+            error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
+            error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"
+
+        # EXR/HDR thumbnail render pass (best effort).
+        # Runs before version release so the Blender install is still present.
+        if success and blender_format in EXR_HDR_FORMATS and start_frame == end_frame:
+            from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail
+            thumbnail_path = render_exr_hdr_thumbnail(
+                job_data, blender_to_use, local_blend_file_path,
+                start_frame, resolved_output_pattern, assigned_gpu_index
+            )
+    finally:
+        # Release the version reference count so cleanup can proceed.
+        tool_manager_instance.release_version(resolved_version)
 
     logger.info(f"[Job {job_id}] Job execution finished at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
     if success:
@@ -295,4 +297,4 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     else:
         logger.error(f"[Job {job_id}] Result: FAILED. Error: {error_message}")
 
-    return success, was_canceled, stdout_output, stderr_output, error_message, final_output_path
+    return success, was_canceled, stdout_output, stderr_output, error_message, final_output_path, thumbnail_path

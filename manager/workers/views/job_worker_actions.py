@@ -11,6 +11,7 @@ import logging
 
 from django.db import transaction
 from django.utils import timezone
+from PIL import Image
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
@@ -20,6 +21,9 @@ from ..models import Job, JobStatus, Worker
 from .upload_helpers import sanitize_filename, validate_upload
 
 logger = logging.getLogger(__name__)
+
+# Maximum size for worker-provided thumbnails (1 MB)
+MAX_THUMBNAIL_SIZE = 1 * 1024 * 1024
 
 
 class JobWorkerActionsMixin:
@@ -122,9 +126,9 @@ class JobWorkerActionsMixin:
         """
         Action for a worker to upload the final rendered output file for a job.
 
-        Expects a multipart/form-data request with a file field named `output_file`.
-        Validates the file is a valid image within the configured size limit.
-        Saving the file will trigger a signal to generate the thumbnail.
+        Expects a multipart/form-data request with a file field named ``output_file``
+        and an optional ``thumbnail`` file field (PNG). Validates both files.
+        Saving the output file triggers a post_save signal for thumbnail generation.
         """
         job = self.get_object()
 
@@ -150,7 +154,18 @@ class JobWorkerActionsMixin:
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Process optional worker-provided thumbnail
+        thumb_file = request.data.get('thumbnail')
+        if thumb_file:
+            self._save_worker_thumbnail(job, thumb_file)
+
         safe_name = sanitize_filename(file_obj.name)
+
+        # IMPORTANT: thumbnail.save(save=False) sets the field in memory only.
+        # output_file.save(save=True) persists the entire model instance,
+        # including the thumbnail field set above. This ordering is required
+        # so that both fields are written in a single save() call and the
+        # post_save signal sees the thumbnail as already present.
         job.output_file.save(safe_name, file_obj, save=True)
 
         logger.info(
@@ -159,3 +174,46 @@ class JobWorkerActionsMixin:
         )
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def _save_worker_thumbnail(self, job, thumb_file):
+        """
+        Validate and save a worker-provided thumbnail to the job.
+
+        If validation fails, logs a warning and skips the thumbnail
+        without failing the job.
+        """
+        try:
+            # Validate file size
+            if thumb_file.size > MAX_THUMBNAIL_SIZE:
+                logger.warning(
+                    "Worker-provided thumbnail for job %s failed "
+                    "validation: file size %d bytes exceeds 1MB limit. "
+                    "Saving output without thumbnail.",
+                    job.id, thumb_file.size,
+                )
+                return
+
+            # Validate it is a valid PNG image
+            thumb_file.seek(0)
+            try:
+                with Image.open(thumb_file) as img:
+                    img.verify()
+            except Exception:
+                logger.warning(
+                    "Worker-provided thumbnail for job %s failed "
+                    "validation: not a valid image file. "
+                    "Saving output without thumbnail.",
+                    job.id,
+                )
+                return
+            thumb_file.seek(0)
+
+            safe_name = sanitize_filename(thumb_file.name)
+            job.thumbnail.save(safe_name, thumb_file, save=False)
+
+        except Exception as e:
+            logger.warning(
+                "Worker-provided thumbnail for job %s failed "
+                "validation: %s. Saving output without thumbnail.",
+                job.id, e,
+            )

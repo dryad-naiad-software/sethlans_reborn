@@ -17,11 +17,32 @@ from django.core.files.base import ContentFile
 from django.db.models import Sum
 from PIL import Image
 from .models import Job, TiledJob, TiledJobStatus, JobStatus, AnimationFrame, AnimationFrameStatus
-from .constants import RenderSettings
+from .constants import FORMAT_EXTENSIONS, PILLOW_FORMAT_NAMES, RenderSettings
 from .image_utils import generate_thumbnail
 
 logger = logging.getLogger(__name__)
 TILE_COORD_REGEX = re.compile(r"_Tile_(\d+)_(\d+)$")
+
+
+def _get_format_config(render_settings):
+    """
+    Extract Pillow format configuration from render_settings.
+
+    Returns a tuple of (pillow_format, file_ext, image_mode, save_kwargs).
+    """
+    output_format = render_settings.get(
+        RenderSettings.IMAGE_FILE_FORMAT, 'PNG'
+    )
+    pillow_format = PILLOW_FORMAT_NAMES.get(output_format, 'PNG')
+    file_ext = FORMAT_EXTENSIONS.get(output_format, '.png')
+    image_mode = 'RGB' if output_format in ('JPEG', 'BMP') else 'RGBA'
+
+    save_kwargs = {}
+    if output_format == 'JPEG':
+        quality = render_settings.get(RenderSettings.IMAGE_QUALITY, 90)
+        save_kwargs['quality'] = max(1, min(100, quality))
+
+    return pillow_format, file_ext, image_mode, save_kwargs
 
 
 def assemble_animation_frame_image(animation_frame_id):
@@ -57,7 +78,11 @@ def assemble_animation_frame_image(animation_frame_id):
         if not final_resolution_x or not final_resolution_y:
             raise ValueError("Child job render settings are missing resolution data.")
 
-        final_image = Image.new('RGBA', (final_resolution_x, final_resolution_y))
+        # Read format from parent Animation's render_settings
+        pillow_format, file_ext, image_mode, save_kwargs = _get_format_config(
+            animation.render_settings
+        )
+        final_image = Image.new(image_mode, (final_resolution_x, final_resolution_y))
 
         tile_count_x, tile_count_y = animation.get_tile_counts()
         tile_pixel_width = final_resolution_x // tile_count_x
@@ -74,13 +99,15 @@ def assemble_animation_frame_image(animation_frame_id):
             paste_y = (tile_count_y - 1 - tile_y) * tile_pixel_height
 
             with Image.open(job.output_file.path) as tile_image:
+                if image_mode == 'RGB':
+                    tile_image = tile_image.convert('RGB')
                 final_image.paste(tile_image, (paste_x, paste_y))
 
         buffer = io.BytesIO()
-        final_image.save(buffer, format='PNG')
+        final_image.save(buffer, format=pillow_format, **save_kwargs)
         buffer.seek(0)
 
-        file_name = f"anim_{animation.id}_frame_{frame.frame_number:04d}.png"
+        file_name = f"anim_{animation.id}_frame_{frame.frame_number:04d}{file_ext}"
         content_file = ContentFile(buffer.getvalue(), name=file_name)
 
         frame.output_file.save(file_name, content_file, save=False)
@@ -138,7 +165,11 @@ def assemble_tiled_job_image(tiled_job_id):
     completed_jobs = tiled_job.jobs.filter(status=JobStatus.DONE).order_by('name')
 
     try:
-        final_image = Image.new('RGBA', (tiled_job.final_resolution_x, tiled_job.final_resolution_y))
+        # Read format from parent TiledJob's render_settings
+        pillow_format, file_ext, image_mode, save_kwargs = _get_format_config(
+            tiled_job.render_settings
+        )
+        final_image = Image.new(image_mode, (tiled_job.final_resolution_x, tiled_job.final_resolution_y))
 
         tile_pixel_width = tiled_job.final_resolution_x // tiled_job.tile_count_x
         tile_pixel_height = tiled_job.final_resolution_y // tiled_job.tile_count_y
@@ -154,13 +185,15 @@ def assemble_tiled_job_image(tiled_job_id):
             paste_y = (tiled_job.tile_count_y - 1 - tile_y) * tile_pixel_height
 
             with Image.open(job.output_file.path) as tile_image:
+                if image_mode == 'RGB':
+                    tile_image = tile_image.convert('RGB')
                 final_image.paste(tile_image, (paste_x, paste_y))
 
         buffer = io.BytesIO()
-        final_image.save(buffer, format='PNG')
+        final_image.save(buffer, format=pillow_format, **save_kwargs)
         buffer.seek(0)
 
-        file_name = f"tiled_job_{str(tiled_job.id)[:8]}_final.png"
+        file_name = f"tiled_job_{str(tiled_job.id)[:8]}_final{file_ext}"
         content_file = ContentFile(buffer.getvalue(), name=file_name)
         tiled_job.output_file.save(file_name, content_file, save=False)
 
@@ -188,7 +221,6 @@ def assemble_tiled_job_image(tiled_job_id):
             Job.objects.filter(id__in=job_ids_to_clear).update(output_file=None)
 
         logger.info(f"Cleanup complete for TiledJob {tiled_job.id}.")
-
 
     except Exception as e:
         logger.critical(f"A critical error occurred during image assembly for TiledJob ID {tiled_job.id}: {e}",

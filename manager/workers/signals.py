@@ -26,8 +26,9 @@ from .signal_helpers import _save_thumbnails_for_instances
 
 logger = logging.getLogger(__name__)
 
+
 @receiver(post_save, sender=Project)
-@receiver(post_save, sender=Asset) # FIX: Added Asset as a sender
+@receiver(post_save, sender=Asset)  # FIX: Added Asset as a sender
 @receiver(post_save, sender=Job)
 @receiver(post_save, sender=Animation)
 @receiver(post_save, sender=TiledJob)
@@ -134,8 +135,14 @@ def handle_job_completion(sender, instance, **kwargs):
             assemble_tiled_job_image(tiled_job.id)
 
     # --- Thumbnail Generation for Standard (non-frame, non-tiled) Jobs ---
-    if instance.output_file and not instance.thumbnail:
-        if not instance.animation_frame and not instance.tiled_job:
+    if not instance.animation_frame and not instance.tiled_job and instance.output_file:
+        if instance.thumbnail:
+            logger.debug(
+                "Job %s already has a worker-provided thumbnail. "
+                "Skipping server-side generation.",
+                instance.id,
+            )
+        else:
             logger.debug(f"Job {instance.id} has an output file. Generating thumbnail.")
             thumb_content = generate_thumbnail(instance.output_file)
             if thumb_content:

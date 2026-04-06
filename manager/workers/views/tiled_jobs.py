@@ -13,7 +13,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from ..constants import RenderEngine, RenderSettings
+from ..constants import FORMAT_EXTENSIONS, RenderEngine, RenderSettings
 from ..models import Job, JobStatus, TiledJob
 from ..permissions import IsAdmin
 from ..serializers import TiledJobSerializer
@@ -77,6 +77,10 @@ class TiledJobViewSet(viewsets.ModelViewSet):
         tile_height = 1.0 / tile_count_y
 
         tile_output_dir = os.path.join("tiled_jobs", str(tiled_job.id))
+        output_format = tiled_job.render_settings.get(
+            RenderSettings.IMAGE_FILE_FORMAT, 'PNG'
+        )
+        tile_ext = FORMAT_EXTENSIONS.get(output_format, '.png')
 
         for y in range(tile_count_y):
             for x in range(tile_count_x):
@@ -98,7 +102,9 @@ class TiledJobViewSet(viewsets.ModelViewSet):
                     RenderSettings.BORDER_MAX_Y: round(border_max_y, 6),
                 })
 
-                output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####.png")
+                output_pattern = os.path.join(
+                    tile_output_dir, f"tile_{y}_{x}_####{tile_ext}"
+                )
 
                 job = Job(
                     tiled_job=tiled_job,

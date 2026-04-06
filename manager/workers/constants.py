@@ -57,12 +57,58 @@ class TilingConfiguration(models.TextChoices):
     TILE_5X5 = '5x5', '5x5 (25 Tiles)'
 
 
+class OutputFormat(models.TextChoices):
+    """
+    Defines the supported Blender output image formats.
+
+    The choice values match Blender's ``-F`` flag strings exactly, allowing
+    direct pass-through when constructing render commands.
+    """
+    PNG = 'PNG', 'PNG'
+    JPEG = 'JPEG', 'JPEG'
+    OPEN_EXR = 'OPEN_EXR', 'OpenEXR'
+    OPEN_EXR_MULTILAYER = 'OPEN_EXR_MULTILAYER', 'OpenEXR MultiLayer'
+    TIFF = 'TIFF', 'TIFF'
+    BMP = 'BMP', 'BMP'
+    HDR = 'HDR', 'HDR (Radiance)'
+    TARGA = 'TARGA', 'Targa'
+
+
+# Maps each OutputFormat value to its file extension string.
+FORMAT_EXTENSIONS = {
+    'PNG': '.png',
+    'JPEG': '.jpg',
+    'OPEN_EXR': '.exr',
+    'OPEN_EXR_MULTILAYER': '.exr',
+    'TIFF': '.tif',
+    'BMP': '.bmp',
+    'HDR': '.hdr',
+    'TARGA': '.tga',
+}
+
+# The subset of OutputFormat values that Pillow can read and write.
+PILLOW_COMPATIBLE_FORMATS = frozenset({
+    'PNG', 'JPEG', 'TIFF', 'BMP', 'TARGA',
+})
+
+# Maps OutputFormat values to Pillow's ``format`` parameter strings.
+PILLOW_FORMAT_NAMES = {
+    'PNG': 'PNG',
+    'JPEG': 'JPEG',
+    'TIFF': 'TIFF',
+    'BMP': 'BMP',
+    'TARGA': 'TGA',
+}
+
+
 class RenderSettings:
     """
-    Defines the string keys for the `render_settings` dictionary override.
+    Defines the string keys for the ``render_settings`` dictionary override.
 
-    These keys correspond to the full property paths within Blender's Python API,
-    allowing the worker agent to programmatically override settings for a render job.
+    All constant values must be valid ``bpy.context.scene.*`` attribute paths
+    where all intermediate objects exist in Blender's Python API. For example,
+    ``"render.image_settings.file_format"`` maps to
+    ``bpy.context.scene.render.image_settings.file_format``.
     """
     # General Settings
     RENDER_ENGINE = "render.engine"
@@ -70,6 +116,11 @@ class RenderSettings:
     RESOLUTION_X = "render.resolution_x"
     RESOLUTION_Y = "render.resolution_y"
     RESOLUTION_PERCENTAGE = "render.resolution_percentage"
+
+    # Image Output Settings
+    IMAGE_FILE_FORMAT = "render.image_settings.file_format"
+    IMAGE_QUALITY = "render.image_settings.quality"
+    IMAGE_COLOR_DEPTH = "render.image_settings.color_depth"
 
     # Cycles-specific Settings
     CYCLES_DEVICE = "cycles.device"

@@ -11,9 +11,11 @@ from ..models import (
     Animation, AnimationFrame, Asset, Project, JobStatus,
     SupportedBlenderVersion,
 )
+from ..constants import PILLOW_COMPATIBLE_FORMATS, RenderSettings
 from .projects import ProjectSerializer
 from .assets import AssetSerializer
 from .blender_versions import EffectiveBlenderVersionSerializer
+from .validation_utils import validate_render_settings, validate_output_pattern_extension
 
 
 class AnimationFrameSerializer(serializers.ModelSerializer):
@@ -80,10 +82,15 @@ class AnimationSerializer(serializers.ModelSerializer):
             'project': {'write_only': True}
         }
 
+    def validate_render_settings(self, value):
+        """Validate render_settings field values."""
+        return validate_render_settings(value)
+
     def validate(self, data):
         """
-        Custom validation to ensure the selected `Asset` belongs to the `Project`
-        and that model-level constraints (frame range, frame step) are satisfied.
+        Custom validation to ensure the selected `Asset` belongs to the `Project`,
+        that model-level constraints (frame range, frame step) are satisfied, and
+        that tiled animations use Pillow-compatible output formats.
         """
         project = data.get('project')
         asset = data.get('asset')
@@ -91,6 +98,23 @@ class AnimationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "The selected Asset does not belong to the selected Project."
             )
+
+        # Validate output_file_pattern extension matches format
+        validate_output_pattern_extension(data)
+
+        # Validate format is Pillow-compatible for tiled animations
+        tiling_config = data.get('tiling_config', 'NONE')
+        if tiling_config != 'NONE':
+            render_settings = data.get('render_settings') or {}
+            file_format = render_settings.get(
+                RenderSettings.IMAGE_FILE_FORMAT, 'PNG'
+            )
+            if file_format not in PILLOW_COMPATIBLE_FORMATS:
+                allowed = ', '.join(sorted(PILLOW_COMPATIBLE_FORMATS))
+                raise serializers.ValidationError(
+                    f"Output format '{file_format}' is not supported for "
+                    f"tiled rendering. Tiled jobs support: {allowed}."
+                )
 
         # Run model-level clean() validation
         instance = Animation(**data)

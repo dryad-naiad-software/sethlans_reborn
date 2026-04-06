@@ -4,12 +4,8 @@
 
 import { Component, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
-import { FormsModule } from '@angular/forms';
-import {
-  ReactiveFormsModule, FormGroup, FormControl, Validators,
-  AbstractControl, ValidationErrors,
-} from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
+import { FormsModule, ReactiveFormsModule, FormGroup, FormControl, Validators,
+  AbstractControl, ValidationErrors } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
@@ -20,11 +16,10 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { JobService } from '../../core/services/job.service';
 import { TiledJobService } from '../../core/services/tiled-job.service';
 import { AnimationService } from '../../core/services/animation.service';
-import {
-  generateOutputFilePattern, buildRenderSettings, buildTiledRenderSettings,
-  parseTilingConfig, RENDER_ENGINES, RENDER_DEVICES, TILING_OPTIONS,
-  ANIMATION_TILING_OPTIONS, OUTPUT_FORMATS,
-} from './render-payload.util';
+import { RENDER_ENGINES, RENDER_DEVICES, TILING_OPTIONS,
+  ANIMATION_TILING_OPTIONS, OUTPUT_FORMATS, TILED_OUTPUT_FORMATS } from './render-payload.util';
+import { buildSingleJobPayload, buildTiledJobPayload,
+  buildAnimationPayload } from './job-create-payload.util';
 import { RenderType, JobCreateDialogData } from './job-create-form.types';
 
 @Component({
@@ -38,7 +33,8 @@ import { RenderType, JobCreateDialogData } from './job-create-form.types';
   template: `
     <h2 mat-dialog-title>Create Job</h2>
     <mat-dialog-content>
-      <mat-radio-group [(ngModel)]="renderType" class="type-selector">
+      <mat-radio-group [(ngModel)]="renderType" (ngModelChange)="resetFormatIfNeeded()"
+                       class="type-selector">
         <mat-radio-button value="single"><mat-icon>image</mat-icon> Single</mat-radio-button>
         <mat-radio-button value="tiled"><mat-icon>grid_view</mat-icon> Tiled</mat-radio-button>
         <mat-radio-button value="animation"><mat-icon>movie</mat-icon> Animation</mat-radio-button>
@@ -90,17 +86,33 @@ import { RenderType, JobCreateDialogData } from './job-create-form.types';
             <mat-form-field><mat-label>Frame Step</mat-label>
               <input matInput type="number" formControlName="frameStep" /></mat-form-field>
             <mat-form-field><mat-label>Tiling</mat-label>
-              <mat-select formControlName="animTilingConfig">
+              <mat-select formControlName="animTilingConfig"
+                          (selectionChange)="resetFormatIfNeeded()">
                 @for (t of animTilingOptions; track t.value) {
                   <mat-option [value]="t.value">{{ t.label }}</mat-option>
                 }</mat-select></mat-form-field>
           }
           <mat-form-field><mat-label>Output Format</mat-label>
             <mat-select formControlName="outputFormat">
-              @for (f of outputFormats; track f.value) {
+              @for (f of availableFormats; track f.value) {
                 <mat-option [value]="f.value">{{ f.label }}</mat-option>
               }</mat-select></mat-form-field>
         </div>
+        @if (form.value.outputFormat === 'JPEG') {
+          <div class="form-row">
+            <mat-form-field><mat-label>JPEG Quality (1-100)</mat-label>
+              <input matInput type="number" formControlName="jpegQuality" /></mat-form-field>
+          </div>
+        }
+        @if (form.value.outputFormat === 'OPEN_EXR' || form.value.outputFormat === 'OPEN_EXR_MULTILAYER') {
+          <div class="form-row">
+            <mat-form-field><mat-label>Color Depth</mat-label>
+              <mat-select formControlName="colorDepth">
+                <mat-option value="16">Half Float (16-bit)</mat-option>
+                <mat-option value="32">Full Float (32-bit)</mat-option>
+              </mat-select></mat-form-field>
+          </div>
+        }
       </form>
     </mat-dialog-content>
     <mat-dialog-actions align="end">
@@ -136,9 +148,23 @@ export class JobCreateFormComponent {
   devices = RENDER_DEVICES;
   tilingOptions = TILING_OPTIONS;
   animTilingOptions = ANIMATION_TILING_OPTIONS;
-  outputFormats = OUTPUT_FORMATS;
   renderType: RenderType = 'single';
   submitting = false;
+
+  get availableFormats(): typeof OUTPUT_FORMATS {
+    if (this.renderType === 'tiled') return TILED_OUTPUT_FORMATS;
+    if (this.renderType === 'animation' && this.form?.value.animTilingConfig !== 'NONE') {
+      return TILED_OUTPUT_FORMATS;
+    }
+    return OUTPUT_FORMATS;
+  }
+
+  resetFormatIfNeeded(): void {
+    const current = this.form.value.outputFormat;
+    if (current && !this.availableFormats.some(f => f.value === current)) {
+      this.form.patchValue({ outputFormat: 'PNG' });
+    }
+  }
 
   form = new FormGroup({
     name: new FormControl('', [
@@ -150,6 +176,8 @@ export class JobCreateFormComponent {
     resolutionX: new FormControl(1920, [Validators.required, Validators.min(1)]),
     resolutionY: new FormControl(1080, [Validators.required, Validators.min(1)]),
     outputFormat: new FormControl('PNG', Validators.required),
+    jpegQuality: new FormControl(90, [Validators.required, Validators.min(1), Validators.max(100)]),
+    colorDepth: new FormControl('16', Validators.required),
     frame: new FormControl(1, [Validators.required, Validators.min(1)]),
     tilingConfig: new FormControl('4x4', Validators.required),
     startFrame: new FormControl(1, [Validators.required, Validators.min(1)]),
@@ -159,32 +187,22 @@ export class JobCreateFormComponent {
   }, { validators: [JobCreateFormComponent.frameRangeValidator] });
 
   constructor() {
-    if (this.data.prefill) {
-      const p = this.data.prefill;
-      this.renderType = p.renderType;
-      this.form.patchValue({
-        renderEngine: p.renderEngine ?? 'CYCLES',
-        renderDevice: p.renderDevice ?? 'ANY',
-        samples: p.samples ?? 128,
-        resolutionX: p.resolutionX ?? 1920,
-        resolutionY: p.resolutionY ?? 1080,
-        frame: p.frame ?? 1,
-        tilingConfig: p.tilingConfig ?? '4x4',
-        startFrame: p.startFrame ?? 1,
-        endFrame: p.endFrame ?? 250,
-        frameStep: p.frameStep ?? 1,
-        animTilingConfig: p.animTilingConfig ?? 'NONE',
-      });
-    }
+    if (!this.data.prefill) return;
+    const p = this.data.prefill;
+    this.renderType = p.renderType;
+    this.form.patchValue({
+      renderEngine: p.renderEngine ?? 'CYCLES', renderDevice: p.renderDevice ?? 'ANY',
+      samples: p.samples ?? 128, resolutionX: p.resolutionX ?? 1920,
+      resolutionY: p.resolutionY ?? 1080, frame: p.frame ?? 1,
+      tilingConfig: p.tilingConfig ?? '4x4', startFrame: p.startFrame ?? 1,
+      endFrame: p.endFrame ?? 250, frameStep: p.frameStep ?? 1,
+      animTilingConfig: p.animTilingConfig ?? 'NONE',
+    });
   }
 
-  private static frameRangeValidator(group: AbstractControl): ValidationErrors | null {
-    const start = group.get('startFrame')?.value;
-    const end = group.get('endFrame')?.value;
-    if (start != null && end != null && end < start) {
-      return { endFrameBeforeStart: true };
-    }
-    return null;
+  private static frameRangeValidator(g: AbstractControl): ValidationErrors | null {
+    const s = g.get('startFrame')?.value, e = g.get('endFrame')?.value;
+    return s != null && e != null && e < s ? { endFrameBeforeStart: true } : null;
   }
 
   onSubmit(): void {
@@ -199,35 +217,21 @@ export class JobCreateFormComponent {
   }
 
   private createSingle(v: ReturnType<typeof this.form.getRawValue>): void {
-    this.jobService.create({
-      name: v.name!, asset_id: this.data.assetId,
-      output_file_pattern: generateOutputFilePattern(v.name!),
-      start_frame: v.frame!, end_frame: v.frame!,
-      render_engine: v.renderEngine!, render_device: v.renderDevice!,
-      render_settings: buildRenderSettings(v.samples!, v.resolutionX!, v.resolutionY!),
-    }).subscribe({ next: (j) => this.done(j.name), error: (e) => this.fail(e) });
+    const payload = buildSingleJobPayload(v, this.data.assetId);
+    this.jobService.create(payload)
+      .subscribe({ next: (j) => this.done(j.name), error: (e) => this.fail(e) });
   }
 
   private createTiled(v: ReturnType<typeof this.form.getRawValue>): void {
-    const t = parseTilingConfig(v.tilingConfig!);
-    this.tiledJobService.create({
-      name: v.name!, project: this.data.projectId, asset_id: this.data.assetId,
-      final_resolution_x: v.resolutionX!, final_resolution_y: v.resolutionY!,
-      tile_count_x: t.tile_count_x, tile_count_y: t.tile_count_y,
-      render_engine: v.renderEngine!, render_device: v.renderDevice!,
-      render_settings: buildTiledRenderSettings(v.samples!),
-    }).subscribe({ next: (j) => this.done(j.name), error: (e) => this.fail(e) });
+    const payload = buildTiledJobPayload(v, this.data.projectId, this.data.assetId);
+    this.tiledJobService.create(payload)
+      .subscribe({ next: (j) => this.done(j.name), error: (e) => this.fail(e) });
   }
 
   private createAnim(v: ReturnType<typeof this.form.getRawValue>): void {
-    this.animationService.create({
-      name: v.name!, project: this.data.projectId, asset_id: this.data.assetId,
-      output_file_pattern: generateOutputFilePattern(v.name!),
-      start_frame: v.startFrame!, end_frame: v.endFrame!, frame_step: v.frameStep!,
-      tiling_config: v.animTilingConfig!,
-      render_engine: v.renderEngine!, render_device: v.renderDevice!,
-      render_settings: buildRenderSettings(v.samples!, v.resolutionX!, v.resolutionY!),
-    }).subscribe({ next: (a) => this.done(a.name), error: (e) => this.fail(e) });
+    const payload = buildAnimationPayload(v, this.data.projectId, this.data.assetId);
+    this.animationService.create(payload)
+      .subscribe({ next: (a) => this.done(a.name), error: (e) => this.fail(e) });
   }
 
   private done(name: string): void {

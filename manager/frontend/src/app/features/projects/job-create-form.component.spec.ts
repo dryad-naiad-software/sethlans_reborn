@@ -104,6 +104,7 @@ describe('JobCreateFormComponent', () => {
         render_settings: {
           'cycles.samples': 128, 'render.resolution_x': 1920,
           'render.resolution_y': 1080,
+          'render.image_settings.file_format': 'PNG',
         },
       });
     });
@@ -134,7 +135,10 @@ describe('JobCreateFormComponent', () => {
         final_resolution_x: 1920, final_resolution_y: 1080,
         tile_count_x: 4, tile_count_y: 4,
         render_engine: 'CYCLES', render_device: 'ANY',
-        render_settings: { 'cycles.samples': 128 },
+        render_settings: {
+          'cycles.samples': 128,
+          'render.image_settings.file_format': 'PNG',
+        },
       });
     });
   });
@@ -154,6 +158,7 @@ describe('JobCreateFormComponent', () => {
         render_settings: {
           'cycles.samples': 128, 'render.resolution_x': 1920,
           'render.resolution_y': 1080,
+          'render.image_settings.file_format': 'PNG',
         },
       });
     });

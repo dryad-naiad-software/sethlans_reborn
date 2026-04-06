@@ -128,7 +128,7 @@ class TestOutputPathSlashStripping:
         )
 
         job = _make_job('//render/name_####.png')
-        success, _, _, _, _, output_path = execute_blender_job(job)
+        success, _, _, _, _, output_path, _ = execute_blender_job(job)
 
         assert success is True
         assert output_path is not None
@@ -154,7 +154,7 @@ class TestOutputPathSlashStripping:
         )
 
         job = _make_job('/render/name_####.png')
-        success, _, _, _, _, output_path = execute_blender_job(job)
+        success, _, _, _, _, output_path, _ = execute_blender_job(job)
 
         assert success is True
         output_dir = str(tmp_path / 'output')
@@ -169,7 +169,7 @@ class TestOutputPathSlashStripping:
         )
 
         job = _make_job('render/name_####.png')
-        success, _, _, _, _, output_path = execute_blender_job(job)
+        success, _, _, _, _, output_path, _ = execute_blender_job(job)
 
         assert success is True
         output_dir = str(tmp_path / 'output')
@@ -186,7 +186,7 @@ class TestOutputPathSlashStripping:
         )
 
         job = _make_job('//tiles/tile_####.png')
-        success, _, _, _, _, output_path = execute_blender_job(job)
+        success, _, _, _, _, output_path, _ = execute_blender_job(job)
 
         expected_dir = os.path.normpath(
             str(tmp_path / 'output' / 'tiles')
@@ -210,7 +210,7 @@ class TestOutputPathNoDoubleExtension:
         )
 
         job = _make_job('render/test_####.png', start_frame=7, end_frame=7)
-        success, _, _, _, _, output_path = execute_blender_job(job)
+        success, _, _, _, _, output_path, _ = execute_blender_job(job)
 
         assert success is True
         assert output_path is not None
@@ -230,7 +230,7 @@ class TestOutputPathNoDoubleExtension:
         )
 
         job = _make_job('render/frame_####.png', start_frame=42, end_frame=42)
-        success, _, _, _, _, output_path = execute_blender_job(job)
+        success, _, _, _, _, output_path, _ = execute_blender_job(job)
 
         assert success is True
         assert '0042' in output_path
@@ -245,7 +245,7 @@ class TestOutputPathNoDoubleExtension:
         )
 
         job = _make_job('out/r_####.png', start_frame=1, end_frame=1)
-        success, _, _, _, _, output_path = execute_blender_job(job)
+        success, _, _, _, _, output_path, _ = execute_blender_job(job)
 
         assert success is True
         assert output_path.endswith('r_0001.png')
@@ -262,7 +262,7 @@ class TestOutputPathNoDoubleExtension:
         )
 
         job = _make_job('out/r_####.png', start_frame=1, end_frame=10)
-        success, _, _, _, _, output_path = execute_blender_job(job)
+        success, _, _, _, _, output_path, _ = execute_blender_job(job)
 
         assert success is True
         assert output_path is None

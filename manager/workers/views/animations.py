@@ -18,7 +18,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from ..constants import RenderEngine, RenderSettings, TilingConfiguration
+from ..constants import FORMAT_EXTENSIONS, RenderEngine, RenderSettings, TilingConfiguration
 from ..models import Animation, AnimationFrame, Job, JobStatus
 from ..permissions import IsAdmin
 from ..serializers import AnimationSerializer
@@ -108,6 +108,10 @@ class AnimationViewSet(viewsets.ModelViewSet):
             tile_count_x, tile_count_y = animation.get_tile_counts()
             tile_width = 1.0 / tile_count_x
             tile_height = 1.0 / tile_count_y
+            output_format = animation.render_settings.get(
+                RenderSettings.IMAGE_FILE_FORMAT, 'PNG'
+            )
+            tile_ext = FORMAT_EXTENSIONS.get(output_format, '.png')
 
             for frame_num in range(animation.start_frame, animation.end_frame + 1, animation.frame_step):
                 # Create the parent frame object to group the tiles
@@ -134,7 +138,9 @@ class AnimationViewSet(viewsets.ModelViewSet):
                         })
 
                         tile_output_dir = os.path.join("tiled_anim_frames", str(anim_frame.id))
-                        output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####.png")
+                        output_pattern = os.path.join(
+                            tile_output_dir, f"tile_{y}_{x}_####{tile_ext}"
+                        )
 
                         job = Job(
                             animation=animation,

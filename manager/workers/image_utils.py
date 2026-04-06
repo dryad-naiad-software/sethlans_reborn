@@ -12,7 +12,7 @@ import logging
 import io
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from django.core.files.base import ContentFile
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,14 @@ def generate_thumbnail(source_file_field):
             # Create a Django-compatible file object
             file_name = f"thumb_{Path(source_file_field.name).stem}.png"
             return ContentFile(buffer.getvalue(), name=file_name)
+
+    except UnidentifiedImageError:
+        logger.warning(
+            f"Cannot generate thumbnail for {source_file_field.name}: "
+            "format not readable by Pillow (e.g., EXR or HDR). "
+            "Skipping thumbnail generation."
+        )
+        return None
 
     except Exception as e:
         logger.error(f"Failed to generate thumbnail for {source_file_field.name}: {e}", exc_info=True)

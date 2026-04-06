@@ -165,28 +165,31 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _finalize_and_upload(success, was_canceled, job_id, path):
+def _finalize_and_upload(success, was_canceled, job_id, path,
+                         thumbnail_path=None):
     """Determine final status, upload output if successful, clean up."""
     if not success:
         return "CANCELED" if was_canceled else "ERROR"
-    if path and api_handler.upload_render_output(job_id, path):
-        try:
-            os.remove(path)
-            parent = os.path.dirname(path)
-            if not os.listdir(parent):
-                os.rmdir(parent)
-        except OSError as e:
-            logger.warning(f"Could not clean up render output: {e}")
+    if path and api_handler.upload_render_output(
+        job_id, path, thumbnail_path=thumbnail_path
+    ):
+        for file_path in (path, thumbnail_path):
+            if not file_path:
+                continue
+            try:
+                os.remove(file_path)
+                parent = os.path.dirname(file_path)
+                if not os.listdir(parent):
+                    os.rmdir(parent)
+            except OSError as e:
+                logger.warning(
+                    f"Could not clean up output file: {e}"
+                )
     return "DONE"
 
 
 def process_claimed_job(job_data: Dict[str, Any]):
-    """
-    Processes a claimed job: renders via Blender, uploads output, reports status.
-
-    Handles the full lifecycle including resource cleanup in the finally block.
-    GPU release is unconditional based on actual allocation, not current config.
-    """
+    """Process a claimed job: render, upload, report status, clean up resources."""
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
     assigned_gpu_index = job_data.get('assigned_gpu_index')
@@ -198,15 +201,14 @@ def process_claimed_job(job_data: Dict[str, Any]):
         logger.info(f"Job {job_id} reserved GPU {assigned_gpu_index}. Current assignments: {current}")
 
     try:
-        success, was_canceled, stdout, stderr, blender_error_msg, final_output_path = blender_executor.execute_blender_job(
+        (success, was_canceled, stdout, stderr, blender_error_msg,
+         final_output_path, thumbnail_path) = blender_executor.execute_blender_job(
             job_data, assigned_gpu_index=assigned_gpu_index)
     finally:
         if acquired_cpu_lock:
             _cpu_lock.release()
 
-        # Release GPU unconditionally based on what was ACTUALLY ALLOCATED,
-        # not current config state. This prevents GPU slot leaks when
-        # GPU_SPLIT_MODE is toggled mid-job via control endpoints.
+        # Release GPU based on actual allocation (not current config).
         if assigned_gpu_index is not None:
             with _gpu_lock:
                 removed = _gpu_assignment_map.pop(assigned_gpu_index, None)
@@ -227,7 +229,8 @@ def process_claimed_job(job_data: Dict[str, Any]):
         job_update_payload["render_time_seconds"] = render_time
 
     job_update_payload["status"] = _finalize_and_upload(
-        success, was_canceled, job_id, final_output_path
+        success, was_canceled, job_id, final_output_path,
+        thumbnail_path=thumbnail_path
     )
 
     api_handler.update_job_status(job_id, job_update_payload)

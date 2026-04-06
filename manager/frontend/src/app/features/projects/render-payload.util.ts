@@ -2,42 +2,70 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+/** Map output format values to their file extensions. */
+export const FORMAT_EXTENSIONS: Record<string, string> = {
+  'PNG': '.png', 'JPEG': '.jpg', 'OPEN_EXR': '.exr',
+  'OPEN_EXR_MULTILAYER': '.exr', 'TIFF': '.tif',
+  'BMP': '.bmp', 'HDR': '.hdr', 'TARGA': '.tga',
+};
+
 /**
- * Generates the output_file_pattern from a job name.
+ * Generates the output_file_pattern from a job name and format.
  * Lowercase, replace non-alphanumeric with underscores, trim edges.
  *
- * Example: "My Render" -> "//render/my_render_####.png"
+ * Example: "My Render", "JPEG" -> "//render/my_render_####.jpg"
  */
-export function generateOutputFilePattern(name: string): string {
+export function generateOutputFilePattern(name: string, format = 'PNG'): string {
+  const ext = FORMAT_EXTENSIONS[format] || '.png';
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-  return `//render/${slug}_####.png`;
+  return `//render/${slug}_####${ext}`;
 }
 
 /**
  * Build the render_settings object for a single job or animation.
  * Tiled jobs do NOT include resolution in render_settings.
+ * Conditionally includes format-specific keys (JPEG quality, EXR color depth).
  */
 export function buildRenderSettings(
   samples: number,
   resolutionX: number,
   resolutionY: number,
+  outputFormat = 'PNG',
+  jpegQuality = 90,
+  colorDepth = '16',
 ): Record<string, unknown> {
-  return {
+  const settings: Record<string, unknown> = {
     'cycles.samples': samples,
     'render.resolution_x': resolutionX,
     'render.resolution_y': resolutionY,
+    'render.image_settings.file_format': outputFormat,
   };
+  if (outputFormat === 'JPEG') {
+    settings['render.image_settings.quality'] = jpegQuality;
+  }
+  if (outputFormat === 'OPEN_EXR' || outputFormat === 'OPEN_EXR_MULTILAYER') {
+    settings['render.image_settings.color_depth'] = colorDepth;
+  }
+  return settings;
 }
 
 /**
  * Build render_settings for tiled jobs (no resolution keys).
+ * EXR formats are blocked for tiled jobs, so color_depth is never included.
  */
 export function buildTiledRenderSettings(
   samples: number,
+  outputFormat = 'PNG',
+  jpegQuality = 90,
 ): Record<string, unknown> {
-  return {
+  const settings: Record<string, unknown> = {
     'cycles.samples': samples,
+    'render.image_settings.file_format': outputFormat,
   };
+  if (outputFormat === 'JPEG') {
+    settings['render.image_settings.quality'] = jpegQuality;
+  }
+  return settings;
 }
 
 /**
@@ -83,7 +111,19 @@ export const ANIMATION_TILING_OPTIONS = [
 /** Output format options. */
 export const OUTPUT_FORMATS = [
   { value: 'PNG', label: 'PNG' },
+  { value: 'JPEG', label: 'JPEG' },
+  { value: 'OPEN_EXR', label: 'OpenEXR' },
+  { value: 'OPEN_EXR_MULTILAYER', label: 'OpenEXR MultiLayer' },
+  { value: 'TIFF', label: 'TIFF' },
+  { value: 'BMP', label: 'BMP' },
+  { value: 'HDR', label: 'HDR (Radiance)' },
+  { value: 'TARGA', label: 'Targa' },
 ];
+
+/** Pillow-compatible output formats for tiled rendering. */
+export const TILED_OUTPUT_FORMATS = OUTPUT_FORMATS.filter(
+  f => !['OPEN_EXR', 'OPEN_EXR_MULTILAYER', 'HDR'].includes(f.value)
+);
 
 /**
  * Reverse of buildRenderSettings(). Extracts display-friendly values
