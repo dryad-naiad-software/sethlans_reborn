@@ -52,22 +52,6 @@ import { AuthService } from './core/services/auth.service';
             <mat-icon matListItemIcon>folder</mat-icon>
             <span matListItemTitle>Projects</span>
           </a>
-          <a mat-list-item routerLink="/assets" routerLinkActive="active">
-            <mat-icon matListItemIcon>attach_file</mat-icon>
-            <span matListItemTitle>Assets</span>
-          </a>
-          <a mat-list-item routerLink="/jobs" routerLinkActive="active">
-            <mat-icon matListItemIcon>work</mat-icon>
-            <span matListItemTitle>Jobs</span>
-          </a>
-          <a mat-list-item routerLink="/animations" routerLinkActive="active">
-            <mat-icon matListItemIcon>movie</mat-icon>
-            <span matListItemTitle>Animations</span>
-          </a>
-          <a mat-list-item routerLink="/tiled-jobs" routerLinkActive="active">
-            <mat-icon matListItemIcon>grid_view</mat-icon>
-            <span matListItemTitle>Tiled Jobs</span>
-          </a>
           <a mat-list-item routerLink="/workers" routerLinkActive="active">
             <mat-icon matListItemIcon>computer</mat-icon>
             <span matListItemTitle>Workers</span>

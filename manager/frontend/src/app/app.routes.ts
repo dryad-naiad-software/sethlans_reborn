@@ -29,48 +29,6 @@ export const routes: Routes = [
             .then(m => m.ProjectDetailComponent),
       },
       {
-        path: 'assets',
-        loadComponent: () =>
-          import('./features/assets/asset-list.component')
-            .then(m => m.AssetListComponent),
-      },
-      {
-        path: 'jobs',
-        loadComponent: () =>
-          import('./features/jobs/job-list.component')
-            .then(m => m.JobListComponent),
-      },
-      {
-        path: 'jobs/:id',
-        loadComponent: () =>
-          import('./features/jobs/job-detail.component')
-            .then(m => m.JobDetailComponent),
-      },
-      {
-        path: 'animations',
-        loadComponent: () =>
-          import('./features/animations/animation-list.component')
-            .then(m => m.AnimationListComponent),
-      },
-      {
-        path: 'animations/:id',
-        loadComponent: () =>
-          import('./features/animations/animation-detail.component')
-            .then(m => m.AnimationDetailComponent),
-      },
-      {
-        path: 'tiled-jobs',
-        loadComponent: () =>
-          import('./features/tiled-jobs/tiled-job-list.component')
-            .then(m => m.TiledJobListComponent),
-      },
-      {
-        path: 'tiled-jobs/:id',
-        loadComponent: () =>
-          import('./features/tiled-jobs/tiled-job-detail.component')
-            .then(m => m.TiledJobDetailComponent),
-      },
-      {
         path: 'workers',
         loadComponent: () =>
           import('./features/workers/worker-list.component')

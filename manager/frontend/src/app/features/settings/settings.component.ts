@@ -13,7 +13,10 @@ import {
   SupportedVersion,
   DeletePreview,
 } from '../../core/services/supported-version.service';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { ShutdownService } from '../../core/services/shutdown.service';
+import { QueueSettingService } from '../../core/services/queue-setting.service';
+import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { AddVersionFormComponent } from './add-version-form.component';
 import { VersionTableComponent } from './version-table.component';
 
@@ -26,6 +29,7 @@ import { VersionTableComponent } from './version-table.component';
     MatIconModule,
     MatProgressSpinnerModule,
     MatSnackBarModule,
+    MatDialogModule,
     AddVersionFormComponent,
     VersionTableComponent,
   ],
@@ -59,36 +63,21 @@ import { VersionTableComponent } from './version-table.component';
 
     <mat-divider class="shutdown-divider" />
 
+    <h2>Job Queue</h2>
+    <p class="shutdown-description">Control whether workers can claim new jobs.</p>
+    <span class="queue-badge" [class.paused]="queuePaused" [class.active]="!queuePaused">{{ queuePaused ? 'Paused' : 'Active' }}</span>
+    <button mat-raised-button [color]="queuePaused ? 'primary' : 'warn'" (click)="toggleQueue()">
+      <mat-icon>{{ queuePaused ? 'play_arrow' : 'pause' }}</mat-icon>
+      {{ queuePaused ? 'Resume Queue' : 'Pause Queue' }}
+    </button>
+    <mat-divider class="shutdown-divider" />
+
     <h2>System</h2>
-    <p class="shutdown-description">
-      Shut down the Sethlans manager process. All connected workers will
-      stop receiving new jobs. This action cannot be undone from the UI.
-    </p>
-    @if (shutdownConfirmVisible) {
-      <p class="shutdown-warning">
-        Are you sure? The manager will stop and this page will become
-        unreachable.
-      </p>
-      <button mat-flat-button color="warn"
-              [disabled]="shuttingDown"
-              (click)="onConfirmShutdown()">
-        @if (shuttingDown) {
-          Shutting down...
-        } @else {
-          Confirm Shutdown
-        }
-      </button>
-      <button mat-button
-              [disabled]="shuttingDown"
-              (click)="shutdownConfirmVisible = false">
-        Cancel
-      </button>
-    } @else {
-      <button mat-flat-button color="warn" (click)="shutdownConfirmVisible = true">
-        <mat-icon>power_settings_new</mat-icon>
-        Shut Down Manager
-      </button>
-    }
+    <p class="shutdown-description">Shut down the Sethlans manager process. This cannot be undone from the UI.</p>
+    <button mat-flat-button color="warn" [disabled]="shuttingDown" (click)="onShutdown()">
+      <mat-icon>power_settings_new</mat-icon>
+      {{ shuttingDown ? 'Shutting down...' : 'Shut Down Manager' }}
+    </button>
   `,
   styles: [`
     h2 { margin-top: 24px; }
@@ -96,17 +85,16 @@ import { VersionTableComponent } from './version-table.component';
     app-add-version-form { display: block; margin-bottom: 24px; }
     .shutdown-divider { margin-top: 32px; }
     .shutdown-description { color: rgba(0, 0, 0, 0.6); margin-bottom: 16px; }
-    .shutdown-warning {
-      color: #d32f2f;
-      font-weight: 500;
-      margin-bottom: 12px;
-    }
-    button + button { margin-left: 8px; }
+    .queue-badge { font-size: 14px; font-weight: 500; padding: 4px 12px; border-radius: 4px; margin-right: 12px; }
+    .queue-badge.active { color: #2e7d32; background: #e8f5e9; }
+    .queue-badge.paused { color: #e65100; background: #fff3e0; }
   `],
 })
 export class SettingsComponent implements OnInit {
   private readonly service = inject(SupportedVersionService);
   private readonly shutdownService = inject(ShutdownService);
+  private readonly queueSettingService = inject(QueueSettingService);
+  private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
 
   versions: SupportedVersion[] = [];
@@ -118,12 +106,13 @@ export class SettingsComponent implements OnInit {
   settingDefaultId: number | null = null;
   availableSeries: string[] = [];
   cacheReady = false;
-  shutdownConfirmVisible = false;
+  queuePaused = false;
   shuttingDown = false;
 
   ngOnInit(): void {
     this.loadVersions();
     this.loadAvailableSeries();
+    this.loadQueueStatus();
   }
 
   loadVersions(): void {
@@ -220,20 +209,32 @@ export class SettingsComponent implements OnInit {
     this.deletePreview = null;
   }
 
-  onConfirmShutdown(): void {
-    this.shuttingDown = true;
-    this.shutdownService.shutdown().subscribe({
-      next: () => {
-        this.snackBar.open(
-          'Manager is shutting down...', 'Dismiss', { duration: 10000 },
-        );
-      },
-      error: () => {
-        this.shuttingDown = false;
-        this.snackBar.open(
-          'Failed to shut down manager', 'Dismiss', { duration: 5000 },
-        );
-      },
+  loadQueueStatus(): void {
+    this.queueSettingService.getStatus().subscribe({ next: (s) => { this.queuePaused = s.queue_paused; } });
+  }
+
+  toggleQueue(): void {
+    const action = this.queuePaused ? this.queueSettingService.resume() : this.queueSettingService.pause();
+    const msg = this.queuePaused ? 'Queue resumed' : 'Queue paused';
+    action.subscribe({
+      next: (s) => { this.queuePaused = s.queue_paused; this.snackBar.open(msg, 'Dismiss', { duration: 3000 }); },
+      error: () => this.snackBar.open('Failed to update queue', 'Dismiss', { duration: 5000 }),
+    });
+  }
+
+  onShutdown(): void {
+    const data: ConfirmDialogData = {
+      title: 'Shut Down Manager',
+      message: 'Are you sure? The manager will stop and this page will become unreachable.',
+      confirmText: 'Shut Down',
+    };
+    this.dialog.open(ConfirmDialogComponent, { data }).afterClosed().subscribe(confirmed => {
+      if (!confirmed) return;
+      this.shuttingDown = true;
+      this.shutdownService.shutdown().subscribe({
+        next: () => this.snackBar.open('Manager is shutting down...', 'Dismiss', { duration: 10000 }),
+        error: () => { this.shuttingDown = false; this.snackBar.open('Failed to shut down', 'Dismiss', { duration: 5000 }); },
+      });
     });
   }
 }
