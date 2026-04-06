@@ -282,7 +282,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
         logger.info("Render command completed successfully.")
         success = True
         if start_frame == end_frame:
-            final_output_path = resolved_output_pattern.replace("####", f"{start_frame:04d}") + ".png"
+            final_output_path = resolved_output_pattern.replace("####", f"{start_frame:04d}")
     elif not error_message:
         error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
         error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"

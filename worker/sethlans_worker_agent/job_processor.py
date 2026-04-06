@@ -192,9 +192,6 @@ def process_claimed_job(job_data: Dict[str, Any]):
     assigned_gpu_index = job_data.get('assigned_gpu_index')
     acquired_cpu_lock = job_data.get('_acquired_cpu_lock', False)
 
-    start_time = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
-    api_handler.update_job_status(job_id, {"status": "RENDERING", "started_at": start_time})
-
     if assigned_gpu_index is not None:
         with _gpu_lock:
             current = dict(_gpu_assignment_map)
