@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
     destroy=extend_schema(tags=['Management UI']),
     pause=extend_schema(tags=['Management UI']),
     unpause=extend_schema(tags=['Management UI']),
+    requeue=extend_schema(tags=['Management UI']),
 )
 class TiledJobViewSet(viewsets.ModelViewSet):
     """
@@ -148,3 +149,27 @@ class TiledJobViewSet(viewsets.ModelViewSet):
             f"TiledJob '{tiled_job.name}' (ID: {tiled_job.id})."
         )
         return Response({"unpaused": count})
+
+    @action(detail=True, methods=['post'])
+    def requeue(self, request, pk=None):
+        """Cascade requeue: requeue all ERROR/CANCELED child jobs."""
+        tiled_job = self.get_object()
+        with transaction.atomic():
+            count = Job.objects.filter(
+                tiled_job=tiled_job,
+                status__in=[JobStatus.ERROR, JobStatus.CANCELED],
+            ).update(
+                status=JobStatus.QUEUED,
+                assigned_worker=None,
+                started_at=None,
+                completed_at=None,
+                error_message='',
+                last_output='',
+                auto_requeue_count=0,
+                is_paused=False,
+            )
+        logger.info(
+            f"Cascade requeued {count} child jobs for "
+            f"TiledJob '{tiled_job.name}' (ID: {tiled_job.id})."
+        )
+        return Response({"requeued": count})

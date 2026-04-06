@@ -37,6 +37,7 @@ MAX_DOWNLOADABLE_FRAMES = 1000
     destroy=extend_schema(tags=['Management UI']),
     pause=extend_schema(tags=['Management UI']),
     unpause=extend_schema(tags=['Management UI']),
+    requeue=extend_schema(tags=['Management UI']),
 )
 class AnimationViewSet(viewsets.ModelViewSet):
     """
@@ -266,3 +267,27 @@ class AnimationViewSet(viewsets.ModelViewSet):
             f"Animation '{animation.name}' (ID: {animation.id})."
         )
         return Response({"unpaused": count})
+
+    @action(detail=True, methods=['post'])
+    def requeue(self, request, pk=None):
+        """Cascade requeue: requeue all ERROR/CANCELED child jobs."""
+        animation = self.get_object()
+        with transaction.atomic():
+            count = Job.objects.filter(
+                animation=animation,
+                status__in=[JobStatus.ERROR, JobStatus.CANCELED],
+            ).update(
+                status=JobStatus.QUEUED,
+                assigned_worker=None,
+                started_at=None,
+                completed_at=None,
+                error_message='',
+                last_output='',
+                auto_requeue_count=0,
+                is_paused=False,
+            )
+        logger.info(
+            f"Cascade requeued {count} child jobs for "
+            f"Animation '{animation.name}' (ID: {animation.id})."
+        )
+        return Response({"requeued": count})
