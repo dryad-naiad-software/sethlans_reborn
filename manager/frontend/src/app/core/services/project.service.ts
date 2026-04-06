@@ -15,7 +15,6 @@ export interface Project {
   blender_version: number;
   blender_version_details: SupportedVersion;
   created_at: string;
-  is_paused: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -45,14 +44,6 @@ export class ProjectService {
 
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/`);
-  }
-
-  pause(id: string): Observable<Project> {
-    return this.http.post<Project>(`${this.baseUrl}/${id}/pause/`, {});
-  }
-
-  unpause(id: string): Observable<Project> {
-    return this.http.post<Project>(`${this.baseUrl}/${id}/unpause/`, {});
   }
 
   cancelAllJobs(id: string): Observable<{ canceled: number }> {

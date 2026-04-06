@@ -31,9 +31,9 @@ class ProjectSerializer(serializers.ModelSerializer):
         model = Project
         fields = [
             'id', 'name', 'blender_version', 'blender_version_details',
-            'created_at', 'is_paused',
+            'created_at',
         ]
-        read_only_fields = ['id', 'created_at', 'is_paused']
+        read_only_fields = ['id', 'created_at']
 
     def create(self, validated_data):
         if 'blender_version' not in validated_data:

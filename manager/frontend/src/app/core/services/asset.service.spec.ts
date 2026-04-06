@@ -18,7 +18,7 @@ const MOCK_ASSET: Asset = {
       resolved_version: '4.2.1', is_default: true,
       added_at: '2025-01-01T00:00:00Z', last_patch_check: null,
     },
-    created_at: '2025-06-01T00:00:00Z', is_paused: false,
+    created_at: '2025-06-01T00:00:00Z',
   },
 };
 

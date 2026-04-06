@@ -153,7 +153,8 @@ class JobSerializer(serializers.ModelSerializer):
         Enforce valid job status transitions.
 
         Only fires on updates (when self.instance exists). Rejects any
-        transition not defined in VALID_STATUS_TRANSITIONS.
+        transition not defined in VALID_STATUS_TRANSITIONS. Also blocks
+        QUEUED -> RENDERING when the job is paused.
         """
         if self.instance is not None:
             current_status = self.instance.status
@@ -161,6 +162,12 @@ class JobSerializer(serializers.ModelSerializer):
             if value not in allowed:
                 raise serializers.ValidationError(
                     f"Invalid status transition from {current_status} to {value}."
+                )
+            if (current_status == JobStatus.QUEUED
+                    and value == JobStatus.RENDERING
+                    and self.instance.is_paused):
+                raise serializers.ValidationError(
+                    "Cannot start rendering a paused job."
                 )
         return value
 
@@ -176,6 +183,7 @@ class JobSerializer(serializers.ModelSerializer):
             'end_frame',
             'status',
             'status_display',
+            'is_paused',
             'assigned_worker',
             'assigned_worker_hostname',
             'animation',
@@ -199,6 +207,7 @@ class JobSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'submitted_at',
             'status_display',
+            'is_paused',
             'assigned_worker_hostname',
             'asset',
             'output_file',

@@ -18,6 +18,7 @@ from ..constants import RenderDevice
 from ..models import Job, JobStatus, QueueSetting
 from ..permissions import IsAdmin, IsWorker
 from ..serializers import JobSerializer
+from .job_pause_actions import JobPauseActionsMixin
 from .job_worker_actions import JobWorkerActionsMixin
 
 VERSION_REGEX = re.compile(r'^\d+\.\d+\.\d+$')
@@ -35,10 +36,12 @@ logger = logging.getLogger(__name__)
     destroy=extend_schema(tags=['Management UI']),
     cancel=extend_schema(tags=['Management UI']),
     requeue=extend_schema(tags=['Management UI']),
+    pause=extend_schema(tags=['Management UI']),
+    unpause=extend_schema(tags=['Management UI']),
     claim=extend_schema(tags=['Worker Agent']),
     upload_output=extend_schema(tags=['Worker Agent']),
 )
-class JobViewSet(JobWorkerActionsMixin, viewsets.ModelViewSet):
+class JobViewSet(JobPauseActionsMixin, JobWorkerActionsMixin, viewsets.ModelViewSet):
     """
     API endpoint that allows render jobs to be viewed or created.
 
@@ -59,6 +62,8 @@ class JobViewSet(JobWorkerActionsMixin, viewsets.ModelViewSet):
             return [(IsAdmin | IsWorker)()]
         elif self.action == 'partial_update':
             return [(IsAdmin | IsWorker)()]
+        elif self.action in ('pause', 'unpause'):
+            return [IsAdmin()]
         else:
             return [IsAdmin()]
 
@@ -78,8 +83,7 @@ class JobViewSet(JobWorkerActionsMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         """
         Overrides the default queryset to allow filtering based on worker GPU capability,
-        Blender version compatibility, and to exclude jobs from paused projects when
-        workers poll for jobs.
+        Blender version compatibility, and to exclude paused jobs when workers poll.
         """
         queryset = super().get_queryset().select_related(
             'blender_version',
@@ -96,7 +100,7 @@ class JobViewSet(JobWorkerActionsMixin, viewsets.ModelViewSet):
         if is_worker_poll:
             if QueueSetting.get_instance().queue_paused:
                 return queryset.none()
-            queryset = queryset.filter(asset__project__is_paused=False)
+            queryset = queryset.filter(is_paused=False)
             queryset = self._apply_version_filter(queryset)
 
         if gpu_available_param == 'true':
@@ -160,6 +164,7 @@ class JobViewSet(JobWorkerActionsMixin, viewsets.ModelViewSet):
                     )
                 old_status = job.status
                 job.status = JobStatus.CANCELED
+                job.is_paused = False
                 if not job.completed_at:
                     job.completed_at = timezone.now()
                 job.save()
@@ -209,10 +214,11 @@ class JobViewSet(JobWorkerActionsMixin, viewsets.ModelViewSet):
                 job.error_message = ''
                 job.last_output = ''
                 job.auto_requeue_count = 0
+                job.is_paused = False
                 job.save(update_fields=[
                     'status', 'assigned_worker', 'started_at',
                     'completed_at', 'error_message', 'last_output',
-                    'auto_requeue_count',
+                    'auto_requeue_count', 'is_paused',
                 ])
         except Job.DoesNotExist:
             return Response(

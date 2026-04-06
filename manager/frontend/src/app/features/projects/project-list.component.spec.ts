@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
@@ -20,10 +20,10 @@ const MOCK_VERSION = {
 const MOCK_PROJECTS: Project[] = [
   { id: 'uuid-1', name: 'Project A', blender_version: 1,
     blender_version_details: MOCK_VERSION,
-    created_at: '2025-06-01T00:00:00Z', is_paused: false },
-  { id: 'uuid-2', name: 'Paused Project', blender_version: 1,
+    created_at: '2025-06-01T00:00:00Z' },
+  { id: 'uuid-2', name: 'Project B', blender_version: 1,
     blender_version_details: MOCK_VERSION,
-    created_at: '2025-06-02T00:00:00Z', is_paused: true },
+    created_at: '2025-06-02T00:00:00Z' },
 ];
 
 describe('ProjectListComponent', () => {
@@ -36,7 +36,7 @@ describe('ProjectListComponent', () => {
 
   beforeEach(async () => {
     mockProjectService = jasmine.createSpyObj('ProjectService',
-      ['pollList', 'pause', 'unpause', 'delete']);
+      ['pollList', 'delete']);
     mockRouter = jasmine.createSpyObj('Router', ['navigate']);
 
     mockProjectService.pollList.and.returnValue(of(MOCK_PROJECTS));
@@ -72,7 +72,7 @@ describe('ProjectListComponent', () => {
 
   it('should display correct columns', () => {
     expect(component.displayedColumns).toEqual(
-      ['name', 'blender_version', 'status', 'created_at', 'actions']
+      ['name', 'blender_version', 'created_at', 'actions']
     );
   });
 
@@ -109,28 +109,6 @@ describe('ProjectListComponent', () => {
 
     it('should set loading to false on error', () => {
       expect(component.loading).toBeFalse();
-    });
-  });
-
-  describe('togglePause', () => {
-    it('should call pause for active project', () => {
-      mockProjectService.pause.and.returnValue(of(MOCK_PROJECTS[0]));
-      component.togglePause(MOCK_PROJECTS[0]);
-      expect(mockProjectService.pause).toHaveBeenCalledWith('uuid-1');
-    });
-
-    it('should call unpause for paused project', () => {
-      mockProjectService.unpause.and.returnValue(of(MOCK_PROJECTS[1]));
-      component.togglePause(MOCK_PROJECTS[1]);
-      expect(mockProjectService.unpause).toHaveBeenCalledWith('uuid-2');
-    });
-
-    it('should show snackbar on pause error', () => {
-      mockProjectService.pause.and.returnValue(throwError(() => new Error()));
-      component.togglePause(MOCK_PROJECTS[0]);
-      expect(snackBar.open).toHaveBeenCalledWith(
-        'Failed to update project', 'Dismiss', { duration: 5000 }
-      );
     });
   });
 

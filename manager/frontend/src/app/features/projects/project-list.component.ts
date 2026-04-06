@@ -49,12 +49,6 @@ import { CreateProjectDialogComponent } from './create-project-dialog.component'
             ({{ p.blender_version_details.resolved_version }})
           </td>
         </ng-container>
-        <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
-          <td mat-cell *matCellDef="let p">
-            {{ p.is_paused ? 'Paused' : 'Active' }}
-          </td>
-        </ng-container>
         <ng-container matColumnDef="created_at">
           <th mat-header-cell *matHeaderCellDef>Created</th>
           <td mat-cell *matCellDef="let p">{{ p.created_at | date:'mediumDate' }}</td>
@@ -62,10 +56,6 @@ import { CreateProjectDialogComponent } from './create-project-dialog.component'
         <ng-container matColumnDef="actions">
           <th mat-header-cell *matHeaderCellDef>Actions</th>
           <td mat-cell *matCellDef="let p">
-            <button mat-icon-button (click)="togglePause(p)"
-                    [title]="p.is_paused ? 'Resume' : 'Pause'">
-              <mat-icon>{{ p.is_paused ? 'play_arrow' : 'pause' }}</mat-icon>
-            </button>
             @if (confirmDeleteId === p.id) {
               <button mat-button (click)="confirmDeleteId = null">Cancel</button>
               <button mat-flat-button color="warn" (click)="deleteProject(p.id)">
@@ -102,7 +92,7 @@ export class ProjectListComponent implements OnInit, OnDestroy {
   projects: Project[] = [];
   loading = true;
   confirmDeleteId: string | null = null;
-  displayedColumns = ['name', 'blender_version', 'status', 'created_at', 'actions'];
+  displayedColumns = ['name', 'blender_version', 'created_at', 'actions'];
 
   ngOnInit(): void {
     this.sub = this.projectService.pollList().subscribe({
@@ -125,15 +115,6 @@ export class ProjectListComponent implements OnInit, OnDestroy {
       if (project) {
         this.router.navigate(['/projects', project.id]);
       }
-    });
-  }
-
-  togglePause(project: Project): void {
-    const action = project.is_paused
-      ? this.projectService.unpause(project.id)
-      : this.projectService.pause(project.id);
-    action.subscribe({
-      error: () => this.snackBar.open('Failed to update project', 'Dismiss', { duration: 5000 }),
     });
   }
 

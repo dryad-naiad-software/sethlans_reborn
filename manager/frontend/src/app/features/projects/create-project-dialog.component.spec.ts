@@ -23,7 +23,7 @@ const MOCK_VERSIONS: SupportedVersion[] = [
 const MOCK_PROJECT: Project = {
   id: 'new-proj-uuid', name: 'New Project', blender_version: 2,
   blender_version_details: MOCK_VERSIONS[1],
-  created_at: '2025-06-01T00:00:00Z', is_paused: false,
+  created_at: '2025-06-01T00:00:00Z',
 };
 
 describe('CreateProjectDialogComponent', () => {

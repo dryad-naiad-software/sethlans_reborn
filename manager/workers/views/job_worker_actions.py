@@ -79,6 +79,12 @@ class JobWorkerActionsMixin:
                         status=status.HTTP_409_CONFLICT,
                     )
 
+                if job.is_paused:
+                    return Response(
+                        {"error": "Job is paused and cannot be claimed."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
                 # Version compatibility check (defense-in-depth)
                 effective = job.effective_blender_version
                 if effective and not worker.has_blender_version(

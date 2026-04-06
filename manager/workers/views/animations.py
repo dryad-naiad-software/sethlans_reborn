@@ -35,6 +35,8 @@ MAX_DOWNLOADABLE_FRAMES = 1000
     update=extend_schema(tags=['Management UI']),
     partial_update=extend_schema(tags=['Management UI']),
     destroy=extend_schema(tags=['Management UI']),
+    pause=extend_schema(tags=['Management UI']),
+    unpause=extend_schema(tags=['Management UI']),
 )
 class AnimationViewSet(viewsets.ModelViewSet):
     """
@@ -232,3 +234,35 @@ class AnimationViewSet(viewsets.ModelViewSet):
         response = FileResponse(tmp, content_type='application/zip')
         response['Content-Disposition'] = f'attachment; filename="{safe_name}.zip"'
         return response
+
+    @action(detail=True, methods=['post'])
+    def pause(self, request, pk=None):
+        """Cascade pause: pause all QUEUED child jobs."""
+        animation = self.get_object()
+        with transaction.atomic():
+            count = Job.objects.filter(
+                animation=animation,
+                status=JobStatus.QUEUED,
+                is_paused=False,
+            ).update(is_paused=True)
+        logger.info(
+            f"Cascade paused {count} child jobs for "
+            f"Animation '{animation.name}' (ID: {animation.id})."
+        )
+        return Response({"paused": count})
+
+    @action(detail=True, methods=['post'])
+    def unpause(self, request, pk=None):
+        """Cascade unpause: unpause all paused QUEUED child jobs."""
+        animation = self.get_object()
+        with transaction.atomic():
+            count = Job.objects.filter(
+                animation=animation,
+                status=JobStatus.QUEUED,
+                is_paused=True,
+            ).update(is_paused=False)
+        logger.info(
+            f"Cascade unpaused {count} child jobs for "
+            f"Animation '{animation.name}' (ID: {animation.id})."
+        )
+        return Response({"unpaused": count})

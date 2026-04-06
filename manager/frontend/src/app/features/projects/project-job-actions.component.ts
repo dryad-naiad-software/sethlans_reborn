@@ -9,6 +9,8 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { filter, switchMap } from 'rxjs';
 import { JobService } from '../../core/services/job.service';
+import { TiledJobService } from '../../core/services/tiled-job.service';
+import { AnimationService } from '../../core/services/animation.service';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { JobTableRow } from './project-jobs-table.util';
 
@@ -23,7 +25,17 @@ import { JobTableRow } from './project-jobs-table.util';
       </button>
     }
     @if (row.type === 'single') {
-      @if (row.status === 'QUEUED' || row.status === 'RENDERING') {
+      @if (row.status === 'QUEUED') {
+        <button mat-icon-button (click)="onPause()" aria-label="Pause job">
+          <mat-icon>pause</mat-icon>
+        </button>
+      }
+      @if (row.status === 'PAUSED') {
+        <button mat-icon-button (click)="onUnpause()" aria-label="Resume job">
+          <mat-icon>play_arrow</mat-icon>
+        </button>
+      }
+      @if (row.status === 'QUEUED' || row.status === 'RENDERING' || row.status === 'PAUSED') {
         <button mat-icon-button (click)="onCancel()" aria-label="Cancel job">
           <mat-icon>cancel</mat-icon>
         </button>
@@ -37,6 +49,18 @@ import { JobTableRow } from './project-jobs-table.util';
         <mat-icon>delete</mat-icon>
       </button>
     }
+    @if (row.type === 'tiled' || row.type === 'animation') {
+      @if (row.status === 'QUEUED' || row.status === 'RENDERING') {
+        <button mat-icon-button (click)="onCascadePause()" aria-label="Pause all child jobs">
+          <mat-icon>pause</mat-icon>
+        </button>
+      }
+      @if (row.status === 'QUEUED' || row.status === 'RENDERING') {
+        <button mat-icon-button (click)="onCascadeUnpause()" aria-label="Resume all child jobs">
+          <mat-icon>play_arrow</mat-icon>
+        </button>
+      }
+    }
   `,
   styles: [`
     :host { display: flex; gap: 0; align-items: center; }
@@ -49,11 +73,75 @@ export class ProjectJobActionsComponent {
   @Output() canceled = new EventEmitter<void>();
   @Output() requeued = new EventEmitter<void>();
   @Output() deleted = new EventEmitter<void>();
+  @Output() paused = new EventEmitter<void>();
+  @Output() unpaused = new EventEmitter<void>();
   @Output() viewResult = new EventEmitter<JobTableRow>();
 
   private readonly jobService = inject(JobService);
+  private readonly tiledJobService = inject(TiledJobService);
+  private readonly animationService = inject(AnimationService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly dialog = inject(MatDialog);
+
+  onPause(): void {
+    this.jobService.pause(this.row.id as number).subscribe({
+      next: () => {
+        this.snackBar.open('Job paused', 'Dismiss', { duration: 3000 });
+        this.paused.emit();
+      },
+      error: () => this.snackBar.open('Failed to pause job', 'Dismiss', { duration: 5000 }),
+    });
+  }
+
+  onUnpause(): void {
+    this.jobService.unpause(this.row.id as number).subscribe({
+      next: () => {
+        this.snackBar.open('Job resumed', 'Dismiss', { duration: 3000 });
+        this.unpaused.emit();
+      },
+      error: () => this.snackBar.open('Failed to resume job', 'Dismiss', { duration: 5000 }),
+    });
+  }
+
+  onCascadePause(): void {
+    if (this.row.type === 'tiled') {
+      this.tiledJobService.pause(this.row.id as string).subscribe({
+        next: (res) => {
+          this.snackBar.open(`Paused ${res.paused} jobs`, 'Dismiss', { duration: 3000 });
+          this.paused.emit();
+        },
+        error: () => this.snackBar.open('Failed to pause jobs', 'Dismiss', { duration: 5000 }),
+      });
+    } else {
+      this.animationService.pause(this.row.id as number).subscribe({
+        next: (res) => {
+          this.snackBar.open(`Paused ${res.paused} jobs`, 'Dismiss', { duration: 3000 });
+          this.paused.emit();
+        },
+        error: () => this.snackBar.open('Failed to pause jobs', 'Dismiss', { duration: 5000 }),
+      });
+    }
+  }
+
+  onCascadeUnpause(): void {
+    if (this.row.type === 'tiled') {
+      this.tiledJobService.unpause(this.row.id as string).subscribe({
+        next: (res) => {
+          this.snackBar.open(`Resumed ${res.unpaused} jobs`, 'Dismiss', { duration: 3000 });
+          this.unpaused.emit();
+        },
+        error: () => this.snackBar.open('Failed to resume jobs', 'Dismiss', { duration: 5000 }),
+      });
+    } else {
+      this.animationService.unpause(this.row.id as number).subscribe({
+        next: (res) => {
+          this.snackBar.open(`Resumed ${res.unpaused} jobs`, 'Dismiss', { duration: 3000 });
+          this.unpaused.emit();
+        },
+        error: () => this.snackBar.open('Failed to resume jobs', 'Dismiss', { duration: 5000 }),
+      });
+    }
+  }
 
   onCancel(): void {
     const jobId = this.row.id as number;

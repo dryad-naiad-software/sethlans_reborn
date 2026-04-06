@@ -77,4 +77,12 @@ export class TiledJobService {
   create(data: CreateTiledJobRequest): Observable<TiledJob> {
     return this.http.post<TiledJob>(`${this.baseUrl}/`, data);
   }
+
+  pause(id: string): Observable<{ paused: number }> {
+    return this.http.post<{ paused: number }>(`${this.baseUrl}/${id}/pause/`, {});
+  }
+
+  unpause(id: string): Observable<{ unpaused: number }> {
+    return this.http.post<{ unpaused: number }>(`${this.baseUrl}/${id}/unpause/`, {});
+  }
 }

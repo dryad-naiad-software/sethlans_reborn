@@ -16,7 +16,7 @@ const MOCK_VERSION = {
 const MOCK_PROJECT: Project = {
   id: 'abc-123-uuid', name: 'Test Project', blender_version: 1,
   blender_version_details: MOCK_VERSION,
-  created_at: '2025-06-01T00:00:00Z', is_paused: false,
+  created_at: '2025-06-01T00:00:00Z',
 };
 
 describe('ProjectService', () => {
@@ -73,22 +73,13 @@ describe('ProjectService', () => {
     req.flush(null);
   });
 
-  it('should POST /api/projects/{id}/pause/ on pause()', () => {
-    service.pause('abc-123-uuid').subscribe(p => {
-      expect(p.is_paused).toBeTrue();
+  it('should POST /api/projects/{id}/cancel_all_jobs/ on cancelAllJobs()', () => {
+    service.cancelAllJobs('abc-123-uuid').subscribe(res => {
+      expect(res.canceled).toBe(3);
     });
-    const req = httpMock.expectOne('/api/projects/abc-123-uuid/pause/');
+    const req = httpMock.expectOne('/api/projects/abc-123-uuid/cancel_all_jobs/');
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({});
-    req.flush({ ...MOCK_PROJECT, is_paused: true });
-  });
-
-  it('should POST /api/projects/{id}/unpause/ on unpause()', () => {
-    service.unpause('abc-123-uuid').subscribe(p => {
-      expect(p.is_paused).toBeFalse();
-    });
-    const req = httpMock.expectOne('/api/projects/abc-123-uuid/unpause/');
-    expect(req.request.method).toBe('POST');
-    req.flush(MOCK_PROJECT);
+    req.flush({ canceled: 3 });
   });
 });

@@ -9,6 +9,7 @@ export interface JobTableRow {
   name: string;
   type: 'single' | 'tiled' | 'animation';
   status: string;
+  is_paused: boolean;
   worker: string;
   time: string;
   createdAt: string;
@@ -24,6 +25,7 @@ export const STATUS_ICONS: Record<string, string> = {
   ERROR: 'error',
   CANCELED: 'cancel',
   ASSEMBLING: 'build',
+  PAUSED: 'pause',
 };
 
 export function formatTime(seconds: number | null): string {

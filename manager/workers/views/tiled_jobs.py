@@ -10,6 +10,8 @@ from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from ..constants import RenderEngine, RenderSettings
 from ..models import Job, JobStatus, TiledJob
@@ -26,6 +28,8 @@ logger = logging.getLogger(__name__)
     update=extend_schema(tags=['Management UI']),
     partial_update=extend_schema(tags=['Management UI']),
     destroy=extend_schema(tags=['Management UI']),
+    pause=extend_schema(tags=['Management UI']),
+    unpause=extend_schema(tags=['Management UI']),
 )
 class TiledJobViewSet(viewsets.ModelViewSet):
     """
@@ -112,3 +116,35 @@ class TiledJobViewSet(viewsets.ModelViewSet):
 
         Job.objects.bulk_create(jobs_to_create)
         logger.info(f"Successfully spawned {len(jobs_to_create)} tile jobs for TiledJob ID {tiled_job.id}.")
+
+    @action(detail=True, methods=['post'])
+    def pause(self, request, pk=None):
+        """Cascade pause: pause all QUEUED child jobs."""
+        tiled_job = self.get_object()
+        with transaction.atomic():
+            count = Job.objects.filter(
+                tiled_job=tiled_job,
+                status=JobStatus.QUEUED,
+                is_paused=False,
+            ).update(is_paused=True)
+        logger.info(
+            f"Cascade paused {count} child jobs for "
+            f"TiledJob '{tiled_job.name}' (ID: {tiled_job.id})."
+        )
+        return Response({"paused": count})
+
+    @action(detail=True, methods=['post'])
+    def unpause(self, request, pk=None):
+        """Cascade unpause: unpause all paused QUEUED child jobs."""
+        tiled_job = self.get_object()
+        with transaction.atomic():
+            count = Job.objects.filter(
+                tiled_job=tiled_job,
+                status=JobStatus.QUEUED,
+                is_paused=True,
+            ).update(is_paused=False)
+        logger.info(
+            f"Cascade unpaused {count} child jobs for "
+            f"TiledJob '{tiled_job.name}' (ID: {tiled_job.id})."
+        )
+        return Response({"unpaused": count})

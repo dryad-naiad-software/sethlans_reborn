@@ -4,16 +4,13 @@
 """
 Integration tests for the Project API endpoint.
 
-Covers: CRUD, pause/unpause actions, and paused-project
-exclusion from job polling.
+Covers: CRUD and cancel_all_jobs. Project-level pause was removed in
+favor of job-level pause (see test_job_pause.py).
 """
 
 import pytest
 
-from workers.models import Job
-
 PROJECTS_URL = '/api/projects/'
-JOBS_URL = '/api/jobs/'
 
 
 @pytest.mark.django_db
@@ -33,7 +30,7 @@ class TestProjectCreate:
         )
         assert resp.status_code == 201
         assert resp.data['name'] == 'NewProject1'
-        assert resp.data['is_paused'] is False
+        assert 'is_paused' not in resp.data
         assert 'id' in resp.data
         assert 'created_at' in resp.data
 
@@ -63,95 +60,27 @@ class TestProjectCreate:
 
 
 @pytest.mark.django_db
-class TestProjectPauseUnpause:
+class TestProjectPauseRemoved:
+    """Project-level pause/unpause actions have been removed (AC-3, AC-4)."""
 
-    def test_pause_project(self, admin_client, project):
-        """Pause action sets is_paused to True."""
+    def test_pause_endpoint_returns_404(self, admin_client, project):
+        """POST /api/projects/{id}/pause/ no longer exists."""
         resp = admin_client.post(
             f'{PROJECTS_URL}{project.pk}/pause/',
         )
-        assert resp.status_code == 200
-        assert resp.data['is_paused'] is True
-        project.refresh_from_db()
-        assert project.is_paused is True
+        assert resp.status_code == 404
 
-    def test_unpause_project(self, admin_client, project):
-        """Unpause action sets is_paused to False."""
-        project.is_paused = True
-        project.save(update_fields=['is_paused'])
-
+    def test_unpause_endpoint_returns_404(self, admin_client, project):
+        """POST /api/projects/{id}/unpause/ no longer exists."""
         resp = admin_client.post(
             f'{PROJECTS_URL}{project.pk}/unpause/',
         )
-        assert resp.status_code == 200
-        assert resp.data['is_paused'] is False
-        project.refresh_from_db()
-        assert project.is_paused is False
+        assert resp.status_code == 404
 
-
-@pytest.mark.django_db
-class TestPausedProjectJobPolling:
-
-    def test_paused_projects_excluded_from_worker_poll(
-        self, admin_client, worker_with_token, project, asset,
+    def test_project_response_excludes_is_paused(
+        self, admin_client, project,
     ):
-        """Jobs from paused projects are excluded from worker polling."""
-        worker, worker_client = worker_with_token
-
-        # Create a job in the project
-        admin_client.post(
-            JOBS_URL,
-            data={
-                'name': 'PausedTestJob1',
-                'asset_id': asset.pk,
-                'output_file_pattern': '//render/#.png',
-            },
-            format='json',
-        )
-        assert Job.objects.filter(name='PausedTestJob1').exists()
-
-        # Pause the project
-        project.is_paused = True
-        project.save(update_fields=['is_paused'])
-
-        # Worker polls for QUEUED jobs (worker poll is identified by
-        # both status and assigned_worker__isnull params)
-        resp = worker_client.get(
-            JOBS_URL,
-            {
-                'status': 'QUEUED',
-                'assigned_worker__isnull': 'True',
-                'available_versions': '4.2.19',
-            },
-        )
+        """GET /api/projects/{id}/ does not include is_paused (AC-2)."""
+        resp = admin_client.get(f'{PROJECTS_URL}{project.pk}/')
         assert resp.status_code == 200
-        names = [j['name'] for j in resp.data]
-        assert 'PausedTestJob1' not in names
-
-    def test_unpaused_project_jobs_visible_in_poll(
-        self, admin_client, worker_with_token, project, asset,
-    ):
-        """Jobs from unpaused projects appear in worker polling."""
-        worker, worker_client = worker_with_token
-
-        admin_client.post(
-            JOBS_URL,
-            data={
-                'name': 'VisibleJob001',
-                'asset_id': asset.pk,
-                'output_file_pattern': '//render/#.png',
-            },
-            format='json',
-        )
-
-        resp = worker_client.get(
-            JOBS_URL,
-            {
-                'status': 'QUEUED',
-                'assigned_worker__isnull': 'True',
-                'available_versions': '4.2.19',
-            },
-        )
-        assert resp.status_code == 200
-        names = [j['name'] for j in resp.data]
-        assert 'VisibleJob001' in names
+        assert 'is_paused' not in resp.data

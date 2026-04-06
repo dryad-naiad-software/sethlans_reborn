@@ -28,10 +28,6 @@ class Project(models.Model):
         help_text="The Blender version series used for all jobs in this project.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    is_paused = models.BooleanField(
-        default=False,
-        help_text="If true, workers will not pick up jobs from this project."
-    )
 
     def __str__(self):
         return self.name

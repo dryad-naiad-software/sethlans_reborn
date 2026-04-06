@@ -92,4 +92,12 @@ export class AnimationService {
   download(id: number): Observable<Blob> {
     return this.http.get(`${this.baseUrl}/${id}/download/`, { responseType: 'blob' });
   }
+
+  pause(id: number): Observable<{ paused: number }> {
+    return this.http.post<{ paused: number }>(`${this.baseUrl}/${id}/pause/`, {});
+  }
+
+  unpause(id: number): Observable<{ unpaused: number }> {
+    return this.http.post<{ unpaused: number }>(`${this.baseUrl}/${id}/unpause/`, {});
+  }
 }

@@ -126,6 +126,10 @@ class Job(models.Model):
     tiled_job = models.ForeignKey(TiledJob, on_delete=models.CASCADE, null=True, blank=True, related_name='jobs')
     animation_frame = models.ForeignKey('workers.AnimationFrame', on_delete=models.CASCADE, null=True, blank=True, related_name='tile_jobs')
     render_time_seconds = models.IntegerField(null=True, blank=True, help_text="The total time in seconds this job took to render.")
+    is_paused = models.BooleanField(
+        default=False,
+        help_text="If true, this job is skipped during worker polling.",
+    )
     auto_requeue_count = models.IntegerField(
         default=0,
         help_text="Number of times this job has been auto-requeued by stuck job detection.",
@@ -145,6 +149,9 @@ class Job(models.Model):
         ordering = ['-submitted_at']
         verbose_name = "Render Job"
         verbose_name_plural = "Render Jobs"
+        indexes = [
+            models.Index(fields=['status', 'is_paused']),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=['asset', 'name'],

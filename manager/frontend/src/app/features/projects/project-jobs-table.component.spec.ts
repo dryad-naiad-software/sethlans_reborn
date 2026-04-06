@@ -17,7 +17,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     asset: null as any,
     output_file_pattern: '//render/test_####.png',
     start_frame: 1, end_frame: 1,
-    status: 'QUEUED', status_display: 'Queued',
+    status: 'QUEUED', is_paused: false, status_display: 'Queued',
     assigned_worker: null, assigned_worker_hostname: null,
     animation: null, tiled_job: null, animation_frame: null,
     submitted_at: '2025-06-03T00:00:00Z',

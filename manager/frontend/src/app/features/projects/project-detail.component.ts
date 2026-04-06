@@ -42,18 +42,8 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
             @if (asset) { &middot; {{ asset.name }} }
             &middot; Created {{ project.created_at | date:'mediumDate' }}
           </p>
-          <p class="status-line">
-            Status:
-            <span [class]="project.is_paused ? 'paused' : 'active'">
-              {{ project.is_paused ? 'Paused' : 'Active' }}
-            </span>
-          </p>
         </div>
         <div class="header-actions">
-          <button mat-raised-button (click)="togglePause()">
-            <mat-icon>{{ project.is_paused ? 'play_arrow' : 'pause' }}</mat-icon>
-            {{ project.is_paused ? 'Unpause' : 'Pause' }}
-          </button>
           <button mat-raised-button color="warn" (click)="showDeleteConfirm = true"
                   [disabled]="showDeleteConfirm">
             <mat-icon>delete</mat-icon> Delete
@@ -95,9 +85,6 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
     .header { display: flex; justify-content: space-between; align-items: flex-start; }
     h1 { margin-bottom: 4px; }
     .subtitle { color: rgba(0,0,0,0.6); margin: 0 0 4px; }
-    .status-line { margin: 0; }
-    .active { color: #2e7d32; font-weight: 500; }
-    .paused { color: #e65100; font-weight: 500; }
     .header-actions { display: flex; gap: 8px; align-items: center; }
     .delete-confirm {
       display: flex; align-items: center; gap: 8px; padding: 12px;
@@ -151,17 +138,6 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
     this.assetSub?.unsubscribe();
   }
 
-  togglePause(): void {
-    if (!this.project) return;
-    const action = this.project.is_paused
-      ? this.projectService.unpause(this.project.id)
-      : this.projectService.pause(this.project.id);
-    action.subscribe({
-      next: (p) => { this.project = p; },
-      error: () => this.snackBar.open('Failed to update project', 'Dismiss', { duration: 5000 }),
-    });
-  }
-
   deleteProject(): void {
     if (!this.project) return;
     this.deleting = true;
@@ -181,7 +157,7 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
     if (!this.project) return;
     const data: ConfirmDialogData = {
       title: 'Cancel All Jobs',
-      message: 'Cancel all queued and in-progress jobs for this project?',
+      message: 'Cancel all queued, paused, and in-progress jobs for this project?',
     };
     this.dialog.open(ConfirmDialogComponent, { data }).afterClosed().pipe(
       filter((confirmed: boolean) => confirmed === true),

@@ -6,7 +6,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { of, throwError, Subject, BehaviorSubject } from 'rxjs';
+import { of, throwError, BehaviorSubject } from 'rxjs';
 import { ProjectDetailComponent } from './project-detail.component';
 import { ProjectService, Project } from '../../core/services/project.service';
 import { AssetService, Asset } from '../../core/services/asset.service';
@@ -23,7 +23,7 @@ const MOCK_VERSION = {
 const MOCK_PROJECT: Project = {
   id: 'abc-uuid-123', name: 'Detail Project', blender_version: 1,
   blender_version_details: MOCK_VERSION,
-  created_at: '2025-06-01T00:00:00Z', is_paused: false,
+  created_at: '2025-06-01T00:00:00Z',
 };
 
 const MOCK_ASSET: Asset = {
@@ -43,7 +43,7 @@ describe('ProjectDetailComponent', () => {
 
   beforeEach(async () => {
     mockProjectService = jasmine.createSpyObj('ProjectService',
-      ['get', 'delete', 'pause', 'unpause']);
+      ['get', 'delete']);
     mockAssetService = jasmine.createSpyObj('AssetService', ['list']);
     mockRouter = jasmine.createSpyObj('Router', ['navigate']);
 
@@ -102,38 +102,6 @@ describe('ProjectDetailComponent', () => {
     mockAssetService.list.and.returnValue(of([]));
     fixture.detectChanges();
     expect(component.asset).toBeNull();
-  });
-
-  describe('togglePause', () => {
-    beforeEach(() => fixture.detectChanges());
-
-    it('should call pause when project is active', () => {
-      mockProjectService.pause.and.returnValue(
-        of({ ...MOCK_PROJECT, is_paused: true }));
-      component.togglePause();
-      expect(mockProjectService.pause).toHaveBeenCalledWith('abc-uuid-123');
-    });
-
-    it('should call unpause when project is paused', () => {
-      component.project = { ...MOCK_PROJECT, is_paused: true };
-      mockProjectService.unpause.and.returnValue(of(MOCK_PROJECT));
-      component.togglePause();
-      expect(mockProjectService.unpause).toHaveBeenCalledWith('abc-uuid-123');
-    });
-
-    it('should update project on success', () => {
-      const paused = { ...MOCK_PROJECT, is_paused: true };
-      mockProjectService.pause.and.returnValue(of(paused));
-      component.togglePause();
-      expect(component.project).toEqual(paused);
-    });
-
-    it('should show snackbar on error', () => {
-      mockProjectService.pause.and.returnValue(throwError(() => new Error()));
-      component.togglePause();
-      expect(snackBar.open).toHaveBeenCalledWith(
-        'Failed to update project', 'Dismiss', { duration: 5000 });
-    });
   });
 
   describe('deleteProject', () => {

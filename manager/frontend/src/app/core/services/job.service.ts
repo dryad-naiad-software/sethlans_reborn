@@ -22,6 +22,7 @@ export interface Job {
   start_frame: number;
   end_frame: number;
   status: string;
+  is_paused: boolean;
   status_display: string;
   assigned_worker: number | null;
   assigned_worker_hostname: string | null;
@@ -100,5 +101,13 @@ export class JobService {
 
   delete(id: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/`);
+  }
+
+  pause(id: number): Observable<Job> {
+    return this.http.post<Job>(`${this.baseUrl}/${id}/pause/`, {});
+  }
+
+  unpause(id: number): Observable<Job> {
+    return this.http.post<Job>(`${this.baseUrl}/${id}/unpause/`, {});
   }
 }

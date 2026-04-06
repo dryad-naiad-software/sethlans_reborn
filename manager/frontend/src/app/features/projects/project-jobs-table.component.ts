@@ -85,7 +85,8 @@ export { JobTableRow } from './project-jobs-table.util';
           <td mat-cell *matCellDef="let r">
             <app-project-job-actions [row]="r"
               (canceled)="triggerRefresh()" (requeued)="triggerRefresh()"
-              (deleted)="triggerRefresh()" (viewResult)="openResult($event)" />
+              (deleted)="triggerRefresh()" (paused)="triggerRefresh()"
+              (unpaused)="triggerRefresh()" (viewResult)="openResult($event)" />
           </td>
         </ng-container>
         <tr mat-header-row *matHeaderRowDef="columns"></tr>
@@ -105,6 +106,7 @@ export { JobTableRow } from './project-jobs-table.util';
     .status-ERROR { color: #c62828; }
     .status-RENDERING { color: #1565c0; }
     .status-QUEUED { color: #9e9e9e; }
+    .status-PAUSED { color: #e65100; }
     .thumb-img {
       width: 48px; height: 48px; object-fit: cover; border-radius: 4px; cursor: pointer;
     }
@@ -216,8 +218,10 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
   }
 
   private mapJob(j: Job): JobTableRow {
+    const displayStatus = (j.status === 'QUEUED' && j.is_paused) ? 'PAUSED' : j.status;
     return {
-      id: j.id, name: j.name, type: 'single', status: j.status,
+      id: j.id, name: j.name, type: 'single', status: displayStatus,
+      is_paused: j.is_paused,
       worker: j.assigned_worker_hostname || '--',
       time: formatTime(j.render_time_seconds), createdAt: j.submitted_at,
       thumbnail: j.thumbnail, outputFile: j.output_file,
@@ -226,16 +230,16 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
 
   private mapTiled(t: TiledJob): JobTableRow {
     return {
-      id: t.id, name: t.name, type: 'tiled', status: t.status, worker: '--',
-      time: formatTime(t.total_render_time_seconds), createdAt: t.submitted_at,
+      id: t.id, name: t.name, type: 'tiled', status: t.status, is_paused: false,
+      worker: '--', time: formatTime(t.total_render_time_seconds), createdAt: t.submitted_at,
       thumbnail: t.thumbnail, outputFile: t.output_file,
     };
   }
 
   private mapAnim(a: Animation): JobTableRow {
     return {
-      id: a.id, name: a.name, type: 'animation', status: a.status, worker: '--',
-      time: formatTime(a.total_render_time_seconds), createdAt: a.submitted_at,
+      id: a.id, name: a.name, type: 'animation', status: a.status, is_paused: false,
+      worker: '--', time: formatTime(a.total_render_time_seconds), createdAt: a.submitted_at,
       thumbnail: a.thumbnail, outputFile: null,
     };
   }
