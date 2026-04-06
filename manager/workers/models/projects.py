@@ -50,10 +50,9 @@ class Asset(models.Model):
     """
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='assets')
     name = models.CharField(
-        max_length=40,
+        max_length=255,
         unique=True,
         help_text="A unique name for the asset file.",
-        validators=[MinLengthValidator(4)]
     )
     blend_file = models.FileField(
         upload_to=asset_upload_path,
