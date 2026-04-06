@@ -15,6 +15,7 @@ import { parseRenderSettings } from './render-payload.util';
 import { triggerBlobDownload } from '../../core/services/download.util';
 import { JobPrefillData } from './job-create-form.types';
 import { AnimationFilmstripComponent } from './animation-filmstrip.component';
+import { ImagePreviewComponent } from './image-preview.component';
 import { FilmstripFrame, fromAnimationFrame, fromJob } from './filmstrip-frame';
 import { formatTime } from './project-jobs-table.util';
 
@@ -31,7 +32,7 @@ export interface JobResultDialogData {
   standalone: true,
   imports: [
     MatDialogModule, MatButtonModule, MatIconModule, MatSnackBarModule,
-    MatProgressSpinnerModule, AnimationFilmstripComponent,
+    MatProgressSpinnerModule, AnimationFilmstripComponent, ImagePreviewComponent,
   ],
   template: `
     <div class="dialog-header">
@@ -42,7 +43,8 @@ export interface JobResultDialogData {
       @switch (data.type) {
         @case ('single') { @if (data.job; as job) {
           <div class="image-container">
-            <img [src]="job.output_file" [alt]="job.name" />
+            <app-image-preview [src]="job.output_file" [alt]="job.name"
+              [format]="getFormat(job.render_settings)" [thumbnailSrc]="job.thumbnail" />
           </div>
           <div class="details">
             <h3>Render Details</h3>
@@ -59,7 +61,8 @@ export interface JobResultDialogData {
         }}
         @case ('tiled') { @if (data.tiledJob; as tj) {
           <div class="image-container">
-            <img [src]="tj.output_file" [alt]="tj.name" />
+            <app-image-preview [src]="tj.output_file" [alt]="tj.name"
+              [format]="getFormat(tj.render_settings)" [thumbnailSrc]="tj.thumbnail" />
           </div>
           <div class="details">
             <h3>Render Details</h3>
@@ -80,8 +83,10 @@ export interface JobResultDialogData {
           } @else {
             <div class="image-container">
               @if (selectedFilmstripFrame?.outputFile) {
-                <img [src]="selectedFilmstripFrame!.outputFile"
-                     [alt]="'Frame ' + selectedFilmstripFrame!.frameNumber" />
+                <app-image-preview [src]="selectedFilmstripFrame!.outputFile"
+                  [alt]="'Frame ' + selectedFilmstripFrame!.frameNumber"
+                  [format]="getFormat(anim.render_settings)"
+                  [thumbnailSrc]="selectedFilmstripFrame!.thumbnail" />
               } @else {
                 <div class="no-image"><mat-icon>image</mat-icon><span>No image</span></div>
               }
@@ -158,12 +163,10 @@ export class JobResultDialogComponent {
   downloading = false;
   readonly formatTime = formatTime;
 
-  readonly parsed = this.data.job
-    ? parseRenderSettings(this.data.job.render_settings) : { samples: undefined, resolutionX: undefined, resolutionY: undefined };
-  readonly tiledParsed = this.data.tiledJob
-    ? parseRenderSettings(this.data.tiledJob.render_settings) : { samples: undefined, resolutionX: undefined, resolutionY: undefined };
-  readonly animParsed = this.data.animation
-    ? parseRenderSettings(this.data.animation.render_settings) : { samples: undefined, resolutionX: undefined, resolutionY: undefined };
+  private static readonly noParsed = { samples: undefined, resolutionX: undefined, resolutionY: undefined };
+  readonly parsed = this.data.job ? parseRenderSettings(this.data.job.render_settings) : JobResultDialogComponent.noParsed;
+  readonly tiledParsed = this.data.tiledJob ? parseRenderSettings(this.data.tiledJob.render_settings) : JobResultDialogComponent.noParsed;
+  readonly animParsed = this.data.animation ? parseRenderSettings(this.data.animation.render_settings) : JobResultDialogComponent.noParsed;
 
   readonly title = this.data.job?.name ?? this.data.tiledJob?.name ?? this.data.animation?.name ?? '';
   readonly downloadUrl = this.data.job?.output_file ?? this.data.tiledJob?.output_file ?? '';
@@ -196,6 +199,11 @@ export class JobResultDialogComponent {
     }
   }
 
+  getFormat(renderSettings: Record<string, unknown>): string {
+    const fmt = renderSettings['render.image_settings.file_format'];
+    return typeof fmt === 'string' ? fmt : 'PNG';
+  }
+
   onFrameSelect(frame: FilmstripFrame): void { this.selectedFilmstripFrame = frame; }
 
   onRerender(): void {
@@ -219,27 +227,23 @@ export class JobResultDialogComponent {
   }
 
   private buildPrefill(): JobPrefillData {
-    const type = this.data.type;
-    if (type === 'single' && this.data.job) {
-      const j = this.data.job;
+    const { type, job: j, tiledJob: t, animation: a } = this.data;
+    if (type === 'single' && j) {
       const s = parseRenderSettings(j.render_settings);
       return { renderType: 'single', renderEngine: j.render_engine, renderDevice: j.render_device,
         samples: s.samples, resolutionX: s.resolutionX, resolutionY: s.resolutionY, frame: j.start_frame };
     }
-    if (type === 'tiled' && this.data.tiledJob) {
-      const t = this.data.tiledJob;
+    if (type === 'tiled' && t) {
       const s = parseRenderSettings(t.render_settings);
       return { renderType: 'tiled', renderEngine: t.render_engine, renderDevice: t.render_device,
         samples: s.samples, resolutionX: t.final_resolution_x, resolutionY: t.final_resolution_y,
         tilingConfig: `${t.tile_count_x}x${t.tile_count_y}` };
     }
-    if (type === 'animation' && this.data.animation) {
-      const a = this.data.animation;
+    if (type === 'animation' && a) {
       const s = parseRenderSettings(a.render_settings);
       return { renderType: 'animation', renderEngine: a.render_engine, renderDevice: a.render_device,
         samples: s.samples, resolutionX: s.resolutionX, resolutionY: s.resolutionY,
-        startFrame: a.start_frame, endFrame: a.end_frame, frameStep: a.frame_step,
-        animTilingConfig: a.tiling_config };
+        startFrame: a.start_frame, endFrame: a.end_frame, frameStep: a.frame_step, animTilingConfig: a.tiling_config };
     }
     return { renderType: 'single' };
   }
