@@ -102,6 +102,32 @@ class TestTiledJobSpawning:
         tiled_job = TiledJob.objects.get(name='Small2x2Tj')
         assert Job.objects.filter(tiled_job=tiled_job).count() == 4
 
+    def test_tile_jobs_output_pattern_has_png_extension(
+        self, admin_client, project, asset,
+    ):
+        """Tile job output_file_pattern must include .png extension."""
+        admin_client.post(
+            TILED_JOBS_URL,
+            data={
+                'name': 'ExtTest001',
+                'project': str(project.pk),
+                'asset_id': asset.pk,
+                'final_resolution_x': 1920,
+                'final_resolution_y': 1080,
+                'tile_count_x': 2,
+                'tile_count_y': 2,
+            },
+            format='json',
+        )
+        tiled_job = TiledJob.objects.get(name='ExtTest001')
+        tile_jobs = Job.objects.filter(tiled_job=tiled_job)
+
+        for job in tile_jobs:
+            assert job.output_file_pattern.endswith('.png'), (
+                f"Tile job '{job.name}' output_file_pattern "
+                f"'{job.output_file_pattern}' missing .png extension"
+            )
+
 
 @pytest.mark.django_db
 class TestTiledJobAssembly:

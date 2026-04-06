@@ -133,7 +133,7 @@ class AnimationViewSet(viewsets.ModelViewSet):
                         })
 
                         tile_output_dir = os.path.join("tiled_anim_frames", str(anim_frame.id))
-                        output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####")
+                        output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####.png")
 
                         job = Job(
                             animation=animation,

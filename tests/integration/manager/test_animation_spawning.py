@@ -11,6 +11,7 @@ time aggregation.
 
 import pytest
 
+from workers.constants import TilingConfiguration
 from workers.models import Animation, Job, JobStatus
 
 ANIMATIONS_URL = '/api/animations/'
@@ -158,3 +159,43 @@ class TestAnimationCompletion:
 
         animation.refresh_from_db()
         assert animation.status == JobStatus.RENDERING
+
+
+@pytest.mark.django_db
+class TestTiledAnimationOutputPattern:
+
+    def test_tiled_animation_tile_jobs_have_png_extension(
+        self, admin_client, project, asset,
+    ):
+        """Tiled animation tile jobs must have .png extension in output_file_pattern."""
+        resp = admin_client.post(
+            ANIMATIONS_URL,
+            data={
+                'name': 'TiledAnim1',
+                'project': str(project.pk),
+                'asset_id': asset.pk,
+                'output_file_pattern': '//render/frame_####.png',
+                'start_frame': 1,
+                'end_frame': 2,
+                'frame_step': 1,
+                'tiling_config': TilingConfiguration.TILE_2X2,
+                'render_settings': {
+                    'render.resolution_x': 1920,
+                    'render.resolution_y': 1080,
+                },
+            },
+            format='json',
+        )
+        assert resp.status_code == 201
+
+        animation = Animation.objects.get(name='TiledAnim1')
+        tile_jobs = Job.objects.filter(
+            animation=animation, animation_frame__isnull=False,
+        )
+        assert tile_jobs.count() > 0
+
+        for job in tile_jobs:
+            assert job.output_file_pattern.endswith('.png'), (
+                f"Tiled animation tile job '{job.name}' output_file_pattern "
+                f"'{job.output_file_pattern}' missing .png extension"
+            )

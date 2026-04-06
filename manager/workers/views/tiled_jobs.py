@@ -97,7 +97,7 @@ class TiledJobViewSet(viewsets.ModelViewSet):
                     RenderSettings.BORDER_MAX_Y: round(border_max_y, 6),
                 })
 
-                output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####")
+                output_pattern = os.path.join(tile_output_dir, f"tile_{y}_{x}_####.png")
 
                 job = Job(
                     tiled_job=tiled_job,
