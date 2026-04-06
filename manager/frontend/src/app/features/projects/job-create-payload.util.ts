@@ -26,6 +26,12 @@ interface FormValues {
   endFrame: number | null;
   frameStep: number | null;
   animTilingConfig: string | null;
+  generateVideo: boolean | null;
+  videoPreset: string | null;
+  videoFramerate: number | null;
+  videoContainer: string | null;
+  videoCodec: string | null;
+  videoCrf: number | null;
 }
 
 /** Build the API payload for a single render job. */
@@ -62,7 +68,7 @@ export function buildTiledJobPayload(
 export function buildAnimationPayload(
   v: FormValues, projectId: string, assetId: number,
 ): CreateAnimationRequest {
-  return {
+  const payload: CreateAnimationRequest = {
     name: v.name!, project: projectId, asset_id: assetId,
     output_file_pattern: generateOutputFilePattern(v.name!, v.outputFormat!),
     start_frame: v.startFrame!, end_frame: v.endFrame!, frame_step: v.frameStep!,
@@ -73,4 +79,11 @@ export function buildAnimationPayload(
       v.outputFormat!, v.jpegQuality!, v.colorDepth!,
     ),
   };
+  if (v.generateVideo) {
+    payload.video_settings = {
+      preset: v.videoPreset!, container: v.videoContainer!,
+      codec: v.videoCodec!, framerate: v.videoFramerate!, crf: v.videoCrf!,
+    };
+  }
+  return payload;
 }

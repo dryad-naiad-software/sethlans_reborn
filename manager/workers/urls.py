@@ -12,6 +12,7 @@ from .views import (
     SupportedBlenderVersionViewSet, dashboard_stats,
     csrf_view, login_view, logout_view, user_view,
     regenerate_enrollment_key_view, shutdown_view,
+    system_info_view,
 )
 
 # Create a router instance
@@ -30,6 +31,7 @@ urlpatterns = [
     path('stats/', dashboard_stats, name='dashboard-stats'),
     # System endpoints
     path('system/shutdown/', shutdown_view, name='system-shutdown'),
+    path('system-info/', system_info_view, name='system-info'),
     # Auth endpoints
     path('auth/csrf/', csrf_view, name='auth-csrf'),
     path('auth/login/', login_view, name='auth-login'),

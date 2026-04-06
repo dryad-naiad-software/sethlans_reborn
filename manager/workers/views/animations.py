@@ -22,6 +22,7 @@ from ..constants import FORMAT_EXTENSIONS, RenderEngine, RenderSettings, TilingC
 from ..models import Animation, AnimationFrame, Job, JobStatus
 from ..permissions import IsAdmin
 from ..serializers import AnimationSerializer
+from .animation_video_actions import AnimationVideoActionsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ MAX_DOWNLOADABLE_FRAMES = 1000
     unpause=extend_schema(tags=['Management UI']),
     requeue=extend_schema(tags=['Management UI']),
 )
-class AnimationViewSet(viewsets.ModelViewSet):
+class AnimationViewSet(AnimationVideoActionsMixin, viewsets.ModelViewSet):
     """
     API endpoint for creating and managing multi-frame animation jobs.
 
@@ -104,7 +105,10 @@ class AnimationViewSet(viewsets.ModelViewSet):
                 jobs_to_create.append(job)
         else:
             # --- Tiled Animation Job Spawning ---
-            logger.info(f"Spawning tiled jobs for animation '{animation.name}' with config {animation.tiling_config}")
+            logger.info(
+                f"Spawning tiled jobs for animation '{animation.name}' "
+                f"with config {animation.tiling_config}"
+            )
             tile_count_x, tile_count_y = animation.get_tile_counts()
             tile_width = 1.0 / tile_count_x
             tile_height = 1.0 / tile_count_y
@@ -126,8 +130,12 @@ class AnimationViewSet(viewsets.ModelViewSet):
 
                         tile_render_settings = base_render_settings.copy()
                         tile_render_settings.update({
-                            RenderSettings.RESOLUTION_X: animation.render_settings.get(RenderSettings.RESOLUTION_X),
-                            RenderSettings.RESOLUTION_Y: animation.render_settings.get(RenderSettings.RESOLUTION_Y),
+                            RenderSettings.RESOLUTION_X: animation.render_settings.get(
+                                RenderSettings.RESOLUTION_X
+                            ),
+                            RenderSettings.RESOLUTION_Y: animation.render_settings.get(
+                                RenderSettings.RESOLUTION_Y
+                            ),
                             RenderSettings.RESOLUTION_PERCENTAGE: 100,
                             RenderSettings.USE_BORDER: True,
                             RenderSettings.CROP_TO_BORDER: True,
@@ -199,25 +207,15 @@ class AnimationViewSet(viewsets.ModelViewSet):
                 status=404,
             )
 
-        # Collect valid files, skipping missing ones.
+        # Collect valid files, skipping missing or out-of-bounds ones.
         valid_files = []
         for frame_number, file_field in frame_entries:
             if not file_field:
-                logger.warning(
-                    "Animation %s frame %d: output_file field is empty, skipping.",
-                    animation.id, frame_number,
-                )
                 continue
             abs_path = os.path.realpath(file_field.path)
-            if not abs_path.startswith(media_root):
+            if not abs_path.startswith(media_root) or not os.path.isfile(abs_path):
                 logger.warning(
-                    "Animation %s frame %d: path %s is outside MEDIA_ROOT, skipping.",
-                    animation.id, frame_number, abs_path,
-                )
-                continue
-            if not os.path.isfile(abs_path):
-                logger.warning(
-                    "Animation %s frame %d: file %s does not exist on disk, skipping.",
+                    "Animation %s frame %d: skipping invalid path %s.",
                     animation.id, frame_number, abs_path,
                 )
                 continue

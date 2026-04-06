@@ -16,11 +16,12 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { JobService } from '../../core/services/job.service';
 import { TiledJobService } from '../../core/services/tiled-job.service';
 import { AnimationService } from '../../core/services/animation.service';
-import { RENDER_ENGINES, RENDER_DEVICES, TILING_OPTIONS,
-  ANIMATION_TILING_OPTIONS, OUTPUT_FORMATS, TILED_OUTPUT_FORMATS } from './render-payload.util';
-import { buildSingleJobPayload, buildTiledJobPayload,
-  buildAnimationPayload } from './job-create-payload.util';
+import { SystemInfoService } from '../../core/services/system-info.service';
+import { RENDER_ENGINES, RENDER_DEVICES, TILING_OPTIONS, ANIMATION_TILING_OPTIONS,
+  OUTPUT_FORMATS, TILED_OUTPUT_FORMATS, HDR_FORMATS } from './render-payload.util';
+import { buildSingleJobPayload, buildTiledJobPayload, buildAnimationPayload } from './job-create-payload.util';
 import { RenderType, JobCreateDialogData } from './job-create-form.types';
+import { VideoOutputSectionComponent } from './video-output-section.component';
 
 @Component({
   selector: 'app-job-create-form',
@@ -28,7 +29,7 @@ import { RenderType, JobCreateDialogData } from './job-create-form.types';
   imports: [
     FormsModule, ReactiveFormsModule, MatDialogModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatRadioModule,
-    MatButtonModule, MatIconModule, MatSnackBarModule,
+    MatButtonModule, MatIconModule, MatSnackBarModule, VideoOutputSectionComponent,
   ],
   template: `
     <h2 mat-dialog-title>Create Job</h2>
@@ -99,19 +100,19 @@ import { RenderType, JobCreateDialogData } from './job-create-form.types';
               }</mat-select></mat-form-field>
         </div>
         @if (form.value.outputFormat === 'JPEG') {
-          <div class="form-row">
-            <mat-form-field><mat-label>JPEG Quality (1-100)</mat-label>
-              <input matInput type="number" formControlName="jpegQuality" /></mat-form-field>
-          </div>
+          <div class="form-row"><mat-form-field><mat-label>JPEG Quality (1-100)</mat-label>
+            <input matInput type="number" formControlName="jpegQuality" /></mat-form-field></div>
         }
         @if (form.value.outputFormat === 'OPEN_EXR' || form.value.outputFormat === 'OPEN_EXR_MULTILAYER') {
-          <div class="form-row">
-            <mat-form-field><mat-label>Color Depth</mat-label>
-              <mat-select formControlName="colorDepth">
-                <mat-option value="16">Half Float (16-bit)</mat-option>
-                <mat-option value="32">Full Float (32-bit)</mat-option>
-              </mat-select></mat-form-field>
-          </div>
+          <div class="form-row"><mat-form-field><mat-label>Color Depth</mat-label>
+            <mat-select formControlName="colorDepth">
+              <mat-option value="16">Half Float (16-bit)</mat-option>
+              <mat-option value="32">Full Float (32-bit)</mat-option>
+            </mat-select></mat-form-field></div>
+        }
+        @if (ffmpegAvailable && renderType === 'animation') {
+          <app-video-output-section [parentForm]="form"
+            [outputFormat]="form.value.outputFormat ?? ''" />
         }
       </form>
     </mat-dialog-content>
@@ -143,6 +144,7 @@ export class JobCreateFormComponent {
   private readonly tiledJobService = inject(TiledJobService);
   private readonly animationService = inject(AnimationService);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly systemInfoService = inject(SystemInfoService);
 
   engines = RENDER_ENGINES;
   devices = RENDER_DEVICES;
@@ -150,6 +152,7 @@ export class JobCreateFormComponent {
   animTilingOptions = ANIMATION_TILING_OPTIONS;
   renderType: RenderType = 'single';
   submitting = false;
+  ffmpegAvailable = false;
 
   get availableFormats(): typeof OUTPUT_FORMATS {
     if (this.renderType === 'tiled') return TILED_OUTPUT_FORMATS;
@@ -163,6 +166,9 @@ export class JobCreateFormComponent {
     const current = this.form.value.outputFormat;
     if (current && !this.availableFormats.some(f => f.value === current)) {
       this.form.patchValue({ outputFormat: 'PNG' });
+    }
+    if (current && HDR_FORMATS.has(current)) {
+      this.form.patchValue({ generateVideo: false });
     }
   }
 
@@ -184,9 +190,18 @@ export class JobCreateFormComponent {
     endFrame: new FormControl(250, [Validators.required, Validators.min(1)]),
     frameStep: new FormControl(1, [Validators.required, Validators.min(1)]),
     animTilingConfig: new FormControl('NONE', Validators.required),
+    generateVideo: new FormControl(false),
+    videoPreset: new FormControl('web_h264'),
+    videoFramerate: new FormControl(24, [Validators.min(1), Validators.max(120)]),
+    videoContainer: new FormControl('mp4'),
+    videoCodec: new FormControl('libx264'),
+    videoCrf: new FormControl(23, [Validators.min(0), Validators.max(51)]),
   }, { validators: [JobCreateFormComponent.frameRangeValidator] });
 
   constructor() {
+    this.systemInfoService.getSystemInfo().subscribe(info => {
+      this.ffmpegAvailable = info.ffmpeg_available;
+    });
     if (!this.data.prefill) return;
     const p = this.data.prefill;
     this.renderType = p.renderType;
@@ -209,29 +224,14 @@ export class JobCreateFormComponent {
     if (this.form.invalid) return;
     this.submitting = true;
     const v = this.form.getRawValue();
-    switch (this.renderType) {
-      case 'single': this.createSingle(v); break;
-      case 'tiled': this.createTiled(v); break;
-      case 'animation': this.createAnim(v); break;
+    const h = { next: (r: { name: string }) => this.done(r.name), error: (e: { error?: Record<string, unknown> }) => this.fail(e) };
+    if (this.renderType === 'single') {
+      this.jobService.create(buildSingleJobPayload(v, this.data.assetId)).subscribe(h);
+    } else if (this.renderType === 'tiled') {
+      this.tiledJobService.create(buildTiledJobPayload(v, this.data.projectId, this.data.assetId)).subscribe(h);
+    } else {
+      this.animationService.create(buildAnimationPayload(v, this.data.projectId, this.data.assetId)).subscribe(h);
     }
-  }
-
-  private createSingle(v: ReturnType<typeof this.form.getRawValue>): void {
-    const payload = buildSingleJobPayload(v, this.data.assetId);
-    this.jobService.create(payload)
-      .subscribe({ next: (j) => this.done(j.name), error: (e) => this.fail(e) });
-  }
-
-  private createTiled(v: ReturnType<typeof this.form.getRawValue>): void {
-    const payload = buildTiledJobPayload(v, this.data.projectId, this.data.assetId);
-    this.tiledJobService.create(payload)
-      .subscribe({ next: (j) => this.done(j.name), error: (e) => this.fail(e) });
-  }
-
-  private createAnim(v: ReturnType<typeof this.form.getRawValue>): void {
-    const payload = buildAnimationPayload(v, this.data.projectId, this.data.assetId);
-    this.animationService.create(payload)
-      .subscribe({ next: (a) => this.done(a.name), error: (e) => this.fail(e) });
   }
 
   private done(name: string): void {

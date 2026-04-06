@@ -72,6 +72,8 @@ function makeAnimation(overrides: Partial<Animation> = {}): Animation {
     completed_at: null,
     total_render_time_seconds: 500,
     thumbnail: null, frames: [],
+    video_settings: null, video_status: null,
+    video_file: null, video_error: null,
     ...overrides,
   };
 }

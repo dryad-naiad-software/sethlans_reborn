@@ -28,6 +28,10 @@ const MOCK_ANIM: Animation = {
   total_render_time_seconds: 0,
   thumbnail: null,
   frames: [],
+  video_settings: null,
+  video_status: null,
+  video_file: null,
+  video_error: null,
 };
 
 describe('AnimationService', () => {

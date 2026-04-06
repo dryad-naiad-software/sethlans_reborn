@@ -20,6 +20,14 @@ export interface AnimationFrame {
   render_time_seconds: number | null;
 }
 
+export interface VideoSettings {
+  preset: string;
+  container: string;
+  codec: string;
+  framerate: number;
+  crf: number;
+}
+
 export interface Animation {
   id: number;
   name: string;
@@ -46,6 +54,10 @@ export interface Animation {
   total_render_time_seconds: number;
   thumbnail: string | null;
   frames: AnimationFrame[];
+  video_settings: VideoSettings | null;
+  video_status: 'PENDING' | 'ASSEMBLING' | 'DONE' | 'ERROR' | null;
+  video_file: string | null;
+  video_error: string | null;
 }
 
 export interface CreateAnimationRequest {
@@ -60,6 +72,7 @@ export interface CreateAnimationRequest {
   render_engine: string;
   render_device: string;
   render_settings?: Record<string, unknown>;
+  video_settings?: VideoSettings;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -107,5 +120,13 @@ export class AnimationService {
 
   delete(id: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/`);
+  }
+
+  retryVideo(id: number): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(`${this.baseUrl}/${id}/retry-video/`, {});
+  }
+
+  downloadVideo(id: number): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/${id}/download-video/`, { responseType: 'blob' });
   }
 }

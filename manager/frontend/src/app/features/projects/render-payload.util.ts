@@ -125,6 +125,24 @@ export const TILED_OUTPUT_FORMATS = OUTPUT_FORMATS.filter(
   f => !['OPEN_EXR', 'OPEN_EXR_MULTILAYER', 'HDR'].includes(f.value)
 );
 
+/** HDR output formats that are incompatible with video assembly. */
+export const HDR_FORMATS = new Set(['OPEN_EXR', 'OPEN_EXR_MULTILAYER', 'HDR']);
+
+/** Video preset configurations for animation video assembly. */
+export const VIDEO_PRESETS: Record<string, { label: string; container: string; codec: string; crf: number }> = {
+  'web_h264': { label: 'Web (MP4/H.264)', container: 'mp4', codec: 'libx264', crf: 23 },
+  'hq_h265': { label: 'High Quality (MP4/H.265)', container: 'mp4', codec: 'libx265', crf: 28 },
+  'archive_prores': { label: 'Archive (MOV/ProRes)', container: 'mov', codec: 'prores_ks', crf: 0 },
+  'web_vp9': { label: 'Web (WebM/VP9)', container: 'webm', codec: 'libvpx-vp9', crf: 31 },
+};
+
+/** Container format MIME types for video playback. */
+export const CONTAINER_CONTENT_TYPES: Record<string, string> = {
+  'mp4': 'video/mp4',
+  'webm': 'video/webm',
+  'mov': 'video/quicktime',
+};
+
 /**
  * Reverse of buildRenderSettings(). Extracts display-friendly values
  * from the render_settings JSON returned by the API.

@@ -64,6 +64,8 @@ function makeAnimation(overrides: Partial<Animation> = {}): Animation {
     submitted_at: '2025-06-01T00:00:00Z', completed_at: '2025-06-01T01:00:00Z',
     total_render_time_seconds: 50,
     thumbnail: null, frames: [],
+    video_settings: null, video_status: null,
+    video_file: null, video_error: null,
     ...overrides,
   };
 }

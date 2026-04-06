@@ -91,6 +91,24 @@ def animation_frame_output_upload_path(instance, filename):
     return f'assets/{project_short_id}/outputs/{anim_dir}/{filename}'
 
 
+def animation_video_upload_path(instance, filename):
+    """
+    Generates a descriptive upload path for an Animation's assembled video file.
+    Example: media/assets/<proj_id>/outputs/<slug>-<animation_id>/video/<filename>
+
+    Args:
+        instance (Animation): The animation instance being saved.
+        filename (str): The original filename of the video file.
+
+    Returns:
+        str: The generated file path.
+    """
+    project_short_id = str(instance.project.id)[:8]
+    slug = slugify(instance.name)
+    anim_dir = f"{slug}-{instance.id}"
+    return f'assets/{project_short_id}/outputs/{anim_dir}/video/{filename}'
+
+
 def thumbnail_upload_path(instance, filename):
     """
     Generates a descriptive upload path for a thumbnail.

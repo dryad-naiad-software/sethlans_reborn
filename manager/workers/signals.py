@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 import logging
+import threading
 
 from django.db import transaction
 from django.utils import timezone
@@ -25,6 +26,32 @@ from .manifest_generator import update_project_manifest
 from .signal_helpers import _save_thumbnails_for_instances
 
 logger = logging.getLogger(__name__)
+
+
+def _trigger_video_assembly(animation):
+    """
+    Atomic CAS trigger for video assembly after animation completion.
+
+    Uses filter(pk=..., video_status='PENDING').update() to ensure
+    exactly one concurrent handler wins the race to spawn the assembly
+    thread.
+    """
+    from .video_assembler import assemble_animation_video
+
+    if animation.video_settings is not None:
+        with transaction.atomic():
+            updated = Animation.objects.filter(
+                pk=animation.pk,
+                video_status='PENDING',
+            ).update(video_status='ASSEMBLING')
+            if updated == 1:
+                transaction.on_commit(
+                    lambda aid=animation.pk: threading.Thread(
+                        target=assemble_animation_video,
+                        args=(aid,),
+                        daemon=True,
+                    ).start()
+                )
 
 
 @receiver(post_save, sender=Project)
@@ -64,6 +91,43 @@ def handle_manifest_update(sender, instance, created, **kwargs):
         logger.warning(f"Could not determine project ID from saved {sender.__name__} instance. Manifest not updated.")
 
 
+def _handle_untiled_animation_progress(animation):
+    """Update status and trigger video assembly for non-tiled animations."""
+    all_jobs = animation.jobs.all()
+    total_jobs_count = all_jobs.count()
+    if total_jobs_count == 0:
+        return
+
+    time_aggregate = all_jobs.filter(status=JobStatus.DONE).aggregate(
+        total=Sum("render_time_seconds")
+    )
+    total_time = time_aggregate["total"] or 0
+    finished_jobs_count = all_jobs.filter(
+        status__in=[JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELED]
+    ).count()
+    animation_completed = total_jobs_count == finished_jobs_count
+
+    current_status = animation.status
+    new_status = current_status
+    if current_status == JobStatus.QUEUED and finished_jobs_count > 0:
+        new_status = JobStatus.RENDERING
+    if animation_completed:
+        new_status = JobStatus.DONE
+
+    update_fields = {
+        "total_render_time_seconds": total_time,
+        "status": new_status,
+    }
+    if animation_completed and not animation.completed_at:
+        update_fields["completed_at"] = timezone.now()
+
+    Animation.objects.filter(pk=animation.pk).update(**update_fields)
+
+    if animation_completed:
+        animation.refresh_from_db()
+        _trigger_video_assembly(animation)
+
+
 @receiver(post_save, sender=Job)
 def handle_job_completion(sender, instance, **kwargs):
     """
@@ -87,31 +151,7 @@ def handle_job_completion(sender, instance, **kwargs):
             assemble_animation_frame_image(frame.id)
 
     elif instance.animation and instance.animation.tiling_config == TilingConfiguration.NONE:
-        animation = instance.animation
-        all_jobs = animation.jobs.all()
-        total_jobs_count = all_jobs.count()
-        if total_jobs_count > 0:
-            time_aggregate = all_jobs.filter(status=JobStatus.DONE).aggregate(
-                total=Sum("render_time_seconds")
-            )
-            total_time = time_aggregate["total"] or 0
-            finished_jobs_count = all_jobs.filter(
-                status__in=[JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELED]
-            ).count()
-            animation_completed = total_jobs_count == finished_jobs_count
-
-            current_status = animation.status
-            new_status = current_status
-            if current_status == JobStatus.QUEUED and finished_jobs_count > 0:
-                new_status = JobStatus.RENDERING
-            if animation_completed:
-                new_status = JobStatus.DONE
-
-            update_fields = {"total_render_time_seconds": total_time, "status": new_status}
-            if animation_completed and not animation.completed_at:
-                update_fields["completed_at"] = timezone.now()
-
-            Animation.objects.filter(pk=animation.pk).update(**update_fields)
+        _handle_untiled_animation_progress(instance.animation)
 
     elif instance.tiled_job:
         tiled_job = instance.tiled_job
@@ -206,3 +246,6 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
             completed_at=timezone.now(),
             total_render_time_seconds=total_time,
         )
+
+        animation.refresh_from_db()
+        _trigger_video_assembly(animation)
