@@ -208,11 +208,40 @@ cmd_clean() {
     echo "============================================================"
     echo ""
 
+    # Stop any sethlans python processes scoped to this project root.
+    # Pattern MUST include the project root path so we never kill unrelated
+    # python processes (e.g. MCP servers).
+    local victims
+    victims=$(pgrep -f "$PROJECT_ROOT.*(manage\.py runserver|run_manager\.py|run_worker\.py)" 2>/dev/null || true)
+    if [ -n "$victims" ]; then
+        for pid in $victims; do
+            echo "[KILL] Stopping PID $pid"
+            kill "$pid" 2>/dev/null || true
+        done
+        sleep 1
+    fi
+    rm -f "$PID_DIR/manager.pid" "$PID_DIR/worker.pid"
+
     # Manager
-    rm -f "$CONFIG_FILE" "$MANAGER_DIR/db.sqlite3" "$MANAGER_DIR/db.sqlite3-journal"
+    rm -f "$CONFIG_FILE" "$MANAGER_DIR/db.sqlite3-journal"
+    if [ -e "$MANAGER_DIR/db.sqlite3" ]; then
+        if ! rm -f "$MANAGER_DIR/db.sqlite3"; then
+            echo "[ERROR] Failed to delete database file: $MANAGER_DIR/db.sqlite3"
+            local still
+            still=$(pgrep -f "$PROJECT_ROOT.*(manage\.py runserver|run_manager\.py|run_worker\.py)" 2>/dev/null || true)
+            if [ -n "$still" ]; then
+                echo "        Sethlans python processes still running: PID(s) $(echo $still | tr '\n' ' ')"
+            fi
+            exit 1
+        fi
+    fi
+    if [ -e "$MANAGER_DIR/db.sqlite3" ]; then
+        echo "[ERROR] Database file still exists after delete: $MANAGER_DIR/db.sqlite3"
+        exit 1
+    fi
     rm -rf "$MANAGER_DIR/staticfiles" "$MANAGER_DIR/logs"
     rm -rf "$FRONTEND_DIR/dist" "$FRONTEND_DIR/.angular" "$FRONTEND_DIR/node_modules"
-    rm -rf "$PROJECT_ROOT/media"
+    rm -rf "$MANAGER_DIR/media"
     find "$MANAGER_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
     echo "[OK] Manager artifacts removed"
 

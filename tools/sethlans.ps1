@@ -223,14 +223,60 @@ function Invoke-Clean {
     Write-Host "============================================================"
     Write-Host ""
 
+    # Stop any sethlans python processes scoped to this project root.
+    # MUST match both the project root path AND a known entrypoint to avoid
+    # killing unrelated python processes (e.g. MCP servers).
+    $victims = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $cmd = $_.CommandLine
+            if (-not $cmd) { return $false }
+            ($cmd -like "*$ProjectRoot*") -and (
+                ($cmd -like "*manage.py*runserver*") -or
+                ($cmd -like "*run_manager.py*") -or
+                ($cmd -like "*run_worker.py*")
+            )
+        }
+    foreach ($v in $victims) {
+        Write-Host "[KILL] Stopping PID $($v.ProcessId): $($v.CommandLine)"
+        Stop-Process -Id $v.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    if ($victims) {
+        Start-Sleep -Milliseconds 500
+    }
+    Remove-Pid "manager"
+    Remove-Pid "worker"
+
     # Manager
-    foreach ($f in @($ConfigFile, (Join-Path $ManagerDir "db.sqlite3"), (Join-Path $ManagerDir "db.sqlite3-journal"))) {
+    $dbFile = Join-Path $ManagerDir "db.sqlite3"
+    foreach ($f in @($ConfigFile, (Join-Path $ManagerDir "db.sqlite3-journal"))) {
         if (Test-Path $f) { Remove-Item -Force $f -ErrorAction SilentlyContinue }
+    }
+    if (Test-Path $dbFile) {
+        try {
+            Remove-Item -Force $dbFile -ErrorAction Stop
+        } catch {
+            Write-Host "[ERROR] Failed to delete database file: $dbFile"
+            Write-Host "        $($_.Exception.Message)"
+            $stillRunning = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $cmd = $_.CommandLine
+                    $cmd -and ($cmd -like "*$ProjectRoot*") -and (
+                        ($cmd -like "*manage.py*runserver*") -or
+                        ($cmd -like "*run_manager.py*") -or
+                        ($cmd -like "*run_worker.py*")
+                    )
+                }
+            if ($stillRunning) {
+                $pids = ($stillRunning | ForEach-Object { $_.ProcessId }) -join ", "
+                Write-Host "        Sethlans python processes still running: PID(s) $pids"
+            }
+            exit 1
+        }
     }
     foreach ($d in @(
         (Join-Path $ManagerDir "staticfiles"), (Join-Path $ManagerDir "logs"),
         (Join-Path $FrontendDir "dist"), (Join-Path $FrontendDir ".angular"), (Join-Path $FrontendDir "node_modules"),
-        (Join-Path $ProjectRoot "media")
+        (Join-Path $ManagerDir "media")
     )) {
         if (Test-Path $d) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
     }
@@ -256,7 +302,7 @@ function Invoke-Clean {
     }
     $testDb = Join-Path $ProjectRoot "test_e2e_db.sqlite3"
     if (Test-Path $testDb) { Remove-Item -Force $testDb -ErrorAction SilentlyContinue }
-    $toolsResults = Join-Path $ProjectRoot "tools" "results"
+    $toolsResults = Join-Path (Join-Path $ProjectRoot "tools") "results"
     if (Test-Path $toolsResults) { Remove-Item -Recurse -Force $toolsResults -ErrorAction SilentlyContinue }
     Write-Host "[OK] Shared artifacts removed"
 
