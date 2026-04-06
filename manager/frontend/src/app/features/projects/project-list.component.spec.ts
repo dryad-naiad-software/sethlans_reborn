@@ -112,22 +112,27 @@ describe('ProjectListComponent', () => {
     });
   });
 
-  describe('deleteProject', () => {
-    it('should call delete and show success snackbar', () => {
+  describe('confirmDelete', () => {
+    it('should open confirm dialog and delete on confirm', () => {
+      const afterClosed$ = new Subject<boolean>();
+      spyOn(dialog, 'open').and.returnValue({ afterClosed: () => afterClosed$ } as any);
       mockProjectService.delete.and.returnValue(of(undefined as any));
-      component.deleteProject('uuid-1');
+      component.confirmDelete(MOCK_PROJECTS[0]);
+      expect(dialog.open).toHaveBeenCalled();
+      afterClosed$.next(true);
       expect(mockProjectService.delete).toHaveBeenCalledWith('uuid-1');
       expect(snackBar.open).toHaveBeenCalledWith(
         'Project deleted', 'Dismiss', { duration: 3000 }
       );
     });
 
-    it('should show error snackbar on delete failure', () => {
-      mockProjectService.delete.and.returnValue(throwError(() => new Error()));
-      component.deleteProject('uuid-1');
-      expect(snackBar.open).toHaveBeenCalledWith(
-        'Failed to delete project', 'Dismiss', { duration: 5000 }
-      );
+    it('should not delete when dialog is dismissed', () => {
+      const afterClosed$ = new Subject<boolean>();
+      spyOn(dialog, 'open').and.returnValue({ afterClosed: () => afterClosed$ } as any);
+      component.confirmDelete(MOCK_PROJECTS[0]);
+      afterClosed$.next(false);
+      afterClosed$.complete();
+      expect(mockProjectService.delete).not.toHaveBeenCalled();
     });
   });
 

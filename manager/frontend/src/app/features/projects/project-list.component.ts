@@ -11,9 +11,10 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { Subscription } from 'rxjs';
+import { Subscription, filter, switchMap } from 'rxjs';
 import { ProjectService, Project } from '../../core/services/project.service';
 import { CreateProjectDialogComponent } from './create-project-dialog.component';
+import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 
 @Component({
   selector: 'app-project-list',
@@ -56,19 +57,10 @@ import { CreateProjectDialogComponent } from './create-project-dialog.component'
         <ng-container matColumnDef="actions">
           <th mat-header-cell *matHeaderCellDef>Actions</th>
           <td mat-cell *matCellDef="let p">
-            @if (confirmDeleteId === p.id) {
-              <button mat-button (click)="confirmDeleteId = null">Cancel</button>
-              <button mat-flat-button color="warn" (click)="deleteProject(p.id)">
-                Confirm
-              </button>
-            } @else {
-              <button mat-icon-button color="warn"
-                      (click)="confirmDeleteId = p.id"
-                      [disabled]="confirmDeleteId !== null"
-                      title="Delete">
-                <mat-icon>delete</mat-icon>
-              </button>
-            }
+            <button mat-icon-button color="warn"
+                    (click)="confirmDelete(p)" title="Delete">
+              <mat-icon>delete</mat-icon>
+            </button>
           </td>
         </ng-container>
         <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
@@ -91,7 +83,6 @@ export class ProjectListComponent implements OnInit, OnDestroy {
 
   projects: Project[] = [];
   loading = true;
-  confirmDeleteId: string | null = null;
   displayedColumns = ['name', 'blender_version', 'created_at', 'actions'];
 
   ngOnInit(): void {
@@ -118,9 +109,16 @@ export class ProjectListComponent implements OnInit, OnDestroy {
     });
   }
 
-  deleteProject(id: string): void {
-    this.confirmDeleteId = null;
-    this.projectService.delete(id).subscribe({
+  confirmDelete(project: Project): void {
+    const data: ConfirmDialogData = {
+      title: 'Delete Project',
+      message: `Are you sure you want to delete "${project.name}"? This will permanently remove the project, all assets, and all jobs.`,
+      confirmText: 'Delete',
+    };
+    this.dialog.open(ConfirmDialogComponent, { data }).afterClosed().pipe(
+      filter((confirmed: boolean) => confirmed === true),
+      switchMap(() => this.projectService.delete(project.id)),
+    ).subscribe({
       next: () => this.snackBar.open('Project deleted', 'Dismiss', { duration: 3000 }),
       error: () => this.snackBar.open('Failed to delete project', 'Dismiss', { duration: 5000 }),
     });
