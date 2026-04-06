@@ -5,7 +5,7 @@
 import { Component, EventEmitter, Input, Output, OnChanges, SimpleChanges } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { AnimationFrame } from '../../core/services/animation.service';
+import { FilmstripFrame } from './filmstrip-frame';
 
 const FRAMES_PER_PAGE = 5;
 
@@ -24,14 +24,14 @@ const FRAMES_PER_PAGE = 5;
           <div class="frame-slot" [class.selected]="frame.id === selectedFrameId"
                (click)="onFrameClick(frame)">
             @if (frame.thumbnail) {
-              <img [src]="frame.thumbnail" [alt]="'Frame ' + frame.frame_number"
+              <img [src]="frame.thumbnail" [alt]="'Frame ' + frame.frameNumber"
                    width="80" height="80" />
             } @else {
               <div class="placeholder">
                 <mat-icon>image</mat-icon>
               </div>
             }
-            <span class="frame-label">{{ frame.frame_number }}</span>
+            <span class="frame-label">{{ frame.frameNumber }}</span>
           </div>
         }
       </div>
@@ -63,13 +63,13 @@ const FRAMES_PER_PAGE = 5;
   `],
 })
 export class AnimationFilmstripComponent implements OnChanges {
-  @Input() frames: AnimationFrame[] = [];
+  @Input() frames: FilmstripFrame[] = [];
   @Input() selectedFrameId: number | null = null;
-  @Output() frameSelected = new EventEmitter<AnimationFrame>();
+  @Output() frameSelected = new EventEmitter<FilmstripFrame>();
 
   currentPage = 1;
   totalPages = 1;
-  visibleFrames: AnimationFrame[] = [];
+  visibleFrames: FilmstripFrame[] = [];
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['frames']) {
@@ -90,7 +90,7 @@ export class AnimationFilmstripComponent implements OnChanges {
     if (this.currentPage < this.totalPages) { this.currentPage++; this.updateVisibleFrames(); }
   }
 
-  onFrameClick(frame: AnimationFrame): void {
+  onFrameClick(frame: FilmstripFrame): void {
     this.frameSelected.emit(frame);
   }
 

@@ -6,14 +6,16 @@ import { Component, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { Job } from '../../core/services/job.service';
+import { JobService, Job } from '../../core/services/job.service';
 import { TiledJob } from '../../core/services/tiled-job.service';
-import { Animation, AnimationFrame, AnimationService } from '../../core/services/animation.service';
+import { Animation, AnimationService } from '../../core/services/animation.service';
 import { parseRenderSettings } from './render-payload.util';
 import { triggerBlobDownload } from '../../core/services/download.util';
 import { JobPrefillData } from './job-create-form.types';
 import { AnimationFilmstripComponent } from './animation-filmstrip.component';
+import { FilmstripFrame, fromAnimationFrame, fromJob } from './filmstrip-frame';
 import { formatTime } from './project-jobs-table.util';
 
 export interface JobResultDialogData {
@@ -29,7 +31,7 @@ export interface JobResultDialogData {
   standalone: true,
   imports: [
     MatDialogModule, MatButtonModule, MatIconModule, MatSnackBarModule,
-    AnimationFilmstripComponent,
+    MatProgressSpinnerModule, AnimationFilmstripComponent,
   ],
   template: `
     <div class="dialog-header">
@@ -73,20 +75,24 @@ export interface JobResultDialogData {
           </div>
         }}
         @case ('animation') { @if (data.animation; as anim) {
-          <div class="image-container">
-            @if (selectedFrame?.output_file) {
-              <img [src]="selectedFrame!.output_file"
-                   [alt]="'Frame ' + selectedFrame!.frame_number" />
-            } @else {
-              <div class="no-image"><mat-icon>image</mat-icon><span>No image</span></div>
-            }
-          </div>
-          <div class="frame-info">
-            Frame {{ selectedFrame?.frame_number ?? '--' }} of {{ anim.total_frames }}
-          </div>
-          <app-animation-filmstrip [frames]="anim.frames"
-            [selectedFrameId]="selectedFrame?.id ?? null"
-            (frameSelected)="onFrameSelect($event)" />
+          @if (loadingFrames) {
+            <div class="loading-frames"><mat-spinner diameter="32" /></div>
+          } @else {
+            <div class="image-container">
+              @if (selectedFilmstripFrame?.outputFile) {
+                <img [src]="selectedFilmstripFrame!.outputFile"
+                     [alt]="'Frame ' + selectedFilmstripFrame!.frameNumber" />
+              } @else {
+                <div class="no-image"><mat-icon>image</mat-icon><span>No image</span></div>
+              }
+            </div>
+            <div class="frame-info">
+              Frame {{ selectedFilmstripFrame?.frameNumber ?? '--' }} of {{ anim.total_frames }}
+            </div>
+            <app-animation-filmstrip [frames]="filmstripFrames"
+              [selectedFrameId]="selectedFilmstripFrame?.id ?? null"
+              (frameSelected)="onFrameSelect($event)" />
+          }
           <div class="details">
             <h3>Render Details</h3>
             <div class="detail-grid">
@@ -127,6 +133,7 @@ export interface JobResultDialogData {
       height: 200px; color: rgba(0,0,0,0.3);
     }
     .no-image mat-icon { font-size: 48px; width: 48px; height: 48px; }
+    .loading-frames { display: flex; justify-content: center; padding: 24px; }
     .frame-info { text-align: center; font-size: 14px; color: rgba(0,0,0,0.7); margin-bottom: 8px; }
     .details { margin: 12px 0; }
     .details h3 { margin: 0 0 8px; font-size: 15px; }
@@ -142,9 +149,12 @@ export class JobResultDialogComponent {
   readonly data: JobResultDialogData = inject(MAT_DIALOG_DATA);
   private readonly dialogRef = inject(MatDialogRef<JobResultDialogComponent>);
   private readonly animationService = inject(AnimationService);
+  private readonly jobService = inject(JobService);
   private readonly snackBar = inject(MatSnackBar);
 
-  selectedFrame: AnimationFrame | null = null;
+  selectedFilmstripFrame: FilmstripFrame | null = null;
+  filmstripFrames: FilmstripFrame[] = [];
+  loadingFrames = false;
   downloading = false;
   readonly formatTime = formatTime;
 
@@ -159,13 +169,34 @@ export class JobResultDialogComponent {
   readonly downloadUrl = this.data.job?.output_file ?? this.data.tiledJob?.output_file ?? '';
 
   constructor() {
-    if (this.data.animation?.frames?.length) {
-      const idx = this.data.selectedFrameIndex ?? 0;
-      this.selectedFrame = this.data.animation.frames[idx] ?? this.data.animation.frames[0];
+    if (this.data.type === 'animation' && this.data.animation) {
+      const anim = this.data.animation;
+      if (anim.frames?.length) {
+        this.filmstripFrames = anim.frames.map(fromAnimationFrame);
+        const idx = this.data.selectedFrameIndex ?? 0;
+        this.selectedFilmstripFrame = this.filmstripFrames[idx] ?? this.filmstripFrames[0];
+      } else if (anim.tiling_config === 'NONE') {
+        this.loadingFrames = true;
+        this.jobService.list({ animation: anim.id, status: 'DONE' }).subscribe({
+          next: (jobs) => {
+            const sorted = jobs.sort((a, b) => a.start_frame - b.start_frame);
+            this.filmstripFrames = sorted.map(fromJob);
+            if (this.filmstripFrames.length) {
+              const idx = this.data.selectedFrameIndex ?? 0;
+              this.selectedFilmstripFrame = this.filmstripFrames[idx] ?? this.filmstripFrames[0];
+            }
+            this.loadingFrames = false;
+          },
+          error: () => {
+            this.loadingFrames = false;
+            this.snackBar.open('Failed to load animation frames', 'Dismiss', { duration: 5000 });
+          },
+        });
+      }
     }
   }
 
-  onFrameSelect(frame: AnimationFrame): void { this.selectedFrame = frame; }
+  onFrameSelect(frame: FilmstripFrame): void { this.selectedFilmstripFrame = frame; }
 
   onRerender(): void {
     const prefill = this.buildPrefill();

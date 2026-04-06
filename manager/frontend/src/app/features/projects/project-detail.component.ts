@@ -14,16 +14,11 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { Subscription, switchMap, filter } from 'rxjs';
 import { ProjectService, Project } from '../../core/services/project.service';
 import { AssetService, Asset } from '../../core/services/asset.service';
-import { Animation } from '../../core/services/animation.service';
 import { poll } from '../../core/services/polling.util';
 import { JobCreateFormComponent } from './job-create-form.component';
 import { JobCreateDialogData, JobPrefillData } from './job-create-form.types';
 import { ProjectJobsTableComponent } from './project-jobs-table.component';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
-import {
-  AnimationFramesSectionComponent, FrameClickEvent,
-} from './animation-frames-section.component';
-import { JobResultDialogComponent } from './job-result-dialog.component';
 
 @Component({
   selector: 'app-project-detail',
@@ -31,7 +26,7 @@ import { JobResultDialogComponent } from './job-result-dialog.component';
   imports: [
     DatePipe, RouterLink, MatButtonModule, MatIconModule,
     MatDividerModule, MatProgressSpinnerModule, MatSnackBarModule,
-    MatDialogModule, ProjectJobsTableComponent, AnimationFramesSectionComponent,
+    MatDialogModule, ProjectJobsTableComponent,
   ],
   template: `
     @if (loading) {
@@ -91,12 +86,7 @@ import { JobResultDialogComponent } from './job-result-dialog.component';
       </div>
       <app-project-jobs-table #jobsTable [projectId]="project.id"
         (activeJobCount)="activeJobCount = $event"
-        (animations)="doneAnimations = filterDone($event)"
         (rerender)="openCreateRender($event)" />
-      @for (anim of doneAnimations; track anim.id) {
-        <app-animation-frames-section [animation]="anim"
-          (frameClick)="onFrameClick($event)" />
-      }
     } @else {
       <p>Project not found.</p>
     }
@@ -139,7 +129,6 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   showDeleteConfirm = false;
   deleting = false;
   activeJobCount = 0;
-  doneAnimations: Animation[] = [];
 
   ngOnInit(): void {
     this.projectSub = this.route.paramMap.pipe(
@@ -160,10 +149,6 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.projectSub?.unsubscribe();
     this.assetSub?.unsubscribe();
-  }
-
-  filterDone(anims: Animation[]): Animation[] {
-    return anims.filter(a => a.status === 'DONE');
   }
 
   togglePause(): void {
@@ -217,14 +202,6 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
       ...(prefill ? { prefill } : {}),
     };
     this.dialog.open(JobCreateFormComponent, { width: '700px', data });
-  }
-
-  onFrameClick(event: FrameClickEvent): void {
-    this.dialog.open(JobResultDialogComponent, {
-      width: '800px', maxWidth: '95vw',
-      data: { type: 'animation' as const, animation: event.animation,
-              selectedFrameIndex: event.frameIndex },
-    });
   }
 
   private fetchAsset(projectId: string): void {

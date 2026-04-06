@@ -58,6 +58,7 @@ export interface CreateJobRequest {
 export interface JobFilter {
   status?: string;
   asset__project?: string;
+  animation?: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -69,6 +70,7 @@ export class JobService {
     let params = new HttpParams();
     if (filters?.status) params = params.set('status', filters.status);
     if (filters?.asset__project) params = params.set('asset__project', filters.asset__project);
+    if (filters?.animation != null) params = params.set('animation', String(filters.animation));
     return this.http.get<Job[]>(`${this.baseUrl}/`, { params });
   }
 

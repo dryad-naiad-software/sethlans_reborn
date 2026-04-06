@@ -124,7 +124,6 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
   @Input() projectId = '';
   @Output() activeJobCount = new EventEmitter<number>();
   @Output() rerender = new EventEmitter<JobPrefillData>();
-  @Output() animations = new EventEmitter<Animation[]>();
 
   private readonly jobService = inject(JobService);
   private readonly tiledJobService = inject(TiledJobService);
@@ -210,7 +209,6 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
         this.activeJobCount.emit(
           this.rows.filter(r => r.status === 'QUEUED' || r.status === 'RENDERING').length,
         );
-        this.animations.emit(anims);
         this.loading = false;
       },
       error: () => { this.loading = false; },
