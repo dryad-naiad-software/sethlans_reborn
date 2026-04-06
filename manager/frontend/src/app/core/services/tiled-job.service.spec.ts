@@ -72,6 +72,13 @@ describe('TiledJobService', () => {
     req.flush(MOCK_TILED);
   });
 
+  it('should DELETE /api/tiled-jobs/{id}/ on delete()', () => {
+    service.delete('tiled-uuid-1').subscribe();
+    const req = httpMock.expectOne('/api/tiled-jobs/tiled-uuid-1/');
+    expect(req.request.method).toBe('DELETE');
+    req.flush(null);
+  });
+
   it('should POST /api/tiled-jobs/ on create()', () => {
     const payload: CreateTiledJobRequest = {
       name: 'Tiled', project: 'proj-uuid', asset_id: 1,

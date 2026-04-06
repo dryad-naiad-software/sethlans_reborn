@@ -7,7 +7,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { filter, switchMap } from 'rxjs';
+import { Observable, filter, switchMap } from 'rxjs';
 import { JobService } from '../../core/services/job.service';
 import { TiledJobService } from '../../core/services/tiled-job.service';
 import { AnimationService } from '../../core/services/animation.service';
@@ -45,9 +45,6 @@ import { JobTableRow } from './project-jobs-table.util';
           <mat-icon>replay</mat-icon>
         </button>
       }
-      <button mat-icon-button (click)="onDelete()" aria-label="Delete job">
-        <mat-icon>delete</mat-icon>
-      </button>
     }
     @if (row.type === 'tiled' || row.type === 'animation') {
       @if (row.status === 'QUEUED' || row.status === 'RENDERING') {
@@ -61,6 +58,9 @@ import { JobTableRow } from './project-jobs-table.util';
         </button>
       }
     }
+    <button mat-icon-button (click)="onDelete()" aria-label="Delete job">
+      <mat-icon>delete</mat-icon>
+    </button>
   `,
   styles: [`
     :host { display: flex; gap: 0; align-items: center; }
@@ -182,19 +182,32 @@ export class ProjectJobActionsComponent {
   }
 
   onDelete(): void {
+    const typeLabel = this.row.type === 'animation' ? 'animation'
+      : this.row.type === 'tiled' ? 'tiled job' : 'job';
     const message = this.row.status === 'DONE'
-      ? 'This render completed successfully. Are you sure you want to delete it?'
-      : 'Delete this job? This cannot be undone.';
-    const data: ConfirmDialogData = { title: 'Delete Job', message };
+      ? `This render completed successfully. Are you sure you want to delete this ${typeLabel}?`
+      : `Delete this ${typeLabel}? This cannot be undone.`;
+    const data: ConfirmDialogData = { title: `Delete ${typeLabel}`, message };
     this.dialog.open(ConfirmDialogComponent, { data }).afterClosed().pipe(
       filter((confirmed: boolean) => confirmed === true),
-      switchMap(() => this.jobService.delete(this.row.id as number)),
+      switchMap(() => this.deleteByType()),
     ).subscribe({
       next: () => {
-        this.snackBar.open('Job deleted', 'Dismiss', { duration: 3000 });
+        this.snackBar.open(`${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} deleted`, 'Dismiss', { duration: 3000 });
         this.deleted.emit();
       },
-      error: () => this.snackBar.open('Failed to delete job', 'Dismiss', { duration: 5000 }),
+      error: () => this.snackBar.open(`Failed to delete ${typeLabel}`, 'Dismiss', { duration: 5000 }),
     });
+  }
+
+  private deleteByType(): Observable<void> {
+    switch (this.row.type) {
+      case 'tiled':
+        return this.tiledJobService.delete(this.row.id as string);
+      case 'animation':
+        return this.animationService.delete(this.row.id as number);
+      default:
+        return this.jobService.delete(this.row.id as number);
+    }
   }
 }

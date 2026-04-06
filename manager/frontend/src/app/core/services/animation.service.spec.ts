@@ -75,6 +75,13 @@ describe('AnimationService', () => {
     req.flush(MOCK_ANIM);
   });
 
+  it('should DELETE /api/animations/{id}/ on delete()', () => {
+    service.delete(1).subscribe();
+    const req = httpMock.expectOne('/api/animations/1/');
+    expect(req.request.method).toBe('DELETE');
+    req.flush(null);
+  });
+
   it('should POST /api/animations/ on create()', () => {
     const payload: CreateAnimationRequest = {
       name: 'Walk Cycle', project: 'proj-uuid', asset_id: 1,

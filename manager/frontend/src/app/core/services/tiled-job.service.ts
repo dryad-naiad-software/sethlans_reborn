@@ -85,4 +85,8 @@ export class TiledJobService {
   unpause(id: string): Observable<{ unpaused: number }> {
     return this.http.post<{ unpaused: number }>(`${this.baseUrl}/${id}/unpause/`, {});
   }
+
+  delete(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${id}/`);
+  }
 }
