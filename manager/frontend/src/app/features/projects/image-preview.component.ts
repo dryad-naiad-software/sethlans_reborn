@@ -39,17 +39,15 @@ const NATIVE_FORMATS = new Set(['PNG', 'JPEG', 'BMP']);
         } @else {
           <div class="no-image"><mat-icon>image</mat-icon><span>No image</span></div>
         }
-      } @else {
-        @if (!canvasReady() && !src()) {
-          @if (thumbnailSrc()) {
-            <img [src]="thumbnailSrc()!" [alt]="alt()" class="preview-img" />
-          } @else {
-            <div class="no-image"><mat-icon>image</mat-icon><span>No image</span></div>
-          }
+      } @else if (!canvasReady() && !src()) {
+        @if (thumbnailSrc()) {
+          <img [src]="thumbnailSrc()!" [alt]="alt()" class="preview-img" />
+        } @else {
+          <div class="no-image"><mat-icon>image</mat-icon><span>No image</span></div>
         }
-        <canvas #previewCanvas [class.hidden]="!canvasReady()" class="preview-canvas"></canvas>
       }
     }
+    <canvas #previewCanvas [class.hidden]="!canvasReady()" class="preview-canvas"></canvas>
   `,
   styles: [`
     :host { display: block; }
