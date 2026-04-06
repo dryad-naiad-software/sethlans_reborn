@@ -101,6 +101,10 @@ export class AnimationService {
     return this.http.post<{ unpaused: number }>(`${this.baseUrl}/${id}/unpause/`, {});
   }
 
+  requeue(id: number): Observable<{ requeued: number }> {
+    return this.http.post<{ requeued: number }>(`${this.baseUrl}/${id}/requeue/`, {});
+  }
+
   delete(id: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/`);
   }

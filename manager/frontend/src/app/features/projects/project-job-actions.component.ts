@@ -57,6 +57,11 @@ import { JobTableRow } from './project-jobs-table.util';
           <mat-icon>play_arrow</mat-icon>
         </button>
       }
+      @if (row.status === 'ERROR' || row.status === 'CANCELED') {
+        <button mat-icon-button (click)="onCascadeRequeue()" aria-label="Requeue failed child jobs">
+          <mat-icon>replay</mat-icon>
+        </button>
+      }
     }
     <button mat-icon-button (click)="onDelete()" aria-label="Delete job">
       <mat-icon>delete</mat-icon>
@@ -139,6 +144,26 @@ export class ProjectJobActionsComponent {
           this.unpaused.emit();
         },
         error: () => this.snackBar.open('Failed to resume jobs', 'Dismiss', { duration: 5000 }),
+      });
+    }
+  }
+
+  onCascadeRequeue(): void {
+    if (this.row.type === 'tiled') {
+      this.tiledJobService.requeue(this.row.id as string).subscribe({
+        next: (res) => {
+          this.snackBar.open(`Requeued ${res.requeued} jobs`, 'Dismiss', { duration: 3000 });
+          this.requeued.emit();
+        },
+        error: () => this.snackBar.open('Failed to requeue jobs', 'Dismiss', { duration: 5000 }),
+      });
+    } else {
+      this.animationService.requeue(this.row.id as number).subscribe({
+        next: (res) => {
+          this.snackBar.open(`Requeued ${res.requeued} jobs`, 'Dismiss', { duration: 3000 });
+          this.requeued.emit();
+        },
+        error: () => this.snackBar.open('Failed to requeue jobs', 'Dismiss', { duration: 5000 }),
       });
     }
   }

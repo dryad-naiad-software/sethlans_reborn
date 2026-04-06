@@ -86,6 +86,10 @@ export class TiledJobService {
     return this.http.post<{ unpaused: number }>(`${this.baseUrl}/${id}/unpause/`, {});
   }
 
+  requeue(id: string): Observable<{ requeued: number }> {
+    return this.http.post<{ requeued: number }>(`${this.baseUrl}/${id}/requeue/`, {});
+  }
+
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}/`);
   }
