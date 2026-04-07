@@ -129,7 +129,7 @@ def get_gpu_device_details():
 
     blender_exe = _find_any_blender_executable()
     if not blender_exe:
-        logger.warning("Cannot detect GPUs yet: no Blender executable available.")
+        logger.info("Cannot detect GPUs yet: no Blender executable available.")
         return []  # Don't cache — retry after Blender is downloaded
 
     script_path = os.path.join(os.path.dirname(__file__), 'utils', 'detect_gpus.py')

@@ -109,7 +109,7 @@
       <tr><th>Heartbeat Interval</th><td><input type="number" class="cfg-input" id="cfg-hb" min="1" max="3600" onchange="updateConfig('HEARTBEAT_INTERVAL',this.value,this)"> s<span class="cfg-status" id="cfg-hb-status"></span></td></tr>
       <tr><th>Force CPU</th><td><label class="toggle"><input type="checkbox" id="cfg-cpu" onchange="updateConfig('FORCE_CPU_ONLY',this.checked,this)"><span class="slider"></span></label><span class="cfg-status" id="cfg-cpu-status"></span></td></tr>
       <tr><th>Force GPU</th><td><label class="toggle"><input type="checkbox" id="cfg-gpu" onchange="updateConfig('FORCE_GPU_ONLY',this.checked,this)"><span class="slider"></span></label><span class="cfg-status" id="cfg-gpu-status"></span></td></tr>
-      <tr><th>GPU Split Mode</th><td><label class="toggle"><input type="checkbox" id="cfg-split" onchange="updateConfig('GPU_SPLIT_MODE',this.checked,this)"><span class="slider"></span></label><span class="cfg-status" id="cfg-split-status"></span></td></tr>
+      <tr><th>GPU Mode</th><td><select id="cfg-gpu-mode" onchange="updateConfig('GPU_MODE',this.value,this)"><option value="split">split</option><option value="combined">combined</option></select><span class="cfg-status" id="cfg-gpu-mode-status"></span></td></tr>
     </table>
   </div>
   <div class="card">
@@ -214,10 +214,12 @@
     if (hbEl && document.activeElement !== hbEl) hbEl.value = cfg.heartbeat_interval;
     var cpuEl = document.getElementById('cfg-cpu');
     var gpuEl = document.getElementById('cfg-gpu');
-    var splitEl = document.getElementById('cfg-split');
+    var gpuModeEl = document.getElementById('cfg-gpu-mode');
     if (cpuEl) cpuEl.checked = !!cfg.force_cpu;
     if (gpuEl) gpuEl.checked = !!cfg.force_gpu;
-    if (splitEl) splitEl.checked = !!cfg.gpu_split_mode;
+    if (gpuModeEl && document.activeElement !== gpuModeEl) {
+      gpuModeEl.value = cfg.gpu_mode || 'split';
+    }
 
     var toolsDiv = document.getElementById('tools-list');
     clearChildren(toolsDiv);

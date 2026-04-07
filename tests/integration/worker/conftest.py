@@ -67,21 +67,34 @@ def _reset_version_sync_state():
 
 @pytest.fixture(autouse=True)
 def _reset_job_processor_state():
-    """Reset job_processor module-level state between tests."""
+    """Reset job_processor module-level state between tests.
+
+    The legacy _cpu_lock, _gpu_lock, and _gpu_assignment_map primitives
+    were removed in the worker capacity gate feature (issue #48). All
+    slot state now lives on the WorkerCapacity instance referenced by
+    job_processor._capacity. Tests that construct a WorkerCapacity
+    should reset _capacity to None in their own teardown; this autouse
+    fixture handles the process-global dicts that survive across tests.
+    """
     from sethlans_worker_agent import job_processor
-    with job_processor._gpu_lock:
-        job_processor._gpu_assignment_map.clear()
     with job_processor._active_jobs_lock:
         job_processor._active_jobs.clear()
     with job_processor._recent_jobs_lock:
         job_processor._recent_jobs.clear()
     job_processor._pause_event.clear()
-    if job_processor._cpu_lock.locked():
-        try:
-            job_processor._cpu_lock.release()
-        except RuntimeError:
-            pass
+    job_processor._capacity = None
+    job_processor._last_drift_check_ts = 0.0
     yield
+    # Post-test cleanup: the capacity instance may have been replaced
+    # during the test, but we always tear it down so the next test
+    # starts from a clean slate.
+    job_processor._capacity = None
+    job_processor._last_drift_check_ts = 0.0
+    with job_processor._active_jobs_lock:
+        job_processor._active_jobs.clear()
+    with job_processor._recent_jobs_lock:
+        job_processor._recent_jobs.clear()
+    job_processor._pause_event.clear()
 
 
 @pytest.fixture(autouse=True)

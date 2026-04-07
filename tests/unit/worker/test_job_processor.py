@@ -5,10 +5,29 @@
 """
 Unit tests for the job_processor module.
 
-Tests pause/resume, active jobs snapshot, GPU assignment tracking,
-finalize logic, and recent jobs ring buffer.
+Tests pause/resume, active jobs snapshot, GPU assignment snapshot via
+the WorkerCapacity pass-through, finalize logic, and the recent jobs
+ring buffer. The capacity-aware integration points (init_capacity,
+poll_and_claim_job slot release, drift cadence, terminate_all_active
+helper) live in test_job_processor_capacity.py.
 """
 from sethlans_worker_agent import job_processor
+from sethlans_worker_agent.capacity import (
+    CapacityProfile,
+    WorkerCapacity,
+)
+from sethlans_worker_agent.job_lifecycle import _finalize_and_upload
+
+
+def _build_profile():
+    return CapacityProfile(
+        gpu_slot_count=1,
+        cpu_slot_count=1,
+        cpu_thread_ceiling=15,
+        cpu_threads_effective=15,
+        startup_gpu_count=1,
+        gpu_mode='split',
+    )
 
 
 # --- Pause / Resume ---
@@ -47,16 +66,18 @@ class TestActiveJobsSnapshot:
             assert 999 not in job_processor._active_jobs
 
 
-# --- GPU Assignment Snapshot ---
+# --- GPU Assignment Snapshot pass-through ---
 
 class TestGpuAssignmentSnapshot:
 
-    def test_empty_initially(self):
+    def test_empty_when_capacity_not_initialized(self):
+        job_processor._capacity = None
         assert job_processor.get_gpu_assignment_snapshot() == {}
 
-    def test_returns_current_assignments(self):
-        with job_processor._gpu_lock:
-            job_processor._gpu_assignment_map[0] = 42
+    def test_delegates_to_capacity(self):
+        job_processor._capacity = WorkerCapacity(_build_profile())
+        reservation = job_processor._capacity.reserve_for_job(42, 'GPU')
+        assert reservation is not None
         snapshot = job_processor.get_gpu_assignment_snapshot()
         assert snapshot == {0: 42}
 
@@ -80,20 +101,16 @@ class TestRecentJobs:
             assert len(job_processor._recent_jobs) == 1
 
 
-# --- _finalize_and_upload ---
+# --- _finalize_and_upload (lifted from job_lifecycle) ---
 
 class TestFinalizeAndUpload:
 
-    def test_canceled_returns_canceled(self, mocker):
-        result = job_processor._finalize_and_upload(
-            False, True, 1, None
-        )
+    def test_canceled_returns_canceled(self):
+        result = _finalize_and_upload(False, True, 1, None)
         assert result == "CANCELED"
 
-    def test_failure_returns_error(self, mocker):
-        result = job_processor._finalize_and_upload(
-            False, False, 1, None
-        )
+    def test_failure_returns_error(self):
+        result = _finalize_and_upload(False, False, 1, None)
         assert result == "ERROR"
 
     def test_success_with_upload(self, mocker, tmp_path):
@@ -106,17 +123,12 @@ class TestFinalizeAndUpload:
         out_file = out_dir / 'render.png'
         out_file.write_bytes(b'PNG')
 
-        result = job_processor._finalize_and_upload(
-            True, False, 1, str(out_file)
-        )
+        result = _finalize_and_upload(True, False, 1, str(out_file))
         assert result == "DONE"
-        # File should be cleaned up
         assert not out_file.exists()
 
-    def test_success_no_output_path(self, mocker):
-        result = job_processor._finalize_and_upload(
-            True, False, 1, None
-        )
+    def test_success_no_output_path(self):
+        result = _finalize_and_upload(True, False, 1, None)
         assert result == "DONE"
 
     def test_success_upload_fails(self, mocker, tmp_path):
@@ -127,9 +139,7 @@ class TestFinalizeAndUpload:
         out_file = tmp_path / 'render.png'
         out_file.write_bytes(b'PNG')
 
-        result = job_processor._finalize_and_upload(
-            True, False, 1, str(out_file)
-        )
+        result = _finalize_and_upload(True, False, 1, str(out_file))
         # Even if upload fails, status returned is still DONE
         assert result == "DONE"
 
@@ -145,9 +155,8 @@ class TestFinalizeAndUpload:
         thumb_file = out_dir / 'thumb_render.png'
         thumb_file.write_bytes(b'PNG')
 
-        result = job_processor._finalize_and_upload(
-            True, False, 1, str(out_file),
-            thumbnail_path=str(thumb_file)
+        result = _finalize_and_upload(
+            True, False, 1, str(out_file), thumbnail_path=str(thumb_file)
         )
         assert result == "DONE"
         assert not out_file.exists()
@@ -165,57 +174,11 @@ class TestFinalizeAndUpload:
         thumb_file = out_dir / 'thumb.png'
         thumb_file.write_bytes(b'PNG')
 
-        job_processor._finalize_and_upload(
+        _finalize_and_upload(
             True, False, 1, str(out_file),
-            thumbnail_path=str(thumb_file)
+            thumbnail_path=str(thumb_file),
         )
         mock_upload.assert_called_once_with(
             1, str(out_file),
-            thumbnail_path=str(thumb_file)
+            thumbnail_path=str(thumb_file),
         )
-
-
-# --- _reserve_next_available_gpu ---
-
-class TestReserveNextAvailableGpu:
-
-    def test_reserves_first_available(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-            return_value=[
-                {'name': 'GPU0'}, {'name': 'GPU1'}
-            ]
-        )
-        idx = job_processor._reserve_next_available_gpu(42)
-        assert idx == 0
-        assert job_processor.get_gpu_assignment_snapshot() == {0: 42}
-
-    def test_skips_busy_gpu(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-            return_value=[
-                {'name': 'GPU0'}, {'name': 'GPU1'}
-            ]
-        )
-        with job_processor._gpu_lock:
-            job_processor._gpu_assignment_map[0] = 99
-        idx = job_processor._reserve_next_available_gpu(42)
-        assert idx == 1
-
-    def test_returns_none_when_all_busy(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-            return_value=[{'name': 'GPU0'}]
-        )
-        with job_processor._gpu_lock:
-            job_processor._gpu_assignment_map[0] = 99
-        idx = job_processor._reserve_next_available_gpu(42)
-        assert idx is None
-
-    def test_returns_none_when_no_gpus(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-            return_value=[]
-        )
-        idx = job_processor._reserve_next_available_gpu(42)
-        assert idx is None

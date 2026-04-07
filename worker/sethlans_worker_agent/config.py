@@ -135,15 +135,51 @@ FORCE_CPU_ONLY = os.getenv('SETHLANS_FORCE_CPU_ONLY', 'false').lower() == 'true'
 FORCE_GPU_ONLY = os.getenv('SETHLANS_FORCE_GPU_ONLY', 'false').lower() == 'true'
 # Allow specifying a single GPU index for all jobs on this worker
 FORCE_GPU_INDEX = os.getenv('SETHLANS_FORCE_GPU_INDEX')
-# --- NEW: Enable assigning one job per GPU ---
-GPU_SPLIT_MODE = os.getenv('SETHLANS_GPU_SPLIT_MODE', 'false').lower() == 'true'
-# --- NEW: Configure CPU threads for rendering. 0 = Blender default (all) ---
+
+# --- GPU Mode ---
+# "split" (default):  N physical GPUs -> N parallel GPU slots.
+# "combined":         N physical GPUs -> 1 GPU slot; a single Blender
+#                     invocation enables every non-CPU device. Trades
+#                     parallelism for per-frame speed on non-tileable
+#                     workloads. Incompatible with FORCE_GPU_INDEX.
+_VALID_GPU_MODES = {'split', 'combined'}
+_raw_gpu_mode = os.getenv('SETHLANS_GPU_MODE', 'split').strip().lower()
+if _raw_gpu_mode not in _VALID_GPU_MODES:
+    sys.stderr.write(
+        "ERROR: SETHLANS_GPU_MODE must be one of "
+        f"{sorted(_VALID_GPU_MODES)}. Got: '{_raw_gpu_mode}'.\n"
+    )
+    sys.exit(1)
+GPU_MODE = _raw_gpu_mode
+
+# Legacy SETHLANS_GPU_SPLIT_MODE is no longer recognized. Warn once on
+# startup if the user still has it set, but continue normally.
+if 'SETHLANS_GPU_SPLIT_MODE' in os.environ:
+    logger.warning(
+        "SETHLANS_GPU_SPLIT_MODE is no longer recognized. Use "
+        "SETHLANS_GPU_MODE=split (default) or SETHLANS_GPU_MODE=combined. "
+        "Continuing with the current SETHLANS_GPU_MODE value: '%s'.",
+        GPU_MODE,
+    )
+
+# --- NEW: Configure CPU threads for rendering. 0 = auto (cores - 1) ---
+# The effective thread count is capped at (cores - 1) by the worker
+# capacity module; any user value above the ceiling is silently capped.
 CPU_THREADS = get_config_value('worker', 'cpu_threads', 0, is_int=True)
 CPU_THREADS = _validate_int('worker.cpu_threads', CPU_THREADS, 0, 0, 1024)
 
 
 if FORCE_CPU_ONLY and FORCE_GPU_ONLY:
     sys.stderr.write("ERROR: SETHLANS_FORCE_CPU_ONLY and SETHLANS_FORCE_GPU_ONLY are mutually exclusive. Set only one.\n")
+    sys.exit(1)
+
+if FORCE_GPU_INDEX is not None and GPU_MODE == 'combined':
+    sys.stderr.write(
+        "ERROR: SETHLANS_FORCE_GPU_INDEX and SETHLANS_GPU_MODE=combined "
+        "are mutually exclusive. Pinning to one physical GPU index "
+        "contradicts using all GPUs in one invocation. "
+        "Set only one of these variables.\n"
+    )
     sys.exit(1)
 
 

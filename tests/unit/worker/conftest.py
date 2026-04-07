@@ -38,22 +38,26 @@ def _reset_version_sync_state():
 
 @pytest.fixture(autouse=True)
 def _reset_job_processor_state():
-    """Reset job_processor module-level state between tests."""
+    """Reset job_processor module-level state between tests.
+
+    Clears active/recent job collections, the pause event, the module-global
+    WorkerCapacity instance, the drift check cadence timestamp, and the
+    drift exit-code flag from the capacity package.
+    """
     from sethlans_worker_agent import job_processor
-    with job_processor._gpu_lock:
-        job_processor._gpu_assignment_map.clear()
+    from sethlans_worker_agent.capacity import drift as drift_module
     with job_processor._active_jobs_lock:
         job_processor._active_jobs.clear()
     with job_processor._recent_jobs_lock:
         job_processor._recent_jobs.clear()
     job_processor._pause_event.clear()
-    # Ensure _cpu_lock is released if held
-    if job_processor._cpu_lock.locked():
-        try:
-            job_processor._cpu_lock.release()
-        except RuntimeError:
-            pass
+    job_processor._capacity = None
+    job_processor._last_drift_check_ts = 0.0
+    drift_module._drift_detected_exit_code = None
     yield
+    job_processor._capacity = None
+    job_processor._last_drift_check_ts = 0.0
+    drift_module._drift_detected_exit_code = None
 
 
 @pytest.fixture()
@@ -79,7 +83,7 @@ def mock_config(mocker):
         'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
     )
     mocker.patch(
-        'sethlans_worker_agent.config.GPU_SPLIT_MODE', False
+        'sethlans_worker_agent.config.GPU_MODE', 'split'
     )
     mocker.patch(
         'sethlans_worker_agent.config.CPU_THREADS', 0

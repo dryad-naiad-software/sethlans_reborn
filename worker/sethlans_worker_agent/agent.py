@@ -24,6 +24,7 @@ import time
 import sys
 from sethlans_worker_agent import job_processor, system_monitor, config, api_handler
 from sethlans_worker_agent import version_sync
+from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent.web_ui import start_server, stop_server
 
 # --- Argument Parsing ---
@@ -138,6 +139,67 @@ def _should_skip_polling():
     return None
 
 
+def _try_register_worker():
+    """Attempt registration. Returns the worker ID on success, else None.
+
+    On success, also initializes the WorkerCapacity gate (FR-1) and
+    starts the web UI server. The caller is responsible for sleeping
+    on failure.
+    """
+    logger.warning("Worker not registered with Manager. Attempting registration...")
+    new_id = system_monitor.register_with_manager()
+    if not new_id:
+        logger.error("Failed to register with manager. Retrying in 30 seconds...")
+        return None
+    job_processor.init_capacity()
+    start_server()
+    return new_id
+
+
+def _run_loop_iteration(worker_id):
+    """One iteration of the main loop after the worker is registered.
+
+    Sends the heartbeat, runs the drift check, processes pending
+    downloads, then either polls for and dispatches a job or skips
+    polling (paused / auth fail / versions not ready / capacity full).
+    """
+    active_jobs = job_processor.get_active_jobs_snapshot()
+    is_busy = len(active_jobs) > 0
+
+    # Heartbeats run regardless of pause state.
+    system_monitor.send_heartbeat(is_busy=is_busy, active_jobs=active_jobs)
+
+    # GPU drift check (FR-22, FR-23). Fires at most once per heartbeat
+    # interval, not once per poll interval.
+    job_processor.maybe_assert_gpu_count_unchanged()
+
+    if not is_busy:
+        version_sync.process_pending_downloads()
+        version_sync.process_pending_removals(active_jobs)
+
+    skip_wait = _should_skip_polling()
+    if skip_wait is not None:
+        _shutdown_event.wait(skip_wait)
+        return
+
+    # Capacity gate (FR-6). Source of truth is WorkerCapacity.is_full(),
+    # NOT _active_jobs.
+    if job_processor.capacity_is_full():
+        logger.debug("Worker at capacity. Skipping poll.")
+        _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
+        return
+
+    thread = job_processor.get_and_claim_job(worker_id)
+    if thread is not None:
+        with _active_threads_lock:
+            _active_threads.append(thread)
+
+    logger.debug(
+        f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds."
+    )
+    _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
+
+
 # --- Main Application Logic ---
 def main():
     """
@@ -158,52 +220,13 @@ def main():
 
     while not _shutdown_event.is_set():
         try:
-            # Prune completed threads each cycle.
             _prune_finished_threads()
-
             if not worker_id:
-                logger.warning("Worker not registered with Manager. Attempting registration...")
-                new_id = system_monitor.register_with_manager()
-                if new_id:
-                    worker_id = new_id
-                    # Start web UI after registration (A-NF9)
-                    start_server()
-                else:
-                    logger.error("Failed to register with manager. Retrying in 30 seconds...")
+                worker_id = _try_register_worker()
+                if not worker_id:
                     _shutdown_event.wait(30)
                     continue
-
-            # Determine if worker is currently busy rendering.
-            active_jobs = job_processor.get_active_jobs_snapshot()
-            is_busy = len(active_jobs) > 0
-
-            # Heartbeats continue regardless of pause state.
-            # Pass busy state so version sync can defer downloads (P2-F6).
-            system_monitor.send_heartbeat(
-                is_busy=is_busy, active_jobs=active_jobs
-            )
-
-            # Process any pending downloads/removals when idle (P2-F6).
-            if not is_busy:
-                version_sync.process_pending_downloads()
-                version_sync.process_pending_removals(active_jobs)
-
-            # Skip job polling when paused, auth failed, or versions not ready.
-            skip_wait = _should_skip_polling()
-            if skip_wait is not None:
-                _shutdown_event.wait(skip_wait)
-                continue
-
-            thread = job_processor.get_and_claim_job(worker_id)
-            if thread is not None:
-                with _active_threads_lock:
-                    _active_threads.append(thread)
-
-            logger.debug(
-                f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds."
-            )
-            _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
-
+            _run_loop_iteration(worker_id)
         except Exception as e:
             logger.critical(
                 f"An unhandled exception occurred in the main loop: {e}",
@@ -217,6 +240,17 @@ def main():
     stop_server()
     _wait_for_active_threads()
     logger.info("Sethlans Reborn Worker Agent shut down cleanly.")
+
+    # Drift exit epilogue (FR-22a step 5). If the GPU drift detector
+    # fired during this run, exit with its stored exit code AFTER the
+    # graceful shutdown path has completed. sys.exit is only called
+    # here, never from inside WorkerCapacity.
+    drift_code = capacity_module.get_drift_exit_code()
+    if drift_code is not None:
+        logger.critical(
+            "Exiting with code %d due to GPU drift detection.", drift_code,
+        )
+        sys.exit(drift_code)
 
 
 if __name__ == '__main__':

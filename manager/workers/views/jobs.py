@@ -82,14 +82,14 @@ class JobViewSet(JobPauseActionsMixin, JobWorkerActionsMixin, viewsets.ModelView
 
     def get_queryset(self):
         """
-        Overrides the default queryset to allow filtering based on worker GPU capability,
-        Blender version compatibility, and to exclude paused jobs when workers poll.
+        Overrides the default queryset to allow filtering by a worker's
+        currently free device preferences, Blender version compatibility,
+        and to exclude paused jobs when workers poll.
         """
         queryset = super().get_queryset().select_related(
             'blender_version',
             'asset__project__blender_version',
         )
-        gpu_available_param = self.request.query_params.get('gpu_available')
 
         # A worker poll is identified by the presence of these specific query parameters.
         is_worker_poll = (
@@ -103,14 +103,40 @@ class JobViewSet(JobPauseActionsMixin, JobWorkerActionsMixin, viewsets.ModelView
             queryset = queryset.filter(is_paused=False)
             queryset = self._apply_version_filter(queryset)
 
-        if gpu_available_param == 'true':
-            logger.debug("Filtering jobs for a GPU-capable worker. Including GPU and ANY jobs.")
-            return queryset.filter(render_device__in=[RenderDevice.GPU, RenderDevice.ANY])
-        elif gpu_available_param == 'false':
-            logger.debug("Filtering jobs for a CPU-only worker. Including CPU and ANY jobs.")
-            return queryset.filter(render_device__in=[RenderDevice.CPU, RenderDevice.ANY])
-
+        queryset = self._apply_device_prefs_filter(queryset)
         return queryset
+
+    def _apply_device_prefs_filter(self, queryset):
+        """Filter by device_prefs CSV query param (FR-9a, FR-9b).
+
+        Parses a comma-separated list of RenderDevice values and
+        restricts the queryset to jobs whose ``render_device`` is in the
+        requested set. Invalid values or an empty parsed list raise a
+        ValidationError (HTTP 400); the parameter being absent is a no-op.
+        """
+        from rest_framework.exceptions import ValidationError
+
+        param = self.request.query_params.get('device_prefs')
+        if param is None:
+            return queryset
+
+        raw = [v.strip().upper() for v in param.split(',') if v.strip()]
+        if not raw:
+            raise ValidationError(
+                "device_prefs must be a non-empty CSV of "
+                f"{sorted(RenderDevice.values)}."
+            )
+        allowed = set(RenderDevice.values)
+        invalid = [v for v in raw if v not in allowed]
+        if invalid:
+            raise ValidationError(
+                f"Invalid device_prefs value(s): {invalid}. "
+                f"Allowed: {sorted(allowed)}."
+            )
+        logger.debug(
+            "Filtering jobs by device_prefs=%s.", raw,
+        )
+        return queryset.filter(render_device__in=raw)
 
     def _apply_version_filter(self, queryset):
         """Filter by available_versions query param (series-level matching)."""

@@ -20,6 +20,7 @@ from sethlans_worker_agent import config, job_processor
 from sethlans_worker_agent.web_ui.auth import (
     validate_password, is_password_configured, set_password,
 )
+from sethlans_worker_agent.web_ui.config_mutations import apply_config_change
 from sethlans_worker_agent.web_ui.status import get_status_snapshot
 
 logger = logging.getLogger(__name__)
@@ -34,28 +35,16 @@ _MUTABLE_CONFIG_KEYS = frozenset({
     'HEARTBEAT_INTERVAL',
     'FORCE_CPU_ONLY',
     'FORCE_GPU_ONLY',
-    'GPU_SPLIT_MODE',
+    'GPU_MODE',
 })
 
 # Path to the static HTML dashboard
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
 _INDEX_PATH = os.path.join(_STATIC_DIR, 'index.html')
 
-# Lock serializing all config mutations to prevent race conditions
-# (e.g., two concurrent requests toggling FORCE_CPU/GPU both to True).
-_config_lock = threading.Lock()
-
 # Module-level server reference for shutdown
 _server = None
 _server_thread = None
-
-
-def _validate_force_modes(force_cpu, force_gpu):
-    """Enforce mutual exclusion: at most one can be True."""
-    if force_cpu and force_gpu:
-        raise ValueError(
-            "force_cpu and force_gpu cannot both be enabled"
-        )
 
 
 class WorkerRequestHandler(BaseHTTPRequestHandler):
@@ -195,54 +184,12 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            _apply_config_change(key, value)
+            apply_config_change(key, value)
         except ValueError as e:
             self._send_json({'error': str(e)}, 400)
             return
 
         self._send_json({'status': 'updated', 'key': key, 'value': value})
-
-
-def _parse_bool(value):
-    """Parse a boolean from JSON payload."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.lower() in ('true', '1', 'yes')
-    return bool(value)
-
-
-def _apply_config_change(key, value):
-    """Apply a validated config change. Raises ValueError on bad input."""
-    with _config_lock:
-        if key == 'POLLING_INTERVAL':
-            val = int(value)
-            if not (1 <= val <= 3600):
-                raise ValueError('Polling interval must be 1-3600')
-            config.JOB_POLLING_INTERVAL_SECONDS = val
-        elif key == 'HEARTBEAT_INTERVAL':
-            val = int(value)
-            if not (1 <= val <= 3600):
-                raise ValueError('Heartbeat interval must be 1-3600')
-            config.HEARTBEAT_INTERVAL_SECONDS = val
-        elif key == 'FORCE_CPU_ONLY':
-            val = _parse_bool(value)
-            new_gpu = config.FORCE_GPU_ONLY
-            if val:
-                new_gpu = False  # Mutual exclusion
-            _validate_force_modes(val, new_gpu)
-            config.FORCE_CPU_ONLY = val
-            config.FORCE_GPU_ONLY = new_gpu
-        elif key == 'FORCE_GPU_ONLY':
-            val = _parse_bool(value)
-            new_cpu = config.FORCE_CPU_ONLY
-            if val:
-                new_cpu = False  # Mutual exclusion
-            _validate_force_modes(new_cpu, val)
-            config.FORCE_CPU_ONLY = new_cpu
-            config.FORCE_GPU_ONLY = val
-        elif key == 'GPU_SPLIT_MODE':
-            config.GPU_SPLIT_MODE = _parse_bool(value)
 
 
 def start_server():

@@ -24,8 +24,19 @@ api_token =
 heartbeat_interval = 30
 # How often (in seconds) the worker polls for new jobs.
 polling_interval = 5
-# Number of CPU threads to use for rendering. 0 = Blender default (all).
+# Number of CPU threads for rendering. 0 = auto (cores - 1).
+# The effective thread count is capped at (cores - 1); any user value
+# at or above the ceiling is silently capped, leaving one core of
+# scheduler headroom for the OS, the worker agent, and any co-running
+# GPU job's host process. Override via SETHLANS_WORKER_CPU_THREADS.
 cpu_threads = 0
+# GPU capacity mode. One of:
+#   split    - (default) N physical GPUs become N parallel GPU slots.
+#   combined - N physical GPUs become 1 slot; one Blender invocation
+#              uses every non-CPU device. Trades throughput for
+#              per-frame speed. Incompatible with SETHLANS_FORCE_GPU_INDEX.
+# Override via SETHLANS_GPU_MODE environment variable.
+gpu_mode = split
 
 # --- Worker Web UI ---
 # Enable or disable the embedded web dashboard.

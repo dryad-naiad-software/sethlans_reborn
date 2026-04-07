@@ -26,7 +26,8 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 logger = logging.getLogger(__name__)
 
 # Thread-safe dict of last Blender stdout line per job ID.
-# Lock ordering: this lock (_output_lock) comes after _cpu_lock.
+# Lock ordering: _output_lock is below the WorkerCapacity lock, the
+# _active_jobs_lock, and the _recent_jobs_lock in job_processor.
 _last_output_lines = {}
 _output_lock = threading.Lock()
 
@@ -114,24 +115,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
     os.makedirs(os.path.dirname(resolved_output_pattern), exist_ok=True)
 
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
-
-    # Determine CPU thread limit: config override > auto-calc for mixed mode
-    cpu_threads_to_use = 0
-    if config.CPU_THREADS > 0:
-        cpu_threads_to_use = config.CPU_THREADS
-        logger.info(f"Manual CPU thread limit from config: {cpu_threads_to_use} threads.")
-    elif not config.FORCE_CPU_ONLY and not config.FORCE_GPU_ONLY:
-        gpus = system_monitor.get_gpu_device_details()
-        if len(gpus) > 0:
-            total_threads = system_monitor.get_cpu_thread_count()
-            cpu_threads_to_use = max(1, total_threads - len(gpus))
-            logger.info(
-                f"Auto CPU thread limit: {total_threads} total, "
-                f"{len(gpus)} GPUs, {cpu_threads_to_use} Blender threads"
-            )
-
-    if render_device != 'GPU' and cpu_threads_to_use > 0:
-        command.extend(["--threads", str(cpu_threads_to_use)])
+    from sethlans_worker_agent.blender_thread_cap import maybe_add_threads_flag
+    maybe_add_threads_flag(command, job_id, assigned_gpu_index)
 
     try:
         # Determine if this is a CPU fallback scenario

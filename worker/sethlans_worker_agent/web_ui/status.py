@@ -9,7 +9,7 @@ Reads from job_processor, system_monitor, blender_executor, and config
 to build a JSON-serializable status dict. Each lock is acquired and
 released independently (never nested) following the lock ordering
 convention documented in job_processor.py:
-    _gpu_lock < _active_jobs_lock < _cpu_lock < _output_lock
+    WorkerCapacity._lock < _active_jobs_lock < _recent_jobs_lock
 """
 
 import logging
@@ -42,7 +42,7 @@ def get_status_snapshot():
     # types atomic.
     worker_id = system_monitor.WORKER_ID
 
-    # --- GPU allocation (acquires _gpu_lock, then releases) ---
+    # --- GPU allocation (acquires WorkerCapacity._lock, then releases) ---
     gpu_allocation_raw = job_processor.get_gpu_assignment_snapshot()
     # Convert int keys to strings for JSON serialization
     gpu_allocation = {str(k): v for k, v in gpu_allocation_raw.items()}
@@ -101,7 +101,7 @@ def get_status_snapshot():
             'heartbeat_interval': config.HEARTBEAT_INTERVAL_SECONDS,
             'force_cpu': config.FORCE_CPU_ONLY,
             'force_gpu': config.FORCE_GPU_ONLY,
-            'gpu_split_mode': config.GPU_SPLIT_MODE,
+            'gpu_mode': config.GPU_MODE,
         },
         'active_jobs': active_jobs,
         'gpu_allocation': gpu_allocation,
