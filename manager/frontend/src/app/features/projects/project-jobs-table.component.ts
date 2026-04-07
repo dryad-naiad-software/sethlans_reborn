@@ -10,6 +10,7 @@ import { DatePipe } from '@angular/common';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatDialog } from '@angular/material/dialog';
 import { Subscription, Subject, combineLatest, of, merge, interval, startWith, switchMap } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -19,7 +20,10 @@ import { TiledJobService, TiledJob } from '../../core/services/tiled-job.service
 import { AnimationService, Animation } from '../../core/services/animation.service';
 import { ProjectJobActionsComponent } from './project-job-actions.component';
 import { JobResultDialogComponent, JobResultDialogData } from './job-result-dialog.component';
-import { JobTableRow, STATUS_ICONS, formatTime, isTopLevelJob } from './project-jobs-table.util';
+import {
+  JobTableRow, STATUS_ICONS, isTopLevelJob,
+  mapJobToRow, mapTiledJobToRow, mapAnimationToRow, progressPercent,
+} from './project-jobs-table.util';
 import { JobPrefillData } from './job-create-form.types';
 
 export { JobTableRow } from './project-jobs-table.util';
@@ -28,7 +32,7 @@ export { JobTableRow } from './project-jobs-table.util';
   selector: 'app-project-jobs-table',
   standalone: true,
   imports: [
-    DatePipe, MatTableModule, MatIconModule, MatProgressSpinnerModule,
+    DatePipe, MatTableModule, MatIconModule, MatProgressSpinnerModule, MatProgressBarModule,
     ProjectJobActionsComponent,
   ],
   template: `
@@ -68,9 +72,18 @@ export { JobTableRow } from './project-jobs-table.util';
             {{ r.status }}
           </td>
         </ng-container>
-        <ng-container matColumnDef="worker">
-          <th mat-header-cell *matHeaderCellDef>Worker</th>
-          <td mat-cell *matCellDef="let r">{{ r.worker }}</td>
+        <ng-container matColumnDef="progress">
+          <th mat-header-cell *matHeaderCellDef>Progress</th>
+          <td mat-cell *matCellDef="let r">
+            @if (r.total == null) {
+              <span class="progress-empty">--</span>
+            } @else {
+              <div class="progress-cell">
+                <mat-progress-bar mode="determinate" [value]="progressPercent(r)" />
+                <span class="progress-text">{{ r.completed }} / {{ r.total }} {{ r.progressUnit }}</span>
+              </div>
+            }
+          </td>
         </ng-container>
         <ng-container matColumnDef="time">
           <th mat-header-cell *matHeaderCellDef>Time</th>
@@ -114,6 +127,10 @@ export { JobTableRow } from './project-jobs-table.util';
       width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
     }
     .thumb-placeholder mat-icon { color: rgba(0,0,0,0.3); }
+    .progress-cell { display: flex; flex-direction: column; gap: 2px; min-width: 120px; }
+    .progress-cell mat-progress-bar { height: 4px; border-radius: 2px; }
+    .progress-text { font-size: 12px; color: rgba(0,0,0,0.6); }
+    .progress-empty { color: rgba(0,0,0,0.4); }
     .table-footer {
       display: flex; justify-content: space-between; padding: 8px 0;
       font-size: 13px; color: rgba(0,0,0,0.6);
@@ -140,7 +157,7 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
 
   rows: JobTableRow[] = [];
   loading = true;
-  columns = ['thumbnail', 'name', 'type', 'status', 'worker', 'time', 'createdAt', 'actions'];
+  columns = ['thumbnail', 'name', 'type', 'status', 'progress', 'time', 'createdAt', 'actions'];
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId'] && this.projectId) this.startPolling();
@@ -159,6 +176,8 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
   }
 
   statusIcon(status: string): string { return STATUS_ICONS[status] || 'help_outline'; }
+
+  progressPercent(row: JobTableRow): number { return progressPercent(row); }
 
   openResult(row: JobTableRow): void {
     if (row.status !== 'DONE') return;
@@ -204,9 +223,9 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
         this.tiledJobs = tiled;
         this.animList = anims;
         this.rows = [
-          ...jobs.filter(isTopLevelJob).map(j => this.mapJob(j)),
-          ...tiled.map(t => this.mapTiled(t)),
-          ...anims.map(a => this.mapAnim(a)),
+          ...jobs.filter(isTopLevelJob).map(mapJobToRow),
+          ...tiled.map(mapTiledJobToRow),
+          ...anims.map(mapAnimationToRow),
         ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         this.activeJobCount.emit(
           this.rows.filter(r => r.status === 'QUEUED' || r.status === 'RENDERING').length,
@@ -215,32 +234,5 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
       },
       error: () => { this.loading = false; },
     });
-  }
-
-  private mapJob(j: Job): JobTableRow {
-    const displayStatus = (j.status === 'QUEUED' && j.is_paused) ? 'PAUSED' : j.status;
-    return {
-      id: j.id, name: j.name, type: 'single', status: displayStatus,
-      is_paused: j.is_paused,
-      worker: j.assigned_worker_hostname || '--',
-      time: formatTime(j.render_time_seconds), createdAt: j.submitted_at,
-      thumbnail: j.thumbnail, outputFile: j.output_file,
-    };
-  }
-
-  private mapTiled(t: TiledJob): JobTableRow {
-    return {
-      id: t.id, name: t.name, type: 'tiled', status: t.status, is_paused: false,
-      worker: '--', time: formatTime(t.total_render_time_seconds), createdAt: t.submitted_at,
-      thumbnail: t.thumbnail, outputFile: t.output_file,
-    };
-  }
-
-  private mapAnim(a: Animation): JobTableRow {
-    return {
-      id: a.id, name: a.name, type: 'animation', status: a.status, is_paused: false,
-      worker: '--', time: formatTime(a.total_render_time_seconds), createdAt: a.submitted_at,
-      thumbnail: a.thumbnail, outputFile: null,
-    };
   }
 }

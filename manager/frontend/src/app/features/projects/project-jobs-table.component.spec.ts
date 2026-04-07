@@ -117,7 +117,7 @@ describe('ProjectJobsTableComponent', () => {
 
   it('should have correct table columns', () => {
     expect(component.columns).toEqual(
-      ['thumbnail', 'name', 'type', 'status', 'worker', 'time', 'createdAt', 'actions']);
+      ['thumbnail', 'name', 'type', 'status', 'progress', 'time', 'createdAt', 'actions']);
   });
 
   describe('when projectId is set', () => {
@@ -141,7 +141,9 @@ describe('ProjectJobsTableComponent', () => {
       expect(single).toBeTruthy();
       expect(single!.name).toBe('Single Job');
       expect(single!.status).toBe('QUEUED');
-      expect(single!.worker).toBe('--');
+      expect(single!.completed).toBeNull();
+      expect(single!.total).toBeNull();
+      expect(single!.progressUnit).toBeNull();
     });
 
     it('should map tiled jobs correctly', () => {
@@ -150,6 +152,9 @@ describe('ProjectJobsTableComponent', () => {
       expect(tiled!.name).toBe('Tiled Job');
       expect(tiled!.status).toBe('DONE');
       expect(tiled!.time).toBe('2m 0s');
+      expect(tiled!.completed).toBe(16);
+      expect(tiled!.total).toBe(16);
+      expect(tiled!.progressUnit).toBe('tiles');
     });
 
     it('should map animations correctly', () => {
@@ -157,6 +162,9 @@ describe('ProjectJobsTableComponent', () => {
       expect(anim).toBeTruthy();
       expect(anim!.name).toBe('Walk Cycle');
       expect(anim!.status).toBe('RENDERING');
+      expect(anim!.completed).toBe(100);
+      expect(anim!.total).toBe(250);
+      expect(anim!.progressUnit).toBe('frames');
     });
 
     it('should sort rows by createdAt descending', () => {
@@ -180,19 +188,78 @@ describe('ProjectJobsTableComponent', () => {
     });
   });
 
-  describe('worker display', () => {
-    it('should show hostname when assigned', () => {
-      const job = makeJob({ assigned_worker_hostname: 'worker-01' });
-      mockJobService.list.and.returnValue(of([job]));
-      mockTiledJobService.list.and.returnValue(of([]));
-      mockAnimationService.list.and.returnValue(of([]));
-
+  describe('progress display', () => {
+    function setupRows(opts: {
+      jobs?: Job[];
+      tiled?: TiledJob[];
+      anims?: Animation[];
+    }): void {
+      mockJobService.list.and.returnValue(of(opts.jobs ?? []));
+      mockTiledJobService.list.and.returnValue(of(opts.tiled ?? []));
+      mockAnimationService.list.and.returnValue(of(opts.anims ?? []));
       component.projectId = 'proj-uuid';
       component.ngOnChanges({
         projectId: new SimpleChange('', 'proj-uuid', true),
       });
+    }
 
-      expect(component.rows[0].worker).toBe('worker-01');
+    it('single jobs report null progress fields and 0% percent', () => {
+      setupRows({ jobs: [makeJob()] });
+      const row = component.rows[0];
+      expect(row.completed).toBeNull();
+      expect(row.total).toBeNull();
+      expect(row.progressUnit).toBeNull();
+      expect(component.progressPercent(row)).toBe(0);
+    });
+
+    it('animations report 30% for 3 / 10 frames', () => {
+      setupRows({
+        anims: [makeAnimation({ total_frames: 10, completed_frames: 3, progress: '3/10' })],
+      });
+      const row = component.rows[0];
+      expect(row.completed).toBe(3);
+      expect(row.total).toBe(10);
+      expect(row.progressUnit).toBe('frames');
+      expect(component.progressPercent(row)).toBe(30);
+    });
+
+    it('tiled jobs report 50% for 2 / 4 tiles', () => {
+      setupRows({
+        tiled: [makeTiledJob({ total_tiles: 4, completed_tiles: 2, progress: '2/4' })],
+      });
+      const row = component.rows[0];
+      expect(row.completed).toBe(2);
+      expect(row.total).toBe(4);
+      expect(row.progressUnit).toBe('tiles');
+      expect(component.progressPercent(row)).toBe(50);
+    });
+
+    it('returns 0% for zero-total animations without divide-by-zero', () => {
+      setupRows({
+        anims: [makeAnimation({ total_frames: 0, completed_frames: 0, progress: '0/0' })],
+      });
+      const row = component.rows[0];
+      expect(row.total).toBe(0);
+      expect(component.progressPercent(row)).toBe(0);
+    });
+
+    it('renders -- in the progress cell for single jobs', () => {
+      setupRows({ jobs: [makeJob()] });
+      fixture.detectChanges();
+      const cells = fixture.nativeElement.querySelectorAll('td.mat-column-progress');
+      expect(cells.length).toBeGreaterThan(0);
+      expect(cells[0].textContent.trim()).toBe('--');
+    });
+
+    it('renders progress text and a mat-progress-bar for animations', () => {
+      setupRows({
+        anims: [makeAnimation({ total_frames: 10, completed_frames: 3 })],
+      });
+      fixture.detectChanges();
+      const cell = fixture.nativeElement.querySelector('td.mat-column-progress');
+      expect(cell).toBeTruthy();
+      expect(cell.textContent).toContain('3 / 10 frames');
+      expect(cell.querySelector('mat-progress-bar')).toBeTruthy();
     });
   });
 
