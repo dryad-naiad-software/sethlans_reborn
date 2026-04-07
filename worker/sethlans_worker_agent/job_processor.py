@@ -85,7 +85,13 @@ def capacity_is_full() -> bool:
 
 
 def maybe_assert_gpu_count_unchanged() -> None:
-    """Run the GPU drift check at most once per heartbeat interval (FR-23)."""
+    """Run the GPU drift check at most once per heartbeat interval (FR-23).
+
+    The timestamp is updated AFTER a successful assert return. If the
+    assert raises, the timestamp stays at its previous value so the
+    next loop iteration retries immediately rather than waiting a full
+    interval.
+    """
     global _last_drift_check_ts
     if _capacity is None:
         return
@@ -93,8 +99,36 @@ def maybe_assert_gpu_count_unchanged() -> None:
     interval = max(1, config.HEARTBEAT_INTERVAL_SECONDS)
     if (now - _last_drift_check_ts) < interval:
         return
-    _last_drift_check_ts = now
     _capacity.assert_gpu_count_unchanged()
+    _last_drift_check_ts = now
+
+
+# Drift-cancel retry budget: 3 attempts with 1s, 2s, 4s backoff.
+_DRIFT_CANCEL_RETRIES = 3
+_DRIFT_CANCEL_BACKOFF_BASE = 1.0
+
+
+def _cancel_job_with_retry(job_id: int) -> bool:
+    """Retry update_job_status(CANCELED) with bounded backoff.
+
+    Returns True on success, False if all attempts failed.
+    """
+    for attempt in range(1, _DRIFT_CANCEL_RETRIES + 1):
+        try:
+            api_handler.update_job_status(job_id, {"status": "CANCELED"})
+            return True
+        except BaseException as exc:  # noqa: BLE001 - drift path must not raise
+            logger.warning(
+                "Drift handler: cancel attempt %d/%d for job %s failed: %s",
+                attempt, _DRIFT_CANCEL_RETRIES, job_id, exc,
+            )
+            if attempt < _DRIFT_CANCEL_RETRIES:
+                time.sleep(_DRIFT_CANCEL_BACKOFF_BASE * (2 ** (attempt - 1)))
+    logger.error(
+        "Drift handler: giving up on cancel for job %s after %d attempts.",
+        job_id, _DRIFT_CANCEL_RETRIES,
+    )
+    return False
 
 
 def terminate_all_active_jobs_for_drift() -> None:
@@ -103,18 +137,15 @@ def terminate_all_active_jobs_for_drift() -> None:
     Called by the drift handler. Flips each active job's status to
     CANCELED on the manager; the job's own polling loop inside
     blender_executor.execute_blender_job observes and terminates.
+    Uses a bounded retry with exponential backoff to tolerate transient
+    manager unavailability during shutdown.
     """
     with _active_jobs_lock:
         active_ids = list(_active_jobs.keys())
     for job_id in active_ids:
-        try:
-            api_handler.update_job_status(job_id, {"status": "CANCELED"})
+        if _cancel_job_with_retry(job_id):
             logger.warning(
                 "Drift handler: marked job %s for cancellation.", job_id,
-            )
-        except BaseException as exc:  # noqa: BLE001
-            logger.error(
-                "Drift handler: failed to cancel job %s: %s", job_id, exc,
             )
 
 

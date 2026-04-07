@@ -211,8 +211,26 @@ class WorkerCapacity:
         cancellation path in blender_executor, set the exit-code flag,
         and set agent._shutdown_event. sys.exit is NEVER called from
         inside this module.
+
+        Skip conditions (no-op, do not trigger drift):
+          * ``startup_gpu_count == 0`` — CPU-only worker; the ~5-15s
+            detection subprocess is pure waste because the comparison
+            is always 0 == 0.
+          * ``count_physical_gpus_now()`` returned ``None`` — transient
+            subprocess failure. Try again next interval.
         """
+        # CPU-only workers never drift.
+        if self._profile.startup_gpu_count == 0:
+            logger.debug(
+                "assert_gpu_count_unchanged: startup_gpu_count=0, "
+                "skipping drift check on CPU-only worker."
+            )
+            return
+
         current = count_physical_gpus_now()
+        if current is None:
+            # Transient subprocess failure. Do NOT treat as drift.
+            return
         if current == self._profile.startup_gpu_count:
             return
 

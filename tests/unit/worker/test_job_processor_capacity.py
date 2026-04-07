@@ -155,6 +155,32 @@ class TestMaybeAssertGpuCountUnchanged:
         assert spy.call_count == 2
         assert monotonic.call_count == 3
 
+    def test_timestamp_not_updated_when_assert_raises(self, mocker):
+        """Issue #49: if assert_gpu_count_unchanged raises, the cadence
+        timestamp must NOT be advanced, so the next loop iteration will
+        retry immediately rather than waiting a full heartbeat interval.
+        """
+        cap = WorkerCapacity(_build_profile())
+        job_processor._capacity = cap
+        mocker.patch(
+            'sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 30,
+        )
+        mocker.patch.object(
+            cap, 'assert_gpu_count_unchanged',
+            side_effect=RuntimeError('transient'),
+        )
+        mocker.patch(
+            'sethlans_worker_agent.job_processor.time.monotonic',
+            return_value=5000.0,
+        )
+        job_processor._last_drift_check_ts = 1000.0
+
+        with pytest.raises(RuntimeError):
+            job_processor.maybe_assert_gpu_count_unchanged()
+
+        # Timestamp must remain at its prior value.
+        assert job_processor._last_drift_check_ts == 1000.0
+
 
 # --- terminate_all_active_jobs_for_drift ---
 
@@ -182,12 +208,50 @@ class TestTerminateAllActiveJobsForDrift:
             assert call.args[1] == {'status': 'CANCELED'}
 
     def test_continues_on_cancel_error(self, mocker):
+        """Job 1 exhausts all retries and fails, job 2 succeeds on first try.
+        Drift handler must continue past the failed job without raising.
+        """
+        mocker.patch('sethlans_worker_agent.job_processor.time.sleep')
         mocker.patch(
             'sethlans_worker_agent.api_handler.update_job_status',
-            side_effect=[RuntimeError('net'), None],
+            side_effect=[
+                RuntimeError('net'), RuntimeError('net'), RuntimeError('net'),
+                None,
+            ],
         )
         with job_processor._active_jobs_lock:
             job_processor._active_jobs[1] = {'job_id': 1}
             job_processor._active_jobs[2] = {'job_id': 2}
         # Must not raise.
         job_processor.terminate_all_active_jobs_for_drift()
+
+    def test_cancel_retries_on_transient_failure(self, mocker):
+        """Issue #49: the drift cancel path retries with backoff."""
+        mocker.patch('sethlans_worker_agent.job_processor.time.sleep')
+        spy = mocker.patch(
+            'sethlans_worker_agent.api_handler.update_job_status',
+            side_effect=[RuntimeError('net'), None],
+        )
+        with job_processor._active_jobs_lock:
+            job_processor._active_jobs[42] = {'job_id': 42}
+        job_processor.terminate_all_active_jobs_for_drift()
+        # Called twice: first raised, second succeeded.
+        assert spy.call_count == 2
+
+    def test_cancel_exhausts_all_retries_then_gives_up(self, mocker):
+        """Issue #49: after 3 failed attempts the handler logs and
+        moves on. Must NOT raise or hang.
+        """
+        sleep_spy = mocker.patch(
+            'sethlans_worker_agent.job_processor.time.sleep'
+        )
+        mocker.patch(
+            'sethlans_worker_agent.api_handler.update_job_status',
+            side_effect=RuntimeError('persistent failure'),
+        )
+        with job_processor._active_jobs_lock:
+            job_processor._active_jobs[99] = {'job_id': 99}
+        # Must not raise despite all attempts failing.
+        job_processor.terminate_all_active_jobs_for_drift()
+        # 3 attempts total; 2 sleeps between them (1s, 2s).
+        assert sleep_spy.call_count == 2

@@ -142,6 +142,51 @@ class TestAssertGpuCountUnchanged:
         # the test process would abort. Run and verify normal return.
         cap.assert_gpu_count_unchanged()
 
+    def test_cpu_only_worker_skips_detection_entirely(self, mocker):
+        """CPU-only workers (startup_gpu_count=0) must early-return
+        without invoking the 5-15s detection subprocess. Issue #49.
+        """
+        cap = WorkerCapacity(_profile(startup_gpu_count=0))
+        count_spy = mocker.patch(
+            'sethlans_worker_agent.capacity.slots.count_physical_gpus_now',
+        )
+        terminate_spy = mocker.patch(
+            'sethlans_worker_agent.job_processor.'
+            'terminate_all_active_jobs_for_drift'
+        )
+        fresh_event = threading.Event()
+        mocker.patch.object(agent_module, '_shutdown_event', fresh_event)
+
+        cap.assert_gpu_count_unchanged()
+
+        count_spy.assert_not_called()
+        terminate_spy.assert_not_called()
+        assert drift_module.get_drift_exit_code() is None
+        assert fresh_event.is_set() is False
+
+    def test_none_from_count_is_noop_not_drift(self, mocker):
+        """count_physical_gpus_now() returning None (subprocess failure)
+        must NOT trigger the drift handler. Issue #49 — transient
+        Blender hangs should not self-evict the worker.
+        """
+        cap = WorkerCapacity(_profile(startup_gpu_count=2))
+        mocker.patch(
+            'sethlans_worker_agent.capacity.slots.count_physical_gpus_now',
+            return_value=None,
+        )
+        terminate_spy = mocker.patch(
+            'sethlans_worker_agent.job_processor.'
+            'terminate_all_active_jobs_for_drift'
+        )
+        fresh_event = threading.Event()
+        mocker.patch.object(agent_module, '_shutdown_event', fresh_event)
+
+        cap.assert_gpu_count_unchanged()
+
+        terminate_spy.assert_not_called()
+        assert drift_module.get_drift_exit_code() is None
+        assert fresh_event.is_set() is False
+
 
 # --- drift module exit-code helpers ---
 
@@ -164,13 +209,14 @@ class TestDriftExitCodeHelpers:
 
 class TestCountPhysicalGpusNow:
 
-    def test_returns_zero_when_no_blender_executable(self, mocker):
+    def test_returns_none_when_no_blender_executable(self, mocker):
+        """Missing Blender → skip signal, not a false-zero drift trigger."""
         mocker.patch(
             'sethlans_worker_agent.hardware_detection.'
             '_find_any_blender_executable',
             return_value=None,
         )
-        assert drift_module.count_physical_gpus_now() == 0
+        assert drift_module.count_physical_gpus_now() is None
 
     def test_parses_device_list_from_stdout(self, mocker):
         mocker.patch(
@@ -194,7 +240,8 @@ class TestCountPhysicalGpusNow:
         )
         assert drift_module.count_physical_gpus_now() == 2
 
-    def test_returns_zero_on_subprocess_error(self, mocker):
+    def test_returns_none_on_subprocess_error(self, mocker):
+        """CalledProcessError → skip signal. Must NOT be interpreted as drift."""
         import subprocess
         mocker.patch(
             'sethlans_worker_agent.hardware_detection.'
@@ -205,4 +252,34 @@ class TestCountPhysicalGpusNow:
             'sethlans_worker_agent.capacity.drift.subprocess.run',
             side_effect=subprocess.CalledProcessError(1, 'blender'),
         )
-        assert drift_module.count_physical_gpus_now() == 0
+        assert drift_module.count_physical_gpus_now() is None
+
+    def test_returns_none_on_subprocess_timeout(self, mocker):
+        """TimeoutExpired → skip signal. A transient Blender hang must
+        not fire a false drift and self-evict the worker."""
+        import subprocess
+        mocker.patch(
+            'sethlans_worker_agent.hardware_detection.'
+            '_find_any_blender_executable',
+            return_value='/fake/blender',
+        )
+        mocker.patch(
+            'sethlans_worker_agent.capacity.drift.subprocess.run',
+            side_effect=subprocess.TimeoutExpired('blender', 90),
+        )
+        assert drift_module.count_physical_gpus_now() is None
+
+    def test_returns_none_when_output_unparseable(self, mocker):
+        """No JSON line in stdout → skip signal (not 0)."""
+        mocker.patch(
+            'sethlans_worker_agent.hardware_detection.'
+            '_find_any_blender_executable',
+            return_value='/fake/blender',
+        )
+        fake_result = mocker.MagicMock()
+        fake_result.stdout = 'garbage output with no json'
+        mocker.patch(
+            'sethlans_worker_agent.capacity.drift.subprocess.run',
+            return_value=fake_result,
+        )
+        assert drift_module.count_physical_gpus_now() is None
