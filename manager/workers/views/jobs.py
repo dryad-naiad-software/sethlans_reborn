@@ -11,7 +11,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from ..constants import RenderDevice
@@ -114,8 +114,6 @@ class JobViewSet(JobPauseActionsMixin, JobWorkerActionsMixin, viewsets.ModelView
         requested set. Invalid values or an empty parsed list raise a
         ValidationError (HTTP 400); the parameter being absent is a no-op.
         """
-        from rest_framework.exceptions import ValidationError
-
         param = self.request.query_params.get('device_prefs')
         if param is None:
             return queryset
@@ -140,8 +138,6 @@ class JobViewSet(JobPauseActionsMixin, JobWorkerActionsMixin, viewsets.ModelView
 
     def _apply_version_filter(self, queryset):
         """Filter by available_versions query param (series-level matching)."""
-        from rest_framework.exceptions import ValidationError
-
         param = self.request.query_params.get('available_versions')
         if not param:
             return queryset
