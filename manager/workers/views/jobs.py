@@ -8,7 +8,9 @@ import re
 from django.db import models, transaction
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view,
+)
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -27,8 +29,35 @@ MAX_AVAILABLE_VERSIONS = 20
 logger = logging.getLogger(__name__)
 
 
+_LIST_PARAMETERS = [
+    OpenApiParameter(
+        name='device_prefs',
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated list of RenderDevice values (CPU, GPU, ANY) "
+            "to include. Used by workers to filter for jobs matching "
+            "their currently free slots. Empty or invalid values return "
+            "HTTP 400. Example: ``device_prefs=GPU,ANY``."
+        ),
+    ),
+    OpenApiParameter(
+        name='available_versions',
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated list of installed Blender versions "
+            "(e.g. ``4.5.8,4.4.3``) for worker-poll version filtering. "
+            "Matches at the series level (major.minor)."
+        ),
+    ),
+]
+
+
 @extend_schema_view(
-    list=extend_schema(tags=['Management UI']),
+    list=extend_schema(tags=['Management UI'], parameters=_LIST_PARAMETERS),
     retrieve=extend_schema(tags=['Management UI']),
     create=extend_schema(tags=['Management UI']),
     update=extend_schema(tags=['Management UI']),

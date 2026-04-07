@@ -115,7 +115,10 @@ class Job(models.Model):
         help_text="Optional version override; inherits from project when null.",
     )
     render_engine = models.CharField(max_length=50, choices=RenderEngine.choices, default=RenderEngine.CYCLES)
-    render_device = models.CharField(max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY)
+    render_device = models.CharField(
+        max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY,
+        db_index=True,
+    )
     cycles_feature_set = models.CharField(max_length=50, choices=CyclesFeatureSet.choices, default=CyclesFeatureSet.SUPPORTED)
     render_settings = models.JSONField(default=dict, blank=True,
                                        help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
