@@ -22,6 +22,7 @@ import { RENDER_ENGINES, RENDER_DEVICES, TILING_OPTIONS, ANIMATION_TILING_OPTION
 import { buildSingleJobPayload, buildTiledJobPayload, buildAnimationPayload } from './job-create-payload.util';
 import { RenderType, JobCreateDialogData } from './job-create-form.types';
 import { VideoOutputSectionComponent } from './video-output-section.component';
+import { ResolutionInputComponent } from './resolution-input.component';
 
 @Component({
   selector: 'app-job-create-form',
@@ -29,7 +30,7 @@ import { VideoOutputSectionComponent } from './video-output-section.component';
   imports: [
     FormsModule, ReactiveFormsModule, MatDialogModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatRadioModule,
-    MatButtonModule, MatIconModule, MatSnackBarModule, VideoOutputSectionComponent,
+    MatButtonModule, MatIconModule, MatSnackBarModule, VideoOutputSectionComponent, ResolutionInputComponent,
   ],
   template: `
     <h2 mat-dialog-title>Create Job</h2>
@@ -58,12 +59,8 @@ import { VideoOutputSectionComponent } from './video-output-section.component';
         <div class="form-row">
           <mat-form-field><mat-label>Samples</mat-label>
             <input matInput type="number" formControlName="samples" /></mat-form-field>
-          <mat-form-field><mat-label>Resolution X</mat-label>
-            <input matInput type="number" formControlName="resolutionX" /></mat-form-field>
-          <span class="res-x">x</span>
-          <mat-form-field><mat-label>Resolution Y</mat-label>
-            <input matInput type="number" formControlName="resolutionY" /></mat-form-field>
         </div>
+        <app-resolution-input [parentForm]="form"></app-resolution-input>
         <div class="form-row">
           @if (renderType === 'single') {
             <mat-form-field><mat-label>Frame</mat-label>
@@ -134,7 +131,6 @@ import { VideoOutputSectionComponent } from './video-output-section.component';
     .render-form { display: flex; flex-direction: column; gap: 8px; }
     .form-row { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
     .form-row mat-form-field { flex: 1; min-width: 120px; }
-    .res-x { padding-top: 12px; }
   `],
 })
 export class JobCreateFormComponent {
@@ -181,6 +177,8 @@ export class JobCreateFormComponent {
     samples: new FormControl(128, [Validators.required, Validators.min(1)]),
     resolutionX: new FormControl(1920, [Validators.required, Validators.min(1)]),
     resolutionY: new FormControl(1080, [Validators.required, Validators.min(1)]),
+    resolutionMode: new FormControl<'preset' | 'custom' | null>('preset', Validators.required),
+    resolutionPreset: new FormControl<string | null>('fhd1080', Validators.required),
     outputFormat: new FormControl('PNG', Validators.required),
     jpegQuality: new FormControl(90, [Validators.required, Validators.min(1), Validators.max(100)]),
     colorDepth: new FormControl('16', Validators.required),
