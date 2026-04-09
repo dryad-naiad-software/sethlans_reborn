@@ -81,7 +81,7 @@ for section in ('server', 'security'):
         config.add_section(section)
 
 if not config.has_option('server', 'port'):
-    config.set('server', 'port', '7075')
+    config.set('server', 'port', '8080')
 
 if not config.get('security', 'secret_key', fallback=''):
     config.set('security', 'secret_key', secrets.token_urlsafe(50))
@@ -292,7 +292,7 @@ cmd_manager() {
     python "$MANAGE_PY" migrate
 
     ensure_dirs
-    nohup python "$MANAGE_PY" runserver 0.0.0.0:7075 > /dev/null 2>&1 &
+    nohup python "$MANAGE_PY" runserver 0.0.0.0:8080 > /dev/null 2>&1 &
     local pid=$!
     sleep 2
 

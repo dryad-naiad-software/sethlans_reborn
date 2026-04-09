@@ -4,7 +4,7 @@
 # dashboard link works and remote workers can connect.
 host = 127.0.0.1
 # The port the Manager server is running on.
-port = 7075
+port = 8080
 
 # --- Authentication ---
 # WARNING: Tokens and enrollment keys are transmitted over HTTP in cleartext.
@@ -42,7 +42,7 @@ gpu_mode = split
 # Enable or disable the embedded web dashboard.
 ui_enabled = true
 # Port for the web UI HTTP server.
-ui_port = 7076
+ui_port = 8081
 # Bind address for the web UI.
 # Default: 0.0.0.0 (all interfaces - accessible from network).
 # Set to 127.0.0.1 to restrict to localhost only.

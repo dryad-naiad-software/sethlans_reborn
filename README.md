@@ -25,7 +25,7 @@ Sethlans Reborn is a distributed rendering system that accelerates Blender workf
 ## Architecture
 
 ```
- +--------------------+         REST API (port 7075)        +--------------------+
+ +--------------------+         REST API (port 8080)        +--------------------+
  |   Django Manager   | <----------------------------------> |   Worker Agent 1   |
  |                    |                                      +--------------------+
  |  - Project/Asset   |                                      +--------------------+
@@ -103,7 +103,7 @@ Copy `manager/manager.ini.example` to `manager/manager.ini` and adjust settings 
 
 ```ini
 [server]
-port = 7075
+port = 8080
 
 [security]
 # secret_key = your-unique-secret-key-here
@@ -117,7 +117,7 @@ Start the manager (applies migrations automatically):
 python manager/run_manager.py
 ```
 
-The API is available at `http://127.0.0.1:7075/api/` and docs at `http://127.0.0.1:7075/api/docs/`.
+The API is available at `http://127.0.0.1:8080/api/` and docs at `http://127.0.0.1:8080/api/docs/`.
 
 ### Worker Agent Setup
 
@@ -132,7 +132,7 @@ Copy `worker/config.ini.example` to `worker/config.ini`:
 ```ini
 [manager]
 host = 127.0.0.1
-port = 7075
+port = 8080
 
 [worker]
 heartbeat_interval = 30

@@ -22,7 +22,7 @@ def get_manager_bind():
     Gets the manager host:port, respecting the override hierarchy.
     1. Environment variables (SETHLANS_MANAGER_HOST, SETHLANS_MANAGER_PORT)
     2. manager.ini file
-    3. Hardcoded defaults (0.0.0.0:7075)
+    3. Hardcoded defaults (0.0.0.0:8080)
     """
     host = os.getenv('SETHLANS_MANAGER_HOST')
     port = os.getenv('SETHLANS_MANAGER_PORT')
@@ -40,7 +40,7 @@ def get_manager_bind():
         print(f"[WARNING] Could not read manager.ini: {e}", file=sys.stderr)
 
     host = host or '0.0.0.0'
-    port = port or '7075'
+    port = port or '8080'
     return f"{host}:{port}"
 
 

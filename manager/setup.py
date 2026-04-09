@@ -40,7 +40,7 @@ def setup_config():
     if not config.has_section('server'):
         config.add_section('server')
     if not config.has_option('server', 'port'):
-        config.set('server', 'port', '7075')
+        config.set('server', 'port', '8080')
 
     if not config.has_section('security'):
         config.add_section('security')
@@ -164,7 +164,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("  Setup complete!")
-    print(f"  Start the manager:  python {MANAGE_PY.relative_to(MANAGER_DIR.parent)} runserver 7075")
+    print(f"  Start the manager:  python {MANAGE_PY.relative_to(MANAGER_DIR.parent)} runserver 8080")
     print("=" * 60)
 
 

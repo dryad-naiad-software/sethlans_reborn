@@ -105,8 +105,8 @@ def _validate_non_empty_string(name, value, default):
 
 
 # --- Manager API Configuration ---
-MANAGER_PORT = get_config_value('manager', 'port', 7075, is_int=True)
-MANAGER_PORT = _validate_int('manager.port', MANAGER_PORT, 7075, 1, 65535)
+MANAGER_PORT = get_config_value('manager', 'port', 8080, is_int=True)
+MANAGER_PORT = _validate_int('manager.port', MANAGER_PORT, 8080, 1, 65535)
 MANAGER_HOST = get_config_value('manager', 'host', '127.0.0.1')
 MANAGER_HOST = _validate_non_empty_string('manager.host', MANAGER_HOST, '127.0.0.1')
 # The base URL for the central Django Manager's API.
@@ -186,8 +186,8 @@ if FORCE_GPU_INDEX is not None and GPU_MODE == 'combined':
 # --- Worker Web UI Configuration ---
 UI_ENABLED = get_config_value('worker', 'ui_enabled', 'true')
 UI_ENABLED = UI_ENABLED.lower() in ('true', '1', 'yes') if isinstance(UI_ENABLED, str) else bool(UI_ENABLED)
-UI_PORT = get_config_value('worker', 'ui_port', 7076, is_int=True)
-UI_PORT = _validate_int('worker.ui_port', UI_PORT, 7076, 1, 65535)
+UI_PORT = get_config_value('worker', 'ui_port', 8081, is_int=True)
+UI_PORT = _validate_int('worker.ui_port', UI_PORT, 8081, 1, 65535)
 UI_BIND_ADDRESS = get_config_value('worker', 'ui_bind_address', '0.0.0.0')
 UI_PASSWORD_HASH = get_config_value('worker', 'ui_password_hash', '')
 UI_PASSWORD_SALT = get_config_value('worker', 'ui_password_salt', '')

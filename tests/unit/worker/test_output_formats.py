@@ -232,7 +232,7 @@ class TestUploadWithThumbnail:
     def test_upload_includes_thumbnail(self, mocker, tmp_path):
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mocker.patch(
             'sethlans_worker_agent.api_auth.get_auth_headers',
@@ -280,7 +280,7 @@ class TestUploadWithThumbnail:
     def test_upload_without_thumbnail(self, mocker, tmp_path):
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mocker.patch(
             'sethlans_worker_agent.api_auth.get_auth_headers',
@@ -324,7 +324,7 @@ class TestUploadWithThumbnail:
         """IOError on thumbnail should not prevent output upload."""
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mocker.patch(
             'sethlans_worker_agent.api_auth.get_auth_headers',
@@ -373,7 +373,7 @@ class TestUploadWithThumbnail:
         """Output file MIME type should be application/octet-stream."""
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mocker.patch(
             'sethlans_worker_agent.api_auth.get_auth_headers',

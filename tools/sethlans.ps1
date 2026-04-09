@@ -93,7 +93,7 @@ for section in ('server', 'security'):
         config.add_section(section)
 
 if not config.has_option('server', 'port'):
-    config.set('server', 'port', '7075')
+    config.set('server', 'port', '8080')
 
 if not config.get('security', 'secret_key', fallback=''):
     config.set('security', 'secret_key', secrets.token_urlsafe(50))
@@ -341,7 +341,7 @@ function Invoke-Manager {
     Ensure-Dirs
     $outLog = Join-Path $env:TEMP "sethlans_manager_out.log"
     $errLog = Join-Path $env:TEMP "sethlans_manager_err.log"
-    $proc = Start-Process -FilePath "python" -ArgumentList "$ManagePy", "runserver", "0.0.0.0:7075" `
+    $proc = Start-Process -FilePath "python" -ArgumentList "$ManagePy", "runserver", "0.0.0.0:8080" `
         -PassThru -NoNewWindow -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 
     Start-Sleep -Seconds 2

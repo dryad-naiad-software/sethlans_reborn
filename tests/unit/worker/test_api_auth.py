@@ -124,7 +124,7 @@ class TestSendEnrollmentHeartbeat:
         )
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mock_response = mocker.Mock(
             status_code=200
@@ -143,7 +143,7 @@ class TestSendEnrollmentHeartbeat:
         mocker.patch('sethlans_worker_agent.config.ENROLLMENT_KEY', '')
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         result = api_auth.send_enrollment_heartbeat(
             mocker.Mock(), {}
@@ -156,7 +156,7 @@ class TestSendEnrollmentHeartbeat:
         )
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mock_response = mocker.Mock(status_code=403)
         mock_retry = mocker.Mock(return_value=mock_response)
@@ -172,7 +172,7 @@ class TestSendEnrollmentHeartbeat:
         )
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mock_response = mocker.Mock(status_code=429)
         mock_retry = mocker.Mock(return_value=mock_response)
@@ -193,7 +193,7 @@ class TestSendAuthenticatedHeartbeat:
         )
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mock_response = mocker.Mock(status_code=200)
         mock_response.json.return_value = {'id': 5}
@@ -211,7 +211,7 @@ class TestSendAuthenticatedHeartbeat:
         )
         mocker.patch(
             'sethlans_worker_agent.config.MANAGER_API_URL',
-            'http://localhost:7075/api/'
+            'http://localhost:8080/api/'
         )
         mock_response = mocker.Mock(status_code=401)
         mock_retry = mocker.Mock(return_value=mock_response)

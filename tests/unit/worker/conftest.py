@@ -65,7 +65,7 @@ def mock_config(mocker):
     """Provide a mocker-patched config module with sensible defaults."""
     mocker.patch(
         'sethlans_worker_agent.config.MANAGER_API_URL',
-        'http://127.0.0.1:7075/api/'
+        'http://127.0.0.1:8080/api/'
     )
     mocker.patch(
         'sethlans_worker_agent.config.API_TOKEN', 'test-token-abc'
@@ -92,7 +92,7 @@ def mock_config(mocker):
         'sethlans_worker_agent.config.UI_ENABLED', True
     )
     mocker.patch(
-        'sethlans_worker_agent.config.UI_PORT', 7076
+        'sethlans_worker_agent.config.UI_PORT', 8081
     )
     mocker.patch(
         'sethlans_worker_agent.config.UI_BIND_ADDRESS', '127.0.0.1'
@@ -112,7 +112,7 @@ def sample_job_data():
         'end_frame': 1,
         'output_file_pattern': 'output/test_####',
         'asset': {
-            'blend_file': 'http://127.0.0.1:7075/media/assets/scene.blend'
+            'blend_file': 'http://127.0.0.1:8080/media/assets/scene.blend'
         },
         'render_settings': {},
     }

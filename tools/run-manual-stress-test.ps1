@@ -11,7 +11,7 @@
 #>
 
 # --- Configuration ---
-$apiUrl = "http://127.0.0.1:7075/api"
+$apiUrl = "http://127.0.0.1:8080/api"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..") | Select-Object -ExpandProperty Path
 $baseAssetPath = Join-Path $ProjectRoot "tests" "assets"

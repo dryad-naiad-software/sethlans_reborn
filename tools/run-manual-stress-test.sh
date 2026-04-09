@@ -11,7 +11,7 @@
 #     Project: Sethlans Reborn
 
 # --- Configuration ---
-API_URL="http://127.0.0.1:7075/api"
+API_URL="http://127.0.0.1:8080/api"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(realpath "$SCRIPT_DIR/..")"
 BASE_ASSET_PATH="$PROJECT_ROOT/tests/assets"

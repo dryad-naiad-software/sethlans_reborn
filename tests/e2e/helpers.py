@@ -163,7 +163,7 @@ def admin_login(session, base_url, username, password):
 
     Args:
         session: requests.Session to store cookies.
-        base_url: Manager base URL (e.g., http://127.0.0.1:7075).
+        base_url: Manager base URL (e.g., http://127.0.0.1:8080).
         username: Admin username.
         password: Admin password.
 

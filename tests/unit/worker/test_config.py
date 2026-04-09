@@ -72,12 +72,12 @@ class TestGetConfigValue:
         mocker.patch.object(
             configparser.ConfigParser, 'has_option', return_value=False
         )
-        get_config_value('manager', 'port', '7075')
+        get_config_value('manager', 'port', '8080')
         spy.assert_called_once_with('SETHLANS_MANAGER_PORT')
 
     def test_is_int_converts_env_value(self, mocker):
         mocker.patch('os.getenv', return_value='9090')
-        result = get_config_value('m', 'p', 7075, is_int=True)
+        result = get_config_value('m', 'p', 8080, is_int=True)
         assert result == 9090
         assert isinstance(result, int)
 
@@ -86,19 +86,21 @@ class TestGetConfigValue:
         mocker.patch.object(
             configparser.ConfigParser, 'has_option', return_value=True
         )
+        # 9090 chosen so the assertion still distinguishes INI value
+        # from the new default (8080).
         mocker.patch.object(
-            configparser.ConfigParser, 'getint', return_value=8080
+            configparser.ConfigParser, 'getint', return_value=9090
         )
-        result = get_config_value('s', 'k', 7075, is_int=True)
-        assert result == 8080
+        result = get_config_value('s', 'k', 8080, is_int=True)
+        assert result == 9090
 
     def test_is_int_converts_default(self, mocker):
         mocker.patch('os.getenv', return_value=None)
         mocker.patch.object(
             configparser.ConfigParser, 'has_option', return_value=False
         )
-        result = get_config_value('s', 'k', '7075', is_int=True)
-        assert result == 7075
+        result = get_config_value('s', 'k', '8080', is_int=True)
+        assert result == 8080
         assert isinstance(result, int)
 
 

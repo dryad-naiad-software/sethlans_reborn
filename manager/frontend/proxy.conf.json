@@ -1,4 +1,4 @@
 {
-  "/api": { "target": "http://localhost:7075", "secure": false },
-  "/media": { "target": "http://localhost:7075", "secure": false }
+  "/api": { "target": "http://localhost:8080", "secure": false },
+  "/media": { "target": "http://localhost:8080", "secure": false }
 }

@@ -44,7 +44,7 @@ def fake_project(tmp_path):
     (tmp_path / ".pids").mkdir()
 
     (tmp_path / "manager" / "db.sqlite3").write_bytes(b"fake db")
-    (tmp_path / "manager" / "manager.ini").write_text("[server]\nport = 7075\n")
+    (tmp_path / "manager" / "manager.ini").write_text("[server]\nport = 8080\n")
     (tmp_path / "manager" / "media" / "assets" / "test" / "foo.blend").write_bytes(b"fake blend")
 
     if IS_WINDOWS:
