@@ -18,3 +18,7 @@ from django.core.asgi import get_asgi_application
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sethlans_manager.settings')
 
 application = get_asgi_application()
+
+if os.environ.get('SETHLANS_DEV_MODE') == '1':
+    from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
+    application = ASGIStaticFilesHandler(application)

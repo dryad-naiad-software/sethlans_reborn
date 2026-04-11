@@ -5,7 +5,8 @@
 Render output upload to the manager's API.
 
 Extracted from api_handler.py for file size compliance. Shares the
-_retry_request helper and auth handling from api_handler.
+_retry_request helper and auth handling from api_handler. All requests
+are routed through the thread-local pinning session.
 """
 import logging
 import os
@@ -70,7 +71,7 @@ def upload_render_output(job_id: int, output_file_path: str,
                     f"Uploading without thumbnail."
                 )
         response = _retry_request(
-            requests.post, upload_url,
+            'post', upload_url,
             files=files, headers=get_auth_headers(), timeout=60
         )
         if response.status_code == 401:

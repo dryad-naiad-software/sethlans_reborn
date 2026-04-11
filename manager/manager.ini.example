@@ -16,6 +16,13 @@ host = 0.0.0.0
 # The port the manager server will run on.
 port = 8080
 
+[tls]
+# Path to PEM-encoded certificate file.
+# If not set, a self-signed cert is auto-generated at first run.
+# cert_file =
+# Path to PEM-encoded private key file.
+# key_file =
+
 [security]
 # Django secret key — generate a unique value for production.
 # You can generate one with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"

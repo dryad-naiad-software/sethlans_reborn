@@ -110,11 +110,14 @@ MANAGER_PORT = _validate_int('manager.port', MANAGER_PORT, 8080, 1, 65535)
 MANAGER_HOST = get_config_value('manager', 'host', '127.0.0.1')
 MANAGER_HOST = _validate_non_empty_string('manager.host', MANAGER_HOST, '127.0.0.1')
 # The base URL for the central Django Manager's API.
-MANAGER_API_URL = f"http://{MANAGER_HOST}:{MANAGER_PORT}/api/"
+MANAGER_API_URL = f"https://{MANAGER_HOST}:{MANAGER_PORT}/api/"
 
 # --- Manager Authentication ---
 # Pre-shared enrollment key provided by the admin for initial registration.
 ENROLLMENT_KEY = get_config_value('manager', 'enrollment_key', '')
+# SHA-256 fingerprint of the manager's TLS certificate, received during
+# enrollment. Used by PinningHTTPAdapter to verify the server cert.
+CERT_FINGERPRINT = get_config_value('manager', 'cert_fingerprint', '')
 # Permanent API token received after successful enrollment. Initially empty.
 API_TOKEN = get_config_value('manager', 'api_token', '')
 

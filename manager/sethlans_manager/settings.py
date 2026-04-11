@@ -123,6 +123,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'sethlans_manager.wsgi.application'
+ASGI_APPLICATION = 'sethlans_manager.asgi.application'
 
 
 # Database
@@ -204,10 +205,17 @@ MEDIA_ROOT = os.getenv(
 # --- Session Cookie Configuration ---
 SESSION_COOKIE_HTTPONLY = True  # Default, but explicit for clarity
 SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = True  # Safe now that HTTPS is enforced
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_COOKIE_AGE = 86400  # 24 hours
-# SESSION_COOKIE_SECURE is intentionally omitted -- Sethlans runs over HTTP
-# on a LAN. For security, use a wired network.
+
+# --- CSRF Cookie Configuration ---
+CSRF_COOKIE_SECURE = True
+
+# --- HSTS ---
+SECURE_HSTS_SECONDS = 31536000  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
 
 # --- DRF Configuration ---
 from .drf_config import REST_FRAMEWORK, SPECTACULAR_SETTINGS  # noqa: E402, F401

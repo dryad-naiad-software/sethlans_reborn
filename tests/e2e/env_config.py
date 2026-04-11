@@ -17,6 +17,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MANAGE_PY = str(REPO_ROOT / "manager" / "manage.py")
+RUN_MANAGER = str(REPO_ROOT / "manager" / "run_manager.py")
 WORKER_ENTRY = str(REPO_ROOT / "worker" / "run_worker.py")
 
 # Credentials for the test admin user.
@@ -49,6 +50,7 @@ def build_manager_env(
         "SETHLANS_SECURITY_SECRET_KEY": secret_key,
         "SETHLANS_SECURITY_DEBUG": "true",
         "SETHLANS_SECURITY_ENROLLMENT_KEY": enrollment_key,
+        "SETHLANS_MANAGER_HOST": "127.0.0.1",
         "SETHLANS_MANAGER_PORT": str(port),
         "DJANGO_SUPERUSER_USERNAME": ADMIN_USERNAME,
         "DJANGO_SUPERUSER_PASSWORD": ADMIN_PASSWORD,
@@ -73,6 +75,9 @@ def build_worker_env(enrollment_key, manager_host, manager_port):
         # Override any stale token from worker/config.ini so the
         # worker enrolls fresh with the test enrollment key.
         "SETHLANS_MANAGER_API_TOKEN": "",
+        # Clear any stale cert fingerprint so the worker accepts the
+        # new test manager's self-signed cert during enrollment.
+        "SETHLANS_MANAGER_CERT_FINGERPRINT": "",
         "SETHLANS_WORKER_HEARTBEAT_INTERVAL": "5",
         "SETHLANS_WORKER_POLLING_INTERVAL": "3",
         "SETHLANS_WORKER_UI_ENABLED": "false",

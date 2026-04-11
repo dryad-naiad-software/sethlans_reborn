@@ -68,7 +68,7 @@ class TestCoreWorkflows:
         cls.worker_stderr = ""
 
         cls.port = find_free_port()
-        cls.base_url = f"http://127.0.0.1:{cls.port}"
+        cls.base_url = f"https://127.0.0.1:{cls.port}"
         cls.test_secrets = generate_secrets()
 
         cls.temp_dir = Path(tempfile.mkdtemp(prefix="e2e_core_"))
@@ -92,6 +92,7 @@ class TestCoreWorkflows:
         wait_for_manager(cls.base_url, proc=cls.manager_proc)
 
         cls.session = requests.Session()
+        cls.session.verify = False
         admin_login(
             cls.session, cls.base_url, ADMIN_USERNAME, ADMIN_PASSWORD,
         )

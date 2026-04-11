@@ -10,18 +10,19 @@ as isolated subprocesses with per-test-class environments.
 """
 
 import logging
-import os
 import platform
 import subprocess
 import sys
 import time
 
 import psutil
+import urllib3
 
 # Re-export env helpers so existing imports keep working.
 from tests.e2e.env_config import (  # noqa: F401
     REPO_ROOT,
     MANAGE_PY,
+    RUN_MANAGER,
     WORKER_ENTRY,
     ADMIN_USERNAME,
     ADMIN_PASSWORD,
@@ -31,6 +32,15 @@ from tests.e2e.env_config import (  # noqa: F401
     build_worker_env,
     generate_secrets,
 )
+from tests.e2e.log_capture import (
+    open_log_files,
+    read_log_files,
+    peek_log_files,
+)
+
+# Suppress InsecureRequestWarning globally for E2E tests since the
+# manager serves a self-signed TLS certificate.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -70,40 +80,15 @@ def setup_database(env):
             )
 
 
-def _open_log_files(prefix):
-    """Open temp files for capturing subprocess stdout and stderr.
-
-    Using files instead of PIPE avoids a deadlock on Windows where a
-    full pipe buffer (4 KB) blocks the subprocess when nobody is
-    reading from it.  The files are read back during teardown.
-
-    Returns:
-        tuple: (stdout_file, stderr_file) — open file objects.
-    """
-    import tempfile
-    stdout_f = tempfile.NamedTemporaryFile(
-        mode="w", prefix=f"e2e_{prefix}_out_",
-        suffix=".log", delete=False,
-    )
-    stderr_f = tempfile.NamedTemporaryFile(
-        mode="w", prefix=f"e2e_{prefix}_err_",
-        suffix=".log", delete=False,
-    )
-    return stdout_f, stderr_f
-
-
 def start_manager(env, port):
-    """
-    Start the Django development server as a subprocess.
+    """Start the manager HTTPS server (uvicorn) as a subprocess.
 
-    Returns:
-        subprocess.Popen: The manager process.
+    Launches run_manager.py which handles migrations, TLS cert
+    generation, and uvicorn startup.  Bind address and port come
+    from environment variables in the supplied *env* dict.
     """
-    cmd = [
-        sys.executable, "-u", MANAGE_PY, "runserver",
-        f"127.0.0.1:{port}", "--noreload",
-    ]
-    stdout_f, stderr_f = _open_log_files("manager")
+    cmd = [sys.executable, "-u", RUN_MANAGER]
+    stdout_f, stderr_f = open_log_files("manager")
     # Force unbuffered output so log files are readable in real time.
     unbuffered_env = dict(env, PYTHONUNBUFFERED="1")
     popen_kwargs = {
@@ -128,7 +113,7 @@ def start_worker(env):
         subprocess.Popen: The worker process.
     """
     cmd = [sys.executable, "-u", WORKER_ENTRY, "--loglevel", "DEBUG"]
-    stdout_f, stderr_f = _open_log_files("worker")
+    stdout_f, stderr_f = open_log_files("worker")
     unbuffered_env = dict(env, PYTHONUNBUFFERED="1")
     popen_kwargs = {
         "env": unbuffered_env,
@@ -167,52 +152,6 @@ def _kill_survivors(alive, pid):
         )
 
 
-def _close_and_read(file_obj):
-    """Close a temp log file, read its contents, and delete it."""
-    path = file_obj.name
-    try:
-        file_obj.close()
-    except Exception:
-        pass
-    try:
-        with open(path, "r", errors="replace") as fh:
-            content = fh.read()
-    except Exception:
-        content = ""
-    try:
-        os.remove(path)
-    except OSError:
-        pass
-    return content
-
-
-def _read_log_files(proc):
-    """Read and clean up the temp log files attached to a process."""
-    log_files = getattr(proc, '_log_files', None)
-    if not log_files:
-        return "", ""
-    stdout_f, stderr_f = log_files
-    return _close_and_read(stdout_f), _close_and_read(stderr_f)
-
-
-def _peek_log_files(proc):
-    """Read log files without closing them (safe while process runs)."""
-    log_files = getattr(proc, '_log_files', None)
-    if not log_files:
-        return "", ""
-    stdout_f, stderr_f = log_files
-    contents = []
-    for f in (stdout_f, stderr_f):
-        try:
-            # Flush parent's write buffer, then read from disk.
-            f.flush()
-            with open(f.name, "r", errors="replace") as fh:
-                contents.append(fh.read())
-        except Exception:
-            contents.append("")
-    return contents[0], contents[1]
-
-
 def kill_process_tree(proc):
     """
     Kill a process and all its children using psutil.
@@ -225,7 +164,7 @@ def kill_process_tree(proc):
     """
     if proc is None or proc.poll() is not None:
         if proc is not None:
-            return _read_log_files(proc)
+            return read_log_files(proc)
         return "", ""
 
     pid = proc.pid
@@ -243,14 +182,14 @@ def kill_process_tree(proc):
         logger.debug("Process %d already exited.", pid)
 
     proc.wait(timeout=5)
-    return _read_log_files(proc)
+    return read_log_files(proc)
 
 
-def wait_for_manager(base_url, timeout=60, proc=None):
-    """Poll the manager until it responds to HTTP requests.
+def wait_for_manager(base_url, timeout=90, proc=None):
+    """Poll the manager until it responds to HTTPS requests.
 
     Args:
-        base_url: The manager's HTTP base URL.
+        base_url: The manager's HTTPS base URL.
         timeout: Maximum seconds to wait.
         proc: The manager subprocess.Popen — if supplied, we check
               whether the process has crashed on each poll iteration
@@ -261,7 +200,7 @@ def wait_for_manager(base_url, timeout=60, proc=None):
     while time.monotonic() < deadline:
         # Fail fast if the manager process has exited.
         if proc is not None and proc.poll() is not None:
-            stdout, stderr = _read_log_files(proc)
+            stdout, stderr = read_log_files(proc)
             raise RuntimeError(
                 f"Manager process (PID {proc.pid}) exited with "
                 f"code {proc.returncode} before becoming ready.\n"
@@ -271,6 +210,7 @@ def wait_for_manager(base_url, timeout=60, proc=None):
         try:
             resp = requests.get(
                 f"{base_url}/api/auth/csrf/", timeout=3,
+                verify=False,
             )
             if resp.status_code == 200:
                 logger.info("Manager is ready at %s", base_url)
@@ -283,7 +223,7 @@ def wait_for_manager(base_url, timeout=60, proc=None):
     detail = ""
     if proc is not None:
         alive = proc.poll() is None
-        stdout, stderr = _peek_log_files(proc)
+        stdout, stderr = peek_log_files(proc)
         detail = (
             f"\nProcess alive: {alive}, returncode: {proc.returncode}"
             f"\n--- STDOUT (last 2000 chars) ---\n{stdout[-2000:]}"

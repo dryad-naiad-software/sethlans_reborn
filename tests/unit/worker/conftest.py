@@ -65,7 +65,7 @@ def mock_config(mocker):
     """Provide a mocker-patched config module with sensible defaults."""
     mocker.patch(
         'sethlans_worker_agent.config.MANAGER_API_URL',
-        'http://127.0.0.1:8080/api/'
+        'https://127.0.0.1:8080/api/'
     )
     mocker.patch(
         'sethlans_worker_agent.config.API_TOKEN', 'test-token-abc'
@@ -96,6 +96,10 @@ def mock_config(mocker):
     )
     mocker.patch(
         'sethlans_worker_agent.config.UI_BIND_ADDRESS', '127.0.0.1'
+    )
+    mocker.patch(
+        'sethlans_worker_agent.config.CERT_FINGERPRINT',
+        'ab' * 32
     )
 
 

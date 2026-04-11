@@ -120,3 +120,56 @@ def mock_file_field():
     field = MagicMock()
     field.name = "outputs/render_001.png"
     return field
+
+
+# --- Certificate test helpers ---
+
+def generate_test_keypair():
+    """Generate a small RSA keypair for fast tests."""
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    return rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+
+def build_test_cert(key, days_valid=3650, backdate_hours=1):
+    """Build a self-signed cert from a key with configurable validity."""
+    from datetime import datetime, timedelta, timezone
+    from ipaddress import IPv4Address
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.x509.oid import NameOID
+
+    now = datetime.now(timezone.utc)
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, "test-host"),
+    ])
+    return (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(hours=backdate_hours))
+        .not_valid_after(now + timedelta(days=days_valid))
+        .add_extension(
+            x509.SubjectAlternativeName([
+                x509.IPAddress(IPv4Address("127.0.0.1")),
+                x509.DNSName("localhost"),
+            ]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+
+
+def write_cert_and_key(cert, key, cert_path, key_path):
+    """Write PEM-encoded cert and key to disk."""
+    from cryptography.hazmat.primitives import serialization
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ))

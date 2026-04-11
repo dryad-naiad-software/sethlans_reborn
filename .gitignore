@@ -154,6 +154,7 @@ manager/staticfiles/
 # Sethlans Reborn specific
 manager/logs/
 manager/manager.ini
+manager/tls/
 worker/config.ini
 worker/sethlans_worker_agent/managed_tools/
 worker/sethlans_worker_agent/managed_assets/

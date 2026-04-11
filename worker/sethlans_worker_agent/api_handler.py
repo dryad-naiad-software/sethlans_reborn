@@ -9,6 +9,9 @@ that are specific to the Sethlans Reborn API contract. It is responsible for
 polling, claiming, and updating the status of jobs, as well as uploading
 render outputs. All manager-bound requests include authentication headers.
 
+All outbound HTTP calls use thread-local ``requests.Session`` instances
+with TLS certificate fingerprint pinning (see ``tls_adapter``).
+
 Auth state management is delegated to the api_auth module.
 """
 import logging
@@ -18,6 +21,7 @@ from typing import Optional, Dict, Any, List
 import requests
 
 from sethlans_worker_agent import config
+from sethlans_worker_agent.tls_adapter import get_session
 from sethlans_worker_agent.api_auth import (
     get_auth_headers,
     handle_auth_response,
@@ -50,9 +54,14 @@ def _is_retryable(exception=None, response=None):
     return False
 
 
-def _retry_request(request_func, *args, **kwargs):
+def _retry_request(method, url, **kwargs):
     """
-    Execute a requests call with retry and exponential backoff.
+    Execute a session request with retry and exponential backoff.
+
+    Args:
+        method: HTTP method string ('get', 'post', 'patch', etc.).
+        url: The target URL.
+        **kwargs: Passed through to ``session.request()``.
 
     Retries on connection errors, timeouts, and 5xx responses.
     Does NOT retry on 4xx (client errors) or successful responses.
@@ -67,7 +76,8 @@ def _retry_request(request_func, *args, **kwargs):
     last_exception = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = request_func(*args, **kwargs)
+            session = get_session()
+            response = session.request(method, url, **kwargs)
             if _is_retryable(response=response) and attempt < MAX_RETRIES:
                 wait = BACKOFF_BASE * (2 ** (attempt - 1))
                 logger.warning(
@@ -112,7 +122,7 @@ def poll_for_available_jobs(
     logger.debug(f"Polling for jobs with params: {params}")
     try:
         response = _retry_request(
-            requests.get, poll_url,
+            'get', poll_url,
             params=params, headers=get_auth_headers(), timeout=10
         )
         if handle_auth_response(response):
@@ -136,7 +146,7 @@ def claim_job(job_id: int, worker_id: int) -> bool:
     claim_url = f"{config.MANAGER_API_URL}jobs/{job_id}/claim/"
     try:
         resp = _retry_request(
-            requests.post, claim_url,
+            'post', claim_url,
             json={"worker_id": worker_id},
             headers=get_auth_headers(), timeout=5
         )
@@ -166,7 +176,7 @@ def update_job_status(job_id: int, payload: Dict[str, Any]):
     update_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
     try:
         response = _retry_request(
-            requests.patch, update_url,
+            'patch', update_url,
             json=payload, headers=get_auth_headers(), timeout=5
         )
         if handle_auth_response(response):
@@ -199,7 +209,7 @@ def get_job_status(job_id: int) -> Optional[str]:
     job_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
     try:
         response = _retry_request(
-            requests.get, job_url,
+            'get', job_url,
             headers=get_auth_headers(), timeout=5
         )
         if handle_auth_response(response):

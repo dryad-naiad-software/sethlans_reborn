@@ -10,15 +10,21 @@ Handles:
 - Auth failure detection (401/403) and the polling-stop flag.
 - Enrollment heartbeat and authenticated heartbeat API calls.
 - Retention of rendered output when uploads fail due to auth errors.
+
+Enrollment requests use ``verify=False`` (no pinned fingerprint yet).
+``InsecureRequestWarning`` is suppressed only for the enrollment call
+via ``warnings.catch_warnings()``; it is NOT suppressed globally.
 """
 import logging
 import os
 import shutil
 import threading
+import warnings
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 import requests
+from urllib3.exceptions import InsecureRequestWarning
 
 from sethlans_worker_agent import config
 
@@ -97,6 +103,11 @@ def send_enrollment_heartbeat(
     """
     Send an enrollment heartbeat with the X-Enrollment-Key header.
 
+    During enrollment the worker has no pinned fingerprint, so
+    ``verify=False`` is used (the session defaults to this when
+    ``CERT_FINGERPRINT`` is empty).  ``InsecureRequestWarning`` is
+    suppressed for this call only via ``warnings.catch_warnings()``.
+
     Args:
         retry_func: The _retry_request function from api_handler.
         payload: System info dict for registration.
@@ -115,10 +126,12 @@ def send_enrollment_heartbeat(
         f"Sending enrollment heartbeat to {heartbeat_url}..."
     )
     try:
-        response = retry_func(
-            requests.post, heartbeat_url,
-            json=payload, headers=headers, timeout=10
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", InsecureRequestWarning)
+            response = retry_func(
+                'post', heartbeat_url,
+                json=payload, headers=headers, timeout=10
+            )
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 403:
@@ -155,7 +168,7 @@ def send_authenticated_heartbeat(
     heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
     try:
         response = retry_func(
-            requests.post, heartbeat_url,
+            'post', heartbeat_url,
             json=payload, headers=get_auth_headers(), timeout=5
         )
         if handle_auth_response(response):

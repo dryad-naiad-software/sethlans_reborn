@@ -5,8 +5,9 @@
 """
 Session-scoped pytest fixtures for E2E tests.
 
-Provides Blender cache management and session-wide cleanup of
-temporary artifacts (databases, rendered output, Blender installs).
+Provides Blender cache management, session-wide cleanup of
+temporary artifacts (databases, rendered output, Blender installs),
+and suppression of TLS warnings for the self-signed manager cert.
 """
 
 import logging
@@ -16,6 +17,12 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import urllib3
+
+# Suppress InsecureRequestWarning globally for the E2E test session.
+# The manager serves a self-signed TLS certificate, so every requests
+# call uses verify=False, which would otherwise emit a warning per call.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 

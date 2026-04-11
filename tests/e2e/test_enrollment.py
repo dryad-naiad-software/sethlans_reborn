@@ -48,7 +48,7 @@ class TestEnrollment:
         cls.worker_stderr = ""
 
         cls.port = find_free_port()
-        cls.base_url = f"http://127.0.0.1:{cls.port}"
+        cls.base_url = f"https://127.0.0.1:{cls.port}"
         cls.test_secrets = generate_secrets()
 
         # Get temp dirs from the e2e_temp_root fixture — but since
@@ -79,6 +79,7 @@ class TestEnrollment:
 
         # Create authenticated session.
         cls.session = requests.Session()
+        cls.session.verify = False
         admin_login(cls.session, cls.base_url, ADMIN_USERNAME, ADMIN_PASSWORD)
 
         # Start worker — it will enroll automatically.
@@ -169,6 +170,7 @@ class TestEnrollment:
             },
             headers={"X-Enrollment-Key": ""},
             timeout=10,
+            verify=False,
         )
         assert resp.status_code == 403, (
             f"Expected 403 for missing enrollment key, got {resp.status_code}"
@@ -186,6 +188,7 @@ class TestEnrollment:
             },
             headers={"X-Enrollment-Key": "completely-wrong-key"},
             timeout=10,
+            verify=False,
         )
         assert resp.status_code == 403, (
             f"Expected 403 for wrong enrollment key, got {resp.status_code}"
