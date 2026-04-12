@@ -153,6 +153,10 @@ def build_worker_env(
         "SETHLANS_WORKER_HEARTBEAT_INTERVAL": "5",
         "SETHLANS_WORKER_POLLING_INTERVAL": "3",
         "SETHLANS_WORKER_UI_ENABLED": "false",
+        # Disable idle detection so the worker claims jobs immediately
+        # regardless of host keyboard/mouse activity (e.g., active CI
+        # runners on artist workstations like macOS Apple Silicon).
+        "SETHLANS_IDLE_DETECTION_ENABLED": "false",
         "PYTHONDONTWRITEBYTECODE": "1",
     })
     # FR-28 exception list: SETHLANS_MANAGER_API_TOKEN,
