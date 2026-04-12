@@ -1,4 +1,9 @@
-name: Sethlans Reborn CI
+name: Sethlans Reborn CI (Self-Hosted)
+
+# GitHub-hosted Linux CI (unit, integration, lint) is handled by
+# docker-test.yml using containerized test images. This workflow
+# covers self-hosted GPU runners and macOS e2e tests that Docker
+# cannot provide (GPU passthrough, native macOS).
 
 on:
   push:
@@ -7,78 +12,7 @@ on:
     branches: [ "master" ]
 
 jobs:
-  # --- JOB 1: GitHub-Hosted Runners ---
-  build-and-test-github:
-    name: Test on ${{ matrix.os }} (Python ${{ matrix.python-version }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.12", "3.13"]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Install System Dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-6 libxxf86vm1 libxrender1 libxi6 libgl1
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r manager/requirements.txt -r worker/requirements.txt -r requirements-dev.txt
-      - name: Cache Managed Blender Tools
-        id: blender-cache
-        uses: actions/cache@v4
-        with:
-          path: worker/sethlans_worker_agent/managed_tools
-          key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('worker/sethlans_worker_agent/config.py') }}
-      - name: Lint with flake8
-        run: |
-          # Exclude common virtual environment directories, Blender managed tools, and node_modules from linting.
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv,managed_tools,node_modules
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv,managed_tools,node_modules
-      - name: Run Unit Tests
-        run: pytest tests/unit
-      - name: Run Integration Tests
-        run: pytest tests/integration
-      - name: Run End-to-End Tests (Windows & Linux)
-        if: runner.os != 'macOS'
-        run: pytest tests/e2e
-      - name: Run End-to-End Tests (macOS)
-        if: runner.os == 'macOS'
-        run: pytest tests/e2e
-      - name: Attempt to Unmount Any Lingering DMGs (macOS)
-        if: runner.os == 'macOS' && always()
-        run: |
-          echo "Attempting to detach any lingering BlenderMount volumes..."
-          hdiutil detach /Volumes/BlenderMount_* || echo "No lingering DMG mount found or detach failed."
-      - name: Upload Test Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-artifacts-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: |
-            manager/logs/manager.log
-            worker/sethlans_worker_agent/logs/worker.log
-            worker/sethlans_worker_agent/worker_output/
-            test_artifacts/
-            !**/*.blend
-          if-no-files-found: ignore
-
-  # --- JOB 2: Self-Hosted Linux GPU Runner ---
+  # --- Self-Hosted Linux GPU Runner ---
   build-and-test-self-hosted-linux:
     name: Test on Self-Hosted Linux GPU (Python ${{ matrix.python-version }})
     runs-on: [self-hosted, linux, x64, gpu]
@@ -86,7 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.13"]
-    # --- CHANGE: Set the environment variable for this job ---
     env:
       SETHLANS_SELF_HOSTED_RUNNER: "true"
     steps:
@@ -142,7 +75,7 @@ jobs:
             !**/*.blend
           if-no-files-found: ignore
 
-  # --- JOB 3: Self-Hosted Apple Silicon Mac Runner ---
+  # --- Self-Hosted Apple Silicon Mac Runner ---
   build-and-test-self-hosted-macos:
     name: Test on Self-Hosted Apple Silicon (Python ${{ matrix.python-version }})
     runs-on: [self-hosted, macos, arm64]
@@ -150,7 +83,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.13"]
-    # --- CHANGE: Set the environment variable for this job ---
     env:
       SETHLANS_SELF_HOSTED_RUNNER: "true"
     steps:
@@ -159,7 +91,6 @@ jobs:
       - name: Create and activate venv
         shell: bash
         run: |
-          # --- CHANGE ---
           # Add Homebrew's bin directory to the PATH to find pyenv on Apple Silicon.
           export PATH="/opt/homebrew/bin:$PATH"
           eval "$(pyenv init --path)"
