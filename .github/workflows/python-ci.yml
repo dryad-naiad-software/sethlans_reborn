@@ -61,7 +61,7 @@ jobs:
       - name: Run Integration Tests
         run: pytest tests/integration
       - name: Run End-to-End Tests
-        run: pytest tests/e2e
+        run: pytest tests/e2e -x
       - name: Upload Test Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -124,7 +124,7 @@ jobs:
       - name: Run Integration Tests
         run: pytest tests/integration
       - name: Run End-to-End Tests
-        run: pytest tests/e2e
+        run: pytest tests/e2e -x
       - name: Attempt to Unmount Any Lingering DMGs (macOS)
         if: always()
         run: |

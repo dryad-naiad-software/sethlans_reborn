@@ -138,7 +138,7 @@ jobs:
       - run: >
           docker run --rm -v ${{ github.workspace }}/results:/results
           sethlans-e2e:latest
-          pytest tests/e2e
+          pytest tests/e2e -x
           --junitxml=/results/e2e.xml
           --timeout=300
       - uses: actions/upload-artifact@v4
