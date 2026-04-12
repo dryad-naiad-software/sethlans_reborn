@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+FROM python:3.12-slim-bookworm
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22.x LTS for Angular dev server (pinned to minor version)
+COPY --from=node:22.14-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22.14-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+WORKDIR /app
+
+# Install Python deps (manager + worker + dev/test)
+COPY manager/requirements.txt /tmp/manager-requirements.txt
+COPY worker/requirements.txt /tmp/worker-requirements.txt
+COPY requirements-dev.txt /tmp/requirements-dev.txt
+RUN pip install --no-cache-dir \
+    -r /tmp/manager-requirements.txt \
+    -r /tmp/worker-requirements.txt \
+    -r /tmp/requirements-dev.txt
+
+# Install frontend dependencies (cached layer; source is bind-mounted at runtime)
+# At runtime, a named volume (frontend-node-modules) overlays this directory
+COPY manager/frontend/package.json manager/frontend/package-lock.json /app/frontend/
+RUN npm ci --prefix /app/frontend
+
+# Copy entrypoint script
+COPY deploy/docker/manager/dev-entrypoint.sh /usr/local/bin/dev-entrypoint.sh
+RUN chmod +x /usr/local/bin/dev-entrypoint.sh
+
+ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
+    SETHLANS_DB_NAME=/data/db.sqlite3 \
+    SETHLANS_MEDIA_ROOT=/data/media \
+    SETHLANS_TLS_DATA_DIR=/data/tls \
+    SETHLANS_SECURITY_DEBUG=true
+
+EXPOSE 8080 4200
+
+RUN mkdir -p /data
+
+ENTRYPOINT ["dev-entrypoint.sh"]

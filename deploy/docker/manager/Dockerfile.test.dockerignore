@@ -1,0 +1,15 @@
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.github/
+temp/
+development/
+*.sqlite3
+venv/
+.venv/
+node_modules/
+*.md
+!LICENSE

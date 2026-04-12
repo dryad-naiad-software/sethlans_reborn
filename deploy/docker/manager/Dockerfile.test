@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# NOTE: Requires deploy/docker/manager/Dockerfile.test.dockerignore to override
+# the repo-root .dockerignore (which excludes tests/ from the build context).
+FROM python:3.12-slim-bookworm
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install all Python deps (manager + worker + dev/test)
+COPY manager/requirements.txt /tmp/manager-requirements.txt
+COPY worker/requirements.txt /tmp/worker-requirements.txt
+COPY requirements-dev.txt /tmp/requirements-dev.txt
+RUN pip install --no-cache-dir \
+    -r /tmp/manager-requirements.txt \
+    -r /tmp/worker-requirements.txt \
+    -r /tmp/requirements-dev.txt
+
+# Copy application source and tests
+COPY manager/ /app/manager/
+COPY worker/ /app/worker/
+COPY tests/ /app/tests/
+COPY pytest.ini /app/pytest.ini
+
+ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
+    SETHLANS_SECURITY_DEBUG=true \
+    SETHLANS_SECURITY_SECRET_KEY=test-only-not-for-production \
+    PYTHONPATH=/app/manager:/app/worker
+
+RUN mkdir -p /results
+
+CMD ["pytest", "tests/unit", "--junitxml=/results/unit.xml"]

@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# -----------------------------------------------------------------------
+# Development compose override.
+# Usage:
+#   docker compose -f deploy/docker/docker-compose.yml \
+#                  -f deploy/docker/docker-compose.dev.yml up --build
+#
+# Or via the convenience script:
+#   ./tools/docker-dev.sh up
+#
+# Run Django management commands inside the running manager container:
+#   docker compose -f deploy/docker/docker-compose.yml \
+#                  -f deploy/docker/docker-compose.dev.yml \
+#                  exec manager python manage.py <command>
+# -----------------------------------------------------------------------
+
+services:
+  manager:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/manager/Dockerfile.dev
+    init: true
+    ports:
+      - "8080:8080"
+      - "4200:4200"
+    volumes:
+      - ../../manager:/app
+      - frontend-node-modules:/app/frontend/node_modules
+      - dev-db:/data
+    environment:
+      - SETHLANS_SECURITY_DEBUG=true
+      - SETHLANS_SECURITY_SECRET_KEY=dev-insecure-key-for-local-development-only
+    command: []
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://localhost:8080/api/health/"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  worker:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/worker-cpu/Dockerfile
+    volumes:
+      - ../../worker:/app
+      - dev-worker-data:/data
+    environment:
+      - SETHLANS_MANAGER_HOST=manager
+      - SETHLANS_MANAGER_PORT=8080
+
+volumes:
+  dev-db:
+  dev-worker-data:
+  frontend-node-modules:
