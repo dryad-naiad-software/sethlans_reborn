@@ -68,6 +68,7 @@ jobs:
       - run: >
           docker run --rm sethlans-test:latest
           flake8 --max-line-length 127 --max-complexity 10
+          --exclude=migrations,node_modules,managed_tools
           manager/ worker/ tests/
 
   unit-tests:

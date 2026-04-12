@@ -20,10 +20,11 @@ RUN pip install --no-cache-dir \
     -r /tmp/worker-requirements.txt \
     -r /tmp/requirements-dev.txt
 
-# Copy application source and tests
+# Copy application source, tests, and tools
 COPY manager/ /app/manager/
 COPY worker/ /app/worker/
 COPY tests/ /app/tests/
+COPY tools/ /app/tools/
 COPY pytest.ini /app/pytest.ini
 
 ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
