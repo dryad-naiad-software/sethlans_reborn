@@ -147,7 +147,7 @@ class TestRobustness:
             json={
                 "name": name,
                 "asset_id": self.asset_id,
-                "output_file_pattern": f"renders/{name}_####",
+                "output_file_pattern": f"renders/{name}_####.png",
                 "start_frame": 1,
                 "end_frame": 1,
                 "render_engine": "CYCLES",
@@ -223,7 +223,7 @@ class TestRobustness:
             json={
                 "name": "Paused Job",
                 "asset_id": paused_asset_id,
-                "output_file_pattern": "renders/paused_####",
+                "output_file_pattern": "renders/paused_####.png",
                 "start_frame": 1,
                 "end_frame": 1,
                 "render_engine": "CYCLES",

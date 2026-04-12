@@ -165,7 +165,7 @@ class TestCoreWorkflows:
             json={
                 "name": "E2E Single Frame CPU",
                 "asset_id": self.scene_asset_id,
-                "output_file_pattern": "renders/single_####",
+                "output_file_pattern": "renders/single_####.png",
                 "start_frame": 1,
                 "end_frame": 1,
                 "render_engine": "CYCLES",
@@ -204,7 +204,7 @@ class TestCoreWorkflows:
                 "name": "E2E Animation",
                 "project": self.project_id,
                 "asset_id": self.animation_asset_id,
-                "output_file_pattern": "renders/anim_####",
+                "output_file_pattern": "renders/anim_####.png",
                 "start_frame": 1,
                 "end_frame": 3,
                 "frame_step": 1,
