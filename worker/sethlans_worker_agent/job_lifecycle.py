@@ -104,6 +104,7 @@ def process_claimed_job(job_data: Dict[str, Any]):
     Integrates YieldMonitor for idle detection yield handling.
     """
     job_id = job_data.get('id')
+    logger.info("Render thread started for job %s", job_id)
     try:
         _process_claimed_job_inner(job_data)
     except Exception:

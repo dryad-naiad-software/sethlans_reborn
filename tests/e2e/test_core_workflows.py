@@ -168,19 +168,19 @@ class TestCoreWorkflows:
                 if stdout:
                     logger.error(
                         "--- WORKER STDOUT (last 3000 chars) ---\n%s",
-                        stdout[-3000:],
+                        stdout[-8000:],
                     )
                 if stderr:
                     logger.error(
                         "--- WORKER STDERR (last 3000 chars) ---\n%s",
-                        stderr[-3000:],
+                        stderr[-8000:],
                     )
             if self.manager_proc and self.manager_proc.poll() is None:
                 stdout, stderr = peek_log_files(self.manager_proc)
                 if stderr:
                     logger.error(
                         "--- MANAGER STDERR (last 3000 chars) ---\n%s",
-                        stderr[-3000:],
+                        stderr[-8000:],
                     )
 
     def test_single_frame_cpu_render(self):
