@@ -99,7 +99,7 @@ def sleeping_blender_stub(sleep_seconds: float):
 
     def _stub(job_data, assigned_gpu_index=None, **kwargs):
         time.sleep(sleep_seconds)
-        return (True, False, '', '', '', None, None)
+        return (True, False, False, '', '', '', None, None, None, None)
 
     return _stub
 
