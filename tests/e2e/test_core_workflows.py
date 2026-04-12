@@ -161,27 +161,30 @@ class TestCoreWorkflows:
 
     def teardown_method(self, method):
         """Dump worker and manager logs on test failure for CI debugging."""
-        if hasattr(self, '_outcome') or True:
-            # Always dump logs — pytest -x means we're about to stop anyway
-            if self.worker_proc and self.worker_proc.poll() is None:
-                stdout, stderr = peek_log_files(self.worker_proc)
-                if stdout:
+        if self.worker_proc and self.worker_proc.poll() is None:
+            stdout, stderr = peek_log_files(self.worker_proc)
+            if stdout:
+                logger.error(
+                    "--- WORKER STDOUT (first 8000 chars) ---\n%s",
+                    stdout[:8000],
+                )
+                if len(stdout) > 16000:
                     logger.error(
-                        "--- WORKER STDOUT (last 3000 chars) ---\n%s",
+                        "--- WORKER STDOUT (last 8000 chars) ---\n%s",
                         stdout[-8000:],
                     )
-                if stderr:
-                    logger.error(
-                        "--- WORKER STDERR (last 3000 chars) ---\n%s",
-                        stderr[-8000:],
-                    )
-            if self.manager_proc and self.manager_proc.poll() is None:
-                stdout, stderr = peek_log_files(self.manager_proc)
-                if stderr:
-                    logger.error(
-                        "--- MANAGER STDERR (last 3000 chars) ---\n%s",
-                        stderr[-8000:],
-                    )
+            if stderr:
+                logger.error(
+                    "--- WORKER STDERR (first 4000 chars) ---\n%s",
+                    stderr[:4000],
+                )
+        if self.manager_proc and self.manager_proc.poll() is None:
+            stdout, stderr = peek_log_files(self.manager_proc)
+            if stderr:
+                logger.error(
+                    "--- MANAGER STDERR (last 4000 chars) ---\n%s",
+                    stderr[-4000:],
+                )
 
     def test_single_frame_cpu_render(self):
         """Submit a single-frame CPU job and verify rendered output."""
