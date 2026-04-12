@@ -162,7 +162,7 @@ class TestLockOrdering:
 
         mocker.patch(
             'sethlans_worker_agent.blender_executor.execute_blender_job',
-            return_value=(True, False, 'Time: 1.23s', '', None, None, None),
+            return_value=(True, False, False, 'Time: 1.23s', '', None, None, None, None, 'aborted'),
         )
         mocker.patch(
             'sethlans_worker_agent.api_handler.update_job_status'
@@ -196,7 +196,7 @@ class TestLockOrdering:
         )
         mocker.patch(
             'sethlans_worker_agent.blender_executor.execute_blender_job',
-            return_value=(True, False, 'Time: 0.5s', '', None, None, None),
+            return_value=(True, False, False, 'Time: 0.5s', '', None, None, None, None, 'aborted'),
         )
         mocker.patch(
             'sethlans_worker_agent.api_handler.update_job_status'

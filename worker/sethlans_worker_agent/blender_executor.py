@@ -19,6 +19,9 @@ from typing import Optional
 import psutil
 
 from sethlans_worker_agent import config, asset_manager, system_monitor, api_handler
+from sethlans_worker_agent.blender_yield import (
+    terminate_process_tree, handle_yield,
+)
 from sethlans_worker_agent.format_utils import get_format_and_extension, EXR_HDR_FORMATS
 from sethlans_worker_agent.render_script import generate_render_config_script
 from sethlans_worker_agent.tool_manager import tool_manager_instance
@@ -39,10 +42,7 @@ def get_last_output_line(job_id):
 
 
 def _stream_reader(stream, output_list, job_id=None):
-    """
-    Read a subprocess stream line by line into a list.
-    Optionally updates the shared _last_output_lines dict for live status.
-    """
+    """Read a subprocess stream line by line into a list."""
     try:
         for line in iter(stream.readline, ''):
             output_list.append(line)
@@ -53,18 +53,26 @@ def _stream_reader(stream, output_list, job_id=None):
         stream.close()
 
 
-def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
-    """
-    Execute a Blender render job as a subprocess.
+def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # noqa: C901
+                        yield_monitor_factory=None,
+                        manual_stop_event=None,
+                        shutdown_event=None):
+    """Execute a Blender render job as a subprocess.
 
-    Returns (success, was_canceled, stdout, stderr, error_msg, output_path, thumbnail_path).
-    The thumbnail_path is set only for EXR/HDR jobs with a successful thumbnail pass.
+    Args:
+        yield_monitor_factory: Optional callable(blender_pid) that creates
+            and starts a YieldMonitor. Called after the subprocess launches.
+
+    Returns (success, was_canceled, was_yielded, stdout, stderr,
+             error_msg, output_path, thumbnail_path, yield_monitor,
+             grace_outcome).
     """
     job_id = job_data.get('id')
     job_name = job_data.get('name', 'Unnamed Job')
     render_device = job_data.get('render_device', 'CPU')
 
-    logger.info(f"[Job {job_id}] Received job '{job_name}'. Job execution started at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
+    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    logger.info(f"[Job {job_id}] Received '{job_name}'. Started at {now_utc}.")
 
     gpu_idx = assigned_gpu_index
     if gpu_idx is None and config.FORCE_GPU_INDEX is not None:
@@ -157,83 +165,76 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
     logger.info(f"Running Command: {' '.join(command)}")
     process = None
-    was_canceled, stdout_lines, stderr_lines, error_message = False, [], [], ""
+    was_canceled, was_yielded = False, False
+    grace_outcome = "aborted"
+    stdout_lines, stderr_lines, error_message = [], [], ""
     final_return_code = -1
+    yield_monitor = None
 
     try:
-        popen_kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "encoding": 'utf-8',
-                        "errors": 'surrogateescape', "cwd": config.WORKER_ROOT}
+        popen_kwargs = {
+            "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+            "encoding": 'utf-8', "errors": 'surrogateescape',
+            "cwd": config.WORKER_ROOT,
+        }
         if platform.system() == "Windows":
             popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        logger.info(f"[Job {job_id}] Blender subprocess starting at {datetime.datetime.now(datetime.timezone.utc).isoformat()}...")
+        logger.info(f"[Job {job_id}] Blender subprocess starting...")
         process = subprocess.Popen(command, **popen_kwargs)
         logger.info(f"Blender subprocess launched with PID: {process.pid}")
 
-        stdout_thread = threading.Thread(target=_stream_reader, args=(process.stdout, stdout_lines, job_id), daemon=True)
-        stderr_thread = threading.Thread(target=_stream_reader, args=(process.stderr, stderr_lines), daemon=True)
+        # Start yield monitor now that we have the PID
+        if yield_monitor_factory is not None:
+            yield_monitor = yield_monitor_factory(process.pid)
+        yield_event = (
+            yield_monitor.yield_event if yield_monitor else None
+        )
+
+        stdout_thread = threading.Thread(
+            target=_stream_reader, args=(process.stdout, stdout_lines, job_id), daemon=True)
+        stderr_thread = threading.Thread(
+            target=_stream_reader, args=(process.stderr, stderr_lines), daemon=True)
         stdout_thread.start()
         stderr_thread.start()
 
         while process.poll() is None:
-            logger.debug(f"Polling subprocess... still running. Checking for cancellation signal.")
+            # Cancellation check
             try:
                 if api_handler.get_job_status(job_id) == 'CANCELED':
-                    logger.warning(f"Cancellation signal for job ID {job_id} received. Terminating process tree.")
-                    try:
-                        parent = psutil.Process(process.pid)
-                        children = parent.children(recursive=True)
-                        # Step 1: Send SIGTERM to allow graceful shutdown
-                        for child in children:
-                            try:
-                                child.terminate()
-                            except psutil.NoSuchProcess:
-                                pass
-                        try:
-                            parent.terminate()
-                        except psutil.NoSuchProcess:
-                            pass
-                        logger.info(f"[Job {job_id}] Sent SIGTERM to process tree. Waiting up to 5s for graceful exit.")
-                        # Step 2: Wait for processes to exit gracefully
-                        _, alive = psutil.wait_procs(children + [parent], timeout=5)
-                        # Step 3: Force-kill any survivors
-                        if alive:
-                            logger.warning(
-                                f"[Job {job_id}] {len(alive)} process(es) did not exit after SIGTERM. Escalating to SIGKILL."
-                            )
-                            for p in alive:
-                                try:
-                                    p.kill()
-                                except psutil.NoSuchProcess:
-                                    pass
-                            logger.info(f"[Job {job_id}] Sent SIGKILL to remaining processes.")
-                        else:
-                            logger.info(f"[Job {job_id}] All processes exited gracefully after SIGTERM.")
-                    except psutil.NoSuchProcess:
-                        logger.info(f"[Job {job_id}] Process already exited before termination signal.")
+                    logger.warning(f"[Job {job_id}] Cancellation received.")
+                    terminate_process_tree(process.pid, job_id)
                     was_canceled = True
                     break
             except psutil.NoSuchProcess:
                 if not psutil.pid_exists(process.pid):
                     break
+
+            # Yield event check (FR-6)
+            if yield_event is not None and yield_event.is_set():
+                was_yielded, grace_outcome = handle_yield(
+                    process, job_id, render_engine, yield_monitor,
+                    manual_stop_event, shutdown_event,
+                )
+                break
+
             time.sleep(2)
 
-        stdout_thread.join(timeout=10)
-        if stdout_thread.is_alive():
-            logger.warning(f"[Job {job_id}] stdout reader thread did not finish within 10s timeout.")
-        stderr_thread.join(timeout=10)
-        if stderr_thread.is_alive():
-            logger.warning(f"[Job {job_id}] stderr reader thread did not finish within 10s timeout.")
-        logger.info(f"[Job {job_id}] Blender subprocess finished at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
+        for t in (stdout_thread, stderr_thread):
+            t.join(timeout=10)
+        logger.info(f"[Job {job_id}] Blender subprocess finished.")
 
         final_return_code = process.wait()
-        logger.info(f"Blender subprocess finished with exit code: {final_return_code}")
+        logger.info(f"Blender exit code: {final_return_code}")
 
     except Exception as e:
-        error_message = f"An unexpected error occurred during Blender execution: {e}"
+        error_message = f"Unexpected error during Blender execution: {e}"
         logger.critical(error_message, exc_info=True)
         final_return_code = -1
     finally:
+        # Stop the yield monitor thread (must be in finally)
+        if yield_monitor is not None:
+            yield_monitor.stop()
         # Clean up live output tracking for this job
         with _output_lock:
             _last_output_lines.pop(job_id, None)
@@ -253,33 +254,39 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None):
 
         if was_canceled:
             error_message = "Job was canceled by user request."
+        elif was_yielded and grace_outcome == "finished":
+            # Frame completed during grace period -- treat as success
+            logger.info("Render completed during yield grace period.")
+            success = True
+            if start_frame == end_frame:
+                final_output_path = resolved_output_pattern.replace(
+                    "####", f"{start_frame:04d}")
+        elif was_yielded:
+            error_message = "Job yielded to artist."
         elif final_return_code == 0:
             logger.info("Render command completed successfully.")
             success = True
             if start_frame == end_frame:
-                final_output_path = resolved_output_pattern.replace("####", f"{start_frame:04d}")
+                final_output_path = resolved_output_pattern.replace(
+                    "####", f"{start_frame:04d}")
         elif not error_message:
-            error_details = stderr_output.strip()[:500] if stderr_output.strip() else "No STDERR output."
-            error_message = f"Blender exited with code {final_return_code}. Details: {error_details}"
+            error_details = stderr_output.strip()[:500] or "No STDERR."
+            error_message = (
+                f"Blender exited with code {final_return_code}. "
+                f"Details: {error_details}"
+            )
 
-        # EXR/HDR thumbnail render pass (best effort).
-        # Runs before version release so the Blender install is still present.
         if success and blender_format in EXR_HDR_FORMATS and start_frame == end_frame:
             from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail
             thumbnail_path = render_exr_hdr_thumbnail(
                 job_data, blender_to_use, local_blend_file_path,
-                start_frame, resolved_output_pattern, assigned_gpu_index
-            )
+                start_frame, resolved_output_pattern, assigned_gpu_index)
     finally:
-        # Release the version reference count so cleanup can proceed.
         tool_manager_instance.release_version(resolved_version)
 
-    logger.info(f"[Job {job_id}] Job execution finished at {datetime.datetime.now(datetime.timezone.utc).isoformat()}.")
-    if success:
-        logger.info(f"[Job {job_id}] Result: SUCCESS. Output file: {final_output_path}")
-    elif was_canceled:
-        logger.info(f"[Job {job_id}] Result: CANCELED.")
-    else:
-        logger.error(f"[Job {job_id}] Result: FAILED. Error: {error_message}")
+    logger.info(f"[Job {job_id}] Result: "
+                f"{'SUCCESS' if success else 'YIELDED' if was_yielded else 'CANCELED' if was_canceled else 'FAILED'}")
 
-    return success, was_canceled, stdout_output, stderr_output, error_message, final_output_path, thumbnail_path
+    return (success, was_canceled, was_yielded, stdout_output,
+            stderr_output, error_message, final_output_path,
+            thumbnail_path, yield_monitor, grace_outcome)

@@ -2,17 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-The main entry point for the Sethlans Reborn Worker Agent.
+Main entry point for the Sethlans Reborn Worker Agent.
 
-This script initializes the worker, handles command-line arguments, and
-enters a loop to perform its core duties:
-1. Registering with the central manager.
-2. Sending periodic heartbeats to maintain a live connection.
-3. Polling the manager for new render jobs.
-4. Claiming and executing available jobs.
-
-The agent supports graceful shutdown via SIGINT (Ctrl+C) or SIGTERM,
-waiting for active job threads to finish before exiting.
+Registers with the manager, sends heartbeats, polls for jobs, and
+dispatches render threads. Supports graceful shutdown via signals.
 """
 
 import argparse
@@ -90,23 +83,14 @@ def _prune_finished_threads():
 
 
 def _shutdown_handler(signum, frame):
-    """
-    Signal handler for SIGINT and SIGTERM.
-
-    Sets the shutdown event to stop the main loop from polling for new
-    jobs. The main loop is responsible for joining active threads.
-    """
+    """Signal handler for SIGINT/SIGTERM. Sets shutdown event."""
     sig_name = signal.Signals(signum).name
     logger.info(f"Received {sig_name}. Initiating graceful shutdown...")
     _shutdown_event.set()
 
 
 def _wait_for_active_threads():
-    """
-    Wait for all active job threads to complete, up to the timeout.
-
-    Logs which threads finished and which timed out.
-    """
+    """Wait for active job threads to complete, up to the timeout."""
     with _active_threads_lock:
         threads_to_join = list(_active_threads)
 
@@ -140,16 +124,28 @@ def _should_skip_polling():
     if not system_monitor.are_versions_ready():
         logger.warning("No required Blender versions installed yet. Skipping job poll.")
         return config.HEARTBEAT_INTERVAL_SECONDS
+
+    # Schedule gate (FR-8): check if we are inside the claim window.
+    from sethlans_worker_agent.idle_detection import schedule
+    window_cfg = config.get_schedule_config()
+    if not schedule.is_inside_claim_window(window_cfg):
+        logger.debug("Outside claim window. Skipping job poll.")
+        return config.JOB_POLLING_INTERVAL_SECONDS
+
+    # Idle gate (FR-1, FR-2): check if the machine is idle.
+    from sethlans_worker_agent.idle_detection import is_idle
+    overrides = window_cfg.get('overrides_idle_detection', False)
+    in_window = schedule.is_inside_claim_window(window_cfg)
+    skip_idle = overrides and in_window
+    if not skip_idle and not is_idle():
+        logger.debug("Machine is not idle. Skipping job poll.")
+        return config.JOB_POLLING_INTERVAL_SECONDS
+
     return None
 
 
 def _try_register_worker():
-    """Attempt registration. Returns the worker ID on success, else None.
-
-    On success, also initializes the WorkerCapacity gate (FR-1) and
-    starts the web UI server. The caller is responsible for sleeping
-    on failure.
-    """
+    """Attempt registration. Returns the worker ID on success, else None."""
     logger.warning("Worker not registered with Manager. Attempting registration...")
     new_id = system_monitor.register_with_manager()
     if not new_id:
@@ -244,6 +240,13 @@ def main():
     signal.signal(signal.SIGTERM, _shutdown_handler)
 
     logger.info("Sethlans Reborn Worker Agent Starting...")
+
+    # Start Windows session unlock monitor (FR-4c).
+    # No-op on non-Windows platforms.
+    from sethlans_worker_agent.idle_detection.session_win32 import (
+        start_session_monitor,
+    )
+    start_session_monitor()
 
     # First-run enrollment wizard runs on the MAIN THREAD before any
     # background threads are spawned (FR-23 single-threaded invariant).

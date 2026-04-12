@@ -11,6 +11,7 @@ from .workers import WorkerSerializer
 from .assets import AssetSerializer
 from .animations import AnimationSerializer, AnimationFrameSerializer
 from .jobs import JobSerializer, TiledJobSerializer, VALID_STATUS_TRANSITIONS
+from .yield_events import WorkerYieldEventSerializer
 
 __all__ = [
     "SupportedBlenderVersionSerializer",
@@ -23,4 +24,5 @@ __all__ = [
     "JobSerializer",
     "TiledJobSerializer",
     "VALID_STATUS_TRANSITIONS",
+    "WorkerYieldEventSerializer",
 ]

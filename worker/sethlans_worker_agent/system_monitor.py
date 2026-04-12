@@ -167,6 +167,11 @@ def send_heartbeat(is_busy=False, active_jobs=None):
     payload['ui_url'] = _get_ui_url()
     payload['status'] = 'RENDERING' if is_busy else 'IDLE'
 
+    # Include schedule config in heartbeat (FR-10a).
+    schedule_cfg = config.get_schedule_config()
+    if schedule_cfg:
+        payload['schedule'] = schedule_cfg
+
     response_data = api_handler.send_authenticated_heartbeat(payload)
     if response_data:
         ready = _process_heartbeat_versions(

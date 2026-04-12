@@ -33,6 +33,14 @@ class Worker(models.Model):
         choices=WorkerStatus.choices,
         default=WorkerStatus.OFFLINE,
     )
+    schedule_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Informational: worker's local claim_window schedule, "
+            "reported via heartbeat."
+        ),
+    )
 
     def has_blender_version(self, version_str):
         """Check if this worker has a specific Blender version installed."""

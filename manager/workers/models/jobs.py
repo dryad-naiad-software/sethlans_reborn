@@ -137,6 +137,14 @@ class Job(models.Model):
         default=0,
         help_text="Number of times this job has been auto-requeued by stuck job detection.",
     )
+    yield_requeue_count = models.IntegerField(
+        default=0,
+        help_text=(
+            "Number of times this job has been yield-requeued "
+            "(artist return). Separate from auto_requeue_count "
+            "(stuck job detection)."
+        ),
+    )
     output_file = models.FileField(upload_to=job_output_upload_path, null=True, blank=True, help_text="The final rendered output file uploaded by the worker.", max_length=512)
     thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the final render.", max_length=512)
 

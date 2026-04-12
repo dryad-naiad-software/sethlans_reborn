@@ -196,3 +196,26 @@ CONTAINER_CONTENT_TYPES = {
 
 # Image formats compatible with video assembly (excludes HDR formats).
 VIDEO_COMPATIBLE_FORMATS = frozenset({'PNG', 'JPEG', 'TIFF', 'BMP', 'TARGA'})
+
+
+class YieldReason(models.TextChoices):
+    """Reasons a worker yielded a render job."""
+    ARTIST_RETURN_GPU_CONTENTION = (
+        'artist_return_gpu_contention', 'Artist Return (GPU Contention)')
+    ARTIST_RETURN_APP_LAUNCH = (
+        'artist_return_app_launch', 'Artist Return (App Launch)')
+    ARTIST_RETURN_SESSION_UNLOCK = (
+        'artist_return_session_unlock', 'Artist Return (Session Unlock)')
+    ARTIST_RETURN_SUSTAINED_ACTIVITY = (
+        'artist_return_sustained_activity',
+        'Artist Return (Sustained Activity)')
+    MANUAL_OVERRIDE = (
+        'manual_override', 'Manual Override')
+    SCHEDULE_WINDOW_CLOSED = (
+        'schedule_window_closed', 'Schedule Window Closed')
+
+
+class GraceOutcome(models.TextChoices):
+    """Outcome of the grace period after a yield trigger."""
+    FINISHED = 'finished', 'Finished'
+    ABORTED = 'aborted', 'Aborted'

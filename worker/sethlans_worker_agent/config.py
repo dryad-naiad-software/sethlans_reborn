@@ -152,12 +152,7 @@ FORCE_GPU_ONLY = os.getenv('SETHLANS_FORCE_GPU_ONLY', 'false').lower() == 'true'
 # Allow specifying a single GPU index for all jobs on this worker
 FORCE_GPU_INDEX = os.getenv('SETHLANS_FORCE_GPU_INDEX')
 
-# --- GPU Mode ---
-# "split" (default):  N physical GPUs -> N parallel GPU slots.
-# "combined":         N physical GPUs -> 1 GPU slot; a single Blender
-#                     invocation enables every non-CPU device. Trades
-#                     parallelism for per-frame speed on non-tileable
-#                     workloads. Incompatible with FORCE_GPU_INDEX.
+# GPU Mode: "split" (N GPUs -> N slots) or "combined" (N GPUs -> 1 slot).
 _VALID_GPU_MODES = {'split', 'combined'}
 _raw_gpu_mode = os.getenv('SETHLANS_GPU_MODE', 'split').strip().lower()
 if _raw_gpu_mode not in _VALID_GPU_MODES:
@@ -209,6 +204,28 @@ UI_PASSWORD_HASH = get_config_value('worker', 'ui_password_hash', '')
 UI_PASSWORD_SALT = get_config_value('worker', 'ui_password_salt', '')
 
 
+# --- Idle Detection & Scheduling Configuration (FR-1 through FR-8) ---
+from sethlans_worker_agent.config_idle import (  # noqa: E402
+    load_idle_config, load_schedule_config, get_schedule_config_live,
+)
+
+_idle_cfg = load_idle_config(get_config_value, _validate_int)
+IDLE_DETECTION_ENABLED = _idle_cfg['IDLE_DETECTION_ENABLED']
+IDLE_THRESHOLD_SECONDS = _idle_cfg['IDLE_THRESHOLD_SECONDS']
+IDLE_GPU_UTILIZATION_THRESHOLD = _idle_cfg['IDLE_GPU_UTILIZATION_THRESHOLD']
+IDLE_CPU_UTILIZATION_THRESHOLD = _idle_cfg['IDLE_CPU_UTILIZATION_THRESHOLD']
+IDLE_SLOW_PATH_THRESHOLD_SECONDS = _idle_cfg['IDLE_SLOW_PATH_THRESHOLD_SECONDS']
+IDLE_GRACE_PERIOD_CAP_SECONDS = _idle_cfg['IDLE_GRACE_PERIOD_CAP_SECONDS']
+IDLE_CREATIVE_APP_NAMES = _idle_cfg['IDLE_CREATIVE_APP_NAMES']
+
+_INITIAL_SCHEDULE = load_schedule_config(_json_config)
+
+
+def get_schedule_config():
+    """Return the claim_window config, re-reading from the store."""
+    return get_schedule_config_live(config_store)
+
+
 # --- Worker Agent Paths ---
 # The root directory of the worker agent module (used only for legacy
 # fallbacks and for locating the bundled detect_gpus.py script).
@@ -250,36 +267,24 @@ BLENDER_MIRROR_BASE_URLS = [
 BLENDER_VERSIONS_CACHE_FILE = MANAGED_TOOLS_DIR / 'blender_versions_cache.json'
 
 
-# --- Platform and Architecture-specific Blender Download/Executable Mappings ---
 # Keyed by (platform.system(), platform.machine().lower()).
+_W = {'download_ext': '.zip', 'executable_path_in_folder': 'blender.exe'}
+_L = {'download_ext': '.tar.xz', 'executable_path_in_folder': 'blender'}
+_M = {'download_ext': '.dmg', 'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'}
 PLATFORM_BLENDER_MAP = {
-    ('Windows', 'amd64'): {
-        'download_suffix': 'windows-x64', 'download_ext': '.zip',
-        'executable_path_in_folder': 'blender.exe'},
-    ('Windows', 'arm64'): {
-        'download_suffix': 'windows-arm64', 'download_ext': '.zip',
-        'executable_path_in_folder': 'blender.exe'},
-    ('Linux', 'x86_64'): {
-        'download_suffix': 'linux-x64', 'download_ext': '.tar.xz',
-        'executable_path_in_folder': 'blender'},
-    ('Linux', 'aarch64'): {
-        'download_suffix': 'linux-arm64', 'download_ext': '.tar.xz',
-        'executable_path_in_folder': 'blender'},
-    ('Darwin', 'x86_64'): {
-        'download_suffix': 'macos-x64', 'download_ext': '.dmg',
-        'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'},
-    ('Darwin', 'arm64'): {
-        'download_suffix': 'macos-arm64', 'download_ext': '.dmg',
-        'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'},
+    ('Windows', 'amd64'): {**_W, 'download_suffix': 'windows-x64'},
+    ('Windows', 'arm64'): {**_W, 'download_suffix': 'windows-arm64'},
+    ('Linux', 'x86_64'): {**_L, 'download_suffix': 'linux-x64'},
+    ('Linux', 'aarch64'): {**_L, 'download_suffix': 'linux-arm64'},
+    ('Darwin', 'x86_64'): {**_M, 'download_suffix': 'macos-x64'},
+    ('Darwin', 'arm64'): {**_M, 'download_suffix': 'macos-arm64'},
 }
 
-# The specific details for the current platform and architecture.
-CURRENT_PLATFORM_BLENDER_DETAILS = PLATFORM_BLENDER_MAP.get((platform.system(), platform.machine().lower()))
+CURRENT_PLATFORM_BLENDER_DETAILS = PLATFORM_BLENDER_MAP.get(
+    (platform.system(), platform.machine().lower()))
 if not CURRENT_PLATFORM_BLENDER_DETAILS:
-    print(
-        f"[WARNING] Unsupported OS/Architecture for Blender management: "
-        f"({platform.system()}, {platform.machine().lower()}). "
-        f"Auto-download may not work.")
+    print(f"[WARNING] Unsupported OS/Arch for Blender: "
+          f"({platform.system()}, {platform.machine().lower()}).")
 
 
 def configure_worker_logging(log_level_str="INFO"):

@@ -37,6 +37,7 @@ from ..serializers import WorkerSerializer
 from ._helpers import get_or_create_worker_user
 from .stuck_jobs import requeue_stuck_jobs
 from .token_actions import WorkerTokenActionsMixin
+from .yield_actions import WorkerYieldActionsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,11 @@ def _sanitize_cpu_name(cpu_name):
     list=extend_schema(tags=['Worker Agent']),
     create=extend_schema(tags=['Worker Agent']),
 )
-class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
+class WorkerHeartbeatViewSet(
+    WorkerYieldActionsMixin,
+    WorkerTokenActionsMixin,
+    viewsets.ViewSet,
+):
     """Worker heartbeats and admin token management.
 
     Token authentication is required for every action — the enrollment
@@ -212,6 +217,27 @@ class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
                 request.data['available_tools'],
             )
             update_fields.extend(['available_tools', 'gpu_name'])
+
+        schedule_data = request.data.get('schedule')
+        if schedule_data is not None:
+            if isinstance(schedule_data, dict):
+                recognized_keys = {
+                    'enabled', 'days', 'start', 'end',
+                    'timezone', 'overrides_idle_detection',
+                }
+                cleaned = {
+                    k: v for k, v in schedule_data.items()
+                    if k in recognized_keys
+                }
+                worker.schedule_config = cleaned
+                update_fields.append('schedule_config')
+            else:
+                logger.warning(
+                    "Ignoring non-dict schedule payload from "
+                    "worker %s",
+                    hostname,
+                )
+
         worker.save(update_fields=update_fields)
         logger.debug("Worker heartbeat. Hostname: %s", hostname)
         requeue_stuck_jobs()

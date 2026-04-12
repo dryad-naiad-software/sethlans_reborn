@@ -59,3 +59,35 @@ ui_bind_address = 0.0.0.0
 # Do NOT edit these manually. To reset, delete both lines and restart.
 ui_password_hash =
 ui_password_salt =
+
+[idle_detection]
+# Enable idle detection. Set to false to disable (always claim jobs).
+# Automatically false on headless/Docker hosts.
+# enabled = true
+# Seconds of keyboard/mouse inactivity before the machine is considered idle.
+# idle_threshold_seconds = 900
+# GPU utilization threshold (percent). If any GPU is above this, do not claim.
+# gpu_utilization_threshold = 20
+# CPU utilization threshold (percent). Rolling 3-sample average.
+# cpu_utilization_threshold = 70
+# Seconds of sustained input activity (while rendering) before yield fires.
+# slow_path_threshold_seconds = 90
+# Maximum seconds to wait for a render to finish after yield triggers.
+# grace_period_cap_seconds = 120
+# Creative app names for yield detection (comma-separated).
+# Only [a-zA-Z0-9._-] characters allowed per entry.
+# creative_app_names = blender,maya,houdini,nuke,premiere,afterfx,resolve,cinema4d,modo
+
+[scheduling]
+# Claim window: restrict job claiming to specific time windows.
+# enabled = false
+# Days of the week (comma-separated, 3-letter lowercase abbreviations).
+# days = mon,tue,wed,thu,fri
+# Start time (HH:MM, 24-hour format). Cross-midnight supported.
+# start = 18:00
+# End time (HH:MM, 24-hour format).
+# end = 07:00
+# Timezone: "local" for system local, or IANA name (e.g., America/Los_Angeles).
+# timezone = local
+# When true and inside the window, skip idle detection checks.
+# overrides_idle_detection = false

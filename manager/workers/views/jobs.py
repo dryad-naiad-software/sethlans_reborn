@@ -22,6 +22,7 @@ from ..permissions import IsAdmin, IsWorker
 from ..serializers import JobSerializer
 from .job_pause_actions import JobPauseActionsMixin
 from .job_worker_actions import JobWorkerActionsMixin
+from .job_yield_actions import JobYieldActionsMixin
 
 VERSION_REGEX = re.compile(r'^\d+\.\d+\.\d+$')
 MAX_AVAILABLE_VERSIONS = 20
@@ -69,8 +70,14 @@ _LIST_PARAMETERS = [
     unpause=extend_schema(tags=['Management UI']),
     claim=extend_schema(tags=['Worker Agent']),
     upload_output=extend_schema(tags=['Worker Agent']),
+    yield_requeue=extend_schema(tags=['Worker Agent']),
 )
-class JobViewSet(JobPauseActionsMixin, JobWorkerActionsMixin, viewsets.ModelViewSet):
+class JobViewSet(
+    JobYieldActionsMixin,
+    JobPauseActionsMixin,
+    JobWorkerActionsMixin,
+    viewsets.ModelViewSet,
+):
     """
     API endpoint that allows render jobs to be viewed or created.
 
@@ -85,7 +92,7 @@ class JobViewSet(JobPauseActionsMixin, JobWorkerActionsMixin, viewsets.ModelView
     ordering_fields = ['submitted_at', 'status', 'name']
 
     def get_permissions(self):
-        if self.action in ('claim', 'upload_output'):
+        if self.action in ('claim', 'upload_output', 'yield_requeue'):
             return [IsWorker()]
         elif self.action in ('list', 'retrieve'):
             return [(IsAdmin | IsWorker)()]

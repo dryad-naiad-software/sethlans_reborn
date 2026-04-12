@@ -204,16 +204,16 @@ class TestDynamicFormatFlag:
         idx = captured.index('-F')
         assert captured[idx + 1] == 'OPEN_EXR'
 
-    def test_7_tuple_return(
+    def test_10_tuple_return(
         self, mocker, tmp_path, _mock_executor_deps
     ):
-        """execute_blender_job returns a 7-tuple."""
+        """execute_blender_job returns a 10-tuple."""
         from sethlans_worker_agent.blender_executor import (
             execute_blender_job,
         )
         job = _make_job(None, 'out/test_####.png')
         result = execute_blender_job(job)
-        assert len(result) == 7
+        assert len(result) == 10
 
     def test_thumbnail_path_none_for_png(
         self, mocker, tmp_path, _mock_executor_deps
@@ -224,7 +224,7 @@ class TestDynamicFormatFlag:
         )
         job = _make_job('PNG', 'out/test_####.png')
         result = execute_blender_job(job)
-        assert result[6] is None
+        assert result[7] is None
 
 
 class TestUploadWithThumbnail:

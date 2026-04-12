@@ -30,8 +30,12 @@ class WorkerSerializer(serializers.ModelSerializer):
             'id', 'hostname', 'ip_address', 'os', 'last_seen',
             'last_heartbeat', 'is_active', 'available_tools', 'ui_url',
             'has_token', 'cpu_name', 'gpu_name', 'status',
+            'schedule_config',
         ]
-        read_only_fields = ['last_seen', 'last_heartbeat', 'has_token']
+        read_only_fields = [
+            'last_seen', 'last_heartbeat', 'has_token',
+            'schedule_config',
+        ]
 
     def get_status(self, obj):
         """Return OFFLINE if heartbeat is stale, otherwise the stored status."""

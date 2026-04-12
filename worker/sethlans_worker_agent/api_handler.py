@@ -225,3 +225,75 @@ def send_authenticated_heartbeat(
 ) -> Optional[Dict]:
     """Send a heartbeat with the API token."""
     return _send_authenticated_heartbeat(_retry_request, payload)
+
+
+def post_yield_event(
+    worker_id: int,
+    reason: str,
+    grace_outcome: str,
+    progress_at_yield: float,
+    job_id: Optional[int] = None,
+) -> bool:
+    """Post a yield event to the manager (FR-9a).
+
+    POST /api/workers/{id}/yield-event/
+    """
+    url = f"{config.MANAGER_API_URL}workers/{worker_id}/yield-event/"
+    payload: Dict[str, Any] = {
+        "reason": reason,
+        "grace_outcome": grace_outcome,
+        "progress_at_yield": progress_at_yield,
+    }
+    if job_id is not None:
+        payload["job"] = job_id
+    try:
+        response = _retry_request(
+            'post', url,
+            json=payload, headers=get_auth_headers(), timeout=10,
+        )
+        if handle_auth_response(response):
+            return False
+        if response.status_code == 201:
+            logger.info(
+                "Yield event recorded for worker %s: %s", worker_id, reason,
+            )
+            return True
+        logger.warning(
+            "Yield event POST returned %d: %s",
+            response.status_code, response.text,
+        )
+    except requests.exceptions.RequestException as e:
+        logger.error("Failed to post yield event: %s", e)
+    return False
+
+
+def post_yield_requeue(job_id: int, reason: str) -> bool:
+    """Request yield-requeue for a job (FR-7a).
+
+    POST /api/jobs/{id}/yield-requeue/
+    """
+    url = f"{config.MANAGER_API_URL}jobs/{job_id}/yield-requeue/"
+    try:
+        response = _retry_request(
+            'post', url,
+            json={"reason": reason},
+            headers=get_auth_headers(), timeout=10,
+        )
+        if handle_auth_response(response):
+            return False
+        if response.status_code == 200:
+            logger.info("Job %s yield-requeued: %s", job_id, reason)
+            return True
+        elif response.status_code == 409:
+            logger.warning(
+                "Job %s yield-requeue conflict: %s",
+                job_id, response.text,
+            )
+        else:
+            logger.error(
+                "Yield-requeue for job %s failed: %d %s",
+                job_id, response.status_code, response.text,
+            )
+    except requests.exceptions.RequestException as e:
+        logger.error("Failed to yield-requeue job %s: %s", job_id, e)
+    return False
