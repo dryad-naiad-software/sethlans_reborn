@@ -38,6 +38,7 @@ from tests.e2e.process_manager import (
     wait_for_manager,
     wait_for_worker,
 )
+from tests.e2e.log_capture import peek_log_files
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,30 @@ class TestCoreWorkflows:
             shutil.rmtree(cls.temp_dir, ignore_errors=True)
         except Exception:
             pass
+
+    def teardown_method(self, method):
+        """Dump worker and manager logs on test failure for CI debugging."""
+        if hasattr(self, '_outcome') or True:
+            # Always dump logs — pytest -x means we're about to stop anyway
+            if self.worker_proc and self.worker_proc.poll() is None:
+                stdout, stderr = peek_log_files(self.worker_proc)
+                if stdout:
+                    logger.error(
+                        "--- WORKER STDOUT (last 3000 chars) ---\n%s",
+                        stdout[-3000:],
+                    )
+                if stderr:
+                    logger.error(
+                        "--- WORKER STDERR (last 3000 chars) ---\n%s",
+                        stderr[-3000:],
+                    )
+            if self.manager_proc and self.manager_proc.poll() is None:
+                stdout, stderr = peek_log_files(self.manager_proc)
+                if stderr:
+                    logger.error(
+                        "--- MANAGER STDERR (last 3000 chars) ---\n%s",
+                        stderr[-3000:],
+                    )
 
     def test_single_frame_cpu_render(self):
         """Submit a single-frame CPU job and verify rendered output."""

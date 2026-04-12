@@ -68,9 +68,19 @@ def poll_for_completion(session, url, timeout=DEFAULT_TIMEOUT):
         )
         time.sleep(POLL_INTERVAL)
 
+    # Include the full job data in the timeout for debugging
+    detail = ""
+    try:
+        resp = session.get(url, timeout=30)
+        if resp.status_code == 200:
+            import json
+            detail = f"\nFull job data:\n{json.dumps(resp.json(), indent=2)}"
+    except Exception:
+        pass
+
     raise TimeoutError(
         f"Resource at {url} did not reach terminal status within "
-        f"{timeout}s. Last status: {last_status}"
+        f"{timeout}s. Last status: {last_status}{detail}"
     )
 
 
