@@ -105,12 +105,14 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
 
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
     if not local_blend_file_path:
-        return False, False, "", "", "Failed to download or find the required .blend file asset.", None, None
+        return (False, False, False, "", "",
+                "Failed to download or find the required .blend file asset.",
+                None, None, None, None)
 
     blender_to_use = tool_manager_instance.ensure_blender_version_available(blender_version_req)
     if not blender_to_use:
         msg = f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job."
-        return False, False, "", "", msg, None, None
+        return (False, False, False, "", "", msg, None, None, None, None)
     # Acquire a reference count on this version to prevent cleanup
     # from deleting it while the render is in progress.
     resolved_version = blender_version_req
@@ -153,7 +155,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
         logger.error(error_msg)
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
-        return False, False, "", "", error_msg, None, None
+        return (False, False, False, "", "", error_msg,
+                None, None, None, None)
 
     blender_format, _ext = get_format_and_extension(render_settings)
     command.extend(["-o", resolved_output_pattern, "-F", blender_format])
