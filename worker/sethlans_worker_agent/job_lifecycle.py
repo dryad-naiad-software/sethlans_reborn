@@ -103,6 +103,25 @@ def process_claimed_job(job_data: Dict[str, Any]):
 
     Integrates YieldMonitor for idle detection yield handling.
     """
+    job_id = job_data.get('id')
+    try:
+        _process_claimed_job_inner(job_data)
+    except Exception:
+        logger.exception(
+            "Unhandled exception in render thread for job %s", job_id,
+        )
+        try:
+            api_handler.update_job_status(job_id, {
+                "status": "ERROR",
+                "error_message": "Worker render thread crashed unexpectedly.",
+            })
+        except Exception:
+            logger.exception("Failed to report ERROR status for job %s",
+                             job_id)
+
+
+def _process_claimed_job_inner(job_data: Dict[str, Any]):
+    """Inner implementation — exceptions propagate to the wrapper."""
     from sethlans_worker_agent import job_processor
     # Lazy import to avoid argparse trigger during tests.
     try:
