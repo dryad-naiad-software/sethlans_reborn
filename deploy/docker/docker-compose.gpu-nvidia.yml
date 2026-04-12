@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+services:
+  worker:
+    image: ghcr.io/dryad-naiad-software/sethlans-worker-nvidia:latest
+    build:
+      context: ../../
+      dockerfile: deploy/docker/worker-nvidia/Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

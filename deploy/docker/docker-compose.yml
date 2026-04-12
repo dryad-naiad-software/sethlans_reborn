@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# -----------------------------------------------------------------------
+# SECURITY NOTE: Environment variables are visible via `docker inspect`.
+# For stronger secret isolation, use Docker Swarm secrets or Kubernetes
+# secrets. A future enhancement may add support for the _FILE pattern
+# (e.g., SETHLANS_SECURITY_SECRET_KEY_FILE) to read secrets from mounted
+# files.
+# -----------------------------------------------------------------------
+
+# NOTE: SQLite is suitable for single-instance manager deployments only.
+# Do not scale the manager service to multiple replicas with SQLite.
+# A future spec may add PostgreSQL support for multi-instance deployments.
+
+services:
+  manager:
+    image: ghcr.io/dryad-naiad-software/sethlans-manager:latest
+    build:
+      context: ../../
+      dockerfile: deploy/docker/manager/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/manager:/data
+      - ./config/manager:/config
+      # Uncomment for BYO TLS certs:
+      # - ./certs:/certs
+    environment:
+      # REQUIRED: Set a unique Django secret key for production.
+      # Compose will refuse to start if this variable is not set in .env or the shell.
+      - SETHLANS_SECURITY_SECRET_KEY=${SETHLANS_SECURITY_SECRET_KEY:?Set SETHLANS_SECURITY_SECRET_KEY in .env}
+      # Optional: Seed enrollment key into the manager DB
+      - SETHLANS_SECURITY_ENROLLMENT_KEY=${SETHLANS_SECURITY_ENROLLMENT_KEY:-}
+      # Optional: Friendly name for multicast discovery
+      - SETHLANS_ENROLLMENT_NAME=${SETHLANS_ENROLLMENT_NAME:-Sethlans Manager}
+      # Optional: Override advertised IP for multicast
+      - SETHLANS_ENROLLMENT_ADVERTISED_IP=${SETHLANS_ENROLLMENT_ADVERTISED_IP:-}
+      # Optional: BYO TLS cert paths (inside container)
+      - SETHLANS_TLS_CERT_FILE=${SETHLANS_TLS_CERT_FILE:-}
+      - SETHLANS_TLS_KEY_FILE=${SETHLANS_TLS_KEY_FILE:-}
+    restart: unless-stopped
+
+  worker:
+    image: ghcr.io/dryad-naiad-software/sethlans-worker-cpu:latest
+    build:
+      context: ../../
+      dockerfile: deploy/docker/worker-cpu/Dockerfile
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./data/worker:/data
+      - ./config/worker:/config
+    environment:
+      # Manager connection (defaults to the compose manager service).
+      # NOTE: SETHLANS_MANAGER_HOST and SETHLANS_MANAGER_PORT are env var
+      # names shared by both the manager and worker config systems.
+      # On the manager, they control the bind address/port; on the worker,
+      # they control the target manager address/port for enrollment.
+      - SETHLANS_MANAGER_HOST=${SETHLANS_MANAGER_HOST:-manager}
+      - SETHLANS_MANAGER_PORT=${SETHLANS_MANAGER_PORT:-8080}
+      # Enrollment key for unattended registration
+      - SETHLANS_WORKER_ENROLLMENT_KEY=${SETHLANS_WORKER_ENROLLMENT_KEY:-}
+    depends_on:
+      manager:
+        condition: service_healthy
+    restart: unless-stopped

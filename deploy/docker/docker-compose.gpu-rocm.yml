@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+services:
+  worker:
+    image: ghcr.io/dryad-naiad-software/sethlans-worker-rocm:latest
+    build:
+      context: ../../
+      dockerfile: deploy/docker/worker-rocm/Dockerfile
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render

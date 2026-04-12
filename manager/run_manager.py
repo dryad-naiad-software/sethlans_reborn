@@ -112,9 +112,21 @@ def get_tls_config():
 def get_tls_dir(dev_mode):
     """Return the TLS directory path based on mode.
 
+    When SETHLANS_TLS_DATA_DIR is set (e.g., in Docker), use it
+    directly instead of the default path. The path must be absolute.
+
     Dev mode:  <project_root>/temp/dev-tls/
     Prod mode: <manager_dir>/tls/
     """
+    env_override = os.getenv('SETHLANS_TLS_DATA_DIR')
+    if env_override:
+        p = Path(env_override)
+        if not p.is_absolute():
+            raise ValueError(
+                f"SETHLANS_TLS_DATA_DIR must be an absolute path, "
+                f"got: {env_override}"
+            )
+        return p
     if dev_mode:
         return PROJECT_ROOT / 'temp' / 'dev-tls'
     return MANAGER_DIR / 'tls'

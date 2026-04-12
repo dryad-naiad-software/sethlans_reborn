@@ -21,10 +21,22 @@ from typing import Optional
 def get_data_dir() -> Path:
     """Return the per-OS per-user data directory for worker state.
 
+    When SETHLANS_WORKER_DATA_DIR is set (e.g., in Docker), use it
+    directly instead of the OS-specific path.
+
     Also used by ``config.py`` for ``MANAGED_TOOLS_DIR``,
     ``MANAGED_ASSETS_DIR``, ``WORKER_OUTPUT_DIR``, ``WORKER_TEMP_DIR``,
     ``WORKER_LOG_DIR``, and ``FAILED_UPLOADS_DIR`` per FR-24a.
     """
+    env_override = os.environ.get("SETHLANS_WORKER_DATA_DIR")
+    if env_override:
+        p = Path(env_override)
+        if not p.is_absolute():
+            raise ValueError(
+                f"SETHLANS_WORKER_DATA_DIR must be an absolute path, "
+                f"got: {env_override}"
+            )
+        return p
     system = platform.system()
     if system == "Windows":
         base = os.environ.get("LOCALAPPDATA")

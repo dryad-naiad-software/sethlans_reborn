@@ -19,6 +19,7 @@ from .auth import (
     regenerate_enrollment_key_view,
 )
 from .enroll import enroll_view
+from .health import health_view
 from .shutdown import shutdown_view
 from .system_info import system_info_view
 
@@ -38,6 +39,7 @@ __all__ = [
     "user_view",
     "regenerate_enrollment_key_view",
     "enroll_view",
+    "health_view",
     "shutdown_view",
     "system_info_view",
 ]
