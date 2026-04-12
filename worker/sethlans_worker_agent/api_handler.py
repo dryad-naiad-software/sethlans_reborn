@@ -26,7 +26,6 @@ from sethlans_worker_agent.api_auth import (
     get_auth_headers,
     handle_auth_response,
     is_auth_failed,
-    send_enrollment_heartbeat as _send_enrollment_heartbeat,
     send_authenticated_heartbeat as _send_authenticated_heartbeat,
 )
 
@@ -219,13 +218,6 @@ def get_job_status(job_id: int) -> Optional[str]:
     except requests.exceptions.RequestException:
         pass
     return None
-
-
-def send_enrollment_heartbeat(
-    payload: Dict[str, Any]
-) -> Optional[Dict]:
-    """Send an enrollment heartbeat with the X-Enrollment-Key header."""
-    return _send_enrollment_heartbeat(_retry_request, payload)
 
 
 def send_authenticated_heartbeat(

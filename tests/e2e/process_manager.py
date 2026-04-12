@@ -109,6 +109,13 @@ def start_worker(env):
     """
     Start the worker agent as a subprocess.
 
+    Stdin is redirected to a closed ``PIPE`` so the first-run wizard's
+    ``sys.stdin.isatty()`` check returns ``False`` and the unattended
+    path is taken.  On Windows ``subprocess.DEVNULL`` opens ``NUL``
+    which is a character device — ``isatty()`` returns True for it.
+    A closed pipe is the only reliable way to get ``isatty() == False``
+    across all platforms.
+
     Returns:
         subprocess.Popen: The worker process.
     """
@@ -117,6 +124,7 @@ def start_worker(env):
     unbuffered_env = dict(env, PYTHONUNBUFFERED="1")
     popen_kwargs = {
         "env": unbuffered_env,
+        "stdin": subprocess.PIPE,
         "stdout": stdout_f,
         "stderr": stderr_f,
     }
@@ -124,6 +132,7 @@ def start_worker(env):
         popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
     proc = subprocess.Popen(cmd, **popen_kwargs)
+    proc.stdin.close()  # Immediate EOF → isatty() returns False
     proc._log_files = (stdout_f, stderr_f)
     logger.info("Started worker (PID %d)", proc.pid)
     return proc

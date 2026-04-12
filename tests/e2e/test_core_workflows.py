@@ -82,9 +82,11 @@ class TestCoreWorkflows:
             cls.test_secrets["secret_key"],
             cls.port,
         )
+        cls.worker_data_dir = cls.temp_dir / "worker_data"
         cls.worker_env = build_worker_env(
             cls.test_secrets["enrollment_key"],
             "127.0.0.1", cls.port,
+            worker_data_dir=cls.worker_data_dir,
         )
 
         setup_database(cls.manager_env)

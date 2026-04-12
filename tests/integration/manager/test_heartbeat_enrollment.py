@@ -2,11 +2,21 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Integration tests for the heartbeat/enrollment endpoint.
+Integration tests for ``POST /api/heartbeat/`` after the legacy
+``X-Enrollment-Key`` path was removed (spec FR-19).
 
-Covers: enrollment with valid/invalid key, rate limiting,
-token-authenticated heartbeats, required_blender_versions,
-and token revocation forcing re-enrollment.
+This file used to exercise the old combined endpoint where an unknown
+worker could send ``X-Enrollment-Key`` on the heartbeat URL and get
+registered in-place.  That branch has been deleted — workers must now
+call ``POST /api/enroll/`` first to obtain a token, then use that token
+on every subsequent heartbeat.  The tests below are the regression
+suite that the old path is **truly gone**: any request without a valid
+``Authorization: Token ...`` header now returns 401, and the legacy
+header has no effect whatsoever.
+
+The spec-mandated structural AC-21a check (no ``get_permissions`` /
+``get_authenticators`` instance overrides) lives alongside the
+enrollment endpoint tests in ``test_enroll_endpoint.py``.
 """
 
 from datetime import timedelta
@@ -23,25 +33,28 @@ User = get_user_model()
 HEARTBEAT_URL = '/api/heartbeat/'
 
 
-@pytest.fixture(autouse=True)
-def _set_enrollment_key(monkeypatch):
-    """Set the enrollment key env var for all tests in this module."""
-    monkeypatch.setenv('SETHLANS_SECURITY_ENROLLMENT_KEY', 'test-key-123')
-
-
-@pytest.fixture(autouse=True)
-def _reset_rate_limiter():
-    """Clear the enrollment rate limiter between tests."""
-    from workers.views.heartbeat import _enrollment_rate_limiter
-    with _enrollment_rate_limiter._lock:
-        _enrollment_rate_limiter._attempts.clear()
-
-
 @pytest.mark.django_db
-class TestEnrollmentWithValidKey:
+class TestHeartbeatRequiresToken:
+    """FR-19 / AC-21: heartbeat now demands ``TokenAuthentication``."""
 
-    def test_enrollment_creates_worker_user_token(self, default_version):
-        """Enrollment with valid key creates Worker, User, Token."""
+    def test_no_credentials_returns_401(self, default_version):
+        """A request with no Authorization header returns 401."""
+        client = APIClient()
+        resp = client.post(
+            HEARTBEAT_URL,
+            data={'hostname': 'unknown-worker'},
+            format='json',
+        )
+        assert resp.status_code == 401
+
+    def test_full_registration_payload_without_token_returns_401(
+        self, default_version,
+    ):
+        """A full-registration body without a token still returns 401.
+
+        The old path accepted an ``os``-bearing payload as an enrollment
+        trigger; that branch is gone.
+        """
         client = APIClient()
         resp = client.post(
             HEARTBEAT_URL,
@@ -52,97 +65,51 @@ class TestEnrollmentWithValidKey:
                 'available_tools': {'blender': ['4.2.19']},
             },
             format='json',
-            HTTP_X_ENROLLMENT_KEY='test-key-123',
         )
-        assert resp.status_code == 200
-        assert 'token' in resp.data
-        assert resp.data['hostname'] == 'new-worker-01'
+        assert resp.status_code == 401
 
-        # Verify DB objects were created
-        worker = Worker.objects.get(hostname='new-worker-01')
-        assert worker.user is not None
-        assert worker.os == 'Linux'
-        assert worker.is_active is True
-        assert Token.objects.filter(user=worker.user).exists()
-
-    def test_enrollment_response_includes_blender_versions(
+    def test_legacy_enrollment_key_header_is_ignored(
         self, default_version,
     ):
-        """Heartbeat response includes required_blender_versions list."""
+        """The ``X-Enrollment-Key`` header is no longer honoured.
+
+        This is the FR-19 "no backward compat" regression.  The header
+        is preserved at send-time as a deliberate foot-gun test — the
+        server MUST NOT recognise it.
+        """
         client = APIClient()
         resp = client.post(
             HEARTBEAT_URL,
             data={
-                'hostname': 'version-check-worker',
-                'os': 'Windows',
+                'hostname': 'legacy-worker',
+                'os': 'Linux',
                 'available_tools': {},
             },
             format='json',
-            HTTP_X_ENROLLMENT_KEY='test-key-123',
+            HTTP_X_ENROLLMENT_KEY='anything-goes-here',
         )
-        assert resp.status_code == 200
-        versions = resp.data['required_blender_versions']
-        assert len(versions) >= 1
-        assert any(
-            v['series'] == '4.2' for v in versions
-        )
+        assert resp.status_code == 401
+        # And crucially: no Worker or User was conjured into existence.
+        assert not Worker.objects.filter(hostname='legacy-worker').exists()
+        assert not User.objects.filter(
+            username='worker_legacy-worker',
+        ).exists()
 
-
-@pytest.mark.django_db
-class TestEnrollmentWithInvalidKey:
-
-    def test_invalid_key_returns_403(self, default_version):
-        """Enrollment with invalid key returns 403."""
+    def test_invalid_token_returns_401(self, default_version):
+        """An unknown token value returns 401, not 403."""
         client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION='Token not-a-real-token')
         resp = client.post(
             HEARTBEAT_URL,
-            data={
-                'hostname': 'bad-worker',
-                'os': 'Linux',
-            },
-            format='json',
-            HTTP_X_ENROLLMENT_KEY='wrong-key',
-        )
-        assert resp.status_code == 403
-        assert 'Invalid' in resp.data['detail']
-
-    def test_missing_key_returns_403(self, default_version):
-        """Enrollment without key header returns 403."""
-        client = APIClient()
-        resp = client.post(
-            HEARTBEAT_URL,
-            data={'hostname': 'no-key-worker', 'os': 'Linux'},
+            data={'hostname': 'inthost'},
             format='json',
         )
-        assert resp.status_code == 403
-
-
-@pytest.mark.django_db
-class TestEnrollmentRateLimiting:
-
-    def test_rate_limiting_after_failures(self, default_version):
-        """5 failed enrollment attempts then 429."""
-        client = APIClient()
-        for _ in range(5):
-            client.post(
-                HEARTBEAT_URL,
-                data={'hostname': 'rate-test', 'os': 'Linux'},
-                format='json',
-                HTTP_X_ENROLLMENT_KEY='wrong-key',
-            )
-
-        resp = client.post(
-            HEARTBEAT_URL,
-            data={'hostname': 'rate-test', 'os': 'Linux'},
-            format='json',
-            HTTP_X_ENROLLMENT_KEY='test-key-123',
-        )
-        assert resp.status_code == 429
-        assert 'Too many' in resp.data['detail']
+        assert resp.status_code == 401
 
 
 @pytest.mark.django_db
 class TestTokenAuthenticatedHeartbeat:
+    """Existing-worker heartbeats and the blender-version response."""
 
     def test_heartbeat_updates_last_seen_and_tools(
         self, worker_with_token,
@@ -175,7 +142,7 @@ class TestTokenAuthenticatedHeartbeat:
     def test_heartbeat_response_includes_blender_versions(
         self, worker_with_token, default_version,
     ):
-        """Heartbeat response includes required_blender_versions."""
+        """Heartbeat response includes ``required_blender_versions``."""
         worker, client = worker_with_token
         resp = client.post(
             HEARTBEAT_URL,
@@ -184,28 +151,32 @@ class TestTokenAuthenticatedHeartbeat:
         )
         assert resp.status_code == 200
         assert 'required_blender_versions' in resp.data
+        versions = resp.data['required_blender_versions']
+        assert len(versions) >= 1
+        assert any(v['series'] == '4.2' for v in versions)
 
 
 @pytest.mark.django_db
 class TestTokenRevocation:
+    """After token revocation, the worker can no longer heartbeat."""
 
-    def test_revoke_then_heartbeat_needs_reenrollment(
+    def test_revoke_then_heartbeat_returns_401(
         self, admin_client, worker_with_token, default_version,
     ):
-        """After token revocation, next heartbeat requires re-enrollment."""
+        """After revoke_token, further heartbeats with the dead token 401."""
         worker, worker_client = worker_with_token
 
-        # Admin revokes the token
+        # Admin revokes the token.
         resp = admin_client.post(
             f'{HEARTBEAT_URL}{worker.pk}/revoke_token/',
         )
         assert resp.status_code == 200
 
-        # Worker tries heartbeat with now-invalid token.
-        # DRF TokenAuthentication returns 401 for invalid tokens.
+        # The token row is gone, so subsequent heartbeats 401.
+        assert not Token.objects.filter(user=worker.user).exists()
         resp = worker_client.post(
             HEARTBEAT_URL,
             data={'hostname': worker.hostname},
             format='json',
         )
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401

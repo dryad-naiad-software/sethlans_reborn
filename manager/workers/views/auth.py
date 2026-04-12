@@ -6,14 +6,11 @@ Authentication API views: CSRF bootstrap, login, logout, user info,
 and enrollment key regeneration.
 """
 
-import configparser
 import logging
-import os
-import tempfile
 
 from django.contrib.auth import authenticate, login, logout
 from django.views.decorators.csrf import ensure_csrf_cookie
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import (
     api_view,
@@ -23,8 +20,10 @@ from rest_framework.decorators import (
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from .. import enrollment_key
 from ..permissions import IsAdmin
 from ..rate_limiter import InMemoryRateLimiter
+from ._helpers import client_ip as _get_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +31,6 @@ logger = logging.getLogger(__name__)
 _login_rate_limiter = InMemoryRateLimiter(
     max_attempts=10, window_seconds=300
 )
-
-
-def _get_client_ip(request):
-    """Extract client IP from the request."""
-    xff = request.META.get('HTTP_X_FORWARDED_FOR')
-    if xff:
-        return xff.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR', '')
 
 
 @extend_schema(tags=['Auth'])
@@ -113,40 +104,30 @@ def user_view(request):
     })
 
 
-@extend_schema(tags=['Auth'])
+@extend_schema(
+    tags=['Worker Enrollment'],
+    responses={
+        200: OpenApiResponse(
+            description="New enrollment key in hyphenated display form.",
+        ),
+        401: OpenApiResponse(description="Unauthenticated"),
+        403: OpenApiResponse(description="Not an administrator"),
+    },
+    description=(
+        "Rotate the shared worker enrollment key.  Writes the new key "
+        "to the ManagerSettings singleton row and returns the hyphenated "
+        "display form.  Admin-only."
+    ),
+)
 @api_view(['POST'])
 @permission_classes([IsAdmin])
 def regenerate_enrollment_key_view(request):
+    """Rotate the shared enrollment key and return the new display form.
+
+    The DB row is the authoritative store — ``manager.ini`` is not touched.
+    Existing per-worker tokens continue to work; only new enrollments
+    need the new key.
     """
-    Generate a new enrollment key and write it to manager.ini.
-
-    Does NOT mutate django.conf.settings at runtime; the heartbeat
-    view re-reads from the config file on each enrollment attempt.
-    """
-    import secrets
-    from django.conf import settings as django_settings
-
-    new_key = secrets.token_urlsafe(32)
-    config_path = django_settings.BASE_DIR / 'manager.ini'
-
-    config = configparser.ConfigParser()
-    if config_path.exists():
-        config.read(config_path)
-    if not config.has_section('security'):
-        config.add_section('security')
-    config.set('security', 'enrollment_key', new_key)
-
-    # Atomic write: write to temp file, then replace
-    config_dir = os.path.dirname(config_path)
-    fd, tmp_path = tempfile.mkstemp(dir=config_dir, suffix='.ini')
-    try:
-        with os.fdopen(fd, 'w') as f:
-            config.write(f)
-        os.replace(tmp_path, config_path)
-    except Exception:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        raise
-
+    display_key = enrollment_key.rotate()
     logger.info("Enrollment key regenerated.")
-    return Response({"enrollment_key": new_key})
+    return Response({"enrollment_key": display_key})

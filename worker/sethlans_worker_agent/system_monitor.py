@@ -5,22 +5,20 @@
 Handles system monitoring and communication between the worker and manager.
 
 This module is responsible for:
-- Registering the worker with the central manager.
-- Enrolling with the manager using a pre-shared key (when no token exists).
+- Registering the worker with the central manager via an authenticated heartbeat.
 - Sending periodic heartbeats to maintain a live connection.
 - Triggering version synchronization based on heartbeat responses.
 
-Hardware detection has been extracted to the hardware_detection module.
-Enrollment logic has been extracted to the enrollment module.
-Version sync logic lives in the version_sync module.
-Functions are re-exported here for backward compatibility.
+Enrollment is handled by the first-run wizard (see ``wizard.py`` /
+``enrollment_client.py``). By the time ``register_with_manager()`` is
+called the worker has already obtained an API token via the wizard,
+so this module only exercises the authenticated heartbeat path.
 """
 
 import logging
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent import api_handler
-from sethlans_worker_agent.enrollment import check_auth_config, enroll_with_manager
 from sethlans_worker_agent import version_sync
 
 # Re-export hardware detection functions for backward compatibility
@@ -87,55 +85,43 @@ def _process_heartbeat_versions(response_data, is_busy=False, active_jobs=None):
 
 def register_with_manager():
     """
-    Registers/enrolls with the manager, then downloads required versions.
+    Register with the manager via an authenticated heartbeat.
 
-    Authentication flow:
-    1. If API_TOKEN is set, use it for a standard authenticated heartbeat.
-    2. If API_TOKEN is empty but ENROLLMENT_KEY is set, perform enrollment.
-    3. If neither is set, log a critical error and return None.
+    This function assumes the first-run wizard has already completed
+    enrollment and persisted an API token to the config store. If the
+    token is missing, registration fails — the caller should invoke
+    the wizard (agent.py does this on startup).
 
-    After successful heartbeat, downloads ALL required Blender versions
-    before allowing the worker to poll for jobs (P2-F4).
+    After the first successful heartbeat, downloads ALL required
+    Blender versions before allowing the worker to poll for jobs
+    (P2-F4).
 
     Returns:
         int or None: The worker ID, or None on failure.
     """
     global WORKER_ID, _versions_ready
 
-    auth_state = check_auth_config()
+    if not config.API_TOKEN:
+        logger.critical(
+            "No API token configured. The enrollment wizard must run "
+            "before register_with_manager()."
+        )
+        return None
+
     payload = get_system_info()
     payload['ui_url'] = _get_ui_url()
     payload['status'] = 'IDLE'
 
-    if auth_state == 'none':
-        logger.critical(
-            "No API token or enrollment key configured. "
-            "Cannot communicate with manager."
-        )
+    logger.info("Using existing API token for registration heartbeat.")
+    response_data = api_handler.send_authenticated_heartbeat(payload)
+    if not response_data:
+        logger.error("Registration heartbeat failed.")
         return None
 
-    response_data = None
-
-    if auth_state == 'enroll':
-        logger.info("No API token found. Attempting enrollment...")
-        worker_id = enroll_with_manager(payload)
-        if not worker_id:
-            return None
-        WORKER_ID = worker_id
-        # After enrollment, send an authenticated heartbeat to get versions.
-        response_data = api_handler.send_authenticated_heartbeat(payload)
-    else:
-        # auth_state == 'token': authenticated heartbeat with existing token.
-        logger.info("Using existing API token for registration heartbeat.")
-        response_data = api_handler.send_authenticated_heartbeat(payload)
-        if not response_data:
-            logger.error("Registration heartbeat failed.")
-            return None
-
-        WORKER_ID = response_data.get('id')
-        if not WORKER_ID:
-            logger.error("Heartbeat response did not include a worker ID.")
-            return None
+    WORKER_ID = response_data.get('id')
+    if not WORKER_ID:
+        logger.error("Heartbeat response did not include a worker ID.")
+        return None
 
     logger.info(f"Heartbeat successful. Worker is registered as ID: {WORKER_ID}")
 

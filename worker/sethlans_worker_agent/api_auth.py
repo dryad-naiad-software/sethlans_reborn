@@ -3,28 +3,26 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Authentication state management and enrollment API calls.
+Authentication state management for authenticated manager API calls.
 
 Handles:
 - Auth header construction for manager API requests.
 - Auth failure detection (401/403) and the polling-stop flag.
-- Enrollment heartbeat and authenticated heartbeat API calls.
+- Authenticated heartbeat API call.
 - Retention of rendered output when uploads fail due to auth errors.
 
-Enrollment requests use ``verify=False`` (no pinned fingerprint yet).
-``InsecureRequestWarning`` is suppressed only for the enrollment call
-via ``warnings.catch_warnings()``; it is NOT suppressed globally.
+Enrollment-specific helpers have moved to
+``sethlans_worker_agent.enrollment_client`` and are no longer part of
+this module.
 """
 import logging
 import os
 import shutil
 import threading
-import warnings
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 import requests
-from urllib3.exceptions import InsecureRequestWarning
 
 from sethlans_worker_agent import config
 
@@ -48,13 +46,6 @@ def get_auth_headers():
     """
     if config.API_TOKEN:
         return {"Authorization": f"Token {config.API_TOKEN}"}
-    return {}
-
-
-def get_enrollment_headers():
-    """Return headers for enrollment requests using the enrollment key."""
-    if config.ENROLLMENT_KEY:
-        return {"X-Enrollment-Key": config.ENROLLMENT_KEY}
     return {}
 
 
@@ -95,61 +86,6 @@ def retain_failed_upload(job_id: int, output_file_path: str):
         logger.error(
             f"Failed to retain output for job {job_id}: {e}"
         )
-
-
-def send_enrollment_heartbeat(
-    retry_func, payload: Dict[str, Any]
-) -> Optional[Dict]:
-    """
-    Send an enrollment heartbeat with the X-Enrollment-Key header.
-
-    During enrollment the worker has no pinned fingerprint, so
-    ``verify=False`` is used (the session defaults to this when
-    ``CERT_FINGERPRINT`` is empty).  ``InsecureRequestWarning`` is
-    suppressed for this call only via ``warnings.catch_warnings()``.
-
-    Args:
-        retry_func: The _retry_request function from api_handler.
-        payload: System info dict for registration.
-
-    Returns:
-        The response JSON dict on success (contains 'token'),
-        or None on failure.
-    """
-    heartbeat_url = f"{config.MANAGER_API_URL}heartbeat/"
-    headers = get_enrollment_headers()
-    if not headers:
-        logger.error("No enrollment key configured.")
-        return None
-
-    logger.info(
-        f"Sending enrollment heartbeat to {heartbeat_url}..."
-    )
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", InsecureRequestWarning)
-            response = retry_func(
-                'post', heartbeat_url,
-                json=payload, headers=headers, timeout=10
-            )
-        if response.status_code == 200:
-            return response.json()
-        elif response.status_code == 403:
-            logger.error(
-                "Enrollment failed: invalid enrollment key."
-            )
-        elif response.status_code == 429:
-            logger.warning(
-                "Enrollment rate limited. Try again later."
-            )
-        else:
-            logger.error(
-                f"Enrollment failed. Status: {response.status_code}, "
-                f"Response: {response.text}"
-            )
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Could not send enrollment heartbeat: {e}")
-    return None
 
 
 def send_authenticated_heartbeat(

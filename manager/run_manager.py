@@ -36,6 +36,10 @@ from sethlans_manager.cert_utils import (  # noqa: E402
     get_cert_fingerprint,
     load_and_validate_cert,
 )
+from sethlans_manager.runtime_init import (  # noqa: E402
+    get_enrollment_config,
+    initialize_runtime_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -192,10 +196,60 @@ def run_collectstatic():
         )
 
 
-if __name__ == "__main__":
+def _prepare_runtime(cert, host, port):
+    """Initialise Django and populate ``runtime_state``."""
+    try:
+        import django  # noqa: F401
+        django.setup()
+    except Exception as exc:  # pragma: no cover - hard failure
+        print(f"\n[ERROR] Django setup failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    enrollment_cfg = get_enrollment_config(MANAGER_DIR)
+    initialize_runtime_state(cert, enrollment_cfg, host, port)
+
+
+def _launch_uvicorn(host, port, cert_path, key_path, dev_mode):
+    """Hand control to uvicorn with the correct reload/production mode.
+
+    uvicorn's ``run()`` does not accept a pre-built ``SSLContext``;
+    it wants ``ssl_keyfile`` / ``ssl_certfile`` paths (it builds the
+    context itself so it can be rebuilt on reload).  We still keep
+    :func:`build_ssl_context` around for any downstream tooling that
+    wants the pre-validated context object.
+    """
+    ssl_common = {
+        "ssl_keyfile": str(key_path),
+        "ssl_certfile": str(cert_path),
+        "ssl_version": ssl.PROTOCOL_TLS_SERVER,
+    }
+    if dev_mode:
+        uvicorn.run(
+            "sethlans_manager.asgi:application",
+            host=host,
+            port=int(port),
+            reload=True,
+            reload_dirs=[str(MANAGER_DIR)],
+            **ssl_common,
+        )
+    else:
+        uvicorn.run(
+            "sethlans_manager.asgi:application",
+            host=host,
+            port=int(port),
+            **ssl_common,
+        )
+
+
+def main():
+    """Entry point for ``python manager/run_manager.py``."""
     dev_mode = '--dev' in sys.argv
 
-    # --- Certificate Setup ---
+    # Signal the ASGI lifespan hooks (asgi.py) that we are in --dev mode
+    # so that the broadcaster does not start in the reloader parent
+    # process.  Must be set BEFORE uvicorn.run() to propagate to workers.
+    if dev_mode:
+        os.environ['SETHLANS_DEV_MODE'] = '1'
+
     try:
         cert_path, key_path, cert = setup_certificates(dev_mode)
     except CertificateError as e:
@@ -203,46 +257,28 @@ if __name__ == "__main__":
         sys.exit(1)
 
     check_cert_expiry_warning(cert)
-
-    # --- Database Migrations ---
     run_migrations()
 
-    # --- Static Files ---
     if not dev_mode:
         run_collectstatic()
 
-    # --- Build SSL Context ---
-    ssl_ctx = build_ssl_context(cert_path, key_path)
-
-    # --- Determine bind address ---
+    # Validate the cert/key pair by instantiating an SSLContext
+    # (surfaces mismatched/bad files before uvicorn boots).
+    build_ssl_context(cert_path, key_path)
     host, port = get_manager_bind()
+
+    _prepare_runtime(cert, host, port)
+
     mode_label = "DEV" if dev_mode else "PRODUCTION"
     print(f"\n--- Starting Sethlans Manager ({mode_label}) "
           f"on https://{host}:{port} ---")
     print("--- To stop the server, press CTRL+C ---")
 
-    # --- Launch uvicorn ---
     try:
-        if dev_mode:
-            # Dev mode: set env var so asgi.py wraps the app with
-            # ASGIStaticFilesHandler (serves static files without
-            # collectstatic).  Must use an import string — uvicorn's
-            # reload requires it; passing an app object breaks reload.
-            os.environ['SETHLANS_DEV_MODE'] = '1'
-            uvicorn.run(
-                "sethlans_manager.asgi:application",
-                host=host,
-                port=int(port),
-                ssl=ssl_ctx,
-                reload=True,
-                reload_dirs=[str(MANAGER_DIR)],
-            )
-        else:
-            uvicorn.run(
-                "sethlans_manager.asgi:application",
-                host=host,
-                port=int(port),
-                ssl=ssl_ctx,
-            )
+        _launch_uvicorn(host, port, cert_path, key_path, dev_mode)
     except KeyboardInterrupt:
         print("\n--- Sethlans Manager stopped ---")
+
+
+if __name__ == "__main__":
+    main()

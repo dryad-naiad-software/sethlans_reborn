@@ -1,70 +1,74 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Integration tests for worker detail fields (issue #30)."""
+"""
+Integration tests for worker detail fields (issue #30).
 
-from datetime import timedelta
+All tests exercise ``POST /api/heartbeat/`` as a token-authenticated
+request — the old ``X-Enrollment-Key`` pseudo-enrollment path has been
+removed per spec FR-19.  Tests that used to rely on that helper now use
+the ``make_worker_client`` factory (from ``conftest.py``) which creates
+an in-DB ``Worker`` + ``User`` + ``Token`` triple and returns a
+pre-credentialed ``APIClient``.  The first heartbeat each test sends is
+a full-registration payload (with ``os``), so the fields being tested
+(``cpu_name``, ``status``, ``gpu_name``) travel the exact code path the
+worker agent uses after enrollment.
+"""
 
 import pytest
-from django.contrib.auth import get_user_model
-from django.utils import timezone
-from rest_framework.test import APIClient
 
-from workers.constants import WORKER_STALENESS_SECONDS
 from workers.models import Worker
-
-User = get_user_model()
 
 HEARTBEAT_URL = '/api/heartbeat/'
 
 
-@pytest.fixture(autouse=True)
-def _set_enrollment_key(monkeypatch):
-    monkeypatch.setenv('SETHLANS_SECURITY_ENROLLMENT_KEY', 'test-key-123')
+def _full_heartbeat(client, hostname, extra=None):
+    """Send a full-registration heartbeat (with ``os`` set).
 
-
-@pytest.fixture(autouse=True)
-def _reset_rate_limiter():
-    from workers.views.heartbeat import _enrollment_rate_limiter
-    with _enrollment_rate_limiter._lock:
-        _enrollment_rate_limiter._attempts.clear()
-
-
-def _enroll_worker(hostname, extra_data=None):
-    """Enroll a worker via the API, returning (response, APIClient)."""
-    client = APIClient()
-    data = {'hostname': hostname, 'os': 'Linux',
-            'ip_address': '10.0.0.1', 'available_tools': {}}
-    if extra_data:
-        data.update(extra_data)
-    resp = client.post(HEARTBEAT_URL, data=data, format='json',
-                       HTTP_X_ENROLLMENT_KEY='test-key-123')
-    if resp.status_code == 200 and 'token' in resp.data:
-        client.credentials(
-            HTTP_AUTHORIZATION=f'Token {resp.data["token"]}')
-    return resp, client
+    Mirrors the first heartbeat a real worker sends after enrollment —
+    ``os`` being present routes the request to ``_handle_full_registration``
+    which is where the fields under test get populated.
+    """
+    data = {
+        'hostname': hostname,
+        'os': 'Linux',
+        'ip_address': '10.0.0.1',
+        'available_tools': {},
+    }
+    if extra:
+        data.update(extra)
+    return client.post(HEARTBEAT_URL, data=data, format='json')
 
 
 @pytest.mark.django_db
 class TestHeartbeatPostNewFields:
     """Verify heartbeat POST persists cpu_name, status, gpu_name."""
 
-    def test_enrollment_stores_cpu_name(self, default_version):
-        resp, _ = _enroll_worker('cpu-worker', {
+    def test_enrollment_stores_cpu_name(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('cpu-worker')
+        resp = _full_heartbeat(client, 'cpu-worker', {
             'cpu_name': 'Intel Core i7-12700H',
         })
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='cpu-worker')
         assert worker.cpu_name == 'Intel Core i7-12700H'
 
-    def test_enrollment_stores_status_idle(self, default_version):
-        resp, _ = _enroll_worker('idle-worker', {'status': 'IDLE'})
+    def test_enrollment_stores_status_idle(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('idle-worker')
+        resp = _full_heartbeat(client, 'idle-worker', {'status': 'IDLE'})
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='idle-worker')
         assert worker.status == 'IDLE'
 
-    def test_enrollment_stores_status_rendering(self, default_version):
-        resp, _ = _enroll_worker('render-worker', {
+    def test_enrollment_stores_status_rendering(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('render-worker')
+        resp = _full_heartbeat(client, 'render-worker', {
             'status': 'RENDERING',
         })
         assert resp.status_code == 200
@@ -72,29 +76,33 @@ class TestHeartbeatPostNewFields:
         assert worker.status == 'RENDERING'
 
     def test_enrollment_stores_gpu_name_from_tools(
-        self, default_version,
+        self, make_worker_client, default_version,
     ):
+        _, client, _ = make_worker_client('gpu-worker')
         tools = {
             'blender': ['4.2.19'],
             'gpu_devices_details': [
                 {'name': 'NVIDIA RTX 4090', 'type': 'CUDA'},
             ],
         }
-        resp, _ = _enroll_worker('gpu-worker', {
+        resp = _full_heartbeat(client, 'gpu-worker', {
             'available_tools': tools,
         })
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='gpu-worker')
         assert worker.gpu_name == 'NVIDIA RTX 4090'
 
-    def test_enrollment_stores_multi_gpu_names(self, default_version):
+    def test_enrollment_stores_multi_gpu_names(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('multi-gpu')
         tools = {
             'gpu_devices_details': [
                 {'name': 'NVIDIA RTX 3090', 'type': 'CUDA'},
                 {'name': 'NVIDIA RTX 4090', 'type': 'CUDA'},
             ],
         }
-        resp, _ = _enroll_worker('multi-gpu', {
+        resp = _full_heartbeat(client, 'multi-gpu', {
             'available_tools': tools,
         })
         assert resp.status_code == 200
@@ -102,10 +110,11 @@ class TestHeartbeatPostNewFields:
         assert worker.gpu_name == 'NVIDIA RTX 3090, NVIDIA RTX 4090'
 
     def test_heartbeat_update_persists_new_fields(
-        self, default_version,
+        self, make_worker_client, default_version,
     ):
         """Token heartbeat updates cpu_name, status, gpu_name."""
-        resp, client = _enroll_worker('update-worker', {
+        _, client, _ = make_worker_client('update-worker')
+        resp = _full_heartbeat(client, 'update-worker', {
             'cpu_name': 'AMD Ryzen 9',
             'status': 'IDLE',
         })
@@ -138,9 +147,10 @@ class TestHeartbeatGetNewFields:
     """Verify GET /api/heartbeat/ returns the new fields."""
 
     def test_list_includes_new_fields(
-        self, admin_client, default_version,
+        self, make_worker_client, admin_client, default_version,
     ):
-        _enroll_worker('list-worker', {
+        _, client, _ = make_worker_client('list-worker')
+        _full_heartbeat(client, 'list-worker', {
             'cpu_name': 'Apple M1 Pro',
             'status': 'IDLE',
             'available_tools': {
@@ -166,8 +176,11 @@ class TestHeartbeatGetNewFields:
 class TestStatusValidationViaAPI:
     """Verify invalid status values are defaulted to IDLE."""
 
-    def test_bogus_status_defaults_to_idle(self, default_version):
-        resp, _ = _enroll_worker('bogus-worker', {
+    def test_bogus_status_defaults_to_idle(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('bogus-worker')
+        resp = _full_heartbeat(client, 'bogus-worker', {
             'status': 'BOGUS',
         })
         assert resp.status_code == 200
@@ -175,26 +188,33 @@ class TestStatusValidationViaAPI:
         assert worker.status == 'IDLE'
 
     def test_offline_status_rejected_from_worker(
-        self, default_version,
+        self, make_worker_client, default_version,
     ):
         """Workers cannot set OFFLINE -- only manager derives it."""
-        resp, _ = _enroll_worker('offline-attempt', {
+        _, client, _ = make_worker_client('offline-attempt')
+        resp = _full_heartbeat(client, 'offline-attempt', {
             'status': 'OFFLINE',
         })
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='offline-attempt')
         assert worker.status == 'IDLE'
 
-    def test_rendering_status_accepted(self, default_version):
-        resp, _ = _enroll_worker('rendering-worker', {
+    def test_rendering_status_accepted(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('rendering-worker')
+        resp = _full_heartbeat(client, 'rendering-worker', {
             'status': 'RENDERING',
         })
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='rendering-worker')
         assert worker.status == 'RENDERING'
 
-    def test_missing_status_defaults_to_idle(self, default_version):
-        resp, _ = _enroll_worker('no-status-worker')
+    def test_missing_status_defaults_to_idle(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('no-status-worker')
+        resp = _full_heartbeat(client, 'no-status-worker')
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='no-status-worker')
         assert worker.status == 'IDLE'
@@ -204,93 +224,39 @@ class TestStatusValidationViaAPI:
 class TestCpuNameSanitizationViaAPI:
     """Verify cpu_name with HTML/script chars is rejected."""
 
-    def test_script_tag_sanitized_to_empty(self, default_version):
-        resp, _ = _enroll_worker('xss-worker', {
+    def test_script_tag_sanitized_to_empty(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('xss-worker')
+        resp = _full_heartbeat(client, 'xss-worker', {
             'cpu_name': '<script>alert(1)</script>',
         })
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='xss-worker')
         assert worker.cpu_name == ''
 
-    def test_valid_cpu_name_preserved(self, default_version):
-        resp, _ = _enroll_worker('good-cpu', {
+    def test_valid_cpu_name_preserved(
+        self, make_worker_client, default_version,
+    ):
+        _, client, _ = make_worker_client('good-cpu')
+        resp = _full_heartbeat(client, 'good-cpu', {
             'cpu_name': 'Intel(R) Core(TM) i9-13900K @ 5.80GHz',
         })
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='good-cpu')
         assert worker.cpu_name == 'Intel(R) Core(TM) i9-13900K @ 5.80GHz'
 
-    def test_windows_registry_format_preserved(self, default_version):
+    def test_windows_registry_format_preserved(
+        self, make_worker_client, default_version,
+    ):
         name = 'Intel64 Family 6 Model 154 Stepping 3, GenuineIntel'
-        resp, _ = _enroll_worker('win-cpu', {'cpu_name': name})
+        _, client, _ = make_worker_client('win-cpu')
+        resp = _full_heartbeat(client, 'win-cpu', {'cpu_name': name})
         assert resp.status_code == 200
         worker = Worker.objects.get(hostname='win-cpu')
         assert worker.cpu_name == name
 
 
-@pytest.mark.django_db
-class TestStalenessDerivedOffline:
-    """Verify stale workers are reported as OFFLINE in the API."""
-
-    def test_stale_worker_shows_offline(
-        self, admin_client, default_version,
-    ):
-        _enroll_worker('stale-worker', {'status': 'IDLE'})
-        worker = Worker.objects.get(hostname='stale-worker')
-        stale_time = (
-            timezone.now()
-            - timedelta(seconds=WORKER_STALENESS_SECONDS + 30)
-        )
-        Worker.objects.filter(pk=worker.pk).update(last_seen=stale_time)
-
-        resp = admin_client.get(HEARTBEAT_URL)
-        assert resp.status_code == 200
-        match = [
-            w for w in resp.data if w['hostname'] == 'stale-worker'
-        ]
-        assert len(match) == 1
-        assert match[0]['status'] == 'OFFLINE'
-
-    def test_fresh_worker_shows_stored_status(
-        self, admin_client, default_version,
-    ):
-        _enroll_worker('fresh-worker', {'status': 'RENDERING'})
-        resp = admin_client.get(HEARTBEAT_URL)
-        assert resp.status_code == 200
-        match = [
-            w for w in resp.data if w['hostname'] == 'fresh-worker'
-        ]
-        assert len(match) == 1
-        assert match[0]['status'] == 'RENDERING'
-
-
-@pytest.mark.django_db
-class TestLastHeartbeatAlias:
-    """Verify last_heartbeat alias matches last_seen."""
-
-    def test_last_heartbeat_equals_last_seen(
-        self, admin_client, default_version,
-    ):
-        _enroll_worker('alias-worker')
-        resp = admin_client.get(HEARTBEAT_URL)
-        assert resp.status_code == 200
-        match = [
-            w for w in resp.data if w['hostname'] == 'alias-worker'
-        ]
-        assert len(match) == 1
-        assert match[0]['last_heartbeat'] == match[0]['last_seen']
-
-
-@pytest.mark.django_db
-class TestMigrationDefaults:
-    """Verify Worker records get sensible defaults."""
-
-    def test_worker_created_without_new_fields_has_defaults(self):
-        user = User.objects.create_user(username='bare_worker_user')
-        worker = Worker.objects.create(
-            hostname='bare-worker', user=user,
-        )
-        worker.refresh_from_db()
-        assert worker.cpu_name == ''
-        assert worker.gpu_name == ''
-        assert worker.status == 'OFFLINE'
+# Staleness / alias / migration-default checks live in
+# ``test_worker_detail_listing.py`` to keep each file under the
+# 300-line Python cap.

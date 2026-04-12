@@ -11,8 +11,8 @@ from .views import (
     TiledJobViewSet,
     SupportedBlenderVersionViewSet, dashboard_stats,
     csrf_view, login_view, logout_view, user_view,
-    regenerate_enrollment_key_view, shutdown_view,
-    system_info_view,
+    regenerate_enrollment_key_view, enroll_view,
+    shutdown_view, system_info_view,
 )
 
 # Create a router instance
@@ -42,6 +42,8 @@ urlpatterns = [
         regenerate_enrollment_key_view,
         name='auth-regenerate-enrollment-key',
     ),
+    # Worker enrollment endpoint (HMAC-bootstrapped)
+    path('enroll/', enroll_view, name='enroll'),
     # Include all router URLs at the root of /api/
     path('', include(router.urls)),
 ]

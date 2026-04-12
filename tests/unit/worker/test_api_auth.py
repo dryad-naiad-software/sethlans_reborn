@@ -5,8 +5,10 @@
 """
 Unit tests for worker agent api_auth module.
 
-Tests auth header construction, enrollment headers, auth failure
-detection, and the retain_failed_upload helper.
+Tests auth header construction, auth failure detection, and the
+retain_failed_upload helper. Enrollment header/heartbeat tests were
+removed after the legacy ``X-Enrollment-Key`` path was deleted in
+worker-enrollment.md.
 """
 from sethlans_worker_agent import api_auth
 
@@ -29,22 +31,6 @@ class TestGetAuthHeaders:
     def test_returns_empty_dict_when_token_is_none(self, mocker):
         mocker.patch('sethlans_worker_agent.config.API_TOKEN', None)
         assert api_auth.get_auth_headers() == {}
-
-
-# --- get_enrollment_headers ---
-
-class TestGetEnrollmentHeaders:
-
-    def test_returns_enrollment_key_header(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.config.ENROLLMENT_KEY', 'enroll-abc'
-        )
-        headers = api_auth.get_enrollment_headers()
-        assert headers == {"X-Enrollment-Key": "enroll-abc"}
-
-    def test_returns_empty_when_no_key(self, mocker):
-        mocker.patch('sethlans_worker_agent.config.ENROLLMENT_KEY', '')
-        assert api_auth.get_enrollment_headers() == {}
 
 
 # --- handle_auth_response ---
@@ -112,75 +98,6 @@ class TestRetainFailedUpload:
         )
         # Should not raise, just log
         api_auth.retain_failed_upload(99, '/nonexistent/file.png')
-
-
-# --- send_enrollment_heartbeat ---
-
-class TestSendEnrollmentHeartbeat:
-
-    def test_success_returns_json(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.config.ENROLLMENT_KEY', 'key123'
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.MANAGER_API_URL',
-            'https://localhost:8080/api/'
-        )
-        mock_response = mocker.Mock(
-            status_code=200
-        )
-        mock_response.json.return_value = {
-            'token': 'abc', 'id': 1
-        }
-        mock_retry = mocker.Mock(return_value=mock_response)
-
-        result = api_auth.send_enrollment_heartbeat(
-            mock_retry, {'hostname': 'worker1'}
-        )
-        assert result == {'token': 'abc', 'id': 1}
-
-    def test_no_enrollment_key_returns_none(self, mocker):
-        mocker.patch('sethlans_worker_agent.config.ENROLLMENT_KEY', '')
-        mocker.patch(
-            'sethlans_worker_agent.config.MANAGER_API_URL',
-            'https://localhost:8080/api/'
-        )
-        result = api_auth.send_enrollment_heartbeat(
-            mocker.Mock(), {}
-        )
-        assert result is None
-
-    def test_403_returns_none(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.config.ENROLLMENT_KEY', 'key'
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.MANAGER_API_URL',
-            'https://localhost:8080/api/'
-        )
-        mock_response = mocker.Mock(status_code=403)
-        mock_retry = mocker.Mock(return_value=mock_response)
-
-        result = api_auth.send_enrollment_heartbeat(
-            mock_retry, {}
-        )
-        assert result is None
-
-    def test_429_returns_none(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.config.ENROLLMENT_KEY', 'key'
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.MANAGER_API_URL',
-            'https://localhost:8080/api/'
-        )
-        mock_response = mocker.Mock(status_code=429)
-        mock_retry = mocker.Mock(return_value=mock_response)
-
-        result = api_auth.send_enrollment_heartbeat(
-            mock_retry, {}
-        )
-        assert result is None
 
 
 # --- send_authenticated_heartbeat ---

@@ -71,9 +71,6 @@ def mock_config(mocker):
         'sethlans_worker_agent.config.API_TOKEN', 'test-token-abc'
     )
     mocker.patch(
-        'sethlans_worker_agent.config.ENROLLMENT_KEY', 'test-enroll-key'
-    )
-    mocker.patch(
         'sethlans_worker_agent.config.FORCE_CPU_ONLY', False
     )
     mocker.patch(

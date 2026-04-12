@@ -1,3 +1,12 @@
+# DEPRECATED: config.ini is still read for backward compatibility but
+# all writes go to the new JSON config at per-OS paths:
+#   Windows: %LOCALAPPDATA%\Sethlans\worker\config.json
+#   macOS:   ~/Library/Application Support/Sethlans/worker/config.json
+#   Linux:   $XDG_DATA_HOME/sethlans/worker/config.json
+#            (fallback ~/.local/share/sethlans/worker/config.json)
+# New installs should leave this file absent. The first-run enrollment
+# wizard populates the JSON config automatically.
+
 [manager]
 # The hostname or IP address of the Sethlans Manager server.
 # Use the manager's real network IP, not 127.0.0.1, so the
@@ -7,17 +16,13 @@ host = 127.0.0.1
 port = 8080
 
 # --- Authentication ---
-# Pre-shared enrollment key provided by the manager admin.
-# Used for initial registration. Leave empty after enrollment completes.
-enrollment_key =
-# API token received after successful enrollment.
-# This is written automatically by the worker -- do not edit manually.
-# Set restrictive permissions on this file: chmod 600 config.ini
-# On Windows, restrict access via file Properties > Security tab.
+# api_token, cert_fingerprint, and manager_id live in the JSON config
+# store now — they are NOT env-var overridable (FR-28 exception list).
+# The first-run enrollment wizard writes them to the JSON file with
+# 0o600 permissions (POSIX) or restricted ACL (Windows).
 api_token =
-# SHA-256 fingerprint of the manager's TLS cert.
-# Written automatically during enrollment.
 cert_fingerprint =
+manager_id =
 
 [worker]
 # How often (in seconds) the worker sends a heartbeat to the manager.

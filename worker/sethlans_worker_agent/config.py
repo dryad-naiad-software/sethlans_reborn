@@ -2,17 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""
-Configuration module for the Sethlans Reborn worker agent.
+"""Worker agent configuration — single source of truth.
 
-This module consolidates all configurable settings for the worker agent,
-including API endpoints, operational intervals, file paths, and hardware
-management flags. It is the single source of truth for the worker's behavior.
-
-Configuration is loaded with the following priority (highest priority last):
-1. Hardcoded defaults in this file.
-2. Values from a 'config.ini' file in the same directory.
-3. Environment variables (e.g., SETHLANS_MANAGER_PORT).
+Precedence (FR-28): env vars > JSON config_store > legacy config.ini >
+defaults. Exception: ``manager.api_token``, ``manager.cert_fingerprint``,
+and ``manager.manager_id`` are NOT env-overridable (logged + dropped).
 """
 
 import os
@@ -22,83 +16,102 @@ import logging
 import configparser
 from pathlib import Path
 
+from sethlans_worker_agent import config_store
+
 logger = logging.getLogger(__name__)
 
 # --- Root Paths ---
-# The root directory of the worker package (worker/).
 WORKER_ROOT = Path(__file__).resolve().parent.parent
-# The root directory of the entire repository.
 REPO_ROOT = WORKER_ROOT.parent
 
 # --- Config File Loading ---
 config_parser = configparser.ConfigParser()
 config_file_path = WORKER_ROOT / 'config.ini'
+_legacy_ini_loaded = False
 if config_file_path.exists():
     config_parser.read(config_file_path)
-else:
-    logger.warning(
-        "config.ini not found at %s. Using defaults.", config_file_path
+    _legacy_ini_loaded = True
+    logger.info(
+        "DEPRECATION WARNING: reading legacy config.ini at %s. "
+        "Writes now go to the JSON config_store. (FR-29)",
+        config_file_path,
     )
 
+_json_config = config_store.load()
 
-# --- Helper function to get config value with override ---
+# FR-28 exception list: post-enrollment credential triple.
+_ENV_OVERRIDE_EXCEPTIONS = frozenset(
+    {"api_token", "cert_fingerprint", "manager_id"}
+)
+
+
+def _env_var_name(section, key):
+    return f"SETHLANS_{section.upper()}_{key.upper()}"
+
+
 def get_config_value(section, key, default, is_int=False):
-    """
-    Gets a configuration value, respecting the override hierarchy.
-    1. Checks environment variable.
-    2. Checks .ini file.
-    3. Falls back to the hardcoded default.
-    """
-    env_var_name = f"SETHLANS_{section.upper()}_{key.upper()}"
-    value = os.getenv(env_var_name)
-    if value is not None:
-        return int(value) if is_int else value
-
+    """Read a config value: env var > JSON config_store > INI > default."""
+    env_var_name = _env_var_name(section, key)
+    env_blocked = (
+        section == "manager"
+        and key in _ENV_OVERRIDE_EXCEPTIONS
+        and env_var_name in os.environ
+    )
+    if env_blocked:
+        logger.warning(
+            "ignoring %s; %s is managed by the enrollment flow",
+            env_var_name, key,
+        )
+    else:
+        value = os.getenv(env_var_name)
+        if value is not None:
+            return int(value) if is_int else value
+    json_section = _json_config.get(section)
+    if isinstance(json_section, dict) and key in json_section:
+        value = json_section[key]
+        if is_int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                pass
+        else:
+            return value
     if config_parser.has_option(section, key):
         if is_int:
             return config_parser.getint(section, key)
         return config_parser.get(section, key)
-
     return int(default) if is_int else default
 
 
 def _validate_int(name, value, default, min_val=None, max_val=None):
-    """
-    Validates an integer config value against optional bounds.
-
-    Returns the value if valid, or the default with a logged warning.
-    """
+    """Validate an int config value against optional bounds."""
     if not isinstance(value, int):
         logger.warning(
-            "Config '%s' has non-integer value '%s'. "
-            "Falling back to default: %s", name, value, default
+            "Config '%s' has non-integer value '%s'. Falling back to default: %s",
+            name, value, default,
         )
         return default
     if min_val is not None and value < min_val:
         logger.warning(
-            "Config '%s' value %d is below minimum %d. "
-            "Falling back to default: %d", name, value, min_val, default
+            "Config '%s' value %d below minimum %d. Using default: %d",
+            name, value, min_val, default,
         )
         return default
     if max_val is not None and value > max_val:
         logger.warning(
-            "Config '%s' value %d exceeds maximum %d. "
-            "Falling back to default: %d", name, value, max_val, default
+            "Config '%s' value %d above maximum %d. Using default: %d",
+            name, value, max_val, default,
         )
         return default
     return value
 
 
 def _validate_non_empty_string(name, value, default):
-    """
-    Validates that a string config value is non-empty.
-
-    Returns the value if valid, or the default with a logged warning.
-    """
+    """Validate that a string config value is non-empty."""
     if not isinstance(value, str) or not value.strip():
         logger.warning(
-            "Config '%s' is empty or not a string. "
-            "Falling back to default: '%s'", name, default
+            "Config '%s' is empty or not a string. Using default: '%s'",
+            name, default,
         )
         return default
     return value
@@ -113,13 +126,13 @@ MANAGER_HOST = _validate_non_empty_string('manager.host', MANAGER_HOST, '127.0.0
 MANAGER_API_URL = f"https://{MANAGER_HOST}:{MANAGER_PORT}/api/"
 
 # --- Manager Authentication ---
-# Pre-shared enrollment key provided by the admin for initial registration.
-ENROLLMENT_KEY = get_config_value('manager', 'enrollment_key', '')
 # SHA-256 fingerprint of the manager's TLS certificate, received during
 # enrollment. Used by PinningHTTPAdapter to verify the server cert.
 CERT_FINGERPRINT = get_config_value('manager', 'cert_fingerprint', '')
 # Permanent API token received after successful enrollment. Initially empty.
 API_TOKEN = get_config_value('manager', 'api_token', '')
+# Unique manager identifier written during enrollment (FR-25).
+MANAGER_ID = get_config_value('manager', 'manager_id', '')
 
 
 # --- Worker Operation Intervals ---
@@ -197,19 +210,23 @@ UI_PASSWORD_SALT = get_config_value('worker', 'ui_password_salt', '')
 
 
 # --- Worker Agent Paths ---
-# The root directory of the worker agent module.
+# The root directory of the worker agent module (used only for legacy
+# fallbacks and for locating the bundled detect_gpus.py script).
 WORKER_AGENT_DIR = Path(__file__).resolve().parent
 
 # The path to a system-wide Blender executable. Currently not used.
 SYSTEM_BLENDER_EXECUTABLE = None
 
-# Directories for local storage managed by the worker agent.
-MANAGED_TOOLS_DIR = WORKER_AGENT_DIR / 'managed_tools'
-MANAGED_ASSETS_DIR = WORKER_AGENT_DIR / 'managed_assets'
-WORKER_OUTPUT_DIR = WORKER_AGENT_DIR / 'worker_output'
-WORKER_TEMP_DIR = WORKER_AGENT_DIR / 'temp'
-WORKER_LOG_DIR = WORKER_AGENT_DIR / 'logs'
-FAILED_UPLOADS_DIR = WORKER_AGENT_DIR / 'failed_uploads'
+# FR-24a: Directories now live under the per-OS user data dir instead
+# of inside the source tree so packaged installs in Program Files /
+# /opt/sethlans are not treated as writable.
+_DATA_DIR = config_store.get_data_dir()
+MANAGED_TOOLS_DIR = _DATA_DIR / 'tools'
+MANAGED_ASSETS_DIR = _DATA_DIR / 'assets'
+WORKER_OUTPUT_DIR = _DATA_DIR / 'output'
+WORKER_TEMP_DIR = _DATA_DIR / 'temp'
+WORKER_LOG_DIR = _DATA_DIR / 'logs'
+FAILED_UPLOADS_DIR = _DATA_DIR / 'failed_uploads'
 
 
 # Paths to test .blend files used in the end-to-end test suite.
@@ -234,39 +251,26 @@ BLENDER_VERSIONS_CACHE_FILE = MANAGED_TOOLS_DIR / 'blender_versions_cache.json'
 
 
 # --- Platform and Architecture-specific Blender Download/Executable Mappings ---
-# A dictionary mapping Python's platform.system()/platform.machine() output
-# to the correct Blender download naming conventions and executable paths.
+# Keyed by (platform.system(), platform.machine().lower()).
 PLATFORM_BLENDER_MAP = {
     ('Windows', 'amd64'): {
-        'download_suffix': 'windows-x64',
-        'download_ext': '.zip',
-        'executable_path_in_folder': 'blender.exe'
-    },
+        'download_suffix': 'windows-x64', 'download_ext': '.zip',
+        'executable_path_in_folder': 'blender.exe'},
     ('Windows', 'arm64'): {
-        'download_suffix': 'windows-arm64',
-        'download_ext': '.zip',
-        'executable_path_in_folder': 'blender.exe'
-    },
+        'download_suffix': 'windows-arm64', 'download_ext': '.zip',
+        'executable_path_in_folder': 'blender.exe'},
     ('Linux', 'x86_64'): {
-        'download_suffix': 'linux-x64',
-        'download_ext': '.tar.xz',
-        'executable_path_in_folder': 'blender'
-    },
+        'download_suffix': 'linux-x64', 'download_ext': '.tar.xz',
+        'executable_path_in_folder': 'blender'},
     ('Linux', 'aarch64'): {
-        'download_suffix': 'linux-arm64',
-        'download_ext': '.tar.xz',
-        'executable_path_in_folder': 'blender'
-    },
+        'download_suffix': 'linux-arm64', 'download_ext': '.tar.xz',
+        'executable_path_in_folder': 'blender'},
     ('Darwin', 'x86_64'): {
-        'download_suffix': 'macos-x64',
-        'download_ext': '.dmg',
-        'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'
-    },
+        'download_suffix': 'macos-x64', 'download_ext': '.dmg',
+        'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'},
     ('Darwin', 'arm64'): {
-        'download_suffix': 'macos-arm64',
-        'download_ext': '.dmg',
-        'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'
-    }
+        'download_suffix': 'macos-arm64', 'download_ext': '.dmg',
+        'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'},
 }
 
 # The specific details for the current platform and architecture.
@@ -279,20 +283,11 @@ if not CURRENT_PLATFORM_BLENDER_DETAILS:
 
 
 def configure_worker_logging(log_level_str="INFO"):
-    """
-    Configures the basic logging for the worker agent.
-
-    This function sets up a root logger with a specific format and a configurable
-    log level. This should be called once at application startup.
-
-    Args:
-        log_level_str (str): The desired logging level as a string (e.g., 'DEBUG', 'INFO').
-    """
+    """Configure root logging for the worker agent (call once at startup)."""
     log_level = getattr(logging, log_level_str.upper(), logging.INFO)
-
     if not logging.root.handlers:
         logging.basicConfig(
             level=log_level,
             format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            datefmt='%Y-%m-%d %H:%M:%S',
         )

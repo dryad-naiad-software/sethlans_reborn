@@ -191,6 +191,11 @@ def admin_login(session, base_url, username, password):
     new_csrf = session.cookies.get("csrftoken")
     if new_csrf:
         session.headers.update({"X-CSRFToken": new_csrf})
+    # Django's CSRF middleware rejects HTTPS POST requests without a
+    # Referer header ("Referer checking failed - no Referer").  The
+    # requests library does not send Referer by default.  Setting it
+    # on the session ensures every subsequent POST passes the check.
+    session.headers.update({"Referer": f"{base_url}/"})
 
     logger.info("Admin login successful for user '%s'", username)
     return login_resp.json()

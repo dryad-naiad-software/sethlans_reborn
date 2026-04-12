@@ -8,6 +8,7 @@ from .workers import Worker
 from .jobs import JobStatus, TiledJobStatus, TiledJob, Job
 from .animations import AnimationFrameStatus, Animation, AnimationFrame
 from .queue_setting import QueueSetting
+from .manager_settings import ManagerSettings
 
 __all__ = [
     "SupportedBlenderVersion",
@@ -16,4 +17,5 @@ __all__ = [
     "JobStatus", "TiledJobStatus", "TiledJob", "Job",
     "AnimationFrameStatus", "Animation", "AnimationFrame",
     "QueueSetting",
+    "ManagerSettings",
 ]

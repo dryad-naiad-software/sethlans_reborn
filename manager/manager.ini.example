@@ -33,3 +33,22 @@ port = 8080
 
 # Comma-separated list of allowed hostnames.
 # allowed_hosts = sethlans.example.com, 192.168.1.100
+
+# NOTE: The worker enrollment key now lives in the ManagerSettings
+# database row, NOT in this file.  Use `python manage.py show_enrollment_key`
+# to display it, `python manage.py rotate_enrollment_key` to rotate it,
+# or the admin UI ("regenerate enrollment key" button).  The legacy
+# `enrollment_key =` option is read ONCE during the 0017 migration as
+# a compatibility shim and is ignored thereafter.
+
+[enrollment]
+# Friendly name broadcast via multicast discovery.  Truncated to 64
+# characters.  Default: "Sethlans Manager"  (env: SETHLANS_ENROLLMENT_NAME)
+# name = Studio A Render Farm
+
+# Advertised IPv4 address for multicast discovery.  When unset, the
+# manager auto-picks the first non-loopback IPv4 from an enumeration
+# of NICs (skipping docker/VM virtual bridges).  Pin this on multi-NIC
+# studio hosts that have both a studio LAN NIC and a private
+# render-network NIC.  (env: SETHLANS_ENROLLMENT_ADVERTISED_IP)
+# advertised_ip = 192.168.1.50

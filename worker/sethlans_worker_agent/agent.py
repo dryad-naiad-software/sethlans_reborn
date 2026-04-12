@@ -16,13 +16,16 @@ waiting for active job threads to finish before exiting.
 """
 
 import argparse
+import importlib
 import logging
 from logging.handlers import RotatingFileHandler
 import signal
 import threading
 import time
 import sys
-from sethlans_worker_agent import job_processor, system_monitor, config, api_handler
+from sethlans_worker_agent import (
+    job_processor, system_monitor, config, api_handler, config_store,
+)
 from sethlans_worker_agent import version_sync
 from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent.web_ui import start_server, stop_server
@@ -39,8 +42,9 @@ parser.add_argument(
 args = parser.parse_args()
 
 # --- Logging Setup ---
-# Ensure the log directory exists
-config.WORKER_LOG_DIR.mkdir(exist_ok=True)
+# Ensure the log directory exists (parents=True — on a fresh install
+# the entire per-OS data dir tree does not exist yet).
+config.WORKER_LOG_DIR.mkdir(parents=True, exist_ok=True)
 log_file_path = config.WORKER_LOG_DIR / 'worker.log'
 
 # Get the root logger
@@ -200,6 +204,31 @@ def _run_loop_iteration(worker_id):
     _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
 
 
+def _run_first_run_wizard_if_needed():
+    """Run the first-run enrollment wizard on the main thread.
+
+    Invariant: runs BEFORE any background threads are spawned so
+    ``tls_adapter.reset_sessions()`` (per-thread) works correctly for
+    pinning activation after enrollment (FR-23).
+
+    Returns the wizard exit code (0 on success or "wizard not needed").
+    """
+    if config_store.get("enrollment.wizard_complete", False):
+        return 0
+    from sethlans_worker_agent import wizard
+    logger.info("First-run enrollment wizard required.")
+    code = wizard.run_wizard()
+    if code != 0:
+        logger.error("Enrollment wizard exited with code %d.", code)
+        return code
+    # Re-read config so the new token/fingerprint are live in this process.
+    global config
+    config = importlib.reload(config)
+    # Downstream modules that cached ``config`` references still see a
+    # fresh module object after this reload.
+    return 0
+
+
 # --- Main Application Logic ---
 def main():
     """
@@ -215,6 +244,12 @@ def main():
     signal.signal(signal.SIGTERM, _shutdown_handler)
 
     logger.info("Sethlans Reborn Worker Agent Starting...")
+
+    # First-run enrollment wizard runs on the MAIN THREAD before any
+    # background threads are spawned (FR-23 single-threaded invariant).
+    wizard_code = _run_first_run_wizard_if_needed()
+    if wizard_code != 0:
+        sys.exit(wizard_code)
 
     worker_id = None
 

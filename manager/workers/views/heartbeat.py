@@ -1,43 +1,46 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
+"""
+Worker heartbeat endpoint.
 
-import configparser
-import hmac
+Token-authenticated only.  All enrollment-key handling has been removed
+from this file — new workers must hit ``POST /api/enroll/`` first to
+obtain a token, then call this endpoint on subsequent heartbeats.
+
+See ``enroll.py`` for the enrollment flow and
+``development/specs/worker-enrollment.md`` for the full rationale.
+"""
+
 import logging
-import os
 import re
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
-from django.db import IntegrityError, models, transaction
+from django.db import models, transaction
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
-from rest_framework.authentication import TokenAuthentication
+from rest_framework.authentication import (
+    SessionAuthentication,
+    TokenAuthentication,
+)
 from rest_framework.authtoken.models import Token
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..constants import WorkerStatus
 from ..models import SupportedBlenderVersion, Worker
-from ..permissions import IsAdmin
-from ..rate_limiter import InMemoryRateLimiter
 from ..serializers import WorkerSerializer
+from ._helpers import get_or_create_worker_user
 from .stuck_jobs import requeue_stuck_jobs
 from .token_actions import WorkerTokenActionsMixin
 
 logger = logging.getLogger(__name__)
 
 WORKER_ACCEPTED_STATUSES = {WorkerStatus.IDLE, WorkerStatus.RENDERING}
-
-# Rate limiter for enrollment: 5 attempts per IP per 5 minutes
-_enrollment_rate_limiter = InMemoryRateLimiter(
-    max_attempts=5, window_seconds=300,
-)
 
 
 def _validate_worker_status(raw_status):
@@ -61,37 +64,14 @@ def _sanitize_cpu_name(cpu_name):
     create=extend_schema(tags=['Worker Agent']),
 )
 class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
-    """Worker enrollment, heartbeats, and admin token management."""
+    """Worker heartbeats and admin token management.
 
-    def get_permissions(self):
-        if self.action == 'create':
-            return [AllowAny()]
-        return [IsAdmin()]
+    Token authentication is required for every action — the enrollment
+    key path has moved to ``POST /api/enroll/``.  See spec FR-19.
+    """
 
-    def get_authenticators(self):
-        """Use TokenAuthentication for create to skip CSRF."""
-        cur_action = getattr(self, 'action', None)
-        if cur_action is None:
-            action_map = getattr(self, 'action_map', {})
-            method = ''
-            if hasattr(self, 'request') and hasattr(self.request, 'method'):
-                method = self.request.method.lower()
-            cur_action = action_map.get(method)
-        if cur_action == 'create':
-            return [TokenAuthentication()]
-        return super().get_authenticators()
-
-    @staticmethod
-    def _get_enrollment_key():
-        """Read enrollment key: env var > manager.ini > empty string."""
-        key = os.environ.get('SETHLANS_SECURITY_ENROLLMENT_KEY', '')
-        if not key:
-            config = configparser.ConfigParser()
-            config_path = settings.BASE_DIR / 'manager.ini'
-            if config_path.exists():
-                config.read(config_path)
-            key = config.get('security', 'enrollment_key', fallback='')
-        return key
+    authentication_classes = [TokenAuthentication, SessionAuthentication]
+    permission_classes = [IsAuthenticated]
 
     @staticmethod
     def _validate_ui_url(raw_url):
@@ -103,14 +83,6 @@ class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
             return raw_url
         except DjangoValidationError:
             return None
-
-    @staticmethod
-    def _get_client_ip(request):
-        """Extract client IP from the request."""
-        xff = request.META.get('HTTP_X_FORWARDED_FOR')
-        if xff:
-            return xff.split(',')[0].strip()
-        return request.META.get('REMOTE_ADDR', '')
 
     @staticmethod
     def _extract_gpu_name(available_tools):
@@ -142,35 +114,7 @@ class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
         return Response(serializer.data)
 
     def create(self, request):
-        """Worker enrollment (key-based) or authenticated heartbeat."""
-        # Token-authenticated workers skip enrollment key check
-        if isinstance(request.auth, Token):
-            return self._process_heartbeat(request)
-
-        # Enrollment path: rate limit + key validation
-        client_ip = self._get_client_ip(request)
-        if _enrollment_rate_limiter.is_rate_limited(client_ip):
-            return Response(
-                {"detail": "Too many enrollment attempts. Try again later."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-
-        provided_key = request.META.get('HTTP_X_ENROLLMENT_KEY', '')
-        expected_key = self._get_enrollment_key()
-        if (
-            not expected_key
-            or not provided_key
-            or not hmac.compare_digest(provided_key, expected_key)
-        ):
-            _enrollment_rate_limiter.record_attempt(client_ip)
-            logger.warning(
-                "Enrollment rejected: invalid key from %s", client_ip,
-            )
-            return Response(
-                {"detail": "Invalid or missing enrollment key."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Authenticated heartbeat — update or register an existing worker."""
         return self._process_heartbeat(request)
 
     def _process_heartbeat(self, request):
@@ -202,9 +146,7 @@ class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
 
         with transaction.atomic():
             username = f'worker_{hostname}'
-            user = self._get_or_create_worker_user(
-                User, username, hostname,
-            )
+            user = get_or_create_worker_user(User, username, hostname)
             if user is None:
                 return Response(
                     {"detail": "Could not create worker user after retries."},
@@ -274,25 +216,3 @@ class WorkerHeartbeatViewSet(WorkerTokenActionsMixin, viewsets.ViewSet):
         logger.debug("Worker heartbeat. Hostname: %s", hostname)
         requeue_stuck_jobs()
         return WorkerSerializer(worker).data
-
-    @staticmethod
-    def _get_or_create_worker_user(User, username, hostname):
-        """Create a worker User, retrying with numeric suffix (10x)."""
-        for attempt in range(10):
-            candidate = (
-                username if attempt == 0
-                else f'{username}_{attempt}'
-            )
-            try:
-                user, created = User.objects.get_or_create(
-                    username=candidate,
-                    defaults={'is_staff': False, 'is_active': True},
-                )
-                if created:
-                    user.set_unusable_password()
-                    user.save()
-                return user
-            except IntegrityError:
-                continue
-        logger.error("Failed to create user for worker '%s' after 10 retries.", hostname)
-        return None
