@@ -11,7 +11,10 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     ln -sf /usr/bin/python3 /usr/bin/python
 
-RUN groupadd -g 1000 sethlans && \
+# Remove the default ubuntu user/group (UID/GID 1000) if present in the base image
+RUN userdel -r ubuntu 2>/dev/null || true && \
+    groupdel ubuntu 2>/dev/null || true && \
+    groupadd -g 1000 sethlans && \
     useradd -u 1000 -g 1000 -m -s /bin/bash sethlans
 
 WORKDIR /app
