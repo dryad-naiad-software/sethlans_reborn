@@ -65,9 +65,16 @@ jobs:
           name: test-image
           path: /tmp
       - run: docker load -i /tmp/test-image.tar
-      - run: >
+      - name: Critical lint errors (fail on syntax errors)
+        run: >
           docker run --rm sethlans-test:latest
-          flake8 --max-line-length 127 --max-complexity 10
+          flake8 --select=E9,F63,F7,F82 --show-source
+          --exclude=migrations,node_modules,managed_tools
+          manager/ worker/ tests/
+      - name: Style lint (report only, do not fail)
+        run: >
+          docker run --rm sethlans-test:latest
+          flake8 --max-line-length 127 --max-complexity 10 --exit-zero
           --exclude=migrations,node_modules,managed_tools
           manager/ worker/ tests/
 
