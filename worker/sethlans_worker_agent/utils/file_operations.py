@@ -52,13 +52,17 @@ def dump_json(data, file_handle):
 
 
 # --- Download and Archive Operations ---
-def download_file(url, dest_folder):
+def download_file(url, dest_folder, session=None):
     """
     Downloads a file from a URL to a local destination with a progress bar.
 
     Args:
         url (str): The URL of the file to download.
         dest_folder (str): The path to the local directory to save the file.
+        session (requests.Session, optional): A requests session to use for
+            the download. When downloading from the manager (self-signed TLS),
+            pass the pinning session from ``tls_adapter.get_session()``.
+            When None, uses bare ``requests.get`` (fine for public URLs).
 
     Returns:
         str: The full local path to the downloaded file.
@@ -67,7 +71,8 @@ def download_file(url, dest_folder):
     download_path = os.path.join(dest_folder, local_filename)
 
     logger.info(f"Downloading {url} to {download_path}...")
-    with requests.get(url, stream=True) as r:
+    getter = session or requests
+    with getter.get(url, stream=True) as r:
         r.raise_for_status()
         total_size = int(r.headers.get('content-length', 0))
         with open(download_path, 'wb') as f, tqdm(

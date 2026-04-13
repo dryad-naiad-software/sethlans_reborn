@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 
 from sethlans_worker_agent import config
+from sethlans_worker_agent.tls_adapter import get_session
 from sethlans_worker_agent.utils import file_operations
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,9 @@ def ensure_asset_is_available(asset_data):
 
     try:
         # We can reuse the download_file utility. We'll download it to its final parent directory.
-        downloaded_file_path = file_operations.download_file(file_url, str(local_path.parent))
+        downloaded_file_path = file_operations.download_file(
+            file_url, str(local_path.parent), session=get_session(),
+        )
 
         # download_file returns the full path, which should match our calculated local_path
         if downloaded_file_path == str(local_path):
