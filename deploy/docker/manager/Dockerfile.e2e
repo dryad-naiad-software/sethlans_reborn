@@ -53,6 +53,8 @@ RUN pip install --no-cache-dir \
 # Copy application source, tests, and tools
 COPY manager/ /app/manager/
 COPY worker/ /app/worker/
+COPY shared/ /app/shared/
+COPY launcher/ /app/launcher/
 COPY tests/ /app/tests/
 COPY tools/ /app/tools/
 COPY pytest.ini /app/pytest.ini
@@ -60,7 +62,7 @@ COPY pytest.ini /app/pytest.ini
 ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
     SETHLANS_SECURITY_DEBUG=true \
     SETHLANS_SECURITY_SECRET_KEY=test-only-not-for-production \
-    PYTHONPATH=/app/manager:/app/worker \
+    PYTHONPATH=/app:/app/manager:/app/worker \
     DISPLAY=:99
 
 RUN mkdir -p /results
