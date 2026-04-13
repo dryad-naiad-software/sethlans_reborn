@@ -4,7 +4,12 @@
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends \
+        curl xz-utils \
+        libegl1 libgl1 libglu1-mesa \
+        libx11-6 libxi6 libxrender1 libxkbcommon0 \
+        libxxf86vm1 libxfixes3 libxcursor1 \
+        libxinerama1 libxrandr2 libsm6 libice6 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1000 sethlans && \

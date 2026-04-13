@@ -8,7 +8,11 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        python3 python3-venv python3-pip curl && \
+        python3 python3-venv python3-pip curl xz-utils \
+        libegl1 libgl1 libglu1-mesa \
+        libx11-6 libxi6 libxrender1 libxkbcommon0 \
+        libxxf86vm1 libxfixes3 libxcursor1 \
+        libxinerama1 libxrandr2 libsm6 libice6 && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     ln -sf /usr/bin/python3 /usr/bin/python
 
