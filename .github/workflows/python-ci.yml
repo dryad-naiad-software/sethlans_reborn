@@ -68,9 +68,7 @@ jobs:
         with:
           name: test-artifacts-self-hosted-linux-py${{ matrix.python-version }}
           path: |
-            manager/logs/manager.log
-            worker/sethlans_worker_agent/logs/worker.log
-            worker/sethlans_worker_agent/worker_output/
+            /tmp/e2e_*/**
             test_artifacts/
             !**/*.blend
           if-no-files-found: ignore
@@ -136,9 +134,7 @@ jobs:
         with:
           name: test-artifacts-self-hosted-macos-py${{ matrix.python-version }}
           path: |
-            manager/logs/manager.log
-            worker/sethlans_worker_agent/logs/worker.log
-            worker/sethlans_worker_agent/worker_output/
+            /tmp/e2e_*/**
             test_artifacts/
             !**/*.blend
           if-no-files-found: ignore
