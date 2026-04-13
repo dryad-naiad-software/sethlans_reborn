@@ -254,6 +254,7 @@ function Invoke-Worker {
     $env:SETHLANS_MANAGER_HOST = "127.0.0.1"
     $env:SETHLANS_MANAGER_PORT = "8080"
     $env:SETHLANS_IDLE_DETECTION_ENABLED = "false"
+    $env:SETHLANS_WORKER_UI_ENABLED = "true"
     # Create an empty file for stdin so isatty() returns False (unattended wizard)
     $stdinFile = Join-Path $env:TEMP "sethlans_worker_stdin.txt"
     Set-Content -Path $stdinFile -Value ""
@@ -264,7 +265,8 @@ function Invoke-Worker {
         -RedirectStandardInput $stdinFile
     # Clean up env vars from current shell
     foreach ($v in @("SETHLANS_WORKER_ENROLLMENT_KEY", "SETHLANS_MANAGER_HOST",
-                     "SETHLANS_MANAGER_PORT", "SETHLANS_IDLE_DETECTION_ENABLED")) {
+                     "SETHLANS_MANAGER_PORT", "SETHLANS_IDLE_DETECTION_ENABLED",
+                     "SETHLANS_WORKER_UI_ENABLED")) {
         Remove-Item "Env:\$v" -ErrorAction SilentlyContinue
     }
     Start-Sleep -Seconds 2

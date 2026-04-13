@@ -229,6 +229,7 @@ cmd_worker() {
     SETHLANS_MANAGER_HOST="127.0.0.1" \
     SETHLANS_MANAGER_PORT="8080" \
     SETHLANS_IDLE_DETECTION_ENABLED="false" \
+    SETHLANS_WORKER_UI_ENABLED="true" \
     nohup python "$WORKER_DIR/run_worker.py" > /dev/null 2>&1 &
     local pid=$!; sleep 2
     if ! kill -0 "$pid" 2>/dev/null; then
