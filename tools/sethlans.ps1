@@ -183,16 +183,20 @@ function Invoke-Clean {
     Get-ChildItem -Path $ManagerDir -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "[OK] Manager artifacts removed"
-    # Worker (in-tree only; worker state now lives in OS data dir)
+    # Worker (in-tree legacy + OS data dir)
     foreach ($d in @("managed_tools", "managed_assets", "worker_output", "temp", "logs")) {
         $p = Join-Path $AgentDir $d
         if (Test-Path $p) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
     }
     Get-ChildItem -Path $WorkerDir -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "[OK] Worker in-tree artifacts removed"
-    Write-Host "     NOTE: Worker state is in the OS data dir (%LOCALAPPDATA%\Sethlans\worker)."
-    Write-Host "           Remove it manually if a full reset is needed."
+    # Wipe worker config store (enrollment data, cached certs, tools, assets)
+    $workerDataDir = Join-Path $env:LOCALAPPDATA "Sethlans\worker"
+    if (Test-Path $workerDataDir) {
+        Remove-Item -Recurse -Force $workerDataDir -ErrorAction SilentlyContinue
+        Write-Host "[OK] Worker data dir removed ($workerDataDir)"
+    }
+    Write-Host "[OK] Worker artifacts removed"
     # Shared artifacts
     foreach ($item in @("temp", ".pytest_cache", "sethlans_e2e_cache", "test_artifacts", "manual_test_output")) {
         $p = Join-Path $ProjectRoot $item

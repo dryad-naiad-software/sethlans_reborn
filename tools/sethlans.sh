@@ -167,13 +167,21 @@ cmd_clean() {
     rm -rf "${MANAGER_DIR:?}/media"
     find "$MANAGER_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
     echo "[OK] Manager artifacts removed"
-    # Worker (in-tree only; worker state now lives in OS data dir)
+    # Worker (in-tree legacy + OS data dir)
     rm -rf "$AGENT_DIR/managed_tools" "$AGENT_DIR/managed_assets" "$AGENT_DIR/worker_output"
     rm -rf "$AGENT_DIR/temp" "$AGENT_DIR/logs"
     find "$WORKER_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-    echo "[OK] Worker in-tree artifacts removed"
-    echo "     NOTE: Worker state is in the OS data dir (XDG_DATA_HOME/sethlans/worker)."
-    echo "           Remove it manually if a full reset is needed."
+    # Wipe worker config store (enrollment data, cached certs, tools, assets)
+    local worker_data_dir
+    case "$(uname -s)" in
+        Darwin) worker_data_dir="$HOME/Library/Application Support/Sethlans/worker" ;;
+        *)      worker_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sethlans/worker" ;;
+    esac
+    if [ -d "$worker_data_dir" ]; then
+        rm -rf "$worker_data_dir"
+        echo "[OK] Worker data dir removed ($worker_data_dir)"
+    fi
+    echo "[OK] Worker artifacts removed"
     # Shared artifacts
     rm -rf "$PROJECT_ROOT/temp" "$PROJECT_ROOT/.pytest_cache" "$PROJECT_ROOT/sethlans_e2e_cache"
     rm -f "$PROJECT_ROOT/test_e2e_db.sqlite3"
