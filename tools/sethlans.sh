@@ -93,6 +93,7 @@ start_services() {
     echo ""
     echo "============================================================"
     echo "  Manager UI:  https://127.0.0.1:8080"
+    echo "  Worker UI:   http://127.0.0.1:8081"
     echo "  Swagger API: https://127.0.0.1:8080/api/docs/"
     echo "  Admin login: testuser / test12345"
     echo "============================================================"
