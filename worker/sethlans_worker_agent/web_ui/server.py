@@ -1,203 +1,36 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-
 """
-Embedded HTTP server for the worker web UI.
+HTTPS server lifecycle for the worker web UI.
 
-Uses stdlib http.server.ThreadingHTTPServer in a daemon thread.
-Serves the static HTML dashboard, a JSON status endpoint, and
-authenticated control endpoints for pause/resume/shutdown/config changes.
+Launches uvicorn in a daemon thread with TLS 1.2 minimum enforced
+via ``shared.tls_utils.build_ssl_context``.
 """
 
-import json
 import logging
-import os
+import ssl
 import threading
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
-from sethlans_worker_agent import config, job_processor
-from sethlans_worker_agent.web_ui.auth import (
-    validate_password, is_password_configured, set_password,
-)
-from sethlans_worker_agent.web_ui.config_mutations import apply_config_change
-from sethlans_worker_agent.web_ui.status import get_status_snapshot
+import uvicorn
+
+from sethlans_worker_agent import config
+from sethlans_worker_agent.web_ui.auth import is_password_configured
+from shared.tls_utils import build_ssl_context
 
 logger = logging.getLogger(__name__)
 
-# Maximum request body size for POST endpoints (4 KB)
-MAX_REQUEST_BODY = 4096
-
-# Explicit allowlist of config keys that can be modified via control endpoints.
-# MANAGER_HOST, MANAGER_PORT, MANAGER_URL are NEVER modifiable.
-_MUTABLE_CONFIG_KEYS = frozenset({
-    'POLLING_INTERVAL',
-    'HEARTBEAT_INTERVAL',
-    'FORCE_CPU_ONLY',
-    'FORCE_GPU_ONLY',
-    'GPU_MODE',
-})
-
-# Path to the static HTML dashboard
-_STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
-_INDEX_PATH = os.path.join(_STATIC_DIR, 'index.html')
-
-# Module-level server reference for shutdown
 _server = None
 _server_thread = None
 
 
-class WorkerRequestHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for the worker web UI."""
+def start_server(cert_path, key_path):
+    """Start uvicorn in a daemon thread with TLS.
 
-    def log_message(self, format, *args):
-        """Route HTTP log messages through the Python logging system."""
-        logger.debug(format, *args)
-
-    def _send_json(self, data, status=200):
-        """Send a JSON response."""
-        body = json.dumps(data).encode('utf-8')
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _send_html(self, path):
-        """Send an HTML file response."""
-        try:
-            with open(path, 'rb') as f:
-                content = f.read()
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Length', str(len(content)))
-            self.end_headers()
-            self.wfile.write(content)
-        except FileNotFoundError:
-            self.send_error(404, 'Not Found')
-
-    def _check_auth(self):
-        """Validate Bearer password. Returns True if authorized."""
-        auth = self.headers.get('Authorization', '')
-        if not auth.startswith('Bearer '):
-            self._send_json({'error': 'Unauthorized'}, 401)
-            return False
-        password = auth[7:]
-        if not validate_password(password):
-            self._send_json({'error': 'Unauthorized'}, 401)
-            return False
-        return True
-
-    def _read_body(self):
-        """Read and validate POST body size. Returns bytes or None."""
-        length_str = self.headers.get('Content-Length', '0')
-        try:
-            length = int(length_str)
-        except ValueError:
-            self.send_error(400, 'Invalid Content-Length')
-            return None
-        if length < 0 or length > MAX_REQUEST_BODY:
-            self._send_json({'error': 'Request body too large'}, 413)
-            return None
-        return self.rfile.read(length)
-
-    def do_GET(self):
-        """Handle GET requests."""
-        if self.path in ('/', '/index.html'):
-            self._send_html(_INDEX_PATH)
-        elif self.path == '/api/status':
-            snapshot = get_status_snapshot()
-            self._send_json(snapshot)
-        else:
-            self.send_error(404, 'Not Found')
-
-    def do_POST(self):
-        """Handle POST requests for control endpoints."""
-        if not self.path.startswith('/api/control/'):
-            self.send_error(404, 'Not Found')
-            return
-
-        if not self._check_auth():
-            return
-
-        body_bytes = self._read_body()
-        if body_bytes is None:
-            return
-
-        action = self.path[len('/api/control/'):]
-
-        if action == 'pause':
-            job_processor.pause()
-            self._send_json({'status': 'paused'})
-        elif action == 'resume':
-            job_processor.resume()
-            self._send_json({'status': 'resumed'})
-        elif action == 'shutdown':
-            self._handle_shutdown()
-        elif action == 'set_password':
-            self._handle_set_password(body_bytes)
-        elif action == 'update':
-            self._handle_config_update(body_bytes)
-        else:
-            self.send_error(404, 'Unknown action')
-
-    def _handle_shutdown(self):
-        """Trigger a graceful shutdown of the worker agent."""
-        from sethlans_worker_agent.agent import _shutdown_event
-        logger.info("Shutdown requested via web UI.")
-        self._send_json({'status': 'shutting_down'})
-        _shutdown_event.set()
-
-    def _handle_set_password(self, body_bytes):
-        """Set a new password for the worker UI."""
-        try:
-            data = json.loads(body_bytes)
-        except (json.JSONDecodeError, ValueError):
-            self._send_json({'error': 'Invalid JSON'}, 400)
-            return
-        new_password = data.get('password', '')
-        if not new_password or len(new_password) < 4:
-            self._send_json(
-                {'error': 'Password must be at least 4 characters'},
-                400,
-            )
-            return
-        set_password(new_password)
-        self._send_json({'status': 'password_set'})
-
-    def _handle_config_update(self, body_bytes):
-        """Process a config update request."""
-        try:
-            data = json.loads(body_bytes)
-        except (json.JSONDecodeError, ValueError):
-            self._send_json({'error': 'Invalid JSON'}, 400)
-            return
-
-        key = data.get('key', '')
-        value = data.get('value')
-
-        if key not in _MUTABLE_CONFIG_KEYS:
-            self._send_json(
-                {'error': f'Config key {key!r} is not modifiable'},
-                403
-            )
-            return
-
-        try:
-            apply_config_change(key, value)
-        except ValueError as e:
-            self._send_json({'error': str(e)}, 400)
-            return
-
-        self._send_json({'status': 'updated', 'key': key, 'value': value})
-
-
-def start_server():
-    """
-    Start the web UI HTTP server in a daemon thread.
-
-    If no custom password is set, the default password is used and
-    the dashboard prompts the user to change it on first load.
+    The SSLContext is built via ``shared.tls_utils.build_ssl_context()``
+    which enforces TLS 1.2 minimum. After uvicorn creates its Config,
+    we pre-load it and replace its SSL context with ours to guarantee
+    the TLS version floor.
     """
     global _server, _server_thread
 
@@ -211,32 +44,54 @@ def start_server():
             "Change it via the dashboard."
         )
 
-    bind_addr = config.UI_BIND_ADDRESS
-    port = config.UI_PORT
+    from sethlans_worker_agent.web_ui.asgi_app import app as asgi_app
 
-    try:
-        _server = ThreadingHTTPServer(
-            (bind_addr, port), WorkerRequestHandler
-        )
-        _server.socket.settimeout(30)
-        _server_thread = threading.Thread(
-            target=_server.serve_forever,
-            name='web-ui-server',
-            daemon=True,
-        )
-        _server_thread.start()
-        logger.info(
-            "Worker Web UI started on http://%s:%d", bind_addr, port
-        )
-    except OSError as e:
-        logger.error("Failed to start Worker Web UI: %s", e)
+    uvicorn_config = uvicorn.Config(
+        app=asgi_app,
+        host=config.UI_BIND_ADDRESS,
+        port=config.UI_PORT,
+        ssl_keyfile=str(key_path),
+        ssl_certfile=str(cert_path),
+        ssl_version=ssl.PROTOCOL_TLS_SERVER,
+        log_level="warning",
+    )
+
+    # Pre-load the config so we can replace its SSL context with one
+    # that enforces TLS 1.2 minimum via shared.tls_utils.
+    uvicorn_config.load()
+    uvicorn_config.ssl = build_ssl_context(cert_path, key_path)
+
+    _server = uvicorn.Server(uvicorn_config)
+    _server_thread = threading.Thread(
+        target=_server.run,
+        name='web-ui-server',
+        daemon=True,
+    )
+    _server_thread.start()
+    logger.info(
+        "Worker Web UI started on https://%s:%d",
+        config.UI_BIND_ADDRESS, config.UI_PORT,
+    )
 
 
 def stop_server():
-    """Shut down the web UI HTTP server."""
+    """Signal uvicorn to shut down, join thread with timeout.
+
+    If the join times out after 5 seconds, log a warning.
+    The orphaned thread cannot dispatch control actions because
+    the ASGI app returns 503 once ``_shutdown_event`` is set (FR-12).
+    """
     global _server, _server_thread
-    if _server is not None:
-        logger.info("Stopping Worker Web UI server...")
-        _server.shutdown()
-        _server = None
-        _server_thread = None
+    if _server is None:
+        return
+    logger.info("Stopping Worker Web UI server...")
+    _server.should_exit = True
+    if _server_thread is not None:
+        _server_thread.join(timeout=5.0)
+        if _server_thread.is_alive():
+            logger.warning(
+                "Web UI server thread did not terminate within "
+                "5 seconds. Proceeding with shutdown."
+            )
+    _server = None
+    _server_thread = None

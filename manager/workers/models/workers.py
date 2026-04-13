@@ -41,6 +41,16 @@ class Worker(models.Model):
             "reported via heartbeat."
         ),
     )
+    ui_cert_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text=(
+            "Self-reported SHA-256 fingerprint of the worker's UI "
+            "TLS certificate. NOT verified by the manager -- do not "
+            "use for security-critical decisions."
+        ),
+    )
 
     def has_blender_version(self, version_str):
         """Check if this worker has a specific Blender version installed."""

@@ -87,7 +87,7 @@ function Invoke-StartServices {
     Write-Host ""
     Write-Host "============================================================"
     Write-Host "  Manager UI:  https://127.0.0.1:8080"
-    Write-Host "  Worker UI:   http://127.0.0.1:8081"
+    Write-Host "  Worker UI:   https://127.0.0.1:8081"
     Write-Host "  Swagger API: https://127.0.0.1:8080/api/docs/"
     Write-Host "  Admin login: testuser / test12345"
     Write-Host "============================================================"

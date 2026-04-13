@@ -11,7 +11,6 @@ and SSL context construction.  Reads config from ``manager.ini``
 
 import logging
 import os
-import ssl
 import sys
 from pathlib import Path
 
@@ -22,6 +21,7 @@ from sethlans_manager.cert_utils import (
     load_and_validate_cert,
 )
 from shared.frozen_paths import get_data_dir, is_frozen
+from shared.tls_utils import build_ssl_context  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -126,14 +126,6 @@ def setup_certificates(dev_mode, manager_dir, project_root):
         logger.info("TLS cert fingerprint: %s", fingerprint)
 
     return (cert_path, key_path, cert)
-
-
-def build_ssl_context(cert_path, key_path):
-    """Build an SSLContext with TLS 1.2 minimum version."""
-    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    ssl_ctx.load_cert_chain(str(cert_path), str(key_path))
-    return ssl_ctx
 
 
 # Re-export CertificateError for callers that imported it via tls_setup.

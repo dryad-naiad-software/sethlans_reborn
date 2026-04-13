@@ -173,9 +173,8 @@ if 'SETHLANS_GPU_SPLIT_MODE' in os.environ:
         GPU_MODE,
     )
 
-# --- NEW: Configure CPU threads for rendering. 0 = auto (cores - 1) ---
-# The effective thread count is capped at (cores - 1) by the worker
-# capacity module; any user value above the ceiling is silently capped.
+# CPU threads for rendering. 0 = auto (cores - 1). Capped at (cores - 1)
+# by the worker capacity module; values above the ceiling are silently capped.
 CPU_THREADS = get_config_value('worker', 'cpu_threads', 0, is_int=True)
 CPU_THREADS = _validate_int('worker.cpu_threads', CPU_THREADS, 0, 0, 1024)
 
@@ -194,6 +193,9 @@ if FORCE_GPU_INDEX is not None and GPU_MODE == 'combined':
     sys.exit(1)
 
 
+# --- Worker TLS Configuration ---
+TLS_CERT_FILE = get_config_value('worker_tls', 'cert_file', '')
+TLS_KEY_FILE = get_config_value('worker_tls', 'key_file', '')
 # --- Worker Web UI Configuration ---
 UI_ENABLED = get_config_value('worker', 'ui_enabled', 'true')
 UI_ENABLED = UI_ENABLED.lower() in ('true', '1', 'yes') if isinstance(UI_ENABLED, str) else bool(UI_ENABLED)
@@ -287,12 +289,12 @@ if not CURRENT_PLATFORM_BLENDER_DETAILS:
           f"({platform.system()}, {platform.machine().lower()}).")
 
 
-def configure_worker_logging(log_level_str="INFO"):
-    """Configure root logging for the worker agent (call once at startup)."""
-    log_level = getattr(logging, log_level_str.upper(), logging.INFO)
+def configure_worker_logging(level="INFO"):
+    """Configure root logging (call once at startup)."""
+    lvl = getattr(logging, level.upper(), logging.INFO)
     if not logging.root.handlers:
         logging.basicConfig(
-            level=log_level,
+            level=lvl,
             format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S',
         )

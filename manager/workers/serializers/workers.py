@@ -30,11 +30,11 @@ class WorkerSerializer(serializers.ModelSerializer):
             'id', 'hostname', 'ip_address', 'os', 'last_seen',
             'last_heartbeat', 'is_active', 'available_tools', 'ui_url',
             'has_token', 'cpu_name', 'gpu_name', 'status',
-            'schedule_config',
+            'schedule_config', 'ui_cert_fingerprint',
         ]
         read_only_fields = [
             'last_seen', 'last_heartbeat', 'has_token',
-            'schedule_config',
+            'schedule_config', 'ui_cert_fingerprint',
         ]
 
     def get_status(self, obj):

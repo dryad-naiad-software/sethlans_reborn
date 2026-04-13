@@ -2,6 +2,8 @@ beautifulsoup4==4.13.4
 certifi==2025.7.14
 charset-normalizer==3.4.2
 colorama==0.4.6
+cryptography>=44.0.0
+httptools>=0.6.0
 idna==3.10
 psutil==7.0.0
 requests==2.32.4
@@ -9,3 +11,5 @@ soupsieve==2.7
 tqdm==4.67.1
 typing_extensions==4.14.1
 urllib3==2.5.0
+uvicorn>=0.34.0
+uvloop>=0.21.0; sys_platform != 'win32'

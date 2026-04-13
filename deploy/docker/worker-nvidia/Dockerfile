@@ -46,6 +46,6 @@ RUN mkdir -p /data /config && chown -R sethlans:sethlans /data /config
 USER sethlans
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -fs http://localhost:8081/api/status || exit 1
+    CMD curl -fsk https://localhost:8081/api/status || exit 1
 
 ENTRYPOINT ["python", "run_worker.py"]

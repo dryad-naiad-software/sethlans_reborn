@@ -144,7 +144,7 @@ def _should_skip_polling():
     return None
 
 
-def _try_register_worker():
+def _try_register_worker(cert_path, key_path):
     """Attempt registration. Returns the worker ID on success, else None."""
     logger.warning("Worker not registered with Manager. Attempting registration...")
     new_id = system_monitor.register_with_manager()
@@ -152,7 +152,7 @@ def _try_register_worker():
         logger.error("Failed to register with manager. Retrying in 30 seconds...")
         return None
     job_processor.init_capacity()
-    start_server()
+    start_server(cert_path, key_path)
     return new_id
 
 
@@ -227,14 +227,7 @@ def _run_first_run_wizard_if_needed():
 
 # --- Main Application Logic ---
 def main():
-    """
-    The main operational loop for the worker agent.
-
-    This function continuously attempts to register with the manager and, once
-    successful, enters a loop to send heartbeats and poll for new jobs. The loop
-    checks a shutdown event each cycle and exits gracefully when signaled,
-    waiting for active job threads to complete.
-    """
+    """Main operational loop: register, heartbeat, poll, dispatch, shutdown."""
     # Install signal handlers for graceful shutdown.
     signal.signal(signal.SIGINT, _shutdown_handler)
     signal.signal(signal.SIGTERM, _shutdown_handler)
@@ -254,13 +247,23 @@ def main():
     if wizard_code != 0:
         sys.exit(wizard_code)
 
+    # TLS setup — once, before the main loop.
+    # CertificateError here is fatal (matches manager's run_manager.py).
+    from sethlans_worker_agent import tls_setup
+    from shared.cert_utils import CertificateError
+    try:
+        cert_path, key_path, _fingerprint = tls_setup.setup_certificates()
+    except CertificateError as e:
+        logger.critical("TLS certificate error: %s", e)
+        sys.exit(1)
+
     worker_id = None
 
     while not _shutdown_event.is_set():
         try:
             _prune_finished_threads()
             if not worker_id:
-                worker_id = _try_register_worker()
+                worker_id = _try_register_worker(cert_path, key_path)
                 if not worker_id:
                     _shutdown_event.wait(30)
                     continue

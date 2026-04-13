@@ -3,15 +3,16 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Integration tests for the worker web UI HTTP server.
+Integration tests for the worker web UI HTTPS server.
 
-Starts a real ThreadingHTTPServer on a random port and exercises
+Starts a real uvicorn HTTPS server on a random port and exercises
 the status, pause/resume, and authentication endpoints using
-urllib from stdlib.
+urllib from stdlib with certificate verification disabled.
 """
 
 import json
 import logging
+import ssl
 import urllib.request
 import urllib.error
 
@@ -22,14 +23,19 @@ from sethlans_worker_agent.web_ui import auth, server
 
 logger = logging.getLogger(__name__)
 
+# Unverified SSL context for self-signed cert testing
+_NO_VERIFY_CTX = ssl.create_default_context()
+_NO_VERIFY_CTX.check_hostname = False
+_NO_VERIFY_CTX.verify_mode = ssl.CERT_NONE
+
 
 @pytest.fixture()
 def web_ui(mocker, tmp_path):
     """
-    Start the web UI server on a random high port.
+    Start the web UI server on a random high port with TLS.
 
-    Uses auth.set_password() to configure a known PBKDF2-hashed
-    password.  Yields a dict with base_url and password.
+    Generates a self-signed cert, configures auth with a known
+    PBKDF2-hashed password. Yields a dict with base_url and password.
     Stops server on teardown.
     """
     test_password = "test-integration-pw123"
@@ -41,6 +47,13 @@ def web_ui(mocker, tmp_path):
     # Patch config_file_path so set_password writes to tmp
     mocker.patch.object(config, 'config_file_path', tmp_path / 'config.ini')
     auth.set_password(test_password)
+
+    # Generate self-signed cert for the test
+    from shared.cert_utils import generate_self_signed_cert
+    tls_dir = tmp_path / 'tls'
+    cert_path = tls_dir / 'cert.pem'
+    key_path = tls_dir / 'key.pem'
+    generate_self_signed_cert(cert_path, key_path)
 
     # Find a free port
     import socket
@@ -70,10 +83,25 @@ def web_ui(mocker, tmp_path):
         42,
     )
 
-    server.start_server()
+    server.start_server(cert_path, key_path)
+
+    # Wait for uvicorn to bind and accept connections
+    import time
+    for _attempt in range(20):
+        try:
+            test_ctx = ssl.create_default_context()
+            test_ctx.check_hostname = False
+            test_ctx.verify_mode = ssl.CERT_NONE
+            urllib.request.urlopen(
+                f'https://127.0.0.1:{port}/api/status',
+                timeout=1, context=test_ctx,
+            )
+            break
+        except (urllib.error.URLError, ConnectionError, OSError):
+            time.sleep(0.25)
 
     yield {
-        'base_url': f'http://127.0.0.1:{port}',
+        'base_url': f'https://127.0.0.1:{port}',
         'token': test_password,
     }
 
@@ -85,7 +113,8 @@ def _get(url, headers=None):
     """Make a GET request and return (status, body_dict)."""
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5,
+                                    context=_NO_VERIFY_CTX) as resp:
             body = json.loads(resp.read().decode())
             return resp.status, body
     except urllib.error.HTTPError as e:
@@ -103,7 +132,8 @@ def _post(url, data=None, headers=None):
         url, data=body_bytes, headers=all_headers, method='POST',
     )
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5,
+                                    context=_NO_VERIFY_CTX) as resp:
             body = json.loads(resp.read().decode())
             return resp.status, body
     except urllib.error.HTTPError as e:

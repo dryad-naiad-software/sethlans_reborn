@@ -44,6 +44,12 @@ WORKER_ID = None
 _versions_ready = False
 
 
+def _get_ui_cert_fingerprint():
+    """Return the worker UI TLS cert fingerprint, or '' if unavailable."""
+    from sethlans_worker_agent import tls_setup
+    return tls_setup.get_ui_cert_fingerprint() or ''
+
+
 def _is_loopback(addr):
     """Check if an address is a loopback address."""
     return addr in ('127.0.0.1', 'localhost', '::1')
@@ -62,7 +68,7 @@ def _get_ui_url():
         ui_host = IP_ADDRESS
     else:
         ui_host = config.UI_BIND_ADDRESS
-    return f"http://{ui_host}:{config.UI_PORT}"
+    return f"https://{ui_host}:{config.UI_PORT}"
 
 
 def _process_heartbeat_versions(response_data, is_busy=False, active_jobs=None):
@@ -110,6 +116,7 @@ def register_with_manager():
 
     payload = get_system_info()
     payload['ui_url'] = _get_ui_url()
+    payload['ui_cert_fingerprint'] = _get_ui_cert_fingerprint()
     payload['status'] = 'IDLE'
 
     logger.info("Using existing API token for registration heartbeat.")
@@ -165,6 +172,7 @@ def send_heartbeat(is_busy=False, active_jobs=None):
     payload = get_system_info()
     payload.pop('os', None)
     payload['ui_url'] = _get_ui_url()
+    payload['ui_cert_fingerprint'] = _get_ui_cert_fingerprint()
     payload['status'] = 'RENDERING' if is_busy else 'IDLE'
 
     # Include schedule config in heartbeat (FR-10a).

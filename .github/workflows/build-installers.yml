@@ -115,8 +115,8 @@ jobs:
           Start-Sleep -Seconds 10
 
           try {
-            $response = Invoke-WebRequest -Uri "http://localhost:8081/api/status" `
-              -TimeoutSec 10 -ErrorAction SilentlyContinue
+            $response = Invoke-WebRequest -Uri "https://localhost:8081/api/status" `
+              -SkipCertificateCheck -TimeoutSec 10 -ErrorAction SilentlyContinue
             Write-Host "Worker smoke test passed"
           } catch {
             Write-Host "Worker smoke test: process started (status endpoint may require enrollment)"

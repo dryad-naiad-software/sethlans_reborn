@@ -60,6 +60,14 @@ ui_bind_address = 0.0.0.0
 ui_password_hash =
 ui_password_salt =
 
+[worker_tls]
+# BYO certificate for the worker web UI.
+# Both cert_file and key_file must be set for a custom certificate.
+# If unset, a self-signed certificate is auto-generated on first run.
+# Override via SETHLANS_WORKER_TLS_CERT_FILE / SETHLANS_WORKER_TLS_KEY_FILE env vars.
+cert_file =
+key_file =
+
 [idle_detection]
 # Enable idle detection. Set to false to disable (always claim jobs).
 # Automatically false on headless/Docker hosts.

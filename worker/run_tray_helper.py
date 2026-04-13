@@ -6,7 +6,7 @@
 Tray helper entry point.
 
 The tray helper is a separate process from the main worker agent,
-communicating via HTTP to 127.0.0.1:8081. The tray helper module
+communicating via HTTPS to 127.0.0.1:8081. The tray helper module
 itself is specified in worker-host-integration.md Q9. This file is
 just the launcher stub.
 """

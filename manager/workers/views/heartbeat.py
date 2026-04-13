@@ -90,6 +90,29 @@ class WorkerHeartbeatViewSet(
             return None
 
     @staticmethod
+    def _validate_ui_cert_fingerprint(raw_value):
+        """Validate and return a ui_cert_fingerprint, or '' if invalid.
+
+        Accepts a 64-character lowercase hex string (SHA-256).
+        Logs a warning and returns '' for non-conforming values.
+        """
+        if not raw_value:
+            return ''
+        if not isinstance(raw_value, str):
+            logger.warning(
+                "Rejecting non-string ui_cert_fingerprint: %r",
+                type(raw_value).__name__,
+            )
+            return ''
+        if not re.fullmatch(r'[0-9a-f]{64}', raw_value):
+            logger.warning(
+                "Rejecting invalid ui_cert_fingerprint: %r",
+                raw_value[:80],
+            )
+            return ''
+        return raw_value
+
+    @staticmethod
     def _extract_gpu_name(available_tools):
         """Extract GPU name(s) from available_tools JSON."""
         if not isinstance(available_tools, dict):
@@ -177,6 +200,9 @@ class WorkerHeartbeatViewSet(
                         available_tools,
                     ),
                     'status': _validate_worker_status(raw_status),
+                    'ui_cert_fingerprint': self._validate_ui_cert_fingerprint(
+                        request.data.get('ui_cert_fingerprint', ''),
+                    ),
                 },
             )
 
@@ -207,9 +233,12 @@ class WorkerHeartbeatViewSet(
             request.data.get('cpu_name', worker.cpu_name),
         )
         worker.status = _validate_worker_status(raw_status)
+        worker.ui_cert_fingerprint = self._validate_ui_cert_fingerprint(
+            request.data.get('ui_cert_fingerprint', ''),
+        )
         update_fields = [
             'last_seen', 'is_active', 'ui_url',
-            'cpu_name', 'status',
+            'cpu_name', 'status', 'ui_cert_fingerprint',
         ]
         if 'available_tools' in request.data:
             worker.available_tools = request.data['available_tools']

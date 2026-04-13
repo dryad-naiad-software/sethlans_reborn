@@ -19,6 +19,7 @@ import logging
 import os
 import secrets
 import tempfile
+import threading
 
 from sethlans_worker_agent import config
 
@@ -31,6 +32,11 @@ _SALT_LENGTH = 16  # bytes
 _DEFAULT_PASSWORD = 'sethlans'
 
 # Module-level cache (loaded once from config.ini)
+# Defense-in-depth lock (NF-9): protects _cached_hash, _cached_salt,
+# _cache_loaded. Under normal operation NF-8 (async-only handlers)
+# prevents concurrent access, but this lock guards against future
+# refactors that might introduce run_in_executor or additional threads.
+_cache_lock = threading.Lock()
 _cached_hash = None
 _cached_salt = None
 _cache_loaded = False
@@ -39,22 +45,23 @@ _cache_loaded = False
 def _load_cache():
     """Load hash and salt from config into module-level cache."""
     global _cached_hash, _cached_salt, _cache_loaded
-    if _cache_loaded:
-        return
-    h = config.UI_PASSWORD_HASH
-    s = config.UI_PASSWORD_SALT
-    if h and s:
-        try:
-            _cached_hash = bytes.fromhex(h)
-            _cached_salt = bytes.fromhex(s)
-        except ValueError:
-            logger.warning(
-                "Invalid hex in ui_password_hash/salt. "
-                "Treating as unconfigured."
-            )
-            _cached_hash = None
-            _cached_salt = None
-    _cache_loaded = True
+    with _cache_lock:
+        if _cache_loaded:
+            return
+        h = config.UI_PASSWORD_HASH
+        s = config.UI_PASSWORD_SALT
+        if h and s:
+            try:
+                _cached_hash = bytes.fromhex(h)
+                _cached_salt = bytes.fromhex(s)
+            except ValueError:
+                logger.warning(
+                    "Invalid hex in ui_password_hash/salt. "
+                    "Treating as unconfigured."
+                )
+                _cached_hash = None
+                _cached_salt = None
+        _cache_loaded = True
 
 
 def _hash_password(password, salt):
@@ -126,16 +133,18 @@ def set_password(password):
 
     _write_hash_to_config(pw_hash.hex(), salt.hex())
 
-    _cached_hash = pw_hash
-    _cached_salt = salt
-    _cache_loaded = True
+    with _cache_lock:
+        _cached_hash = pw_hash
+        _cached_salt = salt
+        _cache_loaded = True
     logger.info("Worker Web UI password has been set.")
 
 
 def is_password_configured():
     """Return True if a password hash is stored in config."""
     _load_cache()
-    return _cached_hash is not None and _cached_salt is not None
+    with _cache_lock:
+        return _cached_hash is not None and _cached_salt is not None
 
 
 def validate_password(request_password):
@@ -146,15 +155,19 @@ def validate_password(request_password):
     Uses constant-time comparison to prevent timing attacks.
     """
     _load_cache()
-    if _cached_hash is None or _cached_salt is None:
+    with _cache_lock:
+        cached_h = _cached_hash
+        cached_s = _cached_salt
+    if cached_h is None or cached_s is None:
         return secrets.compare_digest(request_password, _DEFAULT_PASSWORD)
-    candidate = _hash_password(request_password, _cached_salt)
-    return secrets.compare_digest(candidate, _cached_hash)
+    candidate = _hash_password(request_password, cached_s)
+    return secrets.compare_digest(candidate, cached_h)
 
 
 def reset_cache():
     """Reset module-level cache. Used by tests."""
     global _cached_hash, _cached_salt, _cache_loaded
-    _cached_hash = None
-    _cached_salt = None
-    _cache_loaded = False
+    with _cache_lock:
+        _cached_hash = None
+        _cached_salt = None
+        _cache_loaded = False

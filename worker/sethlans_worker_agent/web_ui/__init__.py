@@ -5,8 +5,8 @@
 """
 Worker Web UI package.
 
-Provides an embedded HTTP server for a local status dashboard and
-authenticated control endpoints. Uses only Python stdlib modules.
+Provides an embedded HTTPS server (uvicorn) for a local status
+dashboard and authenticated control endpoints.
 """
 
 from sethlans_worker_agent.web_ui.server import start_server, stop_server
