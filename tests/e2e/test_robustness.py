@@ -180,49 +180,14 @@ class TestRobustness:
                 f"Error: {result.get('error_message', 'N/A')}"
             )
 
-    def test_paused_project_exclusion(self):
-        """Jobs from a paused project should not be claimed."""
-        # Create a second project for pausing.
-        resp = self.session.post(
-            f"{self.base_url}/api/projects/",
-            json={"name": "Paused Project"},
-            timeout=30,
-        )
-        assert resp.status_code == 201
-        paused_project_id = resp.json()["id"]
-
-        # Upload asset to the paused project.
-        with open(TEST_SCENE, "rb") as f:
-            resp = self.session.post(
-                f"{self.base_url}/api/assets/",
-                data={
-                    "name": "paused_scene.blend",
-                    "project": paused_project_id,
-                },
-                files={
-                    "blend_file": (
-                        "paused_scene.blend", f,
-                        "application/octet-stream",
-                    ),
-                },
-                timeout=60,
-            )
-        assert resp.status_code == 201
-        paused_asset_id = resp.json()["id"]
-
-        # Pause the project BEFORE submitting jobs.
-        resp = self.session.post(
-            f"{self.base_url}/api/projects/{paused_project_id}/pause/",
-            timeout=30,
-        )
-        assert resp.status_code == 200
-
-        # Submit a job to the paused project.
+    def test_paused_job_exclusion(self):
+        """A paused job should not be claimed by the worker."""
+        # Submit a job, then pause it before the worker claims it.
         resp = self.session.post(
             f"{self.base_url}/api/jobs/",
             json={
                 "name": "Paused Job",
-                "asset_id": paused_asset_id,
+                "asset_id": self.asset_id,
                 "output_file_pattern": "renders/paused_####.png",
                 "start_frame": 1,
                 "end_frame": 1,
@@ -235,6 +200,15 @@ class TestRobustness:
         assert resp.status_code == 201
         paused_job_id = resp.json()["id"]
 
+        # Pause the job immediately.
+        resp = self.session.post(
+            f"{self.base_url}/api/jobs/{paused_job_id}/pause/",
+            timeout=30,
+        )
+        assert resp.status_code == 200, (
+            f"Pause failed: {resp.status_code} {resp.text}"
+        )
+
         # Wait and verify the job stays QUEUED (not claimed).
         time.sleep(15)
         resp = self.session.get(
@@ -242,13 +216,14 @@ class TestRobustness:
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "QUEUED", (
-            f"Paused project job should remain QUEUED, "
+            f"Paused job should remain QUEUED, "
             f"got: {resp.json()['status']}"
         )
+        assert resp.json()["is_paused"] is True
 
         # Unpause and verify the job gets picked up.
         resp = self.session.post(
-            f"{self.base_url}/api/projects/{paused_project_id}/unpause/",
+            f"{self.base_url}/api/jobs/{paused_job_id}/unpause/",
             timeout=30,
         )
         assert resp.status_code == 200
