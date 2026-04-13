@@ -11,7 +11,7 @@
 #>
 
 # --- Configuration ---
-$apiUrl = "http://127.0.0.1:8080/api"
+$apiUrl = "https://127.0.0.1:8080/api"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..") | Select-Object -ExpandProperty Path
 $baseAssetPath = Join-Path $ProjectRoot "tests" "assets"
@@ -87,7 +87,7 @@ function Invoke-ApiCall {
     }
 
     try {
-        $response = Invoke-RestMethod @params
+        $response = Invoke-RestMethod @params -SkipCertificateCheck
         $submittedJobs++
         return $response
     } catch {

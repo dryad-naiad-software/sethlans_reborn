@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-API_URL="${API_URL:-http://127.0.0.1:8080/api}"
+API_URL="${API_URL:-https://127.0.0.1:8080/api}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(realpath "$SCRIPT_DIR/..")"
 BASE_ASSET_PATH="${BASE_ASSET_PATH:-$PROJECT_ROOT/tests/assets}"
@@ -34,7 +34,7 @@ invoke_api_call() {
   local body="$2"
 
   local response http_code response_body
-  response="$(curl -sS -w $'\n%{http_code}' -X POST \
+  response="$(curl -sSk -w $'\n%{http_code}' -X POST \
     -H "Content-Type: application/json" \
     -d "$body" \
     "$url")"
@@ -60,7 +60,7 @@ upload_asset() {
   echo "  Uploading '$name'..." >&2
 
   local response http_code response_body
-  response="$(curl -sS -w $'\n%{http_code}' -X POST \
+  response="$(curl -sSk -w $'\n%{http_code}' -X POST \
     -F "project=$project_id" \
     -F "name=$name" \
     -F "blend_file=@$filepath" \

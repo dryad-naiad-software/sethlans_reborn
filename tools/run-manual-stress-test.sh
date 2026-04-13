@@ -11,7 +11,7 @@
 #     Project: Sethlans Reborn
 
 # --- Configuration ---
-API_URL="http://127.0.0.1:8080/api"
+API_URL="https://127.0.0.1:8080/api"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(realpath "$SCRIPT_DIR/..")"
 BASE_ASSET_PATH="$PROJECT_ROOT/tests/assets"
@@ -58,7 +58,7 @@ invoke_api_call() {
     local url=$1
     local body=$2
 
-    response=$(curl -s -w "\n%{http_code}" -X POST \
+    response=$(curl -sk -w "\n%{http_code}" -X POST \
         -H "Content-Type: application/json" \
         -d "$body" \
         "$url")
@@ -86,7 +86,7 @@ upload_asset() {
 
     echo "  Uploading '$name'..." >&2 # FIX: Redirect progress to stderr
 
-    response=$(curl -s -w "\n%{http_code}" -X POST \
+    response=$(curl -sk -w "\n%{http_code}" -X POST \
         -F "project=$project_id" \
         -F "name=$name" \
         -F "blend_file=@$filepath" \
