@@ -70,13 +70,16 @@ def get_session() -> requests.Session:
         fingerprint = config_store.get(
             "manager.cert_fingerprint", ""
         )
+        # Always disable CA chain validation — the manager uses a
+        # self-signed cert. When a fingerprint is available, the
+        # PinningHTTPAdapter verifies the cert via assert_fingerprint
+        # during the TLS handshake (stronger than CA chain validation).
+        s.verify = False
         if fingerprint:
             adapter = PinningHTTPAdapter(
                 expected_fingerprint=fingerprint
             )
             s.mount('https://', adapter)
-        else:
-            s.verify = False
         _thread_local.session = s
     return _thread_local.session
 
