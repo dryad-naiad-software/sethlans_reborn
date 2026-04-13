@@ -44,9 +44,10 @@ class TestGetDataDir:
         with patch.dict(os.environ, env, clear=True):
             mocker.patch("platform.system", return_value="Windows")
             result = _get_data_dir()
-        expected = (
-            Path("C:\\Users\\artist\\AppData\\Local") / "Sethlans"
-        )
+        # os.path.join uses forward slashes on POSIX even with
+        # backslash-containing inputs, so build expected the same way.
+        base = os.path.join("C:\\Users\\artist", "AppData", "Local")
+        expected = Path(base) / "Sethlans"
         assert result == expected
 
     def test_windows_fallback_home(self, mocker):
