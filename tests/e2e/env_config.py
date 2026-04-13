@@ -81,6 +81,16 @@ def build_manager_env(
     else will be rejected at manager startup with a non-zero exit.
     """
     env = os.environ.copy()
+    # Ensure the project root, manager/, and worker/ are on PYTHONPATH
+    # so the subprocess can import shared.frozen_paths (project root),
+    # sethlans_manager (manager/), and sethlans_worker_agent (worker/).
+    pp = os.pathsep.join([
+        str(REPO_ROOT),
+        str(REPO_ROOT / "manager"),
+        str(REPO_ROOT / "worker"),
+    ])
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{pp}{os.pathsep}{existing}" if existing else pp
     env.update({
         "DJANGO_SETTINGS_MODULE": "sethlans_manager.settings",
         "SETHLANS_DB_NAME": str(db_path),
