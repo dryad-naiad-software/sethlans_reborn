@@ -106,6 +106,9 @@ cmd_dev() {
                 -r "$WORKER_DIR/requirements.txt" \
                 -r "$PROJECT_ROOT/requirements-dev.txt"
     echo ""
+    echo "--- Database migrations ---"
+    python "$MANAGE_PY" migrate
+    echo ""
     echo "--- Admin account ---"
     DJANGO_SUPERUSER_PASSWORD=test12345 python "$MANAGE_PY" createsuperuser \
         --username testuser --email "" --noinput 2>/dev/null || true

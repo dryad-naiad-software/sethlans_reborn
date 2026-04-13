@@ -110,6 +110,9 @@ function Invoke-Dev {
     pip install -r (Join-Path $ManagerDir "requirements.txt") `
                 -r (Join-Path $WorkerDir "requirements.txt") `
                 -r (Join-Path $ProjectRoot "requirements-dev.txt")
+    Write-Host ""; Write-Host "--- Database migrations ---"
+    python $ManagePy migrate
+    if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] Migrations failed"; exit 1 }
     Write-Host ""; Write-Host "--- Admin account ---"
     $env:DJANGO_SUPERUSER_PASSWORD = "test12345"
     python $ManagePy createsuperuser --username testuser --email "" --noinput 2>$null
@@ -118,10 +121,12 @@ function Invoke-Dev {
     if (Test-Path $FrontendDir) {
         Write-Host ""; Write-Host "--- Frontend ---"
         $env:NG_CLI_ANALYTICS = "false"
-        if (-not (Test-Path (Join-Path $FrontendDir "node_modules"))) {
-            npm install --prefix $FrontendDir --no-progress --no-fund --no-audit
+        Push-Location $FrontendDir
+        if (-not (Test-Path "node_modules")) {
+            npm install --no-progress --no-fund --no-audit
         }
-        npm run build --prefix $FrontendDir --no-progress
+        npm run build --no-progress
+        Pop-Location
         Remove-Item Env:\NG_CLI_ANALYTICS -ErrorAction SilentlyContinue
         Write-Host "[OK] Frontend built"
     }
@@ -237,16 +242,19 @@ function Invoke-Worker {
     Ensure-Dirs
     $outLog = Join-Path $env:TEMP "sethlans_worker_out.log"
     $errLog = Join-Path $env:TEMP "sethlans_worker_err.log"
-    # Set env vars for worker enrollment, then start with stdin from NUL (unattended mode)
+    # Set env vars for worker enrollment
     $env:SETHLANS_WORKER_ENROLLMENT_KEY = $enrollmentKey
     $env:SETHLANS_MANAGER_HOST = "127.0.0.1"
     $env:SETHLANS_MANAGER_PORT = "8080"
     $env:SETHLANS_IDLE_DETECTION_ENABLED = "false"
+    # Create an empty file for stdin so isatty() returns False (unattended wizard)
+    $stdinFile = Join-Path $env:TEMP "sethlans_worker_stdin.txt"
+    Set-Content -Path $stdinFile -Value ""
     $proc = Start-Process -FilePath "python" `
         -ArgumentList (Join-Path $WorkerDir "run_worker.py") `
         -PassThru -NoNewWindow `
         -RedirectStandardOutput $outLog -RedirectStandardError $errLog `
-        -RedirectStandardInput "NUL"
+        -RedirectStandardInput $stdinFile
     # Clean up env vars from current shell
     foreach ($v in @("SETHLANS_WORKER_ENROLLMENT_KEY", "SETHLANS_MANAGER_HOST",
                      "SETHLANS_MANAGER_PORT", "SETHLANS_IDLE_DETECTION_ENABLED")) {
