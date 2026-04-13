@@ -136,7 +136,11 @@ def get_gpu_device_details():
     command = [blender_exe, '--background', '--factory-startup', '--python', script_path]
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=90)
+        from sethlans_worker_agent import env_cleanup
+        result = subprocess.run(
+            command, capture_output=True, text=True, check=True, timeout=90,
+            env=env_cleanup.clean_env_for_blender(),
+        )
 
         logger.debug(f"detect_gpus.py stdout:\n{result.stdout}")
         logger.debug(f"detect_gpus.py stderr:\n{result.stderr}")
@@ -151,7 +155,8 @@ def get_gpu_device_details():
             raw_devices = json.loads(json_line)
             preferred_devices = _filter_preferred_gpus(raw_devices)
             logger.info(
-                f"Detected {len(raw_devices)} logical devices, filtered to {len(preferred_devices)} preferred physical devices.")
+                "Detected %d logical devices, filtered to %d preferred.",
+                len(raw_devices), len(preferred_devices))
 
             if preferred_devices:
                 logger.info(f"Physical GPU detection complete. Found {len(preferred_devices)} physical GPUs.")

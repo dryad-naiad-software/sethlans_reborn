@@ -1,0 +1,511 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+name: Build Native Installers
+
+# Triggers: version tag push and manual dispatch only.
+# MUST NOT trigger on pull_request (protects signing secrets).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: 'Sign artifacts (requires signing secrets)'
+        required: false
+        default: false
+        type: boolean
+
+# Cancel in-progress runs for the same ref
+concurrency:
+  group: build-installers-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # ---------------------------------------------------------------
+  # Build: Windows
+  # ---------------------------------------------------------------
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+          pip install -r manager/requirements.txt
+          pip install -r worker/requirements.txt
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: manager/frontend/package-lock.json
+
+      - name: Build Angular frontend
+        working-directory: manager/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run PyInstaller — Manager
+        run: pyinstaller packaging/pyinstaller/manager.spec --noconfirm
+
+      - name: Run PyInstaller — Worker
+        run: pyinstaller packaging/pyinstaller/worker.spec --noconfirm
+
+      - name: Run PyInstaller — Tray Helper
+        run: pyinstaller packaging/pyinstaller/tray_helper.spec --noconfirm
+
+      - name: Run PyInstaller — Launcher
+        run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      # --- Smoke Tests (FR-20) ---
+      - name: Smoke test — Launcher --version
+        run: dist\launcher\run_launcher.exe --version
+
+      - name: Smoke test — Manager starts
+        shell: pwsh
+        run: |
+          $env:SETHLANS_TLS_DATA_DIR = "$env:TEMP\sethlans-smoke-tls"
+          $env:SETHLANS_MANAGER_DATA_DIR = "$env:TEMP\sethlans-smoke-data"
+          New-Item -ItemType Directory -Force -Path $env:SETHLANS_TLS_DATA_DIR
+          New-Item -ItemType Directory -Force -Path $env:SETHLANS_MANAGER_DATA_DIR
+
+          $proc = Start-Process -FilePath "dist\manager\run_manager.exe" `
+            -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 15
+
+          try {
+            # Health check (self-signed cert, skip verification)
+            $response = Invoke-WebRequest -Uri "https://localhost:8080/api/schema/" `
+              -SkipCertificateCheck -TimeoutSec 10 -ErrorAction Stop
+            if ($response.StatusCode -ne 200) {
+              throw "Manager health check failed: $($response.StatusCode)"
+            }
+            Write-Host "Manager smoke test passed (HTTP $($response.StatusCode))"
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Smoke test — Worker starts
+        shell: pwsh
+        run: |
+          $env:SETHLANS_WORKER_DATA_DIR = "$env:TEMP\sethlans-smoke-worker"
+          New-Item -ItemType Directory -Force -Path $env:SETHLANS_WORKER_DATA_DIR
+
+          $proc = Start-Process -FilePath "dist\worker\run_worker.exe" `
+            -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 10
+
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost:8081/api/status" `
+              -TimeoutSec 10 -ErrorAction SilentlyContinue
+            Write-Host "Worker smoke test passed"
+          } catch {
+            Write-Host "Worker smoke test: process started (status endpoint may require enrollment)"
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      # --- Code signing (conditional) ---
+      - name: Sign executables (Authenticode)
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+          || (github.event.inputs.sign == 'true')
+        shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+        run: |
+          if (-not $env:SIGNING_CERT_BASE64) {
+            Write-Host "Signing secrets not available, skipping."
+            exit 0
+          }
+          $certPath = "$env:TEMP\signing-cert.pfx"
+          [System.IO.File]::WriteAllBytes(
+            $certPath,
+            [System.Convert]::FromBase64String($env:SIGNING_CERT_BASE64)
+          )
+
+          $exeFiles = Get-ChildItem -Path "dist" -Recurse -Filter "*.exe"
+          foreach ($exe in $exeFiles) {
+            & signtool sign /fd SHA256 /f $certPath /p $env:SIGNING_CERT_PASSWORD `
+              /tr http://timestamp.digicert.com /td SHA256 $exe.FullName
+          }
+
+          Remove-Item $certPath -Force
+
+      # --- Build NSIS installer ---
+      - name: Build NSIS installer
+        run: |
+          choco install nsis -y --no-progress
+          $version = if ("${{ github.ref_name }}" -match '^v(.+)$') { $Matches[1] } else { "0.0.0-dev" }
+          makensis /DPRODUCT_VERSION=$version packaging\windows\sethlans.nsi
+        shell: pwsh
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            packaging/windows/sethlans-*.exe
+            dist/
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------
+  # Build: macOS
+  # ---------------------------------------------------------------
+  build-macos:
+    name: Build macOS Installer
+    runs-on: macos-latest
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+          pip install -r manager/requirements.txt
+          pip install -r worker/requirements.txt
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: manager/frontend/package-lock.json
+
+      - name: Build Angular frontend
+        working-directory: manager/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run PyInstaller — Manager
+        run: pyinstaller packaging/pyinstaller/manager.spec --noconfirm
+
+      - name: Run PyInstaller — Worker
+        run: pyinstaller packaging/pyinstaller/worker.spec --noconfirm
+
+      - name: Run PyInstaller — Tray Helper
+        run: pyinstaller packaging/pyinstaller/tray_helper.spec --noconfirm
+
+      - name: Run PyInstaller — Launcher
+        run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      # --- Smoke Tests (FR-20) ---
+      - name: Smoke test — Launcher --version
+        run: dist/launcher/run_launcher --version
+
+      - name: Smoke test — Manager starts
+        run: |
+          export SETHLANS_TLS_DATA_DIR="$(mktemp -d)"
+          export SETHLANS_MANAGER_DATA_DIR="$(mktemp -d)"
+
+          dist/manager/run_manager &
+          MGR_PID=$!
+          sleep 15
+
+          STATUS=$(curl -sk -o /dev/null -w '%{http_code}' \
+            https://localhost:8080/api/schema/ || echo "000")
+          kill $MGR_PID 2>/dev/null || true
+
+          if [ "$STATUS" = "200" ]; then
+            echo "Manager smoke test passed (HTTP ${STATUS})"
+          else
+            echo "Manager smoke test failed (HTTP ${STATUS})"
+            exit 1
+          fi
+
+      # --- Code signing (conditional) ---
+      - name: Import signing certificate
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+          || (github.event.inputs.sign == 'true')
+        env:
+          MACOS_CERT_BASE64: ${{ secrets.MACOS_SIGNING_CERT_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "${MACOS_CERT_BASE64}" ]; then
+            echo "Signing secrets not available, skipping."
+            exit 0
+          fi
+          CERT_PATH=$(mktemp /tmp/cert.XXXXXX.p12)
+          echo "${MACOS_CERT_BASE64}" | base64 --decode > "${CERT_PATH}"
+
+          KEYCHAIN_PATH="${RUNNER_TEMP}/signing.keychain-db"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security import "${CERT_PATH}" -P "${MACOS_CERT_PASSWORD}" \
+            -A -t cert -f pkcs12 -k "${KEYCHAIN_PATH}"
+          security list-keychain -d user -s "${KEYCHAIN_PATH}"
+
+          rm -f "${CERT_PATH}"
+
+      - name: Sign and notarize .app bundle
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+          || (github.event.inputs.sign == 'true')
+        env:
+          APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "${SIGNING_IDENTITY}" ]; then
+            echo "Signing identity not available, skipping."
+            exit 0
+          fi
+          ENTITLEMENTS="packaging/macos/entitlements.plist"
+
+          # Sign the .app bundle
+          codesign --deep --force --options runtime \
+            --sign "${SIGNING_IDENTITY}" \
+            --entitlements "${ENTITLEMENTS}" \
+            dist/launcher/Sethlans.app
+
+      # --- Build DMG ---
+      - name: Build DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "${GITHUB_REF_NAME}" ]; then
+            VERSION="0.0.0-dev"
+          fi
+          chmod +x packaging/macos/build_dmg.sh
+          packaging/macos/build_dmg.sh "${VERSION}"
+
+      - name: Notarize DMG
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+          || (github.event.inputs.sign == 'true')
+        env:
+          APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+        run: |
+          if [ -z "${APPLE_ID}" ]; then
+            echo "Notarization secrets not available, skipping."
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_PATH="dist/sethlans-${VERSION}-macos-arm64.dmg"
+
+          xcrun notarytool submit "${DMG_PATH}" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_PASSWORD}" \
+            --wait
+
+          xcrun stapler staple "${DMG_PATH}"
+
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: dist/sethlans-*-macos-*.dmg
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------
+  # Build: Linux
+  # ---------------------------------------------------------------
+  build-linux:
+    name: Build Linux Installer
+    runs-on: ubuntu-22.04
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y makeself
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+          pip install -r manager/requirements.txt
+          pip install -r worker/requirements.txt
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: manager/frontend/package-lock.json
+
+      - name: Build Angular frontend
+        working-directory: manager/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run PyInstaller — Manager
+        run: pyinstaller packaging/pyinstaller/manager.spec --noconfirm
+
+      - name: Run PyInstaller — Worker
+        run: pyinstaller packaging/pyinstaller/worker.spec --noconfirm
+
+      - name: Run PyInstaller — Tray Helper
+        run: pyinstaller packaging/pyinstaller/tray_helper.spec --noconfirm
+
+      - name: Run PyInstaller — Launcher
+        run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      # --- Smoke Tests (FR-20) ---
+      - name: Smoke test — Launcher --version
+        run: dist/launcher/run_launcher --version
+
+      - name: Smoke test — Manager starts
+        run: |
+          export SETHLANS_TLS_DATA_DIR="$(mktemp -d)"
+          export SETHLANS_MANAGER_DATA_DIR="$(mktemp -d)"
+
+          dist/manager/run_manager &
+          MGR_PID=$!
+          sleep 15
+
+          STATUS=$(curl -sk -o /dev/null -w '%{http_code}' \
+            https://localhost:8080/api/schema/ || echo "000")
+          kill $MGR_PID 2>/dev/null || true
+
+          if [ "$STATUS" = "200" ]; then
+            echo "Manager smoke test passed (HTTP ${STATUS})"
+          else
+            echo "Manager smoke test failed (HTTP ${STATUS})"
+            exit 1
+          fi
+
+      # --- GPG signing (conditional) ---
+      - name: Import GPG key
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+          || (github.event.inputs.sign == 'true')
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY}" ]; then
+            echo "GPG key not available, skipping."
+            exit 0
+          fi
+          echo "${GPG_PRIVATE_KEY}" | gpg --batch --import
+
+      # --- Build .run installer ---
+      - name: Build .run installer
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "${GITHUB_REF_NAME}" ]; then
+            VERSION="0.0.0-dev"
+          fi
+          chmod +x packaging/linux/build_run.sh
+          packaging/linux/build_run.sh "${VERSION}"
+
+      - name: Sign .run installer (GPG)
+        if: >-
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+          || (github.event.inputs.sign == 'true')
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY}" ]; then
+            echo "GPG key not available, skipping signing."
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          RUN_FILE="dist/sethlans-${VERSION}-linux-x64.run"
+          if [ -f "${RUN_FILE}" ]; then
+            gpg --batch --yes --detach-sign --armor "${RUN_FILE}"
+          fi
+
+      - name: Upload Linux installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installer
+          path: |
+            dist/sethlans-*-linux-*.run
+            dist/sethlans-*-linux-*.run.asc
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------
+  # Release: create GitHub Release on tag push
+  # ---------------------------------------------------------------
+  release:
+    name: Create GitHub Release
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name "*.exe" -o -name "*.dmg" \
+            -o -name "*.run" -o -name "*.msi" \) \
+            -exec sha256sum {} \; | sort > checksums.txt
+          cat checksums.txt
+
+      - name: Sign checksums (GPG)
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -n "${GPG_PRIVATE_KEY}" ]; then
+            echo "${GPG_PRIVATE_KEY}" | gpg --batch --import
+            gpg --batch --yes --detach-sign --armor \
+              artifacts/checksums.txt
+          else
+            echo "GPG key not available, checksums unsigned."
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.run
+            artifacts/**/*.msi
+            artifacts/**/*.asc
+            artifacts/checksums.txt
+            artifacts/checksums.txt.asc

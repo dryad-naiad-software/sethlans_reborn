@@ -83,8 +83,10 @@ def count_physical_gpus_now() -> Optional[int]:
         '--python', script_path,
     ]
     try:
+        from sethlans_worker_agent import env_cleanup
         result = subprocess.run(
             command, capture_output=True, text=True, check=True, timeout=90,
+            env=env_cleanup.clean_env_for_blender(),
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         logger.warning(

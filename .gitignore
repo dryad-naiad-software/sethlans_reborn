@@ -34,6 +34,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# Our PyInstaller spec files are hand-written source, not auto-generated
+!packaging/pyinstaller/*.spec
 
 # Installer logs
 pip-log.txt

@@ -25,7 +25,8 @@ from unittest.mock import patch
 
 import pytest
 
-from run_manager import get_tls_dir, MANAGER_DIR, PROJECT_ROOT
+from run_manager import MANAGER_DIR, PROJECT_ROOT
+from sethlans_manager.tls_setup import get_tls_dir
 
 # A path that is absolute on the current OS.
 _ABS_TLS_DIR = "C:\\sethlans\\tls" if sys.platform == "win32" else "/data/tls"
@@ -38,28 +39,28 @@ class TestTlsDirEnvOverride:
         with patch.dict(
             os.environ, {"SETHLANS_TLS_DATA_DIR": _ABS_TLS_DIR},
         ):
-            result = get_tls_dir(dev_mode=False)
+            result = get_tls_dir(False, MANAGER_DIR, PROJECT_ROOT)
         assert result == Path(_ABS_TLS_DIR)
 
     def test_absolute_path_ignores_dev_mode_true(self):
         with patch.dict(
             os.environ, {"SETHLANS_TLS_DATA_DIR": _ABS_TLS_DIR},
         ):
-            result = get_tls_dir(dev_mode=True)
+            result = get_tls_dir(True, MANAGER_DIR, PROJECT_ROOT)
         assert result == Path(_ABS_TLS_DIR)
 
     def test_absolute_path_ignores_dev_mode_false(self):
         with patch.dict(
             os.environ, {"SETHLANS_TLS_DATA_DIR": _ABS_TLS_DIR},
         ):
-            result = get_tls_dir(dev_mode=False)
+            result = get_tls_dir(False, MANAGER_DIR, PROJECT_ROOT)
         assert result == Path(_ABS_TLS_DIR)
 
     def test_returns_path_instance(self):
         with patch.dict(
             os.environ, {"SETHLANS_TLS_DATA_DIR": _ABS_TLS_DIR},
         ):
-            result = get_tls_dir(dev_mode=False)
+            result = get_tls_dir(False, MANAGER_DIR, PROJECT_ROOT)
         assert isinstance(result, Path)
 
 
@@ -71,14 +72,14 @@ class TestTlsDirRelativePathRejected:
             os.environ, {"SETHLANS_TLS_DATA_DIR": "relative/tls"},
         ):
             with pytest.raises(ValueError, match="absolute path"):
-                get_tls_dir(dev_mode=False)
+                get_tls_dir(False, MANAGER_DIR, PROJECT_ROOT)
 
     def test_dot_relative_path_raises_value_error(self):
         with patch.dict(
             os.environ, {"SETHLANS_TLS_DATA_DIR": "./tls"},
         ):
             with pytest.raises(ValueError, match="absolute path"):
-                get_tls_dir(dev_mode=True)
+                get_tls_dir(True, MANAGER_DIR, PROJECT_ROOT)
 
     def test_error_message_includes_bad_path(self):
         bad_path = "data/certs"
@@ -86,7 +87,7 @@ class TestTlsDirRelativePathRejected:
             os.environ, {"SETHLANS_TLS_DATA_DIR": bad_path},
         ):
             with pytest.raises(ValueError, match=bad_path):
-                get_tls_dir(dev_mode=False)
+                get_tls_dir(False, MANAGER_DIR, PROJECT_ROOT)
 
 
 class TestTlsDirDefaults:
@@ -96,12 +97,12 @@ class TestTlsDirDefaults:
         env = os.environ.copy()
         env.pop("SETHLANS_TLS_DATA_DIR", None)
         with patch.dict(os.environ, env, clear=True):
-            result = get_tls_dir(dev_mode=True)
+            result = get_tls_dir(True, MANAGER_DIR, PROJECT_ROOT)
         assert result == PROJECT_ROOT / "temp" / "dev-tls"
 
     def test_prod_mode_returns_manager_tls_path(self):
         env = os.environ.copy()
         env.pop("SETHLANS_TLS_DATA_DIR", None)
         with patch.dict(os.environ, env, clear=True):
-            result = get_tls_dir(dev_mode=False)
+            result = get_tls_dir(False, MANAGER_DIR, PROJECT_ROOT)
         assert result == MANAGER_DIR / "tls"

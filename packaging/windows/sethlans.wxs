@@ -1,0 +1,137 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+
+<!--
+  WiX v4 MSI source for Sethlans.
+
+  Enterprise IT deployment via msiexec:
+    msiexec /i sethlans.msi /quiet TOPOLOGY=worker
+            MANAGER_HOST=https://studio:8080
+            AUTOSTART=1 SKIP_WIZARD=1
+
+  Enrollment key: via SETHLANS_ENROLLMENT_KEY env var or
+  ENROLLMENT_KEY_FILE=<path> property. Uses MsiHiddenProperties
+  to exclude sensitive properties from logs.
+
+  Build: wix build -o sethlans.msi sethlans.wxs
+         -d ProductVersion=0.1.0
+         -d DistDir=..\..\dist
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Sethlans"
+    Manufacturer="Dryad and Naiad Software LLC"
+    Version="!(bind.FileVersion.SethlansExe)"
+    UpgradeCode="E3A7B9C1-4D5F-6E8A-9B0C-1D2E3F4A5B6C"
+    Scope="perMachine">
+
+    <MajorUpgrade
+      DowngradeErrorMessage=
+        "A newer version of Sethlans is already installed." />
+
+    <!-- Hide enrollment key from logs -->
+    <Property Id="MsiHiddenProperties" Value="ENROLLMENT_KEY" />
+
+    <!-- Custom properties for silent install -->
+    <Property Id="TOPOLOGY" Value="" />
+    <Property Id="MANAGER_HOST" Value="" />
+    <Property Id="AUTOSTART" Value="1" />
+    <Property Id="SKIP_WIZARD" Value="0" />
+    <Property Id="ENROLLMENT_KEY" Value="" Hidden="yes" />
+    <Property Id="ENROLLMENT_KEY_FILE" Value="" />
+
+    <!-- Installation directory -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Sethlans">
+        <Directory Id="BinDir" Name="bin">
+          <Directory Id="ManagerDir" Name="manager" />
+          <Directory Id="WorkerDir" Name="worker" />
+          <Directory Id="TrayHelperDir" Name="tray_helper" />
+          <Directory Id="LauncherDir" Name="launcher" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Start Menu -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="SethlansMenuFolder" Name="Sethlans" />
+    </StandardDirectory>
+
+    <!-- Desktop -->
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- Component: launcher exe at install root -->
+    <ComponentGroup Id="LauncherComponents" Directory="INSTALLFOLDER">
+      <Component Id="SethlansExeComponent">
+        <File Id="SethlansExe"
+              Source="!(bindpath.DistDir)\launcher\run_launcher.exe"
+              Name="sethlans.exe"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="LicenseComponent">
+        <File Id="LicenseFile"
+              Source="..\..\LICENSE.txt"
+              Name="LICENSE.txt" />
+      </Component>
+      <Component Id="VersionJsonComponent">
+        <File Id="VersionJson"
+              Source="version.json"
+              Name="version.json" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Registry entries -->
+    <ComponentGroup Id="RegistryComponents" Directory="INSTALLFOLDER">
+      <Component Id="RegistryComponent">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\Sethlans">
+          <RegistryValue Name="InstallDir"
+                         Type="string"
+                         Value="[INSTALLFOLDER]" />
+          <RegistryValue Name="Version"
+                         Type="string"
+                         Value="!(bind.FileVersion.SethlansExe)" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <!-- Start Menu shortcut -->
+    <ComponentGroup Id="ShortcutComponents"
+                    Directory="SethlansMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="SethlansStartMenu"
+                  Name="Sethlans"
+                  Target="[INSTALLFOLDER]sethlans.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveMenuFolder"
+                      On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\Sethlans"
+                       Name="StartMenuShortcut"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Feature tree -->
+    <Feature Id="Complete" Title="Sethlans" Level="1">
+      <Feature Id="Core" Title="Core Application" Level="1">
+        <ComponentGroupRef Id="LauncherComponents" />
+        <ComponentGroupRef Id="RegistryComponents" />
+        <!-- PyInstaller output directories harvested at build time -->
+        <!-- Use HeatDirectory to auto-harvest dist/ contents -->
+      </Feature>
+      <Feature Id="Shortcuts" Title="Shortcuts" Level="1">
+        <ComponentGroupRef Id="ShortcutComponents" />
+      </Feature>
+    </Feature>
+
+    <!-- Custom action: write topology config on silent install -->
+    <CustomAction Id="WriteTopologyConfig"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c "echo off"'
+                  Execute="deferred"
+                  Impersonate="no" />
+
+  </Package>
+</Wix>

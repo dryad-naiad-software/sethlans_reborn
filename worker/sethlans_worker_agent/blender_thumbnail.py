@@ -20,6 +20,7 @@ import tempfile
 import threading
 
 from sethlans_worker_agent import config
+from sethlans_worker_agent import env_cleanup
 from sethlans_worker_agent.render_script import generate_render_config_script
 
 logger = logging.getLogger(__name__)
@@ -156,7 +157,8 @@ def render_exr_hdr_thumbnail(
             "stderr": subprocess.PIPE,
             "encoding": 'utf-8',
             "errors": 'surrogateescape',
-            "cwd": config.WORKER_ROOT,
+            "cwd": os.path.dirname(blend_file_path),
+            "env": env_cleanup.clean_env_for_blender(blend_file_path),
         }
         if platform.system() == "Windows":
             popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW

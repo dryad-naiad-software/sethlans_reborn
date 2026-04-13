@@ -19,6 +19,7 @@ from typing import Optional
 import psutil
 
 from sethlans_worker_agent import config, asset_manager, system_monitor, api_handler
+from sethlans_worker_agent import env_cleanup
 from sethlans_worker_agent.blender_yield import (
     terminate_process_tree, handle_yield,
 )
@@ -178,7 +179,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
         popen_kwargs = {
             "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
             "encoding": 'utf-8', "errors": 'surrogateescape',
-            "cwd": config.WORKER_ROOT,
+            "cwd": os.path.dirname(local_blend_file_path),
+            "env": env_cleanup.clean_env_for_blender(local_blend_file_path),
         }
         if platform.system() == "Windows":
             popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW

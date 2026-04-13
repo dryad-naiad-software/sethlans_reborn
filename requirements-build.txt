@@ -1,0 +1,10 @@
+# Build-time dependencies for PyInstaller packaging.
+#
+# Pin to exact versions for reproducible builds.
+# TODO: Add --require-hashes for supply chain protection
+# once the lockfile is generated with:
+#   pip-compile --generate-hashes requirements-build.in
+#
+# Bump versions manually and test before merging.
+
+pyinstaller==6.11.1

@@ -4,11 +4,21 @@
 
 from pathlib import Path
 import configparser
-import os
 import logging
+import os
+
+from shared.frozen_paths import (
+    get_data_dir,
+    get_frontend_dist_dir,
+    get_manager_dir,
+    is_frozen,
+)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+if is_frozen():
+    BASE_DIR = get_manager_dir()
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Manager Configuration (manager.ini) ---
 # Hierarchy: env vars > manager.ini > defaults
@@ -17,7 +27,10 @@ _INSECURE_DEFAULT_KEY = (
 )
 
 _config = configparser.ConfigParser()
-_config_file_path = BASE_DIR / 'manager.ini'
+if is_frozen():
+    _config_file_path = get_data_dir('manager') / 'manager.ini'
+else:
+    _config_file_path = BASE_DIR / 'manager.ini'
 if _config_file_path.exists():
     _config.read(_config_file_path)
 
@@ -106,10 +119,15 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'sethlans_manager.urls'
 
+if is_frozen():
+    _template_dir = get_frontend_dist_dir()
+else:
+    _template_dir = BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'],
+        'DIRS': [_template_dir],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -130,12 +148,16 @@ ASGI_APPLICATION = 'sethlans_manager.asgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 # Use environment variable for DB name, otherwise default to db.sqlite3
-DB_NAME = os.getenv('SETHLANS_DB_NAME', BASE_DIR / 'db.sqlite3')
+if is_frozen():
+    _default_db_path = get_data_dir('manager') / 'db.sqlite3'
+else:
+    _default_db_path = BASE_DIR / 'db.sqlite3'
+DB_NAME = os.getenv('SETHLANS_DB_NAME', _default_db_path)
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': DB_NAME,  # Use the new variable here
+        'NAME': DB_NAME,
         'OPTIONS': {
             'timeout': 30,
         },
@@ -178,14 +200,31 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-_FRONTEND_DIST = BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'
+if is_frozen():
+    STATIC_ROOT = get_data_dir('manager') / 'staticfiles'
+    _FRONTEND_DIST = get_frontend_dist_dir()
+else:
+    STATIC_ROOT = BASE_DIR / 'staticfiles'
+    _FRONTEND_DIST = (
+        BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'
+    )
+
 STATICFILES_DIRS = [_FRONTEND_DIST] if _FRONTEND_DIST.is_dir() else []
+if not STATICFILES_DIRS:
+    _logger.warning(
+        "STATICFILES_DIRS is empty — frontend dist directory "
+        "not found at %s", _FRONTEND_DIST,
+    )
 
 # Serve Angular dist files (JS chunks, CSS) at root URL paths.
 # Angular outputs files like /main-xxx.js and /chunk-xxx.js at root level,
 # not under /static/. WHITENOISE_ROOT makes these accessible without a prefix.
 WHITENOISE_ROOT = _FRONTEND_DIST if _FRONTEND_DIST.is_dir() else None
+if WHITENOISE_ROOT is None:
+    _logger.warning(
+        "WHITENOISE_ROOT is None — frontend dist directory "
+        "not found at %s", _FRONTEND_DIST,
+    )
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -198,9 +237,11 @@ from .logging_config import LOGGING  # noqa: E402, F401
 
 # --- Media Files (User Uploads) Configuration ---
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.getenv(
-    'SETHLANS_MEDIA_ROOT', os.path.join(BASE_DIR, 'media')
-)
+if is_frozen():
+    _default_media_root = str(get_data_dir('manager') / 'media')
+else:
+    _default_media_root = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = os.getenv('SETHLANS_MEDIA_ROOT', _default_media_root)
 
 # --- Session Cookie Configuration ---
 SESSION_COOKIE_HTTPONLY = True  # Default, but explicit for clarity

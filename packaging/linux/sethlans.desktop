@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Sethlans
+Comment=Distributed Blender Rendering
+Exec=@PREFIX@/sethlans
+Icon=sethlans
+Terminal=false
+Categories=Graphics;3DGraphics;
+Keywords=Blender;Render;Farm;Distributed;
+StartupNotify=true

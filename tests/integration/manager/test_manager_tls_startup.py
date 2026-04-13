@@ -28,7 +28,8 @@ _manager_dir = Path(__file__).resolve().parents[3] / 'manager'
 if str(_manager_dir) not in sys.path:
     sys.path.insert(0, str(_manager_dir))
 
-from run_manager import (  # noqa: E402
+from run_manager import MANAGER_DIR, PROJECT_ROOT  # noqa: E402
+from sethlans_manager.tls_setup import (  # noqa: E402
     build_ssl_context,
     get_tls_config,
     get_tls_dir,
@@ -47,20 +48,20 @@ class TestGetTlsDir:
 
     def test_dev_mode_uses_temp_dir(self):
         """Dev mode returns temp/dev-tls/ directory."""
-        tls_dir = get_tls_dir(dev_mode=True)
+        tls_dir = get_tls_dir(True, MANAGER_DIR, PROJECT_ROOT)
         assert 'temp' in str(tls_dir)
         assert 'dev-tls' in str(tls_dir)
 
     def test_prod_mode_uses_manager_tls_dir(self):
         """Production mode returns manager/tls/ directory."""
-        tls_dir = get_tls_dir(dev_mode=False)
+        tls_dir = get_tls_dir(False, MANAGER_DIR, PROJECT_ROOT)
         assert str(tls_dir).endswith('tls')
         assert 'temp' not in str(tls_dir)
 
     def test_dev_and_prod_are_different_paths(self):
         """Dev and prod TLS dirs are distinct paths."""
-        dev_dir = get_tls_dir(dev_mode=True)
-        prod_dir = get_tls_dir(dev_mode=False)
+        dev_dir = get_tls_dir(True, MANAGER_DIR, PROJECT_ROOT)
+        prod_dir = get_tls_dir(False, MANAGER_DIR, PROJECT_ROOT)
         assert dev_dir != prod_dir
 
 
@@ -73,7 +74,7 @@ class TestGetTlsConfig:
             'SETHLANS_TLS_CERT_FILE': '/custom/cert.pem',
             'SETHLANS_TLS_KEY_FILE': '/custom/key.pem',
         }):
-            cert_file, key_file = get_tls_config()
+            cert_file, key_file = get_tls_config(MANAGER_DIR)
             assert cert_file == '/custom/cert.pem'
             assert key_file == '/custom/key.pem'
 
@@ -83,7 +84,7 @@ class TestGetTlsConfig:
             # Ensure the env vars are not set
             os.environ.pop('SETHLANS_TLS_CERT_FILE', None)
             os.environ.pop('SETHLANS_TLS_KEY_FILE', None)
-            cert_file, key_file = get_tls_config()
+            cert_file, key_file = get_tls_config(MANAGER_DIR)
             # When no manager.ini [tls] section exists, both are None
             assert cert_file is None or key_file is None
 
@@ -95,10 +96,12 @@ class TestSetupCertificates:
         """setup_certificates generates a new cert when none exists."""
         tls_dir = tmp_path / 'tls'
 
-        with patch('run_manager.get_tls_config', return_value=(None, None)):
-            with patch('run_manager.get_tls_dir', return_value=tls_dir):
+        with patch('sethlans_manager.tls_setup.get_tls_config',
+                   return_value=(None, None)):
+            with patch('sethlans_manager.tls_setup.get_tls_dir',
+                       return_value=tls_dir):
                 cert_path, key_path, cert = setup_certificates(
-                    dev_mode=False,
+                    False, MANAGER_DIR, PROJECT_ROOT,
                 )
 
         assert cert_path.exists()
@@ -115,9 +118,13 @@ class TestSetupCertificates:
         generate_self_signed_cert(cert_path, key_path)
         original_cert_bytes = cert_path.read_bytes()
 
-        with patch('run_manager.get_tls_config', return_value=(None, None)):
-            with patch('run_manager.get_tls_dir', return_value=tls_dir):
-                _, _, cert = setup_certificates(dev_mode=False)
+        with patch('sethlans_manager.tls_setup.get_tls_config',
+                   return_value=(None, None)):
+            with patch('sethlans_manager.tls_setup.get_tls_dir',
+                       return_value=tls_dir):
+                _, _, cert = setup_certificates(
+                    False, MANAGER_DIR, PROJECT_ROOT,
+                )
 
         # Cert file should not have been regenerated
         assert cert_path.read_bytes() == original_cert_bytes
@@ -131,9 +138,13 @@ class TestSetupCertificates:
         caplog.set_level(logging.INFO)
         tls_dir = tmp_path / 'tls'
 
-        with patch('run_manager.get_tls_config', return_value=(None, None)):
-            with patch('run_manager.get_tls_dir', return_value=tls_dir):
-                setup_certificates(dev_mode=False)
+        with patch('sethlans_manager.tls_setup.get_tls_config',
+                   return_value=(None, None)):
+            with patch('sethlans_manager.tls_setup.get_tls_dir',
+                       return_value=tls_dir):
+                setup_certificates(
+                    False, MANAGER_DIR, PROJECT_ROOT,
+                )
 
         # First run should log fingerprint
         assert any(
@@ -142,9 +153,13 @@ class TestSetupCertificates:
 
         caplog.clear()
 
-        with patch('run_manager.get_tls_config', return_value=(None, None)):
-            with patch('run_manager.get_tls_dir', return_value=tls_dir):
-                setup_certificates(dev_mode=False)
+        with patch('sethlans_manager.tls_setup.get_tls_config',
+                   return_value=(None, None)):
+            with patch('sethlans_manager.tls_setup.get_tls_dir',
+                       return_value=tls_dir):
+                setup_certificates(
+                    False, MANAGER_DIR, PROJECT_ROOT,
+                )
 
         # Second run should NOT log fingerprint
         assert not any(
@@ -159,10 +174,10 @@ class TestSetupCertificates:
 
         generate_self_signed_cert(byo_cert, byo_key)
 
-        with patch('run_manager.get_tls_config',
+        with patch('sethlans_manager.tls_setup.get_tls_config',
                    return_value=(str(byo_cert), str(byo_key))):
             cert_path, key_path, cert = setup_certificates(
-                dev_mode=False,
+                False, MANAGER_DIR, PROJECT_ROOT,
             )
 
         assert cert_path == Path(str(byo_cert))
@@ -176,10 +191,12 @@ class TestSetupCertificates:
         bad_cert.write_text('not a certificate')
         bad_key.write_text('not a key')
 
-        with patch('run_manager.get_tls_config',
+        with patch('sethlans_manager.tls_setup.get_tls_config',
                    return_value=(str(bad_cert), str(bad_key))):
             with pytest.raises(CertificateError):
-                setup_certificates(dev_mode=False)
+                setup_certificates(
+                    False, MANAGER_DIR, PROJECT_ROOT,
+                )
 
 
 class TestBuildSSLContext:
@@ -246,10 +263,12 @@ class TestCertGenerationIdempotency:
         first_fp = get_cert_fingerprint(first_cert)
 
         # Run setup_certificates -- should NOT regenerate
-        with patch('run_manager.get_tls_config', return_value=(None, None)):
-            with patch('run_manager.get_tls_dir', return_value=tls_dir):
+        with patch('sethlans_manager.tls_setup.get_tls_config',
+                   return_value=(None, None)):
+            with patch('sethlans_manager.tls_setup.get_tls_dir',
+                       return_value=tls_dir):
                 _, _, second_cert = setup_certificates(
-                    dev_mode=False,
+                    False, MANAGER_DIR, PROJECT_ROOT,
                 )
 
         second_fp = get_cert_fingerprint(second_cert)

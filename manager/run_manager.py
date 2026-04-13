@@ -15,7 +15,6 @@ import configparser
 import logging
 import os
 import ssl
-import subprocess
 import sys
 from pathlib import Path
 
@@ -25,6 +24,21 @@ MANAGER_DIR = Path(__file__).resolve().parent
 if str(MANAGER_DIR) not in sys.path:
     sys.path.insert(0, str(MANAGER_DIR))
 
+# Ensure shared/ is on sys.path for frozen_paths imports.
+_SHARED_DIR = str(MANAGER_DIR.parent)
+if _SHARED_DIR not in sys.path:
+    sys.path.insert(0, _SHARED_DIR)
+
+from shared.frozen_paths import (  # noqa: E402
+    get_app_dir,
+    get_data_dir,
+    get_manager_dir,
+    is_frozen,
+)
+
+if is_frozen():
+    MANAGER_DIR = get_manager_dir()
+
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sethlans_manager.settings')
 
 import uvicorn  # noqa: E402
@@ -32,19 +46,25 @@ import uvicorn  # noqa: E402
 from sethlans_manager.cert_utils import (  # noqa: E402
     CertificateError,
     check_cert_expiry_warning,
-    generate_self_signed_cert,
-    get_cert_fingerprint,
-    load_and_validate_cert,
 )
 from sethlans_manager.runtime_init import (  # noqa: E402
     get_enrollment_config,
     initialize_runtime_state,
 )
+from sethlans_manager.tls_setup import (  # noqa: E402
+    build_ssl_context,
+    get_config_file_path,
+    setup_certificates,
+)
 
 logger = logging.getLogger(__name__)
 
 MANAGE_PY = str(MANAGER_DIR / 'manage.py')
-PROJECT_ROOT = MANAGER_DIR.parent
+
+if is_frozen():
+    PROJECT_ROOT = get_app_dir()
+else:
+    PROJECT_ROOT = MANAGER_DIR.parent
 
 
 def get_manager_bind():
@@ -59,7 +79,7 @@ def get_manager_bind():
 
     try:
         config = configparser.ConfigParser()
-        config_file_path = MANAGER_DIR / 'manager.ini'
+        config_file_path = get_config_file_path(MANAGER_DIR)
         if config_file_path.exists():
             config.read(config_file_path)
             if not host and config.has_option('server', 'host'):
@@ -72,163 +92,30 @@ def get_manager_bind():
     return (host or '0.0.0.0', port or '8080')
 
 
-def get_tls_config():
-    """Read BYO cert/key paths from env vars or manager.ini [tls] section.
-
-    Returns (cert_file, key_file) — both None if not configured.
-    """
-    cert_file = os.getenv('SETHLANS_TLS_CERT_FILE')
-    key_file = os.getenv('SETHLANS_TLS_KEY_FILE')
-
-    if cert_file and key_file:
-        return (cert_file, key_file)
-
-    try:
-        config = configparser.ConfigParser()
-        config_file_path = MANAGER_DIR / 'manager.ini'
-        if config_file_path.exists():
-            config.read(config_file_path)
-            if not cert_file and config.has_option('tls', 'cert_file'):
-                cert_file = config.get('tls', 'cert_file') or None
-            if not key_file and config.has_option('tls', 'key_file'):
-                key_file = config.get('tls', 'key_file') or None
-    except Exception as e:
-        print(f"[WARNING] Could not read TLS config: {e}", file=sys.stderr)
-
-    if bool(cert_file) != bool(key_file):
-        configured = 'cert_file' if cert_file else 'key_file'
-        missing = 'key_file' if cert_file else 'cert_file'
-        print(
-            f"[WARNING] TLS {configured} is set but {missing} is not. "
-            f"Both must be provided for a custom certificate. "
-            f"Falling back to self-signed cert.",
-            file=sys.stderr,
-        )
-        return (None, None)
-
-    return (cert_file, key_file)
-
-
-def get_tls_dir(dev_mode):
-    """Return the TLS directory path based on mode.
-
-    When SETHLANS_TLS_DATA_DIR is set (e.g., in Docker), use it
-    directly instead of the default path. The path must be absolute.
-
-    Dev mode:  <project_root>/temp/dev-tls/
-    Prod mode: <manager_dir>/tls/
-    """
-    env_override = os.getenv('SETHLANS_TLS_DATA_DIR')
-    if env_override:
-        p = Path(env_override)
-        if not p.is_absolute():
-            raise ValueError(
-                f"SETHLANS_TLS_DATA_DIR must be an absolute path, "
-                f"got: {env_override}"
-            )
-        return p
-    if dev_mode:
-        return PROJECT_ROOT / 'temp' / 'dev-tls'
-    return MANAGER_DIR / 'tls'
-
-
-def setup_certificates(dev_mode):
-    """Generate or load TLS certificates. Returns (cert_path, key_path, cert).
-
-    For BYO certs, validates and returns the user-provided paths.
-    For auto-generated certs, creates them if they don't exist.
-    Logs the fingerprint only on first generation.
-    """
-    byo_cert_file, byo_key_file = get_tls_config()
-
-    if byo_cert_file and byo_key_file:
-        # BYO certificate — validate it
-        cert_path = Path(byo_cert_file)
-        key_path = Path(byo_key_file)
-        cert = load_and_validate_cert(cert_path, key_path)
-        return (cert_path, key_path, cert)
-
-    # Self-signed cert flow
-    tls_dir = get_tls_dir(dev_mode)
-    cert_path = tls_dir / 'cert.pem'
-    key_path = tls_dir / 'key.pem'
-
-    first_generation = not cert_path.exists()
-
-    if first_generation:
-        generate_self_signed_cert(cert_path, key_path)
-
-    cert = load_and_validate_cert(cert_path, key_path)
-
-    if first_generation:
-        fingerprint = get_cert_fingerprint(cert)
-        logger.info("TLS cert fingerprint: %s", fingerprint)
-
-    return (cert_path, key_path, cert)
-
-
-def build_ssl_context(cert_path, key_path):
-    """Build an SSLContext with TLS 1.2 minimum version."""
-    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    ssl_ctx.load_cert_chain(str(cert_path), str(key_path))
-    return ssl_ctx
-
-
-def run_migrations():
-    """Apply pending database migrations."""
-    print("--- Applying database migrations... ---")
-    try:
-        subprocess.run(
-            [sys.executable, MANAGE_PY, "migrate"],
-            check=True,
-        )
-        print("--- Migrations applied successfully. ---")
-    except subprocess.CalledProcessError as e:
-        print(
-            f"\n[ERROR] Database migration failed. Error: {e}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-
-def run_collectstatic():
-    """Collect static files for production serving."""
-    print("--- Collecting static files... ---")
-    try:
-        subprocess.run(
-            [sys.executable, MANAGE_PY, "collectstatic", "--noinput"],
-            check=True,
-        )
-        print("--- Static files collected. ---")
-    except subprocess.CalledProcessError as e:
-        print(
-            f"\n[WARNING] collectstatic failed: {e}",
-            file=sys.stderr,
-        )
-
-
 def _prepare_runtime(cert, host, port):
-    """Initialise Django and populate ``runtime_state``."""
-    try:
-        import django  # noqa: F401
-        django.setup()
-    except Exception as exc:  # pragma: no cover - hard failure
-        print(f"\n[ERROR] Django setup failed: {exc}", file=sys.stderr)
-        sys.exit(1)
-    enrollment_cfg = get_enrollment_config(MANAGER_DIR)
+    """Initialise Django and populate ``runtime_state``.
+
+    In frozen mode, ``django.setup()`` has already been called by
+    ``_frozen_boot_sequence()``.
+    """
+    if not is_frozen():
+        try:
+            import django
+            django.setup()
+        except Exception as exc:  # pragma: no cover
+            print(
+                f"\n[ERROR] Django setup failed: {exc}", file=sys.stderr,
+            )
+            sys.exit(1)
+    config_dir = (
+        get_data_dir('manager') if is_frozen() else MANAGER_DIR
+    )
+    enrollment_cfg = get_enrollment_config(config_dir)
     initialize_runtime_state(cert, enrollment_cfg, host, port)
 
 
 def _launch_uvicorn(host, port, cert_path, key_path, dev_mode):
-    """Hand control to uvicorn with the correct reload/production mode.
-
-    uvicorn's ``run()`` does not accept a pre-built ``SSLContext``;
-    it wants ``ssl_keyfile`` / ``ssl_certfile`` paths (it builds the
-    context itself so it can be rebuilt on reload).  We still keep
-    :func:`build_ssl_context` around for any downstream tooling that
-    wants the pre-validated context object.
-    """
+    """Hand control to uvicorn with the correct reload/production mode."""
     ssl_common = {
         "ssl_keyfile": str(key_path),
         "ssl_certfile": str(cert_path),
@@ -252,6 +139,31 @@ def _launch_uvicorn(host, port, cert_path, key_path, dev_mode):
         )
 
 
+def _frozen_boot_sequence(dev_mode):
+    """Frozen-mode boot: django.setup() before in-process migrations.
+
+    In frozen mode, subprocess-based migrations fail because
+    ``sys.executable`` is the frozen binary, not a Python interpreter.
+    Boot order: django.setup() -> migrate -> collectstatic.
+    """
+    import django
+
+    from sethlans_manager.migration_runner import (
+        run_collectstatic_inprocess,
+        run_migrations_inprocess,
+    )
+
+    try:
+        django.setup()
+    except Exception as exc:
+        print(f"\n[ERROR] Django setup failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    run_migrations_inprocess()
+    if not dev_mode:
+        run_collectstatic_inprocess()
+
+
 def main():
     """Entry point for ``python manager/run_manager.py``."""
     dev_mode = '--dev' in sys.argv
@@ -263,19 +175,26 @@ def main():
         os.environ['SETHLANS_DEV_MODE'] = '1'
 
     try:
-        cert_path, key_path, cert = setup_certificates(dev_mode)
+        cert_path, key_path, cert = setup_certificates(
+            dev_mode, MANAGER_DIR, PROJECT_ROOT,
+        )
     except CertificateError as e:
         print(f"\n[ERROR] TLS certificate error: {e}", file=sys.stderr)
         sys.exit(1)
 
     check_cert_expiry_warning(cert)
-    run_migrations()
 
-    if not dev_mode:
-        run_collectstatic()
+    if is_frozen():
+        _frozen_boot_sequence(dev_mode)
+    else:
+        from sethlans_manager.migration_runner import (
+            run_collectstatic_subprocess,
+            run_migrations_subprocess,
+        )
+        run_migrations_subprocess(MANAGE_PY)
+        if not dev_mode:
+            run_collectstatic_subprocess(MANAGE_PY)
 
-    # Validate the cert/key pair by instantiating an SSLContext
-    # (surfaces mismatched/bad files before uvicorn boots).
     build_ssl_context(cert_path, key_path)
     host, port = get_manager_bind()
 

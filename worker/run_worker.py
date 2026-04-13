@@ -10,10 +10,12 @@ the agent's main loop. It provides a simple, one-command entry point.
 import sys
 from pathlib import Path
 
-# Add the worker directory to sys.path so sethlans_worker_agent is importable.
-worker_dir = str(Path(__file__).resolve().parent)
-if worker_dir not in sys.path:
-    sys.path.insert(0, worker_dir)
+# In frozen mode PyInstaller handles sys.path; only add the worker
+# directory when running from source.
+if not getattr(sys, 'frozen', False):
+    worker_dir = str(Path(__file__).resolve().parent)
+    if worker_dir not in sys.path:
+        sys.path.insert(0, worker_dir)
 
 if __name__ == "__main__":
     from sethlans_worker_agent.agent import main

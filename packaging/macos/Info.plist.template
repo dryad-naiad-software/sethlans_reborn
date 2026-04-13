@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>Sethlans</string>
+
+    <key>CFBundleExecutable</key>
+    <string>sethlans</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>com.dryadandnaiad.sethlans</string>
+
+    <key>CFBundleName</key>
+    <string>Sethlans</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleVersion</key>
+    <string>${VERSION}</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>${VERSION}</string>
+
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <key>LSUIElement</key>
+    <false/>
+
+    <key>CFBundleIconFile</key>
+    <string>sethlans.icns</string>
+
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright 2025 Dryad and Naiad Software LLC. GPL-2.0-or-later.</string>
+</dict>
+</plist>

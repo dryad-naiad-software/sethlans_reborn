@@ -5,6 +5,8 @@
 import os
 from pathlib import Path
 
+from shared.frozen_paths import get_data_dir, is_frozen
+
 # BASE_DIR must match settings.py
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -12,9 +14,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # fallback to INFO for production-like verbosity
 LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
 
-# Create logs directory if it doesn't exist
-LOGS_DIR = BASE_DIR / 'logs'
-LOGS_DIR.mkdir(exist_ok=True)
+# Create logs directory if it doesn't exist.
+# In frozen mode on Windows, BASE_DIR is inside C:\Program Files\ (read-only).
+# Write logs to the per-user data directory instead.
+if is_frozen():
+    LOGS_DIR = get_data_dir('manager') / 'logs'
+else:
+    LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 LOGGING = {
     'version': 1,
