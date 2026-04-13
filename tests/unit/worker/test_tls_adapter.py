@@ -72,16 +72,16 @@ class TestGetSession:
 
     def test_returns_requests_session(self, mocker):
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            ''
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value=''
         )
         session = get_session()
         assert isinstance(session, requests.Session)
 
     def test_returns_same_session_on_repeated_calls(self, mocker):
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            ''
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value=''
         )
         s1 = get_session()
         s2 = get_session()
@@ -90,8 +90,8 @@ class TestGetSession:
     def test_mounts_pinning_adapter_when_fingerprint_set(self, mocker):
         fp = 'd' * 64
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            fp
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value=fp
         )
         session = get_session()
         # requests.Session stores adapters in an OrderedDict
@@ -102,24 +102,24 @@ class TestGetSession:
 
     def test_verify_false_when_no_fingerprint(self, mocker):
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            ''
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value=''
         )
         session = get_session()
         assert session.verify is False
 
     def test_verify_false_when_fingerprint_is_none(self, mocker):
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            None
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value=None
         )
         session = get_session()
         assert session.verify is False
 
     def test_different_threads_get_different_sessions(self, mocker):
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            'e' * 64
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value='e' * 64
         )
         results = {}
 
@@ -140,6 +140,33 @@ class TestGetSession:
         assert isinstance(results['t1'], requests.Session)
         assert isinstance(results['t2'], requests.Session)
 
+    def test_config_store_fingerprint_mounts_adapter(self, mocker):
+        """Core fix: config_store.get returning a fingerprint mounts
+        a PinningHTTPAdapter on https://, while empty string sets
+        verify=False (pre-enrollment)."""
+        fp = 'ab' * 32
+        mock_get = mocker.patch(
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value=fp
+        )
+        session = get_session()
+        mock_get.assert_called_once_with("manager.cert_fingerprint", "")
+        https_adapter = session.get_adapter('https://manager.local:8080')
+        assert isinstance(https_adapter, PinningHTTPAdapter)
+        assert https_adapter.expected_fingerprint == fp
+
+        # Reset and verify empty fingerprint gives verify=False
+        if hasattr(_thread_local, 'session'):
+            del _thread_local.session
+        mock_get.reset_mock()
+        mock_get.return_value = ''
+        session2 = get_session()
+        mock_get.assert_called_once_with("manager.cert_fingerprint", "")
+        assert session2.verify is False
+        # Should NOT have a PinningHTTPAdapter
+        fallback = session2.get_adapter('https://example.com')
+        assert not isinstance(fallback, PinningHTTPAdapter)
+
 
 # --- reset_sessions ---
 
@@ -151,25 +178,22 @@ class TestResetSessions:
 
     def test_clears_current_thread_session(self, mocker):
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            'f' * 64
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value='f' * 64
         )
         get_session()  # create a session to be cleared
         reset_sessions()
         assert not hasattr(_thread_local, 'session')
 
     def test_next_get_session_creates_fresh_session(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            'a1' * 32
+        mock_get = mocker.patch(
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value='a1' * 32
         )
         old_session = get_session()
         reset_sessions()
 
-        mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            'b2' * 32
-        )
+        mock_get.return_value = 'b2' * 32
         s2 = get_session()
         assert old_session is not s2
         # New session should use the updated fingerprint
@@ -184,8 +208,8 @@ class TestResetSessions:
 
     def test_reset_closes_session(self, mocker):
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            ''
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value=''
         )
         session = get_session()
         mock_close = mocker.patch.object(session, 'close')
@@ -194,8 +218,8 @@ class TestResetSessions:
 
     def test_reset_handles_close_exception(self, mocker):
         mocker.patch(
-            'sethlans_worker_agent.tls_adapter.config.CERT_FINGERPRINT',
-            ''
+            'sethlans_worker_agent.tls_adapter.config_store.get',
+            return_value=''
         )
         session = get_session()
         mocker.patch.object(

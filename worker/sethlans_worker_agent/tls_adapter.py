@@ -21,7 +21,7 @@ import threading
 import requests
 import requests.adapters
 
-from sethlans_worker_agent import config
+from sethlans_worker_agent import config_store
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +52,24 @@ class PinningHTTPAdapter(requests.adapters.HTTPAdapter):
 def get_session() -> requests.Session:
     """Return a thread-local ``requests.Session`` with pinning configured.
 
-    If ``config.CERT_FINGERPRINT`` is set, a :class:`PinningHTTPAdapter`
-    is mounted on ``https://`` so that every request verifies the
-    manager's certificate fingerprint during the TLS handshake.
+    The certificate fingerprint is read from the persistent JSON config
+    store (``manager.cert_fingerprint``) rather than from the cached
+    ``config`` module constant.  This ensures that render threads spawned
+    after enrollment always read the current fingerprint from disk,
+    regardless of ``importlib.reload`` timing.
+
+    If a fingerprint is found, a :class:`PinningHTTPAdapter` is mounted
+    on ``https://`` so that every request verifies the manager's
+    certificate fingerprint during the TLS handshake.
 
     If no fingerprint is configured (pre-enrollment state), the session
     uses ``verify=False`` to accept the self-signed certificate.
     """
     if not hasattr(_thread_local, 'session'):
         s = requests.Session()
-        fingerprint = config.CERT_FINGERPRINT
+        fingerprint = config_store.get(
+            "manager.cert_fingerprint", ""
+        )
         if fingerprint:
             adapter = PinningHTTPAdapter(
                 expected_fingerprint=fingerprint
@@ -75,11 +83,13 @@ def get_session() -> requests.Session:
 
 def reset_sessions() -> None:
     """Clear the calling thread's session so the next :func:`get_session`
-    call creates a fresh one with the current ``config.CERT_FINGERPRINT``.
+    call creates a fresh one with the current fingerprint from the
+    config store.
 
     Note: ``threading.local()`` is per-thread — this only affects the
-    thread that calls it.  Other threads will continue using their
-    existing sessions until they are restarted or explicitly reset.
+    thread that calls it.  Other threads that create sessions after this
+    point will automatically read the current fingerprint from the
+    persistent config store on disk.
     """
     if hasattr(_thread_local, 'session'):
         try:
