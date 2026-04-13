@@ -84,6 +84,12 @@ with open(config_path, 'w') as f: config.write(f)
 
 function Invoke-StartServices {
     Write-Host ""; Invoke-Manager; Write-Host ""; Invoke-Worker; Write-Host ""; Invoke-Status
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "  Manager UI:  https://127.0.0.1:8080"
+    Write-Host "  Swagger API: https://127.0.0.1:8080/api/docs/"
+    Write-Host "  Admin login: testuser / test12345"
+    Write-Host "============================================================"
 }
 
 # -- Sethlans process filter (used by clean) -------------------------------

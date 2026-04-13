@@ -90,6 +90,12 @@ with open(config_path, 'w') as f: config.write(f)
 
 start_services() {
     echo ""; cmd_manager; echo ""; cmd_worker; echo ""; cmd_status
+    echo ""
+    echo "============================================================"
+    echo "  Manager UI:  https://127.0.0.1:8080"
+    echo "  Swagger API: https://127.0.0.1:8080/api/docs/"
+    echo "  Admin login: testuser / test12345"
+    echo "============================================================"
 }
 
 # -- dev -----------------------------------------------------------------
