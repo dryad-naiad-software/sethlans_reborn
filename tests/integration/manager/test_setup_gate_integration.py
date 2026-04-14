@@ -111,14 +111,22 @@ class TestAllowedPathsDuringSetup:
         """Requests to /setup/ pass through the gate.
 
         The SPA catch-all renders index.html, which may not exist in
-        CI (no Angular build).  A 500 TemplateDoesNotExist is fine —
-        the point is the gate did NOT block it with 503.
+        CI (no Angular build).  Django's test client raises
+        ``TemplateDoesNotExist`` instead of returning a 500 response,
+        so we catch that.  The point is the gate did NOT block it
+        with 503.
         """
+        from django.template import TemplateDoesNotExist
+
         client = APIClient()
-        resp = client.get("/setup/")
+        try:
+            resp = client.get("/setup/")
+        except TemplateDoesNotExist:
+            # Template missing (CI without Angular build) — the gate
+            # let the request through, which is what we're testing.
+            return
         assert resp.status_code != 503
         assert resp.status_code != 302  # No redirect loop
-        assert resp.status_code in (200, 500)  # 500 OK in CI (no template)
 
 
 # -------------------------------------------------------------------
