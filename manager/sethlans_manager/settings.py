@@ -108,6 +108,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'sethlans_manager.middleware.setup_gate.SetupGateMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -146,23 +147,9 @@ ASGI_APPLICATION = 'sethlans_manager.asgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
-# Use environment variable for DB name, otherwise default to db.sqlite3
-if is_frozen():
-    _default_db_path = get_data_dir('manager') / 'db.sqlite3'
-else:
-    _default_db_path = BASE_DIR / 'db.sqlite3'
-DB_NAME = os.getenv('SETHLANS_DB_NAME', _default_db_path)
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': DB_NAME,
-        'OPTIONS': {
-            'timeout': 30,
-        },
-    }
-}
+# Hierarchy: env vars > manager.ini [database] > SQLite default
+from .db_config import build_database_config  # noqa: E402
+DATABASES = build_database_config(_config, _config_file_path)
 
 
 # Password validation

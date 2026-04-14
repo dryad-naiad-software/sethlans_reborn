@@ -23,22 +23,24 @@ import sys
 import webbrowser
 from pathlib import Path
 
+from launcher.setup_helpers import (
+    find_available_port,
+    generate_setup_token,
+    remove_setup_section,
+)
+
 __version__ = "0.1.0"
 
 # Default ports
 MANAGER_PORT = 8080
-WIZARD_PATH = "/"
+WIZARD_PATH = "/setup/"
+DASHBOARD_PATH = "/"
 
 
 # ---- Path helpers (inline, no external deps) ----
 
 def _get_data_dir() -> Path:
-    """Return the per-OS Sethlans data directory.
-
-    Windows:  %LOCALAPPDATA%\\Sethlans
-    macOS:    ~/Library/Application Support/Sethlans
-    Linux:    $XDG_DATA_HOME/sethlans (default ~/.local/share/sethlans)
-    """
+    """Return the per-OS Sethlans data directory."""
     system = platform.system()
     if system == "Windows":
         base = os.environ.get("LOCALAPPDATA")
@@ -61,12 +63,7 @@ def _get_data_dir() -> Path:
 
 
 def _get_install_dir() -> Path:
-    """Return the installation directory.
-
-    In frozen mode (PyInstaller), this is the directory containing the
-    executable's parent bin/ directory. In source mode, it is the
-    project root.
-    """
+    """Return the installation directory."""
     if getattr(sys, 'frozen', False):
         # Frozen: exe is in bin/launcher/, install dir is two up
         return Path(sys.executable).resolve().parent.parent.parent
@@ -107,11 +104,7 @@ def _is_headless() -> bool:
 
 
 def _set_file_permissions(path: Path):
-    """Set restrictive permissions on a config file.
-
-    POSIX: 0600 (owner read/write only).
-    Windows: uses icacls to set owner-only access.
-    """
+    """Set restrictive permissions: POSIX 0600, Windows icacls."""
     if platform.system() == "Windows":
         username = os.environ.get("USERNAME", "")
         if username:
@@ -130,11 +123,7 @@ def _set_file_permissions(path: Path):
 # ---- Bootstrap (first run) ----
 
 def _bootstrap_first_run(data_dir: Path) -> Path:
-    """Perform pre-Django bootstrap for first run.
-
-    Generates SECRET_KEY, writes minimal manager.ini with restricted
-    permissions, returns the manager data directory.
-    """
+    """Bootstrap first run: generate SECRET_KEY, write manager.ini."""
     manager_data = data_dir / "manager"
     manager_data.mkdir(parents=True, exist_ok=True)
 
@@ -177,10 +166,7 @@ def _find_component_exe(component: str) -> Path:
 
 
 def _start_component(component: str, extra_args=None):
-    """Start a component subprocess.
-
-    Returns the Popen handle.
-    """
+    """Start a component subprocess and return the Popen handle."""
     exe = _find_component_exe(component)
     cmd = []
     if getattr(sys, 'frozen', False):
@@ -197,12 +183,17 @@ def _start_component(component: str, extra_args=None):
     )
 
 
-def _open_browser(port: int, no_browser: bool, print_url: bool):
-    """Open browser to the wizard/dashboard URL.
-
-    On headless Linux, always prints the URL to stdout instead.
-    """
-    url = f"https://localhost:{port}{WIZARD_PATH}"
+def _open_browser(
+    port: int,
+    no_browser: bool,
+    print_url: bool,
+    path: str = DASHBOARD_PATH,
+    setup_token: str | None = None,
+):
+    """Open browser to the wizard/dashboard URL."""
+    url = f"https://localhost:{port}{path}"
+    if setup_token:
+        url += f"?token={setup_token}"
     headless = _is_headless()
 
     if print_url or headless:
@@ -243,17 +234,30 @@ def main():
     try:
         if not _is_setup_complete(data_dir):
             # First run: bootstrap and start wizard
-            _bootstrap_first_run(data_dir)
+            manager_data = _bootstrap_first_run(data_dir)
+            port = find_available_port()
+            setup_token = generate_setup_token(manager_data)
+
             print("Starting Sethlans setup wizard...")
-            proc = _start_component("manager")
+            # Single uvicorn worker during setup (FR-G5).
+            proc = _start_component(
+                "manager", extra_args=["--workers", "1"],
+            )
             processes.append(proc)
             _open_browser(
-                MANAGER_PORT, args.no_browser, args.print_url,
+                port,
+                args.no_browser,
+                args.print_url,
+                path=WIZARD_PATH,
+                setup_token=setup_token,
             )
         else:
             # Subsequent runs: start based on topology
             topology = _read_topology(data_dir)
             topo_type = topology.get("topology", "manager_worker")
+            # Remove leftover setup section if present.
+            manager_data = data_dir / "manager"
+            remove_setup_section(manager_data)
 
             if topo_type in ("manager", "manager_worker"):
                 print("Starting Sethlans Manager...")

@@ -41,6 +41,36 @@ port = 8080
 # `enrollment_key =` option is read ONCE during the 0017 migration as
 # a compatibility shim and is ignored thereafter.
 
+[database]
+# Database backend configuration.
+# Default: SQLite (no configuration needed).
+#
+# Environment variables override these values:
+#   SETHLANS_DB_ENGINE, SETHLANS_DB_NAME, SETHLANS_DB_HOST,
+#   SETHLANS_DB_PORT, SETHLANS_DB_USER, SETHLANS_DB_PASSWORD
+#   SETHLANS_DB_PASSWORD_FILE (Docker secrets — reads file contents)
+#   SETHLANS_DATABASE_URL (composite URL, takes precedence over individual vars)
+#
+# --- SQLite (default) ---
+# engine = sqlite
+# name = /path/to/db.sqlite3
+#
+# --- PostgreSQL ---
+# engine = postgresql
+# name = sethlans
+# host = localhost
+# port = 5432
+# user = sethlans
+# password = your-password-here
+#
+# --- MySQL / MariaDB ---
+# engine = mysql
+# name = sethlans
+# host = localhost
+# port = 3306
+# user = sethlans
+# password = your-password-here
+
 [enrollment]
 # Friendly name broadcast via multicast discovery.  Truncated to 64
 # characters.  Default: "Sethlans Manager"  (env: SETHLANS_ENROLLMENT_NAME)
