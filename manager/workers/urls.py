@@ -14,6 +14,7 @@ from .views import (
     regenerate_enrollment_key_view, enroll_view,
     health_view, shutdown_view, system_info_view,
 )
+from .views.manager_defaults import manager_defaults_view
 
 # Create a router instance
 router = DefaultRouter()
@@ -45,6 +46,12 @@ urlpatterns = [
     ),
     # Worker enrollment endpoint (HMAC-bootstrapped)
     path('enroll/', enroll_view, name='enroll'),
+    # Manager defaults (FR-MA1) — requires TokenAuthentication
+    path(
+        'manager-defaults/',
+        manager_defaults_view,
+        name='manager-defaults',
+    ),
     # Include all router URLs at the root of /api/
     path('', include(router.urls)),
 ]
