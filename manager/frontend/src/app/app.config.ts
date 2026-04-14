@@ -8,8 +8,9 @@ import {
   APP_INITIALIZER,
   inject,
 } from '@angular/core';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import {
+  HttpClient,
   provideHttpClient,
   withInterceptors,
   withXsrfConfiguration,
@@ -20,6 +21,8 @@ import { routes } from './app.routes';
 import { errorInterceptor } from './core/interceptors/error.interceptor';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { AuthService } from './core/services/auth.service';
+import { SetupStatus } from './features/setup/models/setup.models';
+import { environment } from '../environments/environment';
 
 function initializeCsrf(): () => Promise<void> {
   const authService = inject(AuthService);
@@ -28,6 +31,28 @@ function initializeCsrf(): () => Promise<void> {
       authService.fetchCsrfToken().subscribe({
         next: () => resolve(),
         error: () => resolve(),
+      });
+    });
+}
+
+function initializeSetupCheck(): () => Promise<void> {
+  const http = inject(HttpClient);
+  const router = inject(Router);
+  return () =>
+    new Promise<void>((resolve) => {
+      http.get<SetupStatus>(`${environment.apiBaseUrl}/setup/status/`).subscribe({
+        next: (status) => {
+          if (!status.complete) {
+            router.navigate(['/setup']);
+          }
+          resolve();
+        },
+        error: (err) => {
+          if (err.status === 503) {
+            router.navigate(['/setup']);
+          }
+          resolve();
+        },
       });
     });
 }
@@ -47,6 +72,11 @@ export const appConfig: ApplicationConfig = {
     {
       provide: APP_INITIALIZER,
       useFactory: initializeCsrf,
+      multi: true,
+    },
+    {
+      provide: APP_INITIALIZER,
+      useFactory: initializeSetupCheck,
       multi: true,
     },
   ],

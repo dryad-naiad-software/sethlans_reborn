@@ -8,6 +8,8 @@ import { authGuard } from './core/guards/auth.guard';
 export const routes: Routes = [
   {
     path: '',
+    loadComponent: () =>
+      import('./layout/layout.component').then(m => m.LayoutComponent),
     canActivate: [authGuard],
     children: [
       {
@@ -47,6 +49,11 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/login/login.component')
         .then(m => m.LoginComponent),
+  },
+  {
+    path: 'setup',
+    loadChildren: () =>
+      import('./features/setup/setup.routes').then(m => m.SETUP_ROUTES),
   },
   { path: '**', redirectTo: '' },
 ];

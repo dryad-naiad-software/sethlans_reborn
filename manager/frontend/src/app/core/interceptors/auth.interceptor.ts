@@ -49,6 +49,12 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       if (error.status === 403) {
         snackBar.open('Permission denied', 'Dismiss', { duration: 5000 });
       }
+      if (error.status === 503 && !req.url.includes('/api/setup/')) {
+        const body = error.error;
+        if (body?.detail === 'Setup not complete.') {
+          router.navigate(['/setup']);
+        }
+      }
       return throwError(() => error);
     })
   );
