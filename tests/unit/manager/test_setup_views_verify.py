@@ -191,6 +191,9 @@ class TestSummaryView:
         runtime_state.cert_fingerprint = "abcdef1234567890"
         try:
             request = api_rf.get('/api/setup/summary/')
+            # Summary now requires authentication (security fix)
+            mock_admin = MagicMock(is_authenticated=True)
+            request.user = mock_admin
             response = setup_summary_view(request)
         finally:
             runtime_state.cert_fingerprint = orig
@@ -208,6 +211,7 @@ class TestSummaryView:
             return_value=None,
         )
         request = api_rf.get('/api/setup/summary/')
+        request.user = MagicMock(is_authenticated=True)
         response = setup_summary_view(request)
         assert response.status_code == 400
         assert "not yet verified" in response.data["error"].lower()
@@ -223,5 +227,6 @@ class TestSummaryView:
             },
         )
         request = api_rf.get('/api/setup/summary/')
+        request.user = MagicMock(is_authenticated=True)
         response = setup_summary_view(request)
         assert response.status_code == 400

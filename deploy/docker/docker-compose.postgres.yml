@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Usage:
+#   docker compose -f deploy/docker/docker-compose.yml \
+#                  -f deploy/docker/docker-compose.postgres.yml up
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: sethlans
+      POSTGRES_USER: sethlans
+      POSTGRES_PASSWORD: ${SETHLANS_DB_PASSWORD:?Set SETHLANS_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sethlans"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  manager:
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - SETHLANS_DB_ENGINE=postgresql
+      - SETHLANS_DB_HOST=db
+      - SETHLANS_DB_PORT=5432
+      - SETHLANS_DB_NAME=sethlans
+      - SETHLANS_DB_USER=sethlans
+      - SETHLANS_DB_PASSWORD=${SETHLANS_DB_PASSWORD:?Set SETHLANS_DB_PASSWORD}
+
+volumes:
+  pgdata:

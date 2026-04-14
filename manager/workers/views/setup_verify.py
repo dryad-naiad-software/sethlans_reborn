@@ -28,8 +28,12 @@ from workers.services.sentinel import (
     create_sentinel,
     read_sentinel,
 )
-from workers.services.setup import verify_ffmpeg_runs
+from workers.services.setup import verify_blender_runs, verify_ffmpeg_runs
 from workers.services.ffmpeg_download import get_ffmpeg_binary
+from workers.services.auto_enroll import check_local_worker_enrolled
+from workers.services.blender_download import (
+    get_blender_dir, blender_already_installed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +88,11 @@ def setup_verify_view(request):
 
 
 @api_view(["GET"])
-@authentication_classes([])
-@permission_classes([AllowAny])
 def setup_summary_view(request):
     """GET /api/setup/summary/ (FR-A14).
 
-    Returns post-setup summary: manager URL, admin username,
-    enrollment key, cert fingerprint, topology.
+    Returns post-setup summary.  Requires authentication — the
+    enrollment key is a sensitive credential (security review fix).
     """
     data_dir = _get_data_dir()
     sentinel = read_sentinel(data_dir)
@@ -155,6 +157,11 @@ def _run_verification_checks(
 
     # Check 4: Enrollment key exists
     checks.append(_check_enrollment_key())
+
+    # Manager+Worker only: verify Blender if pre-downloaded
+    if topology == "manager_worker":
+        checks.append(_check_blender(data_dir))
+        checks.append(check_local_worker_enrolled())
 
     return checks
 
@@ -231,3 +238,61 @@ def _check_enrollment_key() -> dict:
             "name": "enrollment_key", "passed": False,
             "error": str(exc),
         }
+
+
+def _find_blender_binary(
+    blender_dir: Path, version: str,
+) -> Path | None:
+    """Locate the Blender binary for the current platform."""
+    import platform as plat
+    from workers.services.blender_download import get_platform_id
+    pid = get_platform_id()
+    if not pid:
+        return None
+    install = blender_dir / f"blender-{version}-{pid}"
+    if not install.is_dir():
+        return None
+    system = plat.system()
+    if system == "Windows":
+        binary = install / "blender.exe"
+    elif system == "Darwin":
+        binary = (
+            install / "Blender.app" / "Contents" / "MacOS" / "Blender"
+        )
+    else:
+        binary = install / "blender"
+    return binary if binary.is_file() else None
+
+
+def _check_blender(data_dir: Path) -> dict:
+    """Verify Blender binary runs (manager_worker only, optional)."""
+    try:
+        from workers.models import SupportedBlenderVersion
+        default_version = SupportedBlenderVersion.objects.filter(
+            is_default=True,
+        ).first()
+        if not default_version:
+            return {
+                "name": "blender", "passed": True,
+                "error": None,
+                "detail": "No default Blender version configured",
+            }
+        version = default_version.version
+        if not blender_already_installed(data_dir, version):
+            return {
+                "name": "blender", "passed": True,
+                "error": None,
+                "detail": "Blender not pre-downloaded (optional)",
+            }
+        binary = _find_blender_binary(
+            get_blender_dir(data_dir), version,
+        )
+        if binary is None:
+            return {
+                "name": "blender", "passed": False,
+                "error": "Blender directory exists but binary not found",
+            }
+        verify_blender_runs(binary)
+        return {"name": "blender", "passed": True, "error": None}
+    except Exception as exc:
+        return {"name": "blender", "passed": False, "error": str(exc)}

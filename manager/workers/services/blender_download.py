@@ -30,7 +30,7 @@ from .download_progress import get_task, update_task
 logger = logging.getLogger(__name__)
 
 
-def _get_platform_id() -> str | None:
+def get_platform_id() -> str | None:
     """Return platform identifier for Blender download URLs."""
     system = platform.system().lower()
     arch = platform.machine().lower()
@@ -58,7 +58,7 @@ def blender_already_installed(
 ) -> bool:
     """Check if a Blender version is already extracted."""
     blender_dir = get_blender_dir(data_dir)
-    pid = _get_platform_id()
+    pid = get_platform_id()
     if not pid:
         return False
     install_name = f"blender-{version}-{pid}"
@@ -147,7 +147,7 @@ def _set_executable(blender_dir: Path, version: str, pid: str) -> None:
 
 def _resolve_release(version: str) -> tuple[str, str, str] | None:
     """Return ``(url, hash, platform_id)`` or None."""
-    pid = _get_platform_id()
+    pid = get_platform_id()
     if not pid:
         return None
     info = _get_release_info(version, pid)

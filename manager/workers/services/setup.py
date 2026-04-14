@@ -12,6 +12,7 @@ import configparser
 import hashlib
 import logging
 import os
+import platform
 import secrets
 import subprocess
 import tempfile
@@ -201,12 +202,7 @@ def set_worker_ui_password(
 
 
 def verify_ffmpeg_runs(ffmpeg_path: Path) -> str:
-    """Execute ``ffmpeg -version`` and return the version string.
-
-    Raises ``RuntimeError`` if the binary is missing or fails.
-    Validates that *ffmpeg_path* is an absolute path to prevent
-    injection.
-    """
+    """Execute ``ffmpeg -version`` and return the version string."""
     ffmpeg_path = Path(ffmpeg_path).resolve()
     if not ffmpeg_path.is_file():
         raise RuntimeError(
@@ -240,6 +236,41 @@ def verify_ffmpeg_runs(ffmpeg_path: Path) -> str:
     return first_line.strip()
 
 
+def verify_blender_runs(blender_path: Path) -> str:
+    """Execute ``blender --version`` and return the version string."""
+    blender_path = Path(blender_path).resolve()
+    if not blender_path.is_file():
+        raise RuntimeError(
+            f"Blender binary not found: {blender_path}"
+        )
+
+    try:
+        result = subprocess.run(
+            [str(blender_path), "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "Blender timed out after 30 seconds."
+        ) from exc
+    except OSError as exc:
+        raise RuntimeError(
+            f"Failed to execute Blender: {exc}"
+        ) from exc
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Blender exited with code {result.returncode}: "
+            f"{result.stderr.strip()}"
+        )
+    # First line: "Blender X.Y.Z"
+    first_line = result.stdout.split("\n", 1)[0]
+    return first_line.strip()
+
+
 # ---- Internal helpers ----
 
 def _atomic_write_ini(
@@ -256,6 +287,9 @@ def _atomic_write_ini(
         with os.fdopen(fd, "w") as f:
             parser.write(f)
         os.replace(tmp_path, str(path))
+        # Restrict permissions — INI may contain password hashes.
+        if platform.system() != "Windows":
+            os.chmod(str(path), 0o600)
     except Exception:
         try:
             os.unlink(tmp_path)
