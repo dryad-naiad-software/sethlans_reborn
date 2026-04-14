@@ -66,6 +66,9 @@ def run_first_run_wizard_if_needed():
     ``tls_adapter.reset_sessions()`` (per-thread) works correctly for
     pinning activation after enrollment (FR-23).
 
+    On success, writes the setup sentinel and flips the setup gate
+    so the worker's web UI is fully accessible after enrollment.
+
     Returns the wizard exit code (0 on success or "wizard not needed").
     """
     if config_store.get("enrollment.wizard_complete", False):
@@ -81,4 +84,23 @@ def run_first_run_wizard_if_needed():
     # still see a fresh module object after this reload.
     from sethlans_worker_agent import config as config_mod
     importlib.reload(config_mod)
+    # Write sentinel and flip the setup gate so the worker's web UI
+    # (dashboard, /api/status, control endpoints) is accessible.
+    _finalize_setup_after_wizard()
     return 0
+
+
+def _finalize_setup_after_wizard():
+    """Write sentinel and flip the gate after CLI/unattended wizard."""
+    from sethlans_worker_agent.web_ui.setup.gate import mark_setup_complete
+    from sethlans_worker_agent.web_ui.setup.sentinel import (
+        create_sentinel, is_setup_complete,
+    )
+    data_dir = config_store.get_data_dir()
+    if not is_setup_complete(data_dir):
+        create_sentinel(
+            data_dir,
+            topology="worker_only",
+            checkpoints=["enrolled", "wizard_complete"],
+        )
+    mark_setup_complete()
