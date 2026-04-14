@@ -24,7 +24,7 @@ class TestAssetNameLength:
 
     def _create_asset_via_api(self, admin_client, project, name):
         """Helper: POST an asset with the given name via the API."""
-        blend_content = b'\x00' * 64
+        blend_content = b'BLENDER' + b'\x00' * 57
         from django.core.files.uploadedfile import SimpleUploadedFile
         blend_file = SimpleUploadedFile(
             'test.blend', blend_content,

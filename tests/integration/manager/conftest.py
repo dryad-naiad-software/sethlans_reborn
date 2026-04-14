@@ -84,7 +84,7 @@ def project(admin_client, default_version):
 @pytest.fixture
 def asset(project):
     """Create an Asset with a minimal .blend file stub."""
-    blend_bytes = b'\x00' * 64
+    blend_bytes = b'BLENDER' + b'\x00' * 57
     asset = Asset(
         project=project,
         name='TestAsset001',
