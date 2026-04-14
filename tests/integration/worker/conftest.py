@@ -104,3 +104,12 @@ def _reset_web_ui_auth():
     auth.reset_cache()
     yield
     auth.reset_cache()
+
+
+@pytest.fixture(autouse=True)
+def _reset_setup_gate():
+    """Reset the setup gate module-level state between tests."""
+    from sethlans_worker_agent.web_ui.setup import gate
+    gate._setup_complete = False
+    yield
+    gate._setup_complete = False

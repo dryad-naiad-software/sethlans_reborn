@@ -9,7 +9,6 @@ dispatches render threads. Supports graceful shutdown via signals.
 """
 
 import argparse
-import importlib
 import logging
 from logging.handlers import RotatingFileHandler
 import signal
@@ -17,7 +16,7 @@ import threading
 import time
 import sys
 from sethlans_worker_agent import (
-    job_processor, system_monitor, config, api_handler, config_store,
+    job_processor, system_monitor, config, api_handler,
 )
 from sethlans_worker_agent import version_sync
 from sethlans_worker_agent import capacity as capacity_module
@@ -35,27 +34,21 @@ parser.add_argument(
 args = parser.parse_args()
 
 # --- Logging Setup ---
-# Ensure the log directory exists (parents=True — on a fresh install
-# the entire per-OS data dir tree does not exist yet).
 config.WORKER_LOG_DIR.mkdir(parents=True, exist_ok=True)
 log_file_path = config.WORKER_LOG_DIR / 'worker.log'
 
-# Get the root logger
 root_logger = logging.getLogger()
 root_logger.setLevel(getattr(logging, args.loglevel))
 
-# Create a standard formatter
 formatter = logging.Formatter(
     '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# Create and add the console handler
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 root_logger.addHandler(console_handler)
 
-# Create and add the rotating file handler
 file_handler = RotatingFileHandler(
     log_file_path,
     maxBytes=5*1024*1024,  # 5 MB
@@ -144,7 +137,7 @@ def _should_skip_polling():
     return None
 
 
-def _try_register_worker(cert_path, key_path):
+def _try_register_worker():
     """Attempt registration. Returns the worker ID on success, else None."""
     logger.warning("Worker not registered with Manager. Attempting registration...")
     new_id = system_monitor.register_with_manager()
@@ -152,7 +145,6 @@ def _try_register_worker(cert_path, key_path):
         logger.error("Failed to register with manager. Retrying in 30 seconds...")
         return None
     job_processor.init_capacity()
-    start_server(cert_path, key_path)
     return new_id
 
 
@@ -200,55 +192,29 @@ def _run_loop_iteration(worker_id):
     _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
 
 
-def _run_first_run_wizard_if_needed():
-    """Run the first-run enrollment wizard on the main thread.
+# --- Graceful Shutdown ---
+def _graceful_shutdown():
+    """Run the graceful shutdown sequence (server + threads + drift)."""
+    logger.info("Shutdown event set. Stopping polling loop.")
+    stop_server()
+    _wait_for_active_threads()
+    logger.info("Sethlans Reborn Worker Agent shut down cleanly.")
 
-    Invariant: runs BEFORE any background threads are spawned so
-    ``tls_adapter.reset_sessions()`` (per-thread) works correctly for
-    pinning activation after enrollment (FR-23).
+    drift_code = capacity_module.get_drift_exit_code()
+    if drift_code is not None:
+        logger.critical(
+            "Exiting with code %d due to GPU drift detection.", drift_code,
+        )
+        sys.exit(drift_code)
 
-    Returns the wizard exit code (0 on success or "wizard not needed").
+
+def _run_setup_phase():
+    """Handle TLS, web server start, and setup gate / wizard.
+
+    Returns ``True`` if setup completed and the main loop should
+    proceed, or ``False`` if shutdown was requested during setup.
     """
-    if config_store.get("enrollment.wizard_complete", False):
-        return 0
-    from sethlans_worker_agent import wizard
-    logger.info("First-run enrollment wizard required.")
-    code = wizard.run_wizard()
-    if code != 0:
-        logger.error("Enrollment wizard exited with code %d.", code)
-        return code
-    # Re-read config so the new token/fingerprint are live in this process.
-    global config
-    config = importlib.reload(config)
-    # Downstream modules that cached ``config`` references still see a
-    # fresh module object after this reload.
-    return 0
-
-
-# --- Main Application Logic ---
-def main():
-    """Main operational loop: register, heartbeat, poll, dispatch, shutdown."""
-    # Install signal handlers for graceful shutdown.
-    signal.signal(signal.SIGINT, _shutdown_handler)
-    signal.signal(signal.SIGTERM, _shutdown_handler)
-
-    logger.info("Sethlans Reborn Worker Agent Starting...")
-
-    # Start Windows session unlock monitor (FR-4c).
-    # No-op on non-Windows platforms.
-    from sethlans_worker_agent.idle_detection.session_win32 import (
-        start_session_monitor,
-    )
-    start_session_monitor()
-
-    # First-run enrollment wizard runs on the MAIN THREAD before any
-    # background threads are spawned (FR-23 single-threaded invariant).
-    wizard_code = _run_first_run_wizard_if_needed()
-    if wizard_code != 0:
-        sys.exit(wizard_code)
-
-    # TLS setup — once, before the main loop.
-    # CertificateError here is fatal (matches manager's run_manager.py).
+    # TLS setup — once, before the web server.
     from sethlans_worker_agent import tls_setup
     from shared.cert_utils import CertificateError
     try:
@@ -257,13 +223,61 @@ def main():
         logger.critical("TLS certificate error: %s", e)
         sys.exit(1)
 
+    # Start web server FIRST (serves setup wizard during setup mode).
+    start_server(cert_path, key_path)
+
+    # Initialize setup gate (reads sentinel to decide mode).
+    from sethlans_worker_agent.agent_setup import (
+        initialize_setup_gate,
+        run_first_run_wizard_if_needed,
+        wait_for_browser_setup,
+    )
+    setup_done = initialize_setup_gate()
+
+    if not setup_done:
+        if sys.stdin.isatty():
+            wait_for_browser_setup(
+                _shutdown_event, config.UI_BIND_ADDRESS, config.UI_PORT,
+            )
+            if _shutdown_event.is_set():
+                return False
+        else:
+            wizard_code = run_first_run_wizard_if_needed()
+            if wizard_code != 0:
+                sys.exit(wizard_code)
+    else:
+        wizard_code = run_first_run_wizard_if_needed()
+        if wizard_code != 0:
+            sys.exit(wizard_code)
+
+    return True
+
+
+# --- Main Application Logic ---
+def main():
+    """Main operational loop: register, heartbeat, poll, dispatch, shutdown."""
+    signal.signal(signal.SIGINT, _shutdown_handler)
+    signal.signal(signal.SIGTERM, _shutdown_handler)
+
+    logger.info("Sethlans Reborn Worker Agent Starting...")
+
+    # Start Windows session unlock monitor (FR-4c).
+    from sethlans_worker_agent.idle_detection.session_win32 import (
+        start_session_monitor,
+    )
+    start_session_monitor()
+
+    if not _run_setup_phase():
+        _graceful_shutdown()
+        return
+
     worker_id = None
 
     while not _shutdown_event.is_set():
         try:
             _prune_finished_threads()
             if not worker_id:
-                worker_id = _try_register_worker(cert_path, key_path)
+                worker_id = _try_register_worker()
                 if not worker_id:
                     _shutdown_event.wait(30)
                     continue
@@ -276,22 +290,7 @@ def main():
             logger.info("Restarting main loop in 60 seconds...")
             _shutdown_event.wait(60)
 
-    # --- Graceful shutdown sequence ---
-    logger.info("Shutdown event set. Stopping polling loop.")
-    stop_server()
-    _wait_for_active_threads()
-    logger.info("Sethlans Reborn Worker Agent shut down cleanly.")
-
-    # Drift exit epilogue (FR-22a step 5). If the GPU drift detector
-    # fired during this run, exit with its stored exit code AFTER the
-    # graceful shutdown path has completed. sys.exit is only called
-    # here, never from inside WorkerCapacity.
-    drift_code = capacity_module.get_drift_exit_code()
-    if drift_code is not None:
-        logger.critical(
-            "Exiting with code %d due to GPU drift detection.", drift_code,
-        )
-        sys.exit(drift_code)
+    _graceful_shutdown()
 
 
 if __name__ == '__main__':

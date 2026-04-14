@@ -60,6 +60,50 @@ def _reset_job_processor_state():
     drift_module._drift_detected_exit_code = None
 
 
+@pytest.fixture(autouse=True)
+def _reset_setup_gate_state():
+    """Reset the setup gate module-level state between tests."""
+    from sethlans_worker_agent.web_ui.setup import gate
+    gate._setup_complete = False
+    yield
+    gate._setup_complete = False
+
+
+@pytest.fixture(autouse=True)
+def _reset_setup_status_state():
+    """Reset handlers_status module-level state between tests."""
+    from sethlans_worker_agent.web_ui.setup import handlers_status
+    handlers_status._current_topology = None
+    handlers_status._current_checkpoints = []
+    yield
+    handlers_status._current_topology = None
+    handlers_status._current_checkpoints = []
+
+
+@pytest.fixture(autouse=True)
+def _reset_setup_discovery_state():
+    """Reset handlers_discovery module-level state between tests."""
+    from sethlans_worker_agent.web_ui.setup import handlers_discovery
+    handlers_discovery._selected_manager_url = None
+    handlers_discovery._selected_manager_id = None
+    handlers_discovery._selected_manager_meta = None
+    yield
+    handlers_discovery._selected_manager_url = None
+    handlers_discovery._selected_manager_id = None
+    handlers_discovery._selected_manager_meta = None
+
+
+@pytest.fixture(autouse=True)
+def _reset_download_progress_state():
+    """Reset download_progress module-level task registry."""
+    from sethlans_worker_agent.web_ui.setup import download_progress
+    with download_progress._tasks_lock:
+        download_progress._download_tasks.clear()
+    yield
+    with download_progress._tasks_lock:
+        download_progress._download_tasks.clear()
+
+
 @pytest.fixture()
 def mock_config(mocker):
     """Provide a mocker-patched config module with sensible defaults."""

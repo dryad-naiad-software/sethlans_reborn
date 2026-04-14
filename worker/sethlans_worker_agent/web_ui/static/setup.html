@@ -1,0 +1,485 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sethlans Worker Setup</title>
+<style>
+  :root {
+    --bg: #1a1a2e; --card: #16213e; --accent: #0f3460; --text: #e0e0e0;
+    --ok: #4ecca3; --err: #e74c3c; --warn: #f39c12; --muted: #666;
+    --radius: 8px; --transition: 0.3s ease;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .container { width: 100%; max-width: 520px; padding: 2rem 1rem; }
+  .step { display: none; opacity: 0; transition: opacity var(--transition); }
+  .step.active { display: block; opacity: 1; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 1.5rem; border: 1px solid var(--accent); margin-bottom: 1rem; }
+  h1 { color: var(--ok); font-size: 1.5rem; margin-bottom: 0.25rem; }
+  h2 { color: var(--ok); font-size: 1.1rem; margin-bottom: 0.75rem; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; line-height: 1.4; }
+  .brand { text-align: center; margin-bottom: 1.5rem; }
+  .brand .hex { font-size: 3rem; color: var(--ok); line-height: 1; }
+  .brand h1 { font-size: 1.4rem; margin-top: 0.5rem; }
+  .btn { display: inline-block; padding: 0.6rem 1.5rem; border: 1px solid var(--accent); border-radius: var(--radius); cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: opacity var(--transition); background: transparent; color: var(--text); }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: var(--ok); color: #000; border-color: var(--ok); }
+  .btn-secondary { background: transparent; color: var(--text); border-color: var(--accent); }
+  .btn-danger { background: var(--err); color: #fff; border-color: var(--err); }
+  .btn-row { display: flex; gap: 0.75rem; margin-top: 1.25rem; }
+  .btn-row .btn { flex: 1; text-align: center; }
+  input[type="text"], input[type="password"], input[type="url"] {
+    width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--accent); border-radius: var(--radius);
+    background: var(--bg); color: var(--text); font-size: 0.9rem; margin-bottom: 0.75rem;
+  }
+  input:focus { outline: 1px solid var(--ok); border-color: var(--ok); }
+  label { display: block; font-size: 0.85rem; margin-bottom: 0.3rem; color: var(--text); }
+  .error-msg { color: var(--err); font-size: 0.8rem; min-height: 1.2rem; margin-top: 0.25rem; }
+  .success-msg { color: var(--ok); font-size: 0.85rem; font-weight: 600; margin-top: 0.5rem; }
+  .manager-item { background: var(--bg); border: 1px solid var(--accent); border-radius: var(--radius); padding: 0.75rem; margin-bottom: 0.5rem; cursor: pointer; display: flex; align-items: center; gap: 0.75rem; transition: border-color var(--transition); }
+  .manager-item:hover, .manager-item.selected { border-color: var(--ok); }
+  .manager-item input[type="radio"] { accent-color: var(--ok); flex-shrink: 0; margin: 0; width: auto; }
+  .manager-info { flex: 1; min-width: 0; }
+  .manager-name { font-weight: 600; font-size: 0.95rem; }
+  .manager-detail { font-size: 0.8rem; color: var(--muted); font-family: monospace; word-break: break-all; }
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--accent); border-top-color: var(--ok); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 0.5rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-row { display: flex; align-items: center; padding: 1rem 0; color: var(--muted); font-size: 0.9rem; }
+  .progress-wrap { background: var(--bg); border-radius: 4px; height: 20px; overflow: hidden; margin: 0.75rem 0; border: 1px solid var(--accent); }
+  .progress-bar { height: 100%; background: var(--ok); border-radius: 4px; transition: width 0.4s ease; min-width: 0; }
+  .progress-text { font-size: 0.85rem; color: var(--muted); text-align: center; margin-bottom: 0.5rem; }
+  .check-list { list-style: none; }
+  .check-list li { padding: 0.5rem 0; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid var(--accent); }
+  .check-list li:last-child { border-bottom: none; }
+  .check-icon { font-size: 1rem; width: 1.2rem; text-align: center; flex-shrink: 0; }
+  .check-pass { color: var(--ok); }
+  .check-fail { color: var(--err); }
+  .check-opt { color: var(--warn); }
+  .done-icon { font-size: 3.5rem; color: var(--ok); text-align: center; margin-bottom: 0.75rem; }
+  .done-text { text-align: center; font-size: 1rem; line-height: 1.5; }
+  .done-text a { color: var(--ok); text-decoration: none; }
+  .done-text a:hover { text-decoration: underline; }
+  .step-indicator { display: flex; justify-content: center; gap: 0.4rem; margin-bottom: 1.5rem; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); transition: background var(--transition); }
+  .dot.done { background: var(--ok); }
+  .dot.current { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .topology-card { text-align: center; padding: 1.25rem; }
+  .topology-card .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+  .topology-card p { font-size: 0.85rem; color: var(--muted); line-height: 1.4; }
+  .manual-entry { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--accent); }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="step-indicator" id="dots"></div>
+
+  <div class="step" id="step-welcome">
+    <div class="card">
+      <div class="brand">
+        <div class="hex">&#x2B21;</div>
+        <h1>Sethlans Reborn</h1>
+      </div>
+      <p class="subtitle" style="text-align:center">Worker Setup</p>
+      <p class="subtitle" style="text-align:center">We'll connect this computer to your render farm in about 30 seconds.</p>
+      <div class="btn-row" style="justify-content:center"><button class="btn btn-primary" onclick="wizard.goTo('topology')">Get Started</button></div>
+    </div>
+  </div>
+
+  <div class="step" id="step-topology">
+    <div class="card">
+      <h2>Choose Topology</h2>
+      <div class="card topology-card">
+        <div class="icon">&#x1F5A5;</div>
+        <div class="manager-name">Worker Only</div>
+        <p>This machine renders jobs assigned by a remote Sethlans Manager. It does not host its own manager instance.</p>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="wizard.setTopology()">Connect to Manager</button></div>
+      <div class="error-msg" id="err-topology"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step-discover">
+    <div class="card">
+      <h2>Find Manager</h2>
+      <div id="discover-loading" class="loading-row"><span class="spinner"></span> Scanning for managers on your network...</div>
+      <div id="discover-results" style="display:none">
+        <div id="manager-list"></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="wizard.rescan()">Rescan</button>
+          <button class="btn btn-primary" id="btn-select-mgr" disabled onclick="wizard.selectManager()">Select</button>
+        </div>
+      </div>
+      <div id="discover-empty" style="display:none">
+        <p style="color:var(--muted);font-size:0.9rem;margin-bottom:0.75rem">No managers found on the network.</p>
+        <div class="btn-row"><button class="btn btn-secondary" onclick="wizard.rescan()">Rescan</button></div>
+      </div>
+      <div class="manual-entry" id="manual-entry">
+        <label for="manual-url">Or enter manager URL manually</label>
+        <input type="url" id="manual-url" placeholder="https://192.168.1.100:8080/api/">
+        <div class="btn-row"><button class="btn btn-primary" onclick="wizard.manualSelect()">Connect</button></div>
+      </div>
+      <div class="error-msg" id="err-discover"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step-enroll">
+    <div class="card">
+      <h2>Enrollment Key</h2>
+      <p class="subtitle">Enter the enrollment key from your Sethlans Manager dashboard.</p>
+      <label for="enroll-key">Enrollment Key</label>
+      <input type="password" id="enroll-key" placeholder="Enter key" autocomplete="off">
+      <div class="btn-row"><button class="btn btn-primary" id="btn-enroll" onclick="wizard.enroll()">Enroll</button></div>
+      <div class="error-msg" id="err-enroll"></div>
+      <div class="success-msg" id="ok-enroll"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step-password">
+    <div class="card">
+      <h2>Set Worker Password</h2>
+      <p class="subtitle">Choose a password for the worker dashboard UI.</p>
+      <label for="pw1">Password (min 8 characters)</label>
+      <input type="password" id="pw1" autocomplete="new-password">
+      <label for="pw2">Confirm Password</label>
+      <input type="password" id="pw2" autocomplete="new-password">
+      <div class="btn-row"><button class="btn btn-primary" onclick="wizard.setPassword()">Set Password</button></div>
+      <div class="error-msg" id="err-password"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step-blender">
+    <div class="card">
+      <h2>Download Blender</h2>
+      <p class="subtitle">Pre-download Blender so this worker is ready to render immediately.</p>
+      <div id="blender-prompt">
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="wizard.skipBlender()">Skip</button>
+          <button class="btn btn-primary" onclick="wizard.startBlenderDownload()">Download</button>
+        </div>
+      </div>
+      <div id="blender-progress" style="display:none">
+        <div class="progress-text" id="blender-pct">0%</div>
+        <div class="progress-wrap"><div class="progress-bar" id="blender-bar" style="width:0%"></div></div>
+        <div class="btn-row">
+          <button class="btn btn-danger" onclick="wizard.cancelBlender()">Cancel</button>
+          <button class="btn btn-secondary" onclick="wizard.skipBlender()">Skip</button>
+        </div>
+      </div>
+      <div id="blender-error" style="display:none">
+        <div class="error-msg" id="err-blender"></div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="wizard.skipBlender()">Skip</button>
+          <button class="btn btn-primary" onclick="wizard.startBlenderDownload()">Retry</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-verify">
+    <div class="card">
+      <h2>Verification</h2>
+      <div id="verify-loading" class="loading-row"><span class="spinner"></span> Verifying setup...</div>
+      <ul class="check-list" id="check-list" style="display:none"></ul>
+      <div id="verify-actions" style="display:none">
+        <div class="btn-row"><button class="btn btn-primary" onclick="wizard.runVerify()">Retry</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step" id="step-done">
+    <div class="card" style="text-align:center">
+      <div class="done-icon">&#x2714;</div>
+      <h2>Setup Complete</h2>
+      <div class="done-text">
+        <p>This worker is now part of your render farm.</p>
+        <p style="margin-top:1rem"><a href="/">Go to Dashboard</a></p>
+        <p style="margin-top:0.5rem;color:var(--muted);font-size:0.85rem">You can close this tab.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  var STEPS = ['welcome','topology','discover','enroll','password','blender','verify','done'];
+  var POLL_INTERVAL = 1500;
+
+  var wizard = {
+    current: 'welcome',
+    selectedManager: null,
+    pollTimer: null,
+    taskId: null
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  function setError(id, msg) { var el = $(id); if (el) el.textContent = msg || ''; }
+
+  function showStep(stepId) {
+    var prev = $('step-' + wizard.current);
+    if (prev) { prev.classList.remove('active'); prev.style.display = 'none'; }
+    wizard.current = stepId;
+    var next = $('step-' + stepId);
+    if (next) { next.style.display = 'block'; setTimeout(function() { next.classList.add('active'); }, 20); }
+    updateDots();
+  }
+
+  function updateDots() {
+    var wrap = $('dots');
+    wrap.innerHTML = '';
+    var idx = STEPS.indexOf(wizard.current);
+    for (var i = 0; i < STEPS.length; i++) {
+      var d = document.createElement('span');
+      d.className = 'dot' + (i < idx ? ' done' : '') + (i === idx ? ' current' : '');
+      wrap.appendChild(d);
+    }
+  }
+
+  async function api(method, path, body) {
+    var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    var res = await fetch(path, opts);
+    var data = null;
+    try { data = await res.json(); } catch (e) { /* empty */ }
+    return { ok: res.ok, status: res.status, data: data };
+  }
+
+  async function checkResume() {
+    try {
+      var r = await api('GET', '/api/setup/status/');
+      if (!r.ok || !r.data) return;
+      if (r.data.complete) { showStep('done'); return; }
+      var cp = r.data.checkpoints || [];
+      if (cp.indexOf('blender') >= 0) { showStep('verify'); wizard.runVerify(); }
+      else if (cp.indexOf('password') >= 0) { showStep('blender'); }
+      else if (cp.indexOf('enrolled') >= 0) { showStep('password'); }
+      else if (cp.indexOf('manager_selected') >= 0) { showStep('enroll'); }
+      else if (cp.indexOf('topology') >= 0) { showStep('discover'); wizard.startDiscover(); }
+    } catch (e) { /* start from beginning */ }
+  }
+
+  // --- Topology ---
+  wizard.setTopology = async function() {
+    setError('err-topology', '');
+    var r = await api('POST', '/api/setup/topology/', { topology: 'worker_only' });
+    if (r.ok) { showStep('discover'); wizard.startDiscover(); }
+    else { setError('err-topology', (r.data && r.data.error) || 'Failed to set topology'); }
+  };
+
+  // --- Discover ---
+  wizard.startDiscover = async function() {
+    $('discover-loading').style.display = 'flex';
+    $('discover-results').style.display = 'none';
+    $('discover-empty').style.display = 'none';
+    setError('err-discover', '');
+    wizard.selectedManager = null;
+
+    try {
+      var r = await api('GET', '/api/setup/discover/');
+      $('discover-loading').style.display = 'none';
+      if (!r.ok) { setError('err-discover', 'Discovery failed'); $('discover-empty').style.display = 'block'; return; }
+      var mgrs = (r.data && r.data.managers) || [];
+      if (mgrs.length === 0) { $('discover-empty').style.display = 'block'; return; }
+      renderManagers(mgrs);
+    } catch (e) {
+      $('discover-loading').style.display = 'none';
+      $('discover-empty').style.display = 'block';
+      setError('err-discover', 'Network error during scan');
+    }
+  };
+
+  function renderManagers(mgrs) {
+    var list = $('manager-list');
+    list.innerHTML = '';
+    mgrs.forEach(function(m, i) {
+      var div = document.createElement('div');
+      div.className = 'manager-item';
+      var radio = document.createElement('input');
+      radio.type = 'radio'; radio.name = 'mgr'; radio.value = i;
+      var info = document.createElement('div');
+      info.className = 'manager-info';
+      var name = document.createElement('div');
+      name.className = 'manager-name'; name.textContent = m.name || 'Manager';
+      var detail = document.createElement('div');
+      detail.className = 'manager-detail';
+      detail.textContent = (m.ip || m.host) + ':' + m.port + (m.version ? ' (v' + m.version + ')' : '');
+      info.appendChild(name); info.appendChild(detail);
+      div.appendChild(radio); div.appendChild(info);
+      div.onclick = function() {
+        radio.checked = true;
+        wizard.selectedManager = m;
+        document.querySelectorAll('.manager-item').forEach(function(el) { el.classList.remove('selected'); });
+        div.classList.add('selected');
+        $('btn-select-mgr').disabled = false;
+      };
+      list.appendChild(div);
+      if (mgrs.length === 1) { radio.checked = true; wizard.selectedManager = m; div.classList.add('selected'); $('btn-select-mgr').disabled = false; }
+    });
+    $('discover-results').style.display = 'block';
+  }
+
+  wizard.rescan = function() { wizard.startDiscover(); };
+
+  wizard.selectManager = async function() {
+    if (!wizard.selectedManager) return;
+    setError('err-discover', '');
+    var m = wizard.selectedManager;
+    var url = 'https://' + (m.ip || m.host) + ':' + m.port + '/api/';
+    var r = await api('POST', '/api/setup/worker/select-manager/', { manager_url: url, manager_id: m.manager_id });
+    if (r.ok) { showStep('enroll'); }
+    else { setError('err-discover', (r.data && r.data.error) || 'Failed to select manager'); }
+  };
+
+  wizard.manualSelect = async function() {
+    setError('err-discover', '');
+    var url = $('manual-url').value.trim();
+    if (!url) { setError('err-discover', 'Enter a manager URL'); return; }
+    var r = await api('POST', '/api/setup/worker/select-manager/', { manager_url: url, manager_id: null });
+    if (r.ok) { showStep('enroll'); }
+    else { setError('err-discover', (r.data && r.data.error) || 'Failed to connect to manager'); }
+  };
+
+  // --- Enroll ---
+  wizard.enroll = async function() {
+    setError('err-enroll', ''); setError('ok-enroll', '');
+    var keyEl = $('enroll-key');
+    var key = keyEl.value.trim();
+    if (!key) { setError('err-enroll', 'Enter the enrollment key'); return; }
+    $('btn-enroll').disabled = true;
+    var r = await api('POST', '/api/setup/worker/enroll/', { enrollment_key: key });
+    keyEl.value = ''; // clear sensitive data
+    $('btn-enroll').disabled = false;
+    if (r.ok) {
+      var name = (r.data && r.data.manager_name) || 'manager';
+      $('ok-enroll').textContent = 'Enrolled with ' + name + '!';
+      setTimeout(function() { showStep('password'); }, 1200);
+    } else if (r.status === 403) { setError('err-enroll', 'Invalid enrollment key. Check the key and try again.'); }
+    else if (r.status === 429) { setError('err-enroll', 'Too many attempts. Wait a moment and try again.'); }
+    else { setError('err-enroll', (r.data && r.data.error) || 'Enrollment failed'); }
+  };
+
+  // --- Password ---
+  wizard.setPassword = async function() {
+    setError('err-password', '');
+    var pw1 = $('pw1').value;
+    var pw2 = $('pw2').value;
+    if (pw1.length < 8) { setError('err-password', 'Password must be at least 8 characters'); return; }
+    if (pw1 !== pw2) { setError('err-password', 'Passwords do not match'); return; }
+    var r = await api('POST', '/api/setup/worker-password/', { password: pw1 });
+    $('pw1').value = ''; $('pw2').value = ''; // clear sensitive data
+    if (r.ok) { showStep('blender'); }
+    else { setError('err-password', (r.data && r.data.error) || 'Failed to set password'); }
+  };
+
+  // --- Blender ---
+  wizard.startBlenderDownload = async function() {
+    $('blender-prompt').style.display = 'none';
+    $('blender-error').style.display = 'none';
+    $('blender-progress').style.display = 'block';
+    $('blender-pct').textContent = '0%';
+    $('blender-bar').style.width = '0%';
+
+    var r = await api('POST', '/api/setup/blender/start-download/', {});
+    if (r.ok && r.data && r.data.status === 'already_installed') { showStep('verify'); wizard.runVerify(); return; }
+    if (r.ok && r.data) { wizard.taskId = r.data.task_id; wizard.pollBlender(); }
+    else { showBlenderError((r.data && r.data.error) || 'Failed to start download'); }
+  };
+
+  wizard.pollBlender = function() {
+    clearTimeout(wizard.pollTimer);
+    wizard.pollTimer = setTimeout(async function() {
+      try {
+        var r = await api('GET', '/api/setup/blender/progress/');
+        if (!r.ok) { wizard.pollBlender(); return; }
+        var d = r.data || {};
+        if (d.status === 'downloading' || d.status === 'extracting' || d.status === 'verifying') {
+          var pct = d.percent || 0;
+          $('blender-pct').textContent = Math.round(pct) + '%';
+          $('blender-bar').style.width = pct + '%';
+          wizard.pollBlender();
+        } else if (d.status === 'complete') {
+          $('blender-pct').textContent = '100%';
+          $('blender-bar').style.width = '100%';
+          setTimeout(function() { showStep('verify'); wizard.runVerify(); }, 600);
+        } else if (d.status === 'failed') {
+          showBlenderError(d.error || 'Download failed');
+        } else if (d.status === 'no_active_task') {
+          showBlenderError('Download task ended unexpectedly');
+        } else { wizard.pollBlender(); }
+      } catch (e) { wizard.pollBlender(); }
+    }, POLL_INTERVAL);
+  };
+
+  wizard.cancelBlender = async function() {
+    clearTimeout(wizard.pollTimer);
+    await api('POST', '/api/setup/blender/cancel/');
+    $('blender-progress').style.display = 'none';
+    $('blender-prompt').style.display = 'block';
+  };
+
+  wizard.skipBlender = function() {
+    clearTimeout(wizard.pollTimer);
+    showStep('verify');
+    wizard.runVerify();
+  };
+
+  function showBlenderError(msg) {
+    $('blender-progress').style.display = 'none';
+    $('blender-error').style.display = 'block';
+    setError('err-blender', msg);
+  }
+
+  // --- Verify ---
+  wizard.runVerify = async function() {
+    $('verify-loading').style.display = 'flex';
+    $('check-list').style.display = 'none';
+    $('verify-actions').style.display = 'none';
+
+    var r = await api('POST', '/api/setup/verify/');
+    $('verify-loading').style.display = 'none';
+    if (!r.ok || !r.data) {
+      $('verify-actions').style.display = 'block';
+      return;
+    }
+    var checks = r.data.checks || [];
+    var list = $('check-list');
+    list.innerHTML = '';
+    checks.forEach(function(c) {
+      var li = document.createElement('li');
+      var icon = document.createElement('span');
+      icon.className = 'check-icon';
+      if (c.passed) { icon.textContent = '\u2713'; icon.classList.add('check-pass'); }
+      else if (c.optional) { icon.textContent = '\u2014'; icon.classList.add('check-opt'); }
+      else { icon.textContent = '\u2717'; icon.classList.add('check-fail'); }
+      var label = document.createElement('span');
+      label.textContent = c.label || c.name;
+      if (c.optional && !c.passed) label.textContent += ' (optional)';
+      li.appendChild(icon); li.appendChild(label);
+      list.appendChild(li);
+    });
+    list.style.display = 'block';
+
+    if (r.data.all_passed) {
+      setTimeout(function() { showStep('done'); }, 2000);
+    } else {
+      $('verify-actions').style.display = 'block';
+    }
+  };
+
+  // --- Navigate ---
+  wizard.goTo = function(stepId) { showStep(stepId); };
+
+  // --- Init ---
+  window.wizard = wizard;
+  showStep('welcome');
+  checkResume();
+})();
+</script>
+</body>
+</html>

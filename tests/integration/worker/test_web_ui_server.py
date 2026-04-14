@@ -20,6 +20,7 @@ import pytest
 
 from sethlans_worker_agent import config, job_processor
 from sethlans_worker_agent.web_ui import auth, server
+from sethlans_worker_agent.web_ui.setup.gate import mark_setup_complete
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,9 @@ def web_ui(mocker, tmp_path):
     )
 
     server.start_server(cert_path, key_path)
+
+    # Bypass the setup gate so integration tests can reach /api/status
+    mark_setup_complete()
 
     # Wait for uvicorn to bind and accept connections
     import time

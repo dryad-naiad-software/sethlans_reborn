@@ -22,6 +22,7 @@ import pytest
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.web_ui import auth, server
+from sethlans_worker_agent.web_ui.setup.gate import mark_setup_complete
 from shared.cert_utils import (
     generate_self_signed_cert,
     get_cert_fingerprint,
@@ -105,6 +106,7 @@ def tls_server(mocker, tmp_path):
     _mock_hardware(mocker)
 
     server.start_server(cert_path, key_path)
+    mark_setup_complete()
     assert _wait_for_server(port), "Server did not start in time"
 
     yield {
