@@ -123,8 +123,24 @@ class TestSizeValidation:
 
 # ---- Magic-byte validation -----------------------------------------------
 
+class TestCompressedBlendFiles:
+    """Blender files may be gzip or zstd compressed."""
+
+    def test_gzip_compressed_blend_accepted(self):
+        gzip_magic = b"\x1f\x8b\x08\x00\x00\x00\x00"
+        f = _blend_file(name="scene.blend", magic=gzip_magic)
+        result = _validate(f)
+        assert result is f
+
+    def test_zstd_compressed_blend_accepted(self):
+        zstd_magic = b"\x28\xb5\x2f\xfd\x00\x00\x00"
+        f = _blend_file(name="scene.blend", magic=zstd_magic)
+        result = _validate(f)
+        assert result is f
+
+
 class TestMagicByteValidation:
-    """First 7 bytes must be the ASCII string 'BLENDER'."""
+    """First 7 bytes must match a known .blend format."""
 
     def test_png_magic_rejected(self):
         png_magic = b"\x89PNG\r\n\x1a\n"

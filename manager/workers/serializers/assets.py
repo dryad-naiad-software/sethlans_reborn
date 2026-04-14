@@ -12,8 +12,13 @@ from .projects import ProjectSerializer
 # 500 MB — asset-specific limit (separate from Django's global setting)
 MAX_BLEND_FILE_SIZE = 500 * 1024 * 1024
 
-# .blend files start with these 7 bytes
+# .blend files start with one of these magic byte sequences:
+# - Uncompressed: b'BLENDER' (7 bytes)
+# - Gzip-compressed: b'\x1f\x8b' (2 bytes)
+# - Zstd-compressed (Blender 3.0+): b'\x28\xb5\x2f\xfd' (4 bytes)
 BLEND_MAGIC_BYTES = b'BLENDER'
+GZIP_MAGIC_BYTES = b'\x1f\x8b'
+ZSTD_MAGIC_BYTES = b'\x28\xb5\x2f\xfd'
 
 
 class AssetSerializer(serializers.ModelSerializer):
@@ -51,10 +56,16 @@ class AssetSerializer(serializers.ModelSerializer):
                 f"{MAX_BLEND_FILE_SIZE // (1024 * 1024)}MB limit."
             )
 
-        # Magic bytes check
+        # Magic bytes check — Blender files may be uncompressed,
+        # gzip-compressed, or zstd-compressed.
         header = value.read(7)
         value.seek(0)
-        if header != BLEND_MAGIC_BYTES:
+        is_valid = (
+            header[:7] == BLEND_MAGIC_BYTES
+            or header[:2] == GZIP_MAGIC_BYTES
+            or header[:4] == ZSTD_MAGIC_BYTES
+        )
+        if not is_valid:
             raise serializers.ValidationError(
                 "File does not appear to be a valid .blend file."
             )
