@@ -108,11 +108,17 @@ class TestAllowedPathsDuringSetup:
 
     @pytest.mark.usefixtures("_enter_setup_mode")
     def test_setup_html_accessible_during_setup(self):
-        """Requests to /setup/ pass through the gate."""
+        """Requests to /setup/ pass through the gate.
+
+        The SPA catch-all renders index.html, which may not exist in
+        CI (no Angular build).  A 500 TemplateDoesNotExist is fine —
+        the point is the gate did NOT block it with 503.
+        """
         client = APIClient()
         resp = client.get("/setup/")
         assert resp.status_code != 503
         assert resp.status_code != 302  # No redirect loop
+        assert resp.status_code in (200, 500)  # 500 OK in CI (no template)
 
 
 # -------------------------------------------------------------------
