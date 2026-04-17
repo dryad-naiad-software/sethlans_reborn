@@ -157,6 +157,7 @@ manager/staticfiles/
 manager/logs/
 manager/manager.ini
 manager/tls/
+manager/bin/
 **/topology.json
 **/.setup_complete
 worker/config.ini
