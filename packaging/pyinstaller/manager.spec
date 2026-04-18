@@ -30,6 +30,8 @@ hiddenimports += collect_submodules('rest_framework')
 hiddenimports += collect_submodules('drf_spectacular')
 hiddenimports += collect_submodules('django_filters')
 hiddenimports += collect_submodules('shared')
+# whitenoise.runserver_nostatic: no-op when frozen, but Django imports every INSTALLED_APPS entry at startup.
+hiddenimports += collect_submodules('whitenoise')
 
 # Uvicorn internals (lazy-loaded)
 hiddenimports += [
@@ -51,8 +53,6 @@ if sys.platform != 'win32':
 
 # Explicit hidden imports for packages with lazy loading
 hiddenimports += [
-    'whitenoise',
-    'whitenoise.middleware',
     'cryptography',
     'cryptography.hazmat.primitives',
     'cryptography.hazmat.primitives.asymmetric',
