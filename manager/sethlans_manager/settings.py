@@ -49,9 +49,25 @@ def _get_config(section, key, env_var, default):
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 SECRET_KEY = _get_config(
-    'security', 'secret_key', 'SETHLANS_SECURITY_SECRET_KEY',
-    _INSECURE_DEFAULT_KEY
+    'security', 'secret_key', 'SETHLANS_SECURITY_SECRET_KEY', None
 )
+
+_logger = logging.getLogger('django')
+
+if SECRET_KEY is None:
+    # No explicit override — fall back to a persisted, auto-generated
+    # key in the manager data dir. First boot generates it; subsequent
+    # boots read it. See workers.services.secret_key.
+    from workers.services.secret_key import load_or_create_secret_key
+    SECRET_KEY = load_or_create_secret_key(get_data_dir('manager'))
+elif SECRET_KEY == _INSECURE_DEFAULT_KEY:
+    # Someone deliberately set the insecure default via env/ini.
+    # Warn loudly but don't crash — dev convenience only.
+    _logger.warning(
+        "SECRET_KEY is set to the known insecure default. Remove the "
+        "override from manager.ini / SETHLANS_SECURITY_SECRET_KEY to "
+        "let the manager auto-generate a unique persisted key."
+    )
 
 _debug_raw = _get_config(
     'security', 'debug', 'SETHLANS_SECURITY_DEBUG', 'False'
@@ -64,22 +80,6 @@ _hosts_raw = _get_config(
 ALLOWED_HOSTS = [
     h.strip() for h in _hosts_raw.split(',') if h.strip()
 ]
-
-# Warn if using the insecure default secret key
-_logger = logging.getLogger('django')
-if SECRET_KEY == _INSECURE_DEFAULT_KEY:
-    if not DEBUG:
-        from django.core.exceptions import ImproperlyConfigured
-        raise ImproperlyConfigured(
-            "Cannot run with the default SECRET_KEY when DEBUG is False. "
-            "Set a unique key in manager.ini or "
-            "SETHLANS_SECURITY_SECRET_KEY."
-        )
-    _logger.warning(
-        "Using insecure default SECRET_KEY. Set a unique key in "
-        "manager.ini [security] or SETHLANS_SECURITY_SECRET_KEY "
-        "environment variable before deploying to production."
-    )
 
 # Enrollment key for worker registration
 ENROLLMENT_KEY = _get_config(

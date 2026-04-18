@@ -139,6 +139,65 @@ class TestGenerateSelfSignedCert:
         mock_chmod.assert_called_once_with(str(k), 0o600)
 
 
+class TestHostnameCNTruncation:
+    """Issue #62: hostnames over 64 chars must not crash cert generation."""
+
+    def _patch_env(self, mocker, hostname):
+        mocker.patch(
+            'shared.cert_utils._collect_nic_addresses',
+            return_value={'10.0.0.1'},
+        )
+        mocker.patch(
+            'shared.cert_utils.socket.gethostname',
+            return_value=hostname,
+        )
+        mocker.patch(
+            'shared.cert_utils.platform.system',
+            return_value='Linux',
+        )
+
+    def test_long_hostname_truncates_cn_but_san_is_full(
+        self, mocker, tmp_path,
+    ):
+        long_hostname = 'a' * 70
+        self._patch_env(mocker, long_hostname)
+
+        c = tmp_path / 'tls' / 'cert.pem'
+        k = tmp_path / 'tls' / 'key.pem'
+        generate_self_signed_cert(c, k)
+
+        cert = x509.load_pem_x509_certificate(c.read_bytes())
+        cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+        assert len(cn_attrs) == 1
+        assert cn_attrs[0].value == 'a' * 64
+        assert len(cn_attrs[0].value) == 64
+
+        san = cert.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName,
+        )
+        dns = san.value.get_values_for_type(x509.DNSName)
+        assert long_hostname in dns
+        assert f'{long_hostname}.local' in dns
+
+    def test_64_char_hostname_passes_through(self, mocker, tmp_path):
+        boundary_hostname = 'b' * 64
+        self._patch_env(mocker, boundary_hostname)
+
+        c = tmp_path / 'tls' / 'cert.pem'
+        k = tmp_path / 'tls' / 'key.pem'
+        generate_self_signed_cert(c, k)
+
+        cert = x509.load_pem_x509_certificate(c.read_bytes())
+        cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+        assert cn_attrs[0].value == boundary_hostname
+
+        san = cert.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName,
+        )
+        dns = san.value.get_values_for_type(x509.DNSName)
+        assert boundary_hostname in dns
+
+
 class TestLoadAndValidateCert:
 
     def test_valid_cert_loads(self, tmp_path):

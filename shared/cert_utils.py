@@ -124,10 +124,15 @@ def generate_self_signed_cert(cert_path, key_path):
         key_size=4096,
     )
 
-    # Build certificate
+    # Build certificate.
+    # x509 CN is limited to 64 UTF-8 octets (RFC 5280 §4.1.2.4); some
+    # hostnames (e.g. macOS CI runners) exceed this. Truncate the CN for
+    # compliance — the full hostname is still recorded in the SAN below
+    # via enumerate_sans(), which is what modern TLS verification uses.
     hostname = socket.gethostname()
+    cn_value = hostname[:64] if len(hostname) > 64 else hostname
     subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, hostname),
+        x509.NameAttribute(NameOID.COMMON_NAME, cn_value),
     ])
 
     now = datetime.now(timezone.utc)
