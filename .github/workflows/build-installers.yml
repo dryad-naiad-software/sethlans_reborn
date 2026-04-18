@@ -94,7 +94,7 @@ jobs:
 
           try {
             # Health check (self-signed cert, skip verification)
-            $response = Invoke-WebRequest -Uri "https://localhost:8080/api/schema/" `
+            $response = Invoke-WebRequest -Uri "https://localhost:8080/api/setup/status/" `
               -SkipCertificateCheck -TimeoutSec 10 -ErrorAction Stop
             if ($response.StatusCode -ne 200) {
               throw "Manager health check failed: $($response.StatusCode)"
@@ -232,7 +232,7 @@ jobs:
           sleep 15
 
           STATUS=$(curl -sk -o /dev/null -w '%{http_code}' \
-            https://localhost:8080/api/schema/ || echo "000")
+            https://localhost:8080/api/setup/status/ || echo "000")
           kill $MGR_PID 2>/dev/null || true
 
           if [ "$STATUS" = "200" ]; then
@@ -400,7 +400,7 @@ jobs:
           sleep 15
 
           STATUS=$(curl -sk -o /dev/null -w '%{http_code}' \
-            https://localhost:8080/api/schema/ || echo "000")
+            https://localhost:8080/api/setup/status/ || echo "000")
           kill $MGR_PID 2>/dev/null || true
 
           if [ "$STATUS" = "200" ]; then

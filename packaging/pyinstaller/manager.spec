@@ -9,6 +9,7 @@ Freezes the Django ASGI manager into a one-dir bundle.
 Usage: pyinstaller packaging/pyinstaller/manager.spec
 """
 
+import os
 import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import (
@@ -22,6 +23,24 @@ PROJECT_ROOT = SPEC_DIR.parent.parent
 MANAGER_DIR = PROJECT_ROOT / 'manager'
 FRONTEND_DIST = MANAGER_DIR / 'frontend' / 'dist'
 
+# collect_submodules spawns isolated subprocesses that import each module
+# to walk its package tree. Our workers app's views/urls import DRF, which
+# refuses to load without DJANGO_SETTINGS_MODULE and the manager source
+# on sys.path — without these, the isolated import fails and the affected
+# submodules (workers.urls, workers.views, workers.signals, etc.) never
+# make it into the frozen bundle, producing a cascade of ModuleNotFound
+# errors at runtime.
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sethlans_manager.settings')
+os.environ['PYTHONPATH'] = os.pathsep.join(
+    [str(MANAGER_DIR), str(PROJECT_ROOT), os.environ.get('PYTHONPATH', '')]
+).rstrip(os.pathsep)
+# is_package()'s top-level check runs in THIS process (not the isolated
+# subprocess), so the spec's interpreter also needs manager/ on sys.path
+# to see 'workers', 'sethlans_manager', and 'shared'.
+for _p in (str(MANAGER_DIR), str(PROJECT_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 # --- Hidden imports: all submodules for Django apps and DRF ---
 hiddenimports = []
 hiddenimports += collect_submodules('workers')
@@ -32,6 +51,12 @@ hiddenimports += collect_submodules('django_filters')
 hiddenimports += collect_submodules('shared')
 # whitenoise.runserver_nostatic: no-op when frozen, but Django imports every INSTALLED_APPS entry at startup.
 hiddenimports += collect_submodules('whitenoise')
+# Django pulls many submodules dynamically (INSTALLED_APPS models/admin,
+# template-tag libraries, middleware, views, migrations, etc.). Static
+# analysis only follows explicit imports and misses most of these, so
+# bundle the entire django package. Bundle-size cost is acceptable for
+# correctness.
+hiddenimports += collect_submodules('django')
 
 # Uvicorn internals (lazy-loaded)
 hiddenimports += [
@@ -75,8 +100,10 @@ hiddenimports += [
 
 # --- Data files: migration directories (include .py files) ---
 datas = []
+# Third-party + Django contrib migrations — collect_data_files handles these
+# because the packages live under site-packages and PyInstaller's isolated
+# subprocess can import them without pathex tweaks.
 for app in [
-    'workers',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -85,6 +112,15 @@ for app in [
 ]:
     datas += collect_data_files(app, subdir='migrations',
                                 include_py_files=True)
+
+# Our in-tree 'workers' app lives at manager/workers/ and is only on
+# sys.path via our custom pathex. PyInstaller's collect_data_files runs
+# in an isolated subprocess that does NOT inherit pathex, so
+# `import workers` there fails and the helper silently skips the app
+# with "not a package". Bypass it by globbing migration files directly.
+_workers_migrations = MANAGER_DIR / 'workers' / 'migrations'
+for _py in _workers_migrations.glob('*.py'):
+    datas.append((str(_py), str(Path('workers') / 'migrations')))
 
 # Django and DRF template files
 datas += collect_data_files('django.contrib.admin', subdir='templates')
