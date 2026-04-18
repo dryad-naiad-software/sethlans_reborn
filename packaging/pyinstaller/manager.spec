@@ -90,6 +90,15 @@ for app in [
 datas += collect_data_files('django.contrib.admin', subdir='templates')
 datas += collect_data_files('rest_framework', subdir='templates')
 
+# Django i18n: conf/locale .mo files are binary data, not Python, so
+# collect_submodules misses them. Without these, django.setup() crashes with
+# "No translation files found for default language en-us" when USE_I18N=True.
+datas += collect_data_files('django', subdir='conf/locale')
+for app in ['django.contrib.admin', 'django.contrib.auth',
+            'django.contrib.contenttypes', 'django.contrib.sessions']:
+    datas += collect_data_files(app, subdir='locale')
+datas += collect_data_files('rest_framework', subdir='locale')
+
 # Angular frontend build output
 if FRONTEND_DIST.exists():
     datas.append((str(FRONTEND_DIST), 'frontend/dist'))
