@@ -13,6 +13,7 @@ Usage: pyinstaller packaging/pyinstaller/launcher.spec
 
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_submodules
 
 # --- Project paths ---
 SPEC_DIR = Path(SPECPATH)
@@ -23,10 +24,11 @@ ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 # --- Hidden imports ---
 # Launcher is minimal: stdlib + shared.frozen_paths only
 hiddenimports = []
+hiddenimports += collect_submodules('shared')
 
 a = Analysis(
     [str(LAUNCHER_DIR / 'run_launcher.py')],
-    pathex=[str(LAUNCHER_DIR)],
+    pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT)],
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,
@@ -76,10 +78,12 @@ coll = COLLECT(
 
 # On macOS, produce an .app bundle with a visible dock icon
 if sys.platform == 'darwin':
+    icns_path = SPEC_DIR.parent / 'macos' / 'sethlans.icns'
+    icon_arg = str(icns_path) if icns_path.exists() else None
     app = BUNDLE(
         coll,
         name='Sethlans.app',
-        icon=str(SPEC_DIR.parent / 'macos' / 'sethlans.icns'),
+        icon=icon_arg,
         bundle_identifier='com.dryadandnaiad.sethlans',
         info_plist={
             'LSUIElement': False,

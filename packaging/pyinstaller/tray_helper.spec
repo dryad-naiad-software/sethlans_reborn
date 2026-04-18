@@ -12,6 +12,7 @@ Usage: pyinstaller packaging/pyinstaller/tray_helper.spec
 
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_submodules
 
 # --- Project paths ---
 SPEC_DIR = Path(SPECPATH)
@@ -27,6 +28,7 @@ hiddenimports = [
     'PIL',
     'PIL.Image',
 ]
+hiddenimports += collect_submodules('shared')
 
 # Platform-specific notification libraries
 if sys.platform == 'win32':
@@ -50,7 +52,7 @@ else:
 
 a = Analysis(
     [str(WORKER_DIR / 'run_tray_helper.py')],
-    pathex=[str(WORKER_DIR)],
+    pathex=[str(WORKER_DIR), str(PROJECT_ROOT)],
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,

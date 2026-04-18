@@ -29,6 +29,7 @@ hiddenimports += collect_submodules('sethlans_manager')
 hiddenimports += collect_submodules('rest_framework')
 hiddenimports += collect_submodules('drf_spectacular')
 hiddenimports += collect_submodules('django_filters')
+hiddenimports += collect_submodules('shared')
 
 # Uvicorn internals (lazy-loaded)
 hiddenimports += [
@@ -103,7 +104,7 @@ is_windows = sys.platform == 'win32'
 
 a = Analysis(
     [str(MANAGER_DIR / 'run_manager.py')],
-    pathex=[str(MANAGER_DIR)],
+    pathex=[str(MANAGER_DIR), str(PROJECT_ROOT)],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

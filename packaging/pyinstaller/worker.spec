@@ -27,6 +27,7 @@ WEB_UI_STATIC = (
 # --- Hidden imports ---
 hiddenimports = []
 hiddenimports += collect_submodules('sethlans_worker_agent')
+hiddenimports += collect_submodules('shared')
 
 # Explicit hidden imports for hardware detection and networking
 hiddenimports += [
@@ -72,7 +73,7 @@ is_windows = sys.platform == 'win32'
 
 a = Analysis(
     [str(WORKER_DIR / 'run_worker.py')],
-    pathex=[str(WORKER_DIR)],
+    pathex=[str(WORKER_DIR), str(PROJECT_ROOT)],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
