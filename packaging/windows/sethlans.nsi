@@ -91,11 +91,8 @@ Section "Sethlans Core" SEC_CORE
   SetOutPath "$INSTDIR\bin\launcher"
   File /r "..\..\dist\launcher\*.*"
 
-  ; Copy launcher exe to install root
-  SetOutPath "$INSTDIR"
-  CopyFiles "$INSTDIR\bin\launcher\run_launcher.exe" "$INSTDIR\sethlans.exe"
-
   ; Copy license and version metadata
+  SetOutPath "$INSTDIR"
   File "..\..\LICENSE.txt"
 
   ; Write version.json
@@ -111,7 +108,7 @@ Section "Sethlans Core" SEC_CORE
   WriteUninstaller "$INSTDIR\uninstall.exe"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
-  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\sethlans.exe"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\bin\launcher\run_launcher.exe"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
@@ -150,13 +147,13 @@ SectionEnd
 ; --- Start Menu shortcuts ---
 Section "Start Menu Shortcuts" SEC_STARTMENU
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
-  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Sethlans.lnk" "$INSTDIR\sethlans.exe"
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Sethlans.lnk" "$INSTDIR\bin\launcher\run_launcher.exe"
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk" "$INSTDIR\uninstall.exe"
 SectionEnd
 
 ; --- Desktop shortcut (optional) ---
 Section /o "Desktop Shortcut" SEC_DESKTOP
-  CreateShortCut "$DESKTOP\Sethlans.lnk" "$INSTDIR\sethlans.exe"
+  CreateShortCut "$DESKTOP\Sethlans.lnk" "$INSTDIR\bin\launcher\run_launcher.exe"
 SectionEnd
 
 ; --- Section descriptions ---
@@ -175,7 +172,6 @@ Section "Uninstall"
 
   ; Remove files
   RMDir /r "$INSTDIR\bin"
-  Delete "$INSTDIR\sethlans.exe"
   Delete "$INSTDIR\LICENSE.txt"
   Delete "$INSTDIR\version.json"
   Delete "$INSTDIR\uninstall.exe"
