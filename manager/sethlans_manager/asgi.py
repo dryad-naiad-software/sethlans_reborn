@@ -25,6 +25,13 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sethlans_manager.settings')
 # can be imported safely.
 _django_app = get_asgi_application()
 
+# Apply our logging config now that Django settings are loaded.  Django's
+# built-in bootstrap is disabled (``LOGGING_CONFIG = None`` in settings)
+# to avoid referencing ``AdminEmailHandler`` in frozen builds — see
+# ``sethlans_manager.logging_config`` for details.
+from sethlans_manager.logging_config import configure as _configure_logging  # noqa: E402
+_configure_logging()
+
 if os.environ.get('SETHLANS_DEV_MODE') == '1':
     from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
     _django_app = ASGIStaticFilesHandler(_django_app)

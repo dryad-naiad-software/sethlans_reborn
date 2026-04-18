@@ -107,6 +107,8 @@ def _prepare_runtime(cert, host, port):
                 f"\n[ERROR] Django setup failed: {exc}", file=sys.stderr,
             )
             sys.exit(1)
+        from sethlans_manager.logging_config import configure as _cfg
+        _cfg()
     config_dir = (
         get_data_dir('manager') if is_frozen() else MANAGER_DIR
     )
@@ -158,6 +160,9 @@ def _frozen_boot_sequence(dev_mode):
     except Exception as exc:
         print(f"\n[ERROR] Django setup failed: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    from sethlans_manager.logging_config import configure as _cfg
+    _cfg()
 
     run_migrations_inprocess()
     if not dev_mode:

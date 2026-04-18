@@ -16,6 +16,15 @@ class WorkersConfig(AppConfig):
     ffmpeg_detected: bool = False
 
     def ready(self):
+        # Apply our logging config.  Django's built-in logging bootstrap is
+        # disabled (``LOGGING_CONFIG = None`` in settings) to avoid a crash
+        # on frozen builds where ``AdminEmailHandler``'s import chain isn't
+        # collected.  Calling ``configure()`` here covers entry points that
+        # don't invoke it explicitly (manage.py, pytest, etc.); explicit
+        # callers in ``run_manager.py`` / ``asgi.py`` remain idempotent.
+        from sethlans_manager.logging_config import configure as _cfg
+        _cfg()
+
         # Ensure signal handlers are registered when the app loads
         from . import signals  # noqa: F401
 

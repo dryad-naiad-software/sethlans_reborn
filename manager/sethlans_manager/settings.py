@@ -220,6 +220,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # --- Logging Configuration ---
+# Disable Django's built-in logging bootstrap so it never tries to apply
+# ``DEFAULT_LOGGING`` (which references ``django.utils.log.AdminEmailHandler``
+# and the ``django.core.mail`` import chain).  In PyInstaller bundles that
+# import chain isn't fully collected, which would otherwise crash startup
+# with "Unable to configure handler 'mail_admins'".  We call
+# ``sethlans_manager.logging_config.configure()`` ourselves after
+# ``django.setup()`` — see that module for details.
+LOGGING_CONFIG = None
 from .logging_config import LOGGING  # noqa: E402, F401
 
 # --- Media Files (User Uploads) Configuration ---

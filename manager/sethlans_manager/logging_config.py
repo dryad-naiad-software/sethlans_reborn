@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+import logging.config
 import os
 from pathlib import Path
 
@@ -94,3 +95,27 @@ LOGGING = {
         },
     },
 }
+
+
+def configure():
+    """Apply the ``LOGGING`` dict via ``logging.config.dictConfig``.
+
+    This function replaces Django's built-in logging bootstrap.
+    Django's ``configure_logging()`` unconditionally applies
+    ``DEFAULT_LOGGING`` (which includes a ``mail_admins`` handler using
+    ``django.utils.log.AdminEmailHandler``) before the user-level
+    ``LOGGING`` dict.  In a PyInstaller bundle, the ``AdminEmailHandler``
+    import chain (``django.core.mail`` -> ``email.mime.*`` / ``smtplib``)
+    isn't fully collected, so the handler class fails to resolve and
+    ``dictConfig(DEFAULT_LOGGING)`` bails out with
+    "Unable to configure handler 'mail_admins'".
+
+    To avoid this, ``settings.LOGGING_CONFIG`` is set to ``None`` so
+    Django skips its bootstrap, and callers invoke ``configure()``
+    explicitly after ``django.setup()``.
+
+    Idempotent — calling this multiple times simply re-applies the same
+    configuration via ``dictConfig``, which replaces existing handlers
+    on the affected loggers.
+    """
+    logging.config.dictConfig(LOGGING)
