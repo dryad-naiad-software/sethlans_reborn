@@ -34,7 +34,7 @@ RequestExecutionLevel admin
 
 ; --- Pages ---
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "..\..\LICENSE.txt"
+!insertmacro MUI_PAGE_LICENSE "..\..\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
@@ -93,7 +93,7 @@ Section "Sethlans Core" SEC_CORE
 
   ; Copy license and version metadata
   SetOutPath "$INSTDIR"
-  File "..\..\LICENSE.txt"
+  File "..\..\LICENSE"
 
   ; Write version.json
   FileOpen $0 "$INSTDIR\version.json" w
@@ -172,7 +172,7 @@ Section "Uninstall"
 
   ; Remove files
   RMDir /r "$INSTDIR\bin"
-  Delete "$INSTDIR\LICENSE.txt"
+  Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\version.json"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
