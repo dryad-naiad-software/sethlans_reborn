@@ -11,9 +11,11 @@ from shared.frozen_paths import get_data_dir, is_frozen
 # BASE_DIR must match settings.py
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Get default log level from environment variable,
-# fallback to INFO for production-like verbosity
-LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
+# Alpha development default = DEBUG.  Users never see these logs; they
+# live in the per-user data dir and are invaluable for post-mortem
+# diagnosis.  An explicit ``DJANGO_LOG_LEVEL=WARNING`` (etc.) still
+# wins for scenarios where verbose logging is a nuisance.
+LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'DEBUG').upper()
 
 # Create logs directory if it doesn't exist.
 # In frozen mode on Windows, BASE_DIR is inside C:\Program Files\ (read-only).
@@ -56,7 +58,7 @@ LOGGING = {
         'file': {
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': LOGS_DIR / 'manager.log',
-            'level': 'INFO',
+            'level': 'DEBUG',
             'formatter': 'standard',
             'maxBytes': 1024 * 1024 * 5,  # 5 MB
             'backupCount': 5,
@@ -75,12 +77,12 @@ LOGGING = {
         },
         'django': {
             'handlers': ['console', 'file'],
-            'level': 'INFO',
+            'level': LOG_LEVEL,
             'propagate': False,
         },
         'django.request': {
             'handlers': ['console', 'file'],
-            'level': 'WARNING',
+            'level': LOG_LEVEL,
             'propagate': False,
         },
         'django.server': {
@@ -89,8 +91,13 @@ LOGGING = {
             'propagate': False,
         },
         'django.db.backends': {
+            # SQL logging at DEBUG is very noisy; keep at INFO unless
+            # SETHLANS_LOG_SQL=1 is set to force it down.
             'handlers': ['console', 'file'],
-            'level': 'INFO',
+            'level': (
+                'DEBUG' if os.getenv('SETHLANS_LOG_SQL') == '1'
+                else 'INFO'
+            ),
             'propagate': False,
         },
     },

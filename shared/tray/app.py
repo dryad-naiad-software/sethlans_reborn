@@ -158,14 +158,20 @@ class _TrayContext:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
+    # Alpha: capture DEBUG logs to <data_dir>/logs/tray.log plus stderr.
+    try:
+        from launcher.logging_setup import configure as _cfg_log
+        _cfg_log("tray", data_dir=get_shared_data_dir())
+    except Exception:
+        logging.basicConfig(level=logging.DEBUG)
+    logger.debug("Tray starting; pid=%d", __import__("os").getpid())
     launcher_watch.init()
     try:
         import pystray  # type: ignore[import-not-found]
-    except Exception:
-        logger.error(
+    except Exception as exc:
+        logger.exception(
             "pystray unavailable; tray cannot start.  The launcher "
-            "will continue without a tray icon.",
+            "will continue without a tray icon. (%s)", exc,
         )
         return
 

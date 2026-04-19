@@ -46,6 +46,7 @@ hiddenimports = [
     'shared.tray.poller',
     'shared.tray.topology',
     'shared.frozen_paths',
+    'launcher.logging_setup',
 ]
 
 # Platform-specific notification + pystray backends.
@@ -80,7 +81,7 @@ datas = [
 
 a = Analysis(
     [str(SHARED_DIR / 'run_tray.py')],
-    pathex=[str(PROJECT_ROOT), str(SHARED_DIR)],
+    pathex=[str(PROJECT_ROOT), str(SHARED_DIR), str(PROJECT_ROOT / 'launcher')],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

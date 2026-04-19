@@ -159,16 +159,44 @@ def _open_browser(
 
 def _spawn_tray(
     data_dir: Path, secret: str,
-) -> Optional[subprocess.Popen]:
+) -> subprocess.Popen:
+    """Spawn the tray subprocess; fail hard if it does not come up.
+
+    The tray is the only UX surface that shows the setup token and the
+    running/error state to the user.  If it cannot start, the install
+    is effectively silent (no tray, no visible console) and we must
+    terminate the launcher rather than leave orphan manager/worker
+    processes running invisibly.
+    """
+    del data_dir
     env = {
         "SETHLANS_TRAY_IPC_SECRET": secret,
         "SETHLANS_LAUNCHER_PID": str(os.getpid()),
     }
     try:
-        return _start_component("tray", env=env)
+        proc = _start_component("tray", env=env)
     except Exception as exc:
-        logger.warning("Failed to spawn tray helper: %s", exc)
-        return None
+        print(
+            f"\n[ERROR] Failed to spawn tray helper: {exc}\n"
+            "The Sethlans tray is required for the launcher UX.\n"
+            "Aborting startup.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # Give the tray a short window to self-abort (e.g. missing pystray
+    # backend).  If it exits within 3s with a non-zero code, treat that
+    # as a hard failure.
+    try:
+        rc = proc.wait(timeout=3.0)
+    except subprocess.TimeoutExpired:
+        return proc  # still alive after 3s = healthy
+    print(
+        f"\n[ERROR] Tray helper exited immediately with code {rc}.\n"
+        "Likely the tray bundle is missing pystray or its backend.\n"
+        "Aborting startup.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 # ---- Orchestration ----
@@ -216,6 +244,15 @@ def main():
 
     data_dir = get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Alpha: always capture DEBUG logs for the launcher.  Goes to
+    # ``<data_dir>/logs/launcher.log`` via rotating handler + stderr.
+    from launcher.logging_setup import configure as _configure_logging
+    _configure_logging("launcher", data_dir=data_dir)
+    logger.debug(
+        "Launcher starting; version=%s pid=%d data_dir=%s",
+        __version__, os.getpid(), data_dir,
+    )
 
     _INSTANCE_LOCK = acquire_single_instance_lock(data_dir)
     if _INSTANCE_LOCK is None:

@@ -23,7 +23,9 @@ ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
 # --- Hidden imports ---
 # Launcher is minimal: stdlib + shared.frozen_paths only
-hiddenimports = []
+hiddenimports = [
+    'launcher.logging_setup',
+]
 hiddenimports += collect_submodules('shared')
 
 a = Analysis(

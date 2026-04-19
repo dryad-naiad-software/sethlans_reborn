@@ -107,16 +107,16 @@ echo "=== 1/6 Angular build ==="
 ( cd manager/frontend && npm run build 2>&1 | tail -3 )
 
 echo "=== 2/6 PyInstaller: manager ==="
-"$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm 2>&1 | tail -3
+"$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm --clean 2>&1 | tail -3
 
 echo "=== 3/6 PyInstaller: worker ==="
-"$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm 2>&1 | tail -3
+"$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm --clean 2>&1 | tail -3
 
 echo "=== 4/6 PyInstaller: tray_helper ==="
-"$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm 2>&1 | tail -3
+"$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm --clean 2>&1 | tail -3
 
 echo "=== 5/6 PyInstaller: launcher ==="
-"$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm 2>&1 | tail -3
+"$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
 echo "=== 6/6 NSIS (v$VERSION) ==="
 "$NSIS" -DPRODUCT_VERSION="$VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3
