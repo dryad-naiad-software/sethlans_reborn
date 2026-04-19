@@ -1,12 +1,6 @@
 # Sethlans Reborn - Distributed Blender Rendering System
 
-![CI](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml/badge.svg)
-![CI (GPU)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)
-![Docker](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-publish.yml/badge.svg)
-![Python](https://img.shields.io/badge/Python-3.12+-blue)
-![Django](https://img.shields.io/badge/Django-5.2-green)
-![Angular](https://img.shields.io/badge/Angular-21-red)
-![License](https://img.shields.io/badge/License-GPLv2+-blue)
+![CI](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml/badge.svg)![CI (GPU)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)![Docker](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-publish.yml/badge.svg)![Python](https://img.shields.io/badge/Python-3.14+-blue)![Django](https://img.shields.io/badge/Django-5.2-green)![Angular](https://img.shields.io/badge/Angular-21-red)![License](https://img.shields.io/badge/License-GPLv2+-blue)
 
 Sethlans Reborn is a distributed rendering system that accelerates Blender workflows by farming render jobs across a network of machines. A central Django manager orchestrates work while standalone Python worker agents handle the rendering. An installable launcher brings it all together on a single workstation with a first-run setup wizard, tray helper, and opinionated defaults — or you can deploy manager and workers independently across a network via Docker or native installers.
 
@@ -81,8 +75,7 @@ Launcher detects missing sentinel → starts manager in setup mode → opens the
 **Enrollment:**
 Worker discovers manager via UDP multicast (or manual URL) → HMAC-signed enrollment exchanges shared key for API token + cert fingerprint → worker pins the manager's TLS certificate.
 
-**Job lifecycle:**
-`QUEUED` → worker polls & claims (`RENDERING`) → render → upload output → `DONE` / `ERROR`
+**Job lifecycle:**`QUEUED` → worker polls & claims (`RENDERING`) → render → upload output → `DONE` / `ERROR`
 
 **Tiled rendering:**
 Parent TiledJob spawns an NxN grid of child Jobs → each tile rendered independently → signal auto-assembles final image → tile cleanup.
@@ -96,23 +89,23 @@ Spawns one Job per frame (or NxN tile Jobs per frame if tiling is enabled) → t
 
 All endpoints are under `/api/`. Interactive Swagger documentation is available at `/api/docs/`, OpenAPI schema at `/api/schema/`.
 
-| Endpoint | Description |
-|---|---|
-| `projects/` | CRUD + pause/unpause actions |
-| `assets/` | `.blend` file upload (multipart) |
-| `jobs/` | Job distribution: poll, claim, cancel, yield-requeue, update status, upload output |
-| `animations/` | Create animations (auto-spawns child Jobs per frame) |
-| `tiled-jobs/` | Create tiled jobs (auto-spawns tile Jobs in NxN grid) |
-| `heartbeat/` | Worker keep-alive + yield event reporting |
-| `enroll/` | HMAC-bootstrapped worker enrollment (anonymous) |
-| `health/` | Unauthenticated health check for Docker/load balancer probes |
-| `supported-versions/` | Blender version registry |
-| `queue-settings/` | Queue configuration |
-| `auth/` | Session auth (CSRF, login, logout, user info, enrollment key rotation) |
-| `system/shutdown/`, `system-info/` | System control and info |
-| `stats/` | Dashboard statistics |
-| `setup/` | First-run wizard endpoints (topology, network, database, admin, downloads, verify) |
-| `manager-defaults/` | Default Blender version / render engine for enrolled workers |
+| Endpoint                       | Description                                                                        |
+|--------------------------------|------------------------------------------------------------------------------------|
+| `projects/`                      | CRUD + pause/unpause actions                                                       |
+| `assets/`                        | `.blend` file upload (multipart)                                                     |
+| `jobs/`                          | Job distribution: poll, claim, cancel, yield-requeue, update status, upload output |
+| `animations/`                    | Create animations (auto-spawns child Jobs per frame)                               |
+| `tiled-jobs/`                    | Create tiled jobs (auto-spawns tile Jobs in NxN grid)                              |
+| `heartbeat/`                     | Worker keep-alive + yield event reporting                                          |
+| `enroll/`                        | HMAC-bootstrapped worker enrollment (anonymous)                                    |
+| `health/`                        | Unauthenticated health check for Docker/load balancer probes                       |
+| `supported-versions/`            | Blender version registry                                                           |
+| `queue-settings/`                | Queue configuration                                                                |
+| `auth/`                          | Session auth (CSRF, login, logout, user info, enrollment key rotation)             |
+| `system/shutdown/`, `system-info/` | System control and info                                                            |
+| `stats/`                         | Dashboard statistics                                                               |
+| `setup/`                         | First-run wizard endpoints (topology, network, database, admin, downloads, verify) |
+| `manager-defaults/`              | Default Blender version / render engine for enrolled workers                       |
 
 ---
 
@@ -130,7 +123,7 @@ See [Docker Deployment](#docker-deployment) below.
 
 #### Prerequisites
 
-- Python 3.12+
+- Python 3.14+
 - Node.js 20+ (for the Angular frontend)
 - Git
 
@@ -165,13 +158,13 @@ The API is available at `https://127.0.0.1:8080/api/` and docs at `https://127.0
 
 Optional configuration via `manager/manager.ini` or environment variables:
 
-| Env Var | Description | Default |
-|---|---|---|
-| `SETHLANS_MANAGER_HOST` | Bind address | `0.0.0.0` |
-| `SETHLANS_MANAGER_PORT` | Bind port | `8080` |
-| `SETHLANS_TLS_CERT_FILE` | BYO TLS certificate path | (auto-generated) |
-| `SETHLANS_TLS_KEY_FILE` | BYO TLS key path | (auto-generated) |
-| `SETHLANS_SECURITY_SECRET_KEY` | Django secret key | (generated default) |
+| Env Var                      | Description              | Default             |
+|------------------------------|--------------------------|---------------------|
+| `SETHLANS_MANAGER_HOST`        | Bind address             | `0.0.0.0`             |
+| `SETHLANS_MANAGER_PORT`        | Bind port                | `8080`                |
+| `SETHLANS_TLS_CERT_FILE`       | BYO TLS certificate path | (auto-generated)    |
+| `SETHLANS_TLS_KEY_FILE`        | BYO TLS key path         | (auto-generated)    |
+| `SETHLANS_SECURITY_SECRET_KEY` | Django secret key        | (generated default) |
 
 #### Running the worker directly
 
@@ -180,16 +173,17 @@ python worker/run_worker.py
 ```
 
 On first run, the worker launches an enrollment wizard that:
+
 1. Discovers the manager via UDP multicast (or accepts a manual URL)
 2. Prompts for the enrollment key displayed in the manager UI
 3. Exchanges the key for an API token and pins the manager's TLS certificate
 
 For unattended / Docker deployments, set environment variables instead:
 
-| Env Var | Description |
-|---|---|
-| `SETHLANS_MANAGER_HOST` | Manager hostname / IP |
-| `SETHLANS_MANAGER_PORT` | Manager port |
+| Env Var                        | Description           |
+|--------------------------------|-----------------------|
+| `SETHLANS_MANAGER_HOST`          | Manager hostname / IP |
+| `SETHLANS_MANAGER_PORT`          | Manager port          |
 | `SETHLANS_WORKER_ENROLLMENT_KEY` | Shared enrollment key |
 
 Worker configuration is stored in a JSON config file at the OS-appropriate per-user data directory.
@@ -219,6 +213,7 @@ docker compose up -d manager
 ```
 
 Images are published to GitHub Container Registry:
+
 - `ghcr.io/dryad-naiad-software/sethlans-manager`
 - `ghcr.io/dryad-naiad-software/sethlans-worker-cpu`
 - `ghcr.io/dryad-naiad-software/sethlans-worker-nvidia`
@@ -230,17 +225,17 @@ All containers run as non-root (uid 1000). Manager and CPU worker images support
 
 ## Supported Render Configuration
 
-| Setting | Options |
-|---|---|
-| Render Engine | Cycles, Eevee, Workbench |
-| Device Preference | CPU, GPU, Any |
-| Cycles Feature Set | Supported, Experimental |
-| GPU Backends | OptiX, CUDA, HIP, Metal, oneAPI |
-| Tiling Grids | None, 2x2, 3x3, 4x4, 5x5 |
-| Blender Versions | Managed via database registry (defaults to latest LTS) |
-| Render Settings | JSON overrides for any `bpy` property path (samples, resolution, etc.) |
-| Output Formats | PNG, JPEG, TIFF, EXR, HDR, TGA |
-| Video Assembly | MP4, WebM, MOV (via FFmpeg) |
+| Setting            | Options                                                              |
+|--------------------|----------------------------------------------------------------------|
+| Render Engine      | Cycles, Eevee, Workbench                                             |
+| Device Preference  | CPU, GPU, Any                                                        |
+| Cycles Feature Set | Supported, Experimental                                              |
+| GPU Backends       | OptiX, CUDA, HIP, Metal, oneAPI                                      |
+| Tiling Grids       | None, 2x2, 3x3, 4x4, 5x5                                             |
+| Blender Versions   | Managed via database registry (defaults to latest LTS)               |
+| Render Settings    | JSON overrides for any `bpy` property path (samples, resolution, etc.) |
+| Output Formats     | PNG, JPEG, TIFF, EXR, HDR, TGA                                       |
+| Video Assembly     | MP4, WebM, MOV (via FFmpeg)                                          |
 
 ---
 

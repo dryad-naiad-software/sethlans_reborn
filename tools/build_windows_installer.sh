@@ -24,7 +24,7 @@
 #
 # MINIMUM REQUIREMENTS
 #     - Windows 10/11 x64
-#     - Python 3.12 virtualenv at .venv-build/ with these packages installed:
+#     - Python 3.14 virtualenv at .venv-build/ with these packages installed:
 #         * All of manager/requirements.txt
 #         * All of worker/requirements.txt
 #         * requirements-build.txt  (pyinstaller, pyinstaller-hooks-contrib)
