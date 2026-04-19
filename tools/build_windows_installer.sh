@@ -97,7 +97,6 @@ fi
 echo "=== Building Sethlans v$VERSION ==="
 
 # --- Environment checks ---
-VENV_PY=".venv-build/Scripts/python.exe"
 VENV_PYI=".venv-build/Scripts/pyinstaller.exe"
 NSIS="C:/Program Files (x86)/NSIS/Bin/makensis.exe"
 

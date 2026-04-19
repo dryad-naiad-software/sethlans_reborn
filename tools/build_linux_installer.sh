@@ -125,7 +125,6 @@ fi
 echo "=== Building Sethlans v$VERSION (Linux) ==="
 
 # --- Environment checks ---
-VENV_PY=".venv-build/bin/python"
 VENV_PYI=".venv-build/bin/pyinstaller"
 DIST_ROOT="dist"
 BUILD_ROOT="build"

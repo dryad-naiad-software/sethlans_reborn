@@ -92,7 +92,6 @@ fi
 echo "=== Building Sethlans v$VERSION (macOS) ==="
 
 # --- Environment checks ---
-VENV_PY=".venv-build/bin/python"
 VENV_PYI=".venv-build/bin/pyinstaller"
 DMG_SCRIPT="packaging/macos/build_dmg.sh"
 if [ ! -x "$VENV_PYI" ]; then
