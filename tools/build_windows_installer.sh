@@ -16,6 +16,12 @@
 #     .tmp/build_version (gitignored). Pass an explicit version via
 #     --version=X.Y.Z to override the auto-bump (e.g. for release tags).
 #
+#     Generated files (PyInstaller dist/build trees) land in .tmp/dist/
+#     and .tmp/build/ so they stay out of the repo-root tree. The final
+#     installer exe is produced at packaging/windows/ so downstream
+#     tooling (tests/unit/test_nsi_installer.py, CI artifact uploads)
+#     keeps working unchanged.
+#
 #     Output: packaging/windows/sethlans-<VERSION>-windows-x64.exe
 #
 # PLATFORM
@@ -88,6 +94,13 @@ echo "=== Building Sethlans v$VERSION ==="
 VENV_PY=".venv-build/Scripts/python.exe"
 VENV_PYI=".venv-build/Scripts/pyinstaller.exe"
 NSIS="C:/Program Files (x86)/NSIS/Bin/makensis.exe"
+
+# Generated files go under .tmp/ (gitignored). The NSIS script reads
+# DIST_ROOT via /DDIST_ROOT=... so the four File /r lines can find
+# the bundles at their new location.
+DIST_ROOT=".tmp/dist"
+BUILD_ROOT=".tmp/build"
+NSIS_DIST_ROOT="..\\..\\.tmp\\dist"  # relative to packaging/windows/sethlans.nsi
 if [ ! -x "$VENV_PYI" ]; then
   echo "ERROR: PyInstaller not found at $VENV_PYI"
   echo "See MINIMUM REQUIREMENTS at the top of this script."
@@ -106,20 +119,22 @@ fi
 echo "=== 1/6 Angular build ==="
 ( cd manager/frontend && npm run build 2>&1 | tail -3 )
 
+PYI_PATHS=(--distpath "$DIST_ROOT" --workpath "$BUILD_ROOT")
+
 echo "=== 2/6 PyInstaller: manager ==="
-"$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm --clean 2>&1 | tail -3
+"$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm --clean "${PYI_PATHS[@]}" 2>&1 | tail -3
 
 echo "=== 3/6 PyInstaller: worker ==="
-"$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm --clean 2>&1 | tail -3
+"$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm --clean "${PYI_PATHS[@]}" 2>&1 | tail -3
 
 echo "=== 4/6 PyInstaller: tray_helper ==="
-"$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm --clean 2>&1 | tail -3
+"$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm --clean "${PYI_PATHS[@]}" 2>&1 | tail -3
 
 echo "=== 5/6 PyInstaller: launcher ==="
-"$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
+"$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean "${PYI_PATHS[@]}" 2>&1 | tail -3
 
 echo "=== 6/6 NSIS (v$VERSION) ==="
-"$NSIS" -DPRODUCT_VERSION="$VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3
+"$NSIS" -DPRODUCT_VERSION="$VERSION" -DDIST_ROOT="$NSIS_DIST_ROOT" packaging/windows/sethlans.nsi 2>&1 | tail -3
 
 OUTPUT="packaging/windows/sethlans-$VERSION-windows-x64.exe"
 if [ ! -f "$OUTPUT" ]; then
