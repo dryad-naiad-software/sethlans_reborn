@@ -119,8 +119,32 @@ class TestInstallAndBinDir:
         exe.touch()
         mocker.patch.object(sys, 'frozen', True, create=True)
         mocker.patch.object(sys, 'executable', str(exe))
+        mocker.patch(
+            'launcher.paths.platform.system',
+            return_value='Windows',
+        )
         result = _get_bin_dir()
         assert result == tmp_path / 'bin'
+
+    def test_frozen_mode_bin_dir_darwin(self, mocker, tmp_path):
+        # Inside .app/Contents/MacOS/<exe>; components live under
+        # Contents/Resources/bin/ per build_dmg.sh. get_bin_dir() must
+        # account for the Apple bundle layout — otherwise the launcher
+        # looks for Contents/tray_helper/run_tray_helper and exits on
+        # startup (issue #87).
+        app_root = tmp_path / 'Sethlans.app'
+        macos = app_root / 'Contents' / 'MacOS'
+        macos.mkdir(parents=True, exist_ok=True)
+        exe = macos / 'sethlans'
+        exe.touch()
+        mocker.patch.object(sys, 'frozen', True, create=True)
+        mocker.patch.object(sys, 'executable', str(exe))
+        mocker.patch(
+            'launcher.paths.platform.system',
+            return_value='Darwin',
+        )
+        result = _get_bin_dir()
+        assert result == app_root / 'Contents' / 'Resources' / 'bin'
 
 
 # ---- _find_component_exe() ------------------------------------------------
@@ -159,5 +183,36 @@ class TestFindComponentExe:
             'launcher.run_launcher.platform.system',
             return_value='Linux',
         )
+        mocker.patch(
+            'launcher.paths.platform.system',
+            return_value='Linux',
+        )
         result = _find_component_exe("manager")
         assert result.name == "run_manager"
+
+    def test_frozen_mode_darwin_tray(self, mocker, tmp_path):
+        # End-to-end assertion for issue #87: on macOS,
+        # _find_component_exe("tray") must resolve to the tray_helper
+        # binary inside the bundle's Contents/Resources/bin tree — not
+        # Contents/tray_helper/, which does not exist in the DMG.
+        app_root = tmp_path / 'Sethlans.app'
+        macos = app_root / 'Contents' / 'MacOS'
+        macos.mkdir(parents=True, exist_ok=True)
+        exe = macos / 'sethlans'
+        exe.touch()
+        mocker.patch.object(sys, 'frozen', True, create=True)
+        mocker.patch.object(sys, 'executable', str(exe))
+        mocker.patch(
+            'launcher.run_launcher.platform.system',
+            return_value='Darwin',
+        )
+        mocker.patch(
+            'launcher.paths.platform.system',
+            return_value='Darwin',
+        )
+        result = _find_component_exe("tray")
+        expected = (
+            app_root / 'Contents' / 'Resources' / 'bin'
+            / 'tray_helper' / 'run_tray_helper'
+        )
+        assert result == expected
