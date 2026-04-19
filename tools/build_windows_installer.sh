@@ -142,5 +142,16 @@ if [ ! -f "$OUTPUT" ]; then
   exit 1
 fi
 ls -lh "$OUTPUT"
+
+# --- Cleanup ---
+# Installer is produced; the PyInstaller dist/ and build/ trees under
+# .tmp/ are no longer needed. Removing them saves ~1 GB between runs
+# and keeps .tmp/ from growing unbounded across repeated builds. The
+# installer exe at $OUTPUT is preserved; .tmp/build_version stays so
+# the auto-bump keeps working across runs.
+echo "=== Cleanup ==="
+rm -rf "$DIST_ROOT" "$BUILD_ROOT"
+echo "Removed $DIST_ROOT and $BUILD_ROOT"
+
 echo ""
 echo "Installer ready: $OUTPUT"
