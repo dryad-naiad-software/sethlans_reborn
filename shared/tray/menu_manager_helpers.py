@@ -36,7 +36,13 @@ def sentinel_exists(manager_data_dir: Path) -> bool:
 def read_token(manager_data_dir: Path) -> str:
     """Return the setup token from ``manager.ini`` or empty string."""
     ini_path = manager_data_dir / "manager.ini"
-    if not ini_path.exists():
+    # Python 3.13 changed Path.exists() to propagate OSError (e.g.
+    # PermissionError) rather than silently returning False. Guard
+    # explicitly so read_token remains fail-closed across versions.
+    try:
+        if not ini_path.exists():
+            return ""
+    except OSError:
         return ""
     try:
         size = ini_path.stat().st_size

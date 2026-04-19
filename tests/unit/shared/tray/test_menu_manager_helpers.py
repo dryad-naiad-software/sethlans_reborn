@@ -126,6 +126,16 @@ class TestReadToken:
         )
         assert read_token(manager_dir) == ""
 
+    def test_returns_empty_when_exists_raises(self, tmp_path, mocker):
+        # Python 3.13+ lets OSError (e.g. PermissionError) escape
+        # Path.exists(); read_token must still fail closed.
+        manager_dir = tmp_path / "manager"
+        manager_dir.mkdir()
+        mocker.patch(
+            "pathlib.Path.exists", side_effect=OSError("denied"),
+        )
+        assert read_token(manager_dir) == ""
+
 
 class TestValidateToken:
 
