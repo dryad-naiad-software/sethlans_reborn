@@ -185,6 +185,15 @@ temp/
 .tmp
 .pids/
 
+# But icon / branding PNGs MUST be tracked. The bare `*.png` rule
+# above was masking shared/tray/assets/ and packaging/branding/ from
+# git, so production PyInstaller builds had no tray icons unless the
+# builder happened to have the sync tool populating the files.
+!shared/tray/assets/*.png
+!packaging/branding/*.png
+!packaging/macos/*.png
+!packaging/windows/*.png
+
 # Build artifacts (installers, binaries)
 *.exe
 *.run

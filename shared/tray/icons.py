@@ -2,14 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Per-state QPixmap loading and composite generation for the tray icon.
+"""Sethlans-branded binary tray-icon loader.
 
-Qt/PySide6-native replacement for :mod:`shared.tray.icons`. Behaviour is
-intentionally identical to the Pillow version: assets live under
-``shared/tray/assets/``; composite icons for the ``manager+worker``
-topology are generated at runtime by splitting a 64x64 canvas diagonally
-with the manager rendered in the upper-left triangle and the worker in
-the lower-right triangle. Results are cached in memory.
+Two icons live under ``shared/tray/assets/``:
+
+* ``sethlans_idle.png``   — black anvil disc (system idle / not rendering)
+* ``sethlans_active.png`` — green anvil disc (manager running OR worker
+                            actively rendering / yielding)
+
+``get_icon`` returns the appropriate ``QPixmap`` for a given
+``(manager_state, worker_state)`` pair. Either argument may be ``None``
+for single-topology trays. Results are cached in memory.
 
 All icon mutations must still happen on the Qt GUI thread per spec
 FR-28; this module returns ``QPixmap`` objects and does NOT touch any
@@ -22,110 +25,75 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPixmap
 
 logger = logging.getLogger(__name__)
 
 _ASSETS_DIR = Path(__file__).resolve().parent / "assets"
-_CACHE: dict[tuple[Optional[str], Optional[str]], QPixmap] = {}
-
-_MANAGER_STATES = {
-    "starting", "running", "stopped", "error",
-}
-_WORKER_STATES = {
-    "rendering", "yielding", "yielded", "idle",
-}
-
 _CANVAS_SIZE = 64
 
+# Cache key is the literal "active" / "idle" string — there are only
+# two possible icons under the binary scheme.
+_CACHE: dict[str, QPixmap] = {}
 
-def _asset(prefix: str, state: str) -> Path:
-    return _ASSETS_DIR / f"{prefix}_{state}.png"
+# States that count as "active" (renders the green anvil). Anything
+# else — including ``None``, "" or unknown values — falls through to
+# the idle icon.
+_ACTIVE_MANAGER_STATES = frozenset({"running"})
+_ACTIVE_WORKER_STATES = frozenset({"rendering", "yielding"})
 
 
-def _blank_pixmap(color: QColor) -> QPixmap:
+def _blank_pixmap() -> QPixmap:
     pm = QPixmap(_CANVAS_SIZE, _CANVAS_SIZE)
-    pm.fill(color)
+    pm.fill(QColor(0, 0, 0, 0))
     return pm
 
 
-def _load(path: Path) -> QPixmap:
+def _load_scaled(path: Path) -> QPixmap:
     if not path.exists():
         logger.warning("Icon asset missing: %s; using blank", path)
-        return _blank_pixmap(QColor(0, 0, 0, 0))
+        return _blank_pixmap()
     pm = QPixmap(str(path))
     if pm.isNull():
         logger.warning("Icon asset failed to load: %s; using blank", path)
-        return _blank_pixmap(QColor(0, 0, 0, 0))
-    return pm
+        return _blank_pixmap()
+    # IgnoreAspectRatio forces an exact CANVAS_SIZE x CANVAS_SIZE
+    # result. The source PNGs are 477x476 (effectively square); the
+    # 1-pixel asymmetry would otherwise round to 64x63 under
+    # KeepAspectRatio, which downstream tests + the OS tray expect as
+    # a perfect square.
+    return pm.scaled(
+        _CANVAS_SIZE, _CANVAS_SIZE,
+        Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
 
 
-def _triangle_path(points: list[tuple[float, float]]) -> QPainterPath:
-    path = QPainterPath()
-    path.moveTo(QPointF(*points[0]))
-    for pt in points[1:]:
-        path.lineTo(QPointF(*pt))
-    path.closeSubpath()
-    return path
+def _is_active(
+    manager_state: Optional[str], worker_state: Optional[str],
+) -> bool:
+    if manager_state in _ACTIVE_MANAGER_STATES:
+        return True
+    if worker_state in _ACTIVE_WORKER_STATES:
+        return True
+    return False
 
 
-def _composite(manager_pm: QPixmap, worker_pm: QPixmap) -> QPixmap:
-    """Return a 64x64 QPixmap split diagonally.
+def get_icon(
+    manager_state: Optional[str], worker_state: Optional[str],
+) -> QPixmap:
+    """Return the Sethlans tray icon for the given state pair.
 
-    Upper-left triangle = ``manager_pm``; lower-right = ``worker_pm``.
+    Returns the green "active" anvil iff the manager is running or the
+    worker is rendering / yielding. Otherwise returns the black "idle"
+    anvil. Either argument may be ``None``; unknown values fall
+    through to idle without raising.
     """
-    canvas = QPixmap(_CANVAS_SIZE, _CANVAS_SIZE)
-    canvas.fill(Qt.GlobalColor.transparent)
-
-    painter = QPainter(canvas)
-    try:
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        ul_path = _triangle_path([(0, 0), (_CANVAS_SIZE, 0), (0, _CANVAS_SIZE)])
-        painter.setClipPath(ul_path)
-        painter.drawPixmap(0, 0, manager_pm)
-
-        lr_path = _triangle_path(
-            [(_CANVAS_SIZE, 0), (_CANVAS_SIZE, _CANVAS_SIZE), (0, _CANVAS_SIZE)]
-        )
-        painter.setClipPath(lr_path)
-        painter.drawPixmap(0, 0, worker_pm)
-    finally:
-        painter.end()
-
-    return canvas
-
-
-def get_icon(manager_state: Optional[str], worker_state: Optional[str]) -> QPixmap:
-    """Return a 64x64 ``QPixmap`` for the given pair of states.
-
-    Either argument may be ``None`` for single-topology trays.
-    Results are cached by ``(manager_state, worker_state)``.
-    """
-    key = (manager_state, worker_state)
+    key = "active" if _is_active(manager_state, worker_state) else "idle"
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-
-    if manager_state is not None and manager_state not in _MANAGER_STATES:
-        logger.warning("Unknown manager_state=%r", manager_state)
-        manager_state = "starting"
-    if worker_state is not None and worker_state not in _WORKER_STATES:
-        logger.warning("Unknown worker_state=%r", worker_state)
-        worker_state = "idle"
-
-    if manager_state and not worker_state:
-        pm = _load(_asset("manager", manager_state))
-    elif worker_state and not manager_state:
-        pm = _load(_asset("worker", worker_state))
-    elif manager_state and worker_state:
-        pm = _composite(
-            _load(_asset("manager", manager_state)),
-            _load(_asset("worker", worker_state)),
-        )
-    else:
-        pm = _blank_pixmap(QColor(128, 128, 128, 255))
-
+    pm = _load_scaled(_ASSETS_DIR / f"sethlans_{key}.png")
     _CACHE[key] = pm
     return pm
