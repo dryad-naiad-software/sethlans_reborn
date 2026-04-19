@@ -6,8 +6,8 @@
 
 Scoped to ``tests/unit/shared/tray/`` so fixtures defined here are
 available to every test module in this directory.  Currently provides
-``QtStatePoller`` factories consumed by ``test_qt_poller.py`` and
-``test_qt_poller_lifecycle.py``.  Helper functions (``snapshots``,
+``QtStatePoller`` factories consumed by ``test_poller.py`` and
+``test_poller_lifecycle.py``.  Helper functions (``snapshots``,
 ``state_changes``, ``notification_msgs``, ``setup_msgs``) are exposed
 here too, imported by the test modules directly (not as fixtures).
 """
@@ -21,9 +21,10 @@ import pytest
 try:  # PySide6 optional — other tray tests don't need it.
     from PySide6.QtCore import QObject  # noqa: F401
     from PySide6.QtTest import QSignalSpy  # noqa: F401
-    from shared.tray import qt_poller as qt_poller_mod
-    from shared.tray.qt_notifications import NotificationEvent
-    from shared.tray.qt_poller import QtStatePoller
+    from shared.tray import poller as poller_mod
+    from shared.tray.menu_manager import ManagerSection
+    from shared.tray.notifications import NotificationEvent
+    from shared.tray.poller import ManagerSnapshot, QtStatePoller
     _QT_AVAILABLE = True
 except Exception:  # pragma: no cover
     _QT_AVAILABLE = False
@@ -111,7 +112,7 @@ def poller_factory(qapp, mocker):
     use ``poller_factory_configurable`` instead.
     """
     mocker.patch.object(
-        qt_poller_mod.launcher_watch,
+        poller_mod.launcher_watch,
         "is_launcher_alive",
         return_value=True,
     )
@@ -128,6 +129,91 @@ def poller_factory(qapp, mocker):
         _teardown_poller(p)
 
 
+# ------------------------------------------------------------------
+# ManagerSection fixtures (used by test_menu_manager_*.py splits)
+# ------------------------------------------------------------------
+
+def _make_snapshot(**overrides):
+    """Build a ``ManagerSnapshot`` with sensible defaults for tests."""
+    defaults = dict(
+        state="running",
+        setup_mode=False,
+        workers_online=3,
+        jobs_queued=7,
+        jobs_rendering=2,
+        version="1.2.3",
+        boot_id="boot",
+        last_error="",
+    )
+    defaults.update(overrides)
+    return ManagerSnapshot(**defaults)
+
+
+@pytest.fixture
+def make_snapshot():
+    """Expose ``_make_snapshot`` as a fixture so tests can call it."""
+    return _make_snapshot
+
+
+@pytest.fixture
+def snapshot_holder():
+    """Mutable holder so tests can swap the snapshot returned by the
+    ``get_snapshot`` callable after ``build_qmenu`` is called."""
+    holder = {"snap": _make_snapshot()}
+
+    def _get():
+        return holder["snap"]
+
+    holder["get"] = _get
+    return holder
+
+
+@pytest.fixture
+def section(qapp, tmp_path, snapshot_holder):
+    """Build a ``ManagerSection`` wired to ``snapshot_holder``."""
+    quit_flag = threading.Event()
+    sec = ManagerSection(
+        data_dir=tmp_path / "data",
+        manager_data_dir=tmp_path / "manager",
+        manager_host="localhost",
+        manager_port=8443,
+        quit_requested_flag=quit_flag,
+        get_snapshot=snapshot_holder["get"],
+    )
+    (tmp_path / "data").mkdir()
+    (tmp_path / "manager").mkdir()
+    return sec
+
+
+@pytest.fixture
+def section_factory(qapp, tmp_path):
+    """Build ``ManagerSection`` instances with a custom ``notify`` cb.
+
+    Each call returns a freshly constructed ``ManagerSection`` rooted
+    at ``tmp_path``; directories are created once per test.
+    """
+    (tmp_path / "data").mkdir()
+    (tmp_path / "manager").mkdir()
+
+    def _make(notify=None, token=None):
+        if token is not None:
+            (tmp_path / "manager" / "manager.ini").write_text(
+                f"[setup]\ntoken = {token}\n", encoding="utf-8",
+            )
+        flag = threading.Event()
+        return ManagerSection(
+            data_dir=tmp_path / "data",
+            manager_data_dir=tmp_path / "manager",
+            manager_host="localhost",
+            manager_port=8443,
+            quit_requested_flag=flag,
+            get_snapshot=lambda: _make_snapshot(),
+            notify=notify,
+        )
+
+    return _make
+
+
 @pytest.fixture
 def poller_factory_configurable(qapp, mocker):
     """Like ``poller_factory`` but exposes the ``is_launcher_alive`` mock.
@@ -137,7 +223,7 @@ def poller_factory_configurable(qapp, mocker):
     state mid-run.
     """
     alive_mock = mocker.patch.object(
-        qt_poller_mod.launcher_watch,
+        poller_mod.launcher_watch,
         "is_launcher_alive",
         return_value=True,
     )

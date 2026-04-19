@@ -31,8 +31,8 @@ def main() -> int:
     except (AttributeError, ValueError):  # pragma: no cover - win
         pass
     try:
-        from shared.tray import qt_app
-        qt_app.main()
+        from shared.tray import app
+        app.main()
         return 0
     except Exception:  # pragma: no cover - top-level guard
         logging.getLogger(__name__).exception("Tray crashed")

@@ -2,16 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for ``shared/tray/qt_app.py`` bootstrap wiring (Phase 8).
+"""Unit tests for ``shared/tray/app.py`` bootstrap wiring (Phase 8).
 
 Covers topology gating, section construction, signal connection types
 (QueuedConnection per FR-6), and the notify closure passed into
 ``ManagerSection``.  The shutdown-sequence tests live in
-``test_qt_app_shutdown.py`` to keep each file under the 300-line cap.
+``test_app_shutdown.py`` to keep each file under the 300-line cap.
 
 Tests mock the heavy dependencies (QApplication.exec, QSystemTrayIcon,
 QTimer, topology, ManagerSection, WorkerSection, QtStatePoller,
-qt_icons, qt_notifications) so they run under
+icons, notifications) so they run under
 ``QT_QPA_PLATFORM=offscreen`` without spawning a real tray icon and
 without depending on any real ``manager.ini`` / filesystem topology.
 """
@@ -20,14 +20,14 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PySide6", reason="PySide6 required for qt_app")
+pytest.importorskip("PySide6", reason="PySide6 required for app")
 pytest.importorskip("pytestqt", reason="pytest-qt required for qapp fixture")
 
 from PySide6.QtCore import Qt  # noqa: E402
 
-from shared.tray import qt_app  # noqa: E402
+from shared.tray import app  # noqa: E402
 from shared.tray import topology as topo_mod  # noqa: E402
-from shared.tray.qt_notifications import NotificationEvent  # noqa: E402
+from shared.tray.notifications import NotificationEvent  # noqa: E402
 
 
 # ------------------------------------------------------------------ #
@@ -35,7 +35,7 @@ from shared.tray.qt_notifications import NotificationEvent  # noqa: E402
 # ------------------------------------------------------------------ #
 
 def _patch_main_deps(mocker, topology, tmp_path):
-    """Patch everything ``qt_app.main`` reaches at module scope.
+    """Patch everything ``app.main`` reaches at module scope.
 
     Returns a dict of the key mocks so tests can assert against them.
     Callers MUST request the ``qapp`` fixture so a real QApplication
@@ -48,24 +48,24 @@ def _patch_main_deps(mocker, topology, tmp_path):
 
     # Path layer — avoid touching the real filesystem topology.
     mocker.patch.object(
-        qt_app, "get_shared_data_dir", return_value=tmp_path,
+        app, "get_shared_data_dir", return_value=tmp_path,
     )
     mocker.patch.object(
-        qt_app, "get_data_dir",
+        app, "get_data_dir",
         side_effect=lambda role: tmp_path / role,
     )
     mocker.patch.object(
         topo_mod, "read_topology", return_value=topology,
     )
-    mocker.patch.object(qt_app, "_read_manager_ports",
+    mocker.patch.object(app, "_read_manager_ports",
                         return_value=("localhost", 8080, 8088))
-    mocker.patch.object(qt_app, "_configure_logging")
-    mocker.patch.object(qt_app.launcher_watch, "init")
+    mocker.patch.object(app, "_configure_logging")
+    mocker.patch.object(app.launcher_watch, "init")
 
     # Section + poller classes — instances capture the constructor args.
-    mgr_cls = mocker.patch.object(qt_app, "ManagerSection")
-    wk_cls = mocker.patch.object(qt_app, "WorkerSection")
-    poller_cls = mocker.patch.object(qt_app, "QtStatePoller")
+    mgr_cls = mocker.patch.object(app, "ManagerSection")
+    wk_cls = mocker.patch.object(app, "WorkerSection")
+    poller_cls = mocker.patch.object(app, "QtStatePoller")
 
     # Make build_qmenu return a real (empty) QMenu so _build_menu's
     # action iteration terminates.  We need a QApplication alive for
@@ -86,16 +86,16 @@ def _patch_main_deps(mocker, topology, tmp_path):
     poller_instance.start = mocker.MagicMock()
 
     # Qt layer — QApplication / QSystemTrayIcon / QTimer / icons.
-    app_cls = mocker.patch.object(qt_app, "QApplication")
+    app_cls = mocker.patch.object(app, "QApplication")
     app_inst = app_cls.return_value
     app_inst.exec.return_value = 0
-    tray_cls = mocker.patch.object(qt_app, "QSystemTrayIcon")
+    tray_cls = mocker.patch.object(app, "QSystemTrayIcon")
     tray_inst = tray_cls.return_value
-    qicon_cls = mocker.patch.object(qt_app, "QIcon")
-    qtimer_cls = mocker.patch.object(qt_app, "QTimer")
-    icons_mod = mocker.patch.object(qt_app, "qt_icons")
+    qicon_cls = mocker.patch.object(app, "QIcon")
+    qtimer_cls = mocker.patch.object(app, "QTimer")
+    icons_mod = mocker.patch.object(app, "icons")
     icons_mod.get_icon.return_value = mocker.MagicMock(name="pixmap")
-    notif_mod = mocker.patch.object(qt_app, "qt_notifications")
+    notif_mod = mocker.patch.object(app, "notifications")
 
     return {
         "mgr_cls": mgr_cls,
@@ -123,7 +123,7 @@ class TestTopologyGating:
         self, qapp, mocker, tmp_path,
     ):
         m = _patch_main_deps(mocker, topo_mod.TOPOLOGY_MANAGER, tmp_path)
-        qt_app.main()
+        app.main()
         assert m["mgr_cls"].call_count == 1
         assert m["wk_cls"].call_count == 0
         # Poller start queued via QTimer.singleShot(0, poller.start).
@@ -136,7 +136,7 @@ class TestTopologyGating:
         self, qapp, mocker, tmp_path,
     ):
         m = _patch_main_deps(mocker, topo_mod.TOPOLOGY_WORKER, tmp_path)
-        qt_app.main()
+        app.main()
         assert m["wk_cls"].call_count == 1
         assert m["mgr_cls"].call_count == 0
         _, kwargs = m["wk_cls"].call_args
@@ -149,7 +149,7 @@ class TestTopologyGating:
         self, qapp, mocker, tmp_path,
     ):
         m = _patch_main_deps(mocker, topo_mod.TOPOLOGY_BOTH, tmp_path)
-        qt_app.main()
+        app.main()
         assert m["mgr_cls"].call_count == 1
         assert m["wk_cls"].call_count == 1
         _, wk_kwargs = m["wk_cls"].call_args
@@ -190,7 +190,7 @@ class TestMenuSeparator:
         ctx.manager_section.build_qmenu.side_effect = _mgr_menu
         ctx.worker_section.build_qmenu.side_effect = _wk_menu
 
-        root = qt_app._build_menu(ctx)
+        root = app._build_menu(ctx)
 
         actions = root.actions()
         texts = [a.text() for a in actions if not a.isSeparator()]
@@ -215,7 +215,7 @@ class TestQueuedConnection:
         self, qapp, mocker, tmp_path,
     ):
         m = _patch_main_deps(mocker, topo_mod.TOPOLOGY_BOTH, tmp_path)
-        qt_app.main()
+        app.main()
         poller = m["poller_instance"]
         # Each of the three signals must connect with QueuedConnection.
         for sig_name in (
@@ -247,17 +247,17 @@ class TestNotifyClosure:
         self, qapp, mocker, tmp_path,
     ):
         m = _patch_main_deps(mocker, topo_mod.TOPOLOGY_MANAGER, tmp_path)
-        qt_app.main()
+        app.main()
         _, kwargs = m["mgr_cls"].call_args
         notify = kwargs.get("notify")
         assert notify is not None
         assert callable(notify)
 
-    def test_notify_routes_to_qt_notifications_dispatch(
+    def test_notify_routes_to_notifications_dispatch(
         self, qapp, mocker, tmp_path,
     ):
         m = _patch_main_deps(mocker, topo_mod.TOPOLOGY_MANAGER, tmp_path)
-        qt_app.main()
+        app.main()
         _, kwargs = m["mgr_cls"].call_args
         notify = kwargs["notify"]
 

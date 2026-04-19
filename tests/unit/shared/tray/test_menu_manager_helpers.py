@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for ``shared/tray/qt_menu_manager_helpers.py``.
+"""Unit tests for ``shared/tray/menu_manager_helpers.py``.
 
-Pure helpers (no Qt) consumed by ``qt_menu_manager.ManagerSection``:
+Pure helpers (no Qt) consumed by ``menu_manager.ManagerSection``:
 sentinel detection, token read from manager.ini, token shape
 validation, and platform-specific log-opener dispatch.
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 import logging
 import sys
 
-from shared.tray import qt_menu_manager_helpers as helpers
-from shared.tray.qt_menu_manager_helpers import (
+from shared.tray import menu_manager_helpers as helpers
+from shared.tray.menu_manager_helpers import (
     SENTINEL_NAME,
     open_logs,
     read_token,
@@ -188,7 +188,7 @@ class TestOpenLogs:
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         mocker.patch.object(sys, "platform", "win32")
-        run_spy = mocker.patch("shared.tray.qt_menu_manager_helpers."
+        run_spy = mocker.patch("shared.tray.menu_manager_helpers."
                                "subprocess.run")
         with caplog.at_level(logging.WARNING, logger=helpers.logger.name):
             open_logs(data_dir)
@@ -208,7 +208,7 @@ class TestOpenLogs:
     def test_windows_uses_os_startfile(self, tmp_path, mocker):
         data_dir, log_path = self._prepare_log(tmp_path)
         mocker.patch.object(sys, "platform", "win32")
-        run_spy = mocker.patch("shared.tray.qt_menu_manager_helpers."
+        run_spy = mocker.patch("shared.tray.menu_manager_helpers."
                                "subprocess.run")
         # os.startfile only exists on Windows — patch via the os module
         # import that open_logs performs locally.
@@ -223,7 +223,7 @@ class TestOpenLogs:
     def test_darwin_uses_open_command(self, tmp_path, mocker):
         data_dir, log_path = self._prepare_log(tmp_path)
         mocker.patch.object(sys, "platform", "darwin")
-        run_spy = mocker.patch("shared.tray.qt_menu_manager_helpers."
+        run_spy = mocker.patch("shared.tray.menu_manager_helpers."
                                "subprocess.run")
         open_logs(data_dir)
         run_spy.assert_called_once_with(
@@ -233,7 +233,7 @@ class TestOpenLogs:
     def test_linux_uses_xdg_open(self, tmp_path, mocker):
         data_dir, log_path = self._prepare_log(tmp_path)
         mocker.patch.object(sys, "platform", "linux")
-        run_spy = mocker.patch("shared.tray.qt_menu_manager_helpers."
+        run_spy = mocker.patch("shared.tray.menu_manager_helpers."
                                "subprocess.run")
         open_logs(data_dir)
         run_spy.assert_called_once_with(

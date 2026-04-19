@@ -2,81 +2,128 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Cross-platform clipboard helper for the setup token.
+"""Qt-based clipboard helper for the setup token.
 
-Hardened per ``setup-token-entry.md`` FR-15 and ``tray-helper-unified.md``
-FR-10:
+Replaces the subprocess-based helper in ``shared/tray/clipboard.py`` with
+a ``QClipboard`` implementation for the PySide6 tray migration (see
+``tray-pyside6-migration.md`` FR-4).
 
-* Token is passed via **stdin**, never argv or environment.
-* ``subprocess.run`` is called with the default ``shell=False``; the
-  command argument is a fixed literal list — no string concatenation.
-* Any exception is caught; the log record contains only the token
-  length (``token_len=<N>``), never the token value itself.
-* ``result.stdout`` / ``result.stderr`` are NEVER logged — misbehaving
-  clipboard implementations could echo the token.
-* Platform gate: ``sys.platform == "win32"`` → ``clip``;
-  ``"darwin"`` → ``pbcopy``; anything else logs a hint and returns
-  ``False`` without spawning a subprocess.
+Security invariants (mirrored from the legacy helper's tests):
+
+* Never raises.  Any Qt failure (ImportError in the import block is not
+  possible here because PySide6 is a hard dependency of the tray; but
+  ``QGuiApplication.instance()`` may be ``None``, ``clipboard()`` may
+  return ``None``, and ``setText`` may raise in theory) is swallowed and
+  surfaced as a ``False`` return.
+* The token value is NEVER logged.  Only ``token_len=<N>`` appears in
+  warning records.
+* Empty / non-string input returns ``False`` *before* any Qt call so we
+  never touch the clipboard for invalid input.
+* ``QClipboard.Mode.Clipboard`` is passed explicitly.  The X11 primary
+  selection (``Mode.Selection``) is never used — it would leak the token
+  to any middle-click paste.
+* A ``qInstallMessageHandler`` shim drops Qt log records in the
+  ``qt.gui.clipboard`` category so that environments with
+  ``QT_LOGGING_RULES='qt.gui.clipboard.debug=true'`` or
+  ``QT_DEBUG_PLUGINS=1`` cannot echo the clipboard payload to stderr.
+  Non-clipboard Qt warnings are forwarded to stderr unchanged so general
+  Qt diagnostics remain visible.
 """
 
 from __future__ import annotations
 
 import logging
-import subprocess
 import sys
+import threading
+
+from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+from PySide6.QtGui import QClipboard, QGuiApplication
 
 logger = logging.getLogger(__name__)
 
-# Subprocess timeout.  Clipboard writes are instantaneous; 5 s is a
-# generous upper bound that still prevents hangs.
-_CLIPBOARD_TIMEOUT_SECONDS = 5.0
+# Category prefix emitted by Qt's clipboard subsystem.  Matches both
+# ``qt.gui.clipboard`` and any future sub-categories (e.g.
+# ``qt.gui.clipboard.debug``).
+_CLIPBOARD_CATEGORY_PREFIX = "qt.gui.clipboard"
+
+# Idempotent install guard for the Qt message handler.  The tray helper
+# may call ``copy_token_to_clipboard`` many times over the life of the
+# process; we install exactly once.
+_handler_lock = threading.Lock()
+_handler_installed = False
+# The previous Qt message handler returned by ``qInstallMessageHandler``.
+# Non-clipboard records are forwarded to it so Qt's own diagnostics
+# (plugin loads, font/platform problems) remain visible downstream.
+_previous_handler = None
 
 
-def _run_clipboard(command: list[str], token: str) -> bool:
-    """Invoke *command* with *token* on stdin.
+def _qt_message_handler(mode: QtMsgType, context, message: str) -> None:
+    """Drop clipboard-category Qt log records; forward everything else.
 
-    Returns ``True`` iff the command exited with code 0.  All
-    exception paths log only the token length and return ``False``.
+    Scope is intentionally narrow: only records whose category begins
+    with ``qt.gui.clipboard`` are silenced.  Other Qt warnings (plugin
+    load errors, font issues, platform problems, etc.) are forwarded to
+    the previous handler (if any) or written to stderr so developers
+    still see them.
     """
-    token_len = len(token)
     try:
-        result = subprocess.run(
-            command,
-            input=token,
-            text=True,
-            capture_output=True,
-            timeout=_CLIPBOARD_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except FileNotFoundError:
-        logger.warning(
-            "clipboard copy failed: command not found; token_len=%d",
-            token_len,
-        )
-        return False
-    except subprocess.TimeoutExpired:
-        logger.warning(
-            "clipboard copy failed: timeout; token_len=%d", token_len,
-        )
-        return False
-    except (OSError, subprocess.SubprocessError):
-        logger.warning(
-            "clipboard copy failed: subprocess error; token_len=%d",
-            token_len,
-        )
-        return False
+        category = getattr(context, "category", None) or ""
+        if isinstance(category, bytes):
+            category = category.decode("utf-8", errors="replace")
+        if category and category.startswith(_CLIPBOARD_CATEGORY_PREFIX):
+            return
+    except Exception:
+        # If anything about the context is malformed, fall through to
+        # the default forwarding path rather than raising from inside a
+        # Qt callback.
+        pass
 
-    if result.returncode != 0:
-        logger.warning(
-            "clipboard copy failed: returncode=%d; token_len=%d",
-            result.returncode, token_len,
-        )
-        return False
-    return True
+    # Prefer chaining to whatever handler was installed before us so
+    # other libraries / Qt's own default formatting still apply.
+    if _previous_handler is not None:
+        try:
+            _previous_handler(mode, context, message)
+            return
+        except Exception:
+            # Fall through to stderr if the previous handler blew up —
+            # never raise out of a Qt message handler.
+            pass
+
+    try:
+        prefix = {
+            QtMsgType.QtDebugMsg: "QtDebug",
+            QtMsgType.QtInfoMsg: "QtInfo",
+            QtMsgType.QtWarningMsg: "QtWarning",
+            QtMsgType.QtCriticalMsg: "QtCritical",
+            QtMsgType.QtFatalMsg: "QtFatal",
+        }.get(mode, "Qt")
+        sys.stderr.write(f"{prefix}: {message}\n")
+    except Exception:
+        # Never raise out of a Qt message handler.
+        pass
+
+
+def _ensure_message_handler_installed() -> None:
+    """Install the clipboard-redacting Qt message handler once."""
+    global _handler_installed, _previous_handler
+    if _handler_installed:
+        return
+    with _handler_lock:
+        if _handler_installed:
+            return
+        try:
+            # qInstallMessageHandler returns the previous handler; we
+            # chain to it so non-clipboard messages survive.
+            _previous_handler = qInstallMessageHandler(_qt_message_handler)
+        except Exception:
+            # If the handler cannot be installed we still proceed — the
+            # copy itself is what matters; redaction is defense in depth.
+            logger.debug("qt clipboard message handler install failed")
+        _handler_installed = True
 
 
 def copy_token_to_clipboard(token: str) -> bool:
-    """Best-effort copy of *token* to the OS clipboard.
+    """Best-effort copy of *token* to the OS clipboard via QClipboard.
 
     Parameters
     ----------
@@ -92,13 +139,33 @@ def copy_token_to_clipboard(token: str) -> bool:
         logger.warning("clipboard copy skipped: empty or non-string token")
         return False
 
-    if sys.platform == "win32":
-        return _run_clipboard(["clip"], token)
-    if sys.platform == "darwin":
-        return _run_clipboard(["pbcopy"], token)
+    token_len = len(token)
 
-    logger.info(
-        "Clipboard copy skipped on Linux; copy the token from the "
-        "console above.",
-    )
-    return False
+    _ensure_message_handler_installed()
+
+    try:
+        app = QGuiApplication.instance()
+        if app is None:
+            logger.warning(
+                "clipboard copy failed: no QGuiApplication instance; "
+                "token_len=%d",
+                token_len,
+            )
+            return False
+
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is None:
+            logger.warning(
+                "clipboard copy failed: QGuiApplication.clipboard() "
+                "returned None; token_len=%d",
+                token_len,
+            )
+            return False
+
+        clipboard.setText(token, QClipboard.Mode.Clipboard)
+        return True
+    except Exception:
+        logger.warning(
+            "clipboard copy failed: Qt error; token_len=%d", token_len,
+        )
+        return False

@@ -2,78 +2,228 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for ``shared/tray/icons.py`` (FR-27 / FR-28)."""
+"""Unit tests for ``shared/tray/icons.py`` (FR-27 / FR-28).
+
+PySide6/QPixmap-based replacement for the legacy Pillow tray icon module.
+These tests mirror the structure and invariants of ``test_icons.py`` but
+assert on QPixmap semantics (size, nullness, pixel color via ``toImage()``)
+instead of PIL ``Image`` attributes.
+"""
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
-from shared.tray import icons
+pytest.importorskip("PySide6", reason="PySide6 required for icons")
+pytest.importorskip("pytestqt", reason="pytest-qt required for qapp fixture")
 
-PIL_Image = pytest.importorskip("PIL.Image", reason="Pillow required")
+from PySide6.QtGui import QColor, QPixmap  # noqa: E402
+
+from shared.tray import icons  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _reset_icon_cache():
+def _reset_icon_cache(qapp):
+    """Clear the module-level cache between tests; ensure QGuiApplication exists."""
     icons._CACHE.clear()
     yield
     icons._CACHE.clear()
 
 
-class TestGetIconSingleAxis:
-
-    def test_manager_only_returns_pil_image(self):
-        img = icons.get_icon("running", None)
-        assert img is not None
-        # PIL Image has a size attribute.
-        assert hasattr(img, "size")
-
-    def test_worker_only_returns_pil_image(self):
-        img = icons.get_icon(None, "rendering")
-        assert img is not None
-        assert hasattr(img, "size")
-
-    def test_unknown_manager_state_falls_back_without_raise(self, caplog):
-        import logging
-        with caplog.at_level(logging.WARNING, logger=icons.logger.name):
-            img = icons.get_icon("bogus", None)
-        assert img is not None
-        assert any(
-            "Unknown manager_state" in rec.message
-            for rec in caplog.records
-        )
-
-    def test_unknown_worker_state_falls_back_without_raise(self, caplog):
-        import logging
-        with caplog.at_level(logging.WARNING, logger=icons.logger.name):
-            img = icons.get_icon(None, "bogus")
-        assert img is not None
-        assert any(
-            "Unknown worker_state" in rec.message
-            for rec in caplog.records
-        )
+def _pixel(pm: QPixmap, x: int, y: int) -> QColor:
+    return pm.toImage().pixelColor(x, y)
 
 
-class TestGetIconComposite:
+class TestSingleTopology:
+
+    def test_manager_only_returns_64x64_qpixmap(self):
+        pm = icons.get_icon("running", None)
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert pm.width() == 64
+        assert pm.height() == 64
+
+    def test_worker_only_returns_64x64_qpixmap(self):
+        pm = icons.get_icon(None, "idle")
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert pm.width() == 64
+        assert pm.height() == 64
+
+    @pytest.mark.parametrize("state", ["starting", "running", "stopped", "error"])
+    def test_every_manager_state_loads(self, state):
+        pm = icons.get_icon(state, None)
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert (pm.width(), pm.height()) == (64, 64)
+
+    @pytest.mark.parametrize("state", ["rendering", "yielding", "yielded", "idle"])
+    def test_every_worker_state_loads(self, state):
+        pm = icons.get_icon(None, state)
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert (pm.width(), pm.height()) == (64, 64)
+
+
+class TestCompositeTopology:
 
     def test_composite_is_64x64(self):
-        img = icons.get_icon("running", "rendering")
-        assert img.size == (64, 64)
+        pm = icons.get_icon("running", "rendering")
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert (pm.width(), pm.height()) == (64, 64)
 
-    def test_composite_cached(self):
+    def test_composite_differs_from_single_axis_pixmaps(self):
+        manager_only = icons.get_icon("running", None)
+        worker_only = icons.get_icon(None, "rendering")
+        # Clear cache so composite is not mistaken for either single axis.
+        icons._CACHE.clear()
+        composite = icons.get_icon("running", "rendering")
+
+        # Compare a couple of control pixels — the composite must diverge
+        # from at least one of the two single-axis pixmaps somewhere.
+        manager_bytes = manager_only.toImage().bits().tobytes()
+        worker_bytes = worker_only.toImage().bits().tobytes()
+        composite_bytes = composite.toImage().bits().tobytes()
+        assert composite_bytes != manager_bytes
+        assert composite_bytes != worker_bytes
+
+    def test_diagonal_split_differs_across_quadrants(self):
+        pm = icons.get_icon("running", "rendering")
+        # Upper-left quadrant pixel should come from the manager asset;
+        # lower-right from the worker asset. Avoid asserting exact colors
+        # (brittle) — just confirm the two sampled pixels are not identical.
+        ul = _pixel(pm, 16, 16)
+        lr = _pixel(pm, 48, 48)
+        assert ul != lr
+
+
+class TestBothNoneFallback:
+
+    def test_both_none_returns_opaque_grey(self):
+        pm = icons.get_icon(None, None)
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert (pm.width(), pm.height()) == (64, 64)
+        center = _pixel(pm, 32, 32)
+        assert center == QColor(128, 128, 128, 255)
+
+
+class TestUnknownStateFallback:
+
+    def test_unknown_manager_state_logs_and_returns_valid_pixmap(self, caplog):
+        with caplog.at_level(logging.WARNING, logger=icons.logger.name):
+            pm = icons.get_icon("bogus", None)
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert (pm.width(), pm.height()) == (64, 64)
+        assert any(
+            "Unknown manager_state='bogus'" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+    def test_unknown_worker_state_logs_and_returns_valid_pixmap(self, caplog):
+        with caplog.at_level(logging.WARNING, logger=icons.logger.name):
+            pm = icons.get_icon(None, "bogus")
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert (pm.width(), pm.height()) == (64, 64)
+        assert any(
+            "Unknown worker_state='bogus'" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+    def test_unknown_both_states_logs_both_and_returns_composite(self, caplog):
+        with caplog.at_level(logging.WARNING, logger=icons.logger.name):
+            pm = icons.get_icon("bogus", "bogus")
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert (pm.width(), pm.height()) == (64, 64)
+        msgs = [rec.getMessage() for rec in caplog.records]
+        assert any("Unknown manager_state='bogus'" in m for m in msgs)
+        assert any("Unknown worker_state='bogus'" in m for m in msgs)
+
+
+class TestMissingAssetFallback:
+
+    def test_missing_assets_dir_returns_transparent_pixmap(
+        self, caplog, monkeypatch, tmp_path
+    ):
+        # Point the module at a directory that exists but contains no
+        # icon PNGs — forces the `not path.exists()` branch in `_load`.
+        empty_dir = tmp_path / "no_such_assets"
+        empty_dir.mkdir()
+        monkeypatch.setattr(icons, "_ASSETS_DIR", empty_dir)
+
+        with caplog.at_level(logging.WARNING, logger=icons.logger.name):
+            pm = icons.get_icon("running", None)
+
+        assert isinstance(pm, QPixmap)
+        assert not pm.isNull()
+        assert (pm.width(), pm.height()) == (64, 64)
+        # Transparent blank — alpha 0 everywhere.
+        assert _pixel(pm, 32, 32).alpha() == 0
+        assert any(
+            "Icon asset missing" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+    def test_missing_asset_does_not_raise_for_composite(
+        self, monkeypatch, tmp_path
+    ):
+        empty_dir = tmp_path / "no_such_assets"
+        empty_dir.mkdir()
+        monkeypatch.setattr(icons, "_ASSETS_DIR", empty_dir)
+        # Should not raise — composite path must tolerate blank inputs.
+        pm = icons.get_icon("running", "rendering")
+        assert isinstance(pm, QPixmap)
+        assert (pm.width(), pm.height()) == (64, 64)
+
+
+class TestCaching:
+
+    def test_same_key_returns_same_object(self):
         first = icons.get_icon("running", "rendering")
         second = icons.get_icon("running", "rendering")
-        # Cached — identity match.
         assert first is second
 
-    def test_different_keys_yield_different_entries(self):
+    def test_single_axis_cached(self):
+        first = icons.get_icon("running", None)
+        second = icons.get_icon("running", None)
+        assert first is second
+
+    def test_different_keys_produce_different_entries(self):
         a = icons.get_icon("running", "rendering")
         b = icons.get_icon("error", "rendering")
         assert a is not b
 
+    def test_none_pair_cached(self):
+        first = icons.get_icon(None, None)
+        second = icons.get_icon(None, None)
+        assert first is second
 
-class TestDefaultFallback:
 
-    def test_both_none_returns_blank_image(self):
-        img = icons.get_icon(None, None)
-        assert img.size == (64, 64)
+class TestNeverRaises:
+
+    @pytest.mark.parametrize(
+        "manager_state, worker_state",
+        [
+            ("running", "idle"),
+            ("running", "rendering"),
+            ("error", "yielded"),
+            (None, None),
+            ("bogus", "bogus"),
+            ("", ""),
+            ("running", None),
+            (None, "idle"),
+            ("", "rendering"),
+            ("running", ""),
+        ],
+    )
+    def test_get_icon_never_raises(self, manager_state, worker_state):
+        # Must not propagate any exception regardless of input shape.
+        pm = icons.get_icon(manager_state, worker_state)
+        assert isinstance(pm, QPixmap)
+        assert (pm.width(), pm.height()) == (64, 64)

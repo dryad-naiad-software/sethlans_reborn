@@ -2,36 +2,49 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""State poller for the tray helper.
+"""Qt-signal state poller for the tray helper (PySide6).
 
-Runs as a daemon thread at 2s cadence.  Performs the following per
-tick:
+PySide6-based state poller with 2s cadence, 1.5s HTTP timeout,
+3-consecutive-failure threshold, and edge-triggered state transitions
+plus setup-complete notification.  State changes are delivered to the
+GUI thread via Qt ``Signal`` emits.
 
-1. Checks ``is_launcher_alive()`` — calls ``icon.stop()`` and exits if
-   the launcher is gone (orphan prevention, FR-19c).
-2. Issues a plaintext HTTP GET against
-   ``http://127.0.0.1:<loopback_port>/api/status/public/``.
-3. Updates an in-memory ``ManagerSnapshot`` via
-   ``dataclasses.replace`` (never ``__dict__`` mutation, per FR-15).
-4. Enqueues ``('snapshot', snapshot)`` plus, on edge transitions,
-   ``('state_change', prev, nxt)`` and ``('notification', event)``
-   into the thread-safe ``queue.Queue`` drained by the pystray main
-   thread.
-5. Three consecutive probe failures transition manager_state to
-   ``error`` — unless ``quit_requested_flag`` is set, in which case
-   the transition is to ``stopped`` (FR-17a).
+Threading model: the polling loop runs in a regular
+``threading.Thread`` (daemon, named ``tray-state-poller``).  The
+``threading.Event.wait()``-based sleep is retained verbatim — do NOT
+replace with ``QWaitCondition``, ``QThread``, or ``QTimer``.  This
+class is a ``QObject`` composing a ``threading.Thread`` (not
+inheriting from both — Python MRO and Qt's metaclass don't cooperate
+with that shape).  Signals are emitted from the worker thread; Qt's
+queued-connection semantics marshal slot invocations back to the GUI
+thread.
+
+Thread affinity: the ``QObject`` MUST be constructed on the GUI
+thread.  ``moveToThread`` is NOT called; affinity stays with the
+creator.  This lets ``Qt.AutoConnection`` resolve to
+``QueuedConnection`` for cross-thread emits from the polling thread.
+
+Callers start the poller via ``QTimer.singleShot(0, poller.start)``
+on the first iteration of the event loop.  Graceful shutdown after
+``app.exec()`` returns: ``stop_event.set()`` →
+``poller.join(timeout=3.0)`` → ``QObject.disconnect(poller)``
+(static form — the zero-arg instance form raises in PySide6).
+
+Signal delivery is ordered and non-coalescing: each state change
+produces exactly one ``QMetaCallEvent`` per signal emit.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import queue
 import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
 from typing import Optional
+
+from PySide6.QtCore import QObject, Signal
 
 from shared.tray import launcher_watch
 from shared.tray.notifications import NotificationEvent
@@ -76,45 +89,99 @@ def _notification_for(prev: str, nxt: str) -> Optional[NotificationEvent]:
     return None
 
 
-class StatePoller(threading.Thread):
-    """Daemon thread polling the manager loopback endpoint."""
+class QtStatePoller(QObject):
+    """State poller emitting Qt signals; worker stays threading.Thread.
+
+    Signals:
+      - ``snapshot_changed(ManagerSnapshot)`` — every tick where the
+        snapshot changes (includes the first successful tick).
+      - ``state_changed(str, str)`` — each state edge transition as
+        ``(prev_state, next_state)``.  Mirrors the legacy
+        ``('state_change', prev, nxt)`` queue event.
+      - ``notification(NotificationEvent)`` — events derived from
+        state transitions or the one-shot setup-complete edge.
+      - ``launcher_gone()`` — emitted once when the launcher process
+        is detected dead (FR-19c); the connected slot should typically
+        call ``QApplication.instance().quit()``.
+    """
+
+    snapshot_changed = Signal(ManagerSnapshot)
+    state_changed = Signal(str, str)
+    notification = Signal(NotificationEvent)
+    launcher_gone = Signal()
 
     def __init__(
         self,
         loopback_url: str,
         stop_event: threading.Event,
-        update_queue: "queue.Queue",
         quit_requested_flag: threading.Event,
-        on_launcher_dead=None,
+        parent: Optional[QObject] = None,
     ) -> None:
-        super().__init__(daemon=True, name="tray-state-poller")
+        super().__init__(parent)
         self._url = loopback_url
         self._stop = stop_event
-        self._queue = update_queue
         self._quit_flag = quit_requested_flag
         self._snapshot = ManagerSnapshot()
         self._consecutive_failures = 0
         self._setup_notified = False
         self._saw_setup_mode_true = False
-        self._on_launcher_dead = on_launcher_dead
+        self._launcher_gone_emitted = False
+        self._thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
-    # Thread entry
+    # Public lifecycle
     # ------------------------------------------------------------------
-    def run(self) -> None:  # pragma: no cover - thread loop
+    def start(self) -> None:
+        """Spawn the polling thread.
+
+        MUST be called on the GUI thread, preferably via
+        ``QTimer.singleShot(0, poller.start)`` inside the event loop's
+        first iteration — after ``tray.show()`` and immediately before
+        ``app.exec()``.  Idempotent: a second call while the thread is
+        alive logs a warning and returns.
+        """
+        if self._thread is not None and self._thread.is_alive():
+            logger.warning(
+                "QtStatePoller.start() called while thread is already "
+                "running; ignoring.",
+            )
+            return
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            daemon=True,
+            name="tray-state-poller",
+        )
+        self._thread.start()
+
+    def join(self, timeout: Optional[float] = None) -> None:
+        """Convenience: wait for the polling thread to exit."""
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+
+    # ------------------------------------------------------------------
+    # Thread entry (worker thread)
+    # ------------------------------------------------------------------
+    def _run_loop(self) -> None:  # pragma: no cover - thread loop
+        # Top-level try/except is a survivability guard: keeps the
+        # polling thread alive if _tick() (or a synchronous slot)
+        # raises an exception _fetch didn't convert.
         while not self._stop.wait(_POLL_INTERVAL_SECONDS):
-            self._tick()
+            try:
+                self._tick()
+            except Exception:
+                logger.exception("QtStatePoller tick failed")
             if self._stop.is_set():
                 return
 
     def _tick(self) -> None:
         if not launcher_watch.is_launcher_alive():
             logger.info("Launcher process is gone; tray will exit.")
-            if self._on_launcher_dead is not None:
+            if not self._launcher_gone_emitted:
+                self._launcher_gone_emitted = True
                 try:
-                    self._on_launcher_dead()
+                    self.launcher_gone.emit()
                 except Exception:  # pragma: no cover
-                    logger.exception("on_launcher_dead callback failed")
+                    logger.exception("launcher_gone emit failed")
             self._stop.set()
             return
         try:
@@ -195,12 +262,12 @@ class StatePoller(threading.Thread):
     # ------------------------------------------------------------------
     def _emit(self, prev: ManagerSnapshot, nxt: ManagerSnapshot) -> None:
         self._snapshot = nxt
-        self._queue.put(("snapshot", nxt))
+        self.snapshot_changed.emit(nxt)
         if prev.state != nxt.state:
-            self._queue.put(("state_change", prev.state, nxt.state))
+            self.state_changed.emit(prev.state, nxt.state)
             event = _notification_for(prev.state, nxt.state)
             if event is not None:
-                self._queue.put(("notification", event))
+                self.notification.emit(event)
 
     def _maybe_notify_setup_complete(
         self, snapshot: ManagerSnapshot,
@@ -215,18 +282,16 @@ class StatePoller(threading.Thread):
         if self._setup_notified or not self._saw_setup_mode_true:
             return
         self._setup_notified = True
-        self._queue.put((
-            "notification",
-            NotificationEvent(
-                "Sethlans Setup",
-                "Setup complete. Open the dashboard from the tray "
-                "menu.",
-            ),
+        self.notification.emit(NotificationEvent(
+            "Sethlans Setup",
+            "Setup complete. Open the dashboard from the tray "
+            "menu.",
         ))
 
     # ------------------------------------------------------------------
-    # Accessors (main thread)
+    # Accessors (GUI thread)
     # ------------------------------------------------------------------
     @property
     def snapshot(self) -> ManagerSnapshot:
+        """Current snapshot; intended for GUI-thread callers."""
         return self._snapshot

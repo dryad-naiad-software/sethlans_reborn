@@ -4,9 +4,9 @@
 
 """Shared About Sethlans dialog for the PySide6 tray (spec NFR-1).
 
-Placed in its own module so both ``qt_menu_manager`` and
-``qt_menu_worker`` (Phase 7b) can show the same LGPLv3 attribution
-dialog without duplicating the payload text.
+Placed in its own module so both ``menu_manager`` and
+``menu_worker`` can show the same LGPLv3 attribution dialog without
+duplicating the payload text.
 
 The bundled license files (``licenses/LICENSE.LGPLv3``,
 ``licenses/Qt-NOTICE.txt``) are written by Phase 10 packaging; the

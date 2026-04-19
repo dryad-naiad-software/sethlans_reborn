@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for ``shared/tray/qt_menu_worker.py`` (FR-2, NFR-1).
+"""Unit tests for ``shared/tray/menu_worker.py`` (FR-2, NFR-1).
 
 Covers ``WorkerSection`` QMenu construction, dynamic header text,
 quit-enabled marker gating, click-handler wiring, and
@@ -18,13 +18,13 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PySide6", reason="PySide6 required for qt_menu_worker")
+pytest.importorskip("PySide6", reason="PySide6 required for menu_worker")
 pytest.importorskip("pytestqt", reason="pytest-qt required for qapp fixture")
 
 from PySide6.QtWidgets import QMenu  # noqa: E402
 
-from shared.tray import qt_menu_worker as qmw  # noqa: E402
-from shared.tray.qt_menu_worker import WorkerSection  # noqa: E402
+from shared.tray import menu_worker as qmw  # noqa: E402
+from shared.tray.menu_worker import WorkerSection  # noqa: E402
 
 
 # ------------------------------------------------------------------ #

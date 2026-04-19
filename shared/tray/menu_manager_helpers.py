@@ -2,11 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Pure helpers for ``qt_menu_manager``.
+"""Pure helpers for ``menu_manager``.
 
 Split out of the main module to keep each file under the 300-line cap
-(CLAUDE.md).  No Qt imports here — these helpers are shared with the
-legacy pystray menu and have no UI affinity.
+(CLAUDE.md).  No Qt imports here — these helpers have no UI affinity.
 """
 
 from __future__ import annotations
