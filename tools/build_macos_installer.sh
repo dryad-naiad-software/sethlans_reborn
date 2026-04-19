@@ -12,11 +12,13 @@
 #       2. PyInstaller bundles: manager, worker, tray_helper, launcher.
 #       3. DMG assembly via packaging/macos/build_dmg.sh (hdiutil UDZO).
 #
-#     Auto-increments a patch version (0.1.1..0.1.199) tracked in
-#     .tmp/build_version (gitignored; shared with the Windows installer
-#     script so both platforms follow the same version sequence). Pass an
-#     explicit version via --version=X.Y.Z to override the auto-bump (e.g.
-#     for release tags).
+#     Reads the authoritative version from VERSION at the repo root.
+#     The same file is read by build_windows_installer.sh and
+#     build_linux_installer.sh so all three platforms produce matching
+#     installer artifacts for a given commit. Bump the version via
+#     tools/bump_version.sh (patch/minor/major), or pass an explicit
+#     --version=X.Y.Z to override (e.g. for a release tag without a
+#     pre-commit).
 #
 #     Output: dist/sethlans-<VERSION>-macos-arm64.dmg
 #
@@ -69,23 +71,24 @@ for arg in "$@"; do
 done
 
 # --- Version selection ---
-mkdir -p .tmp
-VERSION_FILE=".tmp/build_version"
+# Authoritative version lives in the repo-root VERSION file, which all
+# three platform build scripts read. Bump it via tools/bump_version.sh
+# (not auto-bumped here, so cross-platform builds of the same commit
+# produce matching 0.1.X installers). An explicit --version=X.Y.Z
+# override is still honored for release tags.
+VERSION_FILE="VERSION"
 if [ -n "$EXPLICIT_VERSION" ]; then
   VERSION="$EXPLICIT_VERSION"
 elif [ -f "$VERSION_FILE" ]; then
-  CURRENT=$(cat "$VERSION_FILE")
-  PATCH=$(echo "$CURRENT" | awk -F. '{print $3}')
-  NEXT_PATCH=$((PATCH + 1))
-  if [ "$NEXT_PATCH" -gt 199 ]; then
-    echo "ERROR: patch version 0.1.$NEXT_PATCH exceeds 199 cap. Bump minor manually with --version=0.2.0"
-    exit 1
-  fi
-  VERSION="0.1.$NEXT_PATCH"
+  VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
 else
-  VERSION="0.1.1"
+  echo "ERROR: $VERSION_FILE not found at repo root. Create it (e.g. 'echo 0.1.0 > VERSION') or pass --version=X.Y.Z."
+  exit 1
 fi
-echo "$VERSION" > "$VERSION_FILE"
+if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "ERROR: version '$VERSION' is not X.Y.Z"
+  exit 1
+fi
 echo "=== Building Sethlans v$VERSION (macOS) ==="
 
 # --- Environment checks ---
