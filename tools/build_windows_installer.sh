@@ -143,13 +143,22 @@ fi
 ls -lh "$OUTPUT"
 
 # --- Cleanup ---
-# Installer is produced; the PyInstaller dist/ and build/ trees are no
-# longer needed. Removing them saves ~1 GB between runs. The installer
-# exe at $OUTPUT is preserved; .tmp/build_version stays so the
-# auto-bump keeps working across runs.
+# Installer is produced; the PyInstaller intermediate trees are no
+# longer needed. Selective removal (matches tools/build_macos_installer.sh):
+# wipe build/ and only the four PyInstaller bundle dirs under dist/.
+# Do NOT `rm -rf dist/` wholesale — the macOS builder emits its final
+# dist/sethlans-<V>-macos-arm64.dmg into the same dist/ dir, and a
+# heavy-handed cleanup here would nuke a sibling platform's deliverable
+# in a cross-platform workspace (sync tool / CI matrix reuse). The
+# Windows installer exe at $OUTPUT lives under packaging/windows/ so
+# nothing in this block touches it. .tmp/build_version also stays so
+# the auto-bump keeps working across runs.
 echo "=== Cleanup ==="
-rm -rf "$DIST_ROOT" "$BUILD_ROOT"
-echo "Removed $DIST_ROOT and $BUILD_ROOT"
+rm -rf "${BUILD_ROOT:?}"
+for component in launcher manager worker tray_helper; do
+  rm -rf "${DIST_ROOT:?}/$component"
+done
+echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper}"
 
 echo ""
 echo "Installer ready: $OUTPUT"
