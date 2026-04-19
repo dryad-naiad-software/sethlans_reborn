@@ -4,22 +4,23 @@
 
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
 import { SetupApiService } from './setup-api.service';
-import { SetupStateService } from './setup-state.service';
 
 describe('SetupApiService', () => {
   let service: SetupApiService;
   let httpMock: HttpTestingController;
-  let stateService: SetupStateService;
 
   beforeEach(() => {
+    sessionStorage.clear();
     TestBed.configureTestingModule({
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
     service = TestBed.inject(SetupApiService);
     httpMock = TestBed.inject(HttpTestingController);
-    stateService = TestBed.inject(SetupStateService);
   });
 
   afterEach(() => httpMock.verify());
@@ -28,22 +29,18 @@ describe('SetupApiService', () => {
     expect(service).toBeTruthy();
   });
 
-  describe('GET endpoints (no token header)', () => {
-    it('should GET /api/setup/status/', () => {
-      const mockStatus = {
-        complete: false, topology: null,
-        current_step: null, checkpoints: [],
-      };
-      service.getStatus().subscribe(res => {
-        expect(res).toEqual(mockStatus);
-      });
+  describe('GET endpoints', () => {
+    it('GETs /api/setup/status/ without X-Setup-Token', () => {
+      service.getStatus().subscribe();
       const req = httpMock.expectOne('/api/setup/status/');
       expect(req.request.method).toBe('GET');
       expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
-      req.flush(mockStatus);
+      req.flush({
+        complete: false, topology: null, current_step: null, checkpoints: [],
+      });
     });
 
-    it('should GET ffmpeg progress', () => {
+    it('GETs ffmpeg progress without X-Setup-Token', () => {
       service.getFfmpegProgress('task-1').subscribe();
       const req = httpMock.expectOne('/api/setup/ffmpeg/progress/task-1/');
       expect(req.request.method).toBe('GET');
@@ -51,7 +48,7 @@ describe('SetupApiService', () => {
       req.flush({ status: 'downloading', percent: 50, error: null });
     });
 
-    it('should GET blender progress', () => {
+    it('GETs blender progress without X-Setup-Token', () => {
       service.getBlenderProgress('task-2').subscribe();
       const req = httpMock.expectOne('/api/setup/blender/progress/task-2/');
       expect(req.request.method).toBe('GET');
@@ -59,122 +56,105 @@ describe('SetupApiService', () => {
       req.flush({ status: 'extracting', percent: 80, error: null });
     });
 
-    it('should GET summary', () => {
-      const mockSummary = {
-        manager_url: 'https://localhost:8080',
-        admin_username: 'admin',
-        enrollment_key: 'ABC123',
-        cert_fingerprint: 'AA:BB:CC',
-        topology: 'manager',
-      };
-      service.getSummary().subscribe(res => {
-        expect(res).toEqual(mockSummary);
-      });
+    it('GETs summary without X-Setup-Token', () => {
+      service.getSummary().subscribe();
       const req = httpMock.expectOne('/api/setup/summary/');
       expect(req.request.method).toBe('GET');
-      req.flush(mockSummary);
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
+      req.flush({
+        manager_url: 'https://localhost:8080',
+        admin_username: 'admin',
+        enrollment_key: 'ABC',
+        cert_fingerprint: 'AA:BB',
+        topology: 'manager',
+      });
     });
   });
 
-  describe('POST endpoints with token', () => {
-    beforeEach(() => {
-      stateService.setSetupToken('test-token-123');
-    });
-
-    it('should POST topology with token header', () => {
+  describe('POST endpoints', () => {
+    it('POSTs topology without X-Setup-Token', () => {
       service.setTopology({ topology: 'manager' }).subscribe();
       const req = httpMock.expectOne('/api/setup/topology/');
       expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       expect(req.request.body).toEqual({ topology: 'manager' });
       req.flush({ status: 'ok' });
     });
 
-    it('should POST network with token header', () => {
+    it('POSTs network without X-Setup-Token', () => {
       const body = { bind_host: '0.0.0.0', bind_port: 8080 };
       service.configureNetwork(body).subscribe();
       const req = httpMock.expectOne('/api/setup/network/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
-      expect(req.request.body).toEqual(body);
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       req.flush({ status: 'ok', bind_host: '0.0.0.0', bind_port: 8080 });
     });
 
-    it('should POST database with token header', () => {
+    it('POSTs database without X-Setup-Token', () => {
       service.configureDatabase({ engine: 'sqlite' }).subscribe();
       const req = httpMock.expectOne('/api/setup/database/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       req.flush({ status: 'ok' });
     });
 
-    it('should POST admin-user with token header', () => {
-      const body = {
+    it('POSTs admin-user without X-Setup-Token', () => {
+      service.createAdminUser({
         username: 'admin', email: 'a@b.com',
-        password: 'pass1234', password_confirm: 'pass1234',
-      };
-      service.createAdminUser(body).subscribe();
+        password: 'pw12345', password_confirm: 'pw12345',
+      }).subscribe();
       const req = httpMock.expectOne('/api/setup/admin-user/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       req.flush({ status: 'ok', username: 'admin' });
     });
 
-    it('should POST worker-password with token header', () => {
+    it('POSTs worker-password without X-Setup-Token', () => {
       service.setWorkerPassword({ password: 'secret' }).subscribe();
       const req = httpMock.expectOne('/api/setup/worker-password/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       req.flush({ status: 'ok' });
     });
 
-    it('should POST ffmpeg start with token header', () => {
+    it('POSTs ffmpeg start without X-Setup-Token', () => {
       service.startFfmpegDownload().subscribe();
       const req = httpMock.expectOne('/api/setup/ffmpeg/start/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       req.flush({ status: 'started', task_id: 'task-1' });
     });
 
-    it('should POST ffmpeg cancel with token header', () => {
-      service.cancelFfmpegDownload().subscribe();
-      const req = httpMock.expectOne('/api/setup/ffmpeg/cancel/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
-      req.flush({ status: 'cancelled' });
-    });
-
-    it('should POST blender start with token header', () => {
+    it('POSTs blender start without X-Setup-Token', () => {
       service.startBlenderDownload().subscribe();
       const req = httpMock.expectOne('/api/setup/blender/start/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       req.flush({ status: 'started', task_id: 'task-2' });
     });
 
-    it('should POST blender cancel with token header', () => {
-      service.cancelBlenderDownload().subscribe();
-      const req = httpMock.expectOne('/api/setup/blender/cancel/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
-      req.flush({ status: 'cancelled' });
-    });
-
-    it('should POST verify with token header', () => {
+    it('POSTs verify without X-Setup-Token', () => {
       service.verify().subscribe();
       const req = httpMock.expectOne('/api/setup/verify/');
-      expect(req.request.method).toBe('POST');
-      expect(req.request.headers.get('X-Setup-Token')).toBe('test-token-123');
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       req.flush({ checks: [], all_passed: true });
     });
   });
 
-  describe('POST endpoints without token', () => {
-    it('should POST without X-Setup-Token when no token is set', () => {
-      service.setTopology({ topology: 'manager' }).subscribe();
-      const req = httpMock.expectOne('/api/setup/topology/');
+  describe('getHealth', () => {
+    it('GETs /api/health/ and returns boot_id/setup_mode', () => {
+      let result: { boot_id: string; setup_mode: boolean } | null = null;
+      service.getHealth().subscribe(r => (result = r));
+      const req = httpMock.expectOne('/api/health/');
+      expect(req.request.method).toBe('GET');
       expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
-      req.flush({ status: 'ok' });
+      req.flush({ boot_id: 'uuid-1', setup_mode: true });
+      expect(result).toEqual({ boot_id: 'uuid-1', setup_mode: true } as never);
+    });
+  });
+
+  describe('requestRestart', () => {
+    it('POSTs /api/setup/restart/ with empty body', () => {
+      service.requestRestart().subscribe();
+      const req = httpMock.expectOne('/api/setup/restart/');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({});
+      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
+      req.flush(null, { status: 202, statusText: 'Accepted' });
     });
   });
 });

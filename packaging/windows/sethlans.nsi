@@ -70,6 +70,35 @@ Function .onInit
   ${GetOptions} $0 "/MANAGER_HOST=" $MANAGER_HOST
   ${GetOptions} $0 "/AUTOSTART=" $AUTOSTART
   ${GetOptions} $0 "/SKIP_WIZARD=" $SKIP_WIZARD
+
+  ; --- Auto-upgrade: detect and remove prior installation ---
+  ReadRegStr $R0 HKLM "${PRODUCT_UNINST_KEY}" "UninstallString"
+  StrCmp $R0 "" upgrade_done
+
+    ; Confirm upgrade with user (skip prompt for silent installs)
+    ${IfNot} ${Silent}
+      MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
+        "${PRODUCT_NAME} is already installed.$\n$\nClick OK to remove the previous version, or Cancel to abort this upgrade." \
+        IDOK upgrade_proceed
+      Abort
+      upgrade_proceed:
+    ${EndIf}
+
+    ; Kill running Sethlans processes to release file locks BEFORE uninstaller runs
+    nsExec::ExecToLog 'taskkill /F /IM run_manager.exe'
+    nsExec::ExecToLog 'taskkill /F /IM run_worker.exe'
+    nsExec::ExecToLog 'taskkill /F /IM run_tray_helper.exe'
+    nsExec::ExecToLog 'taskkill /F /IM run_launcher.exe'
+
+    ; Run the previous uninstaller silently with _?=$INSTDIR so it blocks until done
+    ; and does not self-delete. We then clean up the leftover uninstaller + bin dir.
+    ExecWait '"$R0" /S _?=$INSTDIR'
+
+    Delete "$INSTDIR\uninstall.exe"
+    RMDir /r "$INSTDIR\bin"
+
+    ; NOTE: %LOCALAPPDATA%\Sethlans is intentionally preserved to keep user data.
+  upgrade_done:
 FunctionEnd
 
 ; --- Main install section ---
@@ -142,6 +171,11 @@ Section "Sethlans Core" SEC_CORE
       skip_enrollment:
     skip_sentinel:
   skip_silent_config:
+
+  ; Add Windows Firewall rules (Private, Public, Domain profiles)
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Manager (TCP 8080)" dir=in action=allow protocol=TCP localport=8080 profile=private,public,domain program="$INSTDIR\bin\manager\run_manager.exe"'
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Worker (TCP 8081)" dir=in action=allow protocol=TCP localport=8081 profile=private,public,domain program="$INSTDIR\bin\worker\run_worker.exe"'
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Broadcast (UDP 8082)" dir=in action=allow protocol=UDP localport=8082 profile=private,public,domain program="$INSTDIR\bin\manager\run_manager.exe"'
 SectionEnd
 
 ; --- Start Menu shortcuts ---
@@ -169,6 +203,11 @@ Section "Uninstall"
   nsExec::ExecToLog 'taskkill /F /IM run_manager.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_worker.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_tray_helper.exe'
+
+  ; Remove Windows Firewall rules
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Manager (TCP 8080)"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Worker (TCP 8081)"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Broadcast (UDP 8082)"'
 
   ; Remove files
   RMDir /r "$INSTDIR\bin"

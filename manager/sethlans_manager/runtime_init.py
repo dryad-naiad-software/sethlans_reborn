@@ -16,6 +16,7 @@ import os
 import socket
 import sys
 import typing
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -140,6 +141,9 @@ def initialize_runtime_state(cert, enrollment_cfg, bind_host, bind_port):
         sys.exit(1)
 
     runtime_state.manager_id = settings_row.manager_id
+    # Fresh UUID per process start — used by GET /api/health/ so the
+    # setup-wizard restart poll can detect a completed restart (FR-14c).
+    runtime_state.manager_boot_id = uuid.uuid4().hex
     runtime_state.cert_fingerprint = get_cert_fingerprint(cert)
     runtime_state.broadcaster_name = (
         enrollment_cfg.get("name") or "Sethlans Manager"

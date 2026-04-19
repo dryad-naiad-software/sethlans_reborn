@@ -4,19 +4,22 @@
 """
 Setup-mode gate middleware.
 
-When the ``.setup_complete`` sentinel is absent AND no superuser exists,
-all requests not matching allowed prefixes are redirected to ``/setup/``
-(browser) or receive HTTP 503 (API).  Once setup completes, the
-module-level boolean flips to ``True`` and the middleware becomes a
-passthrough for the remainder of the process lifetime.
+Responsibilities:
 
-**Setup token validation (FR-L6):** POST requests to ``/api/setup/``
-must include a valid ``X-Setup-Token`` header.  The expected token is
-read from ``manager.ini [setup] token``.  GET requests to setup
-endpoints do not require the token.
+* While setup is incomplete (``.setup_complete`` sentinel absent and no
+  superuser), browser routes are redirected to ``/setup/`` and non-
+  allowlisted API routes return a unified envelope ``setup_in_progress``.
+* Once setup completes, the gate flips to a post-setup role: all
+  ``/api/setup/*`` paths return ``setup_complete`` (404) so stale
+  wizard clients can't reach legacy endpoints.
+
+Header-based token validation is gone — authentication for setup views
+is now session-based (set by ``setup_bootstrap_view``).  See the
+``setup-auth-unification`` spec for the new flow.
 """
 
-import configparser
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 
@@ -32,10 +35,14 @@ logger = logging.getLogger(__name__)
 # single uvicorn worker (required during setup), this is safe.
 _setup_complete: bool = False
 
-# Allowed URL prefixes during setup mode.
+# Allowed URL prefixes during setup mode.  Bootstrap lives under
+# /api/setup/ so the prefix covers it; the bootstrap view carries its
+# own anonymous auth contract.
 _ALLOWED_PREFIXES = (
     "/setup/",
     "/api/setup/",
+    "/api/auth/csrf/",
+    "/api/health/",
     "/static/",
     "/media/",
 )
@@ -49,31 +56,18 @@ def _get_data_dir() -> Path:
     return settings.BASE_DIR
 
 
-def _read_setup_token() -> str | None:
-    """Read the setup token from ``manager.ini [setup] token``."""
-    data_dir = _get_data_dir()
-    ini_path = data_dir / "manager.ini"
-    if not ini_path.exists():
-        return None
-    config = configparser.ConfigParser()
-    config.read(ini_path)
-    return config.get("setup", "token", fallback=None)
-
-
 def _check_sentinel() -> bool:
     """Determine if setup is complete.
 
-    Checks the sentinel file first.  Defense-in-depth: if the
-    sentinel is missing but a superuser exists, refuse setup mode
-    and log a critical warning.
+    Checks the sentinel file first.  Defense-in-depth: if the sentinel
+    is missing but a superuser exists, refuse setup mode and log a
+    critical warning.
     """
     data_dir = _get_data_dir()
     sentinel = read_sentinel(data_dir)
-    if sentinel is not None:
+    if sentinel is not None and sentinel.get("completed_at"):
         return True
 
-    # Defense-in-depth (FR-G6): sentinel missing but superuser
-    # exists means setup was completed and sentinel was deleted.
     try:
         from django.contrib.auth import get_user_model
         User = get_user_model()
@@ -89,11 +83,25 @@ def _check_sentinel() -> bool:
     return False
 
 
+def _envelope_response(code: str, message: str, status: int) -> JsonResponse:
+    """Render the unified setup error envelope from middleware.
+
+    Middleware runs outside DRF, so we can't reuse ``setup_error``
+    directly without pulling a Response renderer.  JsonResponse with
+    the identical shape is sufficient.
+    """
+    return JsonResponse(
+        {"error": {"code": code, "message": message, "details": {}}},
+        status=status,
+    )
+
+
 class SetupGateMiddleware:
     """Gate middleware that enforces setup completion.
 
-    Added to ``MIDDLEWARE`` after ``SecurityMiddleware`` and before
-    ``WhiteNoiseMiddleware``.
+    Added to ``MIDDLEWARE`` after ``WhiteNoiseMiddleware`` so that
+    static assets (Angular's root-served ``/main-*.js``, etc.) bypass
+    the gate.  Unknown paths fall through to this middleware.
     """
 
     def __init__(self, get_response):
@@ -105,45 +113,44 @@ class SetupGateMiddleware:
     def __call__(self, request):
         global _setup_complete
 
-        # Fast path: setup already complete.
+        # Fast path: setup already complete — but guard /api/setup/*.
         if _setup_complete:
+            if request.path.startswith("/api/setup/"):
+                return _envelope_response(
+                    "setup_complete",
+                    "Setup has already completed.",
+                    404,
+                )
             return self.get_response(request)
 
         # Re-check sentinel (wizard may have just completed).
         if _check_sentinel():
             _setup_complete = True
+            if request.path.startswith("/api/setup/"):
+                return _envelope_response(
+                    "setup_complete",
+                    "Setup has already completed.",
+                    404,
+                )
             return self.get_response(request)
 
-        # Allow requests to setup-related paths.
+        # Allow requests to setup-related paths (auth is handled by
+        # the view / DRF permission class from here on).
         if any(
             request.path.startswith(p) for p in _ALLOWED_PREFIXES
         ):
-            return self._validate_setup_token(request)
+            return self.get_response(request)
 
-        # Block API calls with 503.
+        # Block API calls with unified envelope.  Spec FR-3 / FR-12a
+        # require 403 ``setup_in_progress`` so the Angular interceptor
+        # can route to /setup via the envelope code; the old 503 path
+        # leaked through as a generic "server unavailable".
         if request.path.startswith("/api/"):
-            return JsonResponse(
-                {"detail": "Setup not complete."}, status=503,
+            return _envelope_response(
+                "setup_in_progress",
+                "Setup has not completed.",
+                403,
             )
 
         # Redirect browser requests to wizard.
         return redirect("/setup/")
-
-    def _validate_setup_token(self, request):
-        """Validate setup token on POST to /api/setup/ endpoints.
-
-        GET requests pass through without token validation.
-        """
-        if (
-            request.method == "POST"
-            and request.path.startswith("/api/setup/")
-        ):
-            expected = _read_setup_token()
-            if expected:
-                provided = request.headers.get("X-Setup-Token", "")
-                if provided != expected:
-                    return JsonResponse(
-                        {"detail": "Invalid setup token."},
-                        status=403,
-                    )
-        return self.get_response(request)

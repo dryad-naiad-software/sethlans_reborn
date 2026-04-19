@@ -108,8 +108,14 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'sethlans_manager.middleware.setup_gate.SetupGateMiddleware',
+    # WhiteNoise must come BEFORE SetupGateMiddleware so that static
+    # assets (Angular's root-served /main-*.js, /polyfills-*.js,
+    # /styles-*.css, etc.) are served directly instead of being
+    # redirected to /setup/.  Unknown paths fall through to the gate,
+    # preserving redirect-to-/setup/ for browser routes and 503 for
+    # /api/ routes.  See GitHub issue #70.
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'sethlans_manager.middleware.setup_gate.SetupGateMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',

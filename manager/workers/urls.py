@@ -15,6 +15,7 @@ from .views import (
     health_view, shutdown_view, system_info_view,
 )
 from .views.manager_defaults import manager_defaults_view
+from .views.manager_summary import manager_summary_view
 
 # Create a router instance
 router = DefaultRouter()
@@ -51,6 +52,13 @@ urlpatterns = [
         'manager-defaults/',
         manager_defaults_view,
         name='manager-defaults',
+    ),
+    # Admin-side manager summary (post-setup; replaces the old
+    # setup_summary_view access path after completion).
+    path(
+        'manager/summary/',
+        manager_summary_view,
+        name='manager-summary',
     ),
     # Include all router URLs at the root of /api/
     path('', include(router.urls)),

@@ -4,19 +4,18 @@
 
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { of, throwError, NEVER } from 'rxjs';
 import { SetupComponent } from './setup.component';
 import { SetupApiService } from './services/setup-api.service';
 import { SetupStateService } from './services/setup-state.service';
 import { SetupStatus } from './models/setup.models';
 
-/** All methods on SetupApiService that child components may call. */
 const API_METHODS = [
   'getStatus', 'setTopology', 'configureNetwork', 'configureDatabase',
   'createAdminUser', 'setWorkerPassword', 'startFfmpegDownload',
   'getFfmpegProgress', 'cancelFfmpegDownload', 'startBlenderDownload',
   'getBlenderProgress', 'cancelBlenderDownload', 'verify', 'getSummary',
+  'getHealth', 'requestRestart',
 ] as const;
 
 describe('SetupComponent', () => {
@@ -30,14 +29,11 @@ describe('SetupComponent', () => {
     current_step: null, checkpoints: [],
   };
 
-  function buildModule(
-    queryParams: Record<string, string> = {},
-    status: SetupStatus = freshStatus,
-  ) {
+  beforeEach(() => sessionStorage.clear());
+
+  function buildModule(status: SetupStatus = freshStatus) {
     mockApi = jasmine.createSpyObj('SetupApiService', [...API_METHODS]);
     mockApi.getStatus.and.returnValue(of(status));
-    // Provide NEVER for methods child components call on init to prevent
-    // unexpected emissions during SetupComponent-level tests.
     mockApi.startFfmpegDownload.and.returnValue(NEVER);
     mockApi.startBlenderDownload.and.returnValue(NEVER);
     mockApi.verify.and.returnValue(NEVER);
@@ -47,36 +43,12 @@ describe('SetupComponent', () => {
       imports: [SetupComponent, NoopAnimationsModule],
       providers: [
         { provide: SetupApiService, useValue: mockApi },
-        {
-          provide: ActivatedRoute,
-          useValue: {
-            snapshot: { queryParamMap: convertToParamMap(queryParams) },
-          },
-        },
       ],
     }).compileComponents();
   }
 
   describe('initialization', () => {
-    it('should read token from query params', async () => {
-      await buildModule({ token: 'my-setup-token' });
-      fixture = TestBed.createComponent(SetupComponent);
-      component = fixture.componentInstance;
-      state = TestBed.inject(SetupStateService);
-      fixture.detectChanges();
-      expect(state.setupToken).toBe('my-setup-token');
-    });
-
-    it('should not set token when none in query params', async () => {
-      await buildModule();
-      fixture = TestBed.createComponent(SetupComponent);
-      component = fixture.componentInstance;
-      state = TestBed.inject(SetupStateService);
-      fixture.detectChanges();
-      expect(state.setupToken).toBeNull();
-    });
-
-    it('should call getStatus on init', async () => {
+    it('calls getStatus on init', async () => {
       await buildModule();
       fixture = TestBed.createComponent(SetupComponent);
       component = fixture.componentInstance;
@@ -84,7 +56,7 @@ describe('SetupComponent', () => {
       expect(mockApi.getStatus).toHaveBeenCalled();
     });
 
-    it('should set loading to false after getStatus returns', async () => {
+    it('sets loading to false after getStatus returns', async () => {
       await buildModule();
       fixture = TestBed.createComponent(SetupComponent);
       component = fixture.componentInstance;
@@ -93,23 +65,35 @@ describe('SetupComponent', () => {
       expect(component.loading).toBeFalse();
     });
 
-    it('should populate steps from state on fresh start', async () => {
+    it('populates steps from state on fresh start', async () => {
       await buildModule();
       fixture = TestBed.createComponent(SetupComponent);
       component = fixture.componentInstance;
       fixture.detectChanges();
       expect(component.steps.length).toBe(8);
     });
+
+    it('does NOT read setup token from query params (moved to APP_INITIALIZER)',
+      async () => {
+        await buildModule();
+        fixture = TestBed.createComponent(SetupComponent);
+        component = fixture.componentInstance;
+        state = TestBed.inject(SetupStateService);
+        fixture.detectChanges();
+        // setupToken field was removed from SetupStateService.
+        expect((state as unknown as Record<string, unknown>)['setupToken'])
+          .toBeUndefined();
+      });
   });
 
   describe('resume from status', () => {
-    it('should resume from checkpoints and mark prior steps completed', async () => {
+    it('resumes from checkpoints and marks prior steps completed', async () => {
       const status: SetupStatus = {
         complete: false, topology: 'manager',
         current_step: null,
         checkpoints: ['topology_chosen', 'network_configured'],
       };
-      await buildModule({}, status);
+      await buildModule(status);
       fixture = TestBed.createComponent(SetupComponent);
       component = fixture.componentInstance;
       fixture.detectChanges();
@@ -124,7 +108,7 @@ describe('SetupComponent', () => {
   });
 
   describe('error handling', () => {
-    it('should set loading to false on getStatus error', async () => {
+    it('sets loading to false on getStatus error', async () => {
       await buildModule();
       mockApi.getStatus.and.returnValue(throwError(() => new Error('fail')));
       fixture = TestBed.createComponent(SetupComponent);
@@ -136,7 +120,7 @@ describe('SetupComponent', () => {
   });
 
   describe('onStepComplete', () => {
-    it('should mark step as completed', fakeAsync(async () => {
+    it('marks step as completed', fakeAsync(async () => {
       await buildModule();
       fixture = TestBed.createComponent(SetupComponent);
       component = fixture.componentInstance;
@@ -148,7 +132,30 @@ describe('SetupComponent', () => {
       expect(component.isStepCompleted(step)).toBeTrue();
     }));
 
-    it('should refresh steps after topology step', fakeAsync(async () => {
+    it('does NOT call clearSetupToken on verification complete (method removed)',
+      fakeAsync(async () => {
+        await buildModule();
+        fixture = TestBed.createComponent(SetupComponent);
+        component = fixture.componentInstance;
+        state = TestBed.inject(SetupStateService);
+        fixture.detectChanges();
+
+        // Verify method does not exist on the service.
+        expect(
+          (state as unknown as Record<string, unknown>)['clearSetupToken'],
+        ).toBeUndefined();
+
+        // Complete verification step and assert component does not throw.
+        component.onStepComplete({
+          key: 'verification', label: 'Verification', checkpoint: null,
+        });
+        tick();
+        expect(component.isStepCompleted(
+          { key: 'verification', label: '', checkpoint: null }))
+          .toBeTrue();
+      }));
+
+    it('refreshes steps after topology step', fakeAsync(async () => {
       await buildModule();
       fixture = TestBed.createComponent(SetupComponent);
       component = fixture.componentInstance;
@@ -156,10 +163,9 @@ describe('SetupComponent', () => {
       fixture.detectChanges();
 
       state.setTopology('manager_worker');
-      const topoStep = {
+      component.onStepComplete({
         key: 'topology', label: 'Topology', checkpoint: 'topology_chosen',
-      };
-      component.onStepComplete(topoStep);
+      });
       tick();
       expect(component.steps.length).toBe(10);
     }));

@@ -6,7 +6,6 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { SetupStateService } from './setup-state.service';
 import {
   SetupStatus,
   TopologyRequest,
@@ -29,44 +28,34 @@ import {
 @Injectable({ providedIn: 'root' })
 export class SetupApiService {
   private readonly http = inject(HttpClient);
-  private readonly stateService = inject(SetupStateService);
   private readonly base = `${environment.apiBaseUrl}/setup`;
-
-  private postWithToken<T>(url: string, body: unknown = {}): Observable<T> {
-    const headers: Record<string, string> = {};
-    const token = this.stateService.setupToken;
-    if (token) {
-      headers['X-Setup-Token'] = token;
-    }
-    return this.http.post<T>(url, body, { headers });
-  }
 
   getStatus(): Observable<SetupStatus> {
     return this.http.get<SetupStatus>(`${this.base}/status/`);
   }
 
   setTopology(req: TopologyRequest): Observable<TopologyResponse> {
-    return this.postWithToken<TopologyResponse>(`${this.base}/topology/`, req);
+    return this.http.post<TopologyResponse>(`${this.base}/topology/`, req);
   }
 
   configureNetwork(req: NetworkRequest): Observable<NetworkResponse> {
-    return this.postWithToken<NetworkResponse>(`${this.base}/network/`, req);
+    return this.http.post<NetworkResponse>(`${this.base}/network/`, req);
   }
 
   configureDatabase(req: DatabaseRequest): Observable<DatabaseResponse> {
-    return this.postWithToken<DatabaseResponse>(`${this.base}/database/`, req);
+    return this.http.post<DatabaseResponse>(`${this.base}/database/`, req);
   }
 
   createAdminUser(req: AdminUserRequest): Observable<AdminUserResponse> {
-    return this.postWithToken<AdminUserResponse>(`${this.base}/admin-user/`, req);
+    return this.http.post<AdminUserResponse>(`${this.base}/admin-user/`, req);
   }
 
   setWorkerPassword(req: WorkerPasswordRequest): Observable<WorkerPasswordResponse> {
-    return this.postWithToken<WorkerPasswordResponse>(`${this.base}/worker-password/`, req);
+    return this.http.post<WorkerPasswordResponse>(`${this.base}/worker-password/`, req);
   }
 
   startFfmpegDownload(): Observable<DownloadStartResponse> {
-    return this.postWithToken<DownloadStartResponse>(`${this.base}/ffmpeg/start/`);
+    return this.http.post<DownloadStartResponse>(`${this.base}/ffmpeg/start/`, {});
   }
 
   getFfmpegProgress(taskId: string): Observable<DownloadProgress> {
@@ -74,11 +63,11 @@ export class SetupApiService {
   }
 
   cancelFfmpegDownload(): Observable<DownloadCancelResponse> {
-    return this.postWithToken<DownloadCancelResponse>(`${this.base}/ffmpeg/cancel/`);
+    return this.http.post<DownloadCancelResponse>(`${this.base}/ffmpeg/cancel/`, {});
   }
 
   startBlenderDownload(): Observable<DownloadStartResponse> {
-    return this.postWithToken<DownloadStartResponse>(`${this.base}/blender/start/`);
+    return this.http.post<DownloadStartResponse>(`${this.base}/blender/start/`, {});
   }
 
   getBlenderProgress(taskId: string): Observable<DownloadProgress> {
@@ -86,14 +75,24 @@ export class SetupApiService {
   }
 
   cancelBlenderDownload(): Observable<DownloadCancelResponse> {
-    return this.postWithToken<DownloadCancelResponse>(`${this.base}/blender/cancel/`);
+    return this.http.post<DownloadCancelResponse>(`${this.base}/blender/cancel/`, {});
   }
 
   verify(): Observable<VerifyResponse> {
-    return this.postWithToken<VerifyResponse>(`${this.base}/verify/`);
+    return this.http.post<VerifyResponse>(`${this.base}/verify/`, {});
   }
 
   getSummary(): Observable<SetupSummary> {
     return this.http.get<SetupSummary>(`${this.base}/summary/`);
+  }
+
+  getHealth(): Observable<{ boot_id: string; setup_mode: boolean }> {
+    return this.http.get<{ boot_id: string; setup_mode: boolean }>(
+      `${environment.apiBaseUrl}/health/`,
+    );
+  }
+
+  requestRestart(): Observable<void> {
+    return this.http.post<void>(`${this.base}/restart/`, {});
   }
 }

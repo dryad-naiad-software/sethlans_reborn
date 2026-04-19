@@ -77,3 +77,137 @@ class TestNsiInstallerRegression:
         assert not pattern.search(nsi_contents), (
             "Regression: uninstaller still deletes the removed $INSTDIR\\sethlans.exe copy."
         )
+
+
+class TestNsiFirewallRules:
+    """GitHub issue #69: installer must add/remove Windows Firewall rules."""
+
+    ADD_RULES = [
+        (
+            'Sethlans Manager (TCP 8080)',
+            'protocol=TCP',
+            'localport=8080',
+            r'program="$INSTDIR\bin\manager\run_manager.exe"',
+        ),
+        (
+            'Sethlans Worker (TCP 8081)',
+            'protocol=TCP',
+            'localport=8081',
+            r'program="$INSTDIR\bin\worker\run_worker.exe"',
+        ),
+        (
+            'Sethlans Broadcast (UDP 8082)',
+            'protocol=UDP',
+            'localport=8082',
+            r'program="$INSTDIR\bin\manager\run_manager.exe"',
+        ),
+    ]
+
+    DELETE_RULE_NAMES = [
+        'Sethlans Manager (TCP 8080)',
+        'Sethlans Worker (TCP 8081)',
+        'Sethlans Broadcast (UDP 8082)',
+    ]
+
+    def test_add_rules_present_with_all_profiles(self, nsi_contents: str) -> None:
+        for name, protocol, localport, program in self.ADD_RULES:
+            # Locate the add-rule line for this rule name.
+            line_pattern = re.compile(
+                r'netsh advfirewall firewall add rule name="' + re.escape(name) + r'"[^\']*',
+            )
+            match = line_pattern.search(nsi_contents)
+            assert match, f"Missing add rule for {name!r}"
+            line = match.group(0)
+            assert 'dir=in' in line, f"add rule for {name!r} must be dir=in"
+            assert 'action=allow' in line, f"add rule for {name!r} must be action=allow"
+            assert protocol in line, f"add rule for {name!r} must include {protocol}"
+            assert localport in line, f"add rule for {name!r} must include {localport}"
+            assert 'profile=private,public,domain' in line, (
+                f"add rule for {name!r} must cover private,public,domain profiles"
+            )
+            assert program in line, f"add rule for {name!r} must target {program}"
+
+    def test_delete_rules_present(self, nsi_contents: str) -> None:
+        for name in self.DELETE_RULE_NAMES:
+            pattern = re.compile(
+                r'netsh advfirewall firewall delete rule name="' + re.escape(name) + r'"',
+            )
+            assert pattern.search(nsi_contents), f"Missing delete rule for {name!r}"
+
+    def test_add_rules_in_install_section_delete_in_uninstall(self, nsi_contents: str) -> None:
+        uninstall_idx = nsi_contents.find('Section "Uninstall"')
+        assert uninstall_idx != -1, "Expected a 'Section \"Uninstall\"' block in the NSI."
+
+        # add rule lines must appear before the uninstall section (i.e., in install section).
+        for name, *_ in self.ADD_RULES:
+            add_idx = nsi_contents.find(f'add rule name="{name}"')
+            assert add_idx != -1, f"Missing add rule for {name!r}"
+            assert add_idx < uninstall_idx, (
+                f"add rule for {name!r} must appear in the install section (before Uninstall)."
+            )
+
+        # delete rule lines must appear after the uninstall section header.
+        for name in self.DELETE_RULE_NAMES:
+            del_idx = nsi_contents.find(f'delete rule name="{name}"')
+            assert del_idx != -1, f"Missing delete rule for {name!r}"
+            assert del_idx > uninstall_idx, (
+                f"delete rule for {name!r} must appear in the Uninstall section."
+            )
+
+
+class TestNsiUpgradeFlow:
+    """GitHub issue #72: installer must auto-upgrade over an existing install."""
+
+    UPGRADE_TASKKILL_EXES = [
+        "run_manager.exe",
+        "run_worker.exe",
+        "run_tray_helper.exe",
+        "run_launcher.exe",
+    ]
+
+    @pytest.fixture
+    def on_init_body(self, nsi_contents: str) -> str:
+        """Extract the Function .onInit ... FunctionEnd body."""
+        match = re.search(
+            r"Function\s+\.onInit\b(.*?)FunctionEnd",
+            nsi_contents,
+            re.DOTALL,
+        )
+        assert match, "Expected a Function .onInit ... FunctionEnd block in the NSI."
+        return match.group(1)
+
+    def test_on_init_reads_uninstall_string(self, on_init_body: str) -> None:
+        pattern = re.compile(
+            r'ReadRegStr\s+\$R0\s+HKLM\s+"?\$\{PRODUCT_UNINST_KEY\}"?\s+"UninstallString"',
+        )
+        assert pattern.search(on_init_body), (
+            "Expected .onInit to ReadRegStr $R0 HKLM ${PRODUCT_UNINST_KEY} \"UninstallString\"."
+        )
+
+    def test_on_init_execwait_uses_silent_keep_instdir(self, on_init_body: str) -> None:
+        # ExecWait '"$R0" /S _?=$INSTDIR' — the _?= form blocks and prevents self-delete.
+        pattern = re.compile(
+            r'ExecWait\s+\'"\$R0"\s+/S\s+_\?=\$INSTDIR\'',
+        )
+        assert pattern.search(on_init_body), (
+            "Expected .onInit to ExecWait the prior uninstaller with '/S _?=$INSTDIR'."
+        )
+
+    def test_on_init_kills_all_sethlans_processes(self, on_init_body: str) -> None:
+        for exe in self.UPGRADE_TASKKILL_EXES:
+            pattern = re.compile(
+                r"taskkill\s+/F\s+/IM\s+" + re.escape(exe),
+            )
+            assert pattern.search(on_init_body), (
+                f"Expected .onInit to taskkill /F /IM {exe} before running old uninstaller."
+            )
+
+    def test_on_init_messagebox_guarded_by_ifnot_silent(self, on_init_body: str) -> None:
+        # MessageBox must live inside an ${IfNot} ${Silent} ... ${EndIf} guard.
+        pattern = re.compile(
+            r"IfNot.*?Silent.*?MessageBox",
+            re.DOTALL | re.IGNORECASE,
+        )
+        assert pattern.search(on_init_body), (
+            "Expected .onInit MessageBox to be guarded by ${IfNot} ${Silent}."
+        )

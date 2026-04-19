@@ -5,9 +5,10 @@
 Setup wizard download endpoints for FFmpeg and Blender.
 
 FR-A7 through FR-A12: start, progress, and cancel endpoints for
-background download tasks.  Each download type uses a tag prefix
-(``ffmpeg_`` / ``blender_``) to guard against duplicate starts.
+background download tasks.
 """
+
+from __future__ import annotations
 
 import logging
 from pathlib import Path
@@ -18,11 +19,13 @@ from rest_framework.decorators import (
     authentication_classes,
     permission_classes,
 )
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from shared.frozen_paths import get_data_dir, is_frozen
-from workers.services.sentinel import append_checkpoint, read_sentinel
+from workers.authentication import SetupPhaseAuthentication
+from workers.permissions import IsSetupPhaseUser
+from workers.services.setup_session import enforce_setup_session_binding
+from workers.services.sentinel import append_checkpoint
 from workers.services.download_progress import (
     create_tagged_task,
     find_active_task,
@@ -36,6 +39,7 @@ from workers.services.blender_download import (
     blender_already_installed,
     start_blender_download,
 )
+from workers.utils.errors import setup_error
 
 logger = logging.getLogger(__name__)
 
@@ -46,25 +50,14 @@ def _get_data_dir() -> Path:
     return settings.BASE_DIR
 
 
-def _setup_complete() -> bool:
-    sentinel = read_sentinel(_get_data_dir())
-    return sentinel is not None and sentinel.get("completed_at") is not None
-
-
 # ---- FFmpeg endpoints (FR-A7, FR-A8, FR-A9) ----
 
 @api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
+@authentication_classes([SetupPhaseAuthentication])
+@permission_classes([IsSetupPhaseUser])
 def setup_ffmpeg_start_view(request):
-    """POST /api/setup/ffmpeg/start/ (FR-A7).
-
-    Starts FFmpeg download in background.  Returns existing task if
-    one is already in progress.
-    """
-    if _setup_complete():
-        return Response(status=404)
-
+    """POST /api/setup/ffmpeg/start/ (FR-A7)."""
+    enforce_setup_session_binding(request)
     data_dir = _get_data_dir()
 
     # Already installed? (FR-FF5)
@@ -78,7 +71,7 @@ def setup_ffmpeg_start_view(request):
     # Duplicate guard (FR-A7 idempotency)
     existing = find_active_task("ffmpeg_")
     if existing:
-        tid, prog = existing
+        tid, _prog = existing
         return Response({
             "status": "in_progress",
             "task_id": tid,
@@ -91,13 +84,15 @@ def setup_ffmpeg_start_view(request):
 
 
 @api_view(["GET"])
-@authentication_classes([])
-@permission_classes([AllowAny])
+@authentication_classes([SetupPhaseAuthentication])
+@permission_classes([IsSetupPhaseUser])
 def setup_ffmpeg_progress_view(request, task_id):
     """GET /api/setup/ffmpeg/progress/<task_id>/ (FR-A8)."""
     progress = get_task(task_id)
     if progress is None:
-        return Response({"status": "not_found"}, status=404)
+        return setup_error(
+            "precondition_unmet", "Task not found.", 404,
+        )
 
     resp = {
         "status": progress.status,
@@ -105,7 +100,6 @@ def setup_ffmpeg_progress_view(request, task_id):
         "error": progress.error,
     }
 
-    # Record checkpoint on completion
     if progress.status == "complete":
         append_checkpoint(_get_data_dir(), "ffmpeg_installed")
 
@@ -113,13 +107,11 @@ def setup_ffmpeg_progress_view(request, task_id):
 
 
 @api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
+@authentication_classes([SetupPhaseAuthentication])
+@permission_classes([IsSetupPhaseUser])
 def setup_ffmpeg_cancel_view(request):
     """POST /api/setup/ffmpeg/cancel/ (FR-A9)."""
-    if _setup_complete():
-        return Response(status=404)
-
+    enforce_setup_session_binding(request)
     active = find_active_task("ffmpeg_")
     if not active:
         return Response({"status": "not_found"})
@@ -146,28 +138,22 @@ def _get_default_blender_version() -> tuple[str, str] | None:
 
 
 @api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
+@authentication_classes([SetupPhaseAuthentication])
+@permission_classes([IsSetupPhaseUser])
 def setup_blender_start_view(request):
-    """POST /api/setup/blender/start/ (FR-A10).
-
-    Starts Blender pre-download.  Reads the default version from the
-    ``SupportedBlenderVersion`` model.
-    """
-    if _setup_complete():
-        return Response(status=404)
-
+    """POST /api/setup/blender/start/ (FR-A10)."""
+    enforce_setup_session_binding(request)
     version_info = _get_default_blender_version()
     if not version_info:
-        return Response(
-            {"error": "No default Blender version configured"},
-            status=400,
+        return setup_error(
+            "invalid_input",
+            "No default Blender version configured",
+            400,
         )
 
     series, resolved = version_info
     data_dir = _get_data_dir()
 
-    # Already installed?
     if blender_already_installed(data_dir, resolved):
         append_checkpoint(data_dir, "blender_predownloaded")
         return Response({
@@ -176,10 +162,9 @@ def setup_blender_start_view(request):
             "version": resolved,
         })
 
-    # Duplicate guard
     existing = find_active_task("blender_")
     if existing:
-        tid, prog = existing
+        tid, _prog = existing
         return Response({
             "status": "in_progress",
             "task_id": tid,
@@ -197,13 +182,15 @@ def setup_blender_start_view(request):
 
 
 @api_view(["GET"])
-@authentication_classes([])
-@permission_classes([AllowAny])
+@authentication_classes([SetupPhaseAuthentication])
+@permission_classes([IsSetupPhaseUser])
 def setup_blender_progress_view(request, task_id):
     """GET /api/setup/blender/progress/<task_id>/ (FR-A11)."""
     progress = get_task(task_id)
     if progress is None:
-        return Response({"status": "not_found"}, status=404)
+        return setup_error(
+            "precondition_unmet", "Task not found.", 404,
+        )
 
     resp = {
         "status": progress.status,
@@ -218,13 +205,11 @@ def setup_blender_progress_view(request, task_id):
 
 
 @api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
+@authentication_classes([SetupPhaseAuthentication])
+@permission_classes([IsSetupPhaseUser])
 def setup_blender_cancel_view(request):
     """POST /api/setup/blender/cancel/ (FR-A12)."""
-    if _setup_complete():
-        return Response(status=404)
-
+    enforce_setup_session_binding(request)
     active = find_active_task("blender_")
     if not active:
         return Response({"status": "not_found"})

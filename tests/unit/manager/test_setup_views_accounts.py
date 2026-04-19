@@ -1,14 +1,14 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-
 """
 Unit tests for ``manager/workers/views/setup_accounts.py``.
 
-Covers admin user creation (happy path, password mismatch, duplicate
-username, weak password) and worker password setup (minimum length
-check, happy path).  All service calls are mocked.
+Covers admin user creation and worker password setup with the unified
+error envelope (``setup_error``) — see setup-auth-unification spec.
 """
+
+from __future__ import annotations
 
 from unittest.mock import MagicMock
 
@@ -22,234 +22,178 @@ from workers.views.setup_accounts import (
 )
 
 
+def _setup_phase_post(api_rf, path, data):
+    request = api_rf.post(path, data, format="json")
+    session = {"setup_phase": True, "setup_session_id": "sid-1"}
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(
+        side_effect=lambda k, default=None: session.get(k, default),
+    )
+    request.session = mock_session
+    request._setup_snapshot = {
+        "complete": False, "phase": "admin", "session_id": None,
+    }
+    return request
+
+
 @pytest.fixture
 def api_rf():
     return APIRequestFactory()
 
 
-@pytest.fixture
-def _mock_sentinel_incomplete(mocker):
-    mocker.patch(
-        'workers.views.setup_accounts.read_sentinel',
-        return_value={
-            "version": 1,
-            "completed_at": None,
-            "topology": "manager",
-            "checkpoints": [],
-        },
-    )
-    mocker.patch(
-        'workers.views.setup_accounts.is_frozen',
-        return_value=False,
-    )
+@pytest.fixture(autouse=True)
+def _patch_frozen(mocker):
+    mocker.patch("workers.views.setup_accounts.is_frozen", return_value=False)
 
 
 @pytest.fixture
-def _mock_sentinel_complete(mocker):
+def _patch_topology_read(mocker):
+    """Sentinel topology is needed by _try_auto_enroll_local_worker."""
     mocker.patch(
-        'workers.views.setup_accounts.read_sentinel',
+        "workers.views.setup_accounts.read_sentinel",
         return_value={
-            "version": 1,
-            "completed_at": "2025-01-15T12:00:00Z",
-            "topology": "manager",
-            "checkpoints": [],
+            "version": 1, "completed_at": None,
+            "topology": "manager", "checkpoints": [],
         },
     )
-    mocker.patch(
-        'workers.views.setup_accounts.is_frozen',
-        return_value=False,
-    )
 
-
-# ---- POST /api/setup/admin-user/ --------------------------------------------
 
 class TestAdminUserCreation:
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
+    @pytest.mark.usefixtures("_patch_topology_read")
     def test_happy_path(self, api_rf, mocker):
-        mock_user = MagicMock()
-        mock_user.username = "admin"
+        mock_user = MagicMock(username="admin")
         mocker.patch(
-            'workers.views.setup_accounts.create_admin_user',
+            "workers.views.setup_accounts.create_admin_user",
             return_value=mock_user,
         )
         mocker.patch(
-            'workers.views.setup_accounts.generate_enrollment_key',
+            "workers.views.setup_accounts.generate_enrollment_key",
         )
-        mocker.patch(
-            'workers.views.setup_accounts.append_checkpoint',
-        )
-        request = api_rf.post(
-            '/api/setup/admin-user/',
+        mocker.patch("workers.views.setup_accounts.append_checkpoint")
+        req = _setup_phase_post(
+            api_rf, "/api/setup/admin-user/",
             {
-                "username": "admin",
-                "email": "admin@test.com",
+                "username": "admin", "email": "admin@test.com",
                 "password": "Str0ng!Pass99",
                 "password_confirm": "Str0ng!Pass99",
             },
-            format='json',
         )
-        response = setup_admin_user_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "ok"
-        assert response.data["username"] == "admin"
+        resp = setup_admin_user_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "ok"
+        assert resp.data["username"] == "admin"
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
-    def test_password_mismatch_rejected(self, api_rf, mocker):
-        request = api_rf.post(
-            '/api/setup/admin-user/',
+    def test_password_mismatch(self, api_rf):
+        req = _setup_phase_post(
+            api_rf, "/api/setup/admin-user/",
             {
-                "username": "admin",
-                "email": "a@b.com",
+                "username": "admin", "email": "a@b.com",
                 "password": "Str0ng!Pass99",
                 "password_confirm": "different",
             },
-            format='json',
         )
-        response = setup_admin_user_view(request)
-        assert response.status_code == 400
-        assert any(
-            "match" in e.lower() for e in response.data["errors"]
-        )
+        resp = setup_admin_user_view(req)
+        assert resp.status_code == 400
+        assert resp.data["error"]["code"] == "invalid_input"
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
+    @pytest.mark.usefixtures("_patch_topology_read")
     def test_duplicate_username_returns_409(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_accounts.create_admin_user',
+            "workers.views.setup_accounts.create_admin_user",
             side_effect=ValidationError("Username already taken."),
         )
-        request = api_rf.post(
-            '/api/setup/admin-user/',
+        req = _setup_phase_post(
+            api_rf, "/api/setup/admin-user/",
             {
-                "username": "admin",
-                "email": "a@b.com",
+                "username": "admin", "email": "a@b.com",
                 "password": "Str0ng!Pass99",
                 "password_confirm": "Str0ng!Pass99",
             },
-            format='json',
         )
-        response = setup_admin_user_view(request)
-        assert response.status_code == 409
-        assert response.data["error"] == "admin_exists"
-        assert response.data["username"] == "admin"
+        resp = setup_admin_user_view(req)
+        assert resp.status_code == 409
+        assert resp.data["error"]["code"] == "precondition_unmet"
+        assert resp.data["error"]["details"]["username"] == "admin"
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
+    @pytest.mark.usefixtures("_patch_topology_read")
     def test_weak_password_rejected(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_accounts.create_admin_user',
-            side_effect=ValidationError(
-                ["This password is too short."],
-            ),
+            "workers.views.setup_accounts.create_admin_user",
+            side_effect=ValidationError(["This password is too short."]),
         )
-        request = api_rf.post(
-            '/api/setup/admin-user/',
+        req = _setup_phase_post(
+            api_rf, "/api/setup/admin-user/",
             {
-                "username": "admin",
-                "email": "a@b.com",
-                "password": "ab",
-                "password_confirm": "ab",
+                "username": "admin", "email": "a@b.com",
+                "password": "ab", "password_confirm": "ab",
             },
-            format='json',
         )
-        response = setup_admin_user_view(request)
-        assert response.status_code == 400
-        assert "errors" in response.data
+        resp = setup_admin_user_view(req)
+        assert resp.status_code == 400
+        assert resp.data["error"]["code"] == "invalid_input"
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
-    def test_missing_username_rejected(self, api_rf, mocker):
-        request = api_rf.post(
-            '/api/setup/admin-user/',
+    def test_missing_username(self, api_rf):
+        req = _setup_phase_post(
+            api_rf, "/api/setup/admin-user/",
             {
-                "username": "",
-                "password": "Str0ng!Pass99",
+                "username": "", "password": "Str0ng!Pass99",
                 "password_confirm": "Str0ng!Pass99",
             },
-            format='json',
         )
-        response = setup_admin_user_view(request)
-        assert response.status_code == 400
+        resp = setup_admin_user_view(req)
+        assert resp.status_code == 400
+        assert resp.data["error"]["code"] == "invalid_input"
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
-    def test_missing_password_rejected(self, api_rf, mocker):
-        request = api_rf.post(
-            '/api/setup/admin-user/',
-            {
-                "username": "admin",
-                "password": "",
-                "password_confirm": "",
-            },
-            format='json',
+    def test_missing_password(self, api_rf):
+        req = _setup_phase_post(
+            api_rf, "/api/setup/admin-user/",
+            {"username": "admin", "password": "", "password_confirm": ""},
         )
-        response = setup_admin_user_view(request)
-        assert response.status_code == 400
+        resp = setup_admin_user_view(req)
+        assert resp.status_code == 400
+        assert resp.data["error"]["code"] == "invalid_input"
 
-    @pytest.mark.usefixtures("_mock_sentinel_complete")
-    def test_returns_404_when_complete(self, api_rf):
-        request = api_rf.post(
-            '/api/setup/admin-user/',
-            {
-                "username": "admin",
-                "password": "pass",
-                "password_confirm": "pass",
-            },
-            format='json',
-        )
-        response = setup_admin_user_view(request)
-        assert response.status_code == 404
-
-
-# ---- POST /api/setup/worker-password/ ----------------------------------------
 
 class TestWorkerPassword:
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
     def test_happy_path(self, api_rf, mocker):
-        mocker.patch(
-            'workers.views.setup_accounts.set_worker_ui_password',
-        )
-        mocker.patch(
-            'workers.views.setup_accounts.append_checkpoint',
-        )
-        request = api_rf.post(
-            '/api/setup/worker-password/',
+        mocker.patch("workers.views.setup_accounts.set_worker_ui_password")
+        mocker.patch("workers.views.setup_accounts.append_checkpoint")
+        req = _setup_phase_post(
+            api_rf, "/api/setup/worker-password/",
             {"password": "LongEnough1!"},
-            format='json',
         )
-        response = setup_worker_password_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "ok"
+        resp = setup_worker_password_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "ok"
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
-    def test_short_password_rejected(self, api_rf, mocker):
-        request = api_rf.post(
-            '/api/setup/worker-password/',
+    def test_short_password_rejected(self, api_rf):
+        req = _setup_phase_post(
+            api_rf, "/api/setup/worker-password/",
             {"password": "short"},
-            format='json',
         )
-        response = setup_worker_password_view(request)
-        assert response.status_code == 400
-        assert "8 characters" in response.data["error"]
+        resp = setup_worker_password_view(req)
+        assert resp.status_code == 400
+        assert resp.data["error"]["code"] == "invalid_input"
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
-    def test_empty_password_rejected(self, api_rf, mocker):
-        request = api_rf.post(
-            '/api/setup/worker-password/',
-            {"password": ""},
-            format='json',
+    def test_empty_password_rejected(self, api_rf):
+        req = _setup_phase_post(
+            api_rf, "/api/setup/worker-password/", {"password": ""},
         )
-        response = setup_worker_password_view(request)
-        assert response.status_code == 400
+        resp = setup_worker_password_view(req)
+        assert resp.status_code == 400
+        assert resp.data["error"]["code"] == "invalid_input"
 
-    @pytest.mark.usefixtures("_mock_sentinel_incomplete")
     def test_service_error_returns_500(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_accounts.set_worker_ui_password',
+            "workers.views.setup_accounts.set_worker_ui_password",
             side_effect=OSError("permission denied"),
         )
-        request = api_rf.post(
-            '/api/setup/worker-password/',
+        req = _setup_phase_post(
+            api_rf, "/api/setup/worker-password/",
             {"password": "LongEnough1!"},
-            format='json',
         )
-        response = setup_worker_password_view(request)
-        assert response.status_code == 500
+        resp = setup_worker_password_view(req)
+        assert resp.status_code == 500
+        assert resp.data["error"]["code"] == "internal_error"

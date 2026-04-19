@@ -32,8 +32,14 @@ from .views.setup_verify import (
     setup_verify_view,
     setup_summary_view,
 )
+from .views.setup_bootstrap import setup_bootstrap_view
+from .views.setup_restart import setup_restart_view
 
 urlpatterns = [
+    # Bootstrap: exchange setup token for a setup-phase session cookie.
+    path("bootstrap/", setup_bootstrap_view, name="setup-bootstrap"),
+    # Restart: create .restart_requested (sentinel required).
+    path("restart/", setup_restart_view, name="setup-restart"),
     # FR-A1: Setup status
     path("status/", setup_status_view, name="setup-status"),
     # FR-A2: Topology selection

@@ -6,17 +6,26 @@ import { Injectable } from '@angular/core';
 import { Topology, SetupStatus } from '../models/setup.models';
 import { StepConfig, getStepsForTopology } from '../setup-step-config';
 
+// Legacy key from the X-Setup-Token era. Cleared once at service construction
+// so stale tokens from prior frontend versions cannot persist.
+const LEGACY_SETUP_TOKEN_STORAGE_KEY = 'sethlans.setupToken';
+
 @Injectable({ providedIn: 'root' })
 export class SetupStateService {
-  setupToken: string | null = null;
   topology: Topology | null = null;
   checkpoints: string[] = [];
   visibleSteps: StepConfig[] = getStepsForTopology(null);
 
   private adminPassword: string | null = null;
 
-  setSetupToken(token: string): void {
-    this.setupToken = token;
+  constructor() {
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(LEGACY_SETUP_TOKEN_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore — sessionStorage unavailable.
+    }
   }
 
   setTopology(topology: Topology): void {

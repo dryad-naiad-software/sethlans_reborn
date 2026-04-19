@@ -182,3 +182,8 @@ temp/
 *.png
 .tmp
 .pids/
+
+# Build artifacts (installers, binaries)
+*.exe
+*.run
+*.dmg

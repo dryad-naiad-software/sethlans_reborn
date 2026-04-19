@@ -41,18 +41,26 @@ def find_available_port(start: int = MANAGER_PORT) -> int:
 
 
 def generate_setup_token(manager_data: Path) -> str:
-    """Generate a one-time setup token and write to manager.ini.
+    """Return the existing setup token, or generate a new one.
 
-    The token is written to ``[setup] token`` in manager.ini.
+    Reuses any existing non-empty ``[setup] token`` value in
+    ``manager.ini`` so an in-progress wizard session survives
+    launcher restarts.  Only generates and writes a new token
+    when the section is missing or the value is empty.
     Returns the token string.
     """
-    token = secrets.token_urlsafe(32)
     ini_path = manager_data / "manager.ini"
 
     config = configparser.ConfigParser()
     if ini_path.exists():
         config.read(ini_path)
 
+    if config.has_section("setup"):
+        existing = config.get("setup", "token", fallback="")
+        if existing:
+            return existing
+
+    token = secrets.token_urlsafe(32)
     if not config.has_section("setup"):
         config.add_section("setup")
     config.set("setup", "token", token)

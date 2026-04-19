@@ -10,6 +10,8 @@ For external databases: writes config to ``manager.ini`` and returns
 change and restarts the manager process.
 """
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 
@@ -19,27 +21,28 @@ from rest_framework.decorators import (
     authentication_classes,
     permission_classes,
 )
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from shared.frozen_paths import get_data_dir, is_frozen
-from workers.services.sentinel import append_checkpoint, read_sentinel
+from workers.authentication import SetupPhaseAuthentication
+from workers.permissions import IsSetupPhaseUser
+from workers.services.setup_session import enforce_setup_session_binding
+from workers.services.sentinel import append_checkpoint
 from workers.services.setup import (
     apply_migrations,
     validate_db_connection,
     write_manager_ini,
 )
+from workers.utils.errors import setup_error
 
 logger = logging.getLogger(__name__)
 
-# Map user-facing engine names to Django backend paths
 _ENGINE_MAP = {
     "sqlite": "django.db.backends.sqlite3",
     "postgresql": "django.db.backends.postgresql",
     "mysql": "django.db.backends.mysql",
 }
 
-# Default ports per engine
 _DEFAULT_PORTS = {
     "postgresql": "5432",
     "mysql": "3306",
@@ -56,28 +59,15 @@ def _get_ini_path() -> Path:
     return _get_data_dir() / "manager.ini"
 
 
-def _setup_complete() -> bool:
-    sentinel = read_sentinel(_get_data_dir())
-    return sentinel is not None and sentinel.get("completed_at") is not None
-
-
 @api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
+@authentication_classes([SetupPhaseAuthentication])
+@permission_classes([IsSetupPhaseUser])
 def setup_database_view(request):
-    """POST /api/setup/database/ (FR-A4).
-
-    Accepts engine + connection fields.  For SQLite: applies migrations
-    directly.  For external DB: writes config, returns restart_required.
-    """
-    if _setup_complete():
-        return Response(status=404)
-
+    """POST /api/setup/database/ (FR-A4)."""
+    enforce_setup_session_binding(request)
     engine = request.data.get("engine", "sqlite")
-
     if engine == "sqlite":
         return _handle_sqlite()
-
     return _handle_external(engine, request.data)
 
 
@@ -87,8 +77,10 @@ def _handle_sqlite():
         apply_migrations()
     except Exception as exc:
         logger.exception("Migration failure on SQLite")
-        return Response(
-            {"error": f"Migration failed: {exc}"}, status=500,
+        return setup_error(
+            "internal_error",
+            f"Migration failed: {exc}",
+            500,
         )
 
     append_checkpoint(_get_data_dir(), "database_configured")
@@ -100,15 +92,18 @@ def _handle_external(engine: str, data: dict):
     if engine == "custom":
         engine_path = data.get("engine_path", "")
         if not engine_path:
-            return Response(
-                {"error": "engine_path is required for custom engine"},
-                status=400,
+            return setup_error(
+                "invalid_input",
+                "engine_path is required for custom engine",
+                400,
             )
     else:
         engine_path = _ENGINE_MAP.get(engine)
         if not engine_path:
-            return Response(
-                {"error": f"Unknown engine: {engine}"}, status=400,
+            return setup_error(
+                "invalid_input",
+                f"Unknown engine: {engine}",
+                400,
             )
 
     host = data.get("host", "")
@@ -118,8 +113,8 @@ def _handle_external(engine: str, data: dict):
     password = data.get("password", "")
 
     if not name:
-        return Response(
-            {"error": "Database name is required"}, status=400,
+        return setup_error(
+            "invalid_input", "Database name is required", 400,
         )
 
     # Validate connection (FR-DB3)
@@ -133,7 +128,9 @@ def _handle_external(engine: str, data: dict):
             password=password,
         )
     except ConnectionError as exc:
-        return Response({"error": str(exc)}, status=400)
+        return setup_error(
+            "invalid_input", str(exc), 400,
+        )
 
     # Write to manager.ini [database] section
     config_updates = {

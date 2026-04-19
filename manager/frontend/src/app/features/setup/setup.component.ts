@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import { Component, inject, OnInit, ViewChild } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
@@ -123,7 +122,6 @@ import { DoneComponent } from './steps/done.component';
 export class SetupComponent implements OnInit {
   @ViewChild('stepper') stepper!: MatStepper;
 
-  private readonly route = inject(ActivatedRoute);
   private readonly api = inject(SetupApiService);
   readonly state = inject(SetupStateService);
   private readonly snackBar = inject(MatSnackBar);
@@ -133,11 +131,7 @@ export class SetupComponent implements OnInit {
   private completedStepKeys = new Set<string>();
 
   ngOnInit(): void {
-    const token = this.route.snapshot.queryParamMap.get('token');
-    if (token) {
-      this.state.setSetupToken(token);
-    }
-
+    // Token handling is performed in APP_INITIALIZER (see app.config.ts).
     this.api.getStatus().subscribe({
       next: (status) => {
         if (status.checkpoints.length > 0) {

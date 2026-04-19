@@ -1,18 +1,18 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-
 """
 Unit tests for ``manager/sethlans_manager/middleware/setup_gate.py``.
 
-Covers request routing during setup-incomplete and setup-complete
-states: 503 for API, redirect for browsers, allowed prefixes,
-setup token validation, defense-in-depth superuser check, and
-the module-level boolean latch.
+The token-validation branch is gone: setup authentication is now
+session-based (``setup_bootstrap_view`` sets ``session['setup_phase']``).
+The gate's job is now just allowlisting + blocking everything else
+with the unified envelope.
 """
 
+from __future__ import annotations
+
 import json
-from unittest.mock import MagicMock
 
 import pytest
 from django.http import HttpResponse
@@ -24,7 +24,6 @@ from sethlans_manager.middleware.setup_gate import SetupGateMiddleware
 
 @pytest.fixture(autouse=True)
 def _reset_setup_complete():
-    """Reset the module-level boolean before/after each test."""
     prev = setup_gate._setup_complete
     setup_gate._setup_complete = False
     yield
@@ -32,15 +31,8 @@ def _reset_setup_complete():
 
 
 @pytest.fixture
-def ok_response():
-    """A simple 200 OK response for the inner get_response."""
-    return HttpResponse("OK", status=200)
-
-
-@pytest.fixture
-def get_response(ok_response):
-    """Middleware get_response callable returning 200."""
-    return lambda request: ok_response
+def get_response():
+    return lambda request: HttpResponse("OK", status=200)
 
 
 @pytest.fixture
@@ -48,196 +40,134 @@ def rf():
     return RequestFactory()
 
 
-# ---- Setup incomplete: API requests get 503 ------------------------------
-
 class TestSetupIncomplete:
+    """Setup not complete: gate blocks non-allowlisted API paths."""
 
-    def test_api_request_gets_503(self, rf, get_response, mocker):
+    def test_api_request_blocked(self, rf, get_response, mocker):
         mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=False,
+            setup_gate, "_check_sentinel", return_value=False,
         )
         mw = SetupGateMiddleware(get_response)
         setup_gate._setup_complete = False
-        request = rf.get('/api/projects/')
-        response = mw(request)
-        assert response.status_code == 503
-        body = json.loads(response.content)
-        assert body["detail"] == "Setup not complete."
+        resp = mw(rf.get("/api/projects/"))
+        assert resp.status_code == 403
+        body = json.loads(resp.content)
+        assert body["error"]["code"] == "setup_in_progress"
+        assert body["error"]["details"] == {}
 
     def test_browser_request_redirects_to_setup(
         self, rf, get_response, mocker,
     ):
         mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=False,
+            setup_gate, "_check_sentinel", return_value=False,
         )
         mw = SetupGateMiddleware(get_response)
         setup_gate._setup_complete = False
-        request = rf.get('/dashboard/')
-        response = mw(request)
-        assert response.status_code == 302
-        assert response.url == '/setup/'
+        resp = mw(rf.get("/dashboard/"))
+        assert resp.status_code == 302
+        assert resp.url == "/setup/"
 
-
-# ---- Setup complete: requests pass through -------------------------------
-
-class TestSetupComplete:
-
-    def test_all_requests_pass_through(
-        self, rf, get_response, mocker,
-    ):
-        mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=True,
-        )
-        mw = SetupGateMiddleware(get_response)
-        for path in ['/api/projects/', '/dashboard/', '/setup/']:
-            request = rf.get(path)
-            response = mw(request)
-            assert response.status_code == 200
-
-
-# ---- Allowed paths during setup ------------------------------------------
 
 class TestAllowedPaths:
+    """FR-3: bootstrap / csrf / health / setup SPA / static / media pass."""
 
     @pytest.mark.parametrize("path", [
-        '/setup/',
-        '/setup/step/2/',
-        '/api/setup/status/',
-        '/api/setup/topology/',
-        '/static/css/main.css',
-        '/media/images/logo.png',
+        "/api/setup/bootstrap/",
+        "/api/setup/topology/",
+        "/api/setup/status/",
+        "/api/auth/csrf/",
+        "/api/health/",
+        "/setup/",
+        "/setup/bootstrap-error",
+        "/static/main.js",
+        "/media/img.png",
     ])
-    def test_allowed_paths_pass_through(
+    def test_allowlisted_paths_pass_through(
         self, rf, get_response, mocker, path,
     ):
         mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=False,
-        )
-        mocker.patch.object(
-            setup_gate, '_read_setup_token', return_value=None,
+            setup_gate, "_check_sentinel", return_value=False,
         )
         mw = SetupGateMiddleware(get_response)
         setup_gate._setup_complete = False
-        request = rf.get(path)
-        response = mw(request)
-        assert response.status_code == 200
+        resp = mw(rf.get(path))
+        assert resp.status_code == 200
 
 
-# ---- Setup token validation ----------------------------------------------
+class TestPostWithoutToken:
+    """With the gate no longer reading X-Setup-Token, POSTs to /api/setup/*
+    flow through to the view (where IsSetupPhaseUser rules)."""
 
-class TestSetupToken:
-
-    def test_post_without_token_gets_403(
-        self, rf, get_response, mocker,
-    ):
+    def test_post_to_setup_passes_gate(self, rf, get_response, mocker):
         mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=False,
-        )
-        mocker.patch.object(
-            setup_gate, '_read_setup_token',
-            return_value='secret-token-123',
+            setup_gate, "_check_sentinel", return_value=False,
         )
         mw = SetupGateMiddleware(get_response)
         setup_gate._setup_complete = False
-        request = rf.post(
-            '/api/setup/topology/',
-            content_type='application/json',
-        )
-        response = mw(request)
-        assert response.status_code == 403
+        resp = mw(rf.post(
+            "/api/setup/topology/",
+            content_type="application/json",
+        ))
+        # Gate is a no-op: inner handler returns 200.
+        assert resp.status_code == 200
 
-    def test_post_with_valid_token_passes(
-        self, rf, get_response, mocker,
-    ):
+
+class TestSetupComplete:
+    """Once setup completes, /api/setup/* returns setup_complete envelope."""
+
+    def test_setup_paths_return_404(self, rf, get_response, mocker):
         mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=False,
-        )
-        mocker.patch.object(
-            setup_gate, '_read_setup_token',
-            return_value='secret-token-123',
+            setup_gate, "_check_sentinel", return_value=True,
         )
         mw = SetupGateMiddleware(get_response)
-        setup_gate._setup_complete = False
-        request = rf.post(
-            '/api/setup/topology/',
-            content_type='application/json',
-            HTTP_X_SETUP_TOKEN='secret-token-123',
-        )
-        response = mw(request)
-        assert response.status_code == 200
+        resp = mw(rf.get("/api/setup/topology/"))
+        assert resp.status_code == 404
+        body = json.loads(resp.content)
+        assert body["error"]["code"] == "setup_complete"
 
-    def test_get_passes_without_token(
-        self, rf, get_response, mocker,
-    ):
+    def test_other_paths_pass_through(self, rf, get_response, mocker):
         mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=False,
-        )
-        mocker.patch.object(
-            setup_gate, '_read_setup_token',
-            return_value='secret-token-123',
+            setup_gate, "_check_sentinel", return_value=True,
         )
         mw = SetupGateMiddleware(get_response)
-        setup_gate._setup_complete = False
-        request = rf.get('/api/setup/status/')
-        response = mw(request)
-        assert response.status_code == 200
+        for path in ["/api/projects/", "/dashboard/"]:
+            resp = mw(rf.get(path))
+            assert resp.status_code == 200
 
-
-# ---- Defense-in-depth: superuser exists but no sentinel ------------------
 
 class TestDefenseInDepth:
+    """Sentinel missing but superuser exists -> treat as complete."""
 
-    def test_superuser_exists_no_sentinel_treated_complete(
-        self, rf, get_response, mocker,
-    ):
+    def test_superuser_fallback(self, mocker):
+        from unittest.mock import MagicMock
         mocker.patch.object(
-            setup_gate, '_get_data_dir',
-            return_value='/fake/path',
+            setup_gate, "_get_data_dir", return_value="/fake",
         )
-        mocker.patch(
-            'sethlans_manager.middleware.setup_gate.read_sentinel',
-            return_value=None,
+        mocker.patch.object(
+            setup_gate, "read_sentinel", return_value=None,
         )
         mock_user_model = MagicMock()
-        mock_qs = MagicMock()
-        mock_qs.exists.return_value = True
-        mock_user_model.objects.filter.return_value = mock_qs
+        qs = MagicMock()
+        qs.exists.return_value = True
+        mock_user_model.objects.filter.return_value = qs
         mocker.patch(
-            'django.contrib.auth.get_user_model',
+            "django.contrib.auth.get_user_model",
             return_value=mock_user_model,
         )
-        setup_gate._setup_complete = False
-        result = setup_gate._check_sentinel()
-        assert result is True
+        assert setup_gate._check_sentinel() is True
 
 
-# ---- Module-level boolean: once True, stays True -------------------------
+class TestModuleLevelLatch:
 
-class TestModuleLevelBoolean:
-
-    def test_once_true_stays_true(
-        self, rf, get_response, mocker,
-    ):
+    def test_once_true_stays_true(self, rf, get_response, mocker):
         mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=True,
+            setup_gate, "_check_sentinel", return_value=True,
         )
         mw = SetupGateMiddleware(get_response)
         assert setup_gate._setup_complete is True
-        # Even if sentinel check would return False now,
-        # the cached boolean keeps it True
+        # Subsequent sentinel-absent check doesn't flip the latch back.
         mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=False,
+            setup_gate, "_check_sentinel", return_value=False,
         )
-        request = rf.get('/api/projects/')
-        response = mw(request)
-        assert response.status_code == 200
-
-    def test_init_sets_boolean_from_sentinel(
-        self, mocker, get_response,
-    ):
-        mocker.patch.object(
-            setup_gate, '_check_sentinel', return_value=True,
-        )
-        setup_gate._setup_complete = False
-        SetupGateMiddleware(get_response)
-        assert setup_gate._setup_complete is True
+        resp = mw(rf.get("/api/projects/"))
+        assert resp.status_code == 200

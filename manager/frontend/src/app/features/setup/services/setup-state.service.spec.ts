@@ -6,60 +6,76 @@ import { TestBed } from '@angular/core/testing';
 import { SetupStateService } from './setup-state.service';
 import { SetupStatus } from '../models/setup.models';
 
+const LEGACY_KEY = 'sethlans.setupToken';
+
 describe('SetupStateService', () => {
   let service: SetupStateService;
 
   beforeEach(() => {
+    sessionStorage.clear();
+    TestBed.resetTestingModule();
     TestBed.configureTestingModule({});
     service = TestBed.inject(SetupStateService);
   });
+
+  afterEach(() => sessionStorage.clear());
 
   it('should be created', () => {
     expect(service).toBeTruthy();
   });
 
-  describe('setSetupToken', () => {
-    it('should store the token', () => {
-      service.setSetupToken('abc-token');
-      expect(service.setupToken).toBe('abc-token');
+  describe('legacy token cleanup', () => {
+    it('removes legacy sethlans.setupToken key on construction', () => {
+      sessionStorage.setItem(LEGACY_KEY, 'stale-token');
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({});
+      const removeSpy = spyOn(sessionStorage, 'removeItem').and.callThrough();
+      TestBed.inject(SetupStateService);
+      expect(removeSpy).toHaveBeenCalledWith(LEGACY_KEY);
+      expect(sessionStorage.getItem(LEGACY_KEY)).toBeNull();
+    });
+
+    it('does not expose a setupToken field', () => {
+      expect((service as unknown as Record<string, unknown>)['setupToken'])
+        .toBeUndefined();
     });
   });
 
   describe('setTopology', () => {
-    it('should update topology', () => {
+    it('updates topology', () => {
       service.setTopology('manager');
       expect(service.topology).toBe('manager');
     });
 
-    it('should recompute visible steps for manager', () => {
+    it('recomputes visible steps for manager', () => {
       service.setTopology('manager');
       expect(service.visibleSteps.length).toBe(8);
     });
 
-    it('should recompute visible steps for manager_worker', () => {
+    it('recomputes visible steps for manager_worker', () => {
       service.setTopology('manager_worker');
       expect(service.visibleSteps.length).toBe(10);
     });
 
-    it('should recompute visible steps for worker_only', () => {
+    it('recomputes visible steps for worker_only', () => {
       service.setTopology('worker_only');
       expect(service.visibleSteps.length).toBe(8);
     });
   });
 
   describe('adminPassword', () => {
-    it('should store and retrieve admin password', () => {
+    it('stores and retrieves admin password', () => {
       service.setAdminPassword('secret123');
       expect(service.getAdminPassword()).toBe('secret123');
     });
 
-    it('should return null when no password is set', () => {
+    it('returns null when no password is set', () => {
       expect(service.getAdminPassword()).toBeNull();
     });
   });
 
   describe('clearSensitiveData', () => {
-    it('should clear admin password', () => {
+    it('clears admin password', () => {
       service.setAdminPassword('secret123');
       service.clearSensitiveData();
       expect(service.getAdminPassword()).toBeNull();
@@ -67,18 +83,18 @@ describe('SetupStateService', () => {
   });
 
   describe('markCheckpoint', () => {
-    it('should add a checkpoint', () => {
+    it('adds a checkpoint', () => {
       service.markCheckpoint('topology_chosen');
       expect(service.checkpoints).toContain('topology_chosen');
     });
 
-    it('should be idempotent', () => {
+    it('is idempotent', () => {
       service.markCheckpoint('topology_chosen');
       service.markCheckpoint('topology_chosen');
       expect(service.checkpoints.filter(c => c === 'topology_chosen').length).toBe(1);
     });
 
-    it('should accumulate multiple checkpoints', () => {
+    it('accumulates multiple checkpoints', () => {
       service.markCheckpoint('topology_chosen');
       service.markCheckpoint('network_configured');
       expect(service.checkpoints).toEqual(['topology_chosen', 'network_configured']);
@@ -86,7 +102,7 @@ describe('SetupStateService', () => {
   });
 
   describe('resumeFromStatus', () => {
-    it('should restore topology and visible steps', () => {
+    it('restores topology and visible steps', () => {
       const status: SetupStatus = {
         complete: false,
         topology: 'manager_worker',
@@ -98,7 +114,7 @@ describe('SetupStateService', () => {
       expect(service.visibleSteps.length).toBe(10);
     });
 
-    it('should restore checkpoints', () => {
+    it('restores checkpoints', () => {
       const status: SetupStatus = {
         complete: false,
         topology: 'manager',
@@ -109,7 +125,7 @@ describe('SetupStateService', () => {
       expect(service.checkpoints).toEqual(['topology_chosen', 'network_configured']);
     });
 
-    it('should return index of first incomplete step', () => {
+    it('returns index of first incomplete step', () => {
       const status: SetupStatus = {
         complete: false,
         topology: 'manager',
@@ -117,12 +133,10 @@ describe('SetupStateService', () => {
         checkpoints: ['topology_chosen', 'network_configured'],
       };
       const idx = service.resumeFromStatus(status);
-      // Steps: welcome(null), topology(topology_chosen), network(network_configured),
-      //        database(database_configured) <-- first incomplete
       expect(idx).toBe(3);
     });
 
-    it('should return last step index when all checkpoints complete', () => {
+    it('returns last step index when all checkpoints complete', () => {
       const status: SetupStatus = {
         complete: true,
         topology: 'manager',
@@ -136,7 +150,7 @@ describe('SetupStateService', () => {
       expect(idx).toBe(service.visibleSteps.length - 1);
     });
 
-    it('should not set topology when status topology is null', () => {
+    it('does not clobber topology when status topology is null', () => {
       service.setTopology('manager');
       const status: SetupStatus = {
         complete: false,
@@ -148,7 +162,7 @@ describe('SetupStateService', () => {
       expect(service.topology).toBe('manager');
     });
 
-    it('should return 0 when welcome has no checkpoint and no others done', () => {
+    it('returns 1 when welcome done and topology not checkpointed', () => {
       const status: SetupStatus = {
         complete: false,
         topology: 'manager',
@@ -156,8 +170,6 @@ describe('SetupStateService', () => {
         checkpoints: [],
       };
       const idx = service.resumeFromStatus(status);
-      // welcome has checkpoint=null so it's skipped; topology has checkpoint
-      // 'topology_chosen' which is not in checkpoints -> returns index 1
       expect(idx).toBe(1);
     });
   });

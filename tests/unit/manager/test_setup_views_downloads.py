@@ -1,15 +1,17 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-
 """
 Unit tests for ``manager/workers/views/setup_downloads.py``.
 
-Covers FFmpeg and Blender start/progress/cancel endpoints.  All
-download services and progress tracking are mocked.
+Covers FFmpeg and Blender start/progress/cancel endpoints under the new
+session-backed auth model.
 """
 
+from __future__ import annotations
+
 import threading
+from unittest.mock import MagicMock
 
 import pytest
 from rest_framework.test import APIRequestFactory
@@ -24,113 +26,81 @@ from workers.views.setup_downloads import (
 )
 
 
+def _setup_phase_request(method, *args, **kwargs):
+    request = method(*args, **kwargs)
+    session = {"setup_phase": True, "setup_session_id": "sid-1"}
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(
+        side_effect=lambda k, default=None: session.get(k, default),
+    )
+    request.session = mock_session
+    request._setup_snapshot = {
+        "complete": False, "phase": "ffmpeg", "session_id": None,
+    }
+    return request
+
+
 @pytest.fixture
 def api_rf():
     return APIRequestFactory()
 
 
-@pytest.fixture
-def _mock_setup_incomplete(mocker):
+@pytest.fixture(autouse=True)
+def _patch_frozen(mocker):
     mocker.patch(
-        'workers.views.setup_downloads.read_sentinel',
-        return_value={
-            "version": 1,
-            "completed_at": None,
-            "topology": "manager",
-            "checkpoints": [],
-        },
-    )
-    mocker.patch(
-        'workers.views.setup_downloads.is_frozen',
-        return_value=False,
+        "workers.views.setup_downloads.is_frozen", return_value=False,
     )
 
-
-@pytest.fixture
-def _mock_setup_complete(mocker):
-    mocker.patch(
-        'workers.views.setup_downloads.read_sentinel',
-        return_value={
-            "version": 1,
-            "completed_at": "2025-01-15T12:00:00Z",
-            "topology": "manager",
-            "checkpoints": [],
-        },
-    )
-    mocker.patch(
-        'workers.views.setup_downloads.is_frozen',
-        return_value=False,
-    )
-
-
-# ---- FFmpeg start ------------------------------------------------------------
 
 class TestFFmpegStart:
 
-    @pytest.mark.usefixtures("_mock_setup_incomplete")
     def test_starts_download(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_downloads.ffmpeg_already_installed',
+            "workers.views.setup_downloads.ffmpeg_already_installed",
             return_value=False,
         )
         mocker.patch(
-            'workers.views.setup_downloads.find_active_task',
+            "workers.views.setup_downloads.find_active_task",
             return_value=None,
         )
         mocker.patch(
-            'workers.views.setup_downloads.create_tagged_task',
+            "workers.views.setup_downloads.create_tagged_task",
             return_value=("ffmpeg_abc123", DownloadProgress()),
         )
-        mocker.patch(
-            'workers.views.setup_downloads.start_ffmpeg_download',
-        )
-        request = api_rf.post('/api/setup/ffmpeg/start/')
-        response = setup_ffmpeg_start_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "started"
-        assert response.data["task_id"] == "ffmpeg_abc123"
+        mocker.patch("workers.views.setup_downloads.start_ffmpeg_download")
+        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/start/")
+        resp = setup_ffmpeg_start_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "started"
+        assert resp.data["task_id"] == "ffmpeg_abc123"
 
-    @pytest.mark.usefixtures("_mock_setup_incomplete")
-    def test_returns_existing_when_in_progress(
-        self, api_rf, mocker,
-    ):
+    def test_returns_existing_when_in_progress(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_downloads.ffmpeg_already_installed',
+            "workers.views.setup_downloads.ffmpeg_already_installed",
             return_value=False,
         )
         prog = DownloadProgress(status="downloading", percent=50)
         mocker.patch(
-            'workers.views.setup_downloads.find_active_task',
+            "workers.views.setup_downloads.find_active_task",
             return_value=("ffmpeg_existing", prog),
         )
-        request = api_rf.post('/api/setup/ffmpeg/start/')
-        response = setup_ffmpeg_start_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "in_progress"
-        assert response.data["task_id"] == "ffmpeg_existing"
+        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/start/")
+        resp = setup_ffmpeg_start_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "in_progress"
+        assert resp.data["task_id"] == "ffmpeg_existing"
 
-    @pytest.mark.usefixtures("_mock_setup_incomplete")
     def test_already_installed(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_downloads.ffmpeg_already_installed',
+            "workers.views.setup_downloads.ffmpeg_already_installed",
             return_value=True,
         )
-        mocker.patch(
-            'workers.views.setup_downloads.append_checkpoint',
-        )
-        request = api_rf.post('/api/setup/ffmpeg/start/')
-        response = setup_ffmpeg_start_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "already_installed"
+        mocker.patch("workers.views.setup_downloads.append_checkpoint")
+        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/start/")
+        resp = setup_ffmpeg_start_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "already_installed"
 
-    @pytest.mark.usefixtures("_mock_setup_complete")
-    def test_returns_404_when_complete(self, api_rf):
-        request = api_rf.post('/api/setup/ffmpeg/start/')
-        response = setup_ffmpeg_start_view(request)
-        assert response.status_code == 404
-
-
-# ---- FFmpeg progress ---------------------------------------------------------
 
 class TestFFmpegProgress:
 
@@ -139,152 +109,121 @@ class TestFFmpegProgress:
             status="downloading", percent=42, error=None,
         )
         mocker.patch(
-            'workers.views.setup_downloads.get_task',
-            return_value=prog,
+            "workers.views.setup_downloads.get_task", return_value=prog,
         )
-        request = api_rf.get(
-            '/api/setup/ffmpeg/progress/ffmpeg_abc123/',
+        req = _setup_phase_request(
+            api_rf.get, "/api/setup/ffmpeg/progress/ffmpeg_abc123/",
         )
-        response = setup_ffmpeg_progress_view(
-            request, task_id="ffmpeg_abc123",
-        )
-        assert response.status_code == 200
-        assert response.data["status"] == "downloading"
-        assert response.data["percent"] == 42
-        assert response.data["error"] is None
+        resp = setup_ffmpeg_progress_view(req, task_id="ffmpeg_abc123")
+        assert resp.status_code == 200
+        assert resp.data["percent"] == 42
 
-    def test_returns_404_for_unknown_task(self, api_rf, mocker):
+    def test_unknown_task_returns_404(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_downloads.get_task',
-            return_value=None,
+            "workers.views.setup_downloads.get_task", return_value=None,
         )
-        request = api_rf.get(
-            '/api/setup/ffmpeg/progress/nonexistent/',
+        req = _setup_phase_request(
+            api_rf.get, "/api/setup/ffmpeg/progress/nope/",
         )
-        response = setup_ffmpeg_progress_view(
-            request, task_id="nonexistent",
-        )
-        assert response.status_code == 404
+        resp = setup_ffmpeg_progress_view(req, task_id="nope")
+        assert resp.status_code == 404
+        assert resp.data["error"]["code"] == "precondition_unmet"
 
     def test_records_checkpoint_on_complete(self, api_rf, mocker):
         prog = DownloadProgress(status="complete", percent=100)
         mocker.patch(
-            'workers.views.setup_downloads.get_task',
-            return_value=prog,
-        )
-        mocker.patch(
-            'workers.views.setup_downloads.is_frozen',
-            return_value=False,
+            "workers.views.setup_downloads.get_task", return_value=prog,
         )
         mock_cp = mocker.patch(
-            'workers.views.setup_downloads.append_checkpoint',
+            "workers.views.setup_downloads.append_checkpoint",
         )
-        request = api_rf.get(
-            '/api/setup/ffmpeg/progress/ffmpeg_abc/',
+        req = _setup_phase_request(
+            api_rf.get, "/api/setup/ffmpeg/progress/ffmpeg_abc/",
         )
-        setup_ffmpeg_progress_view(
-            request, task_id="ffmpeg_abc",
-        )
+        setup_ffmpeg_progress_view(req, task_id="ffmpeg_abc")
         mock_cp.assert_called_once()
 
 
-# ---- FFmpeg cancel -----------------------------------------------------------
-
 class TestFFmpegCancel:
 
-    @pytest.mark.usefixtures("_mock_setup_incomplete")
     def test_cancels_active_task(self, api_rf, mocker):
         cancel_event = threading.Event()
         prog = DownloadProgress(
-            status="downloading",
-            percent=50,
+            status="downloading", percent=50,
             cancel_event=cancel_event,
         )
         mocker.patch(
-            'workers.views.setup_downloads.find_active_task',
+            "workers.views.setup_downloads.find_active_task",
             return_value=("ffmpeg_abc", prog),
         )
-        request = api_rf.post('/api/setup/ffmpeg/cancel/')
-        response = setup_ffmpeg_cancel_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "cancelled"
+        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/cancel/")
+        resp = setup_ffmpeg_cancel_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "cancelled"
         assert cancel_event.is_set()
 
-    @pytest.mark.usefixtures("_mock_setup_incomplete")
-    def test_returns_not_found_when_no_active(
-        self, api_rf, mocker,
-    ):
+    def test_returns_not_found_when_no_active(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_downloads.find_active_task',
+            "workers.views.setup_downloads.find_active_task",
             return_value=None,
         )
-        request = api_rf.post('/api/setup/ffmpeg/cancel/')
-        response = setup_ffmpeg_cancel_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "not_found"
+        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/cancel/")
+        resp = setup_ffmpeg_cancel_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "not_found"
 
-
-# ---- Blender start -----------------------------------------------------------
 
 class TestBlenderStart:
 
-    @pytest.mark.usefixtures("_mock_setup_incomplete")
     def test_starts_download(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_downloads._get_default_blender_version',
+            "workers.views.setup_downloads._get_default_blender_version",
             return_value=("4.2", "4.2.19"),
         )
         mocker.patch(
-            'workers.views.setup_downloads.blender_already_installed',
+            "workers.views.setup_downloads.blender_already_installed",
             return_value=False,
         )
         mocker.patch(
-            'workers.views.setup_downloads.find_active_task',
+            "workers.views.setup_downloads.find_active_task",
             return_value=None,
         )
         mocker.patch(
-            'workers.views.setup_downloads.create_tagged_task',
+            "workers.views.setup_downloads.create_tagged_task",
             return_value=("blender_xyz", DownloadProgress()),
         )
-        mocker.patch(
-            'workers.views.setup_downloads.start_blender_download',
-        )
-        request = api_rf.post('/api/setup/blender/start/')
-        response = setup_blender_start_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "started"
-        assert response.data["version"] == "4.2.19"
+        mocker.patch("workers.views.setup_downloads.start_blender_download")
+        req = _setup_phase_request(api_rf.post, "/api/setup/blender/start/")
+        resp = setup_blender_start_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "started"
+        assert resp.data["version"] == "4.2.19"
 
-    @pytest.mark.usefixtures("_mock_setup_incomplete")
     def test_no_default_version_returns_400(self, api_rf, mocker):
         mocker.patch(
-            'workers.views.setup_downloads._get_default_blender_version',
+            "workers.views.setup_downloads._get_default_blender_version",
             return_value=None,
         )
-        request = api_rf.post('/api/setup/blender/start/')
-        response = setup_blender_start_view(request)
-        assert response.status_code == 400
-        assert "No default" in response.data["error"]
+        req = _setup_phase_request(api_rf.post, "/api/setup/blender/start/")
+        resp = setup_blender_start_view(req)
+        assert resp.status_code == 400
+        assert resp.data["error"]["code"] == "invalid_input"
 
-
-# ---- Blender cancel ----------------------------------------------------------
 
 class TestBlenderCancel:
 
-    @pytest.mark.usefixtures("_mock_setup_incomplete")
     def test_cancels_active_task(self, api_rf, mocker):
         cancel_event = threading.Event()
         prog = DownloadProgress(
-            status="downloading",
-            percent=30,
+            status="downloading", percent=30,
             cancel_event=cancel_event,
         )
         mocker.patch(
-            'workers.views.setup_downloads.find_active_task',
+            "workers.views.setup_downloads.find_active_task",
             return_value=("blender_abc", prog),
         )
-        request = api_rf.post('/api/setup/blender/cancel/')
-        response = setup_blender_cancel_view(request)
-        assert response.status_code == 200
-        assert response.data["status"] == "cancelled"
+        req = _setup_phase_request(api_rf.post, "/api/setup/blender/cancel/")
+        resp = setup_blender_cancel_view(req)
+        assert resp.status_code == 200
+        assert resp.data["status"] == "cancelled"
         assert cancel_event.is_set()
