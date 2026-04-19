@@ -56,6 +56,14 @@ if [ -d "${DIST_DIR}/SethlansHelper.app" ]; then
         "${RESOURCES}/bin/tray_helper/"
 fi
 
+# Defensively re-sign the nested helper bundle. The `cp -R` above may or
+# may not preserve the ad-hoc signature cleanly across macOS versions,
+# and the outer re-sign below needs a valid seal on every nested bundle.
+if [ -d "${RESOURCES}/bin/tray_helper/SethlansHelper.app" ]; then
+    codesign --force --deep --sign - \
+        "${RESOURCES}/bin/tray_helper/SethlansHelper.app"
+fi
+
 # Apply Info.plist from template
 PLIST_TEMPLATE="${SCRIPT_DIR}/Info.plist.template"
 if [ -f "${PLIST_TEMPLATE}" ]; then
@@ -73,11 +81,24 @@ cat > "${RESOURCES}/version.json" <<EOF
 {"version": "${VERSION}", "platform": "macos-arm64"}
 EOF
 
+# Re-sign the bundle AFTER every mutation of Contents/ (Info.plist,
+# sethlans.icns, version.json). PyInstaller's embedded ad-hoc signature
+# was already invalidated by those writes; any re-sign applied before
+# them would be invalidated again and the verify below would abort.
+# Ad-hoc sign is enough to clear Gatekeeper's "damaged" gate; Developer
+# ID signing + notarization are a separate workstream — see GitHub #85.
+codesign --force --deep --sign - "${STAGING_DIR}/${APP_NAME}"
+
 # Create Applications symlink for drag-to-install
 ln -sf /Applications "${STAGING_DIR}/Applications"
 
 # Remove any existing DMG
 rm -f "${DMG_PATH}"
+
+# Fail the build loudly if the re-sign didn't take. Prevents shipping
+# a broken DMG from CI or dev machines.
+echo "--- Verifying bundle signature ---"
+codesign --verify --deep --strict "${STAGING_DIR}/${APP_NAME}"
 
 # Create the DMG using hdiutil
 echo "--- Creating DMG with hdiutil ---"
