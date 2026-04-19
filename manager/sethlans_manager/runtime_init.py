@@ -117,6 +117,33 @@ def apply_enrollment_key_env_override() -> None:
     )
 
 
+def cleanup_stale_setup_section(manager_dir: Path) -> None:
+    """Remove ``[setup]`` from ``manager.ini`` if setup is complete.
+
+    Belt-and-suspenders for the launcher-owned cleanup: if the manager
+    is started outside the restart orchestrator (crash recovery,
+    installer upgrade, manual restart) after the setup sentinel was
+    written, the stale ``[setup] token`` / ``session_id`` would persist
+    forever. This boot-time sweep keeps "first normal run
+    indistinguishable from any later run" honest.
+    """
+    from workers.services.ini_atomic import remove_ini_section
+    from workers.services.sentinel import read_sentinel
+
+    sentinel = read_sentinel(manager_dir)
+    if sentinel is None or not sentinel.get("completed_at"):
+        return
+    ini_path = manager_dir / "manager.ini"
+    if not ini_path.exists():
+        return
+    try:
+        remove_ini_section(ini_path, "setup")
+    except OSError as exc:
+        logger.warning(
+            "Could not remove stale [setup] from manager.ini: %s", exc,
+        )
+
+
 def initialize_runtime_state(cert, enrollment_cfg, bind_host, bind_port):
     """Populate ``sethlans_manager.runtime_state`` from DB + env.
 

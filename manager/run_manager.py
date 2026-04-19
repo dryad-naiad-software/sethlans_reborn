@@ -49,6 +49,7 @@ from sethlans_manager.cert_utils import (  # noqa: E402
 )
 from sethlans_manager.runtime_init import (  # noqa: E402
     get_enrollment_config,
+    cleanup_stale_setup_section,
     initialize_runtime_state,
 )
 from sethlans_manager.tls_setup import (  # noqa: E402
@@ -113,6 +114,7 @@ def _prepare_runtime(cert, host, port):
         get_data_dir('manager') if is_frozen() else MANAGER_DIR
     )
     enrollment_cfg = get_enrollment_config(config_dir)
+    cleanup_stale_setup_section(config_dir)
     initialize_runtime_state(cert, enrollment_cfg, host, port)
 
 
