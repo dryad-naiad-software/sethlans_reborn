@@ -10,18 +10,12 @@
 pyinstaller==6.11.1
 
 # Tray helper runtime deps (bundled into the tray_helper PyInstaller output).
-# Pillow is already pulled in by manager/requirements.txt; pystray + plyer
-# are tray-specific.
+# The PySide6 migration is complete; pystray + plyer + Pillow-in-tray are
+# gone, replaced by PySide6 (QSystemTrayIcon + QClipboard + QPainter +
+# QSystemTrayIcon.showMessage).
 #
-# The tray helper is being migrated from pystray + plyer (and a subprocess-based
-# clipboard helper) to PySide6 in a staged rollout. During the migration the new
-# Qt modules live alongside the existing pystray modules so the tray keeps
-# working; pystray and plyer will be removed in a later phase once the PySide6
-# implementation fully replaces them.
-pystray==0.19.5
-plyer==2.1.0
-# PySide6-Essentials pulls QtWidgets/QtGui/QtCore (all we need for the tray).
-# Avoid the full `PySide6` meta-pin: it also drags in PySide6_Addons (Qt3D,
-# QtCharts, QtMultimedia, QtWebEngine, etc.) — ~170 MB of libraries the tray
-# never touches.
+# PySide6-Essentials pulls QtWidgets/QtGui/QtCore - the full surface the
+# Qt-based tray helper uses. Avoid the full `PySide6` meta-pin: it also
+# drags in PySide6_Addons (Qt3D, QtCharts, QtMultimedia, QtWebEngine, etc.)
+# - ~170 MB of libraries the tray never touches.
 PySide6-Essentials==6.11.0
