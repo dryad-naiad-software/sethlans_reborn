@@ -8,7 +8,7 @@
 # Usage: packaging/macos/build_dmg.sh <version>
 # Example: packaging/macos/build_dmg.sh 0.1.0
 #
-# Expects PyInstaller output at dist/launcher/Sethlans.app
+# Expects PyInstaller output at dist/Sethlans.app (and dist/SethlansHelper.app).
 # Produces: dist/sethlans-<version>-macos-arm64.dmg
 
 set -euo pipefail
@@ -25,8 +25,8 @@ STAGING_DIR="${DIST_DIR}/dmg-staging"
 echo "--- Building macOS DMG: ${DMG_NAME} ---"
 
 # Validate that the .app bundle exists
-if [ ! -d "${DIST_DIR}/launcher/${APP_NAME}" ]; then
-    echo "[ERROR] ${APP_NAME} not found at ${DIST_DIR}/launcher/${APP_NAME}" >&2
+if [ ! -d "${DIST_DIR}/${APP_NAME}" ]; then
+    echo "[ERROR] ${APP_NAME} not found at ${DIST_DIR}/${APP_NAME}" >&2
     echo "Run PyInstaller with launcher.spec first." >&2
     exit 1
 fi
@@ -36,7 +36,7 @@ rm -rf "${STAGING_DIR}"
 mkdir -p "${STAGING_DIR}"
 
 # Copy the .app bundle to staging
-cp -R "${DIST_DIR}/launcher/${APP_NAME}" "${STAGING_DIR}/${APP_NAME}"
+cp -R "${DIST_DIR}/${APP_NAME}" "${STAGING_DIR}/${APP_NAME}"
 
 # Copy component bundles into the .app's Resources
 RESOURCES="${STAGING_DIR}/${APP_NAME}/Contents/Resources"
@@ -51,8 +51,8 @@ for component in manager worker tray_helper; do
 done
 
 # Copy the tray helper .app if it exists (macOS-specific)
-if [ -d "${DIST_DIR}/tray_helper/SethlansHelper.app" ]; then
-    cp -R "${DIST_DIR}/tray_helper/SethlansHelper.app" \
+if [ -d "${DIST_DIR}/SethlansHelper.app" ]; then
+    cp -R "${DIST_DIR}/SethlansHelper.app" \
         "${RESOURCES}/bin/tray_helper/"
 fi
 
