@@ -12,6 +12,7 @@ references, and non-blocking ``show()`` semantics.
 from __future__ import annotations
 
 import logging
+import sys
 
 import pytest
 
@@ -131,6 +132,15 @@ class TestShowAboutDialogRealWidget:
         # No mocking — build an actual QMessageBox under offscreen.
         show_about_dialog()
 
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason=(
+            "macOS QMessageBox.windowTitle() returns '' after native "
+            "NSAlert integration applies the title - the dialog renders "
+            "correctly but the getter does not survive the round-trip. "
+            "See GitHub #82."
+        ),
+    )
     def test_real_dialog_sets_expected_title(self, qapp, mocker):
         """Capture the constructed box to assert title on the instance."""
         created = []
