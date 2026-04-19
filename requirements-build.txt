@@ -20,4 +20,8 @@ pyinstaller==6.11.1
 # implementation fully replaces them.
 pystray==0.19.5
 plyer==2.1.0
-PySide6==6.11.0
+# PySide6-Essentials pulls QtWidgets/QtGui/QtCore (all we need for the tray).
+# Avoid the full `PySide6` meta-pin: it also drags in PySide6_Addons (Qt3D,
+# QtCharts, QtMultimedia, QtWebEngine, etc.) — ~170 MB of libraries the tray
+# never touches.
+PySide6-Essentials==6.11.0
