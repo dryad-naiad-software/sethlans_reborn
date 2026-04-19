@@ -23,12 +23,26 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DMG_SCRIPT = REPO_ROOT / "packaging" / "macos" / "build_dmg.sh"
+PLIST_TEMPLATE = REPO_ROOT / "packaging" / "macos" / "Info.plist.template"
+LAUNCHER_SPEC = REPO_ROOT / "packaging" / "pyinstaller" / "launcher.spec"
 
 
 @pytest.fixture(scope="module")
 def dmg_contents() -> str:
     assert DMG_SCRIPT.is_file(), f"Expected DMG build script at {DMG_SCRIPT}"
     return DMG_SCRIPT.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def plist_contents() -> str:
+    assert PLIST_TEMPLATE.is_file(), f"Expected Info.plist template at {PLIST_TEMPLATE}"
+    return PLIST_TEMPLATE.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def launcher_spec_contents() -> str:
+    assert LAUNCHER_SPEC.is_file(), f"Expected launcher.spec at {LAUNCHER_SPEC}"
+    return LAUNCHER_SPEC.read_text(encoding="utf-8")
 
 
 class TestDmgInstallerRegression:
@@ -209,4 +223,152 @@ class TestDmgInstallerCodesign:
             "The `codesign --verify` check must run BEFORE `hdiutil create`; "
             "otherwise a broken signature would still be wrapped into the DMG "
             "(issue #85)."
+        )
+
+
+class TestDmgInstallerBundleExecutable:
+    """Static assertions guarding the #86 fix in build_dmg.sh.
+
+    Info.plist.template declares ``CFBundleExecutable=sethlans`` but
+    ``launcher.spec`` names the PyInstaller EXE ``run_launcher`` (shared
+    with the Windows build). After PyInstaller writes the bundle, the
+    binary at ``Contents/MacOS/run_launcher`` does not match the plist
+    key — macOS Launch Services reports the app as "damaged or
+    incomplete". ``build_dmg.sh`` must rename the binary to ``sethlans``
+    inside the staged bundle, BEFORE the ad-hoc re-sign (codesign hashes
+    file names, so renaming post-sign would break the seal).
+
+    Also guards the companion ``xattr -cr`` hygiene pass that strips
+    inherited ``com.apple.quarantine`` attributes.
+
+    Fixes #86.
+    """
+
+    def test_info_plist_declares_sethlans_as_executable(self, plist_contents: str) -> None:
+        # The user-visible binary name is `sethlans`. If this ever
+        # changes, the rename in build_dmg.sh must be updated to match.
+        pattern = re.compile(
+            r'<key>CFBundleExecutable</key>\s*<string>sethlans</string>',
+        )
+        assert pattern.search(plist_contents), (
+            "Expected Info.plist.template to declare "
+            "<key>CFBundleExecutable</key><string>sethlans</string>. "
+            "Drift here would desync the #86 fix in build_dmg.sh."
+        )
+
+    def test_launcher_spec_exe_name_is_run_launcher(self, launcher_spec_contents: str) -> None:
+        # launcher.spec is shared with Windows — the EXE name is
+        # `run_launcher`. The macOS DMG rename depends on this.
+        pattern = re.compile(r"name\s*=\s*['\"]run_launcher['\"]")
+        assert pattern.search(launcher_spec_contents), (
+            "Expected launcher.spec to contain `name='run_launcher'` in "
+            "its EXE(...) call. The macOS DMG rename in build_dmg.sh "
+            "assumes this name (issue #86)."
+        )
+
+    def test_dmg_script_renames_run_launcher_to_sethlans(self, dmg_contents: str) -> None:
+        # Regex-match the mv of ${MACOS_DIR}/run_launcher to
+        # ${MACOS_DIR}/sethlans. Tolerate whitespace + line continuations.
+        pattern = re.compile(
+            r'mv\s+\\?\s*'
+            r'"\$\{MACOS_DIR\}/run_launcher"\s+\\?\s*'
+            r'"\$\{MACOS_DIR\}/sethlans"',
+        )
+        assert pattern.search(dmg_contents), (
+            "Expected build_dmg.sh to rename the PyInstaller binary with "
+            '`mv "${MACOS_DIR}/run_launcher" "${MACOS_DIR}/sethlans"` so '
+            "CFBundleExecutable resolves (issue #86)."
+        )
+
+    def test_rename_happens_before_outer_resign(self, dmg_contents: str) -> None:
+        # The rename must come BEFORE the outer ad-hoc re-sign. codesign
+        # hashes file names into the seal, so renaming after signing
+        # would invalidate the signature and codesign --verify would
+        # abort the build.
+        rename_pattern = re.compile(
+            r'mv\s+\\?\s*'
+            r'"\$\{MACOS_DIR\}/run_launcher"\s+\\?\s*'
+            r'"\$\{MACOS_DIR\}/sethlans"',
+        )
+        resign_pattern = re.compile(
+            r'codesign\s+--force\s+--deep\s+--sign\s+-\s+'
+            r'"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
+        )
+        rename_match = rename_pattern.search(dmg_contents)
+        resign_match = resign_pattern.search(dmg_contents)
+        assert rename_match is not None, (
+            "Expected the run_launcher -> sethlans rename to be present."
+        )
+        assert resign_match is not None, (
+            "Expected the outer-bundle re-sign line to be present."
+        )
+        assert rename_match.start() < resign_match.start(), (
+            "The run_launcher -> sethlans rename MUST happen before the "
+            "outer `codesign ... ${STAGING_DIR}/${APP_NAME}` re-sign; "
+            "codesign hashes file names, so a post-sign rename breaks "
+            "the seal and the verify gate would fail (issue #86)."
+        )
+
+    def test_rename_happens_after_bundle_copy_into_staging(self, dmg_contents: str) -> None:
+        # Can't rename a file before it exists — the mv must come AFTER
+        # the `cp -R "${DIST_DIR}/${APP_NAME}" "${STAGING_DIR}/${APP_NAME}"`
+        # that populates the staged bundle.
+        cp_marker = 'cp -R "${DIST_DIR}/${APP_NAME}" "${STAGING_DIR}/${APP_NAME}"'
+        rename_pattern = re.compile(
+            r'mv\s+\\?\s*'
+            r'"\$\{MACOS_DIR\}/run_launcher"\s+\\?\s*'
+            r'"\$\{MACOS_DIR\}/sethlans"',
+        )
+        assert cp_marker in dmg_contents, (
+            f"Expected marker {cp_marker!r} to be present as a sanity check."
+        )
+        rename_match = rename_pattern.search(dmg_contents)
+        assert rename_match is not None, (
+            "Expected the run_launcher -> sethlans rename to be present."
+        )
+        cp_index = dmg_contents.index(cp_marker)
+        assert rename_match.start() > cp_index, (
+            "The run_launcher -> sethlans rename must appear AFTER the "
+            "`cp -R ${DIST_DIR}/${APP_NAME} ${STAGING_DIR}/${APP_NAME}` "
+            "line; the binary doesn't exist in staging before the copy "
+            "(issue #86)."
+        )
+
+    def test_dmg_script_strips_quarantine_xattrs(self, dmg_contents: str) -> None:
+        # Regex-match `xattr -cr "${STAGING_DIR}/${APP_NAME}"`. The
+        # trailing `|| true` is not required for the assertion to hold
+        # but is part of the defensive pattern.
+        pattern = re.compile(
+            r'xattr\s+-cr\s+"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
+        )
+        assert pattern.search(dmg_contents), (
+            "Expected build_dmg.sh to strip inherited quarantine xattrs "
+            'with `xattr -cr "${STAGING_DIR}/${APP_NAME}"` as pre-sign '
+            "hygiene (issue #86)."
+        )
+
+    def test_xattr_strip_happens_before_outer_resign(self, dmg_contents: str) -> None:
+        # The xattr strip must run BEFORE the outer re-sign so the
+        # pre-sign state is the clean bundle state. Running it after
+        # signing is logically confused (xattrs don't affect the
+        # signature itself, but we want the hygiene pass co-located
+        # with the rest of the pre-sign bundle setup).
+        xattr_pattern = re.compile(
+            r'xattr\s+-cr\s+"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
+        )
+        resign_pattern = re.compile(
+            r'codesign\s+--force\s+--deep\s+--sign\s+-\s+'
+            r'"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
+        )
+        xattr_match = xattr_pattern.search(dmg_contents)
+        resign_match = resign_pattern.search(dmg_contents)
+        assert xattr_match is not None, (
+            "Expected the `xattr -cr` hygiene line to be present."
+        )
+        assert resign_match is not None, (
+            "Expected the outer-bundle re-sign line to be present."
+        )
+        assert xattr_match.start() < resign_match.start(), (
+            "`xattr -cr` must run BEFORE the outer-bundle re-sign so "
+            "pre-sign bundle hygiene is co-located (issue #86)."
         )

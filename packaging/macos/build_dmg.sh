@@ -38,6 +38,17 @@ mkdir -p "${STAGING_DIR}"
 # Copy the .app bundle to staging
 cp -R "${DIST_DIR}/${APP_NAME}" "${STAGING_DIR}/${APP_NAME}"
 
+# Align CFBundleExecutable with the actual PyInstaller binary name.
+# launcher.spec names the exe `run_launcher` (shared with Windows),
+# while Info.plist.template declares `CFBundleExecutable=sethlans`.
+# Rename the binary in the staged bundle so macOS Launch Services can
+# find the main executable. Must happen BEFORE the ad-hoc re-sign —
+# codesign hashes file names, so renaming after signing breaks the seal.
+MACOS_DIR="${STAGING_DIR}/${APP_NAME}/Contents/MacOS"
+if [ -f "${MACOS_DIR}/run_launcher" ] && [ ! -f "${MACOS_DIR}/sethlans" ]; then
+    mv "${MACOS_DIR}/run_launcher" "${MACOS_DIR}/sethlans"
+fi
+
 # Copy component bundles into the .app's Resources
 RESOURCES="${STAGING_DIR}/${APP_NAME}/Contents/Resources"
 mkdir -p "${RESOURCES}/bin"
@@ -80,6 +91,15 @@ fi
 cat > "${RESOURCES}/version.json" <<EOF
 {"version": "${VERSION}", "platform": "macos-arm64"}
 EOF
+
+# Strip any inherited com.apple.quarantine xattrs from bundle contents.
+# PNGs under shared/tray/assets/ can be quarantined in the build
+# workspace (from prior downloads) and PyInstaller carries that forward
+# into COLLECT. A user drag-install from the DMG leaves those xattrs in
+# place on inner files, which has tripped up some sandboxed readers.
+# Must run BEFORE the re-sign (defensive — clears state the signature
+# should not be sealing).
+xattr -cr "${STAGING_DIR}/${APP_NAME}" || true
 
 # Re-sign the bundle AFTER every mutation of Contents/ (Info.plist,
 # sethlans.icns, version.json). PyInstaller's embedded ad-hoc signature
