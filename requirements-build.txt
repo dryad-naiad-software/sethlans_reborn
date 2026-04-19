@@ -12,5 +12,12 @@ pyinstaller==6.11.1
 # Tray helper runtime deps (bundled into the tray_helper PyInstaller output).
 # Pillow is already pulled in by manager/requirements.txt; pystray + plyer
 # are tray-specific.
+#
+# The tray helper is being migrated from pystray + plyer (and a subprocess-based
+# clipboard helper) to PySide6 in a staged rollout. During the migration the new
+# Qt modules live alongside the existing pystray modules so the tray keeps
+# working; pystray and plyer will be removed in a later phase once the PySide6
+# implementation fully replaces them.
 pystray==0.19.5
 plyer==2.1.0
+PySide6==6.11.0
