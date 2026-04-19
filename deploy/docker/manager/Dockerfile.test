@@ -3,7 +3,7 @@
 
 # NOTE: Requires deploy/docker/manager/Dockerfile.test.dockerignore to override
 # the repo-root .dockerignore (which excludes tests/ from the build context).
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl procps && \
