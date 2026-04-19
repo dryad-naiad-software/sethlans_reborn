@@ -129,6 +129,7 @@ dmypy.json
 
 # OS / Sync
 desktop.ini
+.DS_Store
 .sync*
 .nextcloudsync*
 
