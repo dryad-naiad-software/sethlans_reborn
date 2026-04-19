@@ -4,15 +4,12 @@
 
 """Qt manager-section menu builder for the PySide6 tray.
 
-Mirrors ``shared/tray/menu_manager.py`` for the PySide6 migration
-(see ``tray-pyside6-migration.md`` FR-2, NFR-1).  ``ManagerSection``
-exposes ``build_qmenu(parent=None)`` / ``rebuild(parent=None)`` to
-construct a ``QMenu``, and ``refresh(snapshot=None)`` to re-evaluate
+Mirrors ``shared/tray/menu_manager.py`` (spec FR-2, NFR-1).
+``ManagerSection`` exposes ``build_qmenu(parent=None)`` /
+``rebuild(parent=None)`` and ``refresh(snapshot=None)`` to re-evaluate
 dynamic text / visibility / enabled state from the current snapshot.
-
 Pure-Python helpers live in ``qt_menu_manager_helpers``; the shared
-About dialog lives in ``qt_about``.  The module does NOT construct a
-``QApplication`` and does NOT touch the legacy pystray modules.
+About dialog lives in ``qt_about``.
 """
 
 from __future__ import annotations
@@ -35,6 +32,7 @@ from shared.tray.qt_menu_manager_helpers import (
     sentinel_exists,
     validate_token,
 )
+from shared.tray.qt_notifications import NotificationEvent
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +53,7 @@ class ManagerSection:
         manager_port: int,
         quit_requested_flag: threading.Event,
         get_snapshot: Callable,
+        notify: Optional[Callable[[NotificationEvent], None]] = None,
     ) -> None:
         self.data_dir = data_dir
         self.manager_data_dir = manager_data_dir
@@ -62,6 +61,7 @@ class ManagerSection:
         self.port = manager_port
         self.quit_flag = quit_requested_flag
         self.get_snapshot = get_snapshot
+        self._notify = notify
 
         # QAction references held so refresh() can mutate them.
         self._menu: Optional[QMenu] = None
@@ -108,9 +108,9 @@ class ManagerSection:
     def on_copy_token(self) -> None:
         """Re-check token availability, then copy via QClipboard.
 
-        Never raises — ``copy_token_to_clipboard`` swallows Qt errors
-        and returns ``False`` on failure.  The boolean result is
-        logged; user-facing notifications are wired in Phase 8.
+        Never raises.  On success, dispatches a "Token copied" notice
+        when a ``notify`` callable was supplied; failure only logs.
+        Token never logged.
         """
         if sentinel_exists(self.manager_data_dir):
             logger.info("Copy token skipped: setup already complete")
@@ -121,6 +121,14 @@ class ManagerSection:
             return
         ok = copy_token_to_clipboard(token)
         logger.info("Copy setup token result: %s", ok)
+        if ok and self._notify is not None:
+            try:
+                self._notify(NotificationEvent(
+                    title="Token copied",
+                    message="Setup token copied to clipboard.",
+                ))
+            except Exception:  # pragma: no cover
+                logger.exception("Notify after copy_token failed")
 
     def on_restart_manager(self) -> None:
         try:

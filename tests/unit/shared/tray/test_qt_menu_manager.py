@@ -121,7 +121,20 @@ class TestConstructorSignature:
                 LegacyManagerSection.__init__,
             ).parameters.keys(),
         )
-        assert qt_params == legacy_params
+        # Qt version extends the legacy signature with an optional
+        # ``notify`` kwarg (Phase 8 wiring for the "Token copied"
+        # desktop notification).  Legacy params must be preserved in
+        # order at the front of the Qt signature so existing callers
+        # work unchanged.
+        assert qt_params[:len(legacy_params)] == legacy_params
+        # ``notify`` must be the only new parameter and it must be
+        # optional (default None) so constructing without it is
+        # backwards-compatible.
+        assert qt_params[len(legacy_params):] == ["notify"]
+        notify_param = inspect.signature(
+            ManagerSection.__init__,
+        ).parameters["notify"]
+        assert notify_param.default is None
 
     def test_constructor_stores_all_args(self, qapp, tmp_path):
         flag = threading.Event()
@@ -639,3 +652,145 @@ class TestDataDirPaths:
     def test_data_dir_is_pathlib_path(self, section):
         assert isinstance(section.data_dir, Path)
         assert isinstance(section.manager_data_dir, Path)
+
+
+# ------------------------------------------------------------------ #
+# Phase 8 re-wire: notify callable + "Token copied" notification
+# ------------------------------------------------------------------ #
+
+class TestNotifyWiring:
+    """Phase 8 re-wires the "Token copied" desktop notification via the
+    optional ``notify`` kwarg on ``ManagerSection``."""
+
+    def test_notify_defaults_to_none(self, section):
+        assert section._notify is None
+
+    def test_on_copy_token_does_not_raise_when_notify_is_none(
+        self, section, mocker, tmp_path,
+    ):
+        token = "a" * 40
+        (tmp_path / "manager" / "manager.ini").write_text(
+            f"[setup]\ntoken = {token}\n", encoding="utf-8",
+        )
+        mocker.patch.object(
+            qmm, "copy_token_to_clipboard", return_value=True,
+        )
+        # Must not raise even with notify=None (the default).
+        section.on_copy_token()
+
+    def test_on_copy_token_emits_notification_on_success(
+        self, qapp, mocker, tmp_path,
+    ):
+        from shared.tray.qt_notifications import NotificationEvent
+        token = "a" * 40
+        (tmp_path / "manager").mkdir()
+        (tmp_path / "data").mkdir()
+        (tmp_path / "manager" / "manager.ini").write_text(
+            f"[setup]\ntoken = {token}\n", encoding="utf-8",
+        )
+        notify = mocker.MagicMock()
+        flag = threading.Event()
+        sec = ManagerSection(
+            data_dir=tmp_path / "data",
+            manager_data_dir=tmp_path / "manager",
+            manager_host="localhost",
+            manager_port=8443,
+            quit_requested_flag=flag,
+            get_snapshot=lambda: _make_snapshot(),
+            notify=notify,
+        )
+        mocker.patch.object(
+            qmm, "copy_token_to_clipboard", return_value=True,
+        )
+        sec.on_copy_token()
+        assert notify.call_count == 1
+        (args, _) = notify.call_args
+        evt = args[0]
+        assert isinstance(evt, NotificationEvent)
+        assert evt.title == "Token copied"
+        assert evt.message == "Setup token copied to clipboard."
+
+    def test_on_copy_token_does_not_emit_notification_on_failure(
+        self, qapp, mocker, tmp_path,
+    ):
+        token = "a" * 40
+        (tmp_path / "manager").mkdir()
+        (tmp_path / "data").mkdir()
+        (tmp_path / "manager" / "manager.ini").write_text(
+            f"[setup]\ntoken = {token}\n", encoding="utf-8",
+        )
+        notify = mocker.MagicMock()
+        flag = threading.Event()
+        sec = ManagerSection(
+            data_dir=tmp_path / "data",
+            manager_data_dir=tmp_path / "manager",
+            manager_host="localhost",
+            manager_port=8443,
+            quit_requested_flag=flag,
+            get_snapshot=lambda: _make_snapshot(),
+            notify=notify,
+        )
+        mocker.patch.object(
+            qmm, "copy_token_to_clipboard", return_value=False,
+        )
+        sec.on_copy_token()
+        notify.assert_not_called()
+
+    def test_token_value_never_appears_in_notification(
+        self, qapp, mocker, tmp_path,
+    ):
+        """Security invariant: the user-facing notification carries no
+        token data even on successful copy."""
+        token = "secretTOKEN" + "X" * 30  # identifiable in a payload scan
+        (tmp_path / "manager").mkdir()
+        (tmp_path / "data").mkdir()
+        (tmp_path / "manager" / "manager.ini").write_text(
+            f"[setup]\ntoken = {token}\n", encoding="utf-8",
+        )
+        captured = []
+
+        def _capture(evt):
+            captured.append(evt)
+
+        flag = threading.Event()
+        sec = ManagerSection(
+            data_dir=tmp_path / "data",
+            manager_data_dir=tmp_path / "manager",
+            manager_host="localhost",
+            manager_port=8443,
+            quit_requested_flag=flag,
+            get_snapshot=lambda: _make_snapshot(),
+            notify=_capture,
+        )
+        mocker.patch.object(
+            qmm, "copy_token_to_clipboard", return_value=True,
+        )
+        sec.on_copy_token()
+        assert len(captured) == 1
+        evt = captured[0]
+        assert token not in evt.title
+        assert token not in evt.message
+
+    def test_notify_exception_is_swallowed(self, qapp, mocker, tmp_path):
+        token = "a" * 40
+        (tmp_path / "manager").mkdir()
+        (tmp_path / "data").mkdir()
+        (tmp_path / "manager" / "manager.ini").write_text(
+            f"[setup]\ntoken = {token}\n", encoding="utf-8",
+        )
+        notify = mocker.MagicMock(side_effect=RuntimeError("boom"))
+        flag = threading.Event()
+        sec = ManagerSection(
+            data_dir=tmp_path / "data",
+            manager_data_dir=tmp_path / "manager",
+            manager_host="localhost",
+            manager_port=8443,
+            quit_requested_flag=flag,
+            get_snapshot=lambda: _make_snapshot(),
+            notify=notify,
+        )
+        mocker.patch.object(
+            qmm, "copy_token_to_clipboard", return_value=True,
+        )
+        # Must not raise; ``on_copy_token`` catches notify failures.
+        sec.on_copy_token()

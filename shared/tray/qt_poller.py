@@ -21,21 +21,15 @@ queued-connection semantics marshal slot invocations back to the GUI
 thread.
 
 Thread affinity: the ``QObject`` MUST be constructed on the GUI
-thread.  ``moveToThread`` is NOT called on this object; its thread
-affinity stays with its creator.  This affinity is what lets
-``Qt.AutoConnection`` resolve to ``QueuedConnection`` for cross-thread
-emits from the polling thread.
+thread.  ``moveToThread`` is NOT called; affinity stays with the
+creator.  This lets ``Qt.AutoConnection`` resolve to
+``QueuedConnection`` for cross-thread emits from the polling thread.
 
-Start ordering: callers should start the poller via
-``QTimer.singleShot(0, poller.start)`` on the first iteration of the
-event loop — after ``tray.show()`` and immediately before
-``app.exec()``.  Convention, not enforced.
-
-Graceful shutdown: after ``app.exec()`` returns, the caller runs
-``stop_event.set()`` → ``poller.join(timeout=3.0)`` →
-``poller.disconnect()``.  The polling thread observes ``stop_event``
-inside ``threading.Event.wait`` and exits cleanly within one poll
-interval.
+Callers start the poller via ``QTimer.singleShot(0, poller.start)``
+on the first iteration of the event loop.  Graceful shutdown after
+``app.exec()`` returns: ``stop_event.set()`` →
+``poller.join(timeout=3.0)`` → ``QObject.disconnect(poller)``
+(static form — the zero-arg instance form raises in PySide6).
 
 Signal delivery is ordered and non-coalescing: each state change
 produces exactly one ``QMetaCallEvent`` per signal emit.
@@ -169,8 +163,14 @@ class QtStatePoller(QObject):
     # Thread entry (worker thread)
     # ------------------------------------------------------------------
     def _run_loop(self) -> None:  # pragma: no cover - thread loop
+        # Top-level try/except is a survivability guard: keeps the
+        # polling thread alive if _tick() (or a synchronous slot)
+        # raises an exception _fetch didn't convert.
         while not self._stop.wait(_POLL_INTERVAL_SECONDS):
-            self._tick()
+            try:
+                self._tick()
+            except Exception:
+                logger.exception("QtStatePoller tick failed")
             if self._stop.is_set():
                 return
 
