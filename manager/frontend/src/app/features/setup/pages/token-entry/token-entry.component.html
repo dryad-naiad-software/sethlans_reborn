@@ -22,7 +22,7 @@
             [formControl]="token"
             [type]="showToken() ? 'text' : 'password'"
             [readonly]="submitting() || rateLimited()"
-            [attr.name]="fieldName"
+            [name]="fieldName"
             autocomplete="one-time-code"
             spellcheck="false"
             autocapitalize="off"

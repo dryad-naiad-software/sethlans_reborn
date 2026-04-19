@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component, inject, output, OnDestroy } from '@angular/core';
+import { Component, inject, output, OnDestroy, OnInit } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -93,7 +93,7 @@ import { DownloadProgress } from '../models/setup.models';
     .button-row { display: flex; gap: 12px; margin-top: 16px; }
   `],
 })
-export class BlenderDownloadComponent implements OnDestroy {
+export class BlenderDownloadComponent implements OnInit, OnDestroy {
   private readonly api = inject(SetupApiService);
   private readonly state = inject(SetupStateService);
   private readonly snackBar = inject(MatSnackBar);
@@ -119,6 +119,10 @@ export class BlenderDownloadComponent implements OnDestroy {
       failed: 'Failed',
     };
     return labels[this.progress.status] || this.progress.status;
+  }
+
+  ngOnInit(): void {
+    this.startDownload();
   }
 
   startDownload(): void {
