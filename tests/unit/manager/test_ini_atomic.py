@@ -101,3 +101,50 @@ class TestSetupSessionIdRoundtrip:
         assert bind_setup_session_id(tmp_path, "sid-other") is False
         # Original binding preserved.
         assert read_setup_session_id(tmp_path) == "sid-1"
+
+
+class TestBindSetupSessionIdRace:
+    """Verify-after-write guards against two callers both seeing an
+    empty ``[setup] session_id`` and racing to write — last-writer-wins
+    on ``os.replace`` means only one actually owns the binding."""
+
+    def test_returns_true_when_no_concurrent_writer(self, tmp_path):
+        # Baseline: fresh data dir, nobody else wrote; we should win.
+        assert bind_setup_session_id(tmp_path, "sid-winner") is True
+        assert read_setup_session_id(tmp_path) == "sid-winner"
+
+    def test_returns_false_when_concurrent_caller_overwrites(
+        self, tmp_path, mocker,
+    ):
+        # Simulate a concurrent binder that writes a *different*
+        # session_id between our ``write_ini_atomic`` call and the
+        # final re-read.  After the race the file holds the other
+        # session's value, so our return must be False.
+        from workers.services import ini_atomic as mod
+
+        real_write = mod.write_ini_atomic
+
+        def racy_write(ini_path, updates):
+            real_write(ini_path, updates)
+            # Concurrent caller's write lands AFTER ours.
+            real_write(ini_path, {"setup.session_id": "sid-other"})
+
+        mocker.patch.object(mod, "write_ini_atomic", side_effect=racy_write)
+
+        assert bind_setup_session_id(tmp_path, "sid-ours") is False
+        # File reflects the concurrent (winning) writer.
+        assert read_setup_session_id(tmp_path) == "sid-other"
+
+    def test_idempotent_when_already_bound_to_same_id(
+        self, tmp_path, mocker,
+    ):
+        # First call establishes the binding.
+        assert bind_setup_session_id(tmp_path, "sid-same") is True
+
+        # Second call with the same id must short-circuit — no new
+        # write should occur.  Spy on ``write_ini_atomic`` to confirm.
+        from workers.services import ini_atomic as mod
+
+        spy = mocker.spy(mod, "write_ini_atomic")
+        assert bind_setup_session_id(tmp_path, "sid-same") is True
+        assert spy.call_count == 0

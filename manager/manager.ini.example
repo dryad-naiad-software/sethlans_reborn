@@ -15,6 +15,12 @@
 host = 0.0.0.0
 # The port the manager server will run on.
 port = 8080
+# Loopback-only plaintext HTTP port for the tray helper's
+# /api/status/public/ endpoint.  Bound to 127.0.0.1 only; never
+# reachable from the network.  Override with the
+# SETHLANS_MANAGER_LOOPBACK_PORT environment variable.
+# Default: 8088
+# loopback_port = 8088
 
 [tls]
 # Path to PEM-encoded certificate file.

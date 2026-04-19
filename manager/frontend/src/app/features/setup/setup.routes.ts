@@ -3,17 +3,20 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import { Routes } from '@angular/router';
+import { setupSessionGuard } from './guards/setup-session.guard';
 
 export const SETUP_ROUTES: Routes = [
   {
-    path: 'bootstrap-error',
+    path: '',
+    pathMatch: 'full',
     loadComponent: () =>
-      import('./pages/bootstrap-error/bootstrap-error.component').then(
-        m => m.BootstrapErrorComponent,
+      import('./pages/token-entry/token-entry.component').then(
+        m => m.TokenEntryComponent,
       ),
   },
   {
-    path: '',
+    path: 'wizard',
+    canActivate: [setupSessionGuard],
     loadComponent: () =>
       import('./setup.component').then(m => m.SetupComponent),
   },

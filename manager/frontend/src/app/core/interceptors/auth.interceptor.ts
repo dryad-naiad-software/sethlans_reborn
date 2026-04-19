@@ -28,7 +28,7 @@ function extractSetupErrorCode(error: HttpErrorResponse): SetupErrorCode | null 
  * Attaches CSRF token and withCredentials to requests.
  * Handles 401 (redirect to login), 403 (snackbar), and setup-envelope error
  * codes (setup_in_progress → /setup, setup_complete/setup_session_conflict →
- * /login). invalid_token is handled in APP_INITIALIZER, not here.
+ * /login). invalid_token is handled inline by TokenEntryComponent, not here.
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
@@ -66,7 +66,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       }
 
       if (code === 'invalid_token') {
-        // Bootstrap path — APP_INITIALIZER handles redirect. No-op here.
+        // TokenEntryComponent renders this inline. No-op here.
         return throwError(() => error);
       }
 

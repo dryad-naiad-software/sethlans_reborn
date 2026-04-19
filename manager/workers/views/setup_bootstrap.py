@@ -22,7 +22,12 @@ from pathlib import Path
 
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -32,8 +37,11 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from shared.frozen_paths import get_data_dir, is_frozen
+from workers.authentication import SetupPhaseAuthentication
 from workers.rate_limiter import InMemoryRateLimiter
 from workers.services.ini_atomic import bind_setup_session_id
+from workers.services.setup_phase import SetupPhaseError
+from workers.services.setup_session import enforce_setup_session_binding
 from workers.services.setup_token import read_setup_token
 from workers.utils.errors import setup_error
 from workers.views._helpers import client_ip as _get_client_ip
@@ -123,3 +131,73 @@ def setup_bootstrap_view(request):
 # still honours the 256-bit-token-as-anti-CSRF-proof contract.
 from workers.authentication import SETUP_CSRF_EXEMPT_ATTR  # noqa: E402
 setattr(setup_bootstrap_view, SETUP_CSRF_EXEMPT_ATTR, True)
+
+
+# --- Session probe (FR-BE-1 / setup-token-entry spec) -----------------
+# Reusable inline serializer describing the unified setup-error envelope
+# ({"error": {"code": str, "message": str, "details": dict}}).  Used by
+# OpenAPI to advertise the 403 body of the session probe below.
+_SetupErrorSerializer = inline_serializer(
+    name="SetupErrorEnvelope",
+    fields={
+        "error": inline_serializer(
+            name="SetupErrorEnvelopeBody",
+            fields={
+                "code": serializers.CharField(),
+                "message": serializers.CharField(),
+                "details": serializers.DictField(),
+            },
+        ),
+    },
+)
+
+
+@extend_schema(
+    tags=["Setup"],
+    summary="Probe whether a bound setup-phase session exists.",
+    description=(
+        "Used exclusively by the Angular `setupSessionGuard` on the "
+        "`/setup/wizard` route.  Returns 204 when the caller already "
+        "holds a bound setup-phase session (set by `POST /api/setup/"
+        "bootstrap/`); returns the unified `setup_in_progress` 403 "
+        "envelope otherwise."
+    ),
+    responses={
+        204: None,
+        403: OpenApiResponse(
+            response=_SetupErrorSerializer,
+            description="No bound setup session.",
+        ),
+    },
+)
+@api_view(["GET"])
+@authentication_classes([SetupPhaseAuthentication])
+@permission_classes([AllowAny])
+def setup_session_view(request):
+    """Return 204 iff this request carries a bound setup-phase session.
+
+    We do our own check (rather than relying on ``IsSetupPhaseUser``)
+    and raise ``SetupPhaseError("setup_in_progress", ...)`` explicitly
+    on failure.  The default DRF 403 fall-through in
+    :func:`workers.utils.errors._infer_code` maps bare 403 responses to
+    ``invalid_token`` — which is the correct code for the bootstrap
+    view, but wrong for this probe.  Raising ``SetupPhaseError``
+    short-circuits the ``isinstance`` branch of
+    :func:`setup_exception_handler` before ``_infer_code`` runs, so we
+    emit the correct ``setup_in_progress`` envelope without touching
+    the shared helper.
+    """
+    session = getattr(request, "session", None)
+    if session is None or session.get("setup_phase") is not True:
+        raise SetupPhaseError(
+            code="setup_in_progress",
+            message="Setup session required.",
+            status=403,
+            details={},
+        )
+    # Validate the single-writer session_id binding (FR-4a / C3).  If
+    # another tab owns the binding, ``enforce_setup_session_binding``
+    # raises ``SetupPhaseError(setup_session_conflict, 409)`` — caught
+    # by the unified handler and rendered as the 409 envelope.
+    enforce_setup_session_binding(request)
+    return Response(status=204)

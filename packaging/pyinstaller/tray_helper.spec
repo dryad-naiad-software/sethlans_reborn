@@ -12,14 +12,16 @@ Usage: pyinstaller packaging/pyinstaller/tray_helper.spec
 
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_submodules
 
 # --- Project paths ---
 SPEC_DIR = Path(SPECPATH)
 PROJECT_ROOT = SPEC_DIR.parent.parent
-WORKER_DIR = PROJECT_ROOT / 'worker'
+SHARED_DIR = PROJECT_ROOT / 'shared'
 
 # --- Hidden imports ---
+# Explicit list per tray-helper-unified.md FR-25a: NO collect_submodules
+# for plyer.  Only the per-platform backends we actually import are
+# pulled in.
 hiddenimports = [
     'pystray',
     'requests',
@@ -27,14 +29,30 @@ hiddenimports = [
     'urllib3',
     'PIL',
     'PIL.Image',
+    'PIL.ImageDraw',
+    'psutil',
+    'plyer',
+    'plyer.notification',
+    'shared',
+    'shared.tray',
+    'shared.tray.app',
+    'shared.tray.clipboard',
+    'shared.tray.icons',
+    'shared.tray.ipc',
+    'shared.tray.launcher_watch',
+    'shared.tray.menu_manager',
+    'shared.tray.menu_worker',
+    'shared.tray.notifications',
+    'shared.tray.poller',
+    'shared.tray.topology',
+    'shared.frozen_paths',
 ]
-hiddenimports += collect_submodules('shared')
 
-# Platform-specific notification libraries
+# Platform-specific notification + pystray backends.
 if sys.platform == 'win32':
     hiddenimports += [
         'pystray._win32',
-        'win10toast',
+        'plyer.platforms.win.notification',
     ]
 elif sys.platform == 'darwin':
     hiddenimports += [
@@ -42,19 +60,29 @@ elif sys.platform == 'darwin':
         'AppKit',
         'Foundation',
         'objc',
+        'plyer.platforms.macosx.notification',
     ]
 else:
     hiddenimports += [
         'pystray._xorg',
         'pystray._appindicator',
         'gi',
+        'plyer.platforms.linux.notification',
     ]
 
+# --- Data files (tray icon PNGs) ---
+datas = [
+    (
+        str(SHARED_DIR / 'tray' / 'assets'),
+        'shared/tray/assets',
+    ),
+]
+
 a = Analysis(
-    [str(WORKER_DIR / 'run_tray_helper.py')],
-    pathex=[str(WORKER_DIR), str(PROJECT_ROOT)],
+    [str(SHARED_DIR / 'run_tray.py')],
+    pathex=[str(PROJECT_ROOT), str(SHARED_DIR)],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -65,7 +93,11 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-# Tray helper is always a GUI process (console=False on all platforms)
+# Tray helper is always a GUI process (console=False on all platforms).
+# EXE name kept as 'run_tray_helper' so existing installer / uninstaller
+# references (packaging/windows/sethlans.nsi, packaging/linux/
+# uninstall.sh) keep working.  Bundle dir name stays 'tray_helper'
+# per tray-helper-unified.md FR-2.
 exe = EXE(
     pyz,
     a.scripts,

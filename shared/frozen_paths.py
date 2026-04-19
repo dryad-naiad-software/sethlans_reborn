@@ -160,3 +160,32 @@ def get_data_dir(component: str) -> Path:
     if xdg:
         return Path(xdg) / "sethlans" / component
     return Path.home() / ".local" / "share" / "sethlans" / component
+
+
+def get_shared_data_dir() -> Path:
+    """Return the shared per-user Sethlans data directory (no component).
+
+    This is the parent of ``get_data_dir("manager")`` and
+    ``get_data_dir("worker")`` and is the canonical location for
+    cross-component state: the setup sentinel, ``topology.json``,
+    the IPC marker files (``.restart_requested`` / ``.quit_requested``),
+    and shared logs.
+
+    Distinct from ``get_data_dir(component).parent`` in that it honours
+    a separate ``SETHLANS_DATA_DIR`` env override — so tests and
+    operators can relocate the shared tree without also overriding each
+    component's dir.  When only per-component overrides are set, we
+    fall back to their common parent.
+    """
+    env_override = os.environ.get("SETHLANS_DATA_DIR")
+    if env_override:
+        p = Path(env_override)
+        if not p.is_absolute():
+            raise ValueError(
+                f"SETHLANS_DATA_DIR must be an absolute path, got: "
+                f"{env_override}"
+            )
+        return p
+    # Derive from the manager component dir; on stock platforms this
+    # resolves to %LOCALAPPDATA%\Sethlans, ~/Library/.../Sethlans, etc.
+    return get_data_dir("manager").parent

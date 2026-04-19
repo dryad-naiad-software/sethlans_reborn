@@ -6,38 +6,64 @@ import { TestBed } from '@angular/core/testing';
 import { SetupStateService } from './setup-state.service';
 import { SetupStatus } from '../models/setup.models';
 
-const LEGACY_KEY = 'sethlans.setupToken';
-
 describe('SetupStateService', () => {
   let service: SetupStateService;
 
   beforeEach(() => {
-    sessionStorage.clear();
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({});
     service = TestBed.inject(SetupStateService);
   });
 
-  afterEach(() => sessionStorage.clear());
-
   it('should be created', () => {
     expect(service).toBeTruthy();
   });
 
-  describe('legacy token cleanup', () => {
-    it('removes legacy sethlans.setupToken key on construction', () => {
-      sessionStorage.setItem(LEGACY_KEY, 'stale-token');
-      TestBed.resetTestingModule();
-      TestBed.configureTestingModule({});
-      const removeSpy = spyOn(sessionStorage, 'removeItem').and.callThrough();
-      TestBed.inject(SetupStateService);
-      expect(removeSpy).toHaveBeenCalledWith(LEGACY_KEY);
-      expect(sessionStorage.getItem(LEGACY_KEY)).toBeNull();
-    });
-
+  describe('URL-token handling removed', () => {
     it('does not expose a setupToken field', () => {
       expect((service as unknown as Record<string, unknown>)['setupToken'])
         .toBeUndefined();
+    });
+
+    it('does not define readTokenFromUrl', () => {
+      expect((service as unknown as Record<string, unknown>)['readTokenFromUrl'])
+        .toBeUndefined();
+    });
+
+    it('does not define clearTokenFromUrl', () => {
+      expect((service as unknown as Record<string, unknown>)['clearTokenFromUrl'])
+        .toBeUndefined();
+    });
+
+    it('constructor does NOT read sessionStorage or location.search', () => {
+      // Spy on storage + location BEFORE the service is instantiated.
+      TestBed.resetTestingModule();
+      const storageSpy = spyOn(Storage.prototype, 'getItem').and.callThrough();
+      TestBed.configureTestingModule({});
+
+      const fresh = TestBed.inject(SetupStateService);
+      expect(fresh).toBeTruthy();
+
+      const tokenishReads = storageSpy.calls.allArgs().filter(args => {
+        const key = String(args[0] ?? '');
+        return /token|setup/i.test(key);
+      });
+      expect(tokenishReads).toEqual([]);
+    });
+
+    it('has no method whose source string references location.search', () => {
+      // Scan all prototype method sources for the legacy URL-token pattern.
+      const proto = Object.getPrototypeOf(service) as Record<string, unknown>;
+      const methodSources = Object.getOwnPropertyNames(proto)
+        .map(name => {
+          const v = proto[name];
+          return typeof v === 'function' ? (v as () => unknown).toString() : '';
+        })
+        .join('\n');
+      expect(methodSources).not.toMatch(/location\.search/);
+      expect(methodSources).not.toMatch(/history\.replaceState/);
+      expect(methodSources).not.toMatch(/sessionStorage/);
+      expect(methodSources).not.toMatch(/localStorage/);
     });
   });
 

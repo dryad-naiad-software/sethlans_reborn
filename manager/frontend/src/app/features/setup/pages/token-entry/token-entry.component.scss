@@ -1,0 +1,51 @@
+// SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+//
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+.container {
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px;
+}
+
+mat-card {
+  max-width: 560px;
+  width: 100%;
+}
+
+.intro {
+  margin: 8px 0 16px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.72);
+}
+
+.token-field {
+  width: 100%;
+}
+
+.error-text {
+  color: #b00020;
+  font-size: 13px;
+  margin: 4px 0 12px;
+}
+
+.countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+
+  mat-progress-spinner {
+    margin-right: 8px;
+  }
+}
+
+.hint {
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 13px;
+  margin-top: 24px;
+}

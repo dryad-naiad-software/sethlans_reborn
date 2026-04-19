@@ -110,4 +110,7 @@ def bind_setup_session_id(data_dir: Path, session_id: str) -> bool:
     if current == session_id:
         return True
     write_ini_atomic(ini_path, {"setup.session_id": session_id})
-    return True
+    # Verify we won the race — a concurrent caller may have written
+    # their own session_id between our read and our write (last-writer-
+    # wins on ``os.replace``).  Re-read and confirm ownership.
+    return read_setup_session_id(data_dir) == session_id

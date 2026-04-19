@@ -6,20 +6,25 @@
 Bootstrap launcher entry point.
 
 This is the binary the user's Start Menu shortcut / .app bundle /
-desktop file invokes. It checks for setup completion, performs
-pre-Django bootstrap if needed, and starts the appropriate services.
+desktop file invokes.  It detects setup completion, spawns the tray
+(first, so the user sees "Starting..."), then manager, then worker,
+and drives the IPC + cascade main loop.
 
-Does NOT depend on Django — uses only stdlib.
+Stdlib + shared.tray helpers only; no Django dependency.
 """
 
 import argparse
 import json
+import logging
+import os
 import platform
 import secrets
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
+from launcher import cascade, orchestration, tray_ipc
 from launcher.browser_launch import (  # noqa: F401
     compute_cert_fingerprint as _compute_cert_fingerprint,
     is_headless as _is_headless,
@@ -32,15 +37,6 @@ from launcher.paths import (
     get_install_dir,
     set_file_permissions,
 )
-from launcher.restart_orchestrator import (
-    handle_restart_request,
-    poll_for_restart_request,
-)
-from launcher.setup_helpers import (
-    find_available_port,
-    generate_setup_token,
-    remove_setup_section,
-)
 from launcher.single_instance import (
     acquire_single_instance_lock,
     release_lock,
@@ -49,17 +45,13 @@ from launcher.single_instance import (
 __version__ = "0.1.0"
 
 MANAGER_PORT = 8080
-WIZARD_PATH = "/setup/"
 DASHBOARD_PATH = "/"
 
-# Restart-watch cadence (seconds).
-RESTART_POLL_INTERVAL = 2.0
-
-# Lock held for launcher lifetime (module-level so GC cannot release).
 _INSTANCE_LOCK = None  # type: ignore[var-annotated]
+logger = logging.getLogger(__name__)
 
 
-# ---- Re-exports for tests / back-compat (do not remove) ----
+# ---- Re-exports for tests / back-compat ----
 
 def _get_data_dir() -> Path:
     return get_data_dir()
@@ -80,12 +72,10 @@ def _set_file_permissions(path: Path) -> None:
 # ---- Sentinel / topology ----
 
 def _is_setup_complete(data_dir: Path) -> bool:
-    """Check if the setup-complete sentinel exists."""
     return (data_dir / ".setup_complete").exists()
 
 
 def _read_topology(data_dir: Path) -> dict:
-    """Read the topology.json file from the data directory."""
     topology_file = data_dir / "topology.json"
     if topology_file.exists():
         with open(topology_file, "r") as f:
@@ -96,10 +86,8 @@ def _read_topology(data_dir: Path) -> dict:
 # ---- First-run bootstrap ----
 
 def _bootstrap_first_run(data_dir: Path) -> Path:
-    """Bootstrap first run: generate SECRET_KEY, write manager.ini."""
     manager_data = data_dir / "manager"
     manager_data.mkdir(parents=True, exist_ok=True)
-
     ini_path = manager_data / "manager.ini"
     if not ini_path.exists():
         secret_key = secrets.token_urlsafe(50)
@@ -111,32 +99,39 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
             "[server]\n"
             "host = 0.0.0.0\n"
             f"port = {MANAGER_PORT}\n"
+            "loopback_port = 8088\n"
         )
         ini_path.write_text(ini_content, encoding="utf-8")
         _set_file_permissions(ini_path)
         print(f"Generated manager.ini at {ini_path}")
-
     return manager_data
 
 
+# ---- Component spawn ----
+
 def _find_component_exe(component: str) -> Path:
-    """Locate the executable for a component (manager/worker)."""
     bin_dir = get_bin_dir()
     if getattr(sys, 'frozen', False):
         if platform.system() == "Windows":
+            if component == "tray":
+                return bin_dir / "tray_helper" / "run_tray_helper.exe"
             return bin_dir / component / f"run_{component}.exe"
+        if component == "tray":
+            return bin_dir / "tray_helper" / "run_tray_helper"
         return bin_dir / component / f"run_{component}"
+    root = Path(__file__).resolve().parent.parent
     if component == "manager":
-        return Path(__file__).resolve().parent.parent / (
-            "manager" / Path("run_manager.py")
-        )
-    return Path(__file__).resolve().parent.parent / (
-        "worker" / Path("run_worker.py")
-    )
+        return root / "manager" / "run_manager.py"
+    if component == "worker":
+        return root / "worker" / "run_worker.py"
+    if component == "tray":
+        return root / "shared" / "run_tray.py"
+    raise ValueError(f"unknown component {component!r}")
 
 
-def _start_component(component: str, extra_args=None):
-    """Start a component subprocess and return the Popen handle."""
+def _start_component(
+    component: str, extra_args=None, env: Optional[dict] = None,
+) -> subprocess.Popen:
     exe = _find_component_exe(component)
     if getattr(sys, 'frozen', False):
         cmd = [str(exe)]
@@ -144,23 +139,41 @@ def _start_component(component: str, extra_args=None):
         cmd = [sys.executable, str(exe)]
     if extra_args:
         cmd.extend(extra_args)
+    proc_env = os.environ.copy()
+    if env:
+        proc_env.update(env)
+    stdout = subprocess.PIPE if component != "tray" else None
+    stderr = subprocess.PIPE if component != "tray" else None
     return subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        cmd, stdout=stdout, stderr=stderr, env=proc_env,
     )
 
 
-# Wrapper kept for back-compat in tests / other callers.
 def _open_browser(
     port: int, no_browser: bool, print_url: bool,
     path: str = DASHBOARD_PATH, setup_token: str | None = None,
 ):
-    open_browser(port, no_browser, print_url, path, setup_token)
+    del setup_token  # FR-13: URL never carries ?token=.
+    open_browser(port, no_browser, print_url, path, None)
+
+
+def _spawn_tray(
+    data_dir: Path, secret: str,
+) -> Optional[subprocess.Popen]:
+    env = {
+        "SETHLANS_TRAY_IPC_SECRET": secret,
+        "SETHLANS_LAUNCHER_PID": str(os.getpid()),
+    }
+    try:
+        return _start_component("tray", env=env)
+    except Exception as exc:
+        logger.warning("Failed to spawn tray helper: %s", exc)
+        return None
 
 
 # ---- Orchestration ----
 
 def _already_running_notice() -> None:
-    """Print the second-instance message."""
     print(
         "Sethlans is already running. "
         "Check the system tray / running windows.",
@@ -168,72 +181,20 @@ def _already_running_notice() -> None:
     )
 
 
-def _build_respawn(component: str, extra_args=None):
-    """Zero-arg callable used by ``handle_restart_request``."""
-    def _respawn():
-        return _start_component(component, extra_args=extra_args)
-    return _respawn
-
-
-def _run_setup_mode(data_dir: Path, args) -> int:
-    """Setup-wizard mode: launch manager + watch restart sentinel."""
-    manager_data = _bootstrap_first_run(data_dir)
-    port = find_available_port()
-    setup_token = generate_setup_token(manager_data)
-
-    print("Starting Sethlans setup wizard...")
-    print_setup_banner(port, WIZARD_PATH, setup_token, data_dir)
-
-    proc = _start_component("manager", extra_args=["--workers", "1"])
-    open_browser(
-        port, args.no_browser, args.print_url,
-        WIZARD_PATH, setup_token,
-    )
-
-    # Post-setup respawn: NO --workers 1, NO new setup token.
-    respawn = _build_respawn("manager")
-    current = proc
-    while True:
+def _teardown_tray(tray: Optional[subprocess.Popen]) -> None:
+    if tray is None or tray.poll() is not None:
+        return
+    try:
+        tray.terminate()
+        tray.wait(timeout=cascade.TRAY_GRACE_SECONDS)
+    except (subprocess.TimeoutExpired, OSError):
         try:
-            current.wait(timeout=RESTART_POLL_INTERVAL)
-            return current.returncode or 0
-        except subprocess.TimeoutExpired:
+            tray.kill()
+        except OSError:
             pass
-        if poll_for_restart_request(data_dir):
-            new_proc = handle_restart_request(
-                current, data_dir, respawn,
-            )
-            if new_proc is None:
-                return 1
-            current = new_proc
-
-
-def _run_normal_mode(data_dir: Path, args) -> int:
-    """Post-setup: start manager/worker based on topology."""
-    topology = _read_topology(data_dir)
-    topo_type = topology.get("topology", "manager_worker")
-    manager_data = data_dir / "manager"
-    remove_setup_section(manager_data)
-
-    processes = []
-    if topo_type in ("manager", "manager_worker"):
-        print("Starting Sethlans Manager...")
-        processes.append(_start_component("manager"))
-    if topo_type in ("worker", "manager_worker"):
-        print("Starting Sethlans Worker...")
-        processes.append(_start_component("worker"))
-
-    open_browser(
-        MANAGER_PORT, args.no_browser, args.print_url,
-        DASHBOARD_PATH, None,
-    )
-    for proc in processes:
-        proc.wait()
-    return 0
 
 
 def main():
-    """Bootstrap launcher entry point."""
     global _INSTANCE_LOCK
 
     parser = argparse.ArgumentParser(
@@ -249,9 +210,7 @@ def main():
     )
     parser.add_argument(
         "--print-url", action="store_true",
-        help=(
-            "Print the application URL and skip browser auto-open."
-        ),
+        help="Print the application URL and skip browser auto-open.",
     )
     args = parser.parse_args()
 
@@ -263,12 +222,28 @@ def main():
         _already_running_notice()
         return 0
 
+    # FR-20e: sweep any stale markers BEFORE spawning anything.
+    tray_ipc.sweep_stale_markers(data_dir)
+
+    # FR-20b: per-session IPC secret; FR-4 / FR-19: tray spawns FIRST.
+    secret = tray_ipc.generate_secret()
+    tray = _spawn_tray(data_dir, secret)
+
     try:
         if not _is_setup_complete(data_dir):
-            return _run_setup_mode(data_dir, args)
-        return _run_normal_mode(data_dir, args)
+            rc = orchestration.run_setup_mode(
+                data_dir, args, tray, secret,
+                _start_component, _bootstrap_first_run,
+            )
+        else:
+            rc = orchestration.run_normal_mode(
+                data_dir, args, tray, secret, _start_component,
+            )
+        _teardown_tray(tray)
+        return rc
     except KeyboardInterrupt:
         print("\nSethlans shutting down...")
+        _teardown_tray(tray)
         return 0
     finally:
         release_lock(_INSTANCE_LOCK)

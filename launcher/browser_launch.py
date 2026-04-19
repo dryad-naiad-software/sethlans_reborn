@@ -6,7 +6,8 @@
 Browser-opening and startup-banner helpers for the launcher.
 
 Kept separate from ``run_launcher.py`` to stay under the 300-line
-ceiling.  Stdlib only.
+ceiling.  Stdlib-only apart from the shared clipboard helper
+consolidated under ``shared.tray`` per tray-helper-unified.md FR-10.
 """
 
 from __future__ import annotations
@@ -17,6 +18,10 @@ import platform
 import sys
 import webbrowser
 from pathlib import Path
+
+# Import kept module-level so tests can monkey-patch a single
+# attribute; never called with the token on argv.
+from shared.tray.clipboard import copy_token_to_clipboard
 
 
 def is_headless() -> bool:
@@ -59,13 +64,34 @@ def print_setup_banner(
     wizard_path: str,
     setup_token: str | None,
     data_dir: Path,
-) -> None:
-    """Print Setup URL + cert fingerprint to stderr."""
-    url = f"https://localhost:{port}{wizard_path}"
+    host: str = "localhost",
+) -> bool:
+    """Print the setup URL + token banner per setup-token-entry FR-14.
+
+    Returns ``True`` iff the token was successfully copied to the
+    clipboard (used by the caller to pick the last banner line).
+    """
+    url = f"https://{host}:{port}{wizard_path}"
+    copy_ok = False
     if setup_token:
-        url += f"?token={setup_token}"
+        try:
+            copy_ok = copy_token_to_clipboard(setup_token)
+        except Exception:  # defensive; helper never raises
+            copy_ok = False
+
+    bar = "=" * 63
+    print(bar)
+    print("  Sethlans Setup")
+    print(f"  URL:    {url}")
+    if setup_token:
+        print(f"  Token:  {setup_token}")
+        if copy_ok:
+            print("  (Token copied to clipboard)")
+        else:
+            print("  (Copy the token above manually.)")
+    print(bar)
+
     fp = compute_cert_fingerprint(data_dir)
-    print(f"Setup URL: {url}", file=sys.stderr)
     if fp:
         print(f"Cert fingerprint: sha256:{fp}", file=sys.stderr)
     else:
@@ -74,6 +100,7 @@ def print_setup_banner(
             "manager starts)",
             file=sys.stderr,
         )
+    return copy_ok
 
 
 def open_browser(
@@ -81,12 +108,18 @@ def open_browser(
     no_browser: bool,
     print_url: bool,
     path: str,
-    setup_token: str | None = None,
+    setup_token: str | None = None,  # retained for API back-compat
+    host: str = "localhost",
 ) -> None:
-    """Open browser to the wizard/dashboard URL (interactive only)."""
-    url = f"https://localhost:{port}{path}"
-    if setup_token:
-        url += f"?token={setup_token}"
+    """Open browser to the wizard/dashboard URL (interactive only).
+
+    ``setup_token`` is ignored in v2 (setup-token-entry FR-13): the
+    URL never contains ``?token=`` because Chrome strips the query
+    string behind the self-signed-cert interstitial.  The token is
+    delivered via banner + clipboard instead.
+    """
+    del setup_token  # intentionally unused; see docstring.
+    url = f"https://{host}:{port}{path}"
     headless = is_headless()
 
     if print_url or headless:

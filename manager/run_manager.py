@@ -14,7 +14,6 @@ Usage:
 import configparser
 import logging
 import os
-import ssl
 import sys
 from pathlib import Path
 
@@ -41,8 +40,6 @@ if is_frozen():
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sethlans_manager.settings')
 
-import uvicorn  # noqa: E402
-
 from sethlans_manager.cert_utils import (  # noqa: E402
     CertificateError,
     check_cert_expiry_warning,
@@ -57,6 +54,7 @@ from sethlans_manager.tls_setup import (  # noqa: E402
     get_config_file_path,
     setup_certificates,
 )
+from sethlans_manager.uvicorn_launcher import launch as _launch_servers  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +91,30 @@ def get_manager_bind():
     return (host or '0.0.0.0', port or '8080')
 
 
+def get_loopback_port():
+    """Return the loopback listener port.
+
+    Override hierarchy (tray-helper-unified FR-22 / FR-22b):
+      1. ``SETHLANS_MANAGER_LOOPBACK_PORT`` env var.
+      2. ``manager.ini [server] loopback_port``.
+      3. Default ``8088``.
+    """
+    port = os.getenv('SETHLANS_MANAGER_LOOPBACK_PORT')
+    try:
+        config = configparser.ConfigParser()
+        config_file_path = get_config_file_path(MANAGER_DIR)
+        if config_file_path.exists():
+            config.read(config_file_path)
+            if not port and config.has_option('server', 'loopback_port'):
+                port = config.get('server', 'loopback_port')
+    except Exception as e:
+        print(
+            f"[WARNING] Could not read manager.ini: {e}",
+            file=sys.stderr,
+        )
+    return port or '8088'
+
+
 def _prepare_runtime(cert, host, port):
     """Initialise Django and populate ``runtime_state``.
 
@@ -119,28 +141,20 @@ def _prepare_runtime(cert, host, port):
 
 
 def _launch_uvicorn(host, port, cert_path, key_path, dev_mode):
-    """Hand control to uvicorn with the correct reload/production mode."""
-    ssl_common = {
-        "ssl_keyfile": str(key_path),
-        "ssl_certfile": str(cert_path),
-        "ssl_version": ssl.PROTOCOL_TLS_SERVER,
-    }
-    if dev_mode:
-        uvicorn.run(
-            "sethlans_manager.asgi:application",
-            host=host,
-            port=int(port),
-            reload=True,
-            reload_dirs=[str(MANAGER_DIR)],
-            **ssl_common,
-        )
-    else:
-        uvicorn.run(
-            "sethlans_manager.asgi:application",
-            host=host,
-            port=int(port),
-            **ssl_common,
-        )
+    """Thin shim around :func:`sethlans_manager.uvicorn_launcher.launch`.
+
+    Preserved as a module-level entry point for tests and for backwards
+    compat with scripts that import it directly.
+    """
+    _launch_servers(
+        host=host,
+        port=port,
+        cert_path=cert_path,
+        key_path=key_path,
+        dev_mode=dev_mode,
+        manager_dir=MANAGER_DIR,
+        get_loopback_port=get_loopback_port,
+    )
 
 
 def _frozen_boot_sequence(dev_mode):

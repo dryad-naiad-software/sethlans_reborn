@@ -8,3 +8,9 @@
 # Bump versions manually and test before merging.
 
 pyinstaller==6.11.1
+
+# Tray helper runtime deps (bundled into the tray_helper PyInstaller output).
+# Pillow is already pulled in by manager/requirements.txt; pystray + plyer
+# are tray-specific.
+pystray==0.19.5
+plyer==2.1.0

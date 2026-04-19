@@ -4,7 +4,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import {
   SetupStatus,
@@ -32,6 +32,17 @@ export class SetupApiService {
 
   getStatus(): Observable<SetupStatus> {
     return this.http.get<SetupStatus>(`${this.base}/status/`);
+  }
+
+  /**
+   * Probe the setup session. Returns void on 204 (bound session); errors
+   * with 403 envelope `setup_in_progress` when no session is bound. Used by
+   * `setupSessionGuard` to gate the wizard route.
+   */
+  getSetupSession(): Observable<void> {
+    return this.http
+      .get(`${this.base}/session/`, { observe: 'response' })
+      .pipe(map(() => void 0));
   }
 
   setTopology(req: TopologyRequest): Observable<TopologyResponse> {

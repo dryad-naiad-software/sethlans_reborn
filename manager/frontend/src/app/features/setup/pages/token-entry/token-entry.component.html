@@ -1,0 +1,89 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+
+<div class="container">
+  <mat-card appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>Sethlans Setup</mat-card-title>
+    </mat-card-header>
+
+    <mat-card-content>
+      <p class="intro">
+        Paste the setup token printed by your launcher.
+      </p>
+
+      <form (ngSubmit)="onSubmit()">
+        <mat-form-field appearance="outline" class="token-field">
+          <mat-label>Setup token</mat-label>
+          <input
+            #tokenInput
+            matInput
+            required
+            [formControl]="token"
+            [type]="showToken() ? 'text' : 'password'"
+            [readonly]="submitting() || rateLimited()"
+            [attr.name]="fieldName"
+            autocomplete="one-time-code"
+            spellcheck="false"
+            autocapitalize="off"
+            autocorrect="off"
+            aria-describedby="token-error"
+          />
+          <button
+            mat-icon-button
+            matSuffix
+            type="button"
+            (click)="toggleVisibility()"
+            [attr.aria-label]="showToken() ? 'Hide token' : 'Show token'"
+            [attr.aria-pressed]="showToken() ? 'true' : 'false'"
+          >
+            <mat-icon>{{ showToken() ? 'visibility_off' : 'visibility' }}</mat-icon>
+          </button>
+        </mat-form-field>
+
+        @if (errorMessage(); as msg) {
+          <p id="token-error" class="error-text" role="alert">
+            {{ msg }}
+            @if (rateLimited()) {
+              <span class="countdown"> ({{ countdownDisplay() }})</span>
+            }
+          </p>
+        }
+
+        <div class="actions">
+          <button
+            mat-raised-button
+            color="primary"
+            type="submit"
+            [disabled]="submitDisabled()"
+          >
+            @if (submitting()) {
+              <mat-progress-spinner
+                mode="indeterminate"
+                diameter="18"
+              ></mat-progress-spinner>
+              <span>Verifying...</span>
+            } @else {
+              <span>Continue</span>
+            }
+          </button>
+
+          @if (showRetry()) {
+            <button
+              mat-stroked-button
+              type="button"
+              (click)="onRetry()"
+            >
+              Retry
+            </button>
+          }
+        </div>
+      </form>
+
+      <p class="hint">
+        Need the token? Check the launcher console, or use the tray's
+        "Copy Setup Token" menu item.
+      </p>
+    </mat-card-content>
+  </mat-card>
+</div>

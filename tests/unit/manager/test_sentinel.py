@@ -167,13 +167,28 @@ class TestAppendCheckpoint:
 
 class TestIsSetupComplete:
 
-    def test_true_when_sentinel_exists(self, tmp_path):
+    def test_true_when_sentinel_complete(self, tmp_path):
+        # ``completed_at`` must be truthy — a bare sentinel with only
+        # version/topology/checkpoints is a mid-wizard record.
         write_sentinel(tmp_path, {
             "version": SENTINEL_VERSION,
+            "completed_at": "2025-01-15T12:00:00Z",
             "topology": "manager",
             "checkpoints": [],
         })
         assert is_setup_complete(tmp_path) is True
+
+    def test_false_when_sentinel_has_no_completed_at(self, tmp_path):
+        # A checkpoint-only sentinel (completed_at=None) must NOT be
+        # treated as complete.  Prevents ``is_setup_mode`` from
+        # disagreeing with ``SetupGateMiddleware._check_sentinel``.
+        write_sentinel(tmp_path, {
+            "version": SENTINEL_VERSION,
+            "completed_at": None,
+            "topology": "manager",
+            "checkpoints": ["topology_chosen"],
+        })
+        assert is_setup_complete(tmp_path) is False
 
     def test_false_when_missing(self, tmp_path):
         assert is_setup_complete(tmp_path) is False

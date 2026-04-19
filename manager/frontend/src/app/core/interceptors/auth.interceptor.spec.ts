@@ -113,7 +113,7 @@ describe('authInterceptor — setup envelope routing', () => {
   });
 
   describe('invalid_token', () => {
-    it('does NOT navigate (handled in APP_INITIALIZER)', () => {
+    it('does NOT navigate (handled inline by TokenEntryComponent)', () => {
       configure('/dashboard');
       http.get('/api/setup/bootstrap/').subscribe({ error: () => {} });
       const req = httpMock.expectOne('/api/setup/bootstrap/');
@@ -169,5 +169,32 @@ describe('authInterceptor — setup envelope routing', () => {
       );
       expect(routerSpy.navigate).not.toHaveBeenCalled();
     });
+  });
+
+  describe('pass-through for unexpected codes', () => {
+    it('does not navigate on 418 with no envelope', () => {
+      configure('/dashboard');
+      http.get('/api/projects/').subscribe({ error: () => {} });
+      const req = httpMock.expectOne('/api/projects/');
+      req.flush({}, { status: 418, statusText: 'Teapot' });
+      expect(routerSpy.navigate).not.toHaveBeenCalled();
+    });
+
+    it('does not navigate on 500 with no envelope', () => {
+      configure('/dashboard');
+      http.get('/api/projects/').subscribe({ error: () => {} });
+      const req = httpMock.expectOne('/api/projects/');
+      req.flush({}, { status: 500, statusText: 'ISE' });
+      expect(routerSpy.navigate).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('authInterceptor FR-9 grep gate (no HTTP required)', () => {
+  it('interceptor source does not reference /setup/bootstrap-error', () => {
+    // The old error flow routed to /setup/bootstrap-error; FR-9 deleted
+    // that route. The interceptor must no longer mention the path.
+    const source = authInterceptor.toString();
+    expect(source).not.toMatch(/bootstrap-error/);
   });
 });

@@ -147,6 +147,36 @@ describe('SetupApiService', () => {
     });
   });
 
+  describe('getSetupSession (FR-BE-1 probe)', () => {
+    it('GETs /api/setup/session/ with no body and emits void on 204', () => {
+      let emitted = false;
+      service.getSetupSession().subscribe({ next: () => (emitted = true) });
+      const req = httpMock.expectOne('/api/setup/session/');
+      expect(req.request.method).toBe('GET');
+      expect(req.request.body).toBeNull();
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      expect(emitted).toBeTrue();
+    });
+
+    it('propagates a 403 setup_in_progress as HttpErrorResponse', () => {
+      const captured: { status?: number; code?: string } = {};
+      service.getSetupSession().subscribe({
+        next: () => fail('should not emit'),
+        error: (err: { status: number; error?: { error?: { code?: string } } }) => {
+          captured.status = err.status;
+          captured.code = err.error?.error?.code;
+        },
+      });
+      const req = httpMock.expectOne('/api/setup/session/');
+      req.flush(
+        { error: { code: 'setup_in_progress', message: 'nope', details: {} } },
+        { status: 403, statusText: 'Forbidden' },
+      );
+      expect(captured.status).toBe(403);
+      expect(captured.code).toBe('setup_in_progress');
+    });
+  });
+
   describe('requestRestart', () => {
     it('POSTs /api/setup/restart/ with empty body', () => {
       service.requestRestart().subscribe();

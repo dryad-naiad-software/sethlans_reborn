@@ -43,6 +43,11 @@ _ALLOWED_PREFIXES = (
     "/api/setup/",
     "/api/auth/csrf/",
     "/api/health/",
+    # Tray helper's loopback-only status endpoint (tray-helper-unified
+    # FR-22a/FR-23) — reachable only on the 127.0.0.1 listener, but
+    # the middleware is shared across both listeners so it must be
+    # allowlisted here to survive setup mode.
+    "/api/status/public/",
     "/static/",
     "/media/",
 )
