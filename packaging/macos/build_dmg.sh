@@ -5,24 +5,30 @@
 
 # Build a macOS .dmg installer from the PyInstaller .app bundle output.
 #
-# Usage: packaging/macos/build_dmg.sh <version>
-# Example: packaging/macos/build_dmg.sh 0.1.0
+# Usage: packaging/macos/build_dmg.sh <build_version>
+# Example: packaging/macos/build_dmg.sh 0.2.0.abc12
+#
+# <build_version> is the semver plus a 5-char git commit suffix
+# (e.g. `0.2.0.abc12`). The script derives the strict-semver part for
+# Apple's CFBundleShortVersionString (which only accepts X.Y.Z) and
+# uses the full build_version for CFBundleVersion + filename + DMG name.
 #
 # Expects PyInstaller output at dist/Sethlans.app (and dist/SethlansHelper.app).
-# Produces: dist/sethlans-<version>-macos-arm64.dmg
+# Produces: dist/sethlans-<build_version>-macos-arm64.dmg
 
 set -euo pipefail
 
-VERSION="${1:?Usage: build_dmg.sh <version>}"
+BUILD_VERSION="${1:?Usage: build_dmg.sh <build_version>}"
+SEMVER="$(echo "$BUILD_VERSION" | cut -d. -f1-3)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DIST_DIR="${PROJECT_ROOT}/dist"
 APP_NAME="Sethlans.app"
-DMG_NAME="sethlans-${VERSION}-macos-arm64"
+DMG_NAME="sethlans-${BUILD_VERSION}-macos-arm64"
 DMG_PATH="${DIST_DIR}/${DMG_NAME}.dmg"
 STAGING_DIR="${DIST_DIR}/dmg-staging"
 
-echo "--- Building macOS DMG: ${DMG_NAME} ---"
+echo "--- Building macOS DMG: ${DMG_NAME} (semver ${SEMVER}) ---"
 
 # Validate that the .app bundle exists
 if [ ! -d "${DIST_DIR}/${APP_NAME}" ]; then
@@ -75,10 +81,14 @@ if [ -d "${RESOURCES}/bin/tray_helper/SethlansHelper.app" ]; then
         "${RESOURCES}/bin/tray_helper/SethlansHelper.app"
 fi
 
-# Apply Info.plist from template
+# Apply Info.plist from template. Two substitutions: BUILD_VERSION
+# (semver+git hash, accepted by CFBundleVersion) and SEMVER
+# (strict X.Y.Z, required by CFBundleShortVersionString).
 PLIST_TEMPLATE="${SCRIPT_DIR}/Info.plist.template"
 if [ -f "${PLIST_TEMPLATE}" ]; then
-    sed "s/\${VERSION}/${VERSION}/g" "${PLIST_TEMPLATE}" \
+    sed -e "s/\${BUILD_VERSION}/${BUILD_VERSION}/g" \
+        -e "s/\${SEMVER}/${SEMVER}/g" \
+        "${PLIST_TEMPLATE}" \
         > "${STAGING_DIR}/${APP_NAME}/Contents/Info.plist"
 fi
 
@@ -89,7 +99,7 @@ fi
 
 # Write version.json
 cat > "${RESOURCES}/version.json" <<EOF
-{"version": "${VERSION}", "platform": "macos-arm64"}
+{"version": "${BUILD_VERSION}", "semver": "${SEMVER}", "platform": "macos-arm64"}
 EOF
 
 # Strip any inherited com.apple.quarantine xattrs from bundle contents.
@@ -123,7 +133,7 @@ codesign --verify --deep --strict "${STAGING_DIR}/${APP_NAME}"
 # Create the DMG using hdiutil
 echo "--- Creating DMG with hdiutil ---"
 hdiutil create \
-    -volname "Sethlans ${VERSION}" \
+    -volname "Sethlans ${SEMVER}" \
     -srcfolder "${STAGING_DIR}" \
     -ov \
     -format UDZO \

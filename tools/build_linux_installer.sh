@@ -122,7 +122,18 @@ if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "ERROR: version '$VERSION' is not X.Y.Z"
   exit 1
 fi
-echo "=== Building Sethlans v$VERSION (Linux) ==="
+
+# Build version = semver + 5-char git commit hash. Identifies the
+# exact commit the artifact was built from. All three platform build
+# scripts compute this identically, so a given commit produces matching
+# 0.X.Y.HHHHH artifacts across Windows / macOS / Linux.
+GIT_HASH=$(git rev-parse --short=5 HEAD 2>/dev/null || true)
+if [ -z "$GIT_HASH" ]; then
+  echo "ERROR: not a git checkout (cannot resolve HEAD short hash for build version)."
+  exit 1
+fi
+BUILD_VERSION="${VERSION}.${GIT_HASH}"
+echo "=== Building Sethlans v${BUILD_VERSION} (Linux) ==="
 
 # --- Environment checks ---
 VENV_PYI=".venv-build/bin/pyinstaller"
@@ -161,7 +172,7 @@ echo "=== 4/6 PyInstaller: tray_helper ==="
 echo "=== 5/6 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/6 Installer assembly (v$VERSION) ==="
+echo "=== 6/6 Installer assembly (v$BUILD_VERSION) ==="
 # TODO (Linux Claude): replace this placeholder with the actual
 # packaging invocation once the target format is chosen.
 # ---
@@ -175,8 +186,8 @@ echo "=== 6/6 Installer assembly (v$VERSION) ==="
 #   cp packaging/linux/uninstall.sh "$STAGING/uninstall.sh"
 #   cp packaging/linux/sethlans.desktop "$STAGING/"
 #   makeself --gzip --nox11 --notemp \
-#       "$STAGING" "${DIST_ROOT}/sethlans-${VERSION}-linux-x64.run" \
-#       "Sethlans Distributed Rendering ${VERSION}" ./install.sh
+#       "$STAGING" "${DIST_ROOT}/sethlans-${BUILD_VERSION}-linux-x64.run" \
+#       "Sethlans Distributed Rendering ${BUILD_VERSION}" ./install.sh
 # ---
 # Example — AppImage:
 #   (build an AppDir, then invoke appimagetool against it)
@@ -189,7 +200,7 @@ echo "         for your chosen format (.run / .deb / .rpm / AppImage)."
 echo "         The macOS builder (tools/build_macos_installer.sh) is a"
 echo "         structural reference for where the hook goes."
 
-OUTPUT="${DIST_ROOT}/sethlans-${VERSION}-linux-x64.run"  # adjust extension
+OUTPUT="${DIST_ROOT}/sethlans-${BUILD_VERSION}-linux-x64.run"  # adjust extension
 if [ ! -f "$OUTPUT" ]; then
   echo "NOTE: expected installer not produced at $OUTPUT (placeholder step)."
   echo "      Continuing to cleanup so the scaffold exercises end-to-end."

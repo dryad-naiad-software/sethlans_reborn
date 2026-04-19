@@ -94,7 +94,18 @@ if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
   echo "ERROR: version '$VERSION' is not X.Y.Z"
   exit 1
 fi
-echo "=== Building Sethlans v$VERSION ==="
+
+# Build version = semver + 5-char git commit hash. Identifies the
+# exact commit the artifact was built from. All three platform build
+# scripts compute this identically, so a given commit produces matching
+# 0.X.Y.HHHHH artifacts across Windows / macOS / Linux.
+GIT_HASH=$(git rev-parse --short=5 HEAD 2>/dev/null || true)
+if [ -z "$GIT_HASH" ]; then
+  echo "ERROR: not a git checkout (cannot resolve HEAD short hash for build version)."
+  exit 1
+fi
+BUILD_VERSION="${VERSION}.${GIT_HASH}"
+echo "=== Building Sethlans v${BUILD_VERSION} ==="
 
 # --- Environment checks ---
 VENV_PYI=".venv-build/Scripts/pyinstaller.exe"
@@ -136,10 +147,10 @@ echo "=== 4/6 PyInstaller: tray_helper ==="
 echo "=== 5/6 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/6 NSIS (v$VERSION) ==="
-"$NSIS" -DPRODUCT_VERSION="$VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3
+echo "=== 6/6 NSIS (v$BUILD_VERSION) ==="
+"$NSIS" -DPRODUCT_VERSION="$BUILD_VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3
 
-OUTPUT="packaging/windows/sethlans-$VERSION-windows-x64.exe"
+OUTPUT="packaging/windows/sethlans-$BUILD_VERSION-windows-x64.exe"
 if [ ! -f "$OUTPUT" ]; then
   echo "ERROR: expected installer not produced at $OUTPUT"
   exit 1
