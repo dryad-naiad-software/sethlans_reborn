@@ -29,27 +29,21 @@
 #     builds are left untouched.
 #
 #     Output: dist/sethlans-<VERSION>-linux-x64.run
-#             (makeself is the current default target; the Linux Claude
-#             will tweak this to produce whatever packaging format the
-#             project settles on — .run / .deb / .rpm / AppImage)
+#             (makeself self-extracting archive; the .run wraps
+#             packaging/linux/install.sh + the four PyInstaller bundles
+#             and runs install.sh on extract.)
 #
 # PLATFORM
 #     Linux only. Targets x86_64; the artifact is named -linux-x64
 #     accordingly. If/when arm64 support is added, adjust the arch
 #     token in the output filename.
 #
-# PACKAGING (TODO — for Linux Claude to finalize)
-#     The project already ships packaging/linux/install.sh and
-#     packaging/linux/uninstall.sh, currently assumed to be embedded
-#     inside a `makeself` .run archive. This script's step 6/6 is a
-#     placeholder — the Linux Claude should pick one:
-#       (a) makeself .run   — simplest, single-file, most portable
-#       (b) .deb            — apt-ecosystem native; dpkg-deb wraps a
-#                             tarball + control files into a .deb
-#       (c) .rpm            — yum/dnf native; rpmbuild + spec file
-#       (d) AppImage        — single-file, sandbox-free, pre-built
-#                             AppImageTool from appimage.org
-#     and wire up the corresponding tool invocation below.
+# PACKAGING
+#     Step 6/6 delegates to packaging/linux/build_run.sh, which builds
+#     a `makeself` .run self-extractor from the four PyInstaller dist
+#     dirs plus packaging/linux/{install.sh,uninstall.sh,sethlans.desktop,
+#     sethlans.png} and the repo-root LICENSE. Mirrors the macOS
+#     builder's delegation to packaging/macos/build_dmg.sh.
 #
 # MINIMUM REQUIREMENTS
 #     - Ubuntu 22.04+ / Debian 12+ / Fedora 38+ / similar modern distro
@@ -62,16 +56,13 @@
 #     - System libs needed by PySide6 at runtime:
 #         libxkbcommon0, libegl1, libopengl0, libfontconfig1,
 #         plus xcb platform plugin deps
-#     - Packaging tool matching the chosen format:
-#         makeself (for .run) / dpkg-deb (for .deb) /
-#         rpmbuild (for .rpm) / appimagetool (for AppImage)
+#     - makeself (for the .run self-extractor)
 #     - ~1 GB free disk for PyInstaller work dir + dist/ output
 #
 # BOOTSTRAP (one-time, Debian/Ubuntu example)
 #     sudo apt update
 #     sudo apt install -y python3.14 python3.14-venv nodejs npm \
-#         libxkbcommon0 libegl1 libopengl0 libfontconfig1 \
-#         makeself               # or dpkg-dev / rpm / appimagetool
+#         libxkbcommon0 libegl1 libopengl0 libfontconfig1 makeself
 #     python3.14 -m venv .venv-build
 #     .venv-build/bin/pip install -r manager/requirements.txt \
 #         -r worker/requirements.txt -r requirements-build.txt
@@ -83,8 +74,7 @@
 # NOTES
 #     Scaffolded from tools/build_macos_installer.sh and kept
 #     structurally similar so the version bump / prereq checks / build
-#     steps / cleanup patterns match across the three platforms. The
-#     Linux Claude should finalize the step 6/6 packaging path.
+#     steps / cleanup patterns match across the three platforms.
 
 set -euo pipefail
 
@@ -137,6 +127,7 @@ echo "=== Building Sethlans v${BUILD_VERSION} (Linux) ==="
 
 # --- Environment checks ---
 VENV_PYI=".venv-build/bin/pyinstaller"
+RUN_SCRIPT="packaging/linux/build_run.sh"
 DIST_ROOT="dist"
 BUILD_ROOT="build"
 
@@ -145,16 +136,18 @@ if [ ! -x "$VENV_PYI" ]; then
   echo "See MINIMUM REQUIREMENTS at the top of this script."
   exit 1
 fi
+if [ ! -f "$RUN_SCRIPT" ]; then
+  echo "ERROR: .run build script not found at $RUN_SCRIPT"
+  exit 1
+fi
 if ! command -v npm >/dev/null 2>&1; then
   echo "ERROR: npm not on PATH (Node.js 20+ required)"
   exit 1
 fi
-# TODO (Linux Claude): uncomment / adjust the check for whichever
-# packaging tool the project settles on.
-# if ! command -v makeself >/dev/null 2>&1; then
-#   echo "ERROR: makeself not on PATH (install via 'sudo apt install makeself')"
-#   exit 1
-# fi
+if ! command -v makeself >/dev/null 2>&1; then
+  echo "ERROR: makeself not on PATH (install via 'sudo apt install makeself')"
+  exit 1
+fi
 
 # --- Build steps ---
 echo "=== 1/6 Angular build ==="
@@ -172,38 +165,13 @@ echo "=== 4/6 PyInstaller: tray_helper ==="
 echo "=== 5/6 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/6 Installer assembly (v$BUILD_VERSION) ==="
-# TODO (Linux Claude): replace this placeholder with the actual
-# packaging invocation once the target format is chosen.
-# ---
-# Example — makeself .run archive:
-#   STAGING="${DIST_ROOT}/linux-staging"
-#   rm -rf "$STAGING"; mkdir -p "$STAGING"
-#   for component in launcher manager worker tray_helper; do
-#       cp -r "$DIST_ROOT/$component" "$STAGING/"
-#   done
-#   cp packaging/linux/install.sh "$STAGING/install.sh"
-#   cp packaging/linux/uninstall.sh "$STAGING/uninstall.sh"
-#   cp packaging/linux/sethlans.desktop "$STAGING/"
-#   makeself --gzip --nox11 --notemp \
-#       "$STAGING" "${DIST_ROOT}/sethlans-${BUILD_VERSION}-linux-x64.run" \
-#       "Sethlans Distributed Rendering ${BUILD_VERSION}" ./install.sh
-# ---
-# Example — AppImage:
-#   (build an AppDir, then invoke appimagetool against it)
-# ---
-# Example — .deb:
-#   (build debian/ tree, fakeroot dpkg-deb --build)
-# ---
-echo "WARNING: step 6/6 is a placeholder. Populate the packaging path"
-echo "         for your chosen format (.run / .deb / .rpm / AppImage)."
-echo "         The macOS builder (tools/build_macos_installer.sh) is a"
-echo "         structural reference for where the hook goes."
+echo "=== 6/6 .run installer (v$BUILD_VERSION) ==="
+bash "$RUN_SCRIPT" "$BUILD_VERSION"
 
-OUTPUT="${DIST_ROOT}/sethlans-${BUILD_VERSION}-linux-x64.run"  # adjust extension
+OUTPUT="${DIST_ROOT}/sethlans-${BUILD_VERSION}-linux-x64.run"
 if [ ! -f "$OUTPUT" ]; then
-  echo "NOTE: expected installer not produced at $OUTPUT (placeholder step)."
-  echo "      Continuing to cleanup so the scaffold exercises end-to-end."
+  echo "ERROR: expected installer not produced at $OUTPUT"
+  exit 1
 fi
 
 # --- Cleanup ---
@@ -218,14 +186,11 @@ rm -rf "${BUILD_ROOT:?}"
 for component in launcher manager worker tray_helper; do
   rm -rf "${DIST_ROOT:?}/$component"
 done
-# TODO (Linux Claude): if the chosen packaging format produces a
-# staging directory (e.g. dist/linux-staging for makeself, dist/AppDir
-# for AppImage), add it to the cleanup list here.
-# rm -rf "${DIST_ROOT:?}/linux-staging"
+# build_run.sh wipes its staging dir on success; defensive removal here
+# covers a partial/failed run.
+rm -rf "${DIST_ROOT:?}/run-staging"
 echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper}"
 
-if [ -f "$OUTPUT" ]; then
-  ls -lh "$OUTPUT"
-  echo ""
-  echo "Installer ready: $OUTPUT"
-fi
+ls -lh "$OUTPUT"
+echo ""
+echo "Installer ready: $OUTPUT"

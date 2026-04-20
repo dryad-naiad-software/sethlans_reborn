@@ -124,9 +124,9 @@ if [ -f sethlans.desktop ]; then
     echo "Installed desktop entry."
 fi
 
-# --- Install icon ---
+# --- Install icon (source PNG is 512x512) ---
 if [ -f sethlans.png ]; then
-    ICON_DIR="/usr/share/icons/hicolor/256x256/apps"
+    ICON_DIR="/usr/share/icons/hicolor/512x512/apps"
     mkdir -p "${ICON_DIR}"
     cp sethlans.png "${ICON_DIR}/sethlans.png"
     # Update icon cache if available

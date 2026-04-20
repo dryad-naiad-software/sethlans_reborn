@@ -276,14 +276,49 @@ flake8 --max-line-length 127 --max-complexity 10
 
 ### Building Native Installers
 
-PyInstaller specs and per-platform packaging scripts live under `packaging/`:
+PyInstaller specs and per-platform packaging scripts live under `packaging/`. All three builders read the version from the repo-root `VERSION` file (bump via `tools/bump_version.sh`) and emit a single deliverable suffixed with the 5-char git short hash for traceability.
+
+Each builder needs a dedicated `.venv-build` virtualenv populated with both runtime and build deps:
 
 ```bash
-# Windows
-bash tools/build_windows_installer.sh
-
-# macOS / Linux: see packaging/macos/ and packaging/linux/
+python3.14 -m venv .venv-build
+.venv-build/bin/pip install -r manager/requirements.txt \
+    -r worker/requirements.txt -r requirements-build.txt
 ```
+
+#### Windows
+
+- NSIS 3.11+ at `C:\Program Files (x86)\NSIS\Bin\makensis.exe` (`choco install nsis`)
+- Node.js 20+ on PATH (Angular build)
+
+```bash
+bash tools/build_windows_installer.sh
+```
+
+Output: `packaging/windows/sethlans-<VERSION>-windows-x64.exe`
+
+#### macOS
+
+- Xcode Command Line Tools (provides `hdiutil`) — `xcode-select --install`
+- Node.js 20+ on PATH
+
+```bash
+bash tools/build_macos_installer.sh
+```
+
+Output: `dist/sethlans-<VERSION>-macos-arm64.dmg`
+
+#### Linux
+
+- `makeself` (for the .run self-extractor) — `sudo apt install -y makeself`
+- Node.js 20+ on PATH — `sudo apt install -y nodejs npm`
+- PySide6 runtime libs — `sudo apt install -y libxkbcommon0 libegl1 libopengl0 libfontconfig1`
+
+```bash
+bash tools/build_linux_installer.sh
+```
+
+Output: `dist/sethlans-<VERSION>-linux-x64.run`
 
 ---
 
