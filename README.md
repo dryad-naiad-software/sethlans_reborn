@@ -63,7 +63,13 @@ A standalone Python application that runs on each rendering machine. It enrolls 
 
 ### Tray Helper (`shared/tray/`)
 
-System-tray indicator with per-topology menus (manager-only, worker-only, or both). Shows live status, dispatches state-change notifications, copies the enrollment setup token to the clipboard, and exposes Open Dashboard / Open Setup Wizard / Restart / Quit actions. Migrating from `pystray` to **PySide6** for unified, actively-maintained cross-platform support.
+System-tray indicator with per-topology menus (manager-only, worker-only, or both). Shows live status, dispatches state-change notifications, copies the enrollment setup token to the clipboard, and exposes Open Dashboard / Open Setup Wizard / Restart / Quit actions. Built on **PySide6** (Qt) for unified cross-platform support.
+
+#### Platform notes
+
+- **Linux (GNOME):** GNOME 46+ on Wayland does not render tray icons natively. Install the [**AppIndicator and KStatusNotifierItem Support**](https://extensions.gnome.org/extension/615/appindicator-support/) GNOME Shell extension and enable it; the Sethlans tray icon will then appear in the top-right panel. KDE Plasma works out of the box — no extension required. X11 sessions (including XRDP) also work out of the box.
+- **Windows 11:** by default, tray icons are hidden in the overflow flyout (the caret/chevron to the left of the clock). To keep Sethlans always visible, drag the icon from the flyout onto the taskbar tray, or toggle it on under **Settings → Personalization → Taskbar → Other system tray icons**.
+- **macOS:** the tray helper runs menu-bar-only (`LSUIElement=true` in its `Info.plist`). It appears in the right side of the menu bar and intentionally has no Dock icon, no App Switcher entry, and no window on launch.
 
 ---
 
@@ -367,7 +373,7 @@ tests/                                   All tests (three-tier pipeline)
   integration/                           API endpoints, signals, component interactions
   e2e/                                   Full system tests (real server + worker + Blender)
 tools/                                   Project scripts (test runners, installer builds, dev utilities)
-requirements-build.txt                   Build-time deps (PyInstaller, PySide6-Essentials, pystray/plyer)
+requirements-build.txt                   Build-time deps (PyInstaller, PySide6-Essentials, requests, psutil)
 requirements-dev.txt                     Test / dev deps (pytest, pytest-qt, flake8)
 ```
 
