@@ -14,8 +14,12 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+import warnings
 from pathlib import Path
 from typing import Callable, Optional
+
+import requests
+from urllib3.exceptions import InsecureRequestWarning
 
 from launcher import cascade, tray_ipc
 from launcher.browser_launch import open_browser, print_setup_banner
@@ -35,6 +39,65 @@ RESTART_POLL_INTERVAL = 2.0
 WIZARD_PATH = "/setup/"
 DASHBOARD_PATH = "/"
 MANAGER_PORT = 8080
+HEALTH_POLL_INTERVAL = 0.25
+HEALTH_TIMEOUT = 30.0
+
+
+def wait_for_manager_ready(
+    port: int,
+    manager_proc: Optional[subprocess.Popen] = None,
+    timeout: float = HEALTH_TIMEOUT,
+    poll_interval: float = HEALTH_POLL_INTERVAL,
+) -> bool:
+    """Block until the manager's /api/health/ returns 200 or we give up.
+
+    Polls ``https://127.0.0.1:<port>/api/health/`` at ``poll_interval``
+    cadence (default 250ms). Returns ``True`` on the first HTTP 200.
+    Returns ``False`` on three failure paths: (a) the wall-clock
+    timeout elapses, (b) ``manager_proc`` has exited (caller spawned
+    it and we can see the corpse), or (c) the wait was interrupted by
+    KeyboardInterrupt. In all False paths a warning is logged. Caller
+    is expected to proceed with ``open_browser()`` either way (graceful
+    degradation: the user sees the same "can't connect" UX as today,
+    but with a log line to debug from).
+    """
+    url = f"https://127.0.0.1:{port}/api/health/"
+    deadline = time.monotonic() + timeout
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", InsecureRequestWarning)
+        try:
+            while True:
+                if manager_proc is not None and manager_proc.poll() is not None:
+                    logger.warning(
+                        "manager subprocess exited (code %s) before becoming "
+                        "ready",
+                        manager_proc.returncode,
+                    )
+                    return False
+                try:
+                    resp = requests.get(url, verify=False, timeout=1)
+                    if resp.status_code == 200:
+                        return True
+                except requests.exceptions.RequestException:
+                    # uvicorn still binding / TLS handshake not ready —
+                    # expected during cold start, keep polling.
+                    pass
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "manager not ready after %.1fs at %s; opening browser "
+                        "anyway",
+                        timeout,
+                        url,
+                    )
+                    return False
+                time.sleep(poll_interval)
+        except KeyboardInterrupt:
+            # Catches KI from any phase: requests.get TLS handshake,
+            # manager_proc.poll(), or time.sleep. Without the outer
+            # except, KI raised mid-request would skip the warning-log +
+            # False return contract and unwind out of the function.
+            logger.warning("manager readiness wait interrupted by user")
+            return False
 
 
 def _consume_ipc(
@@ -61,6 +124,7 @@ def run_setup_mode(
     print_setup_banner(port, WIZARD_PATH, setup_token, data_dir)
 
     proc = start_component("manager", extra_args=["--workers", "1"])
+    wait_for_manager_ready(port, manager_proc=proc)
     open_browser(
         port, args.no_browser, args.print_url, WIZARD_PATH, None,
     )
@@ -186,6 +250,8 @@ def run_normal_mode(
         print("Starting Sethlans Worker...")
         worker_proc = start_component("worker")
 
+    if manager_proc is not None:
+        wait_for_manager_ready(MANAGER_PORT, manager_proc=manager_proc)
     open_browser(
         MANAGER_PORT, args.no_browser, args.print_url,
         DASHBOARD_PATH, None,
