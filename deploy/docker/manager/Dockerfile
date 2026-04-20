@@ -1,7 +1,15 @@
+# syntax=docker/dockerfile:1.4
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 FROM python:3.14-slim-bookworm
+
+# TARGETARCH is populated by BuildKit/buildx during multi-arch builds
+# (values: amd64, arm64). Used to select the correct pre-fetched Caddy
+# binary from the build context's .tmp/caddy/linux-<arch>/ directory.
+# Caddy is present-but-unused in the image until manager spec Phase 3
+# wires launcher supervision.
+ARG TARGETARCH
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
@@ -14,6 +22,10 @@ WORKDIR /app
 
 COPY manager/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-fetched by CI (tools/fetch_caddy.py --multi-arch linux-amd64,linux-arm64).
+# TARGETARCH is BuildKit-provided; falls back to amd64 for classic docker build.
+COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /usr/local/bin/caddy
 
 COPY manager/ /app/
 

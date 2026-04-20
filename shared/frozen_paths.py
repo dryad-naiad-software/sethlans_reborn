@@ -25,6 +25,8 @@ get_frontend_dist_dir()
     Angular build output directory.
 get_data_dir(component)
     OS-conventional per-user data directory for a given component.
+get_caddy_path()
+    Caddy binary path (frozen installer or dev tree).
 """
 
 import os
@@ -160,6 +162,32 @@ def get_data_dir(component: str) -> Path:
     if xdg:
         return Path(xdg) / "sethlans" / component
     return Path.home() / ".local" / "share" / "sethlans" / component
+
+
+def get_caddy_path() -> Path:
+    """Return the path to the Caddy binary.
+
+    Frozen mode (PyInstaller one-dir):
+        Sits next to the frozen executable in the bundle's ``dist``
+        directory — e.g. ``dist/launcher/caddy`` on Unix or
+        ``dist/launcher/caddy.exe`` on Windows. ``packaging/pyinstaller/
+        launcher.spec`` adds the binary to ``binaries=[...]`` so
+        PyInstaller copies it to that location at build time.
+    Source mode:
+        ``.venv-build/caddy/caddy[.exe]`` — the path populated by
+        ``tools/fetch_caddy.py`` for developer builds.
+
+    The returned path is **not** verified to exist. Callers that need
+    a live binary (e.g. the launcher supervisor) must assert
+    ``path.is_file()`` and surface a clear error if the build was not
+    set up correctly.
+    """
+    binary_name = "caddy.exe" if platform.system() == "Windows" else "caddy"
+    if is_frozen():
+        # One-dir bundle: launcher.spec places caddy next to the EXE.
+        return Path(sys.executable).resolve().parent / binary_name
+    # Source / dev tree: tools/fetch_caddy.py installs into .venv-build/caddy/
+    return get_app_dir() / ".venv-build" / "caddy" / binary_name
 
 
 def get_shared_data_dir() -> Path:

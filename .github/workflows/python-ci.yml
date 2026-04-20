@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 name: Sethlans Reborn CI (Self-Hosted)
 
 # GitHub-hosted Linux CI (unit, integration, lint) is handled by
@@ -52,6 +56,13 @@ jobs:
         with:
           path: worker/sethlans_worker_agent/managed_tools
           key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('worker/sethlans_worker_agent/config.py') }}
+      - name: Cache Caddy binary
+        uses: actions/cache@v4
+        with:
+          path: .venv-build/caddy
+          key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
+      - name: Fetch Caddy (Linux amd64)
+        run: python tools/fetch_caddy.py --target-dir .venv-build/caddy --platform linux-amd64
       - name: Lint with flake8
         run: |
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv,managed_tools,node_modules,migrations
@@ -113,6 +124,13 @@ jobs:
         with:
           path: worker/sethlans_worker_agent/managed_tools
           key: ${{ runner.os }}-blender-cache-lts-${{ hashFiles('worker/sethlans_worker_agent/config.py') }}
+      - name: Cache Caddy binary
+        uses: actions/cache@v4
+        with:
+          path: .venv-build/caddy
+          key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
+      - name: Fetch Caddy (macOS arm64)
+        run: python tools/fetch_caddy.py --target-dir .venv-build/caddy --platform darwin-arm64
       - name: Lint with flake8
         run: |
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv,managed_tools,node_modules,migrations

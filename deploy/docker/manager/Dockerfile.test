@@ -1,9 +1,14 @@
+# syntax=docker/dockerfile:1.4
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 # NOTE: Requires deploy/docker/manager/Dockerfile.test.dockerignore to override
 # the repo-root .dockerignore (which excludes tests/ from the build context).
 FROM python:3.14-slim-bookworm
+
+# TARGETARCH is populated by BuildKit/buildx (values: amd64, arm64).
+# Selects the pre-fetched Caddy binary from .tmp/caddy/linux-<arch>/.
+ARG TARGETARCH
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl procps && \
@@ -19,6 +24,10 @@ RUN pip install --no-cache-dir \
     -r /tmp/manager-requirements.txt \
     -r /tmp/worker-requirements.txt \
     -r /tmp/requirements-dev.txt
+
+# Pre-fetched by docker-test.yml (tools/fetch_caddy.py --multi-arch ...).
+# Present-but-unused; activated by manager spec Phase 3.
+COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /usr/local/bin/caddy
 
 # Copy application source, tests, and tools
 COPY manager/ /app/manager/
