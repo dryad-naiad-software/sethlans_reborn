@@ -21,6 +21,14 @@
   !define PRODUCT_VERSION "0.1.0"
 !endif
 
+; Root directory containing the four PyInstaller bundle dirs
+; (manager/, worker/, tray_helper/, launcher/). Defaults to the
+; legacy location at repo root; the build script overrides this to
+; ../../.tmp/dist so generated files stay in the gitignored .tmp/.
+!ifndef DIST_ROOT
+  !define DIST_ROOT "..\..\dist"
+!endif
+
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 OutFile "sethlans-${PRODUCT_VERSION}-windows-x64.exe"
 InstallDir "$PROGRAMFILES64\Sethlans"
@@ -109,16 +117,16 @@ Section "Sethlans Core" SEC_CORE
 
   ; Copy PyInstaller output directories
   SetOutPath "$INSTDIR\bin\manager"
-  File /r "..\..\dist\manager\*.*"
+  File /r "${DIST_ROOT}\manager\*.*"
 
   SetOutPath "$INSTDIR\bin\worker"
-  File /r "..\..\dist\worker\*.*"
+  File /r "${DIST_ROOT}\worker\*.*"
 
   SetOutPath "$INSTDIR\bin\tray_helper"
-  File /r "..\..\dist\tray_helper\*.*"
+  File /r "${DIST_ROOT}\tray_helper\*.*"
 
   SetOutPath "$INSTDIR\bin\launcher"
-  File /r "..\..\dist\launcher\*.*"
+  File /r "${DIST_ROOT}\launcher\*.*"
 
   ; Copy license and version metadata
   SetOutPath "$INSTDIR"

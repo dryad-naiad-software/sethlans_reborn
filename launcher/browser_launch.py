@@ -6,8 +6,14 @@
 Browser-opening and startup-banner helpers for the launcher.
 
 Kept separate from ``run_launcher.py`` to stay under the 300-line
-ceiling.  Stdlib-only apart from the shared clipboard helper
-consolidated under ``shared.tray`` per tray-helper-unified.md FR-10.
+ceiling. Stdlib-only.
+
+Clipboard: the launcher does NOT initialize a ``QGuiApplication``
+(Qt lives in the tray helper, a separate subprocess), so the
+Qt-based ``shared.tray.clipboard`` helper cannot be used here. The
+native helper in ``launcher/clipboard.py`` shells out to
+``pbcopy`` / ``clip`` / ``wl-copy`` / ``xclip`` / ``xsel``
+instead. See GitHub issue #88.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ from pathlib import Path
 
 # Import kept module-level so tests can monkey-patch a single
 # attribute; never called with the token on argv.
-from shared.tray.clipboard import copy_token_to_clipboard
+from launcher.clipboard import copy_to_clipboard_native
 
 
 def is_headless() -> bool:
@@ -75,7 +81,7 @@ def print_setup_banner(
     copy_ok = False
     if setup_token:
         try:
-            copy_ok = copy_token_to_clipboard(setup_token)
+            copy_ok = copy_to_clipboard_native(setup_token)
         except Exception:  # defensive; helper never raises
             copy_ok = False
 

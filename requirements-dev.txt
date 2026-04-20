@@ -6,3 +6,9 @@ pytest-env==1.1.5
 pytest-mock==3.14.1
 pytest-cov==7.1.0
 pytest-timeout==2.3.1
+# Qt test harness for PySide6-based tray unit tests.
+pytest-qt==4.5.0
+# PySide6-Essentials mirrors the tray helper's runtime dep (see
+# requirements-build.txt) so dev/test runs can `import PySide6` without
+# pulling in the build requirements file.
+PySide6-Essentials==6.11.0

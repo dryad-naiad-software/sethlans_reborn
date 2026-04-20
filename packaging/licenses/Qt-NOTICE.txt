@@ -1,0 +1,14 @@
+This application uses Qt and PySide6 (The Qt Company, Ltd.), licensed under the
+GNU Lesser General Public License version 3 (LGPLv3). The full text of the LGPLv3
+is shipped alongside this file in LICENSE.LGPLv3.
+
+Qt source code is available from:
+  https://code.qt.io/cgit/
+  https://www.qt.io/download-qt-installer
+
+PySide6 source code is available from:
+  https://code.qt.io/cgit/pyside/pyside-setup.git/
+
+In accordance with the LGPLv3 relink clause, the Qt and PySide6 libraries are
+shipped as separate shared libraries in this bundle. Users may replace them with
+compatible versions.

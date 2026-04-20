@@ -97,6 +97,11 @@ echo "--- Installing Sethlans to ${PREFIX} ---"
 
 # --- Create install directory and copy files ---
 mkdir -p "${PREFIX}"
+# Force world-traversable perms on PREFIX. Under makeself, root's umask can
+# leave mkdir at 0700, which prevents non-root processes (GNOME Shell,
+# gtk-launch) from traversing /opt/sethlans to validate the .desktop file's
+# Exec= path, causing the app to silently disappear from the app grid.
+chmod 0755 "${PREFIX}"
 cp -R bin/ "${PREFIX}/bin/"
 cp -f LICENSE.txt "${PREFIX}/LICENSE.txt" 2>/dev/null || true
 cp -f version.json "${PREFIX}/version.json" 2>/dev/null || true
@@ -106,6 +111,12 @@ ln -sf "bin/launcher/run_launcher" "${PREFIX}/sethlans"
 
 # Make executables runnable
 find "${PREFIX}/bin" -type f -name "run_*" -exec chmod +x {} \;
+
+# Defensive: ensure the entire bin/ subtree is readable+traversable by all
+# users so non-root processes can resolve /opt/sethlans/sethlans ->
+# bin/launcher/run_launcher. Uses capital X so dirs and already-executable
+# files get +x, but plain data files don't.
+chmod -R go+rX "${PREFIX}/bin"
 
 # --- Create system-wide symlink ---
 mkdir -p "$(dirname "${SYMLINK_PATH}")"
@@ -124,11 +135,16 @@ if [ -f sethlans.desktop ]; then
     echo "Installed desktop entry."
 fi
 
-# --- Install icon ---
+# --- Install icon (source PNG is 512x512) ---
 if [ -f sethlans.png ]; then
-    ICON_DIR="/usr/share/icons/hicolor/256x256/apps"
+    ICON_DIR="/usr/share/icons/hicolor/512x512/apps"
     mkdir -p "${ICON_DIR}"
     cp sethlans.png "${ICON_DIR}/sethlans.png"
+    # Force world-readable perms on the icon. Under makeself, root's umask
+    # leaves the staged PNG at 0600, and `cp` preserves source perms — so
+    # GNOME Shell (running as the user) can't read the icon and the app
+    # entry falls back to the generic missing-icon placeholder.
+    chmod 644 "${ICON_DIR}/sethlans.png"
     # Update icon cache if available
     if command -v gtk-update-icon-cache &>/dev/null; then
         gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true

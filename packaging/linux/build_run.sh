@@ -52,8 +52,10 @@ done
 # Create main executable symlink
 ln -sf "bin/launcher/run_launcher" "${STAGING_DIR}/sethlans"
 
-# Copy license
-if [ -f "${PROJECT_ROOT}/LICENSE.txt" ]; then
+# Copy license (repo file has no extension; ship as LICENSE.txt for Windows-friendliness)
+if [ -f "${PROJECT_ROOT}/LICENSE" ]; then
+    cp "${PROJECT_ROOT}/LICENSE" "${STAGING_DIR}/LICENSE.txt"
+elif [ -f "${PROJECT_ROOT}/LICENSE.txt" ]; then
     cp "${PROJECT_ROOT}/LICENSE.txt" "${STAGING_DIR}/LICENSE.txt"
 fi
 

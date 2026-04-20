@@ -2,100 +2,97 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for ``shared/tray/poller.py`` (FR-15..FR-17a, FR-26)."""
+"""Unit tests for ``shared/tray/poller.py`` (FR-15..FR-17a, FR-26).
+
+Covers the PySide6-based ``QtStatePoller`` via ``QSignalSpy`` counts
+and payload inspection.  Shared fixtures live in ``conftest.py``;
+thread-lifecycle + cross-thread delivery tests live in
+``test_poller_lifecycle.py``.
+"""
 
 from __future__ import annotations
 
-import queue
-import threading
+import dataclasses
 
 import pytest
 
-from shared.tray import poller as poller_mod
-from shared.tray.notifications import NotificationEvent
-from shared.tray.poller import StatePoller
+pytest.importorskip("PySide6", reason="PySide6 required for poller")
+pytest.importorskip("pytestqt", reason="pytest-qt required for qapp fixture")
+
+from PySide6.QtTest import QSignalSpy  # noqa: E402
+
+from shared.tray.poller import ManagerSnapshot  # noqa: E402
+
+from tests.unit.shared.tray.conftest import (  # noqa: E402
+    notification_msgs, setup_msgs, snapshots, state_changes,
+)
 
 
-@pytest.fixture(autouse=True)
-def _always_launcher_alive(mocker):
-    # Avoid self-exit branch during unit tests.
-    mocker.patch.object(
-        poller_mod.launcher_watch, "is_launcher_alive", return_value=True,
-    )
+# Snapshot dataclass semantics (mirror test_poller_snapshot.py).
+class TestManagerSnapshot:
+
+    def test_snapshot_is_frozen_dataclass(self):
+        s = ManagerSnapshot()
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            s.state = "other"  # type: ignore[misc]
+
+    def test_replace_produces_new_instance(self):
+        s = ManagerSnapshot(state="starting")
+        s2 = dataclasses.replace(s, state="running")
+        assert s is not s2
+        assert s.state == "starting"
+        assert s2.state == "running"
+
+    def test_default_fields(self):
+        s = ManagerSnapshot()
+        assert s.state == "starting"
+        assert s.setup_mode is False
+        assert s.workers_online == 0
+        assert s.jobs_queued == 0
+        assert s.jobs_rendering == 0
+        assert s.version == ""
+        assert s.boot_id == ""
+        assert s.last_error == ""
 
 
-def _make_poller(mocker, script=None):
-    """Create a StatePoller with ``_fetch`` scripted by side_effect.
+# Happy-path: starting -> running.
+class TestHappyPath:
 
-    ``script`` is an ordered list mixing payload dicts (success) and
-    Exception instances (failure) representing the sequence of ticks.
-    """
-    q: queue.Queue = queue.Queue()
-    stop = threading.Event()
-    quit_flag = threading.Event()
-    p = StatePoller(
-        "http://127.0.0.1:8088/api/status/public/",
-        stop, q, quit_flag,
-    )
-    if script:
-        mocker.patch.object(p, "_fetch", side_effect=list(script))
-    return p, q, stop, quit_flag
-
-
-def _drain(q: queue.Queue):
-    out = []
-    while not q.empty():
-        out.append(q.get_nowait())
-    return out
-
-
-# ------------------------------------------------------------------
-# Happy-path transitions
-# ------------------------------------------------------------------
-
-class TestStartingToRunning:
-
-    def test_first_200_transitions_to_running(self, mocker):
+    def test_first_tick_emits_snapshot_changed(self, poller_factory):
         payload = {
-            "setup_mode": False,
-            "workers_online": 3,
-            "jobs_queued": 12,
-            "jobs_rendering": 2,
-            "version": "0.1.0",
-            "boot_id": "boot-1",
+            "setup_mode": False, "workers_online": 3, "jobs_queued": 12,
+            "jobs_rendering": 2, "version": "0.1.0", "boot_id": "boot-1",
         }
-        p, q, _stop, _flag = _make_poller(mocker, [payload])
+        p, _stop, _flag = poller_factory(script=[payload])
+        snap_spy = QSignalSpy(p.snapshot_changed)
+        state_spy = QSignalSpy(p.state_changed)
         p._tick()
-        events = _drain(q)
-        kinds = [e[0] for e in events]
-        assert "snapshot" in kinds
-        assert "state_change" in kinds
-        state_change = [e for e in events if e[0] == "state_change"][0]
-        assert state_change[1] == "starting"
-        assert state_change[2] == "running"
+        assert snap_spy.count() == 1
+        emitted = snapshots(snap_spy)[0]
+        assert isinstance(emitted, ManagerSnapshot)
+        assert emitted.state == "running"
+        assert emitted.workers_online == 3
+        assert emitted.jobs_queued == 12
+        assert emitted.version == "0.1.0"
+        assert state_changes(state_spy) == [("starting", "running")]
 
-    def test_starting_to_running_fires_notification(self, mocker):
+    def test_first_tick_fires_running_notification(self, poller_factory):
         # setup_mode=True suppresses the setup-complete notification so
         # only the Starting->Running edge notification is observed.
         payload = {"boot_id": "b1", "version": "x", "setup_mode": True}
-        p, q, _stop, _flag = _make_poller(mocker, [payload])
+        p, _stop, _flag = poller_factory(script=[payload])
+        notif_spy = QSignalSpy(p.notification)
         p._tick()
-        events = _drain(q)
-        notif = [e for e in events if e[0] == "notification"]
-        assert len(notif) == 1
-        assert isinstance(notif[0][1], NotificationEvent)
-        assert "running" in notif[0][1].message.lower()
+        msgs = notification_msgs(notif_spy)
+        assert len(msgs) == 1
+        assert "running" in msgs[0].lower()
 
-    def test_snapshot_fields_populated(self, mocker):
+    def test_snapshot_property_updates(self, poller_factory):
         payload = {
-            "setup_mode": True,
-            "workers_online": 5,
-            "jobs_queued": 7,
-            "jobs_rendering": 1,
-            "version": "9.9.9",
-            "boot_id": "bx",
+            "setup_mode": True, "workers_online": 5, "jobs_queued": 7,
+            "jobs_rendering": 1, "version": "9.9.9", "boot_id": "bx",
         }
-        p, _q, _, _ = _make_poller(mocker, [payload])
+        p, _stop, _flag = poller_factory(script=[payload])
         p._tick()
         s = p.snapshot
         assert s.state == "running"
@@ -107,217 +104,175 @@ class TestStartingToRunning:
         assert s.boot_id == "bx"
 
 
-# ------------------------------------------------------------------
-# Failure transitions
-# ------------------------------------------------------------------
+# Failure threshold (FR-17).
+class TestFailureThreshold:
 
-class TestRunningToError:
-
-    def test_three_consecutive_failures_triggers_error(self, mocker):
-        p, q, _stop, _flag = _make_poller(
-            mocker,
+    def test_three_consecutive_failures_triggers_error(
+        self, poller_factory,
+    ):
+        p, _stop, _flag = poller_factory(
             script=[
-                {"boot_id": "b1"},
-                RuntimeError("a"), RuntimeError("b"), RuntimeError("c"),
+                {"boot_id": "b1"}, RuntimeError("a"),
+                RuntimeError("b"), RuntimeError("c"),
             ],
         )
         p._tick()  # running
-        _drain(q)
+        snap_spy = QSignalSpy(p.snapshot_changed)
+        state_spy = QSignalSpy(p.state_changed)
         p._tick()  # fail 1
         p._tick()  # fail 2
         assert p.snapshot.state == "running"
+        assert snap_spy.count() == 0
+        assert state_spy.count() == 0
         p._tick()  # fail 3 -> error
         assert p.snapshot.state == "error"
+        assert snap_spy.count() == 1
+        assert state_changes(state_spy) == [("running", "error")]
 
-    def test_error_notification_fires_on_edge_only(self, mocker):
-        p, q, _stop, _flag = _make_poller(
-            mocker,
+    def test_error_notification_fires_on_edge_only(self, poller_factory):
+        p, _stop, _flag = poller_factory(
             script=[
                 {"boot_id": "b1", "setup_mode": True},
                 *([RuntimeError("e")] * 5),
             ],
         )
+        notif_spy = QSignalSpy(p.notification)
+        state_spy = QSignalSpy(p.state_changed)
         p._tick()  # running
         for _ in range(3):
             p._tick()
-        # 4 ticks -> edges: starting->running, running->error.
-        events = _drain(q)
-        state_changes = [e for e in events if e[0] == "state_change"]
-        assert len(state_changes) == 2
-        notif_msgs = [
-            e[1].message for e in events if e[0] == "notification"
-        ]
-        # Expect manager running + manager error notifications.
-        assert any("running" in m.lower() for m in notif_msgs)
-        assert any("error state" in m.lower() for m in notif_msgs)
-
-        # Additional failures: already in Error — no further events.
+        assert state_spy.count() == 2
+        msgs = notification_msgs(notif_spy)
+        assert any("running" in m.lower() for m in msgs)
+        assert any("error state" in m.lower() for m in msgs)
+        pre_state = state_spy.count()
+        pre_notif = notif_spy.count()
         p._tick()
         p._tick()
-        events2 = _drain(q)
-        assert not any(e[0] == "state_change" for e in events2)
-        assert not any(e[0] == "notification" for e in events2)
+        assert state_spy.count() == pre_state
+        assert notif_spy.count() == pre_notif
 
-    def test_error_to_running_on_single_200(self, mocker):
-        p, q, _stop, _flag = _make_poller(
-            mocker,
-            script=[
-                {"boot_id": "b1"},              # -> running
-                RuntimeError("e"),
-                RuntimeError("e"),
-                RuntimeError("e"),              # -> error
-                {"boot_id": "b1"},              # recovery (same boot_id)
-            ],
-        )
-        p._tick()  # running
-        for _ in range(3):
-            p._tick()  # -> error
-        assert p.snapshot.state == "error"
-        _drain(q)
-        p._tick()  # recovery 200
-        assert p.snapshot.state == "running"
-        # Recovery notification is emitted.
-        events = _drain(q)
-        notif = [e for e in events if e[0] == "notification"]
-        assert any(
-            "recovered" in n[1].message.lower() for n in notif
-        )
-
-
-# ------------------------------------------------------------------
-# Quit flag behavior (FR-17a)
-# ------------------------------------------------------------------
-
-class TestQuitFlag:
-
-    def test_failures_go_to_stopped_when_quit_flag_set(self, mocker):
-        p, _q, _stop, flag = _make_poller(
-            mocker,
+    def test_error_to_running_recovery_notification(
+        self, poller_factory,
+    ):
+        p, _stop, _flag = poller_factory(
             script=[
                 {"boot_id": "b1"},
-                *([RuntimeError("e")] * 3),
+                RuntimeError("e"), RuntimeError("e"), RuntimeError("e"),
+                {"boot_id": "b1"},
             ],
         )
-        p._tick()  # running
+        p._tick()
+        for _ in range(3):
+            p._tick()
+        assert p.snapshot.state == "error"
+        notif_spy = QSignalSpy(p.notification)
+        p._tick()
+        assert p.snapshot.state == "running"
+        msgs = notification_msgs(notif_spy)
+        assert any("recovered" in m.lower() for m in msgs)
+
+
+# Boot id change (FR-17).
+class TestBootIdTransitions:
+
+    def test_boot_id_change_forces_through_starting(self, poller_factory):
+        p, _stop, _flag = poller_factory(
+            script=[{"boot_id": "b1"}, {"boot_id": "b2"}],
+        )
+        p._tick()
+        state_spy = QSignalSpy(p.state_changed)
+        p._tick()
+        seq = state_changes(state_spy)
+        assert ("running", "starting") in seq
+        assert ("starting", "running") in seq
+
+
+# Setup-complete edge (FR-26).
+class TestSetupCompleteEdge:
+
+    def test_no_notif_when_tray_starts_after_setup_done(
+        self, poller_factory,
+    ):
+        payload = {"boot_id": "b1", "setup_mode": False}
+        p, _stop, _flag = poller_factory(script=[payload] * 3)
+        notif_spy = QSignalSpy(p.notification)
+        for _ in range(3):
+            p._tick()
+        assert setup_msgs(notif_spy) == []
+
+    def test_fires_once_on_true_to_false_edge(self, poller_factory):
+        p, _stop, _flag = poller_factory(
+            script=[
+                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1", "setup_mode": False},
+            ],
+        )
+        notif_spy = QSignalSpy(p.notification)
+        p._tick()
+        assert setup_msgs(notif_spy) == []
+        p._tick()
+        assert len(setup_msgs(notif_spy)) == 1
+
+    def test_does_not_refire_on_subsequent_false_ticks(
+        self, poller_factory,
+    ):
+        p, _stop, _flag = poller_factory(
+            script=[
+                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1", "setup_mode": False},
+                {"boot_id": "b1", "setup_mode": False},
+                {"boot_id": "b1", "setup_mode": False},
+            ],
+        )
+        notif_spy = QSignalSpy(p.notification)
+        for _ in range(4):
+            p._tick()
+        assert len(setup_msgs(notif_spy)) == 1
+
+
+# Notification edges — all three mapped edges in one sequence.
+class TestNotificationEdges:
+
+    def test_running_to_error_to_running_sequence(self, poller_factory):
+        p, _stop, _flag = poller_factory(
+            script=[
+                {"boot_id": "b1", "setup_mode": True},
+                RuntimeError("e"), RuntimeError("e"), RuntimeError("e"),
+                {"boot_id": "b1", "setup_mode": True},
+            ],
+        )
+        notif_spy = QSignalSpy(p.notification)
+        p._tick()
+        for _ in range(3):
+            p._tick()
+        p._tick()
+        lowered = [m.lower() for m in notification_msgs(notif_spy)]
+        assert any("manager is running" in m for m in lowered)
+        assert any("error state" in m for m in lowered)
+        assert any("recovered" in m for m in lowered)
+
+
+# Quit flag (FR-17a).
+class TestQuitFlagSemantics:
+
+    def test_failures_go_to_stopped_when_quit_flag_set(
+        self, poller_factory,
+    ):
+        p, _stop, flag = poller_factory(
+            script=[{"boot_id": "b1"}, *([RuntimeError("e")] * 3)],
+        )
+        p._tick()
         flag.set()
         for _ in range(3):
             p._tick()
         assert p.snapshot.state == "stopped"
 
-    def test_200_after_quit_clears_flag(self, mocker):
-        p, _q, _stop, flag = _make_poller(
-            mocker,
+    def test_200_after_quit_clears_flag(self, poller_factory):
+        p, _stop, flag = poller_factory(
             script=[{"boot_id": "b1"}, {"boot_id": "b1"}],
         )
-        p._tick()  # running
+        p._tick()
         flag.set()
-        p._tick()  # 200 -> clears flag
+        p._tick()
         assert not flag.is_set()
-
-
-# ------------------------------------------------------------------
-# Boot id change (FR-17)
-# ------------------------------------------------------------------
-
-class TestBootIdChange:
-
-    def test_boot_id_change_forces_through_starting(self, mocker):
-        p, q, _stop, _flag = _make_poller(
-            mocker,
-            script=[
-                {"boot_id": "b1"},
-                {"boot_id": "b2"},
-            ],
-        )
-        p._tick()
-        _drain(q)
-        p._tick()
-        events = _drain(q)
-        state_changes = [e for e in events if e[0] == "state_change"]
-        # Expect running -> starting -> running
-        seq = [(sc[1], sc[2]) for sc in state_changes]
-        assert ("running", "starting") in seq
-        assert ("starting", "running") in seq
-
-
-# ------------------------------------------------------------------
-# Launcher-dead self-termination
-# ------------------------------------------------------------------
-
-class TestLauncherDead:
-
-    def test_sets_stop_event_when_launcher_gone(self, mocker):
-        mocker.patch.object(
-            poller_mod.launcher_watch,
-            "is_launcher_alive", return_value=False,
-        )
-        p, _q, stop, _flag = _make_poller(mocker)
-        p._tick()
-        assert stop.is_set()
-
-
-# See test_poller_snapshot.py for snapshot semantics (frozen dataclass,
-# dataclasses.replace, thread-safe read).
-
-
-# ------------------------------------------------------------------
-# Setup-complete edge (FR-26) — Fix B / issue #79
-# ------------------------------------------------------------------
-
-def _setup_notifs(events):
-    return [
-        e for e in events
-        if e[0] == "notification"
-        and "setup complete" in e[1].message.lower()
-    ]
-
-
-class TestSetupCompleteEdge:
-
-    def test_no_notif_when_tray_starts_after_setup_done(self, mocker):
-        # Tray boots into a manager that is already out of setup mode.
-        # First probe: setup_mode=False.  We must NOT fire the
-        # "Setup complete" notification — the True->False edge never
-        # happened during this tray session.
-        payload = {"boot_id": "b1", "setup_mode": False}
-        p, q, _stop, _flag = _make_poller(
-            mocker, [payload, payload, payload],
-        )
-        p._tick()
-        p._tick()
-        p._tick()
-        events = _drain(q)
-        assert _setup_notifs(events) == []
-
-    def test_fires_once_on_true_to_false_edge(self, mocker):
-        # Tray boots mid-setup: first probe setup_mode=True, second
-        # probe setup_mode=False.  Exactly one "Setup complete"
-        # notification must fire.
-        p, q, _stop, _flag = _make_poller(
-            mocker,
-            script=[
-                {"boot_id": "b1", "setup_mode": True},
-                {"boot_id": "b1", "setup_mode": False},
-            ],
-        )
-        p._tick()
-        mid = _drain(q)
-        assert _setup_notifs(mid) == []
-        p._tick()
-        after = _drain(q)
-        assert len(_setup_notifs(after)) == 1
-
-    def test_does_not_refire_on_subsequent_false_ticks(self, mocker):
-        p, q, _stop, _flag = _make_poller(
-            mocker,
-            script=[
-                {"boot_id": "b1", "setup_mode": True},
-                {"boot_id": "b1", "setup_mode": False},
-                {"boot_id": "b1", "setup_mode": False},
-                {"boot_id": "b1", "setup_mode": False},
-            ],
-        )
-        for _ in range(4):
-            p._tick()
-        events = _drain(q)
-        assert len(_setup_notifs(events)) == 1

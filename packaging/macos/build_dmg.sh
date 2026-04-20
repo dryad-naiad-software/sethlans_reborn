@@ -5,28 +5,34 @@
 
 # Build a macOS .dmg installer from the PyInstaller .app bundle output.
 #
-# Usage: packaging/macos/build_dmg.sh <version>
-# Example: packaging/macos/build_dmg.sh 0.1.0
+# Usage: packaging/macos/build_dmg.sh <build_version>
+# Example: packaging/macos/build_dmg.sh 0.2.0.abc12
 #
-# Expects PyInstaller output at dist/launcher/Sethlans.app
-# Produces: dist/sethlans-<version>-macos-arm64.dmg
+# <build_version> is the semver plus a 5-char git commit suffix
+# (e.g. `0.2.0.abc12`). The script derives the strict-semver part for
+# Apple's CFBundleShortVersionString (which only accepts X.Y.Z) and
+# uses the full build_version for CFBundleVersion + filename + DMG name.
+#
+# Expects PyInstaller output at dist/Sethlans.app (and dist/SethlansHelper.app).
+# Produces: dist/sethlans-<build_version>-macos-arm64.dmg
 
 set -euo pipefail
 
-VERSION="${1:?Usage: build_dmg.sh <version>}"
+BUILD_VERSION="${1:?Usage: build_dmg.sh <build_version>}"
+SEMVER="$(echo "$BUILD_VERSION" | cut -d. -f1-3)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DIST_DIR="${PROJECT_ROOT}/dist"
 APP_NAME="Sethlans.app"
-DMG_NAME="sethlans-${VERSION}-macos-arm64"
+DMG_NAME="sethlans-${BUILD_VERSION}-macos-arm64"
 DMG_PATH="${DIST_DIR}/${DMG_NAME}.dmg"
 STAGING_DIR="${DIST_DIR}/dmg-staging"
 
-echo "--- Building macOS DMG: ${DMG_NAME} ---"
+echo "--- Building macOS DMG: ${DMG_NAME} (semver ${SEMVER}) ---"
 
 # Validate that the .app bundle exists
-if [ ! -d "${DIST_DIR}/launcher/${APP_NAME}" ]; then
-    echo "[ERROR] ${APP_NAME} not found at ${DIST_DIR}/launcher/${APP_NAME}" >&2
+if [ ! -d "${DIST_DIR}/${APP_NAME}" ]; then
+    echo "[ERROR] ${APP_NAME} not found at ${DIST_DIR}/${APP_NAME}" >&2
     echo "Run PyInstaller with launcher.spec first." >&2
     exit 1
 fi
@@ -36,7 +42,18 @@ rm -rf "${STAGING_DIR}"
 mkdir -p "${STAGING_DIR}"
 
 # Copy the .app bundle to staging
-cp -R "${DIST_DIR}/launcher/${APP_NAME}" "${STAGING_DIR}/${APP_NAME}"
+cp -R "${DIST_DIR}/${APP_NAME}" "${STAGING_DIR}/${APP_NAME}"
+
+# Align CFBundleExecutable with the actual PyInstaller binary name.
+# launcher.spec names the exe `run_launcher` (shared with Windows),
+# while Info.plist.template declares `CFBundleExecutable=sethlans`.
+# Rename the binary in the staged bundle so macOS Launch Services can
+# find the main executable. Must happen BEFORE the ad-hoc re-sign —
+# codesign hashes file names, so renaming after signing breaks the seal.
+MACOS_DIR="${STAGING_DIR}/${APP_NAME}/Contents/MacOS"
+if [ -f "${MACOS_DIR}/run_launcher" ] && [ ! -f "${MACOS_DIR}/sethlans" ]; then
+    mv "${MACOS_DIR}/run_launcher" "${MACOS_DIR}/sethlans"
+fi
 
 # Copy component bundles into the .app's Resources
 RESOURCES="${STAGING_DIR}/${APP_NAME}/Contents/Resources"
@@ -51,15 +68,27 @@ for component in manager worker tray_helper; do
 done
 
 # Copy the tray helper .app if it exists (macOS-specific)
-if [ -d "${DIST_DIR}/tray_helper/SethlansHelper.app" ]; then
-    cp -R "${DIST_DIR}/tray_helper/SethlansHelper.app" \
+if [ -d "${DIST_DIR}/SethlansHelper.app" ]; then
+    cp -R "${DIST_DIR}/SethlansHelper.app" \
         "${RESOURCES}/bin/tray_helper/"
 fi
 
-# Apply Info.plist from template
+# Defensively re-sign the nested helper bundle. The `cp -R` above may or
+# may not preserve the ad-hoc signature cleanly across macOS versions,
+# and the outer re-sign below needs a valid seal on every nested bundle.
+if [ -d "${RESOURCES}/bin/tray_helper/SethlansHelper.app" ]; then
+    codesign --force --deep --sign - \
+        "${RESOURCES}/bin/tray_helper/SethlansHelper.app"
+fi
+
+# Apply Info.plist from template. Two substitutions: BUILD_VERSION
+# (semver+git hash, accepted by CFBundleVersion) and SEMVER
+# (strict X.Y.Z, required by CFBundleShortVersionString).
 PLIST_TEMPLATE="${SCRIPT_DIR}/Info.plist.template"
 if [ -f "${PLIST_TEMPLATE}" ]; then
-    sed "s/\${VERSION}/${VERSION}/g" "${PLIST_TEMPLATE}" \
+    sed -e "s/\${BUILD_VERSION}/${BUILD_VERSION}/g" \
+        -e "s/\${SEMVER}/${SEMVER}/g" \
+        "${PLIST_TEMPLATE}" \
         > "${STAGING_DIR}/${APP_NAME}/Contents/Info.plist"
 fi
 
@@ -70,8 +99,25 @@ fi
 
 # Write version.json
 cat > "${RESOURCES}/version.json" <<EOF
-{"version": "${VERSION}", "platform": "macos-arm64"}
+{"version": "${BUILD_VERSION}", "semver": "${SEMVER}", "platform": "macos-arm64"}
 EOF
+
+# Strip any inherited com.apple.quarantine xattrs from bundle contents.
+# PNGs under shared/tray/assets/ can be quarantined in the build
+# workspace (from prior downloads) and PyInstaller carries that forward
+# into COLLECT. A user drag-install from the DMG leaves those xattrs in
+# place on inner files, which has tripped up some sandboxed readers.
+# Must run BEFORE the re-sign (defensive — clears state the signature
+# should not be sealing).
+xattr -cr "${STAGING_DIR}/${APP_NAME}" || true
+
+# Re-sign the bundle AFTER every mutation of Contents/ (Info.plist,
+# sethlans.icns, version.json). PyInstaller's embedded ad-hoc signature
+# was already invalidated by those writes; any re-sign applied before
+# them would be invalidated again and the verify below would abort.
+# Ad-hoc sign is enough to clear Gatekeeper's "damaged" gate; Developer
+# ID signing + notarization are a separate workstream — see GitHub #85.
+codesign --force --deep --sign - "${STAGING_DIR}/${APP_NAME}"
 
 # Create Applications symlink for drag-to-install
 ln -sf /Applications "${STAGING_DIR}/Applications"
@@ -79,10 +125,15 @@ ln -sf /Applications "${STAGING_DIR}/Applications"
 # Remove any existing DMG
 rm -f "${DMG_PATH}"
 
+# Fail the build loudly if the re-sign didn't take. Prevents shipping
+# a broken DMG from CI or dev machines.
+echo "--- Verifying bundle signature ---"
+codesign --verify --deep --strict "${STAGING_DIR}/${APP_NAME}"
+
 # Create the DMG using hdiutil
 echo "--- Creating DMG with hdiutil ---"
 hdiutil create \
-    -volname "Sethlans ${VERSION}" \
+    -volname "Sethlans ${SEMVER}" \
     -srcfolder "${STAGING_DIR}" \
     -ov \
     -format UDZO \

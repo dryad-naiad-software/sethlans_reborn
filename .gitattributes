@@ -1,0 +1,65 @@
+# Canonical line endings for the repo.
+#
+# Without this file, Windows git's `core.autocrlf=true` default makes
+# git see phantom "modified" diffs whenever an external tool (Resilio,
+# Nextcloud, syncthing, an IDE format-on-save, etc.) rewrites a file
+# with LF endings while git wants CRLF in the working tree. Declaring
+# LF as the canonical EOL for text files makes normalization
+# deterministic across Windows / macOS / Linux contributors.
+
+# Default: auto-detect text vs binary, normalize text to LF in the repo.
+* text=auto eol=lf
+
+# Binary blobs — never diff, never normalize.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.bmp  binary
+*.webp binary
+*.tiff binary
+*.tif  binary
+*.exr  binary
+*.zip  binary
+*.tar  binary
+*.gz   binary
+*.tgz  binary
+*.bz2  binary
+*.xz   binary
+*.7z   binary
+*.dmg  binary
+*.iso  binary
+*.exe  binary
+*.dll  binary
+*.so   binary
+*.dylib binary
+*.pyd  binary
+*.pyc  binary
+*.whl  binary
+*.blend binary
+*.blend1 binary
+*.pdf  binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.eot  binary
+
+# Windows-native scripts MUST stay CRLF — PowerShell, cmd.exe, and
+# Notepad-era batch interpreters can mis-parse LF-terminated files.
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# NSIS installer scripts are typically CRLF on Windows.
+*.nsi text eol=crlf
+*.nsh text eol=crlf
+
+# POSIX shell scripts MUST stay LF — even on Windows checkouts (Git
+# Bash / WSL / MSYS2 break on CRLF shebangs).
+*.sh text eol=lf
+*.bash text eol=lf

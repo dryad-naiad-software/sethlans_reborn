@@ -7,10 +7,31 @@
 #
 # Bump versions manually and test before merging.
 
-pyinstaller==6.11.1
+pyinstaller==6.19.0
 
 # Tray helper runtime deps (bundled into the tray_helper PyInstaller output).
-# Pillow is already pulled in by manager/requirements.txt; pystray + plyer
-# are tray-specific.
-pystray==0.19.5
-plyer==2.1.0
+# The PySide6 migration is complete; pystray + plyer + Pillow-in-tray are
+# gone, replaced by PySide6 (QSystemTrayIcon + QClipboard + QPainter +
+# QSystemTrayIcon.showMessage).
+#
+# PySide6-Essentials pulls QtWidgets/QtGui/QtCore - the full surface the
+# Qt-based tray helper uses. Avoid the full `PySide6` meta-pin: it also
+# drags in PySide6_Addons (Qt3D, QtCharts, QtMultimedia, QtWebEngine, etc.)
+# - ~170 MB of libraries the tray never touches.
+PySide6-Essentials==6.11.0
+
+# HTTP stack used by shared/tray/poller.py to call the manager API, and
+# psutil used by shared/tray/launcher_watch.py for parent-pid liveness.
+# These MUST be installed in the build venv: tray_helper.spec declares
+# them as `hiddenimports`, but PyInstaller's hidden-import resolver still
+# needs the modules importable in the build venv to walk their submodule
+# graphs and bundle the right files. Without these pins, the build emits
+# `ERROR: Hidden import 'requests' not found` (issue #90) and the
+# resulting tray_helper bundle ModuleNotFoundError's at first poll.
+#
+# Versions are kept in lockstep with worker/requirements.txt and
+# manager/requirements.txt so the bundled HTTP stack matches the rest of
+# the project.
+requests==2.32.4
+urllib3==2.5.0
+psutil==7.0.0

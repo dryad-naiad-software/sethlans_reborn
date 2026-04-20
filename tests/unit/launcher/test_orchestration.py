@@ -12,6 +12,9 @@ and the orchestration loop's quit/restart dispatch in
 from __future__ import annotations
 
 import os
+import subprocess
+
+import pytest
 
 from launcher import orchestration, run_launcher
 
@@ -21,23 +24,68 @@ from launcher import orchestration, run_launcher
 # ------------------------------------------------------------------
 
 class TestSpawnTrayEnv:
+    """Contract per commit f379bc5 / GitHub #89:
+
+    * Healthy spawn (still alive after the 3s self-abort window)
+      returns the Popen handle.
+    * `_start_component` raising -> sys.exit(1) (no orphan processes).
+    * Spawn succeeds but tray exits within 3s -> sys.exit(1) (likely a
+      missing PySide6 backend; user gets a visible error rather than a
+      silent install).
+    """
 
     def test_env_vars_passed_to_tray_subprocess(self, mocker, tmp_path):
-        spy = mocker.patch.object(run_launcher, "_start_component")
-        run_launcher._spawn_tray(tmp_path, secret="the-secret")
+        # Make wait() raise TimeoutExpired so the function treats the
+        # tray as "still alive after 3s = healthy" and returns the proc
+        # instead of sys.exit'ing on a phantom early exit.
+        proc = mocker.MagicMock()
+        proc.wait.side_effect = subprocess.TimeoutExpired(cmd="tray", timeout=3)
+        spy = mocker.patch.object(
+            run_launcher, "_start_component", return_value=proc,
+        )
+        result = run_launcher._spawn_tray(tmp_path, secret="the-secret")
         spy.assert_called_once()
         _args, kwargs = spy.call_args
         env = kwargs["env"]
         assert env["SETHLANS_TRAY_IPC_SECRET"] == "the-secret"
         assert env["SETHLANS_LAUNCHER_PID"] == str(os.getpid())
+        # Healthy spawn returns the live Popen handle.
+        assert result is proc
 
-    def test_exception_in_spawn_returns_none(self, mocker, tmp_path):
+    def test_exception_in_spawn_aborts_with_exit_1(
+        self, mocker, tmp_path, capsys,
+    ):
+        # _start_component raising -> sys.exit(1) with a banner on stderr.
+        # The launcher MUST fail hard rather than continue: the tray is
+        # the only UX surface for the install, so silent absence would
+        # leave orphan manager/worker processes with no user feedback.
         mocker.patch.object(
             run_launcher, "_start_component",
             side_effect=RuntimeError("no exe"),
         )
-        # _spawn_tray must not propagate — launcher continues without tray.
-        assert run_launcher._spawn_tray(tmp_path, "x") is None
+        with pytest.raises(SystemExit) as exc_info:
+            run_launcher._spawn_tray(tmp_path, "x")
+        assert exc_info.value.code == 1
+        err = capsys.readouterr().err
+        assert "Failed to spawn tray helper" in err
+        assert "Aborting startup" in err
+
+    def test_tray_exiting_within_3s_aborts_with_exit_1(
+        self, mocker, tmp_path, capsys,
+    ):
+        # Tray exits within the 3s self-abort window -> hard fail with
+        # the "exited immediately" banner. Mirrors the missing-backend
+        # path that motivated f379bc5.
+        proc = mocker.MagicMock()
+        proc.wait.return_value = 2  # simulated exit code
+        mocker.patch.object(
+            run_launcher, "_start_component", return_value=proc,
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            run_launcher._spawn_tray(tmp_path, "x")
+        assert exc_info.value.code == 1
+        err = capsys.readouterr().err
+        assert "Tray helper exited immediately with code 2" in err
 
 
 # ------------------------------------------------------------------

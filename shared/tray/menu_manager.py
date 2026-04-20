@@ -2,104 +2,45 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Manager-section pystray MenuItem list.
+"""Qt manager-section menu builder for the PySide6 tray.
 
-Uses ``visible=callable`` / ``enabled=callable`` for dynamic items so
-pystray re-evaluates on ``icon.update_menu()``.
+See spec FR-2, NFR-1.  ``ManagerSection`` exposes
+``build_qmenu(parent=None)`` / ``rebuild(parent=None)`` and
+``refresh(snapshot=None)`` to re-evaluate dynamic text / visibility /
+enabled state from the current snapshot.  Pure-Python helpers live in
+``menu_manager_helpers``; the shared About dialog lives in ``about``.
 """
 
 from __future__ import annotations
 
-import configparser
 import logging
-import re
-import subprocess
-import sys
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
+
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMenu, QWidget
 
 from shared.tray import ipc
+from shared.tray.about import show_about_dialog
 from shared.tray.clipboard import copy_token_to_clipboard
-from shared.tray.notifications import NotificationEvent, dispatch
+from shared.tray.menu_manager_helpers import (
+    open_logs,
+    read_token,
+    sentinel_exists,
+    validate_token,
+)
+from shared.tray.notifications import NotificationEvent
 
 logger = logging.getLogger(__name__)
 
-_TOKEN_SHAPE = re.compile(r"^[A-Za-z0-9_-]{30,60}$")
-_MAX_INI_BYTES = 1024
-
-SENTINEL_NAME = "setup_complete.json"
-
-
-def _sentinel_exists(manager_data_dir: Path) -> bool:
-    # The setup-auth-unification spec uses setup_complete.json;
-    # the current launcher code uses .setup_complete. Check both so
-    # we coexist during the transition.
-    return (
-        (manager_data_dir / SENTINEL_NAME).exists()
-        or (manager_data_dir.parent / ".setup_complete").exists()
-    )
-
-
-def _read_token(manager_data_dir: Path) -> str:
-    """Return the setup token from ``manager.ini`` or empty string."""
-    ini_path = manager_data_dir / "manager.ini"
-    if not ini_path.exists():
-        return ""
-    try:
-        size = ini_path.stat().st_size
-    except OSError:
-        return ""
-    if size > _MAX_INI_BYTES:
-        logger.warning(
-            "manager.ini exceeds %d bytes; ignoring for token read",
-            _MAX_INI_BYTES,
-        )
-        return ""
-    try:
-        cfg = configparser.ConfigParser()
-        cfg.read(ini_path, encoding="utf-8")
-    except (OSError, configparser.Error) as exc:
-        logger.warning("Could not parse manager.ini: %s", exc)
-        return ""
-    return cfg.get("setup", "token", fallback="") or ""
-
-
-def _validate_token(token: str) -> bool:
-    if not token:
-        return False
-    if not _TOKEN_SHAPE.match(token):
-        logger.warning(
-            "Setup token has invalid shape; token_len=%d", len(token),
-        )
-        return False
-    return True
-
-
-def _open_logs(data_dir: Path) -> None:
-    log_path = data_dir / "logs" / "manager.log"
-    if not log_path.exists():
-        logger.warning("Manager log not found at %s", log_path)
-        return
-    try:
-        if sys.platform == "win32":
-            import os
-            os.startfile(str(log_path))  # type: ignore[attr-defined]
-        elif sys.platform == "darwin":
-            subprocess.run(["open", str(log_path)], check=False)
-        else:
-            subprocess.run(["xdg-open", str(log_path)], check=False)
-    except Exception as exc:  # pragma: no cover
-        logger.warning("Failed to open log viewer: %s", exc)
-
 
 class ManagerSection:
-    """Holds manager-section state + callbacks.
+    """Manager-section menu state + callbacks for the Qt tray.
 
-    The pystray ``Menu`` is rebuilt by ``shared.tray.app`` on every
-    update tick.  This class only owns the *callbacks* and the
-    *visibility/enabled* predicates used in that rebuild.
+    Exposes the same constructor keyword set used by ``app.main``; see
+    ``build_qmenu`` / ``refresh`` for the public API.
     """
 
     def __init__(
@@ -110,6 +51,7 @@ class ManagerSection:
         manager_port: int,
         quit_requested_flag: threading.Event,
         get_snapshot: Callable,
+        notify: Optional[Callable[[NotificationEvent], None]] = None,
     ) -> None:
         self.data_dir = data_dir
         self.manager_data_dir = manager_data_dir
@@ -117,16 +59,32 @@ class ManagerSection:
         self.port = manager_port
         self.quit_flag = quit_requested_flag
         self.get_snapshot = get_snapshot
+        self._notify = notify
+
+        # QAction references held so refresh() can mutate them.
+        self._menu: Optional[QMenu] = None
+        self._act_header: Optional[QAction] = None
+        self._act_setup: Optional[QAction] = None
+        self._act_workers: Optional[QAction] = None
+        self._act_jobs: Optional[QAction] = None
+        self._act_open_dashboard: Optional[QAction] = None
+        self._act_copy_token: Optional[QAction] = None
+        self._act_open_wizard: Optional[QAction] = None
+        self._act_restart: Optional[QAction] = None
+        self._act_view_logs: Optional[QAction] = None
+        self._act_quit: Optional[QAction] = None
+        self._act_about: Optional[QAction] = None
+        self._act_footer: Optional[QAction] = None
 
     # ---- visibility ----
     def setup_token_available(self) -> bool:
-        if _sentinel_exists(self.manager_data_dir):
+        if sentinel_exists(self.manager_data_dir):
             return False
-        token = _read_token(self.manager_data_dir)
-        return _validate_token(token)
+        token = read_token(self.manager_data_dir)
+        return validate_token(token)
 
     def wizard_visible(self) -> bool:
-        return not _sentinel_exists(self.manager_data_dir)
+        return not sentinel_exists(self.manager_data_dir)
 
     def counts_visible(self) -> bool:
         return self.get_snapshot().state == "running"
@@ -138,52 +96,58 @@ class ManagerSection:
     def quit_enabled(self) -> bool:
         return not ipc.marker_exists(self.data_dir, ipc.MARKER_QUIT)
 
-    # ---- click callbacks ----
-    def on_open_dashboard(self, icon=None, item=None) -> None:
-        url = f"https://{self.host}:{self.port}/"
-        webbrowser.open(url)
+    # ---- click callbacks (no-arg; QAction.triggered signal) ----
+    def on_open_dashboard(self) -> None:
+        webbrowser.open(f"https://{self.host}:{self.port}/")
 
-    def on_open_wizard(self, icon=None, item=None) -> None:
-        url = f"https://{self.host}:{self.port}/setup/"
-        webbrowser.open(url)
+    def on_open_wizard(self) -> None:
+        webbrowser.open(f"https://{self.host}:{self.port}/setup/")
 
-    def on_copy_token(self, icon=None, item=None) -> None:
-        # Re-check on click per FR-10a.
-        if _sentinel_exists(self.manager_data_dir):
-            dispatch(NotificationEvent(
-                "Sethlans", "Setup already complete.",
-            ))
+    def on_copy_token(self) -> None:
+        """Re-check token availability, then copy via QClipboard.
+
+        Never raises.  On success, dispatches a "Token copied" notice
+        when a ``notify`` callable was supplied; failure only logs.
+        Token never logged.
+        """
+        if sentinel_exists(self.manager_data_dir):
+            logger.info("Copy token skipped: setup already complete")
             return
-        token = _read_token(self.manager_data_dir)
-        if not _validate_token(token):
-            dispatch(NotificationEvent(
-                "Sethlans", "Setup token not available.",
-            ))
+        token = read_token(self.manager_data_dir)
+        if not validate_token(token):
+            logger.info("Copy token skipped: token not available")
             return
         ok = copy_token_to_clipboard(token)
-        dispatch(NotificationEvent(
-            "Sethlans",
-            "Setup token copied to clipboard." if ok
-            else "Copy failed; copy the token from the launcher console.",
-        ))
+        logger.info("Copy setup token result: %s", ok)
+        if ok and self._notify is not None:
+            try:
+                self._notify(NotificationEvent(
+                    title="Token copied",
+                    message="Setup token copied to clipboard.",
+                ))
+            except Exception:  # pragma: no cover
+                logger.exception("Notify after copy_token failed")
 
-    def on_restart_manager(self, icon=None, item=None) -> None:
+    def on_restart_manager(self) -> None:
         try:
             ipc.request_restart(self.data_dir)
         except Exception as exc:  # pragma: no cover
             logger.warning("request_restart failed: %s", exc)
 
-    def on_quit_manager(self, icon=None, item=None) -> None:
+    def on_quit_manager(self) -> None:
         self.quit_flag.set()
         try:
             ipc.request_quit(self.data_dir, target="manager")
         except Exception as exc:  # pragma: no cover
             logger.warning("request_quit(manager) failed: %s", exc)
 
-    def on_view_logs(self, icon=None, item=None) -> None:
-        _open_logs(self.data_dir)
+    def on_view_logs(self) -> None:
+        open_logs(self.data_dir)
 
-    # ---- header text ----
+    def on_about(self) -> None:
+        show_about_dialog(self._menu)
+
+    # ---- dynamic text ----
     def header_text(self) -> str:
         snap = self.get_snapshot()
         state = snap.state
@@ -199,7 +163,7 @@ class ManagerSection:
 
     def setup_line(self) -> str:
         snap = self.get_snapshot()
-        if _sentinel_exists(self.manager_data_dir):
+        if sentinel_exists(self.manager_data_dir):
             return "Setup: Ready"
         if snap.setup_mode:
             return "Setup: In progress"
@@ -219,3 +183,114 @@ class ManagerSection:
         snap = self.get_snapshot()
         version = snap.version or "?"
         return f"v{version} -- :{self.port}"
+
+    # ---- menu construction ----
+    def build_qmenu(self, parent: Optional[QWidget] = None) -> QMenu:
+        """Construct the manager-section QMenu.
+
+        Idempotent: each call returns a freshly-built ``QMenu`` and
+        updates the stored ``QAction`` references so ``refresh``
+        always operates on the most recently built menu.
+        """
+        menu = QMenu(parent)
+        self._act_header = self._add_disabled(menu, "")
+        self._act_setup = self._add_disabled(menu, "")
+        self._act_workers = self._add_disabled(menu, "")
+        self._act_jobs = self._add_disabled(menu, "")
+        menu.addSeparator()
+        self._act_open_dashboard = self._add(
+            menu, "Open Dashboard", self.on_open_dashboard,
+        )
+        self._act_copy_token = self._add(
+            menu, "Copy Setup Token", self.on_copy_token,
+        )
+        self._act_open_wizard = self._add(
+            menu, "Open Setup Wizard", self.on_open_wizard,
+        )
+        self._act_restart = self._add(
+            menu, "Restart Manager", self.on_restart_manager,
+        )
+        self._act_view_logs = self._add(
+            menu, "View Manager Logs", self.on_view_logs,
+        )
+        self._act_quit = self._add(
+            menu, "Quit Manager", self.on_quit_manager,
+        )
+        # About Sethlans action (NFR-1) placed above the final
+        # separator / footer per spec FR-2.
+        self._act_about = self._add(
+            menu, "About Sethlans", self.on_about,
+        )
+        menu.addSeparator()
+        self._act_footer = self._add_disabled(menu, "")
+        self._menu = menu
+        self.refresh()
+        return menu
+
+    def rebuild(self, parent: Optional[QWidget] = None) -> QMenu:
+        """Alias for ``build_qmenu``."""
+        return self.build_qmenu(parent)
+
+    def refresh(self, snapshot=None) -> None:
+        """Re-evaluate text / visibility / enabled on all QActions.
+
+        ``snapshot`` is accepted for signal-slot convenience
+        (``snapshot_changed.connect(section.refresh)``) but ignored —
+        the predicates read from ``self.get_snapshot()`` on each call.
+        """
+        if self._menu is None:
+            return
+        self._set_text(self._act_header, self.header_text())
+        self._set_text(self._act_setup, self.setup_line())
+        counts = self.counts_visible()
+        self._set_text_visible(
+            self._act_workers, self.workers_line(), counts,
+        )
+        self._set_text_visible(
+            self._act_jobs, self.jobs_line(), counts,
+        )
+        self._set_visible(
+            self._act_copy_token, self.setup_token_available(),
+        )
+        self._set_visible(
+            self._act_open_wizard, self.wizard_visible(),
+        )
+        self._set_enabled(self._act_restart, self.restart_enabled())
+        self._set_enabled(self._act_quit, self.quit_enabled())
+        self._set_text(self._act_footer, self.footer_text())
+
+    # ---- internals ----
+    @staticmethod
+    def _add(menu: QMenu, label: str, slot: Callable) -> QAction:
+        action = menu.addAction(label)
+        action.triggered.connect(slot)
+        return action
+
+    @staticmethod
+    def _add_disabled(menu: QMenu, text: str) -> QAction:
+        action = menu.addAction(text)
+        action.setEnabled(False)
+        return action
+
+    @staticmethod
+    def _set_text(action: Optional[QAction], text: str) -> None:
+        if action is not None:
+            action.setText(text)
+
+    @staticmethod
+    def _set_visible(action: Optional[QAction], visible: bool) -> None:
+        if action is not None:
+            action.setVisible(visible)
+
+    @staticmethod
+    def _set_enabled(action: Optional[QAction], enabled: bool) -> None:
+        if action is not None:
+            action.setEnabled(enabled)
+
+    @staticmethod
+    def _set_text_visible(
+        action: Optional[QAction], text: str, visible: bool,
+    ) -> None:
+        if action is not None:
+            action.setText(text)
+            action.setVisible(visible)

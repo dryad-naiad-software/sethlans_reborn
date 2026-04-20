@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13"]
+        python-version: ["3.14"]
     env:
       SETHLANS_SELF_HOSTED_RUNNER: "true"
     steps:
@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13"]
+        python-version: ["3.14"]
     env:
       SETHLANS_SELF_HOSTED_RUNNER: "true"
     steps:

@@ -72,7 +72,7 @@ class TestPrintSetupBannerSuccess:
         self, mocker, capsys, tmp_path,
     ):
         mocker.patch.object(
-            browser_launch, "copy_token_to_clipboard", return_value=True,
+            browser_launch, "copy_to_clipboard_native", return_value=True,
         )
         result = print_setup_banner(
             port=8080, wizard_path="/setup/",
@@ -90,7 +90,7 @@ class TestPrintSetupBannerSuccess:
         self, mocker, capsys, tmp_path,
     ):
         mocker.patch.object(
-            browser_launch, "copy_token_to_clipboard", return_value=True,
+            browser_launch, "copy_to_clipboard_native", return_value=True,
         )
         print_setup_banner(
             port=8080, wizard_path="/setup/",
@@ -108,7 +108,7 @@ class TestPrintSetupBannerFailure:
         self, mocker, capsys, tmp_path,
     ):
         mocker.patch.object(
-            browser_launch, "copy_token_to_clipboard", return_value=False,
+            browser_launch, "copy_to_clipboard_native", return_value=False,
         )
         result = print_setup_banner(
             port=8080, wizard_path="/setup/",
@@ -124,7 +124,7 @@ class TestPrintSetupBannerFailure:
     ):
         # Helper contract: never raises.  Banner still handles defensively.
         mocker.patch.object(
-            browser_launch, "copy_token_to_clipboard",
+            browser_launch, "copy_to_clipboard_native",
             side_effect=RuntimeError("unexpected"),
         )
         result = print_setup_banner(
@@ -137,7 +137,7 @@ class TestPrintSetupBannerFailure:
 
     def test_copy_called_with_token(self, mocker, tmp_path):
         spy = mocker.patch.object(
-            browser_launch, "copy_token_to_clipboard", return_value=True,
+            browser_launch, "copy_to_clipboard_native", return_value=True,
         )
         print_setup_banner(
             port=8080, wizard_path="/setup/",

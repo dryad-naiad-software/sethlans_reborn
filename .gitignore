@@ -129,11 +129,16 @@ dmypy.json
 
 # OS / Sync
 desktop.ini
+.DS_Store
 .sync*
 .nextcloudsync*
+# Linux ~/.local accidentally synced into the project root
+# (KDE/GNOME app state, Evolution data, ~/.local/share/Trash, etc.)
+.local/
 
 # IDEs
 .idea/
+.vscode/
 
 # Claude Code
 .claude/
@@ -179,7 +184,6 @@ test_artifacts/
 # Temporary files (MCP tools, screenshots, etc.)
 temp/
 .playwright-mcp/
-*.png
 .tmp
 .pids/
 

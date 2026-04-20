@@ -2,43 +2,57 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Top-level tray helper wiring.
+"""PySide6 tray bootstrap.
 
-Invoked by ``shared/run_tray.py``.  Responsibilities:
-
-1. Load topology.json.
-2. Resolve data dirs + loopback port (read from ``manager.ini``).
-3. Construct the state poller + section objects.
-4. Build the pystray menu and start the icon event loop.
-5. Drain the poller's update queue from the main thread — this is
-   where icon mutations and notification dispatches actually happen
-   (FR-15 / FR-26a).
+Configures logging and the launcher watchdog, constructs a
+:class:`QApplication`, a :class:`QSystemTrayIcon`, and a
+``_TrayContext`` holding the topology-derived sections and the
+:class:`QtStatePoller`.  Wires the poller's Qt signals to GUI-thread
+slots with explicit :attr:`Qt.QueuedConnection` (spec FR-6), starts
+the poller via ``QTimer.singleShot(0, ...)`` so ``start`` runs inside
+the event loop's first iteration (FR-6), runs the event loop, then
+performs the documented shutdown sequence: ``stop_event.set()`` →
+``poller.join(timeout=3.0)`` → ``QObject.disconnect(poller)`` (static
+form only — the zero-arg instance form raises ``TypeError`` in
+PySide6).
 """
 
 from __future__ import annotations
 
 import configparser
 import logging
-import queue
+import os
+import sys
 import threading
 from pathlib import Path
+from typing import Optional
+
+from PySide6.QtCore import Qt, QTimer, QObject
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from shared.frozen_paths import get_data_dir, get_shared_data_dir
-from shared.tray import icons, launcher_watch, topology as topo_mod
+from shared.tray import icons, launcher_watch, notifications
+from shared.tray import topology as topo_mod
 from shared.tray.menu_manager import ManagerSection
 from shared.tray.menu_worker import WorkerSection
-from shared.tray.notifications import dispatch as dispatch_notification
-from shared.tray.poller import ManagerSnapshot, StatePoller
+from shared.tray.notifications import NotificationEvent
+from shared.tray.poller import ManagerSnapshot, QtStatePoller
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAIN_PORT = 8080
 _DEFAULT_LOOPBACK_PORT = 8088
 _DEFAULT_HOST = "localhost"
+_TOOLTIP = "Sethlans"
 
 
 def _read_manager_ports(manager_data_dir: Path) -> tuple[str, int, int]:
-    """Return ``(host, main_port, loopback_port)`` from manager.ini."""
+    """Return ``(host, main_port, loopback_port)`` from ``manager.ini``.
+
+    Defaults ``localhost:8080`` main port and ``8088`` loopback port;
+    falls back to defaults on any parse error.
+    """
     host = _DEFAULT_HOST
     main_port = _DEFAULT_MAIN_PORT
     loopback_port = _DEFAULT_LOOPBACK_PORT
@@ -59,27 +73,21 @@ def _read_manager_ports(manager_data_dir: Path) -> tuple[str, int, int]:
     return host, main_port, loopback_port
 
 
-def _drain_queue(q: "queue.Queue", icon, update_menu) -> None:
-    """Drain all pending events from the poller's queue.
-
-    Runs on the pystray main thread.
-    """
+def _configure_logging() -> None:
     try:
-        while True:
-            event = q.get_nowait()
-            kind = event[0]
-            if kind == "snapshot":
-                update_menu()
-            elif kind == "state_change":
-                update_menu()
-            elif kind == "notification":
-                dispatch_notification(event[1])
-    except queue.Empty:
-        return
+        from launcher.logging_setup import configure as _cfg_log
+        _cfg_log("tray", data_dir=get_shared_data_dir())
+    except Exception:
+        logging.basicConfig(level=logging.DEBUG)
 
 
 class _TrayContext:
-    """All tray state bundled so ``main`` stays under the complexity cap."""
+    """Bundle of tray state, separated from ``main`` to cap complexity.
+
+    Holds the topology-derived sections, the poller, the stop event,
+    and any other objects ``main`` needs to wire signals and run the
+    documented shutdown sequence.
+    """
 
     def __init__(self) -> None:
         self.data_dir = get_shared_data_dir()
@@ -91,157 +99,198 @@ class _TrayContext:
         )
         self.host = host
         self.main_port = main_port
+        self.loopback_port = lb_port
         self.loopback_url = (
             f"http://127.0.0.1:{lb_port}/api/status/public/"
         )
-        self.update_queue: "queue.Queue" = queue.Queue()
         self.stop_event = threading.Event()
         self.quit_flag = threading.Event()
-        self.snapshot = {"value": ManagerSnapshot()}
         self.wants_manager = self.topology in (
             topo_mod.TOPOLOGY_MANAGER, topo_mod.TOPOLOGY_BOTH,
         )
         self.wants_worker = self.topology in (
             topo_mod.TOPOLOGY_WORKER, topo_mod.TOPOLOGY_BOTH,
         )
-        self.manager_section = self._make_manager_section()
-        self.worker_section = self._make_worker_section()
-        self.poller = StatePoller(
-            loopback_url=self.loopback_url,
-            stop_event=self.stop_event,
-            update_queue=self.update_queue,
-            quit_requested_flag=self.quit_flag,
-        )
+        # Placeholders populated by ``wire(tray)`` once the tray icon
+        # exists (the ManagerSection's notify closure captures it).
+        self.manager_section: Optional[ManagerSection] = None
+        self.worker_section: Optional[WorkerSection] = None
+        self.poller: Optional[QtStatePoller] = None
 
-    def get_snapshot(self) -> ManagerSnapshot:
-        return self.snapshot["value"]
+    def current_snapshot(self) -> ManagerSnapshot:
+        if self.poller is None:
+            return ManagerSnapshot()
+        return self.poller.snapshot
 
-    def _make_manager_section(self):
-        if not self.wants_manager:
-            return None
-        return ManagerSection(
-            data_dir=self.data_dir,
-            manager_data_dir=self.manager_data_dir,
-            manager_host=self.host,
-            manager_port=self.main_port,
-            quit_requested_flag=self.quit_flag,
-            get_snapshot=self.get_snapshot,
-        )
-
-    def _make_worker_section(self):
-        if not self.wants_worker:
-            return None
-        return WorkerSection(
-            data_dir=self.worker_data_dir.parent,
-            quit_requested_flag=self.quit_flag,
-        )
-
-    def icon_image(self):
-        mgr = self.get_snapshot().state if self.wants_manager else None
+    def icon_states(self) -> tuple[Optional[str], Optional[str]]:
+        mgr = self.current_snapshot().state if self.wants_manager else None
         wk = "idle" if self.wants_worker else None
-        try:
-            return icons.get_icon(mgr, wk)
-        except Exception:  # pragma: no cover
-            logger.exception("Failed to render icon")
-            return None
+        return mgr, wk
 
-    def build_menu(self, pystray):
-        self.snapshot["value"] = self.poller.snapshot
-        items: list = []
-        if self.manager_section is not None:
-            items.extend(_manager_items(self.manager_section, pystray))
-        if self.manager_section and self.worker_section:
-            items.append(pystray.Menu.SEPARATOR)
-        if self.worker_section is not None:
-            items.extend(_worker_items(self.worker_section, pystray))
-        return pystray.Menu(*items)
+
+def _build_sections(ctx: _TrayContext, tray: QSystemTrayIcon) -> None:
+    """Populate ``ctx.manager_section`` / ``worker_section`` / ``poller``.
+
+    Must be called AFTER the tray icon exists so the notify closure
+    can capture it.  The poller is constructed here on the GUI thread;
+    its thread affinity is the creating thread (spec FR-6).
+    """
+
+    def _notify(event: NotificationEvent) -> None:
+        notifications.dispatch(tray, event)
+
+    if ctx.wants_manager:
+        ctx.manager_section = ManagerSection(
+            data_dir=ctx.data_dir,
+            manager_data_dir=ctx.manager_data_dir,
+            manager_host=ctx.host,
+            manager_port=ctx.main_port,
+            quit_requested_flag=ctx.quit_flag,
+            get_snapshot=ctx.current_snapshot,
+            notify=_notify,
+        )
+    if ctx.wants_worker:
+        # Worker-only topology: the manager section is absent, so the
+        # About Sethlans action must live on the worker section (spec
+        # FR-2 sub-bullet).  When both sections are present the
+        # manager owns About.
+        worker_only = ctx.wants_worker and not ctx.wants_manager
+        ctx.worker_section = WorkerSection(
+            data_dir=ctx.worker_data_dir.parent,
+            quit_requested_flag=ctx.quit_flag,
+            include_about=worker_only,
+        )
+    ctx.poller = QtStatePoller(
+        loopback_url=ctx.loopback_url,
+        stop_event=ctx.stop_event,
+        quit_requested_flag=ctx.quit_flag,
+    )
+
+
+def _build_menu(ctx: _TrayContext) -> QMenu:
+    """Build the combined QMenu from the topology-appropriate sections.
+
+    Both sections (when present) have their QActions parented to the
+    same top-level QMenu.  A separator is inserted between them when
+    both are present (mirroring the legacy pystray layout).
+    """
+    root = QMenu()
+    if ctx.manager_section is not None:
+        mgr_menu = ctx.manager_section.build_qmenu(parent=root)
+        for action in mgr_menu.actions():
+            root.addAction(action)
+    if ctx.manager_section is not None and ctx.worker_section is not None:
+        root.addSeparator()
+    if ctx.worker_section is not None:
+        worker_menu = ctx.worker_section.build_qmenu(parent=root)
+        for action in worker_menu.actions():
+            root.addAction(action)
+    return root
+
+
+def _refresh_icon(ctx: _TrayContext, tray: QSystemTrayIcon) -> None:
+    try:
+        mgr, wk = ctx.icon_states()
+        pixmap = icons.get_icon(mgr, wk)
+        tray.setIcon(QIcon(pixmap))
+    except Exception:
+        logger.exception("Failed to refresh tray icon")
+
+
+def _refresh_sections(ctx: _TrayContext) -> None:
+    # Sections mutate held QAction text / visible / enabled in place
+    # — no QMenu rebuild needed (spec "Technical Approach").
+    if ctx.manager_section is not None:
+        try:
+            ctx.manager_section.refresh()
+        except Exception:
+            logger.exception("ManagerSection.refresh failed")
+    if ctx.worker_section is not None:
+        try:
+            ctx.worker_section.refresh()
+        except Exception:
+            logger.exception("WorkerSection.refresh failed")
+
+
+def _connect_signals(
+    ctx: _TrayContext, tray: QSystemTrayIcon, app: QApplication,
+) -> None:
+    """Wire poller signals to GUI-thread slots via QueuedConnection."""
+
+    def on_snapshot(snapshot: ManagerSnapshot) -> None:
+        del snapshot  # predicates read from ctx.current_snapshot()
+        _refresh_icon(ctx, tray)
+        _refresh_sections(ctx)
+
+    def on_notification(event: NotificationEvent) -> None:
+        notifications.dispatch(tray, event)
+
+    poller = ctx.poller
+    assert poller is not None  # _build_sections populates this
+    poller.snapshot_changed.connect(on_snapshot, type=Qt.QueuedConnection)
+    poller.notification.connect(on_notification, type=Qt.QueuedConnection)
+    poller.launcher_gone.connect(app.quit, type=Qt.QueuedConnection)
+
+
+def _shutdown(ctx: _TrayContext) -> None:
+    """Run the documented shutdown sequence; never raises.
+
+    Spec "Shutdown sequence": ``stop_event.set()`` →
+    ``poller.join(timeout=3.0)`` → ``QObject.disconnect(poller)``
+    (static form only).  Each step is guarded so a failure in one
+    does not skip the next.
+    """
+    try:
+        ctx.stop_event.set()
+    except Exception:
+        logger.exception("stop_event.set() failed during shutdown")
+
+    poller = ctx.poller
+    if poller is not None:
+        try:
+            poller.join(timeout=3.0)
+        except Exception:
+            logger.exception("poller.join() failed during shutdown")
+        try:
+            # STATIC FORM ONLY — zero-arg instance form raises
+            # TypeError in PySide6.
+            QObject.disconnect(poller)
+        except Exception:
+            logger.exception(
+                "QObject.disconnect(poller) failed during shutdown",
+            )
 
 
 def main() -> None:
-    # Alpha: capture DEBUG logs to <data_dir>/logs/tray.log plus stderr.
-    try:
-        from launcher.logging_setup import configure as _cfg_log
-        _cfg_log("tray", data_dir=get_shared_data_dir())
-    except Exception:
-        logging.basicConfig(level=logging.DEBUG)
-    logger.debug("Tray starting; pid=%d", __import__("os").getpid())
+    _configure_logging()
+    logger.debug("Tray starting; pid=%d", os.getpid())
     launcher_watch.init()
-    try:
-        import pystray  # type: ignore[import-not-found]
-    except Exception as exc:
-        logger.exception(
-            "pystray unavailable; tray cannot start.  The launcher "
-            "will continue without a tray icon. (%s)", exc,
-        )
-        return
+
+    app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
 
     ctx = _TrayContext()
     logger.info("Tray topology: %s", ctx.topology)
-    if ctx.wants_manager:
-        ctx.poller.start()
 
-    icon = pystray.Icon(
-        "sethlans", icon=ctx.icon_image(),
-        title="Sethlans", menu=ctx.build_menu(pystray),
-    )
+    tray = QSystemTrayIcon()
+    mgr, wk = ctx.icon_states()
+    tray.setIcon(QIcon(icons.get_icon(mgr, wk)))
+    tray.setToolTip(_TOOLTIP)
 
-    def _pump(icon_arg) -> None:
-        """Run on pystray's main thread via ``icon.run(setup=...)``.
+    _build_sections(ctx, tray)
+    tray.setContextMenu(_build_menu(ctx))
+    _connect_signals(ctx, tray, app)
 
-        All icon.icon / icon.update_menu mutations and notification
-        dispatches happen here — mandatory on macOS AppKit and Linux
-        GTK, where UI mutations must occur on the thread that owns the
-        icon event loop.
-        """
-        icon_arg.visible = True
-        while not ctx.stop_event.is_set():
-            _drain_queue(ctx.update_queue, icon_arg, icon_arg.update_menu)
-            img = ctx.icon_image()
-            if img is not None:
-                icon_arg.icon = img
-            if ctx.stop_event.wait(timeout=1.0):
-                break
-        icon_arg.stop()
+    # Start the poller inside the event loop's first iteration so we
+    # don't rely on undocumented ordering of cross-thread signal
+    # queuing before exec() (spec FR-6).  Only start when the manager
+    # section is present — worker-only topologies have no manager
+    # state to poll.
+    if ctx.wants_manager and ctx.poller is not None:
+        QTimer.singleShot(0, ctx.poller.start)
 
+    tray.show()
     try:
-        icon.run(setup=_pump)
+        app.exec()
     finally:
-        ctx.stop_event.set()
-
-
-def _manager_items(section: ManagerSection, pystray):
-    MI = pystray.MenuItem
-    items = [
-        MI(lambda _i: section.header_text(), None, enabled=False),
-        MI(lambda _i: section.setup_line(), None, enabled=False),
-        MI(lambda _i: section.workers_line(), None,
-           enabled=False, visible=lambda _i: section.counts_visible()),
-        MI(lambda _i: section.jobs_line(), None,
-           enabled=False, visible=lambda _i: section.counts_visible()),
-        pystray.Menu.SEPARATOR,
-        MI("Open Dashboard", section.on_open_dashboard),
-        MI("Copy Setup Token", section.on_copy_token,
-           visible=lambda _i: section.setup_token_available()),
-        MI("Open Setup Wizard", section.on_open_wizard,
-           visible=lambda _i: section.wizard_visible()),
-        MI("Restart Manager", section.on_restart_manager,
-           enabled=lambda _i: section.restart_enabled()),
-        MI("View Manager Logs", section.on_view_logs),
-        MI("Quit Manager", section.on_quit_manager,
-           enabled=lambda _i: section.quit_enabled()),
-        pystray.Menu.SEPARATOR,
-        MI(lambda _i: section.footer_text(), None, enabled=False),
-    ]
-    return items
-
-
-def _worker_items(section: WorkerSection, pystray):
-    MI = pystray.MenuItem
-    items = [
-        MI(lambda _i: section.header_text(), None, enabled=False),
-        pystray.Menu.SEPARATOR,
-        MI("Open Sethlans Status", section.on_open_worker_status),
-        MI("Quit Sethlans", section.on_quit_sethlans,
-           enabled=lambda _i: section.quit_sethlans_enabled()),
-    ]
-    return items
+        _shutdown(ctx)

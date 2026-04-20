@@ -51,7 +51,16 @@ def get_install_dir() -> Path:
 def get_bin_dir() -> Path:
     """Return the bin/ directory containing component bundles."""
     if getattr(sys, 'frozen', False):
-        return Path(sys.executable).resolve().parent.parent
+        exe_parent_parent = Path(sys.executable).resolve().parent.parent
+        if platform.system() == "Darwin":
+            # Inside .app/Contents/MacOS/<exe>; component bundles live
+            # under Contents/Resources/bin/<component>/ per Apple's
+            # convention (and per packaging/macos/build_dmg.sh). The
+            # Windows layout is flat (bin/<component>/ next to
+            # bin/launcher/), so the parent.parent arithmetic lands on
+            # the install root directly.
+            return exe_parent_parent / "Resources" / "bin"
+        return exe_parent_parent
     return get_install_dir()
 
 

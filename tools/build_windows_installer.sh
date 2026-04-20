@@ -12,9 +12,20 @@
 #       2. PyInstaller bundles: manager, worker, tray_helper, launcher.
 #       3. NSIS compile into a single installer exe.
 #
-#     Auto-increments a patch version (0.1.1..0.1.199) tracked in
-#     .tmp/build_version (gitignored). Pass an explicit version via
-#     --version=X.Y.Z to override the auto-bump (e.g. for release tags).
+#     Reads the authoritative version from VERSION at the repo root.
+#     The same file is read by build_macos_installer.sh and
+#     build_linux_installer.sh so all three platforms produce matching
+#     installer artifacts for a given commit. Bump the version via
+#     tools/bump_version.sh (patch/minor/major), or pass an explicit
+#     --version=X.Y.Z to override (e.g. for a release tag without a
+#     pre-commit).
+#
+#     Generated files (PyInstaller dist/build trees) land in dist/ and
+#     build/ at the repo root (gitignored). Both trees are removed
+#     after the installer exe is produced. The final installer exe is
+#     emitted at packaging/windows/ so downstream tooling
+#     (tests/unit/test_nsi_installer.py, CI artifact uploads) keeps
+#     working unchanged.
 #
 #     Output: packaging/windows/sethlans-<VERSION>-windows-x64.exe
 #
@@ -24,7 +35,7 @@
 #
 # MINIMUM REQUIREMENTS
 #     - Windows 10/11 x64
-#     - Python 3.12 virtualenv at .venv-build/ with these packages installed:
+#     - Python 3.14 virtualenv at .venv-build/ with these packages installed:
 #         * All of manager/requirements.txt
 #         * All of worker/requirements.txt
 #         * requirements-build.txt  (pyinstaller, pyinstaller-hooks-contrib)
@@ -65,29 +76,47 @@ for arg in "$@"; do
 done
 
 # --- Version selection ---
-mkdir -p .tmp
-VERSION_FILE=".tmp/build_version"
+# Authoritative version lives in the repo-root VERSION file, which all
+# three platform build scripts read. Bump it via tools/bump_version.sh
+# (not auto-bumped here, so cross-platform builds of the same commit
+# produce matching 0.1.X installers). An explicit --version=X.Y.Z
+# override is still honored for release tags.
+VERSION_FILE="VERSION"
 if [ -n "$EXPLICIT_VERSION" ]; then
   VERSION="$EXPLICIT_VERSION"
 elif [ -f "$VERSION_FILE" ]; then
-  CURRENT=$(cat "$VERSION_FILE")
-  PATCH=$(echo "$CURRENT" | awk -F. '{print $3}')
-  NEXT_PATCH=$((PATCH + 1))
-  if [ "$NEXT_PATCH" -gt 199 ]; then
-    echo "ERROR: patch version 0.1.$NEXT_PATCH exceeds 199 cap. Bump minor manually with --version=0.2.0"
-    exit 1
-  fi
-  VERSION="0.1.$NEXT_PATCH"
+  VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
 else
-  VERSION="0.1.1"
+  echo "ERROR: $VERSION_FILE not found at repo root. Create it (e.g. 'echo 0.1.0 > VERSION') or pass --version=X.Y.Z."
+  exit 1
 fi
-echo "$VERSION" > "$VERSION_FILE"
-echo "=== Building Sethlans v$VERSION ==="
+if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "ERROR: version '$VERSION' is not X.Y.Z"
+  exit 1
+fi
+
+# Build version = semver + 5-char git commit hash. Identifies the
+# exact commit the artifact was built from. All three platform build
+# scripts compute this identically, so a given commit produces matching
+# 0.X.Y.HHHHH artifacts across Windows / macOS / Linux.
+GIT_HASH=$(git rev-parse --short=5 HEAD 2>/dev/null || true)
+if [ -z "$GIT_HASH" ]; then
+  echo "ERROR: not a git checkout (cannot resolve HEAD short hash for build version)."
+  exit 1
+fi
+BUILD_VERSION="${VERSION}.${GIT_HASH}"
+echo "=== Building Sethlans v${BUILD_VERSION} ==="
 
 # --- Environment checks ---
-VENV_PY=".venv-build/Scripts/python.exe"
 VENV_PYI=".venv-build/Scripts/pyinstaller.exe"
 NSIS="C:/Program Files (x86)/NSIS/Bin/makensis.exe"
+
+# PyInstaller and NSIS both default to dist/ (gitignored); we let them
+# use the default rather than override via --distpath / -DDIST_ROOT.
+# Both trees are wiped after the installer exe is produced (see
+# cleanup section below).
+DIST_ROOT="dist"
+BUILD_ROOT="build"
 if [ ! -x "$VENV_PYI" ]; then
   echo "ERROR: PyInstaller not found at $VENV_PYI"
   echo "See MINIMUM REQUIREMENTS at the top of this script."
@@ -118,14 +147,33 @@ echo "=== 4/6 PyInstaller: tray_helper ==="
 echo "=== 5/6 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/6 NSIS (v$VERSION) ==="
-"$NSIS" -DPRODUCT_VERSION="$VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3
+echo "=== 6/6 NSIS (v$BUILD_VERSION) ==="
+"$NSIS" -DPRODUCT_VERSION="$BUILD_VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3
 
-OUTPUT="packaging/windows/sethlans-$VERSION-windows-x64.exe"
+OUTPUT="packaging/windows/sethlans-$BUILD_VERSION-windows-x64.exe"
 if [ ! -f "$OUTPUT" ]; then
   echo "ERROR: expected installer not produced at $OUTPUT"
   exit 1
 fi
 ls -lh "$OUTPUT"
+
+# --- Cleanup ---
+# Installer is produced; the PyInstaller intermediate trees are no
+# longer needed. Selective removal (matches tools/build_macos_installer.sh):
+# wipe build/ and only the four PyInstaller bundle dirs under dist/.
+# Do NOT `rm -rf dist/` wholesale — the macOS builder emits its final
+# dist/sethlans-<V>-macos-arm64.dmg into the same dist/ dir, and a
+# heavy-handed cleanup here would nuke a sibling platform's deliverable
+# in a cross-platform workspace (sync tool / CI matrix reuse). The
+# Windows installer exe at $OUTPUT lives under packaging/windows/ so
+# nothing in this block touches it. .tmp/build_version also stays so
+# the auto-bump keeps working across runs.
+echo "=== Cleanup ==="
+rm -rf "${BUILD_ROOT:?}"
+for component in launcher manager worker tray_helper; do
+  rm -rf "${DIST_ROOT:?}/$component"
+done
+echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper}"
+
 echo ""
 echo "Installer ready: $OUTPUT"

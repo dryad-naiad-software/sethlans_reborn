@@ -35,7 +35,7 @@ done
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 SYMLINK_PATH="/usr/local/bin/sethlans"
 DESKTOP_FILE="/usr/share/applications/sethlans.desktop"
-ICON_FILE="/usr/share/icons/hicolor/256x256/apps/sethlans.png"
+ICON_FILE="/usr/share/icons/hicolor/512x512/apps/sethlans.png"
 
 # Check root privileges
 if [ "$(id -u)" -ne 0 ]; then
