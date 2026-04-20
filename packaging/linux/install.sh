@@ -140,6 +140,11 @@ if [ -f sethlans.png ]; then
     ICON_DIR="/usr/share/icons/hicolor/512x512/apps"
     mkdir -p "${ICON_DIR}"
     cp sethlans.png "${ICON_DIR}/sethlans.png"
+    # Force world-readable perms on the icon. Under makeself, root's umask
+    # leaves the staged PNG at 0600, and `cp` preserves source perms — so
+    # GNOME Shell (running as the user) can't read the icon and the app
+    # entry falls back to the generic missing-icon placeholder.
+    chmod 644 "${ICON_DIR}/sethlans.png"
     # Update icon cache if available
     if command -v gtk-update-icon-cache &>/dev/null; then
         gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true

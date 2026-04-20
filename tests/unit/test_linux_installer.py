@@ -185,3 +185,56 @@ class TestInstallScriptForcesPrefixPermissions:
             )
 
 
+class TestInstallScriptForcesIconPermissions:
+    """install.sh must chmod the installed sethlans.png to 0644.
+
+    Regression guard for #93: makeself runs install.sh under root with a
+    restrictive umask, leaving the staged ``sethlans.png`` at 0600. Plain
+    ``cp`` preserves source perms, so the installed icon at
+    ``/usr/share/icons/hicolor/512x512/apps/sethlans.png`` is unreadable
+    by GNOME Shell (running as the user) and the app grid entry falls
+    back to the generic missing-icon placeholder. The fix is an explicit
+    ``chmod 644`` immediately after the ``cp``.
+    """
+
+    # Match `cp sethlans.png "${ICON_DIR}/sethlans.png"`, tolerating
+    # optional quoting around the destination.
+    _CP_ICON_RE = re.compile(
+        r'^\s*cp\s+sethlans\.png\s+"?\$\{ICON_DIR\}/sethlans\.png"?\s*$',
+        re.MULTILINE,
+    )
+    # Match `chmod 644 "${ICON_DIR}/sethlans.png"` or `chmod 0644 ...`.
+    _CHMOD_ICON_RE = re.compile(
+        r'^\s*chmod\s+0?644\s+"?\$\{ICON_DIR\}/sethlans\.png"?\s*$',
+        re.MULTILINE,
+    )
+
+    def test_chmod_644_follows_icon_cp_within_5_lines(
+        self, install_text: str
+    ) -> None:
+        lines = install_text.splitlines()
+        cp_line_indices = [
+            i for i, line in enumerate(lines)
+            if self._CP_ICON_RE.match(line)
+        ]
+        assert cp_line_indices, (
+            "Expected `cp sethlans.png \"${ICON_DIR}/sethlans.png\"` in "
+            "install.sh as the anchor for the chmod 644 regression "
+            "guard (issue #93)."
+        )
+
+        for cp_idx in cp_line_indices:
+            # Inspect the ~5 lines immediately following the cp for the
+            # explicit chmod. Co-locating them is what protects the fix
+            # from being undone by a future cleanup that drops the chmod.
+            window = lines[cp_idx + 1: cp_idx + 6]
+            window_text = "\n".join(window)
+            assert self._CHMOD_ICON_RE.search(window_text), (
+                "Regression: install.sh copies sethlans.png at line "
+                f"{cp_idx + 1} but no `chmod 644 \"${{ICON_DIR}}/"
+                "sethlans.png\"` (or `chmod 0644 ...`) within the next "
+                "5 lines. Without it, makeself's root umask leaves the "
+                "icon at 0600 and `cp` preserves it, so GNOME Shell "
+                "can't read the icon and the app grid shows the "
+                "missing-icon placeholder (issue #93)."
+            )
