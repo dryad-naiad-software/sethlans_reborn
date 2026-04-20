@@ -21,8 +21,10 @@ import pytest
 try:  # PySide6 optional — other tray tests don't need it.
     from PySide6.QtCore import QObject  # noqa: F401
     from PySide6.QtTest import QSignalSpy  # noqa: F401
+    from shared.tray import menu_worker as menu_worker_mod
     from shared.tray import poller as poller_mod
     from shared.tray.menu_manager import ManagerSection
+    from shared.tray.menu_worker import WorkerSection
     from shared.tray.notifications import NotificationEvent
     from shared.tray.poller import ManagerSnapshot, QtStatePoller
     _QT_AVAILABLE = True
@@ -212,6 +214,55 @@ def section_factory(qapp, tmp_path):
         )
 
     return _make
+
+
+# ------------------------------------------------------------------
+# WorkerSection fixtures (used by test_menu_worker_*.py splits)
+# ------------------------------------------------------------------
+
+@pytest.fixture
+def worker_state_holder():
+    """Mutable holder so worker-menu tests can swap the state string
+    returned by the ``get_worker_state`` callable at any time."""
+    holder = {"state": "idle"}
+    holder["get"] = lambda: holder["state"]
+    return holder
+
+
+@pytest.fixture
+def worker_section(qapp, tmp_path, worker_state_holder, mocker):
+    """Build a ``WorkerSection`` wired to ``worker_state_holder``.
+
+    ``ipc.marker_exists`` is patched to False so the quit action
+    starts enabled; tests that want the quit-disabled path flip the
+    mock's return value.
+    """
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    mocker.patch.object(
+        menu_worker_mod.ipc, "marker_exists", return_value=False,
+    )
+    return WorkerSection(
+        data_dir=data_dir,
+        quit_requested_flag=threading.Event(),
+        get_worker_state=worker_state_holder["get"],
+    )
+
+
+@pytest.fixture
+def worker_section_with_about(qapp, tmp_path, worker_state_holder, mocker):
+    """Like ``worker_section`` but with ``include_about=True``."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    mocker.patch.object(
+        menu_worker_mod.ipc, "marker_exists", return_value=False,
+    )
+    return WorkerSection(
+        data_dir=data_dir,
+        quit_requested_flag=threading.Event(),
+        include_about=True,
+        get_worker_state=worker_state_holder["get"],
+    )
 
 
 @pytest.fixture
