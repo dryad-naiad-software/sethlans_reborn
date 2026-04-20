@@ -22,6 +22,7 @@ SPEC_DIR = Path(SPECPATH)
 PROJECT_ROOT = SPEC_DIR.parent.parent
 MANAGER_DIR = PROJECT_ROOT / 'manager'
 FRONTEND_DIST = MANAGER_DIR / 'frontend' / 'dist'
+ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
 # collect_submodules spawns isolated subprocesses that import each module
 # to walk its package tree. Our workers app's views/urls import DRF, which
@@ -162,6 +163,10 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# Windows .ico only (file is absent on macOS/Linux builds); the guard
+# keeps the spec cross-platform without a file-missing crash.
+icon_path = str(ICON_WIN) if ICON_WIN.exists() else None
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -173,6 +178,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=not is_windows,
+    icon=icon_path,
 )
 
 coll = COLLECT(

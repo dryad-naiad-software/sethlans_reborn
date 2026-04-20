@@ -25,6 +25,7 @@ SPEC_DIR = Path(SPECPATH)
 PROJECT_ROOT = SPEC_DIR.parent.parent
 SHARED_DIR = PROJECT_ROOT / 'shared'
 LICENSES_DIR = SPEC_DIR.parent / 'licenses'
+ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
 # --- Hidden imports ---
 # PySide6 collection strategy (spec OQ-3): pin the three Qt modules the tray
@@ -116,6 +117,10 @@ a.datas = [
 
 pyz = PYZ(a.pure)
 
+# Windows .ico only (file is absent on macOS/Linux builds); the guard
+# keeps the spec cross-platform without a file-missing crash.
+icon_path = str(ICON_WIN) if ICON_WIN.exists() else None
+
 # Tray helper is always a GUI process (console=False on all platforms).
 # EXE name kept as 'run_tray_helper' so existing installer / uninstaller
 # references (packaging/windows/sethlans.nsi, packaging/linux/
@@ -132,6 +137,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
+    icon=icon_path,
 )
 
 # COLLECT (multi-file one-dir) mode is MANDATORY per NFR-1: the bundled

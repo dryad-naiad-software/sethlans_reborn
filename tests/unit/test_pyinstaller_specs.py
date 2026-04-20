@@ -32,7 +32,16 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILD_REQS = REPO_ROOT / "requirements-build.txt"
-TRAY_SPEC = REPO_ROOT / "packaging" / "pyinstaller" / "tray_helper.spec"
+SPEC_DIR = REPO_ROOT / "packaging" / "pyinstaller"
+TRAY_SPEC = SPEC_DIR / "tray_helper.spec"
+ICON_WIN = REPO_ROOT / "packaging" / "windows" / "sethlans.ico"
+
+ALL_SPECS = {
+    "launcher": SPEC_DIR / "launcher.spec",
+    "manager": SPEC_DIR / "manager.spec",
+    "worker": SPEC_DIR / "worker.spec",
+    "tray_helper": TRAY_SPEC,
+}
 
 
 @pytest.fixture(scope="module")
@@ -148,4 +157,79 @@ class TestTraySpecQtiffExclusion:
         assert binaries_filter_idx < pyz_idx < collect_idx, (
             "qtiff filter must run BEFORE PYZ() and COLLECT() — those "
             "stages consume a.binaries; filtering after them is too late."
+        )
+
+
+class TestWindowsIconWiredInAllSpecs:
+    """All four PyInstaller specs must embed ``sethlans.ico`` via an
+    ``icon=`` kwarg on their ``EXE(...)`` block (issue #96).
+
+    Before this fix only ``launcher.spec`` set the icon. The other three
+    (manager, worker, tray_helper) produced executables with PyInstaller's
+    default generic icon, visible in Task Manager, the Details tab, and
+    any shortcut pointing directly at them. These tests lock the wiring
+    so it cannot silently drift back.
+    """
+
+    def test_windows_icon_file_exists(self) -> None:
+        # The `icon=icon_path` kwarg guards on `ICON_WIN.exists()`, so
+        # a missing .ico wouldn't break builds — it would just silently
+        # drop the icon again. This sanity check keeps the source file
+        # present on disk.
+        assert ICON_WIN.is_file(), (
+            f"Expected Windows icon at {ICON_WIN}; all four PyInstaller "
+            "specs reference it for Windows builds (issue #96)."
+        )
+
+    @pytest.mark.parametrize("spec_name", list(ALL_SPECS.keys()))
+    def test_spec_defines_icon_win(self, spec_name: str) -> None:
+        # Each spec must define an ``ICON_WIN`` path constant that points
+        # at the sethlans.ico file. The constant is the anchor the
+        # per-spec guard+assign+kwarg pattern hangs off.
+        text = ALL_SPECS[spec_name].read_text(encoding="utf-8")
+        pattern = re.compile(
+            r"ICON_WIN\s*=\s*.+?['\"]sethlans\.ico['\"]",
+            re.MULTILINE,
+        )
+        assert pattern.search(text), (
+            f"Expected {spec_name}.spec to define ICON_WIN pointing at "
+            "packaging/windows/sethlans.ico (issue #96)."
+        )
+
+    @pytest.mark.parametrize("spec_name", list(ALL_SPECS.keys()))
+    def test_spec_guards_icon_path_on_file_existence(
+        self, spec_name: str,
+    ) -> None:
+        # The guard pattern ``icon_path = str(ICON_WIN) if ICON_WIN.exists()
+        # else None`` keeps the spec cross-platform: on macOS and Linux
+        # builds the .ico is absent and PyInstaller would crash if passed
+        # a missing path. Locking the guard prevents a future "just
+        # remove the ternary" cleanup that breaks non-Windows builds.
+        text = ALL_SPECS[spec_name].read_text(encoding="utf-8")
+        pattern = re.compile(
+            r"icon_path\s*=\s*str\(ICON_WIN\)\s+if\s+ICON_WIN\.exists\(\)"
+            r"\s+else\s+None",
+            re.MULTILINE,
+        )
+        assert pattern.search(text), (
+            f"Expected {spec_name}.spec to guard icon_path on "
+            "ICON_WIN.exists() (issue #96)."
+        )
+
+    @pytest.mark.parametrize("spec_name", list(ALL_SPECS.keys()))
+    def test_exe_receives_icon_kwarg(self, spec_name: str) -> None:
+        # The final wire-up: ``EXE(..., icon=icon_path, ...)`` must
+        # appear so PyInstaller actually stamps the icon on the built
+        # .exe. A drift-and-forget where the constant exists and the
+        # guard exists but the EXE call drops ``icon=`` is the exact
+        # regression this test exists to catch.
+        text = ALL_SPECS[spec_name].read_text(encoding="utf-8")
+        pattern = re.compile(
+            r"^\s*icon\s*=\s*icon_path\s*,\s*$",
+            re.MULTILINE,
+        )
+        assert pattern.search(text), (
+            f"Expected {spec_name}.spec's EXE() call to include "
+            "`icon=icon_path,` so the built Windows executable carries "
+            "the Sethlans icon (issue #96)."
         )

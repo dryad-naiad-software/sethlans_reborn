@@ -23,6 +23,7 @@ WORKER_DIR = PROJECT_ROOT / 'worker'
 WEB_UI_STATIC = (
     WORKER_DIR / 'sethlans_worker_agent' / 'web_ui' / 'static'
 )
+ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
 # --- Hidden imports ---
 hiddenimports = []
@@ -86,6 +87,10 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# Windows .ico only (file is absent on macOS/Linux builds); the guard
+# keeps the spec cross-platform without a file-missing crash.
+icon_path = str(ICON_WIN) if ICON_WIN.exists() else None
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -97,6 +102,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=not is_windows,
+    icon=icon_path,
 )
 
 coll = COLLECT(
