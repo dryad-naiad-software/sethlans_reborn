@@ -220,6 +220,9 @@ class QtStatePoller(QObject):
         # first so the "Starting -> Running" notification fires.
         new_boot_id = str(data.get("boot_id", ""))
         if new_boot_id and new_boot_id != prev.boot_id and prev.boot_id:
+            # Issue #95: new boot re-arms the setup-complete one-shot so the next setup_mode True->False edge notifies again.
+            self._setup_notified = False
+            self._saw_setup_mode_true = False
             transitional = replace(prev, state="starting",
                                    boot_id=new_boot_id)
             self._emit(prev, transitional)

@@ -230,6 +230,28 @@ class TestSetupCompleteEdge:
             p._tick()
         assert len(setup_msgs(notif_spy)) == 1
 
+    def test_setup_complete_refires_on_new_boot_id(self, poller_factory):
+        # Regression: new manager boot re-arms the one-shot so the next
+        # setup_mode True->False edge fires again in the same session.
+        p, _stop, _flag = poller_factory(
+            script=[
+                {"boot_id": "boot-A", "setup_mode": True},
+                {"boot_id": "boot-A", "setup_mode": False},
+                {"boot_id": "boot-B", "setup_mode": True},
+                {"boot_id": "boot-B", "setup_mode": False},
+            ],
+        )
+        notif_spy = QSignalSpy(p.notification)
+        p._tick()  # boot-A, setup in progress
+        assert setup_msgs(notif_spy) == []
+        p._tick()  # boot-A, setup complete -> fire #1
+        assert len(setup_msgs(notif_spy)) == 1 and p._setup_notified
+        p._tick()  # boot-B, back in setup (flag reset on boot change)
+        assert len(setup_msgs(notif_spy)) == 1
+        assert p._setup_notified is False
+        p._tick()  # boot-B, setup complete -> fire #2
+        assert len(setup_msgs(notif_spy)) == 2
+
 
 # Notification edges — all three mapped edges in one sequence.
 class TestNotificationEdges:
