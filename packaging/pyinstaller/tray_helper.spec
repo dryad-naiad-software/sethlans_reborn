@@ -99,6 +99,21 @@ a = Analysis(
     noarchive=False,
 )
 
+# Issue #91: drop the unused TIFF image-format plugin from the bundle.
+# PySide6 ships libqtiff.so / qtiff.dll / libqtiff.dylib with a hard
+# dependency on libtiff.so.5, but Ubuntu 22.04+, Debian 12+, and
+# Fedora 36+ ship libtiff.so.6, producing a noisy "Library not found"
+# warning at every Linux build. The tray only loads PNG icons, so
+# this plugin is dead weight on every platform.
+a.binaries = [
+    entry for entry in a.binaries
+    if 'qtiff' not in entry[0].lower()
+]
+a.datas = [
+    entry for entry in a.datas
+    if 'qtiff' not in entry[0].lower()
+]
+
 pyz = PYZ(a.pure)
 
 # Tray helper is always a GUI process (console=False on all platforms).
