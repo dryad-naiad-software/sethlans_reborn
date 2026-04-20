@@ -2,18 +2,33 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Route dispatcher for setup wizard endpoints.
+Sync WSGI route dispatcher for setup wizard endpoints.
+
+Phase 4b of the Waitress migration: this module was historically an
+async ASGI dispatcher. It is now a sync WSGI dispatcher. Individual
+handler functions are still async during Phase 4b; the dispatcher
+detects async handlers via :func:`inspect.iscoroutinefunction` and
+bridges them via
+:func:`gate_async_adapter.drive_async_inner_app_as_wsgi` (the same
+``asyncio.run``-based scaffolding used by the setup gate). As each
+handler is flipped to sync WSGI in Phases 4c-4g, the route table
+entry is unchanged -- the auto-detect dispatch calls it directly.
 
 Maps ``/api/setup/*`` API routes and ``/setup`` HTML to the
-appropriate handler functions. Called from the main ASGI app when
-the path matches setup prefixes.
+appropriate handler functions.
 """
 
+import functools
+import inspect
 import logging
 import os
+from typing import Callable, Iterable
 
-from sethlans_worker_agent.web_ui.http_helpers import (
-    send_json, send_html_file,
+from sethlans_worker_agent.web_ui.http_helpers_wsgi import (
+    send_json_wsgi, send_html_file_wsgi,
+)
+from sethlans_worker_agent.web_ui.setup.gate_async_adapter import (
+    drive_async_inner_app_as_wsgi,
 )
 from sethlans_worker_agent.web_ui.setup.handlers_status import (
     handle_setup_status,
@@ -66,27 +81,69 @@ _POST_ROUTES = {
 }
 
 
-async def handle_setup_request(scope, receive, send):
-    """Dispatch /api/setup/* and /setup routes."""
-    path = scope['path']
-    method = scope['method']
+def _is_async_callable(fn: Callable) -> bool:
+    """True if *fn* (or its ``__call__``) is a coroutine function.
+
+    Unwraps :class:`functools.partial` before checking so that
+    ``partial(async_fn, arg)`` is still recognised. Mirrors the
+    gate's helper of the same name; kept local so routes.py can be
+    deleted or further refactored without cross-module churn.
+    """
+    while isinstance(fn, functools.partial):
+        fn = fn.func
+    if inspect.iscoroutinefunction(fn):
+        return True
+    call = getattr(fn, '__call__', None)
+    return call is not None and inspect.iscoroutinefunction(call)
+
+
+def _dispatch_handler(
+    handler: Callable,
+    environ: dict,
+    start_response: Callable,
+) -> Iterable[bytes]:
+    """Call *handler* either directly (sync WSGI) or via adapter.
+
+    During Phase 4b every handler in the route tables is still
+    ``async def`` with the ASGI ``(scope, receive, send)`` signature,
+    so every call goes through the async-to-sync adapter. As Phases
+    4c-4g flip handlers to sync WSGI ``(environ, start_response)``,
+    those handlers are dispatched directly without touching this
+    file.
+    """
+    if _is_async_callable(handler):
+        return drive_async_inner_app_as_wsgi(
+            handler, environ, start_response,
+        )
+    return handler(environ, start_response)
+
+
+def handle_setup_request_wsgi(
+    environ: dict, start_response: Callable,
+) -> Iterable[bytes]:
+    """Dispatch ``/api/setup/*`` and ``/setup`` routes as WSGI."""
+    path = environ.get('PATH_INFO', '') or ''
+    method = environ.get('REQUEST_METHOD', 'GET')
 
     # Serve wizard HTML
     if path in ('/setup', '/setup/'):
-        await send_html_file(send, _SETUP_HTML)
-        return
+        return send_html_file_wsgi(start_response, _SETUP_HTML)
 
     if method == 'GET':
         handler = _GET_ROUTES.get(path)
         if handler is not None:
-            await handler(scope, receive, send)
-        else:
-            await send_json(send, {"error": "Not Found"}, 404)
-    elif method == 'POST':
+            return _dispatch_handler(handler, environ, start_response)
+        return send_json_wsgi(start_response, {"error": "Not Found"}, 404)
+
+    if method == 'POST':
         handler = _POST_ROUTES.get(path)
         if handler is not None:
-            await handler(scope, receive, send)
-        else:
-            await send_json(send, {"error": "Not Found"}, 404)
-    else:
-        await send_json(send, {"error": "Method Not Allowed"}, 405)
+            return _dispatch_handler(handler, environ, start_response)
+        return send_json_wsgi(start_response, {"error": "Not Found"}, 404)
+
+    return send_json_wsgi(
+        start_response, {"error": "Method Not Allowed"}, 405,
+    )
+
+
+__all__ = ['handle_setup_request_wsgi']

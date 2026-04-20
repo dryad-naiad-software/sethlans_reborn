@@ -13,6 +13,7 @@ import ssl
 import threading
 
 import uvicorn
+from asgiref.wsgi import WsgiToAsgi
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.web_ui.auth import is_password_configured
@@ -44,7 +45,12 @@ def start_server(cert_path, key_path):
             "Change it via the dashboard."
         )
 
-    from sethlans_worker_agent.web_ui.asgi_app import app as asgi_app
+    # Phase 4 migration shim: the top-level ``app`` is now a sync
+    # WSGI callable. Wrap it with ``asgiref.wsgi.WsgiToAsgi`` so
+    # uvicorn can still drive the stack. Phase 5 replaces uvicorn
+    # with Waitress and deletes this wrapper.
+    from sethlans_worker_agent.web_ui.asgi_app import app as wsgi_app
+    asgi_app = WsgiToAsgi(wsgi_app)
 
     uvicorn_config = uvicorn.Config(
         app=asgi_app,
