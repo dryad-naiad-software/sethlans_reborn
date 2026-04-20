@@ -132,6 +132,9 @@ desktop.ini
 .DS_Store
 .sync*
 .nextcloudsync*
+# Linux ~/.local accidentally synced into the project root
+# (KDE/GNOME app state, Evolution data, ~/.local/share/Trash, etc.)
+.local/
 
 # IDEs
 .idea/
