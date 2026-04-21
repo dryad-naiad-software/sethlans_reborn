@@ -22,6 +22,25 @@ _cache_ready: bool = False
 _refresh_in_progress: bool = False
 
 
+def _safe_log(level, msg, *args):
+    """Log, swallowing ``ValueError`` / ``OSError`` from closed streams.
+
+    The background populate thread is a daemon; when the interpreter
+    tears down (e.g. pytest closing stdout between session teardown
+    and the thread's next emit), the logging handlers may raise
+    ``ValueError: I/O operation on closed file``. That is cosmetic
+    noise — the thread is exiting anyway — so we suppress it rather
+    than splattering tracebacks over otherwise-clean test output.
+    """
+    try:
+        if level == 'info':
+            logger.info(msg, *args)
+        elif level == 'exception':
+            logger.exception(msg, *args)
+    except (ValueError, OSError):
+        pass
+
+
 def populate_cache():
     """Fetch available Blender series and store in the module-level cache."""
     global _cached_series, _cache_ready
@@ -34,9 +53,9 @@ def populate_cache():
         with _cache_lock:
             _cached_series = series
             _cache_ready = True
-        logger.info("Blender series cache populated: %s", series)
+        _safe_log('info', "Blender series cache populated: %s", series)
     except Exception:
-        logger.exception("Failed to populate Blender series cache")
+        _safe_log('exception', "Failed to populate Blender series cache")
         with _cache_lock:
             # Mark ready so endpoint doesn't appear stuck, but preserve
             # any previously cached data rather than overwriting with [].
