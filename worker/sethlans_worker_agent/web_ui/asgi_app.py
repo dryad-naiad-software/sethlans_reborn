@@ -6,10 +6,9 @@ Synchronous WSGI application for the worker web UI.
 
 Phase 4b of the Waitress migration: this module was historically an
 async ASGI app driven directly by uvicorn. It is now a sync WSGI
-application. During Phase 4 (4b-4g), uvicorn continues to drive the
-stack via the ``asgiref.wsgi.WsgiToAsgi`` bridge installed at
-``server.py``; Phase 5 swaps the bootstrap to Waitress and removes
-the bridge.
+application. Phase 5a replaced the uvicorn bootstrap with Waitress,
+which serves this callable natively — the ``asgiref.wsgi.WsgiToAsgi``
+bridge used transiently during Phase 4 has been removed.
 
 Routes:
   GET  /               -- serve static HTML dashboard
