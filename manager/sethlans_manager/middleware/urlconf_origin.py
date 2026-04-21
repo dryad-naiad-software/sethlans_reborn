@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""
+URLconf-origin middleware — defense-in-depth for the loopback listener.
+
+Part of the manager's waitress-migration (spec:
+``development/specs/waitress-migration-manager.md`` Phase 2).  The
+manager exposes two HTTP listeners in the same process:
+
+* Main public listener (uvicorn, HTTPS) serves the full site via
+  ``sethlans_manager.urls``.
+* Loopback-only listener (Waitress, plaintext, 127.0.0.1) serves ONLY
+  ``/api/status/public/`` via ``sethlans_manager.urls_loopback``.
+
+Because Django's ``MIDDLEWARE`` stack is shared across every request the
+WSGI/ASGI application handles, this middleware runs once for every
+request regardless of which listener accepted the socket.  It reads
+``request.META['SERVER_PORT']`` — which Django's request factories
+populate from the server port the request arrived on — and pins
+``request.urlconf`` accordingly.
+
+Header-injection protection: ``USE_X_FORWARDED_PORT`` and
+``USE_X_FORWARDED_HOST`` are explicitly disabled in ``settings.py``.
+Django therefore ignores any ``X-Forwarded-Port``/``X-Forwarded-Host``
+header an attacker might inject and derives ``SERVER_PORT`` from the
+underlying socket the request arrived on.  If either setting is ever
+re-enabled without removing this middleware, the loopback/public split
+collapses — keep them off.
+
+Fail-closed: if the request arrives on a port that is neither the
+configured public nor the configured internal (loopback) port, return
+HTTP 500 immediately.  An unknown-port request indicates either a
+misconfigured forwarder or a test harness that is not honouring the
+invariants of the split-listener design.  Under Phase 2 only the
+internal port is strictly required; the public port may be ``None``
+(the main uvicorn listener bypasses this middleware's strict check in
+that case by treating any non-internal port as "public").
+
+Thumbnail-signal hazard (Phase 2): ``signal_helpers.py`` lines 76-102
+still use the disconnect/connect pattern that is not yet thread-safe
+(Phase 4 replaces it).  No Waitress-thread request path in Phase 2
+triggers ``_save_thumbnails_for_instances`` because the only route
+registered on the loopback URLconf is ``/api/status/public/``, which
+is read-only and never writes to the ``Job`` model.  Any future Phase 2
+addition that would route a thumbnail-triggering request through
+Waitress must pull the Phase 4 thread-local fix forward.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from django.conf import settings
+from django.http import HttpResponse
+
+logger = logging.getLogger(__name__)
+
+_LOOPBACK_URLCONF = "sethlans_manager.urls_loopback"
+
+
+class UrlconfOriginMiddleware:
+    """Pin ``request.urlconf`` based on the incoming server port.
+
+    Eager init reads ``WAITRESS_LOOPBACK_PORT_PUBLIC`` and
+    ``WAITRESS_LOOPBACK_PORT_INTERNAL`` from Django settings.  Both
+    values are normalised to strings so they can be compared directly
+    against ``request.META['SERVER_PORT']`` (which Django always stores
+    as a string).
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        internal = getattr(settings, "WAITRESS_LOOPBACK_PORT_INTERNAL", None)
+        public = getattr(settings, "WAITRESS_LOOPBACK_PORT_PUBLIC", None)
+        self._internal_port = str(internal) if internal is not None else None
+        self._public_port = str(public) if public is not None else None
+
+    def __call__(self, request):
+        server_port = str(request.META.get("SERVER_PORT", ""))
+
+        if (
+            self._internal_port is not None
+            and server_port == self._internal_port
+        ):
+            # Loopback (Waitress) listener — pin the minimal URLconf.
+            request.urlconf = _LOOPBACK_URLCONF
+            return self.get_response(request)
+
+        if self._public_port is None or server_port == self._public_port:
+            # Main (uvicorn) listener — leave ROOT_URLCONF in effect.
+            # When the public port is unset (e.g. early Phase 2 boot),
+            # we treat any non-internal port as public.
+            return self.get_response(request)
+
+        # Unknown port — fail closed.  This indicates a misconfigured
+        # forwarder, a test harness running on an unexpected port, or
+        # a header-injection attempt that slipped past
+        # USE_X_FORWARDED_PORT=False (which shouldn't be possible, but
+        # we fail closed anyway).
+        logger.error(
+            "UrlconfOriginMiddleware: unknown SERVER_PORT=%r "
+            "(public=%r internal=%r) — refusing request.",
+            server_port, self._public_port, self._internal_port,
+        )
+        return HttpResponse(
+            "Internal Server Error: unknown listener port.",
+            status=500,
+        )

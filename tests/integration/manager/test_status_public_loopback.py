@@ -247,13 +247,17 @@ class TestCountCacheBehavior:
 class TestUvicornLauncherLoopbackBinding:
     """Socket-level loopback restriction lives in ``uvicorn_launcher.launch``.
 
-    We cannot spin up the real dual-listener stack inside the test
-    process (it calls ``asyncio.run`` and owns the event loop), so we
-    assert the critical wiring by inspecting the ``uvicorn.Config`` that
-    the launcher constructs for the loopback server.
+    Phase 2 replaced the loopback uvicorn listener with a Waitress
+    thread.  We cannot spin up the real listeners inside the test
+    process (``asyncio.run`` + Waitress + Django app initialisation),
+    so we assert the critical wiring by inspecting (a) the single
+    ``uvicorn.Config`` the launcher constructs for the main listener
+    and (b) the arguments passed to ``_start_waitress_loopback``.
     """
 
-    def test_loopback_config_binds_to_127_0_0_1(self, mocker, tmp_path):
+    def test_main_listener_config_and_waitress_started(
+        self, mocker, tmp_path,
+    ):
         import uvicorn
 
         from sethlans_manager import uvicorn_launcher as ul
@@ -274,6 +278,8 @@ class TestUvicornLauncherLoopbackBinding:
         mocker.patch.object(
             ul, "_install_selector_policy", lambda: None,
         )
+        start_spy = mocker.patch.object(ul, "_start_waitress_loopback")
+        mocker.patch.object(ul, "_stop_waitress_loopback")
 
         cert = tmp_path / "cert.pem"
         cert.write_bytes(b"x")
@@ -290,10 +296,9 @@ class TestUvicornLauncherLoopbackBinding:
             get_loopback_port=lambda: "8088",
         )
 
-        assert len(configs) == 2
-        main_cfg, loopback_cfg = configs
+        # Only one uvicorn.Config now — loopback is served by Waitress.
+        assert len(configs) == 1
+        main_cfg = configs[0]
         assert main_cfg.host == "0.0.0.0"
-        assert loopback_cfg.host == "127.0.0.1"
-        assert loopback_cfg.port == 8088
-        # The loopback listener must be plaintext — no TLS kwargs.
-        assert getattr(loopback_cfg, "ssl_certfile", None) in (None, "")
+        # Waitress started on the loopback port.
+        start_spy.assert_called_once_with(8088)

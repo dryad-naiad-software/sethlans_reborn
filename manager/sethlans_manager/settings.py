@@ -107,6 +107,12 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # UrlconfOriginMiddleware must run FIRST so that every subsequent
+    # middleware (and ultimately the URL resolver) sees the correct
+    # per-listener URLconf pinned on the request.  See
+    # ``sethlans_manager.middleware.urlconf_origin`` and the
+    # waitress-migration-manager spec (Phase 2).
+    'sethlans_manager.middleware.urlconf_origin.UrlconfOriginMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # WhiteNoise must come BEFORE SetupGateMiddleware so that static
     # assets (Angular's root-served /main-*.js, /polyfills-*.js,
@@ -123,6 +129,39 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# --- Waitress loopback listener configuration ---
+# See ``development/specs/waitress-migration-manager.md`` Phase 2.
+# The internal (loopback) port is served by Waitress inside the current
+# uvicorn process; the public port is still served by uvicorn in Phase 2.
+# Phase 5 promotes Waitress to serve the public port too.
+#
+# Hierarchy: env var > manager.ini > default.
+WAITRESS_LOOPBACK_PORT_INTERNAL = int(_get_config(
+    'server', 'loopback_port',
+    'SETHLANS_MANAGER_LOOPBACK_PORT', '8088',
+))
+
+# Public port (uvicorn's main listener port) — surfaced here so the
+# urlconf-origin middleware can validate ``SERVER_PORT`` against a known
+# set and fail closed on unknown ports.  ``None`` in Phase 2 is
+# acceptable: the middleware treats any non-internal port as public
+# when this is unset, which preserves the existing test fixtures that
+# drive Django's test client without a live server.
+_public_port_raw = _get_config(
+    'server', 'port', 'SETHLANS_MANAGER_PORT', None,
+)
+WAITRESS_LOOPBACK_PORT_PUBLIC = (
+    int(_public_port_raw) if _public_port_raw is not None else None
+)
+
+# Header-injection defense — prevent ``X-Forwarded-Port`` /
+# ``X-Forwarded-Host`` from short-circuiting the port-based URLconf
+# split enforced by ``UrlconfOriginMiddleware``.  Django's defaults are
+# already ``False`` but we set them explicitly so a future deployment
+# knob can't silently flip them on.
+USE_X_FORWARDED_PORT = False
+USE_X_FORWARDED_HOST = False
 
 ROOT_URLCONF = 'sethlans_manager.urls'
 

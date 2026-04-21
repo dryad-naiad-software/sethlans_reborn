@@ -4,6 +4,17 @@
 """
 ASGI application for the manager's loopback-only status listener.
 
+.. deprecated:: Phase 2 of the waitress-migration-manager spec
+    The loopback listener is now served by Waitress inside the same
+    process as the main uvicorn listener (see ``uvicorn_launcher.py``),
+    and the URLconf-pinning logic lives in
+    ``sethlans_manager.middleware.urlconf_origin.UrlconfOriginMiddleware``
+    which runs for every request regardless of which listener accepted
+    the socket.  This module is kept as dead code until Phase 7 of the
+    spec removes it — retained now only so that historical test
+    fixtures and frozen artifacts from between releases remain
+    importable.
+
 This app reuses the Django settings of the main listener but pins
 ``request.urlconf`` to :mod:`sethlans_manager.urls_loopback` so the
 resolver only sees ``/api/status/public/``.  Every other path returns
