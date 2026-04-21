@@ -30,18 +30,24 @@ FILE_REGEX = re.compile(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg|msi|msi
 
 def get_blender_releases():
     """
-    Scrapes the Blender download page to get all official release URLs,
-    filtering for only the latest patch of each minor version.
+    Scrapes the Blender download page to get all official release URLs.
 
-    This function starts at the base URL, navigates to each major version
-    directory (e.g., `Blender4.1/`), and parses the download links on each page.
-    It then returns a dictionary containing only the latest patch version for
-    each `major.minor` series.
+    Returns every patch for every 4.x+ series (not just the latest).
+    Callers that specifically want the most-recent patch per series
+    should derive it from the returned dict — see
+    ``_log_latest_per_series`` for the shape.
+
+    Historical note: this previously filtered down to one-patch-per-
+    series, which broke ``tool_manager.ensure_blender_version_available``
+    when the manager DB pinned a specific older patch (e.g. ``4.5.8``)
+    that was no longer "the latest" (e.g. after Blender released
+    ``4.5.9``). GitHub issue #98.
 
     Returns:
-        dict: A dictionary of available Blender versions, where each key is a
-              full version string (e.g., `'4.1.1'`) and the value is a nested
-              dictionary containing download information for each platform.
+        dict: A dictionary of available Blender versions, where each
+              key is a full version string (e.g., ``'4.5.8'``,
+              ``'4.5.9'``) and the value is a nested dictionary
+              containing download information for each platform.
     """
     all_releases = {}
     logger.info("Performing dynamic Blender download info generation (4.x+ only)...")
@@ -69,22 +75,29 @@ def get_blender_releases():
     except Exception as e:
         logger.error(f"An unexpected error occurred while parsing Blender releases: {e}", exc_info=True)
 
-    # --- CORRECTED: Filter for only the latest patch of each minor version ---
-    latest_patches = {}
-    # Correctly sort by converting version parts to integers
-    sorted_versions = sorted(all_releases.keys(), key=lambda v: [int(p) for p in v.split('.')], reverse=True)
+    _log_latest_per_series(all_releases)
+    return all_releases
 
-    for version in sorted_versions:
+
+def _log_latest_per_series(all_releases):
+    """Emit an info log of the highest patch for each major.minor series.
+
+    Informational only. Kept separate so the return value of
+    :func:`get_blender_releases` is a complete patch dict, not a
+    pre-filtered one (see #98).
+    """
+    latest_per_series = {}
+    for version in sorted(
+        all_releases.keys(),
+        key=lambda v: [int(p) for p in v.split('.')],
+        reverse=True,
+    ):
         major_minor = ".".join(version.split('.')[:2])
-        if major_minor not in latest_patches:
-            latest_patches[major_minor] = {'version': version, 'data': all_releases[version]}
+        if major_minor not in latest_per_series:
+            latest_per_series[major_minor] = version
 
-    final_releases = {v['version']: v['data'] for v in latest_patches.values()}
-
-    for version_series, data in latest_patches.items():
-        logger.info(f"  Selected latest for {version_series} series: {data['version']}")
-
-    return final_releases
+    for series, version in latest_per_series.items():
+        logger.info(f"  Selected latest for {series} series: {version}")
 
 
 def parse_version_page(url, releases):
@@ -106,7 +119,6 @@ def parse_version_page(url, releases):
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # Pre-fetch all hashes for this version page
-        version_from_url = url.strip('/').split('/')[-1].replace('Blender', '')
         sha_files = [a.get('href') for a in soup.find_all('a') if '.sha256' in a.get('href', '')]
         all_hashes = {}
         for sha_file in sha_files:
