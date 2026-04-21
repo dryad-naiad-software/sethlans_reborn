@@ -153,6 +153,22 @@ WAITRESS_LOOPBACK_PORT_PUBLIC = resolve_public_port_for_settings(_config)
 USE_X_FORWARDED_PORT = False
 USE_X_FORWARDED_HOST = False
 
+# Caddy terminates TLS in front of plaintext Waitress (Phase 5+).  Without
+# this header Django reports ``request.is_secure() == False`` and builds
+# ``http://`` absolute URLs for media/asset downloads, which the worker
+# then fails to fetch against the HTTPS-only Caddy vhost.  Setting the
+# header tells Django to trust Caddy's ``X-Forwarded-Proto: https`` when
+# building URLs, CSRF origin, etc.
+#
+# Safety: Waitress binds 127.0.0.1 only, so no external client can reach
+# it directly.  Caddy's ``reverse_proxy`` strips any incoming
+# ``X-Forwarded-Proto`` header before setting its own, so an attacker
+# cannot spoof ``https`` via the public vhost either.  The header is
+# independent of the port-based URLconf split — that reads
+# ``SERVER_PORT`` (WSGI environ), which ``X-Forwarded-*`` headers never
+# touch.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 ROOT_URLCONF = 'sethlans_manager.urls'
 
 if is_frozen():

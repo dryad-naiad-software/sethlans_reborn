@@ -140,11 +140,36 @@ def launch(
 
     tuning = get_waitress_tuning(ini_path)
 
+    # Let Caddy's ``X-Forwarded-Proto`` header reach Django so
+    # ``SECURE_PROXY_SSL_HEADER`` can resolve the original scheme
+    # to HTTPS and DRF's FileField builds correct absolute URLs
+    # (media/asset downloads).
+    #
+    # Waitress 3.x defaults to ``clear_untrusted_proxy_headers=True``,
+    # which strips every ``X-Forwarded-*`` header when no
+    # ``trusted_proxy`` is configured. We can't USE ``trusted_proxy``
+    # here: Waitress normalises ``SERVER_PORT`` to 443/80 based on
+    # the forwarded scheme, which would shatter
+    # ``UrlconfOriginMiddleware``'s port-based URLconf split.
+    #
+    # Disabling the untrusted-header scrub keeps Waitress's socket-
+    # derived ``SERVER_PORT`` intact AND lets the forwarded proto
+    # through for Django to interpret. Safety: Waitress binds
+    # ``127.0.0.1`` only, so the only source of these headers is
+    # Caddy (our sole upstream); no external client can reach the
+    # listener directly. Caddy's ``reverse_proxy`` also strips any
+    # incoming ``X-Forwarded-*`` from external requests before
+    # setting its own trusted values.
+    proxy_kwargs = {
+        "clear_untrusted_proxy_headers": False,
+    }
+
     public_server = waitress.create_server(
         wsgi_app,
         host="127.0.0.1",
         port=public_port,
         ident="sethlans-manager-public",
+        **proxy_kwargs,
         **tuning,
     )
     internal_server = waitress.create_server(
@@ -152,6 +177,7 @@ def launch(
         host="127.0.0.1",
         port=internal_port,
         ident="sethlans-manager-loopback",
+        **proxy_kwargs,
         **tuning,
     )
     _servers.extend([public_server, internal_server])

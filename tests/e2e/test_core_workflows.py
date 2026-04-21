@@ -208,7 +208,10 @@ class TestCoreWorkflows:
         job_id = resp.json()["id"]
         job_url = f"{self.base_url}/api/jobs/{job_id}/"
 
-        result = poll_for_completion(self.session, job_url, timeout=300)
+        # First test in the class — absorbs cold-worker overhead
+        # (blender.org scrape + download + extract). Subsequent tests
+        # reuse the cached Blender and can keep tighter budgets.
+        result = poll_for_completion(self.session, job_url, timeout=900)
         assert result["status"] == "DONE", (
             f"Job did not complete successfully. Status: {result['status']}, "
             f"Error: {result.get('error_message', 'N/A')}"
@@ -248,8 +251,10 @@ class TestCoreWorkflows:
         anim_id = resp.json()["id"]
         anim_url = f"{self.base_url}/api/animations/{anim_id}/"
 
+        # 1200s covers both the render itself (3 frames) and the
+        # cold-start allowance if this test runs first under pytest -k.
         result = poll_for_completion(
-            self.session, anim_url, timeout=480,
+            self.session, anim_url, timeout=1200,
         )
         assert result["status"] == "DONE", (
             f"Animation did not complete. Status: {result['status']}"
@@ -281,8 +286,10 @@ class TestCoreWorkflows:
         tiled_id = resp.json()["id"]
         tiled_url = f"{self.base_url}/api/tiled-jobs/{tiled_id}/"
 
+        # 1200s covers the 4-tile render and the cold-start allowance
+        # if this test runs first under pytest -k.
         result = poll_for_completion(
-            self.session, tiled_url, timeout=480,
+            self.session, tiled_url, timeout=1200,
         )
         assert result["status"] == "DONE", (
             f"Tiled job did not complete. Status: {result['status']}"
