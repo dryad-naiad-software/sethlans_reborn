@@ -48,6 +48,15 @@ CADDYFILE_PATH_ENV = "SETHLANS_MANAGER_CADDYFILE_PATH"
 _MANAGER_ENV_OVERLAY = {
     "public_tls_port": "SETHLANS_MANAGER_CADDY_PUBLIC_TLS_PORT",
     "loopback_plaintext_port": "SETHLANS_MANAGER_CADDY_LOOPBACK_PORT",
+    # Phase 5 canonical kwargs.
+    "waitress_public_port":
+        "SETHLANS_MANAGER_WAITRESS_PUBLIC_PORT",
+    "waitress_internal_port":
+        "SETHLANS_MANAGER_WAITRESS_LOOPBACK_PORT",
+    # Legacy aliases — preserved so Docker deployments that still set
+    # ``SETHLANS_MANAGER_UVICORN_UPSTREAM_PORT`` keep working during
+    # the migration window. Phase 7 deletes these along with the
+    # uvicorn dependency.
     "uvicorn_upstream_port": "SETHLANS_MANAGER_UVICORN_UPSTREAM_PORT",
     "waitress_loopback_upstream_port":
         "SETHLANS_MANAGER_WAITRESS_LOOPBACK_PORT",
@@ -82,11 +91,13 @@ def build_manager_caddy_supervisor(
     caddyfile_path: Path,
     public_tls_port: int,
     loopback_plaintext_port: int,
-    uvicorn_upstream_port: int,
-    waitress_loopback_upstream_port: int,
     cert_path: Path,
     key_path: Path,
     manager_data_dir: Path,
+    waitress_public_port: Optional[int] = None,
+    waitress_internal_port: Optional[int] = None,
+    uvicorn_upstream_port: Optional[int] = None,
+    waitress_loopback_upstream_port: Optional[int] = None,
     binary_path: Optional[Path] = None,
 ) -> CaddySupervisor:
     """Construct a manager-flavoured :class:`CaddySupervisor`.
@@ -94,16 +105,38 @@ def build_manager_caddy_supervisor(
     Caller owns the supervisor's lifecycle (``start`` / ``stop`` /
     ``restart`` / ``error_event`` polling). This helper assembles
     the constructor args from launcher-side configuration.
+
+    Prefer ``waitress_public_port`` / ``waitress_internal_port`` for
+    new callers (spec Phase 5). The legacy ``uvicorn_upstream_port``
+    / ``waitress_loopback_upstream_port`` kwargs are accepted as
+    aliases for the Phase 3 call sites that have not been updated yet.
     """
     resolved_binary = Path(binary_path) if binary_path else Path(
         get_caddy_path(),
     )
+    public_upstream = (
+        waitress_public_port
+        if waitress_public_port is not None
+        else uvicorn_upstream_port
+    )
+    internal_upstream = (
+        waitress_internal_port
+        if waitress_internal_port is not None
+        else waitress_loopback_upstream_port
+    )
+    if public_upstream is None or internal_upstream is None:
+        raise ValueError(
+            "build_manager_caddy_supervisor requires both upstream "
+            "ports; pass waitress_public_port and "
+            "waitress_internal_port (or the legacy "
+            "uvicorn_upstream_port / waitress_loopback_upstream_port "
+            "aliases)."
+        )
     template_kwargs = {
         "public_tls_port": public_tls_port,
         "loopback_plaintext_port": loopback_plaintext_port,
-        "uvicorn_upstream_port": uvicorn_upstream_port,
-        "waitress_loopback_upstream_port":
-            waitress_loopback_upstream_port,
+        "waitress_public_port": public_upstream,
+        "waitress_internal_port": internal_upstream,
         "cert_path": cert_path,
         "key_path": key_path,
         "manager_data_dir": manager_data_dir,

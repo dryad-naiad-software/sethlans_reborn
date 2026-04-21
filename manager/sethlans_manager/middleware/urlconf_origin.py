@@ -5,41 +5,48 @@
 URLconf-origin middleware — defense-in-depth for the loopback listener.
 
 Part of the manager's waitress-migration (spec:
-``development/specs/waitress-migration-manager.md`` Phase 2).  The
-manager exposes two HTTP listeners in the same process:
+``development/specs/waitress-migration-manager.md`` Phases 2 & 5).
 
-* Main public listener (uvicorn, HTTPS) serves the full site via
+Phase 5 dual-Waitress topology:
+
+* Public-origin Waitress listener on ``127.0.0.1:<public_port>`` —
+  Caddy's public TLS vhost proxies here. Serves the full site via
   ``sethlans_manager.urls``.
-* Loopback-only listener (Waitress, plaintext, 127.0.0.1) serves ONLY
+* Internal-origin Waitress listener on ``127.0.0.1:<internal_port>`` —
+  Caddy's loopback plaintext vhost proxies here. Serves only
   ``/api/status/public/`` via ``sethlans_manager.urls_loopback``.
 
-Because Django's ``MIDDLEWARE`` stack is shared across every request the
-WSGI/ASGI application handles, this middleware runs once for every
-request regardless of which listener accepted the socket.  It reads
-``request.META['SERVER_PORT']`` — which Django's request factories
-populate from the server port the request arrived on — and pins
-``request.urlconf`` accordingly.
+Because Django's ``MIDDLEWARE`` stack is shared across every request
+the WSGI application handles, this middleware runs once for every
+request regardless of which listener accepted the socket. It reads
+``request.META['SERVER_PORT']`` — which Waitress populates from the
+accepting listener's local socket — and pins ``request.urlconf``
+accordingly.
 
 Header-injection protection: ``USE_X_FORWARDED_PORT`` and
 ``USE_X_FORWARDED_HOST`` are explicitly disabled in ``settings.py``.
 Django therefore ignores any ``X-Forwarded-Port``/``X-Forwarded-Host``
 header an attacker might inject and derives ``SERVER_PORT`` from the
-underlying socket the request arrived on.  If either setting is ever
-re-enabled without removing this middleware, the loopback/public split
-collapses — keep them off.
+underlying socket the request arrived on. Waitress is also started
+with ``trusted_proxy`` unset (see
+:mod:`sethlans_manager.waitress_launcher`), so no ``X-Forwarded-*``
+header is honoured at the WSGI layer either. If any of these
+invariants are reversed without removing this middleware, the
+loopback/public split collapses — keep them off.
 
 Fail-closed: if the request arrives on a port that is neither the
 configured public nor the configured internal (loopback) port, return
-HTTP 500 immediately.  An unknown-port request indicates either a
-misconfigured forwarder or a test harness that is not honouring the
-invariants of the split-listener design.  Under Phase 2 only the
-internal port is strictly required; the public port may be ``None``
-(the main uvicorn listener bypasses this middleware's strict check in
-that case by treating any non-internal port as "public").
+HTTP 500 immediately. An unknown-port request indicates either a
+misconfigured Caddyfile, a test harness that is not honouring the
+invariants of the split-listener design, or a header-injection attempt
+that slipped past ``USE_X_FORWARDED_PORT=False``. Phase 5 populates
+both settings simultaneously; the ``WAITRESS_LOOPBACK_PORT_PUBLIC=None``
+tolerance path is retained for unit tests that drive Django's test
+client without pinning a public port.
 
 Thumbnail-signal hazard (historical, resolved in Phase 4): prior
 versions of ``signal_helpers.py`` used a ``post_save.disconnect``
-/ ``connect`` dance that was not thread-safe.  Phase 4 replaced that
+/ ``connect`` dance that was not thread-safe. Phase 4 replaced that
 with a per-thread ``_skip_thumbnail_signals()`` context manager, so
 routing any thumbnail-triggering request through Waitress is now safe.
 """

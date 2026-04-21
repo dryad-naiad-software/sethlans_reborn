@@ -130,30 +130,20 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# --- Waitress loopback listener configuration ---
-# See ``development/specs/waitress-migration-manager.md`` Phase 2.
-# The internal (loopback) port is served by Waitress inside the current
-# uvicorn process; the public port is still served by uvicorn in Phase 2.
-# Phase 5 promotes Waitress to serve the public port too.
-#
-# Hierarchy: env var > manager.ini > default.
-WAITRESS_LOOPBACK_PORT_INTERNAL = int(_get_config(
-    'server', 'loopback_port',
-    'SETHLANS_MANAGER_LOOPBACK_PORT', '8088',
-))
+# --- Waitress listener configuration ---
+# See ``development/specs/waitress-migration-manager.md`` Phases 2 & 5.
+# Phase 5 promoted Waitress to serve BOTH listeners (public-origin +
+# internal-origin) in the same process, both fronted by Caddy.
+# Settings surface eagerly so ``UrlconfOriginMiddleware`` can validate
+# ``SERVER_PORT`` against a known set and fail closed on unknown ports.
+# Full override hierarchy documented in :mod:`waitress_config`.
+from .waitress_config import (  # noqa: E402
+    resolve_internal_port_for_settings,
+    resolve_public_port_for_settings,
+)
 
-# Public port (uvicorn's main listener port) — surfaced here so the
-# urlconf-origin middleware can validate ``SERVER_PORT`` against a known
-# set and fail closed on unknown ports.  ``None`` in Phase 2 is
-# acceptable: the middleware treats any non-internal port as public
-# when this is unset, which preserves the existing test fixtures that
-# drive Django's test client without a live server.
-_public_port_raw = _get_config(
-    'server', 'port', 'SETHLANS_MANAGER_PORT', None,
-)
-WAITRESS_LOOPBACK_PORT_PUBLIC = (
-    int(_public_port_raw) if _public_port_raw is not None else None
-)
+WAITRESS_LOOPBACK_PORT_INTERNAL = resolve_internal_port_for_settings(_config)
+WAITRESS_LOOPBACK_PORT_PUBLIC = resolve_public_port_for_settings(_config)
 
 # Header-injection defense — prevent ``X-Forwarded-Port`` /
 # ``X-Forwarded-Host`` from short-circuiting the port-based URLconf
@@ -200,31 +190,19 @@ DATABASES = build_database_config(_config, _config_file_path)
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
+_PW_VALIDATION = 'django.contrib.auth.password_validation'
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': f'{_PW_VALIDATION}.UserAttributeSimilarityValidator'},
+    {'NAME': f'{_PW_VALIDATION}.MinimumLengthValidator'},
+    {'NAME': f'{_PW_VALIDATION}.CommonPasswordValidator'},
+    {'NAME': f'{_PW_VALIDATION}.NumericPasswordValidator'},
 ]
 
 
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
+# Internationalization — https://docs.djangoproject.com/en/5.2/topics/i18n/
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
 
@@ -257,6 +235,14 @@ if WHITENOISE_ROOT is None:
         "WHITENOISE_ROOT is None — frontend dist directory "
         "not found at %s", _FRONTEND_DIST,
     )
+
+# Dev ergonomics — rescan the static-file manifest on every request when
+# DEBUG=True or SETHLANS_DEV_MODE=1 so edits to Angular bundles show up
+# without a process restart. In production this stays off (the default)
+# — whitenoise caches the manifest at process start for speed.
+# See waitress-migration-manager spec, Phase 5 "Dev hot-reload".
+_dev_mode_env = os.getenv('SETHLANS_DEV_MODE', '').lower() in ('1', 'true', 'yes')
+WHITENOISE_AUTOREFRESH = bool(DEBUG or _dev_mode_env)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

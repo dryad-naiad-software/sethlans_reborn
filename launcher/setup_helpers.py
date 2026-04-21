@@ -36,6 +36,12 @@ CADDY_PUBLIC_TLS_PORT = 8080
 CADDY_LOOPBACK_PORT = 8089
 CADDY_LOOPBACK_RANGE_END = 8099
 
+# Waitress public-origin listener default (spec Phase 5). Caddy's
+# public vhost proxies here; must not overlap with
+# ``CADDY_LOOPBACK_PORT`` or ``WAITRESS_LOOPBACK_PORT_INTERNAL``.
+WAITRESS_PUBLIC_PORT = 8090
+WAITRESS_PUBLIC_RANGE_END = 8099
+
 # Filename for the Django → launcher IPC used to trigger Caddy
 # restarts after a wizard network-step port change (manager spec
 # Phase 3 setup serialization / IPC protocol).
@@ -69,6 +75,30 @@ def find_available_loopback_port(
 
     Used for the Caddy loopback plaintext listener. Returns *start*
     on best-effort failure — the caller surfaces the bind error.
+    """
+    for port in range(start, end + 1):
+        try:
+            with socket.socket(
+                socket.AF_INET, socket.SOCK_STREAM,
+            ) as sock:
+                sock.bind(("127.0.0.1", port))
+            return port
+        except OSError:
+            continue
+    return start
+
+
+def find_available_waitress_public_port(
+    start: int = WAITRESS_PUBLIC_PORT,
+    end: int = WAITRESS_PUBLIC_RANGE_END,
+) -> int:
+    """Find an available loopback-only port for Waitress (public origin).
+
+    Spec Phase 5: the public-origin Waitress listener binds
+    ``127.0.0.1:<port>``; Caddy's public TLS vhost reverse-proxies
+    here. Range defaults to 8090..8099 so it never collides with the
+    Caddy loopback (``8089``) or the Waitress internal loopback
+    (``8088``).
     """
     for port in range(start, end + 1):
         try:

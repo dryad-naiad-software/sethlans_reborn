@@ -2,42 +2,46 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Uvicorn launch helpers for the manager.
+Uvicorn launch helpers for the manager (DEPRECATED — Phase 7 removal).
 
-Split out of ``run_manager.py`` so the entry script can stay under the
-300-line file ceiling now that it runs two listeners in parallel (main
-HTTPS + loopback plaintext for the tray helper).
+.. deprecated:: Phase 5 of waitress-migration-manager
+    The manager serving path is now Waitress (see
+    :mod:`sethlans_manager.waitress_launcher`). Nothing in
+    ``run_manager.py`` imports this module; it is kept importable so
+    external scripts that still pin against ``uvicorn_launcher.launch``
+    fail loudly with an ``ImportError`` on a ``launch`` call instead of
+    on module import. Phase 7 will delete this file, ``asgi.py``,
+    ``asgi_loopback.py``, and ``event_loop_factory.py`` along with the
+    uvicorn / uvloop / httptools dependencies.
 
-Phase 2 of the waitress-migration spec
-(``development/specs/waitress-migration-manager.md``) replaced the
-loopback ASGI listener with a Waitress thread:
+Historical context (preserved for code archaeology):
+
+Phase 2 replaced the loopback ASGI listener with a Waitress thread
+while uvicorn still owned the public HTTPS listener:
 
 * Main listener — uvicorn (ASGI, HTTPS) on ``<host>:<port>``.
 * Loopback listener — Waitress (WSGI, plaintext) on
   ``127.0.0.1:<loopback_port>`` serving ``urls_loopback``.
 
-The two listeners share the same Django MIDDLEWARE stack; the
-``UrlconfOriginMiddleware`` inserted very early in ``settings.py`` pins
-``request.urlconf`` based on which port the request arrived on.
+The two listeners shared the same Django MIDDLEWARE stack; the
+``UrlconfOriginMiddleware`` inserted very early in ``settings.py``
+pinned ``request.urlconf`` based on the port the request arrived on.
 
 Coexistence rules during Phase 2:
 
-* Waitress is started with ``install_signal_handlers=False`` — uvicorn
-  owns SIGTERM / SIGINT.
-* Waitress runs in a dedicated Python thread so the main thread stays
+* Waitress was started with ``install_signal_handlers=False`` — uvicorn
+  owned SIGTERM / SIGINT.
+* Waitress ran in a dedicated Python thread so the main thread stayed
   asyncio-owned.
-* On uvicorn shutdown we set a module-level ``threading.Event`` which
-  the Waitress thread monitors, then ``server.close()`` the Waitress
-  listener and join the thread before ``asyncio.run(...)`` returns.
+* On uvicorn shutdown a module-level ``threading.Event`` signalled the
+  Waitress thread, then ``server.close()`` closed the Waitress
+  listener and the thread was joined before ``asyncio.run(...)``
+  returned.
 
-Thumbnail-signal hazard (historical, resolved in Phase 4): the prior
-disconnect/connect pattern in ``workers/signal_helpers.py`` was not
-thread-safe.  Phase 4 replaced it with a per-thread context manager
-(``_skip_thumbnail_signals``) so any route served via Waitress is now
-signal-safe.
-
-See ``development/specs/tray-helper-unified.md`` FR-22 / FR-22a for the
-historical context of the loopback listener.
+Phase 5 promoted Waitress to serve BOTH the public-origin and
+internal-origin listeners; see
+:mod:`sethlans_manager.waitress_launcher` for the current
+implementation.
 """
 
 from __future__ import annotations

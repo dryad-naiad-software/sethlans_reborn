@@ -25,12 +25,15 @@ spec, "Caddy TLS hardening invariants"):
 All input values substituted into the template are validated; any
 invalid value raises :class:`ValueError` with a clear message.
 
-Phase 3 status: during Phase 3 the main listener is still uvicorn
-(Phase 5 swaps it to Waitress). The manager Caddyfile therefore
-proxies the public vhost to uvicorn and the loopback vhost to
-Waitress (from Phase 2). The caller passes the two upstream ports
-via ``uvicorn_upstream_port`` and ``waitress_loopback_upstream_port``
-respectively.
+Phase 5 status: both Caddy vhosts now reverse-proxy to Waitress
+listeners running in the same Django process — the public vhost to
+the public-origin Waitress listener, and the loopback vhost to the
+internal-origin Waitress listener. The caller passes the two upstream
+ports via ``waitress_public_port`` and ``waitress_internal_port``.
+The legacy kwarg names ``uvicorn_upstream_port`` and
+``waitress_loopback_upstream_port`` are accepted as aliases so Phase 3
+call sites continue to work unchanged during the migration window
+(Phase 7 deletes the aliases).
 """
 
 from __future__ import annotations
@@ -104,6 +107,32 @@ def _validate_path_under(
     return resolved
 
 
+def _coalesce_alias(
+    *, new_name: str, new_value, legacy_name: str, legacy_value,
+):
+    """Return whichever of the new/legacy kwargs is set.
+
+    Raises :class:`ValueError` if both are set with different values,
+    or if neither is set. Both set with the same value is tolerated —
+    callers in transition may pass both aliases.
+    """
+    if new_value is not None and legacy_value is not None:
+        if new_value != legacy_value:
+            raise ValueError(
+                f"{new_name} and {legacy_name} are aliases and must "
+                f"agree; got {new_name}={new_value!r} "
+                f"{legacy_name}={legacy_value!r}"
+            )
+        return new_value
+    if new_value is not None:
+        return new_value
+    if legacy_value is not None:
+        return legacy_value
+    raise ValueError(
+        f"one of {new_name} or {legacy_name} (legacy alias) is required"
+    )
+
+
 def _validate_plain_string(name: str, value: object) -> str:
     """Validate ``value`` is a string free of Caddyfile meta-chars."""
     if not isinstance(value, str):
@@ -128,11 +157,13 @@ def render_manager_caddyfile(
     *,
     public_tls_port: int,
     loopback_plaintext_port: int,
-    uvicorn_upstream_port: int,
-    waitress_loopback_upstream_port: int,
     cert_path: Union[str, Path],
     key_path: Union[str, Path],
     manager_data_dir: Union[str, Path],
+    uvicorn_upstream_port: int = None,
+    waitress_loopback_upstream_port: int = None,
+    waitress_public_port: int = None,
+    waitress_internal_port: int = None,
 ) -> str:
     """Render a manager Caddyfile as a string.
 
@@ -142,12 +173,19 @@ def render_manager_caddyfile(
     :param public_tls_port: Public-facing HTTPS port Caddy binds.
     :param loopback_plaintext_port: Loopback HTTP port Caddy binds
         (tray helper reads ``/api/status/public/`` from here).
-    :param uvicorn_upstream_port: Plaintext loopback port where
-        uvicorn serves the Django ASGI app (Phase 3 listener — swapped
-        to Waitress in Phase 5).
-    :param waitress_loopback_upstream_port: Plaintext loopback port
-        where the Phase 2 Waitress loopback listener serves
-        ``urls_loopback`` (``/api/status/public/``).
+    :param waitress_public_port: Plaintext loopback port where the
+        Phase 5 public-origin Waitress listener serves the full
+        manager URLconf. Supersedes the legacy ``uvicorn_upstream_port``
+        kwarg (accepted as an alias for Phase 3 call sites).
+    :param waitress_internal_port: Plaintext loopback port where the
+        internal-origin Waitress listener serves ``urls_loopback``
+        (``/api/status/public/``). Supersedes the legacy
+        ``waitress_loopback_upstream_port`` kwarg.
+    :param uvicorn_upstream_port: **Legacy (Phase 3)** alias for
+        ``waitress_public_port``. Accepted so Phase 3 call sites that
+        have not been updated yet continue to work unchanged.
+    :param waitress_loopback_upstream_port: **Legacy (Phase 2/3)** alias
+        for ``waitress_internal_port``.
     :param cert_path: TLS certificate file path. MUST resolve inside
         ``manager_data_dir``.
     :param key_path: TLS private key file path. MUST resolve inside
@@ -156,20 +194,30 @@ def render_manager_caddyfile(
         (``%LOCALAPPDATA%\\Sethlans\\manager\\`` on Windows, etc.).
         Used as the containment root for cert/key path validation.
     :returns: Caddyfile content as a string.
-    :raises ValueError: Any parameter fails validation.
+    :raises ValueError: Any parameter fails validation, or both new-
+        and legacy-named aliases are supplied with different values.
     """
     data_dir = Path(manager_data_dir).resolve()
+
+    pub_upstream = _coalesce_alias(
+        new_name='waitress_public_port', new_value=waitress_public_port,
+        legacy_name='uvicorn_upstream_port',
+        legacy_value=uvicorn_upstream_port,
+    )
+    internal_upstream = _coalesce_alias(
+        new_name='waitress_internal_port',
+        new_value=waitress_internal_port,
+        legacy_name='waitress_loopback_upstream_port',
+        legacy_value=waitress_loopback_upstream_port,
+    )
 
     pub_port = _validate_port('public_tls_port', public_tls_port)
     loop_port = _validate_port(
         'loopback_plaintext_port', loopback_plaintext_port,
     )
-    uvi_port = _validate_port(
-        'uvicorn_upstream_port', uvicorn_upstream_port,
-    )
+    uvi_port = _validate_port('waitress_public_port', pub_upstream)
     wloop_port = _validate_port(
-        'waitress_loopback_upstream_port',
-        waitress_loopback_upstream_port,
+        'waitress_internal_port', internal_upstream,
     )
     cert = _validate_path_under('cert_path', cert_path, data_dir)
     key = _validate_path_under('key_path', key_path, data_dir)
@@ -180,10 +228,9 @@ def render_manager_caddyfile(
     if len({pub_port, loop_port, uvi_port, wloop_port}) != 4:
         raise ValueError(
             "public_tls_port, loopback_plaintext_port, "
-            "uvicorn_upstream_port, and "
-            "waitress_loopback_upstream_port must all be distinct; "
-            f"got public={pub_port} loopback={loop_port} "
-            f"uvicorn={uvi_port} waitress_loopback={wloop_port}"
+            "waitress_public_port, and waitress_internal_port must "
+            f"all be distinct; got public={pub_port} loopback={loop_port} "
+            f"waitress_public={uvi_port} waitress_internal={wloop_port}"
         )
 
     return (
@@ -221,7 +268,7 @@ def render_manager_caddyfile(
         "\n"
         f"# Loopback plaintext vhost. Listens on 127.0.0.1:{loop_port}.\n"
         "# Serves the tray helper's /api/status/public/ endpoint.\n"
-        "# Proxies to the Waitress loopback listener (Phase 2).\n"
+        "# Proxies to the internal-origin Waitress listener (Phase 5).\n"
         f"http://127.0.0.1:{loop_port} {{\n"
         "    reverse_proxy 127.0.0.1:"
         + str(wloop_port) + " {\n"

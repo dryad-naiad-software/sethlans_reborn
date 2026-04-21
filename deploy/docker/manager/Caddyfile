@@ -29,6 +29,13 @@
 }
 
 # Public TLS vhost (LAN-reachable). Workers connect here.
+#
+# Phase 5 upstream: the public-origin Waitress listener. The legacy
+# env var SETHLANS_MANAGER_UVICORN_UPSTREAM_PORT is retained as a
+# fallback so Docker deployments that predate Phase 5 keep working;
+# new deployments should set SETHLANS_MANAGER_WAITRESS_PUBLIC_PORT
+# (the caddy_supervisor env overlay writes whichever the caller
+# provides).
 :{$SETHLANS_MANAGER_CADDY_PUBLIC_TLS_PORT} {
     tls {$SETHLANS_MANAGER_CERT_PATH} {$SETHLANS_MANAGER_KEY_PATH} {
         protocols tls1.2 tls1.3
@@ -39,7 +46,7 @@
     }
     respond @loopback_only 404
 
-    reverse_proxy 127.0.0.1:{$SETHLANS_MANAGER_UVICORN_UPSTREAM_PORT} {
+    reverse_proxy 127.0.0.1:{$SETHLANS_MANAGER_WAITRESS_PUBLIC_PORT:{$SETHLANS_MANAGER_UVICORN_UPSTREAM_PORT}} {
         transport http {
             versions 1.1
         }
@@ -47,7 +54,7 @@
 }
 
 # Loopback plaintext vhost. Tray helper origin for
-# /api/status/public/. Proxies to the Phase-2 Waitress loopback
+# /api/status/public/. Proxies to the internal-origin Waitress
 # listener (urls_loopback URLconf).
 http://127.0.0.1:{$SETHLANS_MANAGER_CADDY_LOOPBACK_PORT} {
     reverse_proxy 127.0.0.1:{$SETHLANS_MANAGER_WAITRESS_LOOPBACK_PORT} {
