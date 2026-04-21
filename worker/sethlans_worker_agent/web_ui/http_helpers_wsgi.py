@@ -3,23 +3,17 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Synchronous WSGI equivalents of the worker ASGI helpers.
+Synchronous WSGI HTTP helpers for the worker web UI.
 
-These helpers are the WSGI counterparts of the async helpers in
-:mod:`http_helpers`.  Both modules coexist during the Waitress
-migration: legacy async handlers continue to use the async helpers;
-handlers rewritten to WSGI (Phase 4+) import from this module.
+Invariants:
 
-Invariants preserved byte-equivalent to the async helpers:
-
-* The 4 KB ``MAX_REQUEST_BODY`` cap is reused from the async module
-  (single source of truth) and enforced on every JSON parse.
-* Oversize bodies produce ``413`` with ``{'error': 'Request body too
-  large'}``.
+* The 4 KB ``MAX_REQUEST_BODY`` cap is enforced on every JSON parse.
+* Oversize bodies produce ``413`` with
+  ``{'error': 'Request body too large'}``.
 * Malformed JSON (including empty bodies) produces ``400`` with
   ``{'error': 'Invalid JSON'}``.
 * Response bodies are UTF-8 JSON; ``Content-Type`` and
-  ``Content-Length`` are set exactly like the async versions.
+  ``Content-Length`` are set explicitly.
 
 Safety: ``read_body_wsgi`` never reads more than
 ``MAX_REQUEST_BODY + 1`` bytes from ``wsgi.input``.  If
@@ -33,9 +27,12 @@ import json
 import logging
 from typing import Any, Callable, Iterable, Optional, Tuple
 
-from sethlans_worker_agent.web_ui.http_helpers import MAX_REQUEST_BODY
-
 logger = logging.getLogger(__name__)
+
+# Maximum request body size for POST endpoints (4 KB).
+# Single source of truth for the body cap; Waitress is also
+# configured with ``max_request_body_size=4096`` as defense in depth.
+MAX_REQUEST_BODY = 4096
 
 
 # Status line mapping for the few codes this module emits.  Kept

@@ -4,12 +4,6 @@
 """
 Synchronous WSGI application for the worker web UI.
 
-Phase 4b of the Waitress migration: this module was historically an
-async ASGI app driven directly by uvicorn. It is now a sync WSGI
-application. Phase 5a replaced the uvicorn bootstrap with Waitress,
-which serves this callable natively — the ``asgiref.wsgi.WsgiToAsgi``
-bridge used transiently during Phase 4 has been removed.
-
 Routes:
   GET  /               -- serve static HTML dashboard
   GET  /index.html     -- serve static HTML dashboard
@@ -34,8 +28,8 @@ from sethlans_worker_agent.web_ui.auth import (
     validate_password, set_password,
 )
 from sethlans_worker_agent.web_ui.config_mutations import apply_config_change
-from sethlans_worker_agent.web_ui.http_helpers import MAX_REQUEST_BODY
 from sethlans_worker_agent.web_ui.http_helpers_wsgi import (
+    MAX_REQUEST_BODY,
     send_json_wsgi, send_html_file_wsgi, read_body_wsgi,
 )
 from sethlans_worker_agent.web_ui.setup.gate import setup_gate_wrapper_wsgi
@@ -69,11 +63,10 @@ _INDEX_PATH = os.path.join(_STATIC_DIR, 'index.html')
 def _get_shutdown_event():
     """Lazily resolve the agent's ``_shutdown_event``.
 
-    The double-checked lock preserves the behaviour of the legacy
-    async app: the first resolved reference wins, subsequent calls
-    skip the lock. During tests ``agent.py`` may fail to import
-    because of its module-level argparse; fall back to a
-    never-set event so gate checks remain deterministic.
+    The double-checked lock ensures the first resolved reference
+    wins; subsequent calls skip the lock. During tests ``agent.py``
+    may fail to import because of its module-level argparse; fall
+    back to a never-set event so gate checks remain deterministic.
     """
     global _shutdown_event_ref
     if _shutdown_event_ref is not None:

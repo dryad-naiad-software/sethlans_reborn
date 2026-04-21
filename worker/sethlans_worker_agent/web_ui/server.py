@@ -4,15 +4,11 @@
 """
 Plaintext WSGI server lifecycle for the worker web UI.
 
-Phase 5a of the Waitress migration: uvicorn has been replaced with
-Waitress. Waitress serves the sync WSGI ``app`` callable directly —
-the ``asgiref.wsgi.WsgiToAsgi`` bridge from Phase 4b is gone.
-
-Interim-state note: Waitress does NOT terminate TLS. This module now
-binds plaintext on the loopback bind address. External HTTPS access
-is provided by Caddy in front of Waitress; Caddy supervision is
-wired in Phase 5b. Unit/integration tests drive Waitress directly on
-loopback during the 5a window.
+Waitress serves the sync WSGI ``app`` callable. Waitress does NOT
+terminate TLS: this module binds plaintext on the loopback bind
+address, and external HTTPS access is provided by a Caddy reverse
+proxy in front of Waitress. Unit/integration tests drive Waitress
+directly on loopback.
 """
 
 import logging
@@ -37,7 +33,7 @@ def start_server(cert_path, key_path):
     them in Phase 5b. Retained here so call sites (agent.py and
     integration fixtures) do not need to change as 5a lands.
 
-    Waitress config (spec Phase 5, line 354):
+    Waitress config:
       - threads=8
       - channel_timeout=300 seconds
       - connection_limit=1000
@@ -45,14 +41,15 @@ def start_server(cert_path, key_path):
         invariant — defense-in-depth against oversized bodies)
 
     Waitress runs in a daemon thread so the worker agent's main
-    thread retains signal ownership (mirrors the prior uvicorn
-    pattern). Waitress's ``BaseWSGIServer.run`` does not install
-    signal handlers, so launching it from a non-main thread is
-    safe — only ``waitress.serve`` (unused here) does that.
+    thread retains signal ownership. Waitress's
+    ``BaseWSGIServer.run`` does not install signal handlers, so
+    launching it from a non-main thread is safe — only
+    ``waitress.serve`` (unused here) does that.
     """
     global _server, _server_thread
 
-    # cert_path/key_path unused in 5a; Caddy will consume them in 5b.
+    # cert_path/key_path are consumed by the Caddy reverse proxy
+    # out-of-band; Waitress itself serves plaintext on loopback.
     del cert_path, key_path
 
     if not config.UI_ENABLED:
@@ -65,17 +62,14 @@ def start_server(cert_path, key_path):
             "Change it via the dashboard."
         )
 
-    # Sync WSGI callable (Phase 4b). Waitress serves it natively —
-    # no WsgiToAsgi bridge required.
-    from sethlans_worker_agent.web_ui.asgi_app import app as wsgi_app
+    from sethlans_worker_agent.web_ui.wsgi_app import app as wsgi_app
 
-    # Phase 5b: Waitress binds on a loopback upstream port; Caddy
+    # Waitress binds on a loopback upstream port; Caddy
     # reverse-proxies public TLS + loopback vhosts to this upstream.
-    # ``UI_BIND_ADDRESS`` is forced to 127.0.0.1 here because the
-    # upstream must not be externally reachable — only Caddy speaks
-    # to it. Operators who override ``UI_BIND_ADDRESS`` still have
-    # their preference respected for the advertised (public) URL
-    # computed in ``system_monitor`` via ``UI_PORT``.
+    # The upstream must not be externally reachable — only Caddy
+    # speaks to it. Operators who override ``UI_BIND_ADDRESS`` still
+    # have their preference respected for the advertised (public)
+    # URL computed in ``system_monitor`` via ``UI_PORT``.
     _server = waitress.create_server(
         wsgi_app,
         host='127.0.0.1',

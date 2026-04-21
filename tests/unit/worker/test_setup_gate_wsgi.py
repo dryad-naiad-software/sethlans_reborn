@@ -2,16 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for setup_gate_wrapper_wsgi (the sync WSGI gate from Phase 3).
+"""Unit tests for ``setup_gate_wrapper_wsgi`` (sync WSGI gate).
 
-Includes transitional async def fixtures that exercise the gate's asyncio.run adapter path (driven by
-gate_async_adapter.py). Those fixtures are deleted in Phase 7 when the adapter itself is removed.
-
-Covers ``setup_gate_wrapper_wsgi`` -- the Phase 3 sync dispatcher
-introduced alongside the still-async ``setup_gate_wrapper``.  The
-async wrapper is covered by ``test_setup_gate``; this file does
-not retest it.  Module state is reset by the autouse fixture in
-``conftest.py``.
+Covers fast-path pass-through once setup is complete, 503 blocking
+of non-setup paths during setup, allowed-prefix pass-through, and
+module-state interactions (``init_gate`` / ``mark_setup_complete``).
 """
 
 import io
@@ -91,25 +86,7 @@ def _sync_ok(body_bytes: bytes = b'ok', status: str = '200 OK'):
     return inner, calls
 
 
-def _async_json(payload: bytes = b'{"ok": true}', status: int = 200):
-    """Build an async ASGI inner that records calls and returns JSON."""
-    calls: List[Dict[str, Any]] = []
-
-    async def inner(scope, receive, send):
-        calls.append(scope)
-        await send({
-            'type': 'http.response.start', 'status': status,
-            'headers': [(b'content-type', b'application/json')],
-        })
-        await send({
-            'type': 'http.response.body', 'body': payload,
-            'more_body': False,
-        })
-
-    return inner, calls
-
-
-async def _must_not_call(*_a, **_kw):  # pragma: no cover
+def _must_not_call(*_a, **_kw):  # pragma: no cover
     raise AssertionError('inner must not be called')
 
 
@@ -126,19 +103,6 @@ class TestFastPathSetupComplete:
         assert len(calls) == 1
         assert rec.status_code == 200
         assert body == b'ok'
-
-    def test_async_inner_driven_via_adapter_when_complete(self):
-        mark_setup_complete()
-        inner, calls = _async_json()
-        rec = StartResponseRecorder()
-        body = drain(
-            setup_gate_wrapper_wsgi(make_environ('/dashboard'), rec, inner),
-        )
-        assert len(calls) == 1
-        assert calls[0]['path'] == '/dashboard'
-        assert rec.status_code == 200
-        assert rec.header('Content-Type') == 'application/json'
-        assert json.loads(body) == {'ok': True}
 
 
 # --- Blocking path: setup incomplete, non-setup request ---
@@ -169,79 +133,6 @@ class TestAllowedPrefixesDuringSetup:
         body = drain(setup_gate_wrapper_wsgi(make_environ(path), rec, inner))
         assert calls and rec.status_code == 200
         assert body == b'setup-ok'
-
-    def test_setup_prefix_passes_through_async(self):
-        inner, calls = _async_json(b'{}', status=201)
-        rec = StartResponseRecorder()
-        body = drain(
-            setup_gate_wrapper_wsgi(
-                make_environ('/api/setup/worker/enroll/'), rec, inner,
-            ),
-        )
-        assert calls and calls[0]['path'] == '/api/setup/worker/enroll/'
-        assert rec.status_code == 201
-        assert body == b'{}'
-
-
-# --- Async adapter request-body plumbing and error handling ---
-
-class TestAsyncAdapterBodyPlumbing:
-    def test_request_body_flows_through_receive(self):
-        mark_setup_complete()
-        captured: List[bytes] = []
-
-        async def inner(scope, receive, send):
-            msg = await receive()
-            captured.append(msg.get('body', b''))
-            await send({
-                'type': 'http.response.start', 'status': 200,
-                'headers': [(b'content-type', b'application/json')],
-            })
-            await send({
-                'type': 'http.response.body', 'body': b'{"seen": true}',
-                'more_body': False,
-            })
-
-        payload = b'{"hello": "world"}'
-        env = make_environ(
-            '/echo', method='POST', body=payload,
-            content_type='application/json',
-        )
-        rec = StartResponseRecorder()
-        body = drain(setup_gate_wrapper_wsgi(env, rec, inner))
-        assert captured == [payload]
-        assert rec.status_code == 200
-        assert json.loads(body) == {'seen': True}
-
-    def test_async_inner_exception_propagates(self):
-        mark_setup_complete()
-
-        class Boom(RuntimeError):
-            pass
-
-        async def inner(scope, receive, send):
-            raise Boom('inner blew up')
-
-        rec = StartResponseRecorder()
-        with pytest.raises(Boom):
-            drain(
-                setup_gate_wrapper_wsgi(
-                    make_environ('/dashboard'), rec, inner,
-                ),
-            )
-
-    def test_async_inner_that_never_responds_yields_500(self):
-        mark_setup_complete()
-
-        async def inner(scope, receive, send):
-            return None  # protocol violation: no response sent
-
-        rec = StartResponseRecorder()
-        body = drain(
-            setup_gate_wrapper_wsgi(make_environ('/dashboard'), rec, inner),
-        )
-        assert rec.status_code == 500
-        assert body == b''
 
 
 # --- Edge cases and module-state interactions ---

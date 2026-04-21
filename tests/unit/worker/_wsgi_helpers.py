@@ -55,7 +55,7 @@ class ReadSpyStream:
         return self._buf.read(size)
 
 
-# --- Helpers for the asgi_app sync WSGI tests --------------------
+# --- Helpers for the wsgi_app sync WSGI tests --------------------
 
 def make_environ(
     path: str = '/',
@@ -66,7 +66,7 @@ def make_environ(
     """Build a richer WSGI environ for the top-level worker app.
 
     Supports arbitrary paths, methods, and HTTP headers.  Used by
-    the split ``test_asgi_app_wsgi*`` files.
+    the split ``test_wsgi_app*`` files.
     """
     env: Dict[str, Any] = {
         'REQUEST_METHOD': method,

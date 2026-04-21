@@ -2,18 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for sync WSGI control endpoints in ``asgi_app.py``.
+"""Unit tests for sync WSGI control endpoints in ``wsgi_app.py``.
 
-Companion to ``test_asgi_app_wsgi.py``: covers authentication,
+Companion to ``test_wsgi_app.py``: covers authentication,
 pause/resume, shutdown, and unknown-action handling for
 ``/api/control/*`` POST routes.  Payload-validation routes
 (``set_password``, ``update``, oversize body) live in
-``test_asgi_app_wsgi_config.py``.
+``test_wsgi_app_config.py``.
 """
 
 import json
 
-from sethlans_worker_agent.web_ui import asgi_app as asgi_app_module
+from sethlans_worker_agent.web_ui import wsgi_app as wsgi_app_module
 
 from tests.unit.worker._wsgi_helpers import (
     StartResponseRecorder,
@@ -31,7 +31,7 @@ class TestControlAuth:
     ):
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ('/api/control/pause', method='POST'), rec,
             ),
         )
@@ -43,7 +43,7 @@ class TestControlAuth:
     ):
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/pause', method='POST',
                     headers={'Authorization': 'Bearer nope'},
@@ -59,7 +59,7 @@ class TestControlAuth:
     ):
         rec = StartResponseRecorder()
         drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/pause', method='POST',
                     headers={'Authorization': 'test-token'},
@@ -75,11 +75,11 @@ class TestControlPauseResume:
         self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
     ):
         pause_mock = mocker.patch(
-            'sethlans_worker_agent.web_ui.asgi_app.job_processor.pause',
+            'sethlans_worker_agent.web_ui.wsgi_app.job_processor.pause',
         )
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/pause', method='POST',
                     headers=bearer_header,
@@ -95,11 +95,11 @@ class TestControlPauseResume:
         self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
     ):
         resume_mock = mocker.patch(
-            'sethlans_worker_agent.web_ui.asgi_app.job_processor.resume',
+            'sethlans_worker_agent.web_ui.wsgi_app.job_processor.resume',
         )
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/resume', method='POST',
                     headers=bearer_header,
@@ -118,7 +118,7 @@ class TestControlShutdown:
     ):
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/shutdown', method='POST',
                     headers=bearer_header,
@@ -136,7 +136,7 @@ class TestControlShutdown:
         fresh_shutdown_event.set()
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/pause', method='POST',
                     headers=bearer_header,
@@ -154,7 +154,7 @@ class TestUnknownControlAction:
     ):
         rec = StartResponseRecorder()
         drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/unknown', method='POST',
                     headers=bearer_header,

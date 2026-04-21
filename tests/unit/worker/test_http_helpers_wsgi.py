@@ -5,20 +5,16 @@
 """
 Unit tests for ``web_ui/http_helpers_wsgi.py``.
 
-Mirrors ``test_http_helpers.py`` for the synchronous WSGI helpers
-introduced as Phase 2 of the Waitress migration.  Covers the 4 KB
-``MAX_REQUEST_BODY`` cap (both ``CONTENT_LENGTH`` short-circuit and
-read-beyond-cap detection), happy-path JSON parsing, and error
-paths.  Byte-equivalence and negative-CONTENT_LENGTH tests live in
-``test_http_helpers_wsgi_equivalence.py`` to keep each file under
-the 300-line ceiling.
+Covers the 4 KB ``MAX_REQUEST_BODY`` cap (both ``CONTENT_LENGTH``
+short-circuit and read-beyond-cap detection), happy-path JSON
+parsing, and error paths.
 """
 
 import io
 import json
 
-from sethlans_worker_agent.web_ui.http_helpers import MAX_REQUEST_BODY
 from sethlans_worker_agent.web_ui.http_helpers_wsgi import (
+    MAX_REQUEST_BODY,
     parse_json_body_wsgi,
     read_body_wsgi,
     send_html_file_wsgi,

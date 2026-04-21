@@ -108,7 +108,7 @@ def _reset_download_progress_state():
 def setup_complete():
     """Flip the worker setup gate open so dashboard routes are reachable.
 
-    Used by the sync WSGI ``asgi_app`` test suite (``test_asgi_app_wsgi*``).
+    Used by the sync WSGI ``wsgi_app`` test suite (``test_wsgi_app*``).
     Not autouse -- tests opt in by listing it as a parameter.
     """
     from sethlans_worker_agent.web_ui.setup import gate
@@ -121,17 +121,17 @@ def setup_complete():
 def fresh_shutdown_event():
     """Bind a fresh ``threading.Event`` as the agent's shutdown event.
 
-    The ``asgi_app`` resolves the agent's real ``_shutdown_event`` on
+    The ``wsgi_app`` resolves the agent's real ``_shutdown_event`` on
     first call; tests replace it with a clean event so ``is_set()`` is
     deterministic and cannot leak between tests.  Used by the sync
     WSGI control-plane tests.
     """
     import threading
-    from sethlans_worker_agent.web_ui import asgi_app as asgi_app_module
+    from sethlans_worker_agent.web_ui import wsgi_app as wsgi_app_module
     ev = threading.Event()
-    asgi_app_module._shutdown_event_ref = ev
+    wsgi_app_module._shutdown_event_ref = ev
     yield ev
-    asgi_app_module._shutdown_event_ref = None
+    wsgi_app_module._shutdown_event_ref = None
 
 
 @pytest.fixture()
@@ -142,7 +142,7 @@ def bearer_header(mocker):
     dict for the sync WSGI control-plane tests.
     """
     mocker.patch(
-        'sethlans_worker_agent.web_ui.asgi_app.validate_password',
+        'sethlans_worker_agent.web_ui.wsgi_app.validate_password',
         side_effect=lambda pw: pw == 'test-token',
     )
     return {'Authorization': 'Bearer test-token'}

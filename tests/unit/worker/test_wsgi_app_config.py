@@ -4,15 +4,15 @@
 
 """Unit tests for sync WSGI payload-validation control endpoints.
 
-Companion to ``test_asgi_app_wsgi.py`` and
-``test_asgi_app_wsgi_control.py``: covers ``/api/control/set_password``
+Companion to ``test_wsgi_app.py`` and
+``test_wsgi_app_control.py``: covers ``/api/control/set_password``
 and ``/api/control/update`` payload validation plus the 4 KB body
 cap shared by both.
 """
 
 import json
 
-from sethlans_worker_agent.web_ui import asgi_app as asgi_app_module
+from sethlans_worker_agent.web_ui import wsgi_app as wsgi_app_module
 
 from tests.unit.worker._wsgi_helpers import (
     StartResponseRecorder,
@@ -29,12 +29,12 @@ class TestControlSetPassword:
         self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
     ):
         set_pw = mocker.patch(
-            'sethlans_worker_agent.web_ui.asgi_app.set_password',
+            'sethlans_worker_agent.web_ui.wsgi_app.set_password',
         )
         payload = json.dumps({'password': 'newpw123'}).encode()
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/set_password', method='POST',
                     body=payload, headers=bearer_header,
@@ -50,12 +50,12 @@ class TestControlSetPassword:
         self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
     ):
         set_pw = mocker.patch(
-            'sethlans_worker_agent.web_ui.asgi_app.set_password',
+            'sethlans_worker_agent.web_ui.wsgi_app.set_password',
         )
         payload = json.dumps({'password': 'abc'}).encode()
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/set_password', method='POST',
                     body=payload, headers=bearer_header,
@@ -72,7 +72,7 @@ class TestControlSetPassword:
     ):
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/set_password', method='POST',
                     body=b'not-json', headers=bearer_header,
@@ -89,14 +89,14 @@ class TestControlConfigUpdate:
         self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
     ):
         apply = mocker.patch(
-            'sethlans_worker_agent.web_ui.asgi_app.apply_config_change',
+            'sethlans_worker_agent.web_ui.wsgi_app.apply_config_change',
         )
         payload = json.dumps(
             {'key': 'POLLING_INTERVAL', 'value': 30},
         ).encode()
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/update', method='POST',
                     body=payload, headers=bearer_header,
@@ -114,14 +114,14 @@ class TestControlConfigUpdate:
         self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
     ):
         apply = mocker.patch(
-            'sethlans_worker_agent.web_ui.asgi_app.apply_config_change',
+            'sethlans_worker_agent.web_ui.wsgi_app.apply_config_change',
         )
         payload = json.dumps(
             {'key': 'MANAGER_API_URL', 'value': 'http://evil'},
         ).encode()
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/update', method='POST',
                     body=payload, headers=bearer_header,
@@ -137,7 +137,7 @@ class TestControlConfigUpdate:
         self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
     ):
         mocker.patch(
-            'sethlans_worker_agent.web_ui.asgi_app.apply_config_change',
+            'sethlans_worker_agent.web_ui.wsgi_app.apply_config_change',
             side_effect=ValueError('bad'),
         )
         payload = json.dumps(
@@ -145,7 +145,7 @@ class TestControlConfigUpdate:
         ).encode()
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/update', method='POST',
                     body=payload, headers=bearer_header,
@@ -166,7 +166,7 @@ class TestControlBodyCap:
         payload = b'x' * (4096 + 1)
         rec = StartResponseRecorder()
         body = drain(
-            asgi_app_module.app(
+            wsgi_app_module.app(
                 make_environ(
                     '/api/control/set_password', method='POST',
                     body=payload, headers=bearer_header,
