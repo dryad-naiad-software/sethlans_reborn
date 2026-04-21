@@ -2,13 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""
-Unit tests for ``web_ui/setup/gate.py``.
-
-Covers init_gate, is_in_setup_mode, mark_setup_complete, and the
-setup_gate_wrapper ASGI middleware.  Module state is reset by the
-autouse fixture in ``conftest.py``.
-"""
+"""Legacy async ASGI setup_gate_wrapper tests. Source (setup_gate_wrapper async) is dead code as of Phase 4b;
+replaced by setup_gate_wrapper_wsgi. Deleted in Phase 7 alongside these tests. asyncio.run usage here is
+intentional."""
 
 import asyncio
 import json

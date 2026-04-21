@@ -2,18 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""
-WSGI/ASGI byte-equivalence tests and negative-CONTENT_LENGTH
-regression tests for ``web_ui/http_helpers_wsgi.py``.
-
-Split from ``test_http_helpers_wsgi.py`` to keep each file under
-the 300-line ceiling.  The byte-equivalence tests lock in FR-4
-from the Waitress migration spec: WSGI helpers must produce the
-same wire bytes as the pre-existing async helpers, including for
-error responses (413/400).  The negative-CONTENT_LENGTH tests
-pin down the M1 security fix: a negative declared length must be
-treated as malformed rather than being passed to ``stream.read``.
-"""
+"""Byte-equivalence cross-checks between the sync WSGI helpers (http_helpers_wsgi.py, current) and the legacy
+async ASGI helpers (http_helpers.py, to be deleted in Phase 7). asyncio.run usage is the reference harness
+driving the async side; intentional, not a scrub miss. This entire file is deleted alongside http_helpers.py
+in Phase 7."""
 
 import asyncio
 import io

@@ -2,12 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""
-Unit tests for ``web_ui/http_helpers.py``.
-
-Covers send_json, send_html_file, read_body, and parse_json_body
-ASGI helper functions.
-"""
+"""Legacy async ASGI http_helpers tests. Source is dead code as of Phase 4b and will be deleted in Phase 7
+alongside these tests. asyncio.run usage here is intentional — it drives the original async API that is
+being phased out."""
 
 import asyncio
 import json
