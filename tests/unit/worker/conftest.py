@@ -105,6 +105,50 @@ def _reset_download_progress_state():
 
 
 @pytest.fixture()
+def setup_complete():
+    """Flip the worker setup gate open so dashboard routes are reachable.
+
+    Used by the sync WSGI ``asgi_app`` test suite (``test_asgi_app_wsgi*``).
+    Not autouse -- tests opt in by listing it as a parameter.
+    """
+    from sethlans_worker_agent.web_ui.setup import gate
+    gate.mark_setup_complete()
+    yield
+    gate._setup_complete = False
+
+
+@pytest.fixture()
+def fresh_shutdown_event():
+    """Bind a fresh ``threading.Event`` as the agent's shutdown event.
+
+    The ``asgi_app`` resolves the agent's real ``_shutdown_event`` on
+    first call; tests replace it with a clean event so ``is_set()`` is
+    deterministic and cannot leak between tests.  Used by the sync
+    WSGI control-plane tests.
+    """
+    import threading
+    from sethlans_worker_agent.web_ui import asgi_app as asgi_app_module
+    ev = threading.Event()
+    asgi_app_module._shutdown_event_ref = ev
+    yield ev
+    asgi_app_module._shutdown_event_ref = None
+
+
+@pytest.fixture()
+def bearer_header(mocker):
+    """Patch password validation to accept the literal ``test-token``.
+
+    Returns a ready-to-use ``Authorization: Bearer test-token`` header
+    dict for the sync WSGI control-plane tests.
+    """
+    mocker.patch(
+        'sethlans_worker_agent.web_ui.asgi_app.validate_password',
+        side_effect=lambda pw: pw == 'test-token',
+    )
+    return {'Authorization': 'Bearer test-token'}
+
+
+@pytest.fixture()
 def mock_config(mocker):
     """Provide a mocker-patched config module with sensible defaults."""
     mocker.patch(
