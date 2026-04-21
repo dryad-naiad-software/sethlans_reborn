@@ -69,10 +69,17 @@ def start_server(cert_path, key_path):
     # no WsgiToAsgi bridge required.
     from sethlans_worker_agent.web_ui.asgi_app import app as wsgi_app
 
+    # Phase 5b: Waitress binds on a loopback upstream port; Caddy
+    # reverse-proxies public TLS + loopback vhosts to this upstream.
+    # ``UI_BIND_ADDRESS`` is forced to 127.0.0.1 here because the
+    # upstream must not be externally reachable — only Caddy speaks
+    # to it. Operators who override ``UI_BIND_ADDRESS`` still have
+    # their preference respected for the advertised (public) URL
+    # computed in ``system_monitor`` via ``UI_PORT``.
     _server = waitress.create_server(
         wsgi_app,
-        host=config.UI_BIND_ADDRESS,
-        port=config.UI_PORT,
+        host='127.0.0.1',
+        port=config.WAITRESS_UPSTREAM_PORT,
         threads=8,
         channel_timeout=300,
         connection_limit=1000,
@@ -86,9 +93,9 @@ def start_server(cert_path, key_path):
     )
     _server_thread.start()
     logger.info(
-        "Worker Web UI (Waitress) started on http://%s:%d "
-        "(plaintext; TLS terminated by Caddy in later phases)",
-        config.UI_BIND_ADDRESS, config.UI_PORT,
+        "Worker Web UI (Waitress) started on http://127.0.0.1:%d "
+        "(plaintext upstream; TLS terminated by Caddy on public port %d)",
+        config.WAITRESS_UPSTREAM_PORT, config.CADDY_PUBLIC_TLS_PORT,
     )
 
 

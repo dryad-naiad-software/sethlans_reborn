@@ -136,14 +136,12 @@ MANAGER_ID = get_config_value('manager', 'manager_id', '')
 
 
 # --- Worker Operation Intervals ---
-HEARTBEAT_INTERVAL_SECONDS = get_config_value('worker', 'heartbeat_interval', 30, is_int=True)
 HEARTBEAT_INTERVAL_SECONDS = _validate_int(
-    'worker.heartbeat_interval', HEARTBEAT_INTERVAL_SECONDS, 30, 1, 3600
-)
-JOB_POLLING_INTERVAL_SECONDS = get_config_value('worker', 'polling_interval', 5, is_int=True)
+    'worker.heartbeat_interval',
+    get_config_value('worker', 'heartbeat_interval', 30, is_int=True), 30, 1, 3600)
 JOB_POLLING_INTERVAL_SECONDS = _validate_int(
-    'worker.polling_interval', JOB_POLLING_INTERVAL_SECONDS, 5, 1, 3600
-)
+    'worker.polling_interval',
+    get_config_value('worker', 'polling_interval', 5, is_int=True), 5, 1, 3600)
 
 # --- Worker Hardware Configuration ---
 # These settings are mutually exclusive and can be set via environment variables.
@@ -199,12 +197,13 @@ TLS_KEY_FILE = get_config_value('worker_tls', 'key_file', '')
 # --- Worker Web UI Configuration ---
 UI_ENABLED = get_config_value('worker', 'ui_enabled', 'true')
 UI_ENABLED = UI_ENABLED.lower() in ('true', '1', 'yes') if isinstance(UI_ENABLED, str) else bool(UI_ENABLED)
-UI_PORT = get_config_value('worker', 'ui_port', 8081, is_int=True)
-UI_PORT = _validate_int('worker.ui_port', UI_PORT, 8081, 1, 65535)
+UI_PORT = _validate_int('worker.ui_port', get_config_value('worker', 'ui_port', 8081, is_int=True), 8081, 1, 65535)
 UI_BIND_ADDRESS = get_config_value('worker', 'ui_bind_address', '0.0.0.0')
 UI_PASSWORD_HASH = get_config_value('worker', 'ui_password_hash', '')
 UI_PASSWORD_SALT = get_config_value('worker', 'ui_password_salt', '')
-
+# --- Caddy / Waitress Port Layout (Phase 5b) ---
+from sethlans_worker_agent.config_caddy_ports import load_caddy_port_config  # noqa: E402
+globals().update(load_caddy_port_config(UI_PORT, get_config_value, _validate_int))
 
 # --- Idle Detection & Scheduling Configuration (FR-1 through FR-8) ---
 from sethlans_worker_agent.config_idle import (  # noqa: E402
