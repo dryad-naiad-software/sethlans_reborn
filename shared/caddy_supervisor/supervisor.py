@@ -4,8 +4,12 @@
 """
 Caddy supervisor lifecycle (start / stop / watchdog).
 
-See ``sethlans_worker_agent/caddy_supervisor/__init__.py`` for the
-public API overview and supervision semantics.
+See ``shared/caddy_supervisor/__init__.py`` for the public API overview
+and supervision semantics. Generic across manager and worker: the
+caller supplies a pure-function Caddyfile renderer, a set of template
+kwargs, the env-var name used by the external-Caddyfile branch
+(Docker), and the mapping used to overlay those kwargs onto Caddy's
+spawn env.
 """
 
 from __future__ import annotations
@@ -17,11 +21,10 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Dict, Mapping, Optional, Union
 
-from sethlans_worker_agent.caddy_template import render_worker_caddyfile
-from sethlans_worker_agent.caddy_supervisor import process as _proc
-from sethlans_worker_agent.caddy_supervisor.io import atomic_write_text
+from shared.caddy_supervisor import process as _proc
+from shared.caddy_supervisor.io import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -32,49 +35,43 @@ STABLE_UPTIME_RESET_SECONDS = 60.0
 WATCHDOG_POLL_SECONDS = 0.5
 SHUTDOWN_DRAIN_DEFAULT_SECONDS = 10.0
 
-# When set, swaps templating for a pre-baked external Caddyfile
-# (Docker images, Phase 5c). Caddy resolves ``{$VAR}`` placeholders
-# from its process env. Unset on native dev / frozen-install.
-CADDYFILE_PATH_ENV = "SETHLANS_WORKER_CADDYFILE_PATH"
-
 
 class CaddyBinaryNotFoundError(RuntimeError):
     """Raised when the Caddy binary is missing or not executable."""
 
 
 class CaddyfileNotFoundError(RuntimeError):
-    """Raised when ``$SETHLANS_WORKER_CADDYFILE_PATH`` is missing/unreadable."""
+    """Raised when the external-Caddyfile env var points to a missing/unreadable path."""
 
 
 class CaddySupervisor:
-    """Supervise a Caddy subprocess for the worker agent.
+    """Supervise a Caddy subprocess.
 
-    The supervisor owns: Caddyfile templating/write, subprocess spawn,
-    watchdog thread for crash-restart, and graceful shutdown.
+    Generic across manager and worker. The caller supplies the
+    Caddyfile renderer (pure function returning a str) plus template
+    kwargs, the env-var name whose presence activates the external
+    (Docker) branch, and the mapping from template-kwarg name to env
+    var name used to overlay kwargs onto Caddy's spawn env in the
+    external branch.
     """
 
     def __init__(
         self,
         *,
-        binary_path: Path,
-        caddyfile_path: Path,
-        public_tls_port: int,
-        loopback_plaintext_port: int,
-        waitress_upstream_port: int,
-        cert_path: Union[str, Path],
-        key_path: Union[str, Path],
-        worker_data_dir: Union[str, Path],
+        binary_path: Union[str, Path],
+        caddyfile_path: Union[str, Path],
+        caddyfile_renderer: Callable[..., str],
+        template_kwargs: Mapping[str, object],
+        caddyfile_path_env: str,
+        env_overlay_mapping: Mapping[str, str],
     ) -> None:
+        """Construct a supervisor. See module docstring for semantics."""
         self._binary_path = Path(binary_path)
         self._caddyfile_path = Path(caddyfile_path)
-        self._template_kwargs = {
-            "public_tls_port": public_tls_port,
-            "loopback_plaintext_port": loopback_plaintext_port,
-            "waitress_upstream_port": waitress_upstream_port,
-            "cert_path": cert_path,
-            "key_path": key_path,
-            "worker_data_dir": worker_data_dir,
-        }
+        self._caddyfile_renderer = caddyfile_renderer
+        self._template_kwargs: Dict[str, object] = dict(template_kwargs)
+        self._caddyfile_path_env = caddyfile_path_env
+        self._env_overlay_mapping: Dict[str, str] = dict(env_overlay_mapping)
         self._process: Optional[subprocess.Popen] = None
         self._watchdog_thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
@@ -85,7 +82,7 @@ class CaddySupervisor:
         self._spawn_env: Optional[dict] = None
 
         #: Set when supervision has given up (retry budget exhausted).
-        #: The agent main loop polls this flag and exits 1 on detection.
+        #: The caller polls this flag and exits on detection.
         self.error_event = threading.Event()
 
     # ------------------------------------------------------------------
@@ -95,27 +92,19 @@ class CaddySupervisor:
     def start(self) -> None:
         """Template Caddyfile, spawn Caddy, start watchdog thread.
 
-        If ``$SETHLANS_WORKER_CADDYFILE_PATH`` is set, the supervisor
-        uses that path verbatim and SKIPS rendering/writing — the Docker
-        image ships a pre-baked static Caddyfile whose ``{$VAR}``
-        placeholders Caddy resolves from its process environment. In
-        that branch we also merge the template inputs into Caddy's
-        spawn env so the placeholders have values to resolve.
-
-        :raises CaddyBinaryNotFoundError: binary missing / not executable.
-        :raises CaddyfileNotFoundError: external path missing/unreadable.
-        :raises ValueError: template inputs fail validation (native only).
+        If ``<caddyfile_path_env>`` is set in ``os.environ``, use the
+        pre-baked Caddyfile at that path (Docker). Otherwise render via
+        ``caddyfile_renderer`` and atomically write to
+        ``caddyfile_path``.
         """
         self._validate_binary()
-        external_path = os.environ.get(CADDYFILE_PATH_ENV)
+        external_path = os.environ.get(self._caddyfile_path_env)
         if external_path:
             self._use_external_caddyfile(Path(external_path))
         else:
-            content = render_worker_caddyfile(**self._template_kwargs)
+            content = self._caddyfile_renderer(**self._template_kwargs)
             atomic_write_text(self._caddyfile_path, content)
-            logger.info(
-                "Worker Caddyfile written to %s", self._caddyfile_path,
-            )
+            logger.info("Caddyfile written to %s", self._caddyfile_path)
         self._spawn_locked()
 
         self._watchdog_thread = threading.Thread(
@@ -126,13 +115,7 @@ class CaddySupervisor:
         self._watchdog_thread.start()
 
     def stop(self, timeout: float = SHUTDOWN_DRAIN_DEFAULT_SECONDS) -> None:
-        """Stop Caddy gracefully; escalate to kill on timeout.
-
-        Signals shutdown to the watchdog first so a post-SIGTERM exit
-        does not trigger a spurious restart. Sends SIGTERM (POSIX) or
-        CTRL_BREAK_EVENT (Windows), waits up to ``timeout`` seconds,
-        then terminates / kills. Finally joins the watchdog thread.
-        """
+        """Stop Caddy gracefully; escalate to kill on timeout."""
         self._shutdown_event.set()
         with self._process_lock:
             proc = self._process
@@ -165,6 +148,17 @@ class CaddySupervisor:
             proc = self._process
         return proc is not None and proc.poll() is None
 
+    def update_template_kwargs(self, **new_kwargs) -> None:
+        """Update template kwargs; call :meth:`restart` to apply."""
+        self._template_kwargs.update(new_kwargs)
+
+    def restart(self, timeout: float = SHUTDOWN_DRAIN_DEFAULT_SECONDS) -> None:
+        """Stop Caddy and restart with a freshly rendered Caddyfile."""
+        self.stop(timeout=timeout)
+        self._shutdown_event.clear()
+        self.error_event.clear()
+        self.start()
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -183,32 +177,26 @@ class CaddySupervisor:
             )
 
     def _use_external_caddyfile(self, external: Path) -> None:
-        """Switch to an operator-supplied Caddyfile (Docker case).
-
-        Validates the file exists and is readable, then stages the
-        cert/key/port overlay merged into Caddy's spawn env so the
-        static Caddyfile's ``{$VAR}`` placeholders resolve.
-        """
+        """Switch to an operator-supplied Caddyfile (Docker case)."""
         if not external.is_file():
             raise CaddyfileNotFoundError(
-                f"{CADDYFILE_PATH_ENV} points to a non-existent file: "
-                f"{external}"
+                f"{self._caddyfile_path_env} points to a non-existent "
+                f"file: {external}"
             )
         if not os.access(external, os.R_OK):
             raise CaddyfileNotFoundError(
-                f"{CADDYFILE_PATH_ENV} target is not readable: {external}"
+                f"{self._caddyfile_path_env} target is not readable: "
+                f"{external}"
             )
         self._caddyfile_path = external
-        tk = self._template_kwargs
-        self._spawn_env = {
-            "SETHLANS_WORKER_CADDY_PUBLIC_TLS_PORT": str(tk["public_tls_port"]),
-            "SETHLANS_WORKER_CADDY_LOOPBACK_PORT": str(tk["loopback_plaintext_port"]),
-            "SETHLANS_WORKER_WAITRESS_UPSTREAM_PORT": str(tk["waitress_upstream_port"]),
-            "SETHLANS_WORKER_CERT_PATH": str(tk["cert_path"]),
-            "SETHLANS_WORKER_KEY_PATH": str(tk["key_path"]),
-        }
+        overlay: Dict[str, str] = {}
+        for kwarg_name, env_name in self._env_overlay_mapping.items():
+            if kwarg_name not in self._template_kwargs:
+                continue
+            overlay[env_name] = str(self._template_kwargs[kwarg_name])
+        self._spawn_env = overlay
         logger.info(
-            "Using external worker Caddyfile at %s (skipping template)",
+            "Using external Caddyfile at %s (skipping template)",
             external,
         )
 
@@ -221,12 +209,7 @@ class CaddySupervisor:
             self._process = proc
 
     def _watchdog_loop(self) -> None:
-        """Poll Caddy for crashes and restart within the retry budget.
-
-        Restart counter resets after ``STABLE_UPTIME_RESET_SECONDS`` of
-        stable uptime, which prevents a long-running worker from burning
-        its retries on rare transient crashes.
-        """
+        """Poll Caddy and restart on crash within the retry budget."""
         last_spawn_monotonic = time.monotonic()
         restart_attempts = 0
         while not self._shutdown_event.is_set():
@@ -267,11 +250,7 @@ class CaddySupervisor:
     def _handle_crash(
         self, exit_code: int, restart_attempts: int,
     ) -> tuple[float, int, bool]:
-        """Process a detected Caddy exit; return (last_spawn_ts, attempts, stop).
-
-        ``stop`` is True when the watchdog should exit its loop (either
-        retry budget exhausted or shutdown signalled during backoff).
-        """
+        """Process a detected Caddy exit; return (last_spawn_ts, attempts, stop)."""
         logger.warning(
             "Caddy exited with code %s (attempt %d/%d)",
             exit_code, restart_attempts + 1, MAX_RESTART_ATTEMPTS,

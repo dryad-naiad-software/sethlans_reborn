@@ -29,11 +29,11 @@ from unittest.mock import patch
 
 import pytest
 
-from sethlans_worker_agent.caddy_supervisor import (
+from shared.caddy_supervisor import (
     CaddyBinaryNotFoundError,
     atomic_write_text,
 )
-from sethlans_worker_agent.caddy_supervisor import supervisor as sup_mod
+from shared.caddy_supervisor import supervisor as sup_mod
 from tests.unit.worker._caddy_supervisor_helpers import (
     FakeProc, make_supervisor, make_worker_tree,
 )

@@ -22,11 +22,9 @@ from unittest.mock import patch
 
 import pytest
 
-from sethlans_worker_agent.caddy_supervisor import (
-    CADDYFILE_PATH_ENV,
-    CaddyfileNotFoundError,
-)
-from sethlans_worker_agent.caddy_supervisor import supervisor as sup_mod
+from sethlans_worker_agent.agent_caddy import CADDYFILE_PATH_ENV
+from shared.caddy_supervisor import CaddyfileNotFoundError
+from shared.caddy_supervisor import supervisor as sup_mod
 from tests.unit.worker._caddy_supervisor_helpers import (
     FakeProc, make_supervisor, make_worker_tree,
 )

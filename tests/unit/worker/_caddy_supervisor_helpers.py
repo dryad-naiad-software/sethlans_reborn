@@ -8,7 +8,12 @@ from __future__ import annotations
 import subprocess
 from types import SimpleNamespace
 
-from sethlans_worker_agent.caddy_supervisor import CaddySupervisor
+from sethlans_worker_agent.agent_caddy import (
+    CADDYFILE_PATH_ENV,
+    _WORKER_ENV_OVERLAY,
+)
+from sethlans_worker_agent.caddy_template import render_worker_caddyfile
+from shared.caddy_supervisor import CaddySupervisor
 
 
 def make_worker_tree(tmp_path) -> SimpleNamespace:
@@ -37,16 +42,22 @@ def make_worker_tree(tmp_path) -> SimpleNamespace:
 
 
 def make_supervisor(worker_tree) -> CaddySupervisor:
-    """Construct a CaddySupervisor with valid defaults."""
+    """Construct a worker-flavoured CaddySupervisor with valid defaults."""
+    template_kwargs = {
+        'public_tls_port': 8443,
+        'loopback_plaintext_port': 18443,
+        'waitress_upstream_port': 28443,
+        'cert_path': worker_tree.cert,
+        'key_path': worker_tree.key,
+        'worker_data_dir': worker_tree.data_dir,
+    }
     return CaddySupervisor(
         binary_path=worker_tree.binary,
         caddyfile_path=worker_tree.caddyfile,
-        public_tls_port=8443,
-        loopback_plaintext_port=18443,
-        waitress_upstream_port=28443,
-        cert_path=worker_tree.cert,
-        key_path=worker_tree.key,
-        worker_data_dir=worker_tree.data_dir,
+        caddyfile_renderer=render_worker_caddyfile,
+        template_kwargs=template_kwargs,
+        caddyfile_path_env=CADDYFILE_PATH_ENV,
+        env_overlay_mapping=_WORKER_ENV_OVERLAY,
     )
 
 

@@ -21,6 +21,25 @@ port = 8080
 # SETHLANS_MANAGER_LOOPBACK_PORT environment variable.
 # Default: 8088
 # loopback_port = 8088
+#
+# --- Caddy front-door ports (manager spec Phase 3) ---
+# Caddy terminates TLS on ``public_port`` and exposes a loopback
+# plaintext listener on ``caddy_loopback_port``. Both proxy to the
+# underlying uvicorn / Waitress listeners. Override with
+# SETHLANS_MANAGER_PUBLIC_PORT / SETHLANS_MANAGER_CADDY_LOOPBACK_PORT.
+#
+# Default: public_port = port (same 8080 TLS port workers connect to).
+# public_port = 8080
+# Default: caddy_loopback_port = 8089 (distinct from loopback_port
+# which Waitress owns).
+# caddy_loopback_port = 8089
+#
+# Path override for the launcher-templated Caddyfile. Defaults to
+# ``<manager_data_dir>/caddy/Caddyfile``. When
+# ``SETHLANS_MANAGER_CADDYFILE_PATH`` env var is set at launch time,
+# the launcher skips templating and uses that path verbatim — this is
+# how the Docker image ships a static Caddyfile.
+# caddyfile_path =
 
 [tls]
 # Path to PEM-encoded certificate file.

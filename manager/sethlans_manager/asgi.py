@@ -6,12 +6,17 @@
 ASGI config for sethlans_manager project.
 
 Exposes the ASGI callable as a module-level variable named ``application``.
-The application is a lifespan-aware wrapper around the Django ASGI app
-so uvicorn's lifespan protocol can drive broadcaster start/stop — see
-spec FR-7 for the full rationale.
+The application is a lifespan-aware wrapper around the Django ASGI app.
 
-For the standard Django ASGI entry point documentation see
-https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
+Phase 3 status (manager spec): ``MulticastBroadcaster.start()/.stop()``
+has moved to ``launcher/run_launcher.py``; the lifespan hooks below
+are reduced to log-only no-ops. The lifespan coroutine inside
+``application(...)`` is preserved so uvicorn's lifespan protocol is
+still satisfied during the hybrid Phase 3 serving path (uvicorn main
+listener + Waitress loopback + Caddy front door). This file is only
+**deleted in Phase 7** — keeping it as a no-op here prevents a
+double-broadcaster boot (one from launcher + one from asgi.py) and
+avoids a no-broadcaster boot if the launcher's start fails.
 """
 
 import logging
@@ -36,54 +41,34 @@ if os.environ.get('SETHLANS_DEV_MODE') == '1':
     from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
     _django_app = ASGIStaticFilesHandler(_django_app)
 
-# Imported after Django is initialised.
-from sethlans_manager import runtime_state  # noqa: E402
-from workers.multicast_broadcaster import (  # noqa: E402
-    MulticastBroadcaster,
-)
-
 logger = logging.getLogger(__name__)
-
-_broadcaster: MulticastBroadcaster | None = None
 
 
 async def _on_startup() -> None:
-    """Lifespan startup hook: start the multicast broadcaster.
+    """Lifespan startup hook: broadcaster now owned by launcher.
 
-    Skipped in the uvicorn ``--dev`` reloader parent so only the reload
-    child runs a broadcaster.  Also a no-op when ``runtime_state`` has
-    not been populated yet (e.g., an incomplete startup) — the enroll
-    view will return 503 until ``run_manager.py`` seeds the values.
+    Reduced to a log-only no-op in manager spec Phase 3; the
+    launcher owns ``MulticastBroadcaster`` lifecycle via its own
+    signal-handler wiring. Kept here so uvicorn's lifespan protocol
+    receives a ``lifespan.startup.complete`` message as it always
+    has. File is deleted in Phase 7.
     """
-    global _broadcaster
-    if (
-        os.environ.get("SETHLANS_DEV_MODE") == "1"
-        and os.environ.get("RUN_MAIN") != "true"
-    ):
-        return
-    if runtime_state.manager_id is None:
-        logger.warning(
-            "Broadcaster not started: runtime_state.manager_id is None"
-        )
-        return
-    _broadcaster = MulticastBroadcaster(
-        manager_id=runtime_state.manager_id,
-        name=runtime_state.broadcaster_name or "Sethlans Manager",
-        host=runtime_state.broadcaster_host or "",
-        ip=runtime_state.broadcaster_ip or "0.0.0.0",
-        port=runtime_state.broadcaster_port or 8080,
-        version=runtime_state.broadcaster_version or "0.0.0",
+    logger.debug(
+        "asgi lifespan startup: broadcaster now owned by launcher "
+        "(manager spec Phase 3; no-op here)."
     )
-    _broadcaster.start()
 
 
 async def _on_shutdown() -> None:
-    """Lifespan shutdown hook: stop and join the broadcaster thread."""
-    global _broadcaster
-    if _broadcaster is not None:
-        _broadcaster.stop()
-        _broadcaster.join(timeout=5.0)
-        _broadcaster = None
+    """Lifespan shutdown hook: broadcaster now owned by launcher.
+
+    See :func:`_on_startup`. No-op; retained so the lifespan
+    protocol round-trips cleanly.
+    """
+    logger.debug(
+        "asgi lifespan shutdown: broadcaster teardown owned by "
+        "launcher (manager spec Phase 3; no-op here)."
+    )
 
 
 async def application(scope, receive, send):

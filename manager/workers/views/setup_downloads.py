@@ -24,6 +24,10 @@ from rest_framework.response import Response
 from shared.frozen_paths import get_data_dir, is_frozen
 from workers.authentication import SetupPhaseAuthentication
 from workers.permissions import IsSetupPhaseUser
+from workers.services.setup_lock import (
+    setup_conflict_response,
+    setup_mutation_lock,
+)
 from workers.services.setup_session import enforce_setup_session_binding
 from workers.services.sentinel import append_checkpoint
 from workers.services.download_progress import (
@@ -58,6 +62,13 @@ def _get_data_dir() -> Path:
 def setup_ffmpeg_start_view(request):
     """POST /api/setup/ffmpeg/start/ (FR-A7)."""
     enforce_setup_session_binding(request)
+    with setup_mutation_lock() as acquired:
+        if not acquired:
+            return setup_conflict_response()
+        return _setup_ffmpeg_start_locked()
+
+
+def _setup_ffmpeg_start_locked():
     data_dir = _get_data_dir()
 
     # Already installed? (FR-FF5)
@@ -143,6 +154,13 @@ def _get_default_blender_version() -> tuple[str, str] | None:
 def setup_blender_start_view(request):
     """POST /api/setup/blender/start/ (FR-A10)."""
     enforce_setup_session_binding(request)
+    with setup_mutation_lock() as acquired:
+        if not acquired:
+            return setup_conflict_response()
+        return _setup_blender_start_locked()
+
+
+def _setup_blender_start_locked():
     version_info = _get_default_blender_version()
     if not version_info:
         return setup_error(

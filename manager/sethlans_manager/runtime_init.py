@@ -183,3 +183,64 @@ def initialize_runtime_state(cert, enrollment_cfg, bind_host, bind_port):
     )
     runtime_state.broadcaster_port = int(bind_port)
     runtime_state.broadcaster_version = manager_version
+
+    _publish_broadcaster_params()
+
+
+def _publish_broadcaster_params() -> None:
+    """Atomically write broadcaster params to ``<data_dir>/broadcaster_params.json``.
+
+    Manager spec Phase 3: the launcher owns the ``MulticastBroadcaster``
+    lifecycle, but the inputs (manager_id, broadcaster_ip, etc.) are
+    computed Django-side. This function publishes those inputs so the
+    launcher's poll loop can pick them up and start the broadcaster.
+
+    The asgi.py lifespan startup hook is already a no-op in Phase 3 —
+    this file-based IPC is how the launcher obtains the inputs.
+    """
+    import json
+    import tempfile
+    from sethlans_manager import runtime_state
+    from shared.frozen_paths import get_data_dir, is_frozen
+
+    if is_frozen():
+        data_dir = get_data_dir("manager")
+    else:
+        from django.conf import settings
+        data_dir = Path(settings.BASE_DIR)
+    target = data_dir / "broadcaster_params.json"
+
+    payload = {
+        "manager_id": runtime_state.manager_id,
+        "manager_boot_id": runtime_state.manager_boot_id,
+        "name": runtime_state.broadcaster_name or "Sethlans Manager",
+        "host": runtime_state.broadcaster_host or "",
+        "ip": runtime_state.broadcaster_ip or "0.0.0.0",
+        "port": int(runtime_state.broadcaster_port or 8080),
+        "version": runtime_state.broadcaster_version or "0.0.0",
+    }
+
+    # Atomic write — mkstemp in the same dir, then os.replace.
+    parent = str(target.parent)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=parent, prefix=".broadcaster_", suffix=".tmp",
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except OSError:
+                pass
+        os.replace(str(tmp_path), str(target))
+    except Exception:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        logger.exception(
+            "Failed to publish broadcaster params to %s", target,
+        )
