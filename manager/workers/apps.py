@@ -21,7 +21,7 @@ class WorkersConfig(AppConfig):
         # on frozen builds where ``AdminEmailHandler``'s import chain isn't
         # collected.  Calling ``configure()`` here covers entry points that
         # don't invoke it explicitly (manage.py, pytest, etc.); explicit
-        # callers in ``run_manager.py`` / ``asgi.py`` remain idempotent.
+        # callers in ``run_manager.py`` remain idempotent.
         from sethlans_manager.logging_config import configure as _cfg
         _cfg()
 

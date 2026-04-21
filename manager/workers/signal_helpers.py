@@ -8,11 +8,12 @@ Phase 4 thread-safety rewrite
 -----------------------------
 The previous implementation used ``post_save.disconnect(handler,
 sender=sender)`` / ``connect`` around the save loop to keep the handler
-from recursing into itself.  That is correct under single-threaded
-uvicorn because Django's signal dispatcher is a per-process registry —
-but it is **globally visible**.  The moment threaded Waitress dispatches
-two requests that both try to generate a thumbnail, Thread A's
-``disconnect`` silently suppresses Thread B's legitimate signal fire.
+from recursing into itself.  That is correct under a single-threaded
+WSGI worker because Django's signal dispatcher is a per-process
+registry — but it is **globally visible**.  The moment threaded
+Waitress dispatches two requests that both try to generate a
+thumbnail, Thread A's ``disconnect`` silently suppresses Thread B's
+legitimate signal fire.
 
 Phase 4 replaces the disconnect/connect dance with a per-thread
 "skip-me" flag held in ``threading.local()`` and surfaced as a

@@ -5,7 +5,7 @@
 """
 PyInstaller spec file for the Sethlans Manager.
 
-Freezes the Django ASGI manager into a one-dir bundle.
+Freezes the Django WSGI manager (Waitress) into a one-dir bundle.
 Usage: pyinstaller packaging/pyinstaller/manager.spec
 """
 
@@ -59,23 +59,10 @@ hiddenimports += collect_submodules('whitenoise')
 # correctness.
 hiddenimports += collect_submodules('django')
 
-# Uvicorn internals (lazy-loaded)
-hiddenimports += [
-    'uvicorn.logging',
-    'uvicorn.loops',
-    'uvicorn.loops.auto',
-    'uvicorn.protocols',
-    'uvicorn.protocols.http',
-    'uvicorn.protocols.http.auto',
-    'uvicorn.protocols.websockets',
-    'uvicorn.protocols.websockets.auto',
-    'uvicorn.lifespan',
-    'uvicorn.lifespan.on',
-    'httptools',
-]
-# uvloop is Linux/macOS only
-if sys.platform != 'win32':
-    hiddenimports.append('uvloop')
+# Waitress submodules (lazy-loaded: waitress.task, waitress.wasyncore,
+# waitress.channel, etc.). PyInstaller's static analysis only follows
+# explicit imports and misses most of these.
+hiddenimports += collect_submodules('waitress')
 
 # Explicit hidden imports for packages with lazy loading
 hiddenimports += [

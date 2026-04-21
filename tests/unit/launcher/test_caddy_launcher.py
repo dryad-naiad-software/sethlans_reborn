@@ -54,8 +54,8 @@ def test_build_manager_caddy_supervisor_wires_renderer_and_overlay(
         caddyfile_path=manager_tree['caddyfile'],
         public_tls_port=8080,
         loopback_plaintext_port=8089,
-        uvicorn_upstream_port=18080,
-        waitress_loopback_upstream_port=18088,
+        waitress_public_port=18080,
+        waitress_internal_port=18088,
         cert_path=manager_tree['cert'],
         key_path=manager_tree['key'],
         manager_data_dir=manager_tree['data_dir'],
@@ -79,7 +79,7 @@ def test_apply_restart_request_updates_kwargs_and_restarts():
     fake_sv = MagicMock()
     request = {
         "public_tls_port": 9999,
-        "uvicorn_upstream_port": 19999,
+        "waitress_public_port": 19999,
     }
     cl_mod.apply_restart_request(fake_sv, request)
     fake_sv.update_template_kwargs.assert_called_once_with(**request)

@@ -52,8 +52,8 @@ def _valid_kwargs(manager_paths):
     return {
         'public_tls_port': 8080,
         'loopback_plaintext_port': 8089,
-        'uvicorn_upstream_port': 18080,
-        'waitress_loopback_upstream_port': 18088,
+        'waitress_public_port': 18080,
+        'waitress_internal_port': 18088,
         'cert_path': manager_paths['cert_path'],
         'key_path': manager_paths['key_path'],
         'manager_data_dir': manager_paths['data_dir'],
@@ -74,7 +74,7 @@ class TestHappyPath:
         out = render_manager_caddyfile(**_valid_kwargs(manager_paths))
         assert ':8080 {' in out  # public TLS vhost bind
         assert '127.0.0.1:8089' in out  # loopback plaintext bind
-        assert '127.0.0.1:18080' in out  # uvicorn upstream
+        assert '127.0.0.1:18080' in out  # waitress public upstream
         assert '127.0.0.1:18088' in out  # waitress loopback upstream
 
     def test_contains_cert_and_key_paths(self, manager_paths):

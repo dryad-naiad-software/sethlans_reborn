@@ -7,8 +7,8 @@ Entry point for the Sethlans Manager HTTP(S) server.
 Applies database migrations and generates or loads TLS certificates
 (Caddy consumes them at the front door — Waitress itself runs plaintext
 on loopback). Phase 5 of the waitress-migration spec swapped the
-serving path from uvicorn+ASGI to Waitress+WSGI with two loopback
-listeners (public-origin + internal-origin), both fronted by Caddy.
+serving path to Waitress+WSGI with two loopback listeners
+(public-origin + internal-origin), both fronted by Caddy.
 
 Usage:
     python manager/run_manager.py          # Production mode (Waitress)

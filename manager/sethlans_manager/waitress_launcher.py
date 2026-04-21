@@ -4,9 +4,9 @@
 """
 Waitress launch orchestration for the Sethlans Manager (Phase 5).
 
-Phase 5 of ``development/specs/waitress-migration-manager.md`` swapped
-the manager's serving path from uvicorn+ASGI to Waitress+WSGI with two
-loopback listeners:
+Phase 5 of ``development/specs/waitress-migration-manager.md`` wired
+the manager's serving path to Waitress+WSGI with two loopback
+listeners:
 
 * ``127.0.0.1:<public_port>``   — public-origin, fronted by Caddy's
   public TLS vhost.

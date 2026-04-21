@@ -4,11 +4,10 @@
 """
 Launcher-side MulticastBroadcaster supervision (manager spec Phase 3).
 
-Moved from ``manager/sethlans_manager/asgi.py`` (where it ran inside
-the uvicorn lifespan hook) to the launcher so the broadcaster lives
-with process lifecycle rather than with the Django app server. Under
-Phase 3 the asgi.py lifespan hooks are reduced to log-only no-ops;
-this module is the new owner.
+Moved out of the Django app server and into the launcher so the
+broadcaster lives with process lifecycle rather than with the WSGI
+server. Phase 3 relocated the ownership here; Phase 7 removed the
+last Django-side shim. This module is the sole owner.
 
 **Send-only invariant** (FR-9 / restated): ``MulticastBroadcaster`` has
 no socket read loop. Its threat model post-move is unchanged — it

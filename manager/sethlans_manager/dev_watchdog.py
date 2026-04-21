@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Dev hot-reload watchdog wrapper (Phase 6).
 
-Parent/child supervisor that mirrors uvicorn's ``--reload`` semantics
-for the Waitress production path. The parent process owns the
+Parent/child supervisor that provides ``--reload``-style hot-reload
+semantics for the Waitress production path. The parent process owns the
 filesystem observer and child-lifecycle signalling; the child actually
 serves HTTP traffic. On any ``*.py`` change under ``manager/``, the
 parent debounces a 500 ms window of events and then restarts the

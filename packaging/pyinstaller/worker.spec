@@ -30,14 +30,14 @@ hiddenimports = []
 hiddenimports += collect_submodules('sethlans_worker_agent')
 hiddenimports += collect_submodules('shared')
 
-# Waitress WSGI server (Phase 5 of the Waitress migration replaced
-# uvicorn with Waitress for the worker's embedded web UI). Waitress
-# has several submodules PyInstaller's static import walker can miss
-# (``waitress.task``, ``waitress.wasyncore``, ``waitress.adjustments``,
-# ``waitress.parser``, ``waitress.utilities``). collect_submodules
-# gives belt-and-braces coverage; the explicit top-level import below
-# ensures the package root is resolvable even if the submodule walk
-# returns empty on some platforms.
+# Waitress WSGI server (Phase 5 of the Waitress migration wired the
+# worker's embedded web UI to Waitress). Waitress has several submodules
+# PyInstaller's static import walker can miss (``waitress.task``,
+# ``waitress.wasyncore``, ``waitress.adjustments``, ``waitress.parser``,
+# ``waitress.utilities``). collect_submodules gives belt-and-braces
+# coverage; the explicit top-level import below ensures the package
+# root is resolvable even if the submodule walk returns empty on some
+# platforms.
 hiddenimports += collect_submodules('waitress')
 hiddenimports += ['waitress']
 
@@ -111,18 +111,7 @@ a = Analysis(
     hookspath=[str(SPEC_DIR / 'hooks')],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        # Phase 5a/5b of the Waitress migration removed uvicorn and the
-        # asgiref WsgiToAsgi bridge from the worker. Exclude them (and
-        # uvicorn's optional C-extension speedups) so a stray transitive
-        # import does not silently re-bundle ~10MB of dead code. Full
-        # uvicorn/uvloop/httptools cleanup from requirements.txt lands
-        # in Phase 7; this exclude list is the packaging-level guard.
-        'uvicorn',
-        'asgiref',
-        'uvloop',
-        'httptools',
-    ],
+    excludes=[],
     noarchive=False,
 )
 

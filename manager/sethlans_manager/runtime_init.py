@@ -6,8 +6,8 @@ Startup-time population of ``sethlans_manager.runtime_state``.
 
 Extracted from ``run_manager.py`` so that module stays under the 300-line
 limit.  The helpers here run AFTER Django has been set up but BEFORE
-uvicorn takes over — the ASGI lifespan hooks in ``asgi.py`` read these
-values on process startup.
+Waitress takes over — the launcher's broadcaster supervisor reads
+these values from ``broadcaster_params.json`` on process startup.
 """
 
 import configparser
@@ -195,8 +195,9 @@ def _publish_broadcaster_params() -> None:
     computed Django-side. This function publishes those inputs so the
     launcher's poll loop can pick them up and start the broadcaster.
 
-    The asgi.py lifespan startup hook is already a no-op in Phase 3 —
-    this file-based IPC is how the launcher obtains the inputs.
+    This file-based IPC is how the launcher obtains the inputs —
+    Django no longer hosts the broadcaster in-process (relocated in
+    Phase 3 and formalised with the Phase 7 deletions).
     """
     import json
     import tempfile

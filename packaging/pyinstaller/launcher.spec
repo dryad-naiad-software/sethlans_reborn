@@ -63,7 +63,6 @@ a = Analysis(
     excludes=[
         'django',
         'rest_framework',
-        'uvicorn',
         'PIL',
         'psutil',
         'cryptography',

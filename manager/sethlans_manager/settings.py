@@ -177,7 +177,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'sethlans_manager.wsgi.application'
-ASGI_APPLICATION = 'sethlans_manager.asgi.application'
 
 
 # Database

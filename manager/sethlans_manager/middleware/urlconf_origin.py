@@ -92,9 +92,9 @@ class UrlconfOriginMiddleware:
             return self.get_response(request)
 
         if self._public_port is None or server_port == self._public_port:
-            # Main (uvicorn) listener — leave ROOT_URLCONF in effect.
-            # When the public port is unset (e.g. early Phase 2 boot),
-            # we treat any non-internal port as public.
+            # Public-origin Waitress listener — leave ROOT_URLCONF
+            # in effect. When the public port is unset (e.g. early
+            # Phase 2 boot), we treat any non-internal port as public.
             return self.get_response(request)
 
         # Unknown port — fail closed.  This indicates a misconfigured

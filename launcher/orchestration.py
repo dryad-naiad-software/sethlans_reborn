@@ -79,8 +79,8 @@ def wait_for_manager_ready(
                     if resp.status_code == 200:
                         return True
                 except requests.exceptions.RequestException:
-                    # uvicorn still binding / TLS handshake not ready —
-                    # expected during cold start, keep polling.
+                    # Caddy / Waitress still binding or TLS handshake not
+                    # ready — expected during cold start, keep polling.
                     pass
                 if time.monotonic() >= deadline:
                     logger.warning(

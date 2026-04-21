@@ -32,8 +32,10 @@ manager_boot_id: Optional[str] = uuid.uuid4().hex
 cert_fingerprint: Optional[str] = None
 
 # Optional broadcaster configuration fields — populated by ``run_manager.py``
-# if the manager is running with the multicast broadcaster enabled.  Read
-# by the ASGI lifespan startup hook in ``sethlans_manager/asgi.py``.
+# if the manager is running with the multicast broadcaster enabled.
+# Published to ``<data_dir>/broadcaster_params.json`` for the launcher's
+# broadcaster supervisor to read (the broadcaster itself lives in the
+# launcher process, not inside Django).
 broadcaster_name: Optional[str] = None
 broadcaster_host: Optional[str] = None
 broadcaster_ip: Optional[str] = None

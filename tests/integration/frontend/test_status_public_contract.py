@@ -7,8 +7,9 @@ endpoint ``GET /api/status/public/``.
 
 Per ``development/specs/tray-helper-unified.md`` FR-22 / FR-22a:
 
-* Served ONLY by the dedicated loopback ASGI app
-  (``sethlans_manager.urls_loopback``), bound to
+* Served ONLY by the internal-origin Waitress loopback listener,
+  which pins ``request.urlconf`` to
+  ``sethlans_manager.urls_loopback`` and is bound to
   ``127.0.0.1:<loopback_port>``.
 * Response shape has EXACTLY these keys:
   ``boot_id``, ``version``, ``setup_mode``, ``workers_online``,
@@ -38,9 +39,9 @@ pytestmark = [
     pytest.mark.django_db,
 ]
 
-# The loopback uvicorn listener mounts the urls_loopback urlconf on its
-# own socket at runtime. In pytest we swap ROOT_URLCONF per-test to
-# exercise the same view-level contract.
+# The internal-origin Waitress loopback listener pins the urls_loopback
+# urlconf on its own socket at runtime. In pytest we swap ROOT_URLCONF
+# per-test to exercise the same view-level contract.
 _loopback_urlconf = override_settings(
     ROOT_URLCONF="sethlans_manager.urls_loopback",
 )
@@ -60,10 +61,10 @@ def _get_via_loopback_urlconf():
     """Invoke the loopback urlconf directly via Django's test Client.
 
     The loopback urlconf is the same Python process as the main
-    listener but is served by a separate uvicorn instance at runtime.
-    We ``override_settings(ROOT_URLCONF=...)`` to route the test
-    request through ``sethlans_manager.urls_loopback`` — close enough
-    to verify view-level shape contracts.
+    listener but is served by a separate Waitress loopback listener
+    at runtime. We ``override_settings(ROOT_URLCONF=...)`` to route
+    the test request through ``sethlans_manager.urls_loopback`` —
+    close enough to verify view-level shape contracts.
     """
     with _loopback_urlconf:
         return Client().get("/api/status/public/")

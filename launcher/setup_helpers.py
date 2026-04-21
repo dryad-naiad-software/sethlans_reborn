@@ -28,8 +28,8 @@ MANAGER_PORT_RANGE_END = 8099
 
 # Caddy public TLS listener default. Shares the same numeric port
 # workers historically used; launcher keeps the on-the-wire contract
-# identical when setup is complete (Caddy terminates instead of
-# uvicorn, but the handshake cert bytes match).
+# identical when setup is complete (Caddy terminates TLS in front of
+# Waitress, but the handshake cert bytes match).
 CADDY_PUBLIC_TLS_PORT = 8080
 # Caddy loopback plaintext listener default. Must not overlap with
 # the Waitress loopback listener (port 8088 — spec Phase 2).
@@ -53,7 +53,7 @@ def find_available_port(start: int = MANAGER_PORT) -> int:
 
     Tries ports from *start* through ``MANAGER_PORT_RANGE_END``.
     Returns the first available port, or *start* if none are free
-    (best-effort; uvicorn will handle the actual bind).
+    (best-effort; Waitress will handle the actual bind).
     """
     for port in range(start, MANAGER_PORT_RANGE_END + 1):
         try:

@@ -4,11 +4,11 @@
 """
 Loopback-only public status endpoint for the tray helper.
 
-Served ONLY by the loopback uvicorn listener
-(``127.0.0.1:<loopback_port>``) — see ``sethlans_manager.asgi_loopback``
-and ``sethlans_manager.urls_loopback``.  The main 0.0.0.0 HTTPS listener
-does NOT register this path; requests to ``/api/status/public/`` on the
-main listener return 404.
+Served ONLY by the internal-origin Waitress loopback listener
+(``127.0.0.1:<internal_port>``), which pins ``request.urlconf`` to
+``sethlans_manager.urls_loopback`` via ``UrlconfOriginMiddleware``.
+The public-origin listener does NOT register this path; requests to
+``/api/status/public/`` on the public listener return 404.
 
 Network isolation (loopback-only socket binding) is the authorization
 gate — the view itself has no auth classes and no permission check.
@@ -128,7 +128,9 @@ def status_public_view(request):
     """Return the tray's status payload.
 
     No auth classes, no CSRF — reachability is gated at the socket layer
-    (this path is registered only on the loopback ASGI app).
+    (this path is registered only on the loopback URLconf, pinned by
+    the urlconf-origin middleware on the internal-origin Waitress
+    listener).
     """
     data_dir = _get_data_dir()
     payload = {

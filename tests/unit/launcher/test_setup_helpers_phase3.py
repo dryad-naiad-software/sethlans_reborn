@@ -97,7 +97,7 @@ class TestSetupRestartRequestIpc:
         manager_data.mkdir()
         payload = {
             "public_tls_port": 9000,
-            "uvicorn_upstream_port": 19000,
+            "waitress_public_port": 19000,
         }
         write_setup_restart_request(manager_data, payload)
 
