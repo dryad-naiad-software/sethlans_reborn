@@ -30,6 +30,17 @@ hiddenimports = []
 hiddenimports += collect_submodules('sethlans_worker_agent')
 hiddenimports += collect_submodules('shared')
 
+# Waitress WSGI server (Phase 5 of the Waitress migration replaced
+# uvicorn with Waitress for the worker's embedded web UI). Waitress
+# has several submodules PyInstaller's static import walker can miss
+# (``waitress.task``, ``waitress.wasyncore``, ``waitress.adjustments``,
+# ``waitress.parser``, ``waitress.utilities``). collect_submodules
+# gives belt-and-braces coverage; the explicit top-level import below
+# ensures the package root is resolvable even if the submodule walk
+# returns empty on some platforms.
+hiddenimports += collect_submodules('waitress')
+hiddenimports += ['waitress']
+
 # Explicit hidden imports for hardware detection and networking
 hiddenimports += [
     'psutil',
@@ -69,19 +80,49 @@ if WEB_UI_STATIC.exists():
         'sethlans_worker_agent/web_ui/static',
     ))
 
+# --- Caddy binary ---
+# Phase 5 of the worker Waitress migration introduced a Caddy front
+# proxy for TLS termination. The worker supervises Caddy as a child
+# process (sethlans_worker_agent.caddy_supervisor), so the frozen
+# worker bundle must ship the Caddy binary alongside run_worker.
+#
+# Source path: .venv-build/caddy/caddy[.exe] — populated by
+# tools/fetch_caddy.py via the CI workflows and dev-setup script.
+# Destination: '.' → root of the one-dir bundle, next to run_worker.
+_CADDY_NAME = 'caddy.exe' if sys.platform == 'win32' else 'caddy'
+_CADDY_SRC = PROJECT_ROOT / '.venv-build' / 'caddy' / _CADDY_NAME
+if not _CADDY_SRC.is_file():
+    raise SystemExit(
+        f"Caddy binary not found at {_CADDY_SRC}. Run "
+        "`python tools/fetch_caddy.py --target-dir .venv-build/caddy` "
+        "or `python tools/dev_setup.py` before building the worker."
+    )
+caddy_binaries = [(str(_CADDY_SRC), '.')]
+
 # --- Platform-specific console setting ---
 is_windows = sys.platform == 'win32'
 
 a = Analysis(
     [str(WORKER_DIR / 'run_worker.py')],
     pathex=[str(WORKER_DIR), str(PROJECT_ROOT)],
-    binaries=[],
+    binaries=caddy_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[str(SPEC_DIR / 'hooks')],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        # Phase 5a/5b of the Waitress migration removed uvicorn and the
+        # asgiref WsgiToAsgi bridge from the worker. Exclude them (and
+        # uvicorn's optional C-extension speedups) so a stray transitive
+        # import does not silently re-bundle ~10MB of dead code. Full
+        # uvicorn/uvloop/httptools cleanup from requirements.txt lands
+        # in Phase 7; this exclude list is the packaging-level guard.
+        'uvicorn',
+        'asgiref',
+        'uvloop',
+        'httptools',
+    ],
     noarchive=False,
 )
 
