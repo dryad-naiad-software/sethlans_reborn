@@ -32,6 +32,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # TARGETARCH is BuildKit-provided; falls back to amd64 for classic docker build.
 COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /usr/local/bin/caddy
 
+# Static worker Caddyfile. caddy_supervisor reads SETHLANS_WORKER_CADDYFILE_PATH
+# and skips its native template-and-write branch; Caddy resolves the
+# {$VAR} placeholders from env at config-load time.
+COPY deploy/docker/worker/Caddyfile /etc/caddy/Caddyfile
+
 COPY worker/ /app/
 
 VOLUME ["/data", "/config"]
@@ -39,7 +44,8 @@ VOLUME ["/data", "/config"]
 ENV SETHLANS_WORKER_DATA_DIR=/data \
     SETHLANS_IDLE_DETECTION_ENABLED=false \
     SETHLANS_WORKER_UI_ENABLED=true \
-    SETHLANS_FORCE_CPU_ONLY=true
+    SETHLANS_FORCE_CPU_ONLY=true \
+    SETHLANS_WORKER_CADDYFILE_PATH=/etc/caddy/Caddyfile
 
 EXPOSE 8081
 

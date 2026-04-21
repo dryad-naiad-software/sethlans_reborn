@@ -37,8 +37,10 @@ Subprocess hardening:
 """
 
 from sethlans_worker_agent.caddy_supervisor.supervisor import (
+    CADDYFILE_PATH_ENV,
     CaddyBinaryNotFoundError,
     CaddySupervisor,
+    CaddyfileNotFoundError,
     MAX_RESTART_ATTEMPTS,
     RESTART_BACKOFF_SECONDS,
     SHUTDOWN_DRAIN_DEFAULT_SECONDS,
@@ -48,8 +50,10 @@ from sethlans_worker_agent.caddy_supervisor.supervisor import (
 from sethlans_worker_agent.caddy_supervisor.io import atomic_write_text
 
 __all__ = [
+    "CADDYFILE_PATH_ENV",
     "CaddyBinaryNotFoundError",
     "CaddySupervisor",
+    "CaddyfileNotFoundError",
     "MAX_RESTART_ATTEMPTS",
     "RESTART_BACKOFF_SECONDS",
     "SHUTDOWN_DRAIN_DEFAULT_SECONDS",

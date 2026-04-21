@@ -45,13 +45,24 @@ def posix_preexec() -> None:  # pragma: no cover - exercised in child process
     set_linux_pdeathsig()
 
 
-def spawn(binary_path: Path, caddyfile_path: Path) -> subprocess.Popen:
+def spawn(
+    binary_path: Path,
+    caddyfile_path: Path,
+    env: "dict[str, str] | None" = None,
+) -> subprocess.Popen:
     """Spawn Caddy in a platform-appropriate process group.
 
     List-form argv; ``shell=True`` is never used. On POSIX a new
     session is created via ``preexec_fn`` so the group can be signalled
     as a unit at shutdown. On Windows ``CREATE_NEW_PROCESS_GROUP``
     enables delivery of ``CTRL_BREAK_EVENT``.
+
+    :param env: optional environment mapping passed to the child. When
+        ``None`` the child inherits the parent environment. When a dict
+        is supplied, it is merged **on top of** the parent environment
+        so Caddy still sees ``PATH`` / ``HOME`` / etc. while picking up
+        the Sethlans-specific ``{$VAR}`` placeholder substitutions the
+        Docker Caddyfile depends on.
     """
     argv = [
         str(binary_path),
@@ -63,6 +74,10 @@ def spawn(binary_path: Path, caddyfile_path: Path) -> subprocess.Popen:
         "stdin": subprocess.DEVNULL,
         "close_fds": True,
     }
+    if env is not None:
+        merged = dict(os.environ)
+        merged.update(env)
+        kwargs["env"] = merged
     if platform.system() == "Windows":
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         kwargs["creationflags"] = flags

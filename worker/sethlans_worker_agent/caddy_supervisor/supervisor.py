@@ -32,9 +32,18 @@ STABLE_UPTIME_RESET_SECONDS = 60.0
 WATCHDOG_POLL_SECONDS = 0.5
 SHUTDOWN_DRAIN_DEFAULT_SECONDS = 10.0
 
+# When set, swaps templating for a pre-baked external Caddyfile
+# (Docker images, Phase 5c). Caddy resolves ``{$VAR}`` placeholders
+# from its process env. Unset on native dev / frozen-install.
+CADDYFILE_PATH_ENV = "SETHLANS_WORKER_CADDYFILE_PATH"
+
 
 class CaddyBinaryNotFoundError(RuntimeError):
     """Raised when the Caddy binary is missing or not executable."""
+
+
+class CaddyfileNotFoundError(RuntimeError):
+    """Raised when ``$SETHLANS_WORKER_CADDYFILE_PATH`` is missing/unreadable."""
 
 
 class CaddySupervisor:
@@ -70,6 +79,10 @@ class CaddySupervisor:
         self._watchdog_thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
         self._process_lock = threading.Lock()
+        # Populated with the env-var overlay passed to Caddy when the
+        # external-Caddyfile branch is active; ``None`` means "inherit
+        # parent env unchanged" (native-dev / frozen-install).
+        self._spawn_env: Optional[dict] = None
 
         #: Set when supervision has given up (retry budget exhausted).
         #: The agent main loop polls this flag and exits 1 on detection.
@@ -82,17 +95,27 @@ class CaddySupervisor:
     def start(self) -> None:
         """Template Caddyfile, spawn Caddy, start watchdog thread.
 
+        If ``$SETHLANS_WORKER_CADDYFILE_PATH`` is set, the supervisor
+        uses that path verbatim and SKIPS rendering/writing — the Docker
+        image ships a pre-baked static Caddyfile whose ``{$VAR}``
+        placeholders Caddy resolves from its process environment. In
+        that branch we also merge the template inputs into Caddy's
+        spawn env so the placeholders have values to resolve.
+
         :raises CaddyBinaryNotFoundError: binary missing / not executable.
-        :raises ValueError: template inputs fail validation.
+        :raises CaddyfileNotFoundError: external path missing/unreadable.
+        :raises ValueError: template inputs fail validation (native only).
         """
         self._validate_binary()
-
-        # Render + atomically write the Caddyfile before spawn. A
-        # failing render surfaces here rather than inside the watchdog.
-        content = render_worker_caddyfile(**self._template_kwargs)
-        atomic_write_text(self._caddyfile_path, content)
-        logger.info("Worker Caddyfile written to %s", self._caddyfile_path)
-
+        external_path = os.environ.get(CADDYFILE_PATH_ENV)
+        if external_path:
+            self._use_external_caddyfile(Path(external_path))
+        else:
+            content = render_worker_caddyfile(**self._template_kwargs)
+            atomic_write_text(self._caddyfile_path, content)
+            logger.info(
+                "Worker Caddyfile written to %s", self._caddyfile_path,
+            )
         self._spawn_locked()
 
         self._watchdog_thread = threading.Thread(
@@ -159,9 +182,41 @@ class CaddySupervisor:
                 f"Caddy binary at {self._binary_path} is not executable"
             )
 
+    def _use_external_caddyfile(self, external: Path) -> None:
+        """Switch to an operator-supplied Caddyfile (Docker case).
+
+        Validates the file exists and is readable, then stages the
+        cert/key/port overlay merged into Caddy's spawn env so the
+        static Caddyfile's ``{$VAR}`` placeholders resolve.
+        """
+        if not external.is_file():
+            raise CaddyfileNotFoundError(
+                f"{CADDYFILE_PATH_ENV} points to a non-existent file: "
+                f"{external}"
+            )
+        if not os.access(external, os.R_OK):
+            raise CaddyfileNotFoundError(
+                f"{CADDYFILE_PATH_ENV} target is not readable: {external}"
+            )
+        self._caddyfile_path = external
+        tk = self._template_kwargs
+        self._spawn_env = {
+            "SETHLANS_WORKER_CADDY_PUBLIC_TLS_PORT": str(tk["public_tls_port"]),
+            "SETHLANS_WORKER_CADDY_LOOPBACK_PORT": str(tk["loopback_plaintext_port"]),
+            "SETHLANS_WORKER_WAITRESS_UPSTREAM_PORT": str(tk["waitress_upstream_port"]),
+            "SETHLANS_WORKER_CERT_PATH": str(tk["cert_path"]),
+            "SETHLANS_WORKER_KEY_PATH": str(tk["key_path"]),
+        }
+        logger.info(
+            "Using external worker Caddyfile at %s (skipping template)",
+            external,
+        )
+
     def _spawn_locked(self) -> None:
         """Spawn Caddy under the process lock."""
-        proc = _proc.spawn(self._binary_path, self._caddyfile_path)
+        proc = _proc.spawn(
+            self._binary_path, self._caddyfile_path, env=self._spawn_env,
+        )
         with self._process_lock:
             self._process = proc
 
