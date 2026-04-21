@@ -250,7 +250,7 @@ def main():
 
     print(
         "\n--- Starting Sethlans Manager (PRODUCTION) "
-        f"— public vhost {host}:{port} via Caddy → "
+        f"-- public vhost {host}:{port} via Caddy -> "
         f"Waitress 127.0.0.1:{public_port} ---",
     )
     print("--- To stop the server, press CTRL+C ---")
