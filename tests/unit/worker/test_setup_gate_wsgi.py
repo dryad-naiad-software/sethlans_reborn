@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for the sync WSGI surface of ``web_ui/setup/gate.py``.
+"""Unit tests for setup_gate_wrapper_wsgi (the sync WSGI gate from Phase 3).
+
+Includes transitional async def fixtures that exercise the gate's asyncio.run adapter path (driven by
+gate_async_adapter.py). Those fixtures are deleted in Phase 7 when the adapter itself is removed.
 
 Covers ``setup_gate_wrapper_wsgi`` -- the Phase 3 sync dispatcher
 introduced alongside the still-async ``setup_gate_wrapper``.  The

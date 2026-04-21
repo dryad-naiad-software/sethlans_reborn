@@ -2,11 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""
-Shared ASGI test helpers for the worker setup wizard unit tests.
+"""Shared ASGI test helpers for transitional phases 3-6.
 
-Provides mock scope, receive, and send callables for testing ASGI
-handler functions without a real server.
+Provides mock scope/receive/send/ResponseCollector callables used by:
+- The legacy async ASGI tests (test_http_helpers_legacy.py, test_setup_gate_legacy.py)
+- The gate adapter tests (test_setup_gate_wsgi*.py, test_asgi_app_wsgi.py) that verify setup_gate_wrapper_wsgi
+  correctly drives async inner apps via asyncio.run until Phase 7 deletes gate_async_adapter.
+
+`async def` usage in this module is intentional (the fixtures ARE the async API being driven). This file is
+deleted in Phase 7 alongside gate_async_adapter.py when the async-inner-app code path goes away.
 """
 
 import json

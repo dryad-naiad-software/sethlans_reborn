@@ -2,7 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for the sync WSGI worker ``app`` in ``asgi_app.py``.
+"""WSGI unit tests for worker/sethlans_worker_agent/web_ui/asgi_app.py.
+
+Also contains a small number of transitional async inner-app fixtures (async def) used to verify the WSGI
+wrapper's handling of async handlers via the Phase 3 asyncio.run adapter. Those fixtures go away in Phase 7
+along with gate_async_adapter.py.
 
 Phase 4b of the Waitress migration: ``asgi_app.app`` is now a sync
 WSGI callable rather than an async ASGI callable. These tests

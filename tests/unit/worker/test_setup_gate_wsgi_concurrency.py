@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Concurrency + routing edge cases for ``setup_gate_wrapper_wsgi``.
+"""Concurrency unit tests for setup_gate_wrapper_wsgi.
+
+Includes transitional async def fixtures for the gate's asyncio.run adapter path. Deleted in Phase 7 with
+gate_async_adapter.py.
 
 Split from ``test_setup_gate_wsgi.py`` to keep each module under
 the 300-line ceiling.  Covers:
