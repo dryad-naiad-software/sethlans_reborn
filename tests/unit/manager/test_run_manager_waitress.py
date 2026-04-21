@@ -92,30 +92,58 @@ class TestInstallSignalHandlers:
 
 
 # ---------------------------------------------------------------------
-# --dev fail-fast behaviour (Phase 6 feature gate).
+# --dev dispatch (Phase 6 replaces the fail-fast stub).
 # ---------------------------------------------------------------------
 
-class TestDevFlagFailFast:
+class TestDevFlagDispatch:
 
-    def test_run_manager_dev_exits_with_code_2(
-        self, mocker, capsys,
+    def test_run_manager_dev_invokes_watchdog_and_exits(
+        self, mocker, monkeypatch,
     ):
-        """``run_manager.main()`` must exit with code 2 and emit a
-        clear "Phase 6" message when ``--dev`` is in sys.argv."""
-        mocker.patch.object(run_manager.sys, "argv", ["run_manager", "--dev"])
+        """``run_manager.main()`` must hand ``--dev`` off to
+        ``run_dev_watchdog`` and then ``sys.exit`` with its rc — never
+        falling through to ``setup_certificates``."""
+        monkeypatch.delenv("SETHLANS_DEV_IS_PARENT", raising=False)
+        mocker.patch.object(
+            run_manager.sys, "argv", ["run_manager", "--dev"],
+        )
+        fake_rdw = mocker.patch(
+            "sethlans_manager.dev_watchdog.run_dev_watchdog",
+            return_value=0,
+        )
+        setup_certs = mocker.patch.object(
+            run_manager, "setup_certificates",
+        )
+        with pytest.raises(SystemExit) as excinfo:
+            run_manager.main()
+        assert excinfo.value.code == 0
+        fake_rdw.assert_called_once()
+        setup_certs.assert_not_called()
+
+    def test_run_manager_dev_without_watchdog_exits_2(
+        self, mocker, monkeypatch, capsys,
+    ):
+        """If ``watchdog`` is absent we must surface a clear error
+        and exit with code 2, not a raw traceback."""
+        monkeypatch.delenv("SETHLANS_DEV_IS_PARENT", raising=False)
+        mocker.patch.object(
+            run_manager.sys, "argv", ["run_manager", "--dev"],
+        )
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "sethlans_manager.dev_watchdog":
+                raise ImportError("No module named 'watchdog'")
+            return real_import(name, *args, **kwargs)
+
+        mocker.patch.object(builtins, "__import__", side_effect=fake_import)
         with pytest.raises(SystemExit) as excinfo:
             run_manager.main()
         assert excinfo.value.code == 2
         err = capsys.readouterr().err
-        assert "Phase 6" in err
-        assert "watchdog" in err.lower() or "hot-reload" in err.lower()
-
-    def test_handle_dev_fail_fast_is_callable_directly(
-        self, capsys,
-    ):
-        with pytest.raises(SystemExit) as excinfo:
-            run_manager._handle_dev_fail_fast()
-        assert excinfo.value.code == 2
+        assert "watchdog" in err.lower()
+        assert "requirements-dev.txt" in err
 
 
 # ---------------------------------------------------------------------

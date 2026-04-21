@@ -12,7 +12,12 @@ listeners (public-origin + internal-origin), both fronted by Caddy.
 
 Usage:
     python manager/run_manager.py          # Production mode (Waitress)
-    python manager/run_manager.py --dev    # Fail-fast; Phase 6 feature.
+    python manager/run_manager.py --dev    # Dev hot-reload (watchdog).
+
+Phase 6 replaced the ``--dev`` fail-fast stub with a watchdog-based
+parent/child wrapper. The parent process owns the filesystem observer
+and signals the child on any ``*.py`` change under ``manager/``; the
+child process runs the production Waitress path.
 """
 import configparser
 import logging
@@ -173,25 +178,46 @@ def _frozen_boot_sequence(dev_mode):
         run_collectstatic_inprocess()
 
 
-def _handle_dev_fail_fast() -> None:
-    """Print the Phase 6 message and exit 2 when ``--dev`` is passed.
+def _dispatch_dev_mode() -> None:
+    """Handle ``--dev``: parent→watchdog wrapper, child→fall through.
 
-    Phase 5 removes uvicorn from the serving path; the watchdog hot-
-    reload wrapper lands in Phase 6. Until then, ``--dev`` is not a
-    supported invocation from ``run_manager.py``.
+    Called only when ``--dev`` is present in ``sys.argv``. If the
+    ``SETHLANS_DEV_IS_PARENT`` env marker is absent we are the parent
+    and hand off to ``run_dev_watchdog``; ``sys.exit`` with its rc so
+    we never return to production boot. If the marker is present we
+    are a child that somehow still sees ``--dev`` (pathological — the
+    parent strips it from child argv). Log a warning and fall through
+    to the production path.
+
+    ``watchdog`` is a dev-only dependency; ImportError surfaces as a
+    clean exit-2 with a pointer at ``requirements-dev.txt`` rather
+    than a raw traceback.
     """
-    sys.stderr.write(
-        "Dev hot-reload wrapper lands in Phase 6. For source-tree "
-        "dev: use the launcher or run `python manager/run_manager.py` "
-        "without `--dev`.\n"
-    )
-    sys.exit(2)
+    if os.environ.get("SETHLANS_DEV_IS_PARENT") == "1":
+        print(
+            "[WARN] --dev seen in child argv; expected it to be "
+            "stripped by the parent. Falling through to production "
+            "path.",
+            file=sys.stderr,
+        )
+        return
+    try:
+        from sethlans_manager.dev_watchdog import run_dev_watchdog
+    except ImportError:
+        print(
+            "[ERROR] watchdog is a dev-only dependency; install via "
+            "`pip install -r requirements-dev.txt` before using --dev",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    rc = run_dev_watchdog(Path(MANAGE_PY), sys.argv[1:])
+    sys.exit(rc)
 
 
 def main():
     """Entry point for ``python manager/run_manager.py``."""
     if '--dev' in sys.argv:
-        _handle_dev_fail_fast()
+        _dispatch_dev_mode()
 
     try:
         cert_path, key_path, cert = setup_certificates(
