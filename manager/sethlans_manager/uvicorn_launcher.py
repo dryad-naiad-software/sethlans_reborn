@@ -30,11 +30,11 @@ Coexistence rules during Phase 2:
   the Waitress thread monitors, then ``server.close()`` the Waitress
   listener and join the thread before ``asyncio.run(...)`` returns.
 
-Thumbnail-signal hazard: the only route served via Waitress in Phase 2
-is ``/api/status/public/`` which never triggers the
-``_save_thumbnails_for_instances`` signal.  Keep it that way until
-Phase 4 replaces the disconnect/connect pattern in
-``workers/signal_helpers.py``.
+Thumbnail-signal hazard (historical, resolved in Phase 4): the prior
+disconnect/connect pattern in ``workers/signal_helpers.py`` was not
+thread-safe.  Phase 4 replaced it with a per-thread context manager
+(``_skip_thumbnail_signals``) so any route served via Waitress is now
+signal-safe.
 
 See ``development/specs/tray-helper-unified.md`` FR-22 / FR-22a for the
 historical context of the loopback listener.

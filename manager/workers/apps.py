@@ -28,6 +28,12 @@ class WorkersConfig(AppConfig):
         # Ensure signal handlers are registered when the app loads
         from . import signals  # noqa: F401
 
+        # Phase 4: attach the SQLite WAL PRAGMA hook to Django's
+        # ``connection_created`` signal.  No-op for non-sqlite vendors
+        # so the Postgres / MySQL overlays are unaffected.
+        from sethlans_manager.db_hooks import register_connection_hooks
+        register_connection_hooks()
+
         # Populate Blender series cache in the background
         import threading
         from .utils.blender_series_cache import populate_cache

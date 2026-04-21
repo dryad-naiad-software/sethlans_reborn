@@ -10,6 +10,7 @@ exceeding the maximum auto-requeue attempts.
 """
 
 import logging
+import threading
 import time
 from datetime import timedelta
 
@@ -24,6 +25,13 @@ logger = logging.getLogger(__name__)
 _MAX_AUTO_REQUEUE = 3
 _STUCK_CHECK_INTERVAL = 30  # seconds
 _last_stuck_check = 0.0  # module-level monotonic timestamp
+# Phase 4: guard ``_last_stuck_check`` for threaded Waitress.  Two
+# concurrent heartbeats could otherwise both observe an old timestamp,
+# both pass the debounce gate, and both run the (expensive) stuck-job
+# scan in parallel.  A single ``threading.Lock`` is sufficient — the
+# check fires at most once per ``_STUCK_CHECK_INTERVAL`` seconds so lock
+# contention is negligible.
+_last_stuck_check_lock = threading.Lock()
 
 
 def requeue_stuck_jobs():
@@ -38,9 +46,13 @@ def requeue_stuck_jobs():
     """
     global _last_stuck_check
     now_mono = time.monotonic()
-    if now_mono - _last_stuck_check < _STUCK_CHECK_INTERVAL:
-        return 0
-    _last_stuck_check = now_mono
+    # Acquire the debounce lock for the check-and-swap.  Two threads
+    # cannot both observe a stale ``_last_stuck_check`` and then each
+    # update it — exactly one wins the gate per interval.
+    with _last_stuck_check_lock:
+        if now_mono - _last_stuck_check < _STUCK_CHECK_INTERVAL:
+            return 0
+        _last_stuck_check = now_mono
 
     stale_threshold = timezone.now() - timedelta(seconds=WORKER_STALENESS_SECONDS)
     stuck_jobs = Job.objects.filter(

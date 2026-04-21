@@ -37,14 +37,11 @@ internal port is strictly required; the public port may be ``None``
 (the main uvicorn listener bypasses this middleware's strict check in
 that case by treating any non-internal port as "public").
 
-Thumbnail-signal hazard (Phase 2): ``signal_helpers.py`` lines 76-102
-still use the disconnect/connect pattern that is not yet thread-safe
-(Phase 4 replaces it).  No Waitress-thread request path in Phase 2
-triggers ``_save_thumbnails_for_instances`` because the only route
-registered on the loopback URLconf is ``/api/status/public/``, which
-is read-only and never writes to the ``Job`` model.  Any future Phase 2
-addition that would route a thumbnail-triggering request through
-Waitress must pull the Phase 4 thread-local fix forward.
+Thumbnail-signal hazard (historical, resolved in Phase 4): prior
+versions of ``signal_helpers.py`` used a ``post_save.disconnect``
+/ ``connect`` dance that was not thread-safe.  Phase 4 replaced that
+with a per-thread ``_skip_thumbnail_signals()`` context manager, so
+routing any thumbnail-triggering request through Waitress is now safe.
 """
 
 from __future__ import annotations

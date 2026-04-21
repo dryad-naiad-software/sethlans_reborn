@@ -95,6 +95,16 @@ port = 8080
 # port = 3306
 # user = sethlans
 # password = your-password-here
+#
+# --- Persistent connections (external DBs only) ---
+# Django CONN_MAX_AGE — how long (seconds) to reuse a pooled database
+# connection across requests before closing and reopening it.  Larger
+# values reduce per-request connection overhead on threaded Waitress
+# (Phase 5); set to 0 to disable persistent connections entirely.
+# Ignored for SQLite (each request opens a fresh connection).  Override
+# via the SETHLANS_MANAGER_DB_CONN_MAX_AGE environment variable.
+# Default: 60
+# conn_max_age = 60
 
 [enrollment]
 # Friendly name broadcast via multicast discovery.  Truncated to 64

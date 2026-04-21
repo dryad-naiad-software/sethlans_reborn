@@ -79,14 +79,15 @@ def setup_bootstrap_view(request):
       ``manager.ini [setup] session_id`` if unset (FR-4a).
     """
     ip = _get_client_ip(request)
-    if _bootstrap_rate_limiter.is_rate_limited(ip):
+    # Phase 4: use the single-lock ``check_and_record`` API to close the
+    # TOCTOU window between the limit check and the unconditional
+    # attempt record (two threads could previously both see
+    # ``is_rate_limited == False`` and then each record, sliding one
+    # extra attempt past the limit per contended window boundary).
+    if _bootstrap_rate_limiter.check_and_record(ip):
         return setup_error(
             "rate_limited", "Too many attempts.", 429, details={},
         )
-    # Record the attempt up front so even successful bursts are counted
-    # — this is cheap and prevents token-guessing scripts from exploiting
-    # an unbounded success path.
-    _bootstrap_rate_limiter.record_attempt(ip)
 
     provided_raw = request.data.get("token") if hasattr(request, "data") else None
     provided = provided_raw if isinstance(provided_raw, str) else ""
