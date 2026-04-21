@@ -68,7 +68,8 @@ def find_free_port():
 
 
 def build_manager_env(
-    db_path, media_root, enrollment_key, secret_key, port
+    db_path, media_root, enrollment_key, secret_key, port,
+    *, tls_data_dir=None,
 ):
     """
     Build the environment dict for the manager subprocess.
@@ -79,6 +80,24 @@ def build_manager_env(
     ``enrollment_key`` MUST be a Crockford base32 16-char key (or its
     hyphenated display form). ``normalize()`` accepts both; anything
     else will be rejected at manager startup with a non-zero exit.
+
+    Post-Waitress-migration (Caddy+Waitress topology): ``port`` here is
+    repurposed as the **public TLS port** that Caddy binds. Waitress
+    itself listens plaintext on two additional loopback ports (public
+    vhost + internal vhost); ``start_manager`` in ``process_manager.py``
+    allocates those ports and injects the corresponding
+    ``SETHLANS_MANAGER_WAITRESS_PORT_PUBLIC`` /
+    ``SETHLANS_MANAGER_WAITRESS_PORT_INTERNAL`` env vars on top of this
+    dict before spawning the manager. ``SETHLANS_MANAGER_PORT`` is left
+    pointing at the Caddy port for the banner label only; Waitress
+    never reads it.
+
+    ``tls_data_dir`` (optional): absolute path where the manager will
+    write ``tls/cert.pem`` + ``tls/key.pem``. Pointing this at a per-
+    test tmp directory keeps each run isolated and gives the Caddy
+    subprocess a known cert/key path inside ``manager_data_dir`` (the
+    Caddyfile template validates that the cert/key paths resolve
+    underneath the data dir).
     """
     env = os.environ.copy()
     # Ensure the project root, manager/, and worker/ are on PYTHONPATH
@@ -105,6 +124,17 @@ def build_manager_env(
         "DJANGO_SUPERUSER_EMAIL": ADMIN_EMAIL,
         "PYTHONDONTWRITEBYTECODE": "1",
     })
+    if tls_data_dir is None:
+        # Default: place TLS cert/key inside the same per-test tmp
+        # tree that owns the DB and media root. The Caddy subprocess
+        # (started by ``start_manager``) validates that cert/key paths
+        # resolve inside its ``manager_data_dir`` — anchoring them at
+        # ``<tmp>/manager_data/tls/`` keeps that invariant true without
+        # requiring every call site to pass the path explicitly.
+        tls_data_dir = Path(db_path).resolve().parent / "manager_data" / "tls"
+    tls_data_dir = Path(tls_data_dir)
+    tls_data_dir.mkdir(parents=True, exist_ok=True)
+    env["SETHLANS_TLS_DATA_DIR"] = str(tls_data_dir)
     return env
 
 
