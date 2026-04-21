@@ -43,9 +43,12 @@ logger = logging.getLogger(__name__)
 _STATUS_LINES = {
     200: '200 OK',
     400: '400 Bad Request',
+    403: '403 Forbidden',
     404: '404 Not Found',
     409: '409 Conflict',
     413: '413 Request Entity Too Large',
+    429: '429 Too Many Requests',
+    502: '502 Bad Gateway',
 }
 
 
