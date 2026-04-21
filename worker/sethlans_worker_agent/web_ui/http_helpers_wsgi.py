@@ -44,6 +44,7 @@ _STATUS_LINES = {
     200: '200 OK',
     400: '400 Bad Request',
     404: '404 Not Found',
+    409: '409 Conflict',
     413: '413 Request Entity Too Large',
 }
 
