@@ -94,26 +94,14 @@ function Render-Caddyfile {
 }
 
 function Invoke-GenerateConfig {
-    # Legacy enrollment_key removed — it now lives in ManagerSettings.
-    python -c @"
-import sys, configparser, secrets
-from pathlib import Path
-config_path = Path(r'$ConfigFile')
-config = configparser.ConfigParser()
-if config_path.exists():
-    config.read(config_path); print('[OK] Found existing manager.ini')
-else:
-    print('[NEW] Creating manager.ini')
-for s in ('server', 'security'):
-    if not config.has_section(s): config.add_section(s)
-if not config.has_option('server', 'port'): config.set('server', 'port', '$PublicTlsPort')
-if not config.get('security', 'secret_key', fallback=''):
-    config.set('security', 'secret_key', secrets.token_urlsafe(50)); print('[OK] Generated SECRET_KEY')
-if not config.get('security', 'debug', fallback=''): config.set('security', 'debug', 'true')
-if config.has_option('security', 'enrollment_key'):
-    config.remove_option('security', 'enrollment_key'); print('[OK] Removed legacy enrollment_key from manager.ini')
-with open(config_path, 'w') as f: config.write(f)
-"@
+    # Delegated to the Python helper for symmetry with the bash script
+    # (both call the same backend, same behaviour on Windows + POSIX).
+    python $DevBootstrap generate-config `
+        --manager-dir $ManagerDir `
+        --port $PublicTlsPort
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Config generation failed (exit $LASTEXITCODE)"; exit 1
+    }
 }
 
 function Invoke-StartServices {

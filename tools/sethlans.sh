@@ -94,27 +94,12 @@ render_caddyfile() {
 }
 
 generate_config() {
-    # Legacy enrollment_key removed — it now lives in ManagerSettings.
-    python -c "
-import sys, configparser, secrets
-from pathlib import Path
-config_path = Path('$CONFIG_FILE')
-config = configparser.ConfigParser()
-if config_path.exists():
-    config.read(config_path); print('[OK] Found existing manager.ini')
-else:
-    print('[NEW] Creating manager.ini')
-for s in ('server', 'security'):
-    if not config.has_section(s): config.add_section(s)
-if not config.has_option('server', 'port'): config.set('server', 'port', '$PUBLIC_TLS_PORT')
-if not config.get('security', 'secret_key', fallback=''):
-    config.set('security', 'secret_key', secrets.token_urlsafe(50)); print('[OK] Generated SECRET_KEY')
-if not config.get('security', 'debug', fallback=''): config.set('security', 'debug', 'true')
-# Strip legacy [security] enrollment_key — now lives in ManagerSettings DB row.
-if config.has_option('security', 'enrollment_key'):
-    config.remove_option('security', 'enrollment_key'); print('[OK] Removed legacy enrollment_key from manager.ini')
-with open(config_path, 'w') as f: config.write(f)
-"
+    # Delegated to the Python helper so MSYS/Git-Bash path translation
+    # applies to the argv (string literals inside `python -c` are NOT
+    # translated and blew up on /c/... paths under Git Bash).
+    python "$DEV_BOOTSTRAP" generate-config \
+        --manager-dir "$MANAGER_DIR" \
+        --port "$PUBLIC_TLS_PORT"
 }
 
 start_services() {

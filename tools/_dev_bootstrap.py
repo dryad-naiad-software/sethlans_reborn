@@ -58,6 +58,54 @@ def cmd_enrollment_key(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_generate_config(args: argparse.Namespace) -> int:
+    """Idempotently ensure ``manager.ini`` has server port + secret key.
+
+    Dropped inline into ``sethlans.sh`` previously; moved here so the
+    path arrives as an argv value. MSYS/Git-Bash translates ``/c/...``
+    argv paths to Windows form before the exe sees them; string
+    literals inside a ``python -c`` block get no such translation,
+    which is why the inline version blew up on first-boot under Git
+    Bash.
+
+    No Django bootstrap needed — stdlib only.
+    """
+    import configparser
+    import secrets
+
+    manager_dir = Path(args.manager_dir).resolve()
+    config_path = manager_dir / "manager.ini"
+
+    config = configparser.ConfigParser()
+    if config_path.exists():
+        config.read(config_path)
+        print("[OK] Found existing manager.ini")
+    else:
+        print("[NEW] Creating manager.ini")
+
+    for section in ("server", "security"):
+        if not config.has_section(section):
+            config.add_section(section)
+    if not config.has_option("server", "port"):
+        config.set("server", "port", str(args.port))
+    if not config.get("security", "secret_key", fallback=""):
+        config.set(
+            "security", "secret_key", secrets.token_urlsafe(50),
+        )
+        print("[OK] Generated SECRET_KEY")
+    if not config.get("security", "debug", fallback=""):
+        config.set("security", "debug", "true")
+    # Strip legacy [security] enrollment_key — it now lives in the
+    # ManagerSettings DB row (migration 0017).
+    if config.has_option("security", "enrollment_key"):
+        config.remove_option("security", "enrollment_key")
+        print("[OK] Removed legacy enrollment_key from manager.ini")
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        config.write(f)
+    return 0
+
+
 def cmd_render_caddyfile(args: argparse.Namespace) -> int:
     """Render the manager Caddyfile and write it to ``<manager_dir>/caddy/Caddyfile``.
 
@@ -104,6 +152,14 @@ def main() -> int:
     )
     p_enroll.add_argument("--manager-dir", required=True)
     p_enroll.set_defaults(func=cmd_enrollment_key)
+
+    p_config = sub.add_parser(
+        "generate-config",
+        help="Create/update manager.ini with secret_key + port.",
+    )
+    p_config.add_argument("--manager-dir", required=True)
+    p_config.add_argument("--port", type=int, default=8080)
+    p_config.set_defaults(func=cmd_generate_config)
 
     p_caddy = sub.add_parser(
         "render-caddyfile", help="Render manager Caddyfile.",
