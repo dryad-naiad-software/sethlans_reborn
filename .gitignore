@@ -166,6 +166,8 @@ manager/tls/
 manager/bin/
 **/topology.json
 **/.setup_complete
+**/broadcaster_params.json
+manager/caddy/
 worker/config.ini
 worker/sethlans_worker_agent/managed_tools/
 worker/sethlans_worker_agent/managed_assets/
