@@ -107,6 +107,12 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # UrlconfOriginMiddleware must run FIRST so that every subsequent
+    # middleware (and ultimately the URL resolver) sees the correct
+    # per-listener URLconf pinned on the request.  See
+    # ``sethlans_manager.middleware.urlconf_origin`` and the
+    # waitress-migration-manager spec (Phase 2).
+    'sethlans_manager.middleware.urlconf_origin.UrlconfOriginMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # WhiteNoise must come BEFORE SetupGateMiddleware so that static
     # assets (Angular's root-served /main-*.js, /polyfills-*.js,
@@ -123,6 +129,45 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# --- Waitress listener configuration ---
+# See ``development/specs/waitress-migration-manager.md`` Phases 2 & 5.
+# Phase 5 promoted Waitress to serve BOTH listeners (public-origin +
+# internal-origin) in the same process, both fronted by Caddy.
+# Settings surface eagerly so ``UrlconfOriginMiddleware`` can validate
+# ``SERVER_PORT`` against a known set and fail closed on unknown ports.
+# Full override hierarchy documented in :mod:`waitress_config`.
+from .waitress_config import (  # noqa: E402
+    resolve_internal_port_for_settings,
+    resolve_public_port_for_settings,
+)
+
+WAITRESS_LOOPBACK_PORT_INTERNAL = resolve_internal_port_for_settings(_config)
+WAITRESS_LOOPBACK_PORT_PUBLIC = resolve_public_port_for_settings(_config)
+
+# Header-injection defense — prevent ``X-Forwarded-Port`` /
+# ``X-Forwarded-Host`` from short-circuiting the port-based URLconf
+# split enforced by ``UrlconfOriginMiddleware``.  Django's defaults are
+# already ``False`` but we set them explicitly so a future deployment
+# knob can't silently flip them on.
+USE_X_FORWARDED_PORT = False
+USE_X_FORWARDED_HOST = False
+
+# Caddy terminates TLS in front of plaintext Waitress (Phase 5+).  Without
+# this header Django reports ``request.is_secure() == False`` and builds
+# ``http://`` absolute URLs for media/asset downloads, which the worker
+# then fails to fetch against the HTTPS-only Caddy vhost.  Setting the
+# header tells Django to trust Caddy's ``X-Forwarded-Proto: https`` when
+# building URLs, CSRF origin, etc.
+#
+# Safety: Waitress binds 127.0.0.1 only, so no external client can reach
+# it directly.  Caddy's ``reverse_proxy`` strips any incoming
+# ``X-Forwarded-Proto`` header before setting its own, so an attacker
+# cannot spoof ``https`` via the public vhost either.  The header is
+# independent of the port-based URLconf split — that reads
+# ``SERVER_PORT`` (WSGI environ), which ``X-Forwarded-*`` headers never
+# touch.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 ROOT_URLCONF = 'sethlans_manager.urls'
 
@@ -148,7 +193,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'sethlans_manager.wsgi.application'
-ASGI_APPLICATION = 'sethlans_manager.asgi.application'
 
 
 # Database
@@ -161,31 +205,19 @@ DATABASES = build_database_config(_config, _config_file_path)
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
+_PW_VALIDATION = 'django.contrib.auth.password_validation'
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': f'{_PW_VALIDATION}.UserAttributeSimilarityValidator'},
+    {'NAME': f'{_PW_VALIDATION}.MinimumLengthValidator'},
+    {'NAME': f'{_PW_VALIDATION}.CommonPasswordValidator'},
+    {'NAME': f'{_PW_VALIDATION}.NumericPasswordValidator'},
 ]
 
 
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
+# Internationalization — https://docs.djangoproject.com/en/5.2/topics/i18n/
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
 
@@ -218,6 +250,14 @@ if WHITENOISE_ROOT is None:
         "WHITENOISE_ROOT is None — frontend dist directory "
         "not found at %s", _FRONTEND_DIST,
     )
+
+# Dev ergonomics — rescan the static-file manifest on every request when
+# DEBUG=True or SETHLANS_DEV_MODE=1 so edits to Angular bundles show up
+# without a process restart. In production this stays off (the default)
+# — whitenoise caches the manifest at process start for speed.
+# See waitress-migration-manager spec, Phase 5 "Dev hot-reload".
+_dev_mode_env = os.getenv('SETHLANS_DEV_MODE', '').lower() in ('1', 'true', 'yes')
+WHITENOISE_AUTOREFRESH = bool(DEBUG or _dev_mode_env)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

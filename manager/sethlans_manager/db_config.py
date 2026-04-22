@@ -14,17 +14,35 @@ Priority chain:
 
 Env vars:
     ``SETHLANS_DB_ENGINE``, ``SETHLANS_DB_NAME``, ``SETHLANS_DB_HOST``,
-    ``SETHLANS_DB_PORT``, ``SETHLANS_DB_USER``, ``SETHLANS_DB_PASSWORD``
+    ``SETHLANS_DB_PORT``, ``SETHLANS_DB_USER``, ``SETHLANS_DB_PASSWORD``,
+    ``SETHLANS_MANAGER_DB_CONN_MAX_AGE``
 
 Docker secrets (reads file contents):
     ``SETHLANS_DB_PASSWORD_FILE``
+
+Phase 4 (Waitress migration) additions
+--------------------------------------
+* External databases (Postgres / MySQL) get ``CONN_MAX_AGE`` (default
+  60 s) and ``CONN_HEALTH_CHECKS=True`` so threaded Waitress request
+  handlers reuse connections across requests instead of paying the
+  TLS handshake on every request.  The ``conn_max_age`` knob is
+  configurable via ``[database] conn_max_age`` in ``manager.ini`` and
+  overridable by ``SETHLANS_MANAGER_DB_CONN_MAX_AGE``.
+* SQLite connections now execute the WAL / busy_timeout / synchronous
+  PRAGMAs via a ``connection_created`` signal handler registered by
+  ``register_connection_hooks()``.  Django's SQLite wrapper
+  ``timeout`` option and the ``busy_timeout`` PRAGMA are kept in
+  sync (both 30 s) so they do not fight over contended locks.
 """
 
 import configparser
+import logging
 import os
 from pathlib import Path
 
 from shared.frozen_paths import get_data_dir, is_frozen
+
+logger = logging.getLogger(__name__)
 
 # Engine aliases for user-friendly names in manager.ini
 _ENGINE_MAP = {
@@ -38,6 +56,19 @@ _DEFAULT_PORTS = {
     "django.db.backends.postgresql": "5432",
     "django.db.backends.mysql": "3306",
 }
+
+# Phase 4: reconciled lock-wait window for SQLite.  Both the Django
+# wrapper (``OPTIONS.timeout`` — applied on connect) and the
+# ``busy_timeout`` PRAGMA (applied on every new connection) must agree;
+# otherwise the shorter one wins and the longer one silently does
+# nothing.  Keep these in sync when changing either value.
+_SQLITE_TIMEOUT_SECONDS = 30
+_SQLITE_BUSY_TIMEOUT_MS = _SQLITE_TIMEOUT_SECONDS * 1000
+
+# Phase 4: default CONN_MAX_AGE for external DBs (persistent connection
+# recycle interval).  60 s is Django's recommended starting point for
+# threaded servers and is safe against most firewall idle-kill rules.
+_DEFAULT_CONN_MAX_AGE = 60
 
 
 def _read_secret_file(env_var: str) -> str | None:
@@ -61,6 +92,30 @@ def _get_default_sqlite_path(ini_path: Path) -> str:
     return str(ini_path.parent / "db.sqlite3")
 
 
+def _resolve_conn_max_age(config: configparser.ConfigParser) -> int:
+    """Resolve CONN_MAX_AGE from env var > INI > default.
+
+    Invalid values fall back to the default and emit a warning — a
+    misconfigured connection lifetime should never crash startup.
+    """
+    raw = os.getenv("SETHLANS_MANAGER_DB_CONN_MAX_AGE")
+    if raw is None:
+        raw = config.get("database", "conn_max_age", fallback="")
+    if not raw:
+        return _DEFAULT_CONN_MAX_AGE
+    try:
+        value = int(raw)
+        if value < 0:
+            raise ValueError("conn_max_age must be >= 0")
+        return value
+    except (TypeError, ValueError):
+        logger.warning(
+            "db_config: invalid conn_max_age=%r; falling back to %d",
+            raw, _DEFAULT_CONN_MAX_AGE,
+        )
+        return _DEFAULT_CONN_MAX_AGE
+
+
 def build_database_config(
     config: configparser.ConfigParser,
     ini_path: Path,
@@ -79,10 +134,12 @@ def build_database_config(
     dict
         A ``DATABASES`` dict suitable for ``django.conf.settings``.
     """
+    conn_max_age = _resolve_conn_max_age(config)
+
     # Check for composite DATABASE_URL first (highest priority).
     database_url = os.getenv("SETHLANS_DATABASE_URL")
     if database_url:
-        return _parse_database_url(database_url, ini_path)
+        return _parse_database_url(database_url, ini_path, conn_max_age)
 
     # Read individual env vars, falling back to manager.ini [database].
     def _get(key: str, default: str = "") -> str:
@@ -113,12 +170,18 @@ def build_database_config(
     user = _get("user")
 
     return _build_external(
-        engine, name, host, port, user, password,
+        engine, name, host, port, user, password, conn_max_age,
     )
 
 
 def _build_sqlite(name: str, ini_path: Path) -> dict:
-    """Build a SQLite DATABASES config."""
+    """Build a SQLite DATABASES config.
+
+    ``OPTIONS.timeout`` is the lock-wait the Django SQLite backend
+    passes to ``sqlite3.connect()``.  It is deliberately reconciled
+    with the ``busy_timeout`` PRAGMA applied by
+    ``register_connection_hooks()`` so the two do not fight.
+    """
     db_name = name or os.getenv(
         "SETHLANS_DB_NAME",
         _get_default_sqlite_path(ini_path),
@@ -127,7 +190,7 @@ def _build_sqlite(name: str, ini_path: Path) -> dict:
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": db_name,
-            "OPTIONS": {"timeout": 30},
+            "OPTIONS": {"timeout": _SQLITE_TIMEOUT_SECONDS},
         },
     }
 
@@ -139,8 +202,14 @@ def _build_external(
     port: str,
     user: str,
     password: str,
+    conn_max_age: int = _DEFAULT_CONN_MAX_AGE,
 ) -> dict:
-    """Build an external database DATABASES config."""
+    """Build an external database DATABASES config.
+
+    Phase 4: adds ``CONN_MAX_AGE`` + ``CONN_HEALTH_CHECKS`` so threaded
+    Waitress workers recycle connections instead of reconnecting on
+    every request.
+    """
     options = {}
     if "postgresql" in engine:
         options = {"connect_timeout": 10}
@@ -156,11 +225,17 @@ def _build_external(
             "USER": user,
             "PASSWORD": password,
             "OPTIONS": options,
+            "CONN_MAX_AGE": conn_max_age,
+            "CONN_HEALTH_CHECKS": True,
         },
     }
 
 
-def _parse_database_url(url: str, ini_path: Path) -> dict:
+def _parse_database_url(
+    url: str,
+    ini_path: Path,
+    conn_max_age: int = _DEFAULT_CONN_MAX_AGE,
+) -> dict:
     """Parse a DATABASE_URL string into a DATABASES config.
 
     Supports: ``sqlite:///path/to/db``, ``postgres://user:pass@host/db``,
@@ -192,4 +267,12 @@ def _parse_database_url(url: str, ini_path: Path) -> dict:
         port=str(parsed.port) if parsed.port else "",
         user=parsed.username or "",
         password=parsed.password or "",
+        conn_max_age=conn_max_age,
     )
+
+
+# Phase 4: the ``connection_created`` signal hook that applies SQLite
+# WAL / busy_timeout / synchronous PRAGMAs lives in ``db_hooks.py``.
+# Importing it here (even conditionally) would pull Django's signal
+# framework into this otherwise-pure-function builder.  See
+# ``workers.apps.WorkersConfig.ready`` for the registration site.

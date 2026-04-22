@@ -21,12 +21,18 @@ class WorkersConfig(AppConfig):
         # on frozen builds where ``AdminEmailHandler``'s import chain isn't
         # collected.  Calling ``configure()`` here covers entry points that
         # don't invoke it explicitly (manage.py, pytest, etc.); explicit
-        # callers in ``run_manager.py`` / ``asgi.py`` remain idempotent.
+        # callers in ``run_manager.py`` remain idempotent.
         from sethlans_manager.logging_config import configure as _cfg
         _cfg()
 
         # Ensure signal handlers are registered when the app loads
         from . import signals  # noqa: F401
+
+        # Phase 4: attach the SQLite WAL PRAGMA hook to Django's
+        # ``connection_created`` signal.  No-op for non-sqlite vendors
+        # so the Postgres / MySQL overlays are unaffected.
+        from sethlans_manager.db_hooks import register_connection_hooks
+        register_connection_hooks()
 
         # Populate Blender series cache in the background.
         #

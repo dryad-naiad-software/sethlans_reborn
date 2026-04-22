@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -8,6 +9,10 @@
 # Blender requires OpenGL/EGL libraries and a virtual display (Xvfb) even in
 # headless mode.
 FROM ubuntu:24.04
+
+# TARGETARCH is populated by BuildKit/buildx (values: amd64, arm64).
+# Selects the pre-fetched Caddy binary from .tmp/caddy/linux-<arch>/.
+ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -49,6 +54,10 @@ RUN pip install --no-cache-dir \
     -r /tmp/manager-requirements.txt \
     -r /tmp/worker-requirements.txt \
     -r /tmp/requirements-dev.txt
+
+# Pre-fetched by docker-test.yml (tools/fetch_caddy.py --multi-arch ...).
+# Present-but-unused; activated by manager spec Phase 3.
+COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /usr/local/bin/caddy
 
 # Copy application source, tests, and tools
 COPY manager/ /app/manager/

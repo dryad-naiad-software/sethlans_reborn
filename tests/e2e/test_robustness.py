@@ -168,11 +168,13 @@ class TestRobustness:
             job_id = self._submit_job(f"drain_{i}")
             job_ids.append(job_id)
 
-        # Poll each job to completion.
+        # First job in the class takes the cold-worker overhead
+        # (scrape + download + extract). Remaining jobs finish quickly
+        # against a warm worker, so a generous shared deadline works.
         for job_id in job_ids:
             job_url = f"{self.base_url}/api/jobs/{job_id}/"
             result = poll_for_completion(
-                self.session, job_url, timeout=480,
+                self.session, job_url, timeout=1200,
             )
             assert result["status"] == "DONE", (
                 f"Job {job_id} did not complete. "
@@ -228,9 +230,11 @@ class TestRobustness:
         )
         assert resp.status_code == 200
 
+        # 900s covers the case where this test runs first under
+        # pytest -k and has to absorb the cold-worker overhead.
         job_url = f"{self.base_url}/api/jobs/{paused_job_id}/"
         result = poll_for_completion(
-            self.session, job_url, timeout=240,
+            self.session, job_url, timeout=900,
         )
         assert result["status"] == "DONE", (
             f"Job should complete after unpausing. "

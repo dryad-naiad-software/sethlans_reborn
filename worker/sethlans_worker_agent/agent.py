@@ -10,7 +10,6 @@ dispatches render threads. Supports graceful shutdown via signals.
 
 import argparse
 import logging
-from logging.handlers import RotatingFileHandler
 import signal
 import threading
 import time
@@ -20,6 +19,7 @@ from sethlans_worker_agent import (
 )
 from sethlans_worker_agent import version_sync
 from sethlans_worker_agent import capacity as capacity_module
+from sethlans_worker_agent.agent_logging import configure_logging
 from sethlans_worker_agent.web_ui import start_server, stop_server
 
 # --- Argument Parsing ---
@@ -33,37 +33,14 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-# --- Logging Setup ---
-config.WORKER_LOG_DIR.mkdir(parents=True, exist_ok=True)
-log_file_path = config.WORKER_LOG_DIR / 'worker.log'
-
-root_logger = logging.getLogger()
-root_logger.setLevel(getattr(logging, args.loglevel))
-
-formatter = logging.Formatter(
-    '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(formatter)
-root_logger.addHandler(console_handler)
-
-file_handler = RotatingFileHandler(
-    log_file_path,
-    maxBytes=5*1024*1024,  # 5 MB
-    backupCount=3
-)
-file_handler.setFormatter(formatter)
-root_logger.addHandler(file_handler)
-
-# Get the logger for this module specifically
+configure_logging(args.loglevel)
 logger = logging.getLogger(__name__)
 
 # --- Shutdown Coordination ---
 _shutdown_event = threading.Event()
 _active_threads = []
 _active_threads_lock = threading.Lock()
+_caddy_supervisor = None  # set in _run_setup_phase (Phase 5b)
 
 # Maximum time in seconds to wait for active job threads during shutdown.
 SHUTDOWN_TIMEOUT_SECONDS = 30
@@ -196,6 +173,10 @@ def _run_loop_iteration(worker_id):
 def _graceful_shutdown():
     """Run the graceful shutdown sequence (server + threads + drift)."""
     logger.info("Shutdown event set. Stopping polling loop.")
+    # Phase 5b: stop Caddy first so new requests stop flowing, then
+    # drain Waitress.
+    if _caddy_supervisor is not None:
+        _caddy_supervisor.stop()
     stop_server()
     _wait_for_active_threads()
     logger.info("Sethlans Reborn Worker Agent shut down cleanly.")
@@ -223,8 +204,14 @@ def _run_setup_phase():
         logger.critical("TLS certificate error: %s", e)
         sys.exit(1)
 
-    # Start web server FIRST (serves setup wizard during setup mode).
+    # Start Waitress first (plaintext loopback upstream), then Caddy
+    # in front. Caddy crash-loops harmlessly if Waitress is not yet
+    # accepting, but starting Waitress first removes the race.
     start_server(cert_path, key_path)
+    global _caddy_supervisor
+    from sethlans_worker_agent.agent_caddy import build_caddy_supervisor
+    _caddy_supervisor = build_caddy_supervisor(cert_path, key_path)
+    _caddy_supervisor.start()
 
     # Initialize setup gate (reads sentinel to decide mode).
     from sethlans_worker_agent.agent_setup import (
@@ -275,6 +262,14 @@ def main():
 
     while not _shutdown_event.is_set():
         try:
+            if _caddy_supervisor is not None and (
+                _caddy_supervisor.error_event.is_set()
+            ):
+                logger.critical(
+                    "Caddy supervision failed — worker exiting"
+                )
+                _graceful_shutdown()
+                sys.exit(1)
             _prune_finished_threads()
             if not worker_id:
                 worker_id = _try_register_worker()

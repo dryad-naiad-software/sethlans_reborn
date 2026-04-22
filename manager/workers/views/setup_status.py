@@ -34,6 +34,10 @@ from workers.services.sentinel import (
     write_sentinel,
 )
 from workers.services.setup import write_manager_ini
+from workers.services.setup_lock import (
+    setup_conflict_response,
+    setup_mutation_lock,
+)
 from workers.services.setup_session import enforce_setup_session_binding
 from workers.utils.errors import setup_error
 
@@ -84,6 +88,13 @@ def setup_status_view(request):
 def setup_topology_view(request):
     """POST /api/setup/topology/ (FR-A2)."""
     enforce_setup_session_binding(request)
+    with setup_mutation_lock() as acquired:
+        if not acquired:
+            return setup_conflict_response()
+        return _setup_topology_locked(request)
+
+
+def _setup_topology_locked(request):
     topology = request.data.get("topology")
     if topology not in _VALID_TOPOLOGIES:
         return setup_error(
@@ -125,6 +136,13 @@ def setup_topology_view(request):
 def setup_network_view(request):
     """POST /api/setup/network/ (FR-A3)."""
     enforce_setup_session_binding(request)
+    with setup_mutation_lock() as acquired:
+        if not acquired:
+            return setup_conflict_response()
+        return _setup_network_locked(request)
+
+
+def _setup_network_locked(request):
     bind_host = request.data.get("bind_host", "0.0.0.0")
     bind_port = request.data.get("bind_port", 8080)
 

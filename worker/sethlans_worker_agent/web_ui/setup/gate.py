@@ -1,22 +1,22 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""
-Setup gate ASGI wrapper.
+"""Setup gate middleware.
 
 Blocks non-setup HTTP paths with 503 during setup.  Once setup is
-complete (sentinel exists), the gate fast-paths every request with
-a single bool check and zero overhead.
+complete, fast-paths every request with a single bool check.
 
-The gate runs as middleware wrapping the main ASGI app.  During
-setup, only ``/api/setup/*`` and ``/setup`` paths are allowed
-through; all others receive a 503 JSON response.
+Exposes :func:`setup_gate_wrapper_wsgi`, a sync WSGI dispatcher
+wired up at the ``server.py`` boundary, plus the shared state
+helpers (:func:`init_gate`, :func:`is_in_setup_mode`,
+:func:`mark_setup_complete`).
 """
 
 import logging
 from pathlib import Path
+from typing import Callable, Iterable
 
-from sethlans_worker_agent.web_ui.http_helpers import send_json
+from sethlans_worker_agent.web_ui.http_helpers_wsgi import send_json_wsgi
 from sethlans_worker_agent.web_ui.setup.sentinel import is_setup_complete
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,8 @@ _setup_complete: bool = False
 
 _SETUP_ALLOWED_PREFIXES = ("/api/setup/", "/setup")
 
+
+# --- Shared state helpers ---
 
 def init_gate(data_dir: Path) -> None:
     """Read sentinel to set initial state. Called at startup."""
@@ -51,24 +53,35 @@ def mark_setup_complete() -> None:
     logger.info("Setup gate: setup complete, all routes enabled.")
 
 
-async def setup_gate_wrapper(scope, receive, send, inner_app):
-    """ASGI wrapper that blocks non-setup paths during setup.
+def _path_allowed(path: str) -> bool:
+    """Return True if *path* is under an allowed setup prefix."""
+    return any(path.startswith(p) for p in _SETUP_ALLOWED_PREFIXES)
 
-    Fast path when complete: a single bool check, then delegate
-    to the inner app immediately.
+
+# --- Sync WSGI dispatcher ---
+
+def setup_gate_wrapper_wsgi(
+    environ: dict,
+    start_response: Callable,
+    inner_app: Callable,
+) -> Iterable[bytes]:
+    """Sync WSGI dispatcher: blocks non-setup paths during setup.
+
+    *inner_app* is a sync WSGI callable.
     """
     if _setup_complete:
-        await inner_app(scope, receive, send)
-        return
+        return inner_app(environ, start_response)
 
-    # Non-HTTP scopes (lifespan, websocket) pass through.
-    if scope['type'] != 'http':
-        await inner_app(scope, receive, send)
-        return
+    path = environ.get('PATH_INFO', '') or ''
+    if _path_allowed(path):
+        return inner_app(environ, start_response)
 
-    path = scope.get('path', '')
-    if any(path.startswith(p) for p in _SETUP_ALLOWED_PREFIXES):
-        await inner_app(scope, receive, send)
-        return
+    return send_json_wsgi(
+        start_response, {"detail": "Setup not complete."}, 503,
+    )
 
-    await send_json(send, {"detail": "Setup not complete."}, 503)
+
+__all__ = [
+    'init_gate', 'is_in_setup_mode', 'mark_setup_complete',
+    'setup_gate_wrapper_wsgi',
+]

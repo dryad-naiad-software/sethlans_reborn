@@ -1,7 +1,15 @@
+# syntax=docker/dockerfile:1.4
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 FROM python:3.14-slim-bookworm
+
+# TARGETARCH is populated by BuildKit/buildx during multi-arch builds
+# (values: amd64, arm64). Used to select the correct pre-fetched Caddy
+# binary from the build context's .tmp/caddy/linux-<arch>/ directory.
+# Caddy is present-but-unused in the image until manager spec Phase 3
+# wires launcher supervision.
+ARG TARGETARCH
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
@@ -14,6 +22,16 @@ WORKDIR /app
 
 COPY manager/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-fetched by CI (tools/fetch_caddy.py --multi-arch linux-amd64,linux-arm64).
+# TARGETARCH is BuildKit-provided; falls back to amd64 for classic docker build.
+COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /usr/local/bin/caddy
+
+# Static Caddyfile for container operation. The launcher's caddy
+# supervisor detects SETHLANS_MANAGER_CADDYFILE_PATH and uses this
+# file verbatim; Caddy resolves the {$VAR} placeholders from its
+# process environment at config-load time.
+COPY deploy/docker/manager/Caddyfile /etc/caddy/Caddyfile
 
 COPY manager/ /app/
 
@@ -32,6 +50,11 @@ ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
 # We override get_tls_dir to use /data/tls/ so the cert persists across
 # container restarts. This is handled by setting SETHLANS_TLS_DATA_DIR.
 ENV SETHLANS_TLS_DATA_DIR=/data/tls
+
+# Caddy: path to the pre-baked static Caddyfile (above). Presence of
+# this env var tells the launcher's caddy supervisor to skip the
+# native template-and-write branch and use this file verbatim.
+ENV SETHLANS_MANAGER_CADDYFILE_PATH=/etc/caddy/Caddyfile
 
 EXPOSE 8080
 

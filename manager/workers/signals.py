@@ -23,7 +23,7 @@ from .models import (
 )
 from .constants import TilingConfiguration
 from .manifest_generator import update_project_manifest
-from .signal_helpers import _save_thumbnails_for_instances
+from .signal_helpers import _save_thumbnails_for_instances, _skip_thumbnails
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +134,15 @@ def handle_job_completion(sender, instance, **kwargs):
     - Update parent Animation/TiledJob status on job completion.
     - Trigger thumbnail generation for standard jobs' output files.
     """
+    # Phase 4: early-return when the current thread is inside a
+    # ``_skip_thumbnail_signals()`` context.  This replaces the pre-Phase-4
+    # ``post_save.disconnect(handler, sender=Job)`` dance that silently
+    # suppressed signals across ALL threads.  The guard keeps the inner
+    # thumbnail-write saves from re-entering this handler without
+    # affecting concurrent Job saves on other threads.
+    if _skip_thumbnails():
+        return
+
     from .image_assembler import assemble_tiled_job_image, assemble_animation_frame_image
     from .image_utils import generate_thumbnail
 
@@ -175,27 +184,38 @@ def handle_job_completion(sender, instance, **kwargs):
             assemble_tiled_job_image(tiled_job.id)
 
     # --- Thumbnail Generation for Standard (non-frame, non-tiled) Jobs ---
-    if not instance.animation_frame and not instance.tiled_job and instance.output_file:
-        if instance.thumbnail:
-            logger.debug(
-                "Job %s already has a worker-provided thumbnail. "
-                "Skipping server-side generation.",
-                instance.id,
-            )
-        else:
-            logger.debug(f"Job {instance.id} has an output file. Generating thumbnail.")
-            thumb_content = generate_thumbnail(instance.output_file)
-            if thumb_content:
-                targets = [instance]
-                # If this job belongs to an (untiled) animation, also update the animation thumbnail once.
-                if instance.animation:
-                    targets.append(instance.animation)
-                _save_thumbnails_for_instances(
-                    targets,
-                    sender=Job,
-                    handler=handle_job_completion,
-                    thumb_content=thumb_content,
-                )
+    _maybe_generate_job_thumbnail(instance, generate_thumbnail)
+
+
+def _maybe_generate_job_thumbnail(instance, generate_thumbnail):
+    """Generate and save a server-side thumbnail for a standard Job.
+
+    Extracted from ``handle_job_completion`` to keep that handler's
+    cyclomatic complexity under the project's flake8 budget.
+    """
+    if instance.animation_frame or instance.tiled_job or not instance.output_file:
+        return
+    if instance.thumbnail:
+        logger.debug(
+            "Job %s already has a worker-provided thumbnail. "
+            "Skipping server-side generation.",
+            instance.id,
+        )
+        return
+    logger.debug(f"Job {instance.id} has an output file. Generating thumbnail.")
+    thumb_content = generate_thumbnail(instance.output_file)
+    if not thumb_content:
+        return
+    targets = [instance]
+    # If this job belongs to an (untiled) animation, also update the animation thumbnail once.
+    if instance.animation:
+        targets.append(instance.animation)
+    _save_thumbnails_for_instances(
+        targets,
+        sender=Job,
+        handler=handle_job_completion,
+        thumb_content=thumb_content,
+    )
 
 
 @receiver(post_save, sender=AnimationFrame)
@@ -206,6 +226,10 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
     - Generate thumbnails for frame and ALWAYS refresh the parent animation thumbnail
       to provide a visual progress indicator during rendering.
     """
+    # Phase 4: per-thread skip guard (see ``handle_job_completion``).
+    if _skip_thumbnails():
+        return
+
     from .image_utils import generate_thumbnail
 
     animation = instance.animation

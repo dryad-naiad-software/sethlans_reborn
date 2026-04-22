@@ -6,9 +6,9 @@
 Integration tests for Django TLS-related settings.
 
 Verifies that the transport security settings are correctly applied
-in the Django configuration: secure cookies, HSTS, and ASGI application.
-These tests read the live Django settings to confirm the values are
-active in the test environment.
+in the Django configuration: secure cookies, HSTS, and WSGI
+application wiring. These tests read the live Django settings to
+confirm the values are active in the test environment.
 """
 
 from django.conf import settings
@@ -56,17 +56,15 @@ class TestHSTSSettings:
         assert settings.SECURE_HSTS_PRELOAD is False
 
 
-class TestASGIConfiguration:
-    """Verify ASGI application is configured for uvicorn."""
+class TestWSGIConfiguration:
+    """Verify the WSGI application is configured for Waitress."""
 
-    def test_asgi_application_is_set(self):
-        """ASGI_APPLICATION must point to the correct ASGI module."""
-        assert settings.ASGI_APPLICATION == (
-            'sethlans_manager.asgi.application'
-        )
-
-    def test_wsgi_application_still_set(self):
-        """WSGI_APPLICATION should still be set for compatibility."""
+    def test_wsgi_application_is_set(self):
+        """WSGI_APPLICATION must point to the Django WSGI module."""
         assert settings.WSGI_APPLICATION == (
             'sethlans_manager.wsgi.application'
         )
+
+    def test_asgi_application_not_set(self):
+        """Phase 7 removed ASGI_APPLICATION."""
+        assert not hasattr(settings, 'ASGI_APPLICATION')

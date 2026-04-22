@@ -12,3 +12,5 @@ pytest-qt==4.5.0
 # requirements-build.txt) so dev/test runs can `import PySide6` without
 # pulling in the build requirements file.
 PySide6-Essentials==6.11.0
+# dev-mode hot-reload wrapper; not shipped in frozen builds
+watchdog==6.0.0

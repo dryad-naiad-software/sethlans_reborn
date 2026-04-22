@@ -10,11 +10,11 @@ dispatcher, and handler modules for each wizard step.
 """
 
 from .gate import init_gate, is_in_setup_mode, mark_setup_complete
-from .routes import handle_setup_request
+from .routes import handle_setup_request_wsgi
 
 __all__ = [
     "init_gate",
     "is_in_setup_mode",
     "mark_setup_complete",
-    "handle_setup_request",
+    "handle_setup_request_wsgi",
 ]

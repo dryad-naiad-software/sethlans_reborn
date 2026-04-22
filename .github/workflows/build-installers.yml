@@ -36,7 +36,7 @@ jobs:
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
@@ -64,6 +64,15 @@ jobs:
           npm ci
           npm run build
 
+      - name: Cache Caddy binary
+        uses: actions/cache@v4
+        with:
+          path: .venv-build/caddy
+          key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Fetch Caddy (Windows amd64)
+        run: python tools/fetch_caddy.py --target-dir .venv-build/caddy --platform windows-amd64
+
       - name: Run PyInstaller — Manager
         run: pyinstaller packaging/pyinstaller/manager.spec --noconfirm
 
@@ -75,6 +84,15 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      - name: Assert Caddy binary bundled (Windows)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\launcher\caddy.exe")) {
+            Write-Error "dist\launcher\caddy.exe not present — launcher.spec Caddy inclusion is broken"
+            exit 1
+          }
+          Write-Host "Caddy bundled: dist\launcher\caddy.exe"
 
       # --- Smoke Tests (FR-20) ---
       - name: Smoke test — Launcher --version
@@ -178,7 +196,7 @@ jobs:
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
@@ -206,6 +224,15 @@ jobs:
           npm ci
           npm run build
 
+      - name: Cache Caddy binary
+        uses: actions/cache@v4
+        with:
+          path: .venv-build/caddy
+          key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Fetch Caddy (macOS arm64)
+        run: python tools/fetch_caddy.py --target-dir .venv-build/caddy --platform darwin-arm64
+
       - name: Run PyInstaller — Manager
         run: pyinstaller packaging/pyinstaller/manager.spec --noconfirm
 
@@ -217,6 +244,14 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      - name: Assert Caddy binary bundled (macOS)
+        run: |
+          if [ ! -x "dist/launcher/caddy" ]; then
+            echo "dist/launcher/caddy not present or not executable — launcher.spec Caddy inclusion is broken"
+            exit 1
+          fi
+          echo "Caddy bundled: dist/launcher/caddy"
 
       # --- Smoke Tests (FR-20) ---
       - name: Smoke test — Launcher --version
@@ -341,7 +376,7 @@ jobs:
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
@@ -374,6 +409,15 @@ jobs:
           npm ci
           npm run build
 
+      - name: Cache Caddy binary
+        uses: actions/cache@v4
+        with:
+          path: .venv-build/caddy
+          key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Fetch Caddy (Linux amd64)
+        run: python tools/fetch_caddy.py --target-dir .venv-build/caddy --platform linux-amd64
+
       - name: Run PyInstaller — Manager
         run: pyinstaller packaging/pyinstaller/manager.spec --noconfirm
 
@@ -385,6 +429,14 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      - name: Assert Caddy binary bundled (Linux)
+        run: |
+          if [ ! -x "dist/launcher/caddy" ]; then
+            echo "dist/launcher/caddy not present or not executable — launcher.spec Caddy inclusion is broken"
+            exit 1
+          fi
+          echo "Caddy bundled: dist/launcher/caddy"
 
       # --- Smoke Tests (FR-20) ---
       - name: Smoke test — Launcher --version

@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Sethlans Reborn manager Caddyfile for Docker images.
+#
+# COPY'd to /etc/caddy/Caddyfile in the manager Dockerfile. The
+# manager launcher detects SETHLANS_MANAGER_CADDYFILE_PATH and skips
+# its native template-and-write path, spawning Caddy against this
+# static config instead. Caddy resolves the {$VAR} placeholders from
+# its process environment at config-load time; the caddy_supervisor
+# overlays the cert/key/port values onto Caddy's env when it spawns
+# the child.
+#
+# Invariants mirrored from caddy_template.render_manager_caddyfile():
+#   - admin off (Caddy admin API disabled)
+#   - auto_https off (no port 80 bind, no ACME)
+#   - HTTP/1.1 only upstream-side (h1 servers global)
+#   - TLS floor pinned to tls1.2 on the public vhost
+#   - /api/status/public/* returns 404 on the public vhost
+#     (tray-helper endpoint is loopback-only)
+#   - reverse_proxy transport pinned to HTTP/1.1
+
+{
+    admin off
+    auto_https off
+    servers {
+        protocols h1
+    }
+}
+
+# Public TLS vhost (LAN-reachable). Workers connect here.
+#
+# Phase 5 upstream: the public-origin Waitress listener. Deployments
+# set SETHLANS_MANAGER_WAITRESS_PUBLIC_PORT (the caddy_supervisor env
+# overlay writes it when the launcher spawns Caddy).
+:{$SETHLANS_MANAGER_CADDY_PUBLIC_TLS_PORT} {
+    tls {$SETHLANS_MANAGER_CERT_PATH} {$SETHLANS_MANAGER_KEY_PATH} {
+        protocols tls1.2 tls1.3
+    }
+
+    @loopback_only {
+        path /api/status/public /api/status/public/*
+    }
+    respond @loopback_only 404
+
+    reverse_proxy 127.0.0.1:{$SETHLANS_MANAGER_WAITRESS_PUBLIC_PORT} {
+        transport http {
+            versions 1.1
+        }
+    }
+}
+
+# Loopback plaintext vhost. Tray helper origin for
+# /api/status/public/. Proxies to the internal-origin Waitress
+# listener (urls_loopback URLconf).
+http://127.0.0.1:{$SETHLANS_MANAGER_CADDY_LOOPBACK_PORT} {
+    reverse_proxy 127.0.0.1:{$SETHLANS_MANAGER_WAITRESS_LOOPBACK_PORT} {
+        transport http {
+            versions 1.1
+        }
+    }
+}

@@ -2,18 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Route dispatcher for setup wizard endpoints.
+Sync WSGI route dispatcher for setup wizard endpoints.
 
 Maps ``/api/setup/*`` API routes and ``/setup`` HTML to the
-appropriate handler functions. Called from the main ASGI app when
-the path matches setup prefixes.
+appropriate handler functions. All handlers are sync WSGI callables
+with the ``(environ, start_response)`` signature.
 """
 
 import logging
 import os
+from typing import Callable, Iterable
 
-from sethlans_worker_agent.web_ui.http_helpers import (
-    send_json, send_html_file,
+from sethlans_worker_agent.web_ui.http_helpers_wsgi import (
+    send_json_wsgi, send_html_file_wsgi,
 )
 from sethlans_worker_agent.web_ui.setup.handlers_status import (
     handle_setup_status,
@@ -66,27 +67,32 @@ _POST_ROUTES = {
 }
 
 
-async def handle_setup_request(scope, receive, send):
-    """Dispatch /api/setup/* and /setup routes."""
-    path = scope['path']
-    method = scope['method']
+def handle_setup_request_wsgi(
+    environ: dict, start_response: Callable,
+) -> Iterable[bytes]:
+    """Dispatch ``/api/setup/*`` and ``/setup`` routes as WSGI."""
+    path = environ.get('PATH_INFO', '') or ''
+    method = environ.get('REQUEST_METHOD', 'GET')
 
     # Serve wizard HTML
     if path in ('/setup', '/setup/'):
-        await send_html_file(send, _SETUP_HTML)
-        return
+        return send_html_file_wsgi(start_response, _SETUP_HTML)
 
     if method == 'GET':
         handler = _GET_ROUTES.get(path)
         if handler is not None:
-            await handler(scope, receive, send)
-        else:
-            await send_json(send, {"error": "Not Found"}, 404)
-    elif method == 'POST':
+            return handler(environ, start_response)
+        return send_json_wsgi(start_response, {"error": "Not Found"}, 404)
+
+    if method == 'POST':
         handler = _POST_ROUTES.get(path)
         if handler is not None:
-            await handler(scope, receive, send)
-        else:
-            await send_json(send, {"error": "Not Found"}, 404)
-    else:
-        await send_json(send, {"error": "Method Not Allowed"}, 405)
+            return handler(environ, start_response)
+        return send_json_wsgi(start_response, {"error": "Not Found"}, 404)
+
+    return send_json_wsgi(
+        start_response, {"error": "Method Not Allowed"}, 405,
+    )
+
+
+__all__ = ['handle_setup_request_wsgi']

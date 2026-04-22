@@ -21,6 +21,64 @@ port = 8080
 # SETHLANS_MANAGER_LOOPBACK_PORT environment variable.
 # Default: 8088
 # loopback_port = 8088
+#
+# --- Caddy front-door ports (manager spec Phase 3) ---
+# Caddy terminates TLS on ``public_port`` and exposes a loopback
+# plaintext listener on ``caddy_loopback_port``. Both proxy to the
+# underlying Waitress listeners. Override with
+# SETHLANS_MANAGER_PUBLIC_PORT / SETHLANS_MANAGER_CADDY_LOOPBACK_PORT.
+#
+# Default: public_port = port (same 8080 TLS port workers connect to).
+# public_port = 8080
+# Default: caddy_loopback_port = 8089 (distinct from loopback_port
+# which Waitress owns).
+# caddy_loopback_port = 8089
+#
+# Path override for the launcher-templated Caddyfile. Defaults to
+# ``<manager_data_dir>/caddy/Caddyfile``. When
+# ``SETHLANS_MANAGER_CADDYFILE_PATH`` env var is set at launch time,
+# the launcher skips templating and uses that path verbatim — this is
+# how the Docker image ships a static Caddyfile.
+# caddyfile_path =
+#
+# --- Waitress listener ports (manager spec Phase 5) ---
+# Waitress now serves BOTH the public-origin and internal-origin
+# Caddy vhosts. Both listeners bind 127.0.0.1 only; Caddy is the
+# only TLS / network-reachable listener.
+#
+# Public-origin Waitress port. Caddy's public TLS vhost proxies
+# here. Override with SETHLANS_MANAGER_WAITRESS_PORT_PUBLIC.
+# Default: 8090 (range 8090-8099 during auto-allocation).
+# waitress_loopback_port_public = 8090
+# Internal-origin Waitress port. Caddy's loopback plaintext vhost
+# proxies here; serves only /api/status/public/ (tray helper).
+# Override with SETHLANS_MANAGER_WAITRESS_PORT_INTERNAL, or
+# SETHLANS_MANAGER_LOOPBACK_PORT for legacy Phase-2 configs.
+# Default: 8088 (matches the pre-Phase-5 loopback_port).
+# waitress_loopback_port_internal = 8088
+#
+# --- Waitress tuning (manager spec Phase 5 "Waitress tuning") ---
+# Spec-fixed defaults; overrides should be rare and documented.
+# Override individual values with SETHLANS_MANAGER_WAITRESS_{KEY}.
+#
+# Thread-pool size. Sized to absorb N concurrent asset uploads
+# without starving heartbeats at a target fleet of 20-30 workers.
+# Default: 16
+# waitress_threads = 16
+# Max seconds a channel may stay idle between bytes before Waitress
+# closes it. Raised above the Waitress default to tolerate slow-LAN
+# asset uploads from distant workers.
+# Default: 300
+# waitress_channel_timeout = 300
+# Max concurrent open connections. High enough to absorb brief
+# heartbeat-polling bursts without tarpitting.
+# Default: 1000
+# waitress_connection_limit = 1000
+# Max accepted request body size in bytes. Matches the Django
+# DATA_UPLOAD_MAX_MEMORY_SIZE floor (100 MB) — covers multipart
+# .blend asset uploads.
+# Default: 104857600 (100 MB)
+# waitress_max_request_body_size = 104857600
 
 [tls]
 # Path to PEM-encoded certificate file.
@@ -76,6 +134,16 @@ port = 8080
 # port = 3306
 # user = sethlans
 # password = your-password-here
+#
+# --- Persistent connections (external DBs only) ---
+# Django CONN_MAX_AGE — how long (seconds) to reuse a pooled database
+# connection across requests before closing and reopening it.  Larger
+# values reduce per-request connection overhead on threaded Waitress
+# (Phase 5); set to 0 to disable persistent connections entirely.
+# Ignored for SQLite (each request opens a fresh connection).  Override
+# via the SETHLANS_MANAGER_DB_CONN_MAX_AGE environment variable.
+# Default: 60
+# conn_max_age = 60
 
 [enrollment]
 # Friendly name broadcast via multicast discovery.  Truncated to 64

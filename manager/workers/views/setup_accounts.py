@@ -25,6 +25,10 @@ from rest_framework.response import Response
 from shared.frozen_paths import get_data_dir, is_frozen
 from workers.authentication import SetupPhaseAuthentication
 from workers.permissions import IsSetupPhaseUser
+from workers.services.setup_lock import (
+    setup_conflict_response,
+    setup_mutation_lock,
+)
 from workers.services.setup_session import enforce_setup_session_binding
 from workers.services.auto_enroll import auto_enroll_local_worker
 from workers.services.filesystem_trust import (
@@ -105,6 +109,13 @@ def _validate_admin_fields(data):
 def setup_admin_user_view(request):
     """POST /api/setup/admin-user/ (FR-A5)."""
     enforce_setup_session_binding(request)
+    with setup_mutation_lock() as acquired:
+        if not acquired:
+            return setup_conflict_response()
+        return _setup_admin_user_locked(request)
+
+
+def _setup_admin_user_locked(request):
     result = _validate_admin_fields(request.data)
     if isinstance(result, Response):
         return result
@@ -150,6 +161,13 @@ def setup_admin_user_view(request):
 def setup_worker_password_view(request):
     """POST /api/setup/worker-password/ (FR-A6)."""
     enforce_setup_session_binding(request)
+    with setup_mutation_lock() as acquired:
+        if not acquired:
+            return setup_conflict_response()
+        return _setup_worker_password_locked(request)
+
+
+def _setup_worker_password_locked(request):
     password = request.data.get("password", "")
     if not password or len(password) < _MIN_WORKER_PASSWORD_LEN:
         return setup_error(

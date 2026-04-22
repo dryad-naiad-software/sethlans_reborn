@@ -11,6 +11,8 @@ and SSL context construction.  Reads config from ``manager.ini``
 
 import logging
 import os
+import platform
+import stat
 import sys
 from pathlib import Path
 
@@ -24,6 +26,52 @@ from shared.frozen_paths import get_data_dir, is_frozen
 from shared.tls_utils import build_ssl_context  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+
+def _enforce_key_permissions(key_path: Path) -> None:
+    """Restrict the private key file to owner-only (POSIX) / user SID (Windows).
+
+    Phase 5 audit (spec line 640): the Waitress process and the
+    launcher-supervised Caddy process both read the TLS private key.
+    This helper is invoked after cert/key setup to guarantee the key
+    file is owner-only (POSIX mode 0600) or current-user-SID restricted
+    (Windows NTFS ACL via icacls). Failures are logged and re-raised
+    only on POSIX — on Windows, icacls failures downgrade to a warning
+    because some environments (e.g. Docker-for-Windows bind mounts)
+    refuse ACL edits.
+    """
+    if not Path(key_path).exists():
+        return
+    if platform.system() == 'Windows':
+        try:
+            import subprocess
+
+            # /inheritance:r removes inherited ACEs, /grant:r re-grants
+            # the current user full control (matching the generator's
+            # tls-directory pattern).
+            subprocess.run(
+                [
+                    'icacls', str(key_path),
+                    '/inheritance:r',
+                    '/grant:r', f'{os.getlogin()}:F',
+                ],
+                check=True,
+                capture_output=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - best effort on Win32
+            logger.warning(
+                "Could not restrict key-file ACL on Windows "
+                "(non-fatal): %s",
+                exc,
+            )
+        return
+    try:
+        os.chmod(str(key_path), stat.S_IRUSR | stat.S_IWUSR)
+    except OSError as exc:
+        logger.error(
+            "Failed to chmod TLS key %s to 0600: %s", key_path, exc,
+        )
+        raise
 
 
 def get_config_file_path(manager_dir: Path) -> Path:
@@ -102,6 +150,12 @@ def setup_certificates(dev_mode, manager_dir, project_root):
 
     Returns (cert_path, key_path, cert).
     Raises ``CertificateError`` on validation failure.
+
+    After the key file is on disk (whether freshly generated or BYO),
+    :func:`_enforce_key_permissions` is called to guarantee owner-only
+    restrictions (POSIX mode 0600 / Windows NTFS ACL). Spec Phase 5
+    audit: Caddy and Waitress both read this key; we must never rely
+    on umask alone.
     """
     byo_cert_file, byo_key_file = get_tls_config(manager_dir)
 
@@ -109,6 +163,7 @@ def setup_certificates(dev_mode, manager_dir, project_root):
         cert_path = Path(byo_cert_file)
         key_path = Path(byo_key_file)
         cert = load_and_validate_cert(cert_path, key_path)
+        _enforce_key_permissions(key_path)
         return (cert_path, key_path, cert)
 
     tls_dir = get_tls_dir(dev_mode, manager_dir, project_root)
@@ -120,6 +175,7 @@ def setup_certificates(dev_mode, manager_dir, project_root):
         generate_self_signed_cert(cert_path, key_path)
 
     cert = load_and_validate_cert(cert_path, key_path)
+    _enforce_key_permissions(key_path)
 
     if first_generation:
         fingerprint = get_cert_fingerprint(cert)
@@ -136,4 +192,5 @@ __all__ = [
     'get_tls_config',
     'get_tls_dir',
     'setup_certificates',
+    '_enforce_key_permissions',
 ]

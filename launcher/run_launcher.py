@@ -2,15 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""
-Bootstrap launcher entry point.
+"""Bootstrap launcher entry point.
 
-This is the binary the user's Start Menu shortcut / .app bundle /
-desktop file invokes.  It detects setup completion, spawns the tray
-(first, so the user sees "Starting..."), then manager, then worker,
-and drives the IPC + cascade main loop.
-
-Stdlib + shared.tray helpers only; no Django dependency.
+Detects setup completion, spawns tray → manager → worker, and runs the
+IPC + cascade main loop. Manager spec Phase 3: the launcher now owns
+``MulticastBroadcaster`` and Caddy supervision via
+:mod:`launcher.supervision`.
 """
 
 import argparse
@@ -24,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from launcher import cascade, orchestration, tray_ipc
+from launcher import cascade, orchestration, supervision, tray_ipc
 from launcher.browser_launch import (  # noqa: F401
     compute_cert_fingerprint as _compute_cert_fingerprint,
     is_headless as _is_headless,
@@ -160,14 +157,7 @@ def _open_browser(
 def _spawn_tray(
     data_dir: Path, secret: str,
 ) -> subprocess.Popen:
-    """Spawn the tray subprocess; fail hard if it does not come up.
-
-    The tray is the only UX surface that shows the setup token and the
-    running/error state to the user.  If it cannot start, the install
-    is effectively silent (no tray, no visible console) and we must
-    terminate the launcher rather than leave orphan manager/worker
-    processes running invisibly.
-    """
+    """Spawn the tray subprocess; fail hard if it does not come up."""
     del data_dir
     env = {
         "SETHLANS_TRAY_IPC_SECRET": secret,
@@ -183,16 +173,13 @@ def _spawn_tray(
             file=sys.stderr,
         )
         sys.exit(1)
-    # Give the tray a short window to self-abort (e.g. missing pystray
-    # backend).  If it exits within 3s with a non-zero code, treat that
-    # as a hard failure.
     try:
         rc = proc.wait(timeout=3.0)
     except subprocess.TimeoutExpired:
         return proc  # still alive after 3s = healthy
     print(
         f"\n[ERROR] Tray helper exited immediately with code {rc}.\n"
-        "Likely the tray bundle is missing pystray or its backend.\n"
+        "Likely the tray bundle is missing PySide6 or its backend.\n"
         "Aborting startup.",
         file=sys.stderr,
     )
@@ -259,12 +246,21 @@ def main():
         _already_running_notice()
         return 0
 
+    # Manager-spec Phase 3: wire signal handlers + IPC poll BEFORE
+    # spawning children so a SIGTERM at this very instant still
+    # unwinds through _graceful_shutdown.
+    supervision.install_signal_handlers()
+
     # FR-20e: sweep any stale markers BEFORE spawning anything.
     tray_ipc.sweep_stale_markers(data_dir)
 
     # FR-20b: per-session IPC secret; FR-4 / FR-19: tray spawns FIRST.
     secret = tray_ipc.generate_secret()
     tray = _spawn_tray(data_dir, secret)
+
+    manager_data = data_dir / "manager"
+    manager_data.mkdir(parents=True, exist_ok=True)
+    supervision.start_ipc_poll_thread(manager_data)
 
     try:
         if not _is_setup_complete(data_dir):
@@ -276,13 +272,17 @@ def main():
             rc = orchestration.run_normal_mode(
                 data_dir, args, tray, secret, _start_component,
             )
+        supervision.shutdown_supervisors()
         _teardown_tray(tray)
         return rc
     except KeyboardInterrupt:
         print("\nSethlans shutting down...")
+        supervision.shutdown_supervisors()
         _teardown_tray(tray)
         return 0
     finally:
+        supervision.get_shutdown_event().set()
+        supervision.shutdown_supervisors()
         release_lock(_INSTANCE_LOCK)
         _INSTANCE_LOCK = None
 

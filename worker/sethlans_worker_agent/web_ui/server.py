@@ -2,21 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-HTTPS server lifecycle for the worker web UI.
+Plaintext WSGI server lifecycle for the worker web UI.
 
-Launches uvicorn in a daemon thread with TLS 1.2 minimum enforced
-via ``shared.tls_utils.build_ssl_context``.
+Waitress serves the sync WSGI ``app`` callable. Waitress does NOT
+terminate TLS: this module binds plaintext on the loopback bind
+address, and external HTTPS access is provided by a Caddy reverse
+proxy in front of Waitress. Unit/integration tests drive Waitress
+directly on loopback.
 """
 
 import logging
-import ssl
 import threading
 
-import uvicorn
+import waitress
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.web_ui.auth import is_password_configured
-from shared.tls_utils import build_ssl_context
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +26,31 @@ _server_thread = None
 
 
 def start_server(cert_path, key_path):
-    """Start uvicorn in a daemon thread with TLS.
+    """Start Waitress in a dedicated daemon thread (plaintext loopback).
 
-    The SSLContext is built via ``shared.tls_utils.build_ssl_context()``
-    which enforces TLS 1.2 minimum. After uvicorn creates its Config,
-    we pre-load it and replace its SSL context with ours to guarantee
-    the TLS version floor.
+    ``cert_path`` and ``key_path`` are accepted but unused by this
+    function during the 5a/5b transition window — Caddy will read
+    them in Phase 5b. Retained here so call sites (agent.py and
+    integration fixtures) do not need to change as 5a lands.
+
+    Waitress config:
+      - threads=8
+      - channel_timeout=300 seconds
+      - connection_limit=1000
+      - max_request_body_size=4096 bytes (matches MAX_REQUEST_BODY
+        invariant — defense-in-depth against oversized bodies)
+
+    Waitress runs in a daemon thread so the worker agent's main
+    thread retains signal ownership. Waitress's
+    ``BaseWSGIServer.run`` does not install signal handlers, so
+    launching it from a non-main thread is safe — only
+    ``waitress.serve`` (unused here) does that.
     """
     global _server, _server_thread
+
+    # cert_path/key_path are consumed by the Caddy reverse proxy
+    # out-of-band; Waitress itself serves plaintext on loopback.
+    del cert_path, key_path
 
     if not config.UI_ENABLED:
         logger.info("Worker Web UI is disabled.")
@@ -44,24 +62,24 @@ def start_server(cert_path, key_path):
             "Change it via the dashboard."
         )
 
-    from sethlans_worker_agent.web_ui.asgi_app import app as asgi_app
+    from sethlans_worker_agent.web_ui.wsgi_app import app as wsgi_app
 
-    uvicorn_config = uvicorn.Config(
-        app=asgi_app,
-        host=config.UI_BIND_ADDRESS,
-        port=config.UI_PORT,
-        ssl_keyfile=str(key_path),
-        ssl_certfile=str(cert_path),
-        ssl_version=ssl.PROTOCOL_TLS_SERVER,
-        log_level="warning",
+    # Waitress binds on a loopback upstream port; Caddy
+    # reverse-proxies public TLS + loopback vhosts to this upstream.
+    # The upstream must not be externally reachable — only Caddy
+    # speaks to it. Operators who override ``UI_BIND_ADDRESS`` still
+    # have their preference respected for the advertised (public)
+    # URL computed in ``system_monitor`` via ``UI_PORT``.
+    _server = waitress.create_server(
+        wsgi_app,
+        host='127.0.0.1',
+        port=config.WAITRESS_UPSTREAM_PORT,
+        threads=8,
+        channel_timeout=300,
+        connection_limit=1000,
+        max_request_body_size=4096,
     )
 
-    # Pre-load the config so we can replace its SSL context with one
-    # that enforces TLS 1.2 minimum via shared.tls_utils.
-    uvicorn_config.load()
-    uvicorn_config.ssl = build_ssl_context(cert_path, key_path)
-
-    _server = uvicorn.Server(uvicorn_config)
     _server_thread = threading.Thread(
         target=_server.run,
         name='web-ui-server',
@@ -69,23 +87,29 @@ def start_server(cert_path, key_path):
     )
     _server_thread.start()
     logger.info(
-        "Worker Web UI started on https://%s:%d",
-        config.UI_BIND_ADDRESS, config.UI_PORT,
+        "Worker Web UI (Waitress) started on http://127.0.0.1:%d "
+        "(plaintext upstream; TLS terminated by Caddy on public port %d)",
+        config.WAITRESS_UPSTREAM_PORT, config.CADDY_PUBLIC_TLS_PORT,
     )
 
 
 def stop_server():
-    """Signal uvicorn to shut down, join thread with timeout.
+    """Signal Waitress to shut down, join thread with timeout.
 
-    If the join times out after 5 seconds, log a warning.
+    Waitress exposes ``server.close()`` which closes the listening
+    socket; the ``asyncore.loop`` call inside ``run()`` then exits
+    cleanly. If the join times out after 5 seconds, log a warning.
     The orphaned thread cannot dispatch control actions because
-    the ASGI app returns 503 once ``_shutdown_event`` is set (FR-12).
+    the WSGI app returns 503 once ``_shutdown_event`` is set (FR-12).
     """
     global _server, _server_thread
     if _server is None:
         return
     logger.info("Stopping Worker Web UI server...")
-    _server.should_exit = True
+    try:
+        _server.close()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Error closing Waitress server: %s", exc)
     if _server_thread is not None:
         _server_thread.join(timeout=5.0)
         if _server_thread.is_alive():

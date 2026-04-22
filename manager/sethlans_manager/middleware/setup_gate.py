@@ -31,8 +31,10 @@ from workers.services.sentinel import read_sentinel
 
 logger = logging.getLogger(__name__)
 
-# Module-level boolean — set once, never reset.  Under ASGI with a
-# single uvicorn worker (required during setup), this is safe.
+# Module-level boolean — set once, never reset.  Thread-safe under
+# Waitress's threaded WSGI model: the flag monotonically flips False
+# → True exactly once per process, so concurrent reads cannot observe
+# a torn value.
 _setup_complete: bool = False
 
 # Allowed URL prefixes during setup mode.  Bootstrap lives under

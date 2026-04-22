@@ -5,11 +5,11 @@
 Daemon thread that emits UDP multicast discovery announcements.
 
 The broadcaster runs exactly once per Python process.  It is started
-and stopped from the uvicorn ASGI lifespan hooks in
-``sethlans_manager/asgi.py`` — NOT from ``run_manager.py``.  That
-indirection is what lets the broadcaster be silenced cleanly on
-``SIGTERM`` (uvicorn owns signal handling after its event loop starts)
-and what keeps it from running in the ``--dev`` reloader parent process.
+and stopped from the launcher-side ``broadcaster_supervisor`` module
+— NOT from the Django process.  Hosting the broadcaster in the
+launcher lets it live with process lifecycle rather than the WSGI
+server, cleans up on launcher ``SIGTERM``, and keeps it from running
+in the ``--dev`` watchdog parent process.
 
 See spec FR-1 through FR-7 for the lifecycle contract.
 """

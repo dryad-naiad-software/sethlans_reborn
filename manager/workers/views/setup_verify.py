@@ -29,6 +29,10 @@ from shared.frozen_paths import get_data_dir, is_frozen
 from sethlans_manager import runtime_state
 from workers.authentication import SetupPhaseAuthentication
 from workers.permissions import IsSetupPhaseUser
+from workers.services.setup_lock import (
+    setup_conflict_response,
+    setup_mutation_lock,
+)
 from workers.services.setup_session import enforce_setup_session_binding
 from workers.services.sentinel import (
     create_sentinel,
@@ -61,6 +65,13 @@ def _get_data_dir() -> Path:
 def setup_verify_view(request):
     """POST /api/setup/verify/ (FR-A13)."""
     enforce_setup_session_binding(request)
+    with setup_mutation_lock() as acquired:
+        if not acquired:
+            return setup_conflict_response()
+        return _setup_verify_locked()
+
+
+def _setup_verify_locked():
     data_dir = _get_data_dir()
     sentinel = read_sentinel(data_dir)
 

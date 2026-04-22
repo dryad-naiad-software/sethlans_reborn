@@ -22,6 +22,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 REAL_PS1 = REPO_ROOT / "tools" / "sethlans.ps1"
 REAL_SH = REPO_ROOT / "tools" / "sethlans.sh"
 
+# Make the ``caddy_fetch`` package importable by test modules under
+# ``tests/unit/tools/``.  The production code does the same sys.path
+# injection from ``tools/fetch_caddy.py`` and ``tools/dev_setup.py``.
+_TOOLS_DIR = REPO_ROOT / "tools"
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
 IS_WINDOWS = sys.platform == "win32"
 
 # Generous timeout — first PowerShell invocation can be slow on cold caches.

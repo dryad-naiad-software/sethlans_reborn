@@ -35,3 +35,16 @@ PySide6-Essentials==6.11.0
 requests==2.32.4
 urllib3==2.5.0
 psutil==7.0.0
+
+# Waitress WSGI server — bundled into the worker PyInstaller output (and
+# the manager PyInstaller output once its Waitress migration lands). The
+# worker.spec uses collect_submodules('waitress') to capture all of the
+# server's submodules (waitress.task, waitress.wasyncore, etc.), but
+# PyInstaller's import-walk needs the package importable in the build
+# venv to enumerate them. Without this pin, the frozen worker binary
+# raises ModuleNotFoundError('waitress') on first request.
+#
+# Brought forward from manager-spec Phase 2 so worker-spec Phase 5d can
+# land independently. Pinned to match worker/requirements.txt; bump
+# together.
+waitress==3.0.2

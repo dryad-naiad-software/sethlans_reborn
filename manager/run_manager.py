@@ -2,14 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Entry point for the Sethlans Manager HTTPS server.
+Entry point for the Sethlans Manager HTTP(S) server.
 
-Applies database migrations, generates or loads TLS certificates,
-and launches uvicorn with a custom SSLContext (TLS 1.2+).
+Applies database migrations and generates or loads TLS certificates
+(Caddy consumes them at the front door — Waitress itself runs plaintext
+on loopback). Phase 5 of the waitress-migration spec swapped the
+serving path to Waitress+WSGI with two loopback listeners
+(public-origin + internal-origin), both fronted by Caddy.
 
 Usage:
-    python manager/run_manager.py          # Production mode
-    python manager/run_manager.py --dev    # Dev mode (hot reload, dev TLS dir)
+    python manager/run_manager.py          # Production mode (Waitress)
+    python manager/run_manager.py --dev    # Dev hot-reload (watchdog).
+
+Phase 6 replaced the ``--dev`` fail-fast stub with a watchdog-based
+parent/child wrapper. The parent process owns the filesystem observer
+and signals the child on any ``*.py`` change under ``manager/``; the
+child process runs the production Waitress path.
 """
 import configparser
 import logging
@@ -50,11 +58,17 @@ from sethlans_manager.runtime_init import (  # noqa: E402
     initialize_runtime_state,
 )
 from sethlans_manager.tls_setup import (  # noqa: E402
-    build_ssl_context,
     get_config_file_path,
     setup_certificates,
 )
-from sethlans_manager.uvicorn_launcher import launch as _launch_servers  # noqa: E402
+from sethlans_manager.waitress_config import (  # noqa: E402
+    get_waitress_internal_port,
+    get_waitress_public_port,
+)
+from sethlans_manager.waitress_launcher import (  # noqa: E402
+    launch as _launch_waitress,
+    stop_waitress_listeners,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,27 +106,23 @@ def get_manager_bind():
 
 
 def get_loopback_port():
-    """Return the loopback listener port.
+    """Return the internal-origin Waitress listener port.
 
-    Override hierarchy (tray-helper-unified FR-22 / FR-22b):
-      1. ``SETHLANS_MANAGER_LOOPBACK_PORT`` env var.
-      2. ``manager.ini [server] loopback_port``.
-      3. Default ``8088``.
+    Thin wrapper around
+    :func:`sethlans_manager.waitress_config.get_waitress_internal_port`
+    that preserves the pre-Phase-5 string return type for callers that
+    expect it (e.g. the Phase 2 loopback-port unit tests).
+
+    Override hierarchy (tray-helper-unified FR-22 / FR-22b +
+    waitress-migration Phase 5):
+      1. ``SETHLANS_MANAGER_LOOPBACK_PORT`` env var (legacy).
+      2. ``SETHLANS_MANAGER_WAITRESS_PORT_INTERNAL`` env var.
+      3. ``manager.ini [server] waitress_loopback_port_internal``.
+      4. ``manager.ini [server] loopback_port`` (legacy).
+      5. Default ``8088``.
     """
-    port = os.getenv('SETHLANS_MANAGER_LOOPBACK_PORT')
-    try:
-        config = configparser.ConfigParser()
-        config_file_path = get_config_file_path(MANAGER_DIR)
-        if config_file_path.exists():
-            config.read(config_file_path)
-            if not port and config.has_option('server', 'loopback_port'):
-                port = config.get('server', 'loopback_port')
-    except Exception as e:
-        print(
-            f"[WARNING] Could not read manager.ini: {e}",
-            file=sys.stderr,
-        )
-    return port or '8088'
+    ini_path = get_config_file_path(MANAGER_DIR)
+    return str(get_waitress_internal_port(ini_path))
 
 
 def _prepare_runtime(cert, host, port):
@@ -138,23 +148,6 @@ def _prepare_runtime(cert, host, port):
     enrollment_cfg = get_enrollment_config(config_dir)
     cleanup_stale_setup_section(config_dir)
     initialize_runtime_state(cert, enrollment_cfg, host, port)
-
-
-def _launch_uvicorn(host, port, cert_path, key_path, dev_mode):
-    """Thin shim around :func:`sethlans_manager.uvicorn_launcher.launch`.
-
-    Preserved as a module-level entry point for tests and for backwards
-    compat with scripts that import it directly.
-    """
-    _launch_servers(
-        host=host,
-        port=port,
-        cert_path=cert_path,
-        key_path=key_path,
-        dev_mode=dev_mode,
-        manager_dir=MANAGER_DIR,
-        get_loopback_port=get_loopback_port,
-    )
 
 
 def _frozen_boot_sequence(dev_mode):
@@ -185,19 +178,52 @@ def _frozen_boot_sequence(dev_mode):
         run_collectstatic_inprocess()
 
 
+def _dispatch_dev_mode() -> None:
+    """Handle ``--dev``: parent→watchdog wrapper, child→fall through.
+
+    Called only when ``--dev`` is present in ``sys.argv``. If the
+    ``SETHLANS_DEV_IS_PARENT`` env marker is absent we are the parent
+    and hand off to ``run_dev_watchdog``; ``sys.exit`` with its rc so
+    we never return to production boot. If the marker is present we
+    are a child that somehow still sees ``--dev`` (pathological — the
+    parent strips it from child argv). Log a warning and fall through
+    to the production path.
+
+    ``watchdog`` is a dev-only dependency; ImportError surfaces as a
+    clean exit-2 with a pointer at ``requirements-dev.txt`` rather
+    than a raw traceback.
+    """
+    if os.environ.get("SETHLANS_DEV_IS_PARENT") == "1":
+        print(
+            "[WARN] --dev seen in child argv; expected it to be "
+            "stripped by the parent. Falling through to production "
+            "path.",
+            file=sys.stderr,
+        )
+        return
+    try:
+        from sethlans_manager.dev_watchdog import run_dev_watchdog
+    except ImportError:
+        print(
+            "[ERROR] watchdog is a dev-only dependency; install via "
+            "`pip install -r requirements-dev.txt` before using --dev",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    rc = run_dev_watchdog(Path(MANAGE_PY), sys.argv[1:])
+    sys.exit(rc)
+
+
 def main():
     """Entry point for ``python manager/run_manager.py``."""
-    dev_mode = '--dev' in sys.argv
-
-    # Signal the ASGI lifespan hooks (asgi.py) that we are in --dev mode
-    # so that the broadcaster does not start in the reloader parent
-    # process.  Must be set BEFORE uvicorn.run() to propagate to workers.
-    if dev_mode:
-        os.environ['SETHLANS_DEV_MODE'] = '1'
+    if '--dev' in sys.argv:
+        _dispatch_dev_mode()
 
     try:
         cert_path, key_path, cert = setup_certificates(
-            dev_mode, MANAGER_DIR, PROJECT_ROOT,
+            dev_mode=False,
+            manager_dir=MANAGER_DIR,
+            project_root=PROJECT_ROOT,
         )
     except CertificateError as e:
         print(f"\n[ERROR] TLS certificate error: {e}", file=sys.stderr)
@@ -206,29 +232,33 @@ def main():
     check_cert_expiry_warning(cert)
 
     if is_frozen():
-        _frozen_boot_sequence(dev_mode)
+        _frozen_boot_sequence(dev_mode=False)
     else:
         from sethlans_manager.migration_runner import (
             run_collectstatic_subprocess,
             run_migrations_subprocess,
         )
         run_migrations_subprocess(MANAGE_PY)
-        if not dev_mode:
-            run_collectstatic_subprocess(MANAGE_PY)
+        run_collectstatic_subprocess(MANAGE_PY)
 
-    build_ssl_context(cert_path, key_path)
     host, port = get_manager_bind()
-
     _prepare_runtime(cert, host, port)
 
-    mode_label = "DEV" if dev_mode else "PRODUCTION"
-    print(f"\n--- Starting Sethlans Manager ({mode_label}) "
-          f"on https://{host}:{port} ---")
+    ini_path = get_config_file_path(MANAGER_DIR)
+    public_port = get_waitress_public_port(ini_path)
+    internal_port = get_waitress_internal_port(ini_path)
+
+    print(
+        "\n--- Starting Sethlans Manager (PRODUCTION) "
+        f"-- public vhost {host}:{port} via Caddy -> "
+        f"Waitress 127.0.0.1:{public_port} ---",
+    )
     print("--- To stop the server, press CTRL+C ---")
 
     try:
-        _launch_uvicorn(host, port, cert_path, key_path, dev_mode)
+        _launch_waitress(public_port, internal_port, ini_path)
     except KeyboardInterrupt:
+        stop_waitress_listeners()
         print("\n--- Sethlans Manager stopped ---")
 
 

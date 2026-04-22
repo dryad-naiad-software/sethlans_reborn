@@ -28,10 +28,33 @@ hiddenimports = [
 ]
 hiddenimports += collect_submodules('shared')
 
+# --- Caddy binary ---
+# The launcher supervises Caddy as a child process (manager Phase 3+
+# and worker Phase 5+). This spec is **shared by both the manager and
+# worker native installers** — adding Caddy here means the worker
+# installer also carries a ~40MB Caddy binary starting from manager
+# spec Phase 1, even though the worker does not invoke it until a
+# later worker-spec phase. The cost is accepted per the spec; the
+# binary is present-but-unused in the worker process tree until worker
+# supervision wires it up.
+#
+# Source path: .venv-build/caddy/caddy[.exe] — populated by
+# tools/fetch_caddy.py via the CI workflows and dev-setup script.
+# Destination: '.' → root of the one-dir bundle, next to run_launcher.
+_CADDY_NAME = 'caddy.exe' if sys.platform == 'win32' else 'caddy'
+_CADDY_SRC = PROJECT_ROOT / '.venv-build' / 'caddy' / _CADDY_NAME
+if not _CADDY_SRC.is_file():
+    raise SystemExit(
+        f"Caddy binary not found at {_CADDY_SRC}. Run "
+        "`python tools/fetch_caddy.py --target-dir .venv-build/caddy` "
+        "or `python tools/dev_setup.py` before building the launcher."
+    )
+caddy_binaries = [(str(_CADDY_SRC), '.')]
+
 a = Analysis(
     [str(LAUNCHER_DIR / 'run_launcher.py')],
     pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT)],
-    binaries=[],
+    binaries=caddy_binaries,
     datas=[],
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -40,7 +63,6 @@ a = Analysis(
     excludes=[
         'django',
         'rest_framework',
-        'uvicorn',
         'PIL',
         'psutil',
         'cryptography',

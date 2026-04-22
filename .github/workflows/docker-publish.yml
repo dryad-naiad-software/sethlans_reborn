@@ -23,6 +23,21 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Cache Caddy binaries
+        uses: actions/cache@v4
+        with:
+          path: .tmp/caddy
+          # Cache key includes the --multi-arch platform list so that
+          # changing the list (add/remove an arch) invalidates the
+          # cache and forces a fresh fetch — prevents a stale cache
+          # serving content whose shape no longer matches the
+          # Dockerfile COPY requirements.
+          key: caddy-docker-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}-linux-amd64-linux-arm64
+      - name: Fetch Caddy (multi-arch)
+        run: python tools/fetch_caddy.py --target-dir .tmp/caddy --multi-arch linux-amd64,linux-arm64
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -60,6 +75,21 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Cache Caddy binaries
+        uses: actions/cache@v4
+        with:
+          path: .tmp/caddy
+          # Same key shape as build-manager so this job can share
+          # the manager's cache entry: the Dockerfile COPY pattern
+          # (.tmp/caddy/linux-${TARGETARCH}/caddy) requires the
+          # per-platform subdirectory layout that --multi-arch
+          # produces.
+          key: caddy-docker-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}-linux-amd64-linux-arm64
+      - name: Fetch Caddy (multi-arch)
+        run: python tools/fetch_caddy.py --target-dir .tmp/caddy --multi-arch linux-amd64,linux-arm64
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -97,6 +127,22 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Cache Caddy binaries
+        uses: actions/cache@v4
+        with:
+          path: .tmp/caddy
+          # Single-platform worker build, but the Dockerfile COPY
+          # path (.tmp/caddy/linux-${TARGETARCH}/caddy) needs the
+          # per-platform subdirectory layout that --multi-arch
+          # produces. Using --platform would write to
+          # .tmp/caddy/caddy without the subdir prefix and break
+          # the COPY.
+          key: caddy-docker-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}-linux-amd64
+      - name: Fetch Caddy (amd64)
+        run: python tools/fetch_caddy.py --target-dir .tmp/caddy --multi-arch linux-amd64
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -133,6 +179,19 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Cache Caddy binaries
+        uses: actions/cache@v4
+        with:
+          path: .tmp/caddy
+          # See build-worker-nvidia for why --multi-arch is used
+          # even for a single-platform build: the Dockerfile COPY
+          # expects the .tmp/caddy/linux-${TARGETARCH}/ layout.
+          key: caddy-docker-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}-linux-amd64
+      - name: Fetch Caddy (amd64)
+        run: python tools/fetch_caddy.py --target-dir .tmp/caddy --multi-arch linux-amd64
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:

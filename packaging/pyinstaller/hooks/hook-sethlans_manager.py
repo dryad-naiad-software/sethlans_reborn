@@ -18,7 +18,6 @@ hiddenimports = collect_submodules('sethlans_manager')
 hiddenimports += [
     'sethlans_manager.settings',
     'sethlans_manager.urls',
-    'sethlans_manager.asgi',
     'sethlans_manager.wsgi',
     'sethlans_manager.logging_config',
     'sethlans_manager.drf_config',

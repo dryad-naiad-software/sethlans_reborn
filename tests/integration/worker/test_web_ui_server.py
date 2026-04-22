@@ -3,18 +3,22 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Integration tests for the worker web UI HTTPS server.
+Integration tests for the worker web UI Waitress upstream.
 
-Starts a real uvicorn HTTPS server on a random port and exercises
-the status, pause/resume, and authentication endpoints using
-urllib from stdlib with certificate verification disabled.
+Starts a real Waitress plaintext loopback upstream on a random port
+and exercises the status, pause/resume, and authentication
+endpoints. Caddy/TLS is NOT in the test loop — post-migration the
+worker web UI is a plaintext WSGI upstream on
+``config.WAITRESS_UPSTREAM_PORT``; Caddy terminates TLS on
+``config.CADDY_PUBLIC_TLS_PORT`` out-of-band.
 """
 
 import json
 import logging
-import ssl
-import urllib.request
+import socket
+import time
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -24,19 +28,24 @@ from sethlans_worker_agent.web_ui.setup.gate import mark_setup_complete
 
 logger = logging.getLogger(__name__)
 
-# Unverified SSL context for self-signed cert testing
-_NO_VERIFY_CTX = ssl.create_default_context()
-_NO_VERIFY_CTX.check_hostname = False
-_NO_VERIFY_CTX.verify_mode = ssl.CERT_NONE
+
+def _find_free_port():
+    """Find and return a free TCP port on 127.0.0.1."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(('127.0.0.1', 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
 
 
 @pytest.fixture()
 def web_ui(mocker, tmp_path):
     """
-    Start the web UI server on a random high port with TLS.
+    Start the Waitress plaintext upstream on a random high port.
 
-    Generates a self-signed cert, configures auth with a known
-    PBKDF2-hashed password. Yields a dict with base_url and password.
+    Patches ``config.WAITRESS_UPSTREAM_PORT`` so Waitress binds on a
+    free loopback port. Sets a known PBKDF2-hashed password via the
+    auth module. Yields a dict with base_url and password token.
     Stops server on teardown.
     """
     test_password = "test-integration-pw123"
@@ -49,21 +58,9 @@ def web_ui(mocker, tmp_path):
     mocker.patch.object(config, 'config_file_path', tmp_path / 'config.ini')
     auth.set_password(test_password)
 
-    # Generate self-signed cert for the test
-    from shared.cert_utils import generate_self_signed_cert
-    tls_dir = tmp_path / 'tls'
-    cert_path = tls_dir / 'cert.pem'
-    key_path = tls_dir / 'key.pem'
-    generate_self_signed_cert(cert_path, key_path)
-
-    # Find a free port
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(('127.0.0.1', 0))
-    port = sock.getsockname()[1]
-    sock.close()
-
-    mocker.patch.object(config, 'UI_PORT', port)
+    # Find a free port for the Waitress upstream
+    port = _find_free_port()
+    mocker.patch.object(config, 'WAITRESS_UPSTREAM_PORT', port)
 
     # Mock hardware detection to avoid Blender dependency
     mocker.patch(
@@ -84,28 +81,26 @@ def web_ui(mocker, tmp_path):
         42,
     )
 
-    server.start_server(cert_path, key_path)
+    # cert_path/key_path are ignored by Waitress; start_server's
+    # signature still accepts them for legacy compatibility.
+    server.start_server(cert_path=None, key_path=None)
 
     # Bypass the setup gate so integration tests can reach /api/status
     mark_setup_complete()
 
-    # Wait for uvicorn to bind and accept connections
-    import time
+    # Wait for Waitress to bind and accept connections (plaintext)
     for _attempt in range(20):
         try:
-            test_ctx = ssl.create_default_context()
-            test_ctx.check_hostname = False
-            test_ctx.verify_mode = ssl.CERT_NONE
             urllib.request.urlopen(
-                f'https://127.0.0.1:{port}/api/status',
-                timeout=1, context=test_ctx,
+                f'http://127.0.0.1:{port}/api/status',
+                timeout=1,
             )
             break
         except (urllib.error.URLError, ConnectionError, OSError):
             time.sleep(0.25)
 
     yield {
-        'base_url': f'https://127.0.0.1:{port}',
+        'base_url': f'http://127.0.0.1:{port}',
         'token': test_password,
     }
 
@@ -117,8 +112,7 @@ def _get(url, headers=None):
     """Make a GET request and return (status, body_dict)."""
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(req, timeout=5,
-                                    context=_NO_VERIFY_CTX) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             body = json.loads(resp.read().decode())
             return resp.status, body
     except urllib.error.HTTPError as e:
@@ -136,8 +130,7 @@ def _post(url, data=None, headers=None):
         url, data=body_bytes, headers=all_headers, method='POST',
     )
     try:
-        with urllib.request.urlopen(req, timeout=5,
-                                    context=_NO_VERIFY_CTX) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             body = json.loads(resp.read().decode())
             return resp.status, body
     except urllib.error.HTTPError as e:
@@ -176,7 +169,7 @@ def test_status_contains_worker_info(web_ui):
 def test_status_no_auth_required(web_ui):
     """Status endpoint does not require authentication."""
     url = f"{web_ui['base_url']}/api/status"
-    status, body = _get(url)
+    status, _body = _get(url)
     assert status == 200
 
 
@@ -234,6 +227,6 @@ def test_control_endpoints_reject_non_bearer_auth(web_ui):
     """Control endpoints with non-Bearer auth return 401."""
     url = f"{web_ui['base_url']}/api/control/pause"
     headers = {'Authorization': f"Token {web_ui['token']}"}
-    status, body = _post(url, headers=headers)
+    status, _body = _post(url, headers=headers)
 
     assert status == 401

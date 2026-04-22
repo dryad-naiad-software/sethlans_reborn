@@ -25,9 +25,6 @@ What these tests cover:
   new data becomes visible after the TTL expires.
 * Changing ``runtime_state.manager_boot_id`` (simulated restart)
   invalidates the cache regardless of time.
-* ``uvicorn_launcher.launch`` wires the loopback listener to
-  ``host='127.0.0.1'``; the socket-level loopback restriction is
-  enforced at bind time, not in Python.
 """
 
 from __future__ import annotations
@@ -242,58 +239,3 @@ class TestCountCacheBehavior:
         runtime_state.manager_boot_id = uuid.uuid4().hex
         r2 = Client().get("/api/status/public/")
         assert r2.json()["workers_online"] == 2
-
-
-class TestUvicornLauncherLoopbackBinding:
-    """Socket-level loopback restriction lives in ``uvicorn_launcher.launch``.
-
-    We cannot spin up the real dual-listener stack inside the test
-    process (it calls ``asyncio.run`` and owns the event loop), so we
-    assert the critical wiring by inspecting the ``uvicorn.Config`` that
-    the launcher constructs for the loopback server.
-    """
-
-    def test_loopback_config_binds_to_127_0_0_1(self, mocker, tmp_path):
-        import uvicorn
-
-        from sethlans_manager import uvicorn_launcher as ul
-
-        configs: list[uvicorn.Config] = []
-
-        class _ServerStub:
-            def __init__(self, cfg):
-                configs.append(cfg)
-
-            async def serve(self):
-                return None
-
-        mocker.patch.object(ul.uvicorn, "Server", _ServerStub)
-        # Short-circuit asyncio.run so the test does not spin up loops.
-        mocker.patch.object(ul.asyncio, "run", lambda *_a, **_kw: None)
-        # Avoid touching Windows event-loop policy.
-        mocker.patch.object(
-            ul, "_install_selector_policy", lambda: None,
-        )
-
-        cert = tmp_path / "cert.pem"
-        cert.write_bytes(b"x")
-        key = tmp_path / "key.pem"
-        key.write_bytes(b"x")
-
-        ul.launch(
-            host="0.0.0.0",
-            port="8080",
-            cert_path=cert,
-            key_path=key,
-            dev_mode=False,
-            manager_dir=tmp_path,
-            get_loopback_port=lambda: "8088",
-        )
-
-        assert len(configs) == 2
-        main_cfg, loopback_cfg = configs
-        assert main_cfg.host == "0.0.0.0"
-        assert loopback_cfg.host == "127.0.0.1"
-        assert loopback_cfg.port == 8088
-        # The loopback listener must be plaintext — no TLS kwargs.
-        assert getattr(loopback_cfg, "ssl_certfile", None) in (None, "")

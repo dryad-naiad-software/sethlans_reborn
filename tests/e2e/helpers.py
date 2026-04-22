@@ -25,7 +25,15 @@ logger = logging.getLogger(__name__)
 _TERMINAL_STATUSES = {"DONE", "ERROR", "CANCELED"}
 
 # Default polling parameters.
-DEFAULT_TIMEOUT = 240
+#
+# A cold e2e worker has to: scrape download.blender.org (~4-5 min
+# because every SHA-256 fetch is serial), download ~500 MB of Blender,
+# extract it, and only THEN start rendering. The first terminal status
+# is realistically 6-8 minutes out from job submission. Downstream
+# tests that run after Blender is cached finish in ~1 min, but this
+# default must cover the first cold render. Tighter per-test timeouts
+# still apply where the worker is warm.
+DEFAULT_TIMEOUT = 900
 POLL_INTERVAL = 2
 
 # Minimum pixel brightness to confirm image is not solid black.

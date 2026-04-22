@@ -26,6 +26,10 @@ from rest_framework.response import Response
 from shared.frozen_paths import get_data_dir, is_frozen
 from workers.authentication import SetupPhaseAuthentication
 from workers.permissions import IsSetupPhaseUser
+from workers.services.setup_lock import (
+    setup_conflict_response,
+    setup_mutation_lock,
+)
 from workers.services.setup_session import enforce_setup_session_binding
 from workers.services.sentinel import append_checkpoint
 from workers.services.setup import (
@@ -65,10 +69,13 @@ def _get_ini_path() -> Path:
 def setup_database_view(request):
     """POST /api/setup/database/ (FR-A4)."""
     enforce_setup_session_binding(request)
-    engine = request.data.get("engine", "sqlite")
-    if engine == "sqlite":
-        return _handle_sqlite()
-    return _handle_external(engine, request.data)
+    with setup_mutation_lock() as acquired:
+        if not acquired:
+            return setup_conflict_response()
+        engine = request.data.get("engine", "sqlite")
+        if engine == "sqlite":
+            return _handle_sqlite()
+        return _handle_external(engine, request.data)
 
 
 def _handle_sqlite():
