@@ -18,8 +18,8 @@ from workers.serializers.assets import AssetSerializer
 # size and endianness info.  We only need the 7-byte prefix for tests.
 BLEND_MAGIC = b"BLENDER"
 
-# Maximum allowed upload size: 500 MB.
-MAX_SIZE = 500 * 1024 * 1024
+# Maximum allowed upload size: 10 GB.
+MAX_SIZE = 10 * 1024 * 1024 * 1024
 
 
 def _blend_file(name="scene.blend", size=1024, magic=BLEND_MAGIC):
@@ -92,7 +92,7 @@ class TestMixedCaseExtension:
 # ---- Size validation -----------------------------------------------------
 
 class TestSizeValidation:
-    """Upload must not exceed 500 MB."""
+    """Upload must not exceed 10 GB."""
 
     def test_file_exceeding_max_size(self):
         """One byte over the limit must be rejected."""
@@ -100,13 +100,13 @@ class TestSizeValidation:
             name="huge.blend",
             content=BLEND_MAGIC,
         )
-        # Fake the size attribute instead of allocating 500 MB+.
+        # Fake the size attribute instead of allocating 10 GB+.
         f.size = MAX_SIZE + 1
-        with pytest.raises(ValidationError, match="500"):
+        with pytest.raises(ValidationError, match="exceeds"):
             _validate(f)
 
     def test_file_at_exact_max_size(self):
-        """Exactly 500 MB must be accepted (boundary)."""
+        """Exactly 10 GB must be accepted (boundary)."""
         f = SimpleUploadedFile(
             name="exact.blend",
             content=BLEND_MAGIC + b"\x00" * 100,

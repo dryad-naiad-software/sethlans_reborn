@@ -48,7 +48,7 @@ class TestGetWaitressTuningDefaults:
         tuning = wc.get_waitress_tuning(tmp_path / "missing.ini")
         assert tuning["connection_limit"] == 1000
 
-    def test_max_request_body_size_default_100mb(
+    def test_max_request_body_size_default_10gb(
         self, tmp_path, monkeypatch,
     ):
         monkeypatch.delenv(
@@ -56,7 +56,7 @@ class TestGetWaitressTuningDefaults:
             raising=False,
         )
         tuning = wc.get_waitress_tuning(tmp_path / "missing.ini")
-        assert tuning["max_request_body_size"] == 104857600
+        assert tuning["max_request_body_size"] == 10 * 1024 * 1024 * 1024
 
 
 class TestGetWaitressTuningIniOverrides:

@@ -120,13 +120,13 @@ class TestBlendFileMagicBytesValidation:
 
 @pytest.mark.django_db
 class TestBlendFileSizeValidation:
-    """Reject files that exceed the 500 MB asset-specific limit."""
+    """Reject files that exceed the 10 GB asset-specific limit."""
 
     def test_size_limit_error_message(self, admin_client, project):
         """
-        Verify the error message mentions 500MB.
+        Verify the error message reports the size limit.
 
-        We cannot actually create a 500 MB+ file in tests, so we
+        We cannot actually create a 10 GB+ file in tests, so we
         monkeypatch the constant instead.
         """
         from workers.serializers import assets as assets_module
@@ -148,3 +148,30 @@ class TestBlendFileSizeValidation:
             admin_client, project, 'scene.blend', VALID_BLEND_CONTENT,
         )
         assert resp.status_code == 201
+
+
+class TestUploadCeilingAlignment:
+    """Drift guard for GitHub #99.
+
+    Waitress closes the TCP connection when the body exceeds its
+    ``max_request_body_size``; Django rejects before the view runs
+    when the body exceeds ``DATA_UPLOAD_MAX_MEMORY_SIZE``. If either
+    floor drops below the serializer's ``MAX_BLEND_FILE_SIZE``, a
+    legitimate asset upload fails silently at a layer the user can't
+    see. Pin the ordering so the serializer is always the active cap.
+    """
+
+    def test_waitress_ceiling_covers_serializer_ceiling(self):
+        from sethlans_manager.waitress_config import (
+            DEFAULT_MAX_REQUEST_BODY_SIZE,
+        )
+        from workers.serializers.assets import MAX_BLEND_FILE_SIZE
+        assert DEFAULT_MAX_REQUEST_BODY_SIZE >= MAX_BLEND_FILE_SIZE
+
+    def test_django_ceiling_covers_serializer_ceiling(self):
+        from django.conf import settings as django_settings
+        from workers.serializers.assets import MAX_BLEND_FILE_SIZE
+        assert (
+            django_settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+            >= MAX_BLEND_FILE_SIZE
+        )

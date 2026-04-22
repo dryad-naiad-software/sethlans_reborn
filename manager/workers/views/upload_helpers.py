@@ -16,9 +16,9 @@ from ..constants import FORMAT_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
-# 100 MB default, overridable via settings
+# 10 GB default, overridable via settings
 MAX_UPLOAD_SIZE = getattr(
-    django_settings, 'FILE_UPLOAD_MAX_MEMORY_SIZE', 104857600
+    django_settings, 'FILE_UPLOAD_MAX_MEMORY_SIZE', 10 * 1024 * 1024 * 1024
 )
 
 # Magic bytes for non-Pillow-readable formats

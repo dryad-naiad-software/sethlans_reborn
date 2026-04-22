@@ -9,8 +9,8 @@ from rest_framework import serializers
 from ..models import Asset, Project
 from .projects import ProjectSerializer
 
-# 500 MB — asset-specific limit (separate from Django's global setting)
-MAX_BLEND_FILE_SIZE = 500 * 1024 * 1024
+# 10 GB — asset-specific limit (separate from Django's global setting)
+MAX_BLEND_FILE_SIZE = 10 * 1024 * 1024 * 1024
 
 # .blend files start with one of these magic byte sequences:
 # - Uncompressed: b'BLENDER' (7 bytes)
@@ -40,7 +40,7 @@ class AssetSerializer(serializers.ModelSerializer):
         """
         Validate the uploaded .blend file:
         1. File extension must be .blend
-        2. File size must not exceed 500 MB
+        2. File size must not exceed 10 GB
         3. File must start with the BLENDER magic bytes
         """
         # Extension check

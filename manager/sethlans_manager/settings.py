@@ -306,7 +306,7 @@ from .drf_config import REST_FRAMEWORK, SPECTACULAR_SETTINGS  # noqa: E402, F401
 WORKERS_DELETE_OLD_THUMBNAILS = True
 
 # --- Upload Size Limits ---
-# Maximum size for request body (100MB) — covers multipart file uploads
-DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 MB
-# Maximum size for a single uploaded file (100MB)
-FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 MB
+# Maximum size for request body — covers multipart file uploads
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB
+# Maximum size for a single uploaded file
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB

@@ -45,7 +45,7 @@ class TestLaunchDualListeners:
             "threads": 16,
             "channel_timeout": 300,
             "connection_limit": 1000,
-            "max_request_body_size": 104857600,
+            "max_request_body_size": 10 * 1024 * 1024 * 1024,
         }
         mocker.patch.object(
             waitress_launcher, "get_waitress_tuning",
@@ -79,7 +79,7 @@ class TestLaunchDualListeners:
         assert first["threads"] == 16
         assert first["channel_timeout"] == 300
         assert first["connection_limit"] == 1000
-        assert first["max_request_body_size"] == 104857600
+        assert first["max_request_body_size"] == 10 * 1024 * 1024 * 1024
         assert "trusted_proxy" not in first
         second = create_server.call_args_list[1].kwargs
         assert second["host"] == "127.0.0.1"
@@ -99,7 +99,7 @@ class TestLaunchDualListeners:
                 "threads": 16,
                 "channel_timeout": 300,
                 "connection_limit": 1000,
-                "max_request_body_size": 104857600,
+                "max_request_body_size": 10 * 1024 * 1024 * 1024,
             },
         )
         mocker.patch(
@@ -147,7 +147,7 @@ class TestLaunchDualListeners:
                 "threads": 16,
                 "channel_timeout": 300,
                 "connection_limit": 1000,
-                "max_request_body_size": 104857600,
+                "max_request_body_size": 10 * 1024 * 1024 * 1024,
             },
         )
         mocker.patch(
