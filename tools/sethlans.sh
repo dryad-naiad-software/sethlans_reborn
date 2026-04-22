@@ -148,10 +148,14 @@ cmd_dev() {
         echo ""
         echo "--- Frontend ---"
         export NG_CLI_ANALYTICS=false
-        if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-            npm install --prefix "$FRONTEND_DIR" --no-progress --no-fund --no-audit
+        # npm --prefix is unreliable on Windows/MSYS (silently ignored,
+        # so it walks back to $PWD/package.json); pushd is portable.
+        pushd "$FRONTEND_DIR" > /dev/null
+        if [ ! -d "node_modules" ]; then
+            npm install --no-progress --no-fund --no-audit
         fi
-        npm run build --prefix "$FRONTEND_DIR" --no-progress
+        npm run build --no-progress
+        popd > /dev/null
         echo "[OK] Frontend built"
     fi
     start_services
