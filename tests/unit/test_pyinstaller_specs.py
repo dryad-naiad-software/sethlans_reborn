@@ -34,6 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILD_REQS = REPO_ROOT / "requirements-build.txt"
 SPEC_DIR = REPO_ROOT / "packaging" / "pyinstaller"
 TRAY_SPEC = SPEC_DIR / "tray_helper.spec"
+LAUNCHER_SPEC = SPEC_DIR / "launcher.spec"
 ICON_WIN = REPO_ROOT / "packaging" / "windows" / "sethlans.ico"
 
 ALL_SPECS = {
@@ -52,6 +53,11 @@ def build_reqs_text() -> str:
 @pytest.fixture(scope="module")
 def tray_spec_text() -> str:
     return TRAY_SPEC.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def launcher_spec_text() -> str:
+    return LAUNCHER_SPEC.read_text(encoding="utf-8")
 
 
 class TestBuildRequirementsTrayDeps:
@@ -232,4 +238,111 @@ class TestWindowsIconWiredInAllSpecs:
             f"Expected {spec_name}.spec's EXE() call to include "
             "`icon=icon_path,` so the built Windows executable carries "
             "the Sethlans icon (issue #96)."
+        )
+
+
+class TestLauncherSpecBundlesWorkersBroadcaster:
+    """launcher.spec must bundle ``workers.multicast_broadcaster``
+    (issue #101).
+
+    Before this fix, the frozen launcher's ``BroadcasterSupervisor``
+    crash-looped every ~200 ms with
+    ``ModuleNotFoundError: No module named 'workers'`` because
+    PyInstaller's static analyzer never discovered the module: it was
+    neither declared as a hidden import nor was ``manager/`` on
+    ``pathex``. The runtime ``sys.path`` hack in
+    ``launcher/broadcaster_supervisor.py`` only helps source mode — a
+    frozen bundle ships only modules PyInstaller statically resolved.
+    These tests lock the spec wiring so the regression cannot return.
+    """
+
+    def test_multicast_broadcaster_in_hiddenimports(
+        self, launcher_spec_text: str,
+    ) -> None:
+        # The module name must appear as a quoted hidden import. We
+        # deliberately match only the single named import — using
+        # ``collect_submodules('workers')`` would pull Django-dependent
+        # siblings (views, models, serializers) and break the build,
+        # so the test also guards against that shortcut implicitly
+        # (the assertion below on 'workers' not being excluded is a
+        # separate defensive check).
+        assert (
+            "'workers.multicast_broadcaster'" in launcher_spec_text
+            or '"workers.multicast_broadcaster"' in launcher_spec_text
+        ), (
+            "launcher.spec must declare 'workers.multicast_broadcaster' "
+            "as a hidden import so the frozen launcher can import it "
+            "for UDP discovery (issue #101)."
+        )
+
+    def test_manager_dir_referenced_in_pathex(
+        self, launcher_spec_text: str,
+    ) -> None:
+        # PyInstaller's static analyzer needs ``manager/`` on pathex to
+        # locate the ``workers`` package at build time. Accept either
+        # the ``MANAGER_DIR`` constant or the equivalent
+        # ``PROJECT_ROOT / 'manager'`` literal in the pathex argument
+        # of Analysis(...).
+        # Find the Analysis(...) call by anchoring on the opening
+        # paren and scanning to the matching close. A simple regex
+        # with non-greedy ``.*?`` stops at the first ``)`` — which is
+        # inside ``str(LAUNCHER_DIR / 'run_launcher.py')`` — so we do
+        # a directed search for the pathex kwarg between the
+        # Analysis( opener and the first line that starts a new
+        # top-level call (pyz = PYZ(...)).
+        analysis_start = launcher_spec_text.find("Analysis(")
+        pyz_start = launcher_spec_text.find("pyz = PYZ(")
+        assert analysis_start != -1 and pyz_start > analysis_start, (
+            "launcher.spec must contain an Analysis(...) call followed "
+            "by pyz = PYZ(...)."
+        )
+        body = launcher_spec_text[analysis_start:pyz_start]
+        pathex_match = re.search(
+            r"pathex\s*=\s*\[(?P<pathex>[^\]]*)\]",
+            body,
+        )
+        assert pathex_match, (
+            "launcher.spec Analysis() must declare a pathex kwarg."
+        )
+        pathex_contents = pathex_match.group("pathex")
+        has_constant = "MANAGER_DIR" in pathex_contents
+        has_literal = re.search(
+            r"PROJECT_ROOT\s*/\s*['\"]manager['\"]",
+            pathex_contents,
+        )
+        assert has_constant or has_literal, (
+            "launcher.spec pathex must include MANAGER_DIR (or the "
+            "equivalent PROJECT_ROOT / 'manager' literal) so "
+            "PyInstaller's static analyzer can locate the workers "
+            "package at build time (issue #101)."
+        )
+
+    def test_workers_not_in_excludes(
+        self, launcher_spec_text: str,
+    ) -> None:
+        # Defense-in-depth: a future cleanup pass adding 'workers' to
+        # the excludes list would silently re-break the bundle even
+        # with the hidden import declared. The launcher's excludes
+        # list intentionally drops Django, DRF, PIL, psutil, and
+        # cryptography — but 'workers' (the manager's Django app
+        # package, only the stdlib-pure multicast_broadcaster
+        # submodule is used) must never join that list.
+        excludes_match = re.search(
+            r"excludes\s*=\s*\[(?P<excludes>[^\]]*)\]",
+            launcher_spec_text,
+            re.DOTALL,
+        )
+        assert excludes_match, (
+            "launcher.spec Analysis() must declare an excludes kwarg."
+        )
+        excludes_contents = excludes_match.group("excludes")
+        assert "'workers'" not in excludes_contents, (
+            "launcher.spec must NOT list 'workers' in excludes — doing "
+            "so would drop workers.multicast_broadcaster from the "
+            "frozen bundle and reintroduce issue #101."
+        )
+        assert '"workers"' not in excludes_contents, (
+            "launcher.spec must NOT list \"workers\" in excludes — "
+            "doing so would drop workers.multicast_broadcaster from "
+            "the frozen bundle and reintroduce issue #101."
         )

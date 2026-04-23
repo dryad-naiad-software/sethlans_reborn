@@ -19,12 +19,20 @@ from PyInstaller.utils.hooks import collect_submodules
 SPEC_DIR = Path(SPECPATH)
 PROJECT_ROOT = SPEC_DIR.parent.parent
 LAUNCHER_DIR = PROJECT_ROOT / 'launcher'
+MANAGER_DIR = PROJECT_ROOT / 'manager'
 ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
 # --- Hidden imports ---
-# Launcher is minimal: stdlib + shared.frozen_paths only
+# Launcher is minimal: stdlib + shared.frozen_paths only.
+# `workers.multicast_broadcaster` is pure-stdlib (no Django) and is
+# imported by the launcher's BroadcasterSupervisor to run UDP discovery
+# in the frozen bundle (issue #101). Do NOT use
+# collect_submodules('workers') here — it would pull in Django-
+# dependent submodules (views, models, serializers) and break the
+# build.
 hiddenimports = [
     'launcher.logging_setup',
+    'workers.multicast_broadcaster',
 ]
 hiddenimports += collect_submodules('shared')
 
@@ -53,7 +61,7 @@ caddy_binaries = [(str(_CADDY_SRC), '.')]
 
 a = Analysis(
     [str(LAUNCHER_DIR / 'run_launcher.py')],
-    pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT)],
+    pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT), str(MANAGER_DIR)],
     binaries=caddy_binaries,
     datas=[],
     hiddenimports=hiddenimports,
