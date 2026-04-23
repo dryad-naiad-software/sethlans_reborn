@@ -27,6 +27,13 @@ SHARED_DIR = PROJECT_ROOT / 'shared'
 LICENSES_DIR = SPEC_DIR.parent / 'licenses'
 ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
+# Import the Windows VERSIONINFO helper (issue #109). The spec file
+# lives at packaging/pyinstaller/ so SPEC_DIR on sys.path makes
+# ``version_info`` importable by its module name.
+if str(SPEC_DIR) not in sys.path:
+    sys.path.insert(0, str(SPEC_DIR))
+from version_info import make_version_info  # noqa: E402
+
 # --- Hidden imports ---
 # PySide6 collection strategy (spec OQ-3): pin the three Qt modules the tray
 # actually imports (QtCore, QtGui, QtWidgets) plus the shiboken6 binding runtime.
@@ -142,6 +149,12 @@ icon_path = str(ICON_WIN) if ICON_WIN.exists() else None
 # references (packaging/windows/sethlans.nsi, packaging/linux/
 # uninstall.sh, packaging/macos/build_dmg.sh) keep working. Bundle dir
 # name stays 'tray_helper' per tray-helper-unified.md FR-2.
+#
+# Windows VERSIONINFO resource (issue #109). PyInstaller silently
+# ignores ``version=`` on macOS/Linux builds, so no platform guard is
+# needed here.
+_version_resource = make_version_info('run_tray_helper.exe', 'run_tray_helper')
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -154,6 +167,7 @@ exe = EXE(
     upx=True,
     console=False,
     icon=icon_path,
+    version=_version_resource,
 )
 
 # COLLECT (multi-file one-dir) mode is MANDATORY per NFR-1: the bundled

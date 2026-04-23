@@ -408,6 +408,61 @@ class TestLauncherSpecBundlesWorkersBroadcaster:
         )
 
 
+class TestExeVersionResourceEmbedded:
+    """All four PyInstaller specs must wire a Windows VERSIONINFO
+    resource into their ``EXE(...)`` block via the ``version=`` kwarg
+    (issue #109).
+
+    Before this fix the exes shipped with no PE VERSIONINFO resource, so
+    Task Manager Details, File Properties, and SmartScreen dialogs fell
+    back to generic filename-derived strings. The fix adds
+    ``packaging/pyinstaller/version_info.make_version_info`` and passes
+    its result into each spec's ``EXE(version=_version_resource, ...)``
+    call. These tests lock that wiring so a future cleanup cannot drop
+    the kwarg and silently re-break the branding.
+    """
+
+    @pytest.mark.parametrize("spec_name", list(ALL_SPECS.keys()))
+    def test_exe_receives_version_kwarg(self, spec_name: str) -> None:
+        # The EXE(...) block is the last call before COLLECT(...) in
+        # every spec. Do a directed search for ``version=`` between the
+        # ``exe = EXE(`` opener and the ``coll = COLLECT(`` opener so
+        # we match only inside the EXE call and not some earlier
+        # incidental mention (e.g. in a comment block).
+        text = ALL_SPECS[spec_name].read_text(encoding="utf-8")
+        exe_start = text.index("exe = EXE(")
+        collect_start = text.index("coll = COLLECT(")
+        assert exe_start < collect_start, (
+            f"{spec_name}.spec should have exe = EXE(...) before "
+            "coll = COLLECT(...)."
+        )
+        exe_body = text[exe_start:collect_start]
+        pattern = re.compile(
+            r"^\s*version\s*=\s*\S+\s*,\s*$",
+            re.MULTILINE,
+        )
+        assert pattern.search(exe_body), (
+            f"Expected {spec_name}.spec's EXE() call to include "
+            "`version=...,` so the built Windows executable carries the "
+            "Sethlans VERSIONINFO resource (issue #109)."
+        )
+
+    @pytest.mark.parametrize("spec_name", list(ALL_SPECS.keys()))
+    def test_spec_imports_version_info_helper(
+        self, spec_name: str,
+    ) -> None:
+        # Defense-in-depth: the version= kwarg is only meaningful if the
+        # helper is actually wired in. Lock the import line so a future
+        # refactor that drops the import (and leaves a dangling
+        # ``version=_version_resource,``) fails loudly here instead of
+        # only at pyinstaller run time.
+        text = ALL_SPECS[spec_name].read_text(encoding="utf-8")
+        assert "from version_info import make_version_info" in text, (
+            f"{spec_name}.spec must import make_version_info from the "
+            "packaging/pyinstaller/version_info.py helper (issue #109)."
+        )
+
+
 class TestBundlesVersionFile:
     """Both the launcher and tray_helper specs must bundle the repo-root
     ``VERSION`` file into the frozen contents dir (``sys._MEIPASS``)

@@ -24,6 +24,13 @@ MANAGER_DIR = PROJECT_ROOT / 'manager'
 FRONTEND_DIST = MANAGER_DIR / 'frontend' / 'dist'
 ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
+# Import the Windows VERSIONINFO helper (issue #109). The spec file
+# lives at packaging/pyinstaller/ so SPEC_DIR on sys.path makes
+# ``version_info`` importable by its module name.
+if str(SPEC_DIR) not in sys.path:
+    sys.path.insert(0, str(SPEC_DIR))
+from version_info import make_version_info  # noqa: E402
+
 # collect_submodules spawns isolated subprocesses that import each module
 # to walk its package tree. Our workers app's views/urls import DRF, which
 # refuses to load without DJANGO_SETTINGS_MODULE and the manager source
@@ -154,6 +161,11 @@ pyz = PYZ(a.pure)
 # keeps the spec cross-platform without a file-missing crash.
 icon_path = str(ICON_WIN) if ICON_WIN.exists() else None
 
+# Windows VERSIONINFO resource (issue #109). PyInstaller silently
+# ignores ``version=`` on macOS/Linux builds, so no platform guard is
+# needed here.
+_version_resource = make_version_info('run_manager.exe', 'run_manager')
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -166,6 +178,7 @@ exe = EXE(
     upx=True,
     console=not is_windows,
     icon=icon_path,
+    version=_version_resource,
 )
 
 coll = COLLECT(
