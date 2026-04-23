@@ -74,6 +74,7 @@ class SethlansSplash(QWidget):
             | Qt.WindowType.Tool
         )
         self.setWindowFlags(flags)
+        self.setWindowTitle("Sethlans")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         self.setStyleSheet(f"background-color: {_PANEL_BG};")
 

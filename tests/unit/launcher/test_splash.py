@@ -64,6 +64,14 @@ class TestSuccessLayout:
         qtbot.addWidget(widget)
         assert widget._version_label.text() == "v1.2.3"
 
+    def test_window_title_is_sethlans(self, qtbot):
+        # Issue #106: the splash widget must set windowTitle("Sethlans")
+        # so Alt+Tab / taskbar surfaces read "Sethlans" instead of the
+        # frozen exe name.
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        assert widget.windowTitle() == "Sethlans"
+
 
 # ---- close_for_success ---------------------------------------------
 

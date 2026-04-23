@@ -266,3 +266,26 @@ class TestNotifyClosure:
         m["notif_mod"].dispatch.assert_called_once_with(
             m["tray_inst"], evt,
         )
+
+
+# ------------------------------------------------------------------ #
+# QApplication branding (issue #106)
+# ------------------------------------------------------------------ #
+
+class TestApplicationBranding:
+    """The tray QApplication must advertise itself as "Sethlans" so
+    Alt+Tab / taskbar entries don't show the frozen exe name
+    ("run_tray_helper").
+    """
+
+    def test_tray_app_sets_application_display_name(
+        self, qapp, mocker, tmp_path,
+    ):
+        m = _patch_main_deps(mocker, topo_mod.TOPOLOGY_MANAGER, tmp_path)
+        app.main()
+        app_inst = m["app_inst"]
+        app_inst.setApplicationName.assert_any_call("Sethlans")
+        app_inst.setApplicationDisplayName.assert_any_call("Sethlans")
+        app_inst.setOrganizationName.assert_any_call(
+            "Dryad and Naiad Software LLC",
+        )

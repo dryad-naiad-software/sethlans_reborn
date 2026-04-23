@@ -87,11 +87,25 @@ if not _BRANDING_SRC.is_file():
     )
 branding_datas = [(str(_BRANDING_SRC), 'branding')]
 
+# --- VERSION file ---
+# The repo-root ``VERSION`` file is the single source of truth for the
+# Sethlans version string. ``shared.version.get_version()`` reads it at
+# ``sys._MEIPASS / 'VERSION'`` in frozen mode, so PyInstaller must copy
+# it to the bundle's contents dir (dest '.' resolves to _MEIPASS).
+_VERSION_SRC = PROJECT_ROOT / 'VERSION'
+if not _VERSION_SRC.is_file():
+    raise SystemExit(
+        f"VERSION file not found at {_VERSION_SRC}. "
+        "Expected the repo-root VERSION file to be present before "
+        "running the launcher build."
+    )
+version_datas = [(str(_VERSION_SRC), '.')]
+
 a = Analysis(
     [str(LAUNCHER_DIR / 'run_launcher.py')],
     pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT), str(MANAGER_DIR)],
     binaries=caddy_binaries,
-    datas=branding_datas,
+    datas=branding_datas + version_datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

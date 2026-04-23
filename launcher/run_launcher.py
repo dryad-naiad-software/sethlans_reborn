@@ -28,12 +28,10 @@ from launcher.paths import (
     get_install_dir,
     set_file_permissions,
 )
-from launcher.single_instance import (
-    acquire_single_instance_lock,
-    release_lock,
-)
+from launcher.single_instance import acquire_single_instance_lock, release_lock
+from shared.version import get_version
 
-__version__ = "0.1.0"
+__version__ = get_version()
 
 MANAGER_PORT = 8080
 DASHBOARD_PATH = "/"

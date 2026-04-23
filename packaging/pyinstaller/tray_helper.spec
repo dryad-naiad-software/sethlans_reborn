@@ -67,6 +67,21 @@ hiddenimports = [
     'launcher.logging_setup',
 ]
 
+# --- VERSION file ---
+# The repo-root ``VERSION`` file is the single source of truth for the
+# Sethlans version string. ``shared.version.get_version()`` reads it at
+# ``sys._MEIPASS / 'VERSION'`` in frozen mode, so PyInstaller must copy
+# it to the bundle's contents dir (dest '.' resolves to _MEIPASS). The
+# tray bundle includes it so the About dialog / any future version
+# surface can read it without reaching outside its own bundle.
+_VERSION_SRC = PROJECT_ROOT / 'VERSION'
+if not _VERSION_SRC.is_file():
+    raise SystemExit(
+        f"VERSION file not found at {_VERSION_SRC}. "
+        "Expected the repo-root VERSION file to be present before "
+        "running the tray helper build."
+    )
+
 # --- Data files ---
 # Tray icon PNGs + LGPLv3 attribution shipped inside the bundle.
 # AC-14: licenses/ must contain LGPL-3.0 text and the Qt NOTICE, placed
@@ -85,6 +100,7 @@ datas = [
         str(LICENSES_DIR / 'Qt-NOTICE.txt'),
         'licenses',
     ),
+    (str(_VERSION_SRC), '.'),
 ]
 
 a = Analysis(

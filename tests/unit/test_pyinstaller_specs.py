@@ -406,3 +406,34 @@ class TestLauncherSpecBundlesWorkersBroadcaster:
             "doing so would drop workers.multicast_broadcaster from "
             "the frozen bundle and reintroduce issue #101."
         )
+
+
+class TestBundlesVersionFile:
+    """Both the launcher and tray_helper specs must bundle the repo-root
+    ``VERSION`` file into the frozen contents dir (``sys._MEIPASS``)
+    so ``shared.version.get_version()`` can read it at runtime.
+
+    Issue #106: before this fix the launcher had ``__version__ = "0.1.0"``
+    hardcoded and the splash surfaced a stale version. The fix routes
+    the launcher through ``shared.version.get_version()`` which resolves
+    to ``sys._MEIPASS / 'VERSION'`` in frozen mode — but only if the
+    spec copies the file into the bundle. This test locks that wiring.
+    """
+
+    def test_launcher_spec_bundles_version_file(
+        self, launcher_spec_text: str,
+    ) -> None:
+        assert "'VERSION'" in launcher_spec_text, (
+            "launcher.spec must reference 'VERSION' in its datas= wiring "
+            "so the frozen bundle ships the repo-root VERSION file "
+            "(issue #106)."
+        )
+
+    def test_tray_spec_bundles_version_file(
+        self, tray_spec_text: str,
+    ) -> None:
+        assert "'VERSION'" in tray_spec_text, (
+            "tray_helper.spec must reference 'VERSION' in its datas= "
+            "wiring so the frozen bundle ships the repo-root VERSION "
+            "file (issue #106)."
+        )

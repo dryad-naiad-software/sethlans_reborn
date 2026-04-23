@@ -267,6 +267,10 @@ def main() -> None:
     launcher_watch.init()
 
     app = QApplication(sys.argv)
+    # Brand Qt so taskbar/Alt+Tab read "Sethlans" (issue #106).
+    app.setApplicationName("Sethlans")
+    app.setApplicationDisplayName("Sethlans")
+    app.setOrganizationName("Dryad and Naiad Software LLC")
     app.setQuitOnLastWindowClosed(False)
 
     ctx = _TrayContext()

@@ -33,6 +33,20 @@ from launcher.splash import SethlansSplash
 logger = logging.getLogger(__name__)
 
 
+def _brand_app(app: QApplication) -> None:
+    """Brand the Qt app so Alt+Tab / taskbar read "Sethlans".
+
+    Guarded against overriding a caller (e.g., a test harness) that
+    already set these on the shared QApplication instance.
+    """
+    if not app.applicationName() or app.applicationName() == "python":
+        app.setApplicationName("Sethlans")
+    if not app.applicationDisplayName():
+        app.setApplicationDisplayName("Sethlans")
+    if not app.organizationName():
+        app.setOrganizationName("Dryad and Naiad Software LLC")
+
+
 def run_with_splash(
     args,
     data_dir: Path,
@@ -61,6 +75,7 @@ def run_with_splash(
         Callable invoked with the tray Popen at shutdown.
     """
     app = QApplication.instance() or QApplication([])
+    _brand_app(app)
     log_path = data_dir / "logs" / "launcher.log"
     splash = SethlansSplash(version=version, log_path=log_path)
     splash.show()
