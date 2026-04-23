@@ -167,7 +167,12 @@ cmd_clean() {
     echo "  Sethlans Reborn -- Clean"
     echo "============================================================"
     echo ""
-    # Stop any sethlans python processes scoped to this project root.
+    # Stop tracked services via PID files (reliable on MSYS/Git-Bash;
+    # pgrep doesn't enumerate native Windows Python processes).
+    cmd_stop
+    sleep 1
+    # Belt-and-suspenders: try pgrep too in case a stray MSYS process
+    # exists (no-op on Windows-native children).
     local victims
     victims=$(pgrep -f "$PROJECT_ROOT.*(manage\.py runserver|run_manager\.py|run_worker\.py)" 2>/dev/null || true)
     if [ -n "$victims" ]; then
@@ -176,12 +181,33 @@ cmd_clean() {
         done
         sleep 1
     fi
-    # Caddy processes whose config points at our Caddyfile.
     local caddy_victims
     caddy_victims=$(pgrep -f "caddy.*$MANAGER_DIR/caddy/Caddyfile" 2>/dev/null || true)
     if [ -n "$caddy_victims" ]; then
         for pid in $caddy_victims; do
             echo "[KILL] Stopping Caddy PID $pid"; kill "$pid" 2>/dev/null || true
+        done
+        sleep 1
+    fi
+    # On Windows, also sweep any run_manager.py/run_worker.py/caddy.exe
+    # that slipped past the PID-file path (e.g. ran from a prior session
+    # with a different PID file layout). Uses wmic/taskkill — no-ops on
+    # POSIX systems where they don't exist.
+    if command -v wmic >/dev/null 2>&1 && command -v taskkill >/dev/null 2>&1; then
+        # Match on run_manager.py / run_worker.py substrings in the
+        # commandline; both are unique enough that they won't pick up
+        # unrelated python.exe processes.
+        local pids
+        pids=$(wmic process where "name='python.exe' and (commandline like '%%run_manager.py%%' or commandline like '%%run_worker.py%%')" get processid 2>/dev/null | tr -d '\r' | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' || true)
+        for p in $pids; do
+            echo "[KILL] Taskkill python PID $p"
+            taskkill //F //PID "$p" >/dev/null 2>&1 || true
+        done
+        local cpids
+        cpids=$(wmic process where "name='caddy.exe'" get processid 2>/dev/null | tr -d '\r' | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' || true)
+        for p in $cpids; do
+            echo "[KILL] Taskkill caddy PID $p"
+            taskkill //F //PID "$p" >/dev/null 2>&1 || true
         done
         sleep 1
     fi
