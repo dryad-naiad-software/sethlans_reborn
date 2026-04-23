@@ -168,6 +168,7 @@ manager/bin/
 **/.setup_complete
 **/broadcaster_params.json
 manager/caddy/
+worker/.dev-data/
 worker/config.ini
 worker/sethlans_worker_agent/managed_tools/
 worker/sethlans_worker_agent/managed_assets/

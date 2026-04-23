@@ -31,6 +31,11 @@ CONFIG_FILE="$MANAGER_DIR/manager.ini"
 MANAGE_PY="$MANAGER_DIR/manage.py"
 WORKER_DIR="$PROJECT_ROOT/worker"
 AGENT_DIR="$WORKER_DIR/sethlans_worker_agent"
+# Keep all worker runtime state (logs, tools, assets, sentinel, TLS,
+# enrollment config) inside the repo in dev mode so `clean` is a
+# trivial rm -rf and logs are next to the code. Honoured by the
+# worker's config_store.get_data_dir() via SETHLANS_WORKER_DATA_DIR.
+WORKER_DATA_DIR="$WORKER_DIR/.dev-data"
 PID_DIR="$PROJECT_ROOT/.pids"
 CADDY_DIR="$PROJECT_ROOT/.venv-build/caddy"
 CADDY_BIN="$CADDY_DIR/caddy"
@@ -233,13 +238,15 @@ cmd_clean() {
     rm -rf "${MANAGER_DIR:?}/media"
     find "$MANAGER_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
     echo "[OK] Manager artifacts removed"
-    # Worker (in-tree legacy + OS data dir)
+    # Worker — wipe the in-repo dev data dir (logs, tools, assets,
+    # sentinel, TLS, enrollment config) and any legacy/stale caches.
+    rm -rf "$WORKER_DATA_DIR"
     rm -rf "$AGENT_DIR/managed_tools" "$AGENT_DIR/managed_assets" "$AGENT_DIR/worker_output"
     rm -rf "$AGENT_DIR/temp" "$AGENT_DIR/logs"
     find "$WORKER_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-    # Wipe shared per-user data dir (worker + manager sub-dirs + shared
-    # logs). This covers both the worker's enrollment/certs/tools cache
-    # and any state left behind by a frozen-mode run.
+    # Belt-and-suspenders: if the user previously ran a frozen-mode
+    # build or a Docker worker that used the default per-OS data dir,
+    # sweep that too so `clean` really means clean.
     local shared_data_dir
     case "$(uname -s)" in
         Darwin) shared_data_dir="$HOME/Library/Application Support/Sethlans" ;;
@@ -304,11 +311,15 @@ cmd_manager() {
         echo "[OK] Manager already running (PID $existing)"
     else
         ensure_dirs
+        # Capture stdout/stderr so early startup crashes (before
+        # Django's log handlers bind) are visible in .pids/*.
         nohup python "$MANAGER_DIR/run_manager.py" \
-            < /dev/null > /dev/null 2>&1 &
+            < /dev/null \
+            > "$PID_DIR/manager.out.log" \
+            2> "$PID_DIR/manager.err.log" &
         local pid=$!; sleep 2
         if ! kill -0 "$pid" 2>/dev/null; then
-            echo "[ERROR] Manager failed to start"; exit 1
+            echo "[ERROR] Manager failed to start (see $PID_DIR/manager.err.log)"; exit 1
         fi
         save_pid "manager" "$pid"
         echo "[OK] Manager started in background (PID $pid)"
@@ -338,16 +349,22 @@ cmd_worker() {
     # stdin redirected to /dev/null so sys.stdin.isatty() returns False;
     # otherwise the worker takes the browser-wizard path instead of
     # unattended enrollment via SETHLANS_WORKER_ENROLLMENT_KEY.
+    # SETHLANS_WORKER_DATA_DIR pins all runtime state into the repo
+    # (logs, tools, assets, sentinel, TLS) so `clean` is trivial and
+    # logs are next to the code for debugging.
     SETHLANS_WORKER_ENROLLMENT_KEY="$enrollment_key" \
     SETHLANS_MANAGER_HOST="127.0.0.1" \
     SETHLANS_MANAGER_PORT="$PUBLIC_TLS_PORT" \
     SETHLANS_IDLE_DETECTION_ENABLED="false" \
     SETHLANS_WORKER_UI_ENABLED="true" \
+    SETHLANS_WORKER_DATA_DIR="$WORKER_DATA_DIR" \
     nohup python "$WORKER_DIR/run_worker.py" \
-        < /dev/null > /dev/null 2>&1 &
+        < /dev/null \
+        > "$PID_DIR/worker.out.log" \
+        2> "$PID_DIR/worker.err.log" &
     local pid=$!; sleep 2
     if ! kill -0 "$pid" 2>/dev/null; then
-        echo "[ERROR] Worker failed to start"; exit 1
+        echo "[ERROR] Worker failed to start (see $PID_DIR/worker.err.log)"; exit 1
     fi
     save_pid "worker" "$pid"
     echo "[OK] Worker started in background (PID $pid)"

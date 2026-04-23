@@ -21,6 +21,11 @@ $ConfigFile = Join-Path $ManagerDir "manager.ini"
 $ManagePy = Join-Path $ManagerDir "manage.py"
 $WorkerDir = Join-Path $ProjectRoot "worker"
 $AgentDir = Join-Path $WorkerDir "sethlans_worker_agent"
+# Keep all worker runtime state (logs, tools, assets, sentinel, TLS,
+# enrollment config) inside the repo in dev mode so `clean` is a
+# trivial rm and logs are next to the code. Honoured by the worker's
+# config_store.get_data_dir() via SETHLANS_WORKER_DATA_DIR.
+$WorkerDataDir = Join-Path $WorkerDir ".dev-data"
 $PidDir = Join-Path $ProjectRoot ".pids"
 $CaddyDir = Join-Path $ProjectRoot ".venv-build\caddy"
 $CaddyBin = Join-Path $CaddyDir "caddy.exe"
@@ -238,16 +243,20 @@ function Invoke-Clean {
     Get-ChildItem -Path $ManagerDir -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "[OK] Manager artifacts removed"
-    # Worker (in-tree legacy + OS data dir)
+    # Worker — wipe the in-repo dev data dir (logs, tools, assets,
+    # sentinel, TLS, enrollment config) and any legacy/stale caches.
+    if (Test-Path $WorkerDataDir) {
+        Remove-Item -Recurse -Force $WorkerDataDir -ErrorAction SilentlyContinue
+    }
     foreach ($d in @("managed_tools", "managed_assets", "worker_output", "temp", "logs")) {
         $p = Join-Path $AgentDir $d
         if (Test-Path $p) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
     }
     Get-ChildItem -Path $WorkerDir -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    # Wipe shared per-user data dir (worker + manager sub-dirs + shared
-    # logs). Covers both worker enrollment/certs/tools cache and any
-    # state left behind by a frozen-mode run.
+    # Belt-and-suspenders: if the user previously ran a frozen-mode
+    # build or a Docker worker that used the default per-OS data dir,
+    # sweep that too so `clean` really means clean.
     $sharedDataDir = Join-Path $env:LOCALAPPDATA "Sethlans"
     if (Test-Path $sharedDataDir) {
         Remove-Item -Recurse -Force $sharedDataDir -ErrorAction SilentlyContinue
@@ -312,12 +321,12 @@ function Invoke-Manager {
         Write-Host "[OK] Manager already running (PID $existing)"
     } else {
         Ensure-Dirs
-        $outLog = Join-Path $env:TEMP "sethlans_manager_out.log"
-        $errLog = Join-Path $env:TEMP "sethlans_manager_err.log"
-        # Empty-file stdin guarantees sys.stdin.isatty() is False in
-        # the child — parity with the worker and the bash script's
-        # `< /dev/null` redirect.
-        $stdinFile = Join-Path $env:TEMP "sethlans_manager_stdin.txt"
+        # Logs land in .pids/ so they're next to the code and survive
+        # %TEMP% auto-cleanup — easier debugging of early-startup
+        # crashes before Django's log handlers bind.
+        $outLog = Join-Path $PidDir "manager.out.log"
+        $errLog = Join-Path $PidDir "manager.err.log"
+        $stdinFile = Join-Path $PidDir "manager.stdin.txt"
         Set-Content -Path $stdinFile -Value ""
         $proc = Start-Process -FilePath "python" `
             -ArgumentList (Join-Path $ManagerDir "run_manager.py") `
@@ -325,7 +334,7 @@ function Invoke-Manager {
             -RedirectStandardOutput $outLog -RedirectStandardError $errLog `
             -RedirectStandardInput $stdinFile
         Start-Sleep -Seconds 2
-        if ($proc.HasExited) { Write-Host "[ERROR] Manager failed to start"; exit 1 }
+        if ($proc.HasExited) { Write-Host "[ERROR] Manager failed to start (see $errLog)"; exit 1 }
         Save-Pid "manager" $proc.Id
         Write-Host "[OK] Manager started in background (PID $($proc.Id))"
     }
@@ -349,16 +358,21 @@ function Invoke-Worker {
         exit 1
     }
     Ensure-Dirs
-    $outLog = Join-Path $env:TEMP "sethlans_worker_out.log"
-    $errLog = Join-Path $env:TEMP "sethlans_worker_err.log"
-    # Set env vars for worker enrollment
+    # Logs land in .pids/ next to the code (same treatment as manager)
+    # so startup crashes are debuggable.
+    $outLog = Join-Path $PidDir "worker.out.log"
+    $errLog = Join-Path $PidDir "worker.err.log"
+    # Set env vars for worker enrollment. SETHLANS_WORKER_DATA_DIR
+    # pins all runtime state into the repo (worker/.dev-data/) so
+    # `clean` is a trivial rm and logs are next to the code.
     $env:SETHLANS_WORKER_ENROLLMENT_KEY = $enrollmentKey
     $env:SETHLANS_MANAGER_HOST = "127.0.0.1"
     $env:SETHLANS_MANAGER_PORT = "$PublicTlsPort"
     $env:SETHLANS_IDLE_DETECTION_ENABLED = "false"
     $env:SETHLANS_WORKER_UI_ENABLED = "true"
+    $env:SETHLANS_WORKER_DATA_DIR = $WorkerDataDir
     # Create an empty file for stdin so isatty() returns False (unattended wizard)
-    $stdinFile = Join-Path $env:TEMP "sethlans_worker_stdin.txt"
+    $stdinFile = Join-Path $PidDir "worker.stdin.txt"
     Set-Content -Path $stdinFile -Value ""
     $proc = Start-Process -FilePath "python" `
         -ArgumentList (Join-Path $WorkerDir "run_worker.py") `
@@ -368,11 +382,11 @@ function Invoke-Worker {
     # Clean up env vars from current shell
     foreach ($v in @("SETHLANS_WORKER_ENROLLMENT_KEY", "SETHLANS_MANAGER_HOST",
                      "SETHLANS_MANAGER_PORT", "SETHLANS_IDLE_DETECTION_ENABLED",
-                     "SETHLANS_WORKER_UI_ENABLED")) {
+                     "SETHLANS_WORKER_UI_ENABLED", "SETHLANS_WORKER_DATA_DIR")) {
         Remove-Item "Env:\$v" -ErrorAction SilentlyContinue
     }
     Start-Sleep -Seconds 2
-    if ($proc.HasExited) { Write-Host "[ERROR] Worker failed to start"; exit 1 }
+    if ($proc.HasExited) { Write-Host "[ERROR] Worker failed to start (see $errLog)"; exit 1 }
     Save-Pid "worker" $proc.Id
     Write-Host "[OK] Worker started in background (PID $($proc.Id))"
     Write-Host "     Stop: .\tools\sethlans.ps1 stop"
