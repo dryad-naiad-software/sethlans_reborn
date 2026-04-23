@@ -27,7 +27,9 @@ _INSECURE_DEFAULT_KEY = (
 )
 
 _config = configparser.ConfigParser()
-if is_frozen():
+# Honor SETHLANS_MANAGER_DATA_DIR in source mode so integration tests (and
+# dev scripts that set the env var) get the same isolation as frozen mode.
+if is_frozen() or os.environ.get('SETHLANS_MANAGER_DATA_DIR'):
     _config_file_path = get_data_dir('manager') / 'manager.ini'
 else:
     _config_file_path = BASE_DIR / 'manager.ini'
