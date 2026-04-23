@@ -278,7 +278,8 @@ cmd_manager() {
         echo "[OK] Manager already running (PID $existing)"
     else
         ensure_dirs
-        nohup python "$MANAGER_DIR/run_manager.py" > /dev/null 2>&1 &
+        nohup python "$MANAGER_DIR/run_manager.py" \
+            < /dev/null > /dev/null 2>&1 &
         local pid=$!; sleep 2
         if ! kill -0 "$pid" 2>/dev/null; then
             echo "[ERROR] Manager failed to start"; exit 1
@@ -308,12 +309,16 @@ cmd_worker() {
         exit 1
     fi
     ensure_dirs
+    # stdin redirected to /dev/null so sys.stdin.isatty() returns False;
+    # otherwise the worker takes the browser-wizard path instead of
+    # unattended enrollment via SETHLANS_WORKER_ENROLLMENT_KEY.
     SETHLANS_WORKER_ENROLLMENT_KEY="$enrollment_key" \
     SETHLANS_MANAGER_HOST="127.0.0.1" \
     SETHLANS_MANAGER_PORT="$PUBLIC_TLS_PORT" \
     SETHLANS_IDLE_DETECTION_ENABLED="false" \
     SETHLANS_WORKER_UI_ENABLED="true" \
-    nohup python "$WORKER_DIR/run_worker.py" > /dev/null 2>&1 &
+    nohup python "$WORKER_DIR/run_worker.py" \
+        < /dev/null > /dev/null 2>&1 &
     local pid=$!; sleep 2
     if ! kill -0 "$pid" 2>/dev/null; then
         echo "[ERROR] Worker failed to start"; exit 1
