@@ -184,17 +184,21 @@ function Invoke-Clean {
     Write-Host "  Sethlans Reborn -- Clean"
     Write-Host "============================================================"
     Write-Host ""
-    # Stop sethlans python processes scoped to this project root
+    # Stop tracked services via PID files first (fast, direct, no WMI).
+    Invoke-Stop
+    Start-Sleep -Milliseconds 500
+    # Belt-and-suspenders: WMI sweep for any orphaned run_manager.py /
+    # run_worker.py / Caddy instances from prior sessions not covered
+    # by PID files.
     $victims = Get-SethlansProcesses
     foreach ($v in $victims) {
-        Write-Host "[KILL] Stopping PID $($v.ProcessId): $($v.CommandLine)"
+        Write-Host "[KILL] Stopping orphan PID $($v.ProcessId): $($v.CommandLine)"
         Stop-Process -Id $v.ProcessId -Force -ErrorAction SilentlyContinue
     }
     if ($victims) { Start-Sleep -Milliseconds 500 }
-    # Stop Caddy processes pinned to our Caddyfile.
     $caddyVictims = Get-CaddyProcesses
     foreach ($v in $caddyVictims) {
-        Write-Host "[KILL] Stopping Caddy PID $($v.ProcessId)"
+        Write-Host "[KILL] Stopping orphan Caddy PID $($v.ProcessId)"
         Stop-Process -Id $v.ProcessId -Force -ErrorAction SilentlyContinue
     }
     if ($caddyVictims) { Start-Sleep -Milliseconds 500 }
@@ -310,10 +314,16 @@ function Invoke-Manager {
         Ensure-Dirs
         $outLog = Join-Path $env:TEMP "sethlans_manager_out.log"
         $errLog = Join-Path $env:TEMP "sethlans_manager_err.log"
+        # Empty-file stdin guarantees sys.stdin.isatty() is False in
+        # the child — parity with the worker and the bash script's
+        # `< /dev/null` redirect.
+        $stdinFile = Join-Path $env:TEMP "sethlans_manager_stdin.txt"
+        Set-Content -Path $stdinFile -Value ""
         $proc = Start-Process -FilePath "python" `
             -ArgumentList (Join-Path $ManagerDir "run_manager.py") `
             -PassThru -NoNewWindow `
-            -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+            -RedirectStandardOutput $outLog -RedirectStandardError $errLog `
+            -RedirectStandardInput $stdinFile
         Start-Sleep -Seconds 2
         if ($proc.HasExited) { Write-Host "[ERROR] Manager failed to start"; exit 1 }
         Save-Pid "manager" $proc.Id
