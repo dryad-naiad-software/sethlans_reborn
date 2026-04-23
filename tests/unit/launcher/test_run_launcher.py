@@ -156,3 +156,18 @@ class TestBootstrapFirstRun:
         _bootstrap_first_run(tmp_path)
         ini_path = tmp_path / "manager" / "manager.ini"
         mock_perms.assert_called_once_with(ini_path)
+
+    def test_writes_waitress_port_keys(self, tmp_path, mocker):
+        # Issue #100 / TR-3: ``_bootstrap_first_run`` must declare both
+        # the public-origin and internal-origin Waitress loopback ports
+        # so the launcher-side Caddy supervisor can read them from
+        # manager.ini via ``waitress_config`` helpers without falling
+        # through to defaults silently.
+        mocker.patch(
+            'launcher.run_launcher._set_file_permissions',
+        )
+        _bootstrap_first_run(tmp_path)
+        ini_path = tmp_path / "manager" / "manager.ini"
+        content = ini_path.read_text(encoding="utf-8")
+        assert "waitress_loopback_port_public = 8090" in content
+        assert "waitress_loopback_port_internal = 8088" in content

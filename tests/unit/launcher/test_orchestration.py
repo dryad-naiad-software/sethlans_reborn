@@ -11,6 +11,7 @@ and the orchestration loop's quit/restart dispatch in
 
 from __future__ import annotations
 
+import argparse
 import os
 import subprocess
 
@@ -186,3 +187,189 @@ class TestHandleRestart:
         orchestration._handle_restart(
             "manager", state, tmp_path, lambda n: object(),
         )
+
+
+# ------------------------------------------------------------------
+# Caddy supervisor wiring (issue #100)
+# ------------------------------------------------------------------
+
+def _args_ns():
+    return argparse.Namespace(no_browser=True, print_url=True)
+
+
+class TestRunSetupModeStartsCaddy:
+    """``run_setup_mode`` must build + register + start a Caddy supervisor
+    after bootstrap and before spawning the manager (issue #100)."""
+
+    def test_caddy_supervisor_started_before_manager(
+        self, mocker, tmp_path,
+    ):
+        manager_data = tmp_path / "manager"
+        manager_data.mkdir()
+
+        caddy_start = mocker.patch.object(
+            orchestration, "start_caddy_supervisor",
+        )
+        mocker.patch.object(orchestration, "find_available_port",
+                            return_value=8080)
+        mocker.patch.object(orchestration, "generate_setup_token",
+                            return_value="tok")
+        mocker.patch.object(orchestration, "print_setup_banner")
+        mocker.patch.object(orchestration, "wait_for_manager_ready")
+        mocker.patch.object(orchestration, "open_browser")
+
+        manager_proc = mocker.MagicMock()
+        manager_proc.wait.return_value = 0
+        manager_proc.returncode = 0
+
+        call_order = []
+
+        def _bootstrap(_data_dir):
+            call_order.append("bootstrap")
+            return manager_data
+
+        def _start_component(name, extra_args=None, env=None):
+            call_order.append(f"start:{name}")
+            return manager_proc
+
+        def _caddy_side_effect(md):
+            call_order.append("caddy")
+
+        caddy_start.side_effect = _caddy_side_effect
+
+        rc = orchestration.run_setup_mode(
+            tmp_path, _args_ns(), tray=None, secret="s",
+            start_component=_start_component,
+            bootstrap_first_run=_bootstrap,
+        )
+
+        assert rc == 0
+        caddy_start.assert_called_once_with(manager_data)
+        assert call_order[0] == "bootstrap"
+        assert call_order.index("caddy") < call_order.index("start:manager")
+
+
+class TestRunNormalModeStartsCaddy:
+    """``run_normal_mode`` starts Caddy for manager-bearing topologies
+    and skips it for worker-only installs (issue #100)."""
+
+    def _common_mocks(self, mocker, tmp_path):
+        mocker.patch.object(orchestration, "remove_setup_section")
+        mocker.patch.object(orchestration, "wait_for_manager_ready")
+        mocker.patch.object(orchestration, "open_browser")
+        # Short-circuit the main loop: pretend all children exited.
+        mocker.patch.object(
+            orchestration, "_all_live_exited", return_value=True,
+        )
+
+    def _write_topology(self, data_dir, topo):
+        import json
+        (data_dir / "topology.json").write_text(
+            json.dumps({"topology": topo}), encoding="utf-8",
+        )
+
+    @pytest.mark.parametrize(
+        "topology", ["manager", "manager_worker", "manager+worker"],
+    )
+    def test_caddy_started_for_manager_topologies(
+        self, mocker, tmp_path, topology,
+    ):
+        self._common_mocks(mocker, tmp_path)
+        self._write_topology(tmp_path, topology)
+        caddy_start = mocker.patch.object(
+            orchestration, "start_caddy_supervisor",
+        )
+
+        def _start_component(name, extra_args=None, env=None):
+            return mocker.MagicMock()
+
+        orchestration.run_normal_mode(
+            tmp_path, _args_ns(), tray=None, secret="s",
+            start_component=_start_component,
+        )
+
+        caddy_start.assert_called_once_with(tmp_path / "manager")
+
+    def test_caddy_skipped_for_worker_only_topology(
+        self, mocker, tmp_path,
+    ):
+        self._common_mocks(mocker, tmp_path)
+        self._write_topology(tmp_path, "worker")
+        caddy_start = mocker.patch.object(
+            orchestration, "start_caddy_supervisor",
+        )
+
+        def _start_component(name, extra_args=None, env=None):
+            return mocker.MagicMock()
+
+        orchestration.run_normal_mode(
+            tmp_path, _args_ns(), tray=None, secret="s",
+            start_component=_start_component,
+        )
+
+        caddy_start.assert_not_called()
+
+
+class TestStartCaddySupervisorWiring:
+    """The ``caddy_wiring.start_caddy_supervisor`` helper must build +
+    register + start the supervisor with expected kwargs (issue #100)."""
+
+    def test_start_registers_and_starts_supervisor(self, mocker, tmp_path):
+        from launcher import caddy_wiring
+
+        manager_data = tmp_path / "manager"
+        manager_data.mkdir()
+        ini = manager_data / "manager.ini"
+        ini.write_text(
+            "[server]\n"
+            "port = 8080\n"
+            "waitress_loopback_port_public = 8090\n"
+            "waitress_loopback_port_internal = 8088\n",
+            encoding="utf-8",
+        )
+
+        supervisor = mocker.MagicMock()
+        # Patch the lazily-imported builder at the real import site.
+        import launcher.caddy_launcher as cl
+        builder = mocker.patch.object(
+            cl, "build_manager_caddy_supervisor",
+            return_value=supervisor,
+        )
+        set_caddy = mocker.patch.object(
+            caddy_wiring.supervision, "set_caddy_supervisor",
+        )
+
+        caddy_wiring.start_caddy_supervisor(manager_data)
+
+        builder.assert_called_once()
+        kwargs = builder.call_args.kwargs
+        assert kwargs["public_tls_port"] == 8080
+        assert kwargs["waitress_public_port"] == 8090
+        assert kwargs["waitress_internal_port"] == 8088
+        assert kwargs["loopback_plaintext_port"] == 8089
+        assert kwargs["caddyfile_path"] == manager_data / "caddy" / "Caddyfile"
+        assert kwargs["cert_path"] == manager_data / "tls" / "cert.pem"
+        assert kwargs["key_path"] == manager_data / "tls" / "key.pem"
+        assert kwargs["manager_data_dir"] == manager_data
+
+        set_caddy.assert_called_once_with(supervisor)
+        supervisor.start.assert_called_once()
+
+    def test_start_failure_raises_after_logging(self, mocker, tmp_path):
+        from launcher import caddy_wiring
+        import launcher.caddy_launcher as cl
+
+        manager_data = tmp_path / "manager"
+        manager_data.mkdir()
+
+        supervisor = mocker.MagicMock()
+        supervisor.start.side_effect = RuntimeError("boom")
+        mocker.patch.object(
+            cl, "build_manager_caddy_supervisor", return_value=supervisor,
+        )
+        mocker.patch.object(
+            caddy_wiring.supervision, "set_caddy_supervisor",
+        )
+
+        with pytest.raises(RuntimeError, match="boom"):
+            caddy_wiring.start_caddy_supervisor(manager_data)

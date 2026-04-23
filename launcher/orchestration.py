@@ -23,6 +23,7 @@ from urllib3.exceptions import InsecureRequestWarning
 
 from launcher import cascade, tray_ipc
 from launcher.browser_launch import open_browser, print_setup_banner
+from launcher.caddy_wiring import start_caddy_supervisor
 from launcher.restart_orchestrator import (
     handle_restart_request,
     poll_for_restart_request,
@@ -122,6 +123,8 @@ def run_setup_mode(
 
     print("Starting Sethlans setup wizard...")
     print_setup_banner(port, WIZARD_PATH, setup_token, data_dir)
+
+    start_caddy_supervisor(manager_data)
 
     proc = start_component("manager", extra_args=["--workers", "1"])
     wait_for_manager_ready(port, manager_proc=proc)
@@ -241,6 +244,11 @@ def run_normal_mode(
     topo = topology.get("topology", "manager_worker")
     manager_data = data_dir / "manager"
     remove_setup_section(manager_data)
+
+    # Caddy terminates TLS in front of Waitress for manager-bearing
+    # topologies. Worker-only installs skip it (scoped out per spec).
+    if topo in ("manager", "manager_worker", "manager+worker"):
+        start_caddy_supervisor(manager_data)
 
     manager_proc = worker_proc = None
     if topo in ("manager", "manager_worker", "manager+worker"):

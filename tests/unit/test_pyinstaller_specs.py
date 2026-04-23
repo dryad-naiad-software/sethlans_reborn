@@ -256,6 +256,27 @@ class TestLauncherSpecBundlesWorkersBroadcaster:
     These tests lock the spec wiring so the regression cannot return.
     """
 
+    def test_caddy_template_in_hiddenimports(
+        self, launcher_spec_text: str,
+    ) -> None:
+        # Issue #100 / TR-6: the manager Caddyfile renderer lives in
+        # ``sethlans_manager.caddy_template`` and is pulled in via a
+        # dynamic import inside
+        # ``launcher.caddy_launcher._load_manager_renderer``. PyInstaller's
+        # static analyzer cannot see that import, so the module must be
+        # declared as a hidden import. Without this, the frozen
+        # launcher raises ``RuntimeError: sethlans_manager.caddy_template
+        # not importable`` the moment it tries to template the Caddyfile,
+        # leaving the public TLS port unbound.
+        assert (
+            "'sethlans_manager.caddy_template'" in launcher_spec_text
+            or '"sethlans_manager.caddy_template"' in launcher_spec_text
+        ), (
+            "launcher.spec must declare 'sethlans_manager.caddy_template' "
+            "as a hidden import so the frozen launcher can template the "
+            "manager Caddyfile (issue #100)."
+        )
+
     def test_multicast_broadcaster_in_hiddenimports(
         self, launcher_spec_text: str,
     ) -> None:

@@ -55,6 +55,7 @@ class TestCallSiteIntegration:
             orchestration, "generate_setup_token", return_value="tok",
         )
         mocker.patch.object(orchestration, "print_setup_banner")
+        mocker.patch.object(orchestration, "start_caddy_supervisor")
 
         rc = orchestration.run_setup_mode(
             tmp_path,
@@ -99,6 +100,7 @@ class TestCallSiteIntegration:
             orchestration, "_consume_ipc", return_value=(None, None),
         )
         mocker.patch.object(orchestration.time, "sleep")
+        mocker.patch.object(orchestration, "start_caddy_supervisor")
 
         rc = orchestration.run_normal_mode(
             tmp_path,

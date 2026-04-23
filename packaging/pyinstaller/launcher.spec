@@ -33,6 +33,9 @@ ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 hiddenimports = [
     'launcher.logging_setup',
     'workers.multicast_broadcaster',
+    # Dynamic import in launcher.caddy_launcher._load_manager_renderer;
+    # PyInstaller's static analyzer can't see it (issue #100).
+    'sethlans_manager.caddy_template',
 ]
 hiddenimports += collect_submodules('shared')
 

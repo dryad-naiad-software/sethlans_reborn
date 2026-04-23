@@ -97,6 +97,8 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
             "host = 0.0.0.0\n"
             f"port = {MANAGER_PORT}\n"
             "loopback_port = 8088\n"
+            "waitress_loopback_port_public = 8090\n"
+            "waitress_loopback_port_internal = 8088\n"
         )
         ini_path.write_text(ini_content, encoding="utf-8")
         _set_file_permissions(ini_path)
