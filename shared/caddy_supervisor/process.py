@@ -79,7 +79,13 @@ def spawn(
         merged.update(env)
         kwargs["env"] = merged
     if platform.system() == "Windows":
+        # CREATE_NEW_PROCESS_GROUP keeps the CTRL_BREAK_EVENT seam used by
+        # signal_graceful_stop. CREATE_NO_WINDOW suppresses the console
+        # window Windows would otherwise allocate — the launcher is a
+        # windowed (no-console) app, so without this flag the OS spawns
+        # a fresh console for caddy.exe and pops it on the desktop.
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
         kwargs["creationflags"] = flags
     else:
         kwargs["preexec_fn"] = posix_preexec

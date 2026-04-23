@@ -24,6 +24,7 @@ Every test mocks ``subprocess.Popen`` — no real Caddy is spawned.
 
 from __future__ import annotations
 
+import subprocess
 import time as _time
 from unittest.mock import patch
 
@@ -141,6 +142,16 @@ def test_start_platform_flags_windows(worker_tree):
     assert 'creationflags' in captured['kwargs']
     assert captured['kwargs']['creationflags'] != 0
     assert 'preexec_fn' not in captured['kwargs']
+    # Issue #105: launcher is a windowed (console=False) app; without
+    # CREATE_NO_WINDOW the child Caddy process gets a fresh console
+    # popped on the desktop. The flag must be OR'd in alongside
+    # CREATE_NEW_PROCESS_GROUP.
+    flags = captured['kwargs']['creationflags']
+    expected_cnw = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    expected_group = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+    assert expected_cnw != 0, "CREATE_NO_WINDOW should exist on Windows"
+    assert flags & expected_cnw, "CREATE_NO_WINDOW must be set (issue #105)"
+    assert flags & expected_group, "CREATE_NEW_PROCESS_GROUP must be set"
 
 
 # ---------------------------------------------------------------------
