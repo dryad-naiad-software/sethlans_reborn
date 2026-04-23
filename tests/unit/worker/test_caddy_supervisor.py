@@ -155,6 +155,154 @@ def test_start_platform_flags_windows(worker_tree):
 
 
 # ---------------------------------------------------------------------
+# Windows Job Object attach (issue #108)
+# ---------------------------------------------------------------------
+
+@pytest.fixture
+def reset_windows_job_handle():
+    """Clear the module-level Job handle between tests.
+
+    ``_attach_to_windows_job`` caches the Job handle globally; leaking
+    state across tests would make assertions about "CreateJobObjectW
+    called once" depend on ordering.
+    """
+    sup_mod._proc._windows_job_handle = None
+    yield
+    sup_mod._proc._windows_job_handle = None
+
+
+class _FakeProcWithHandle(FakeProc):
+    """FakeProc that also exposes a ``_handle`` attribute for Job attach."""
+
+    def __init__(self, pid: int = 12345, exit_code=None, handle_value: int = 0x1234):
+        super().__init__(pid=pid, exit_code=exit_code)
+        self._handle = handle_value
+
+
+def test_windows_spawn_attaches_child_to_job_object(
+    worker_tree, reset_windows_job_handle,
+):
+    """Windows spawn() must Create/Configure Job once and Assign each proc."""
+    sv = make_supervisor(worker_tree)
+
+    create_calls = []
+    set_info_calls = []
+    assign_calls = []
+
+    def fake_popen(argv, **kwargs):
+        return _FakeProcWithHandle(handle_value=0xABCD)
+
+    def fake_create():
+        create_calls.append(1)
+        return 0xDEADBEEF  # non-zero HANDLE
+
+    def fake_set_info(handle, flags):
+        set_info_calls.append((handle, flags))
+        return 1  # BOOL TRUE
+
+    def fake_assign(job_handle, proc_handle):
+        assign_calls.append((job_handle, proc_handle))
+        return 1
+
+    with patch.object(
+        sup_mod._proc.platform, 'system', return_value='Windows',
+    ), patch.object(
+        sup_mod._proc.subprocess, 'Popen', side_effect=fake_popen,
+    ), patch.object(
+        sup_mod._proc, '_CreateJobObjectW', side_effect=fake_create,
+    ), patch.object(
+        sup_mod._proc, '_SetInformationJobObject', side_effect=fake_set_info,
+    ), patch.object(
+        sup_mod._proc, '_AssignProcessToJobObject', side_effect=fake_assign,
+    ):
+        # First spawn: creates Job, configures it, assigns child.
+        sv.start()
+        sv.stop(timeout=0.1)
+        # Second spawn: Job cached; only AssignProcessToJobObject fires.
+        sv.start()
+        sv.stop(timeout=0.1)
+
+    assert len(create_calls) == 1, "CreateJobObjectW must be called exactly once (cached)"
+    assert len(set_info_calls) == 1, "SetInformationJobObject must be called once"
+    handle, flags = set_info_calls[0]
+    assert handle == 0xDEADBEEF
+    # 0x2000 == JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    assert flags == sup_mod._proc._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    assert flags == 0x2000
+    assert len(assign_calls) == 2, "AssignProcessToJobObject called per spawn"
+    for job_h, proc_h in assign_calls:
+        assert job_h == 0xDEADBEEF
+        assert proc_h == 0xABCD
+
+
+def test_windows_assign_to_job_failure_is_non_fatal(
+    worker_tree, reset_windows_job_handle, caplog,
+):
+    """AssignProcessToJobObject returning 0 logs a warning and does not raise."""
+    import logging as _logging
+    sv = make_supervisor(worker_tree)
+
+    def fake_popen(argv, **kwargs):
+        return _FakeProcWithHandle(handle_value=0xCAFE)
+
+    with patch.object(
+        sup_mod._proc.platform, 'system', return_value='Windows',
+    ), patch.object(
+        sup_mod._proc.subprocess, 'Popen', side_effect=fake_popen,
+    ), patch.object(
+        sup_mod._proc, '_CreateJobObjectW', return_value=0xBEEF,
+    ), patch.object(
+        sup_mod._proc, '_SetInformationJobObject', return_value=1,
+    ), patch.object(
+        sup_mod._proc, '_AssignProcessToJobObject', return_value=0,
+    ), caplog.at_level(_logging.WARNING, logger=sup_mod._proc.logger.name):
+        sv.start()
+        # Supervisor should still be running; the attach failure is
+        # best-effort and never fatal.
+        assert sv.is_running() is True
+        sv.stop(timeout=0.1)
+
+    assert any(
+        'AssignProcessToJobObject' in rec.message for rec in caplog.records
+    ), "expected a warning about AssignProcessToJobObject failure"
+
+
+def test_posix_spawn_does_not_touch_windows_job_helpers(
+    worker_tree, reset_windows_job_handle,
+):
+    """POSIX spawn() must not call any of the Win32 Job helpers."""
+    sv = make_supervisor(worker_tree)
+
+    def fake_popen(argv, **kwargs):
+        return FakeProc()
+
+    create_mock = patch.object(
+        sup_mod._proc, '_CreateJobObjectW',
+        side_effect=AssertionError('should not be called on POSIX'),
+    )
+    set_info_mock = patch.object(
+        sup_mod._proc, '_SetInformationJobObject',
+        side_effect=AssertionError('should not be called on POSIX'),
+    )
+    assign_mock = patch.object(
+        sup_mod._proc, '_AssignProcessToJobObject',
+        side_effect=AssertionError('should not be called on POSIX'),
+    )
+    with patch.object(
+        sup_mod._proc.platform, 'system', return_value='Linux',
+    ), patch.object(
+        sup_mod._proc.subprocess, 'Popen', side_effect=fake_popen,
+    ), create_mock, set_info_mock, assign_mock:
+        sv.start()
+    # Stop outside the Linux platform patch so it takes the real
+    # platform's kill path (the host may not have os.killpg).
+    sv.stop(timeout=0.1)
+
+    # Handle must remain uninitialised.
+    assert sup_mod._proc._windows_job_handle is None
+
+
+# ---------------------------------------------------------------------
 # Graceful stop
 # ---------------------------------------------------------------------
 
