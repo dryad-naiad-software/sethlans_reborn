@@ -311,10 +311,13 @@ cmd_manager() {
         echo "[OK] Manager already running (PID $existing)"
     else
         ensure_dirs
-        # Capture stdout/stderr so early startup crashes (before
-        # Django's log handlers bind) are visible in .pids/*.
+        # Empty regular file for stdin. On Git Bash, `< /dev/null` does
+        # NOT make sys.stdin.isatty() return False in native Windows
+        # Python — MSYS leaves a console handle attached. A real file
+        # handle does flip it.
+        : > "$PID_DIR/manager.stdin.txt"
         nohup python "$MANAGER_DIR/run_manager.py" \
-            < /dev/null \
+            < "$PID_DIR/manager.stdin.txt" \
             > "$PID_DIR/manager.out.log" \
             2> "$PID_DIR/manager.err.log" &
         local pid=$!; sleep 2
@@ -346,12 +349,15 @@ cmd_worker() {
         exit 1
     fi
     ensure_dirs
-    # stdin redirected to /dev/null so sys.stdin.isatty() returns False;
-    # otherwise the worker takes the browser-wizard path instead of
-    # unattended enrollment via SETHLANS_WORKER_ENROLLMENT_KEY.
+    # stdin redirected to an empty regular file so sys.stdin.isatty()
+    # returns False; `< /dev/null` does NOT flip isatty on Git Bash
+    # (MSYS leaves a Windows console handle attached). Without this
+    # the worker takes the browser-wizard path instead of unattended
+    # enrollment via SETHLANS_WORKER_ENROLLMENT_KEY.
     # SETHLANS_WORKER_DATA_DIR pins all runtime state into the repo
     # (logs, tools, assets, sentinel, TLS) so `clean` is trivial and
     # logs are next to the code for debugging.
+    : > "$PID_DIR/worker.stdin.txt"
     SETHLANS_WORKER_ENROLLMENT_KEY="$enrollment_key" \
     SETHLANS_MANAGER_HOST="127.0.0.1" \
     SETHLANS_MANAGER_PORT="$PUBLIC_TLS_PORT" \
@@ -359,7 +365,7 @@ cmd_worker() {
     SETHLANS_WORKER_UI_ENABLED="true" \
     SETHLANS_WORKER_DATA_DIR="$WORKER_DATA_DIR" \
     nohup python "$WORKER_DIR/run_worker.py" \
-        < /dev/null \
+        < "$PID_DIR/worker.stdin.txt" \
         > "$PID_DIR/worker.out.log" \
         2> "$PID_DIR/worker.err.log" &
     local pid=$!; sleep 2
