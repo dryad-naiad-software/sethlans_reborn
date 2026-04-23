@@ -184,8 +184,12 @@ def get_caddy_path() -> Path:
     """
     binary_name = "caddy.exe" if platform.system() == "Windows" else "caddy"
     if is_frozen():
-        # One-dir bundle: launcher.spec places caddy next to the EXE.
-        return Path(sys.executable).resolve().parent / binary_name
+        # One-dir bundle: launcher.spec declares caddy via binaries=[(src,
+        # '.')]. PyInstaller 6.x places binaries/datas under the
+        # contents_directory (_internal/), NOT next to the entry-point
+        # exe. sys._MEIPASS resolves to that contents dir at runtime.
+        meipass = Path(getattr(sys, '_MEIPASS', ''))
+        return meipass / binary_name
     # Source / dev tree: tools/fetch_caddy.py installs into .venv-build/caddy/
     return get_app_dir() / ".venv-build" / "caddy" / binary_name
 

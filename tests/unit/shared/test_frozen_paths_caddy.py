@@ -64,19 +64,34 @@ class TestGetCaddyPathFrozenMode:
         mocker.patch.object(sys, "_MEIPASS", str(meipass), create=True)
         return exe
 
-    def test_posix_returns_caddy_next_to_executable(self, _freeze, mocker):
+    def test_posix_returns_caddy_in_meipass(self, _freeze, mocker):
+        # PyInstaller 6.x places binaries under _MEIPASS (== _internal/
+        # in one-dir mode), not next to the entry-point exe (#104).
         mocker.patch("shared.frozen_paths.platform.system", return_value="Linux")
         result = get_caddy_path()
-        assert result == _freeze.resolve().parent / "caddy"
+        meipass = Path(sys._MEIPASS)
+        assert result == meipass / "caddy"
 
-    def test_windows_returns_caddy_exe_next_to_executable(
+    def test_windows_returns_caddy_exe_in_meipass(
         self, _freeze, mocker,
     ):
         mocker.patch(
             "shared.frozen_paths.platform.system", return_value="Windows",
         )
         result = get_caddy_path()
-        assert result == _freeze.resolve().parent / "caddy.exe"
+        meipass = Path(sys._MEIPASS)
+        assert result == meipass / "caddy.exe"
+
+    def test_meipass_path_is_under_internal(self, _freeze, mocker):
+        # Sanity: the frozen path must live under the _internal/ contents
+        # dir so it matches where PyInstaller actually drops binaries.
+        mocker.patch(
+            "shared.frozen_paths.platform.system", return_value="Linux",
+        )
+        result = get_caddy_path()
+        assert "_internal" in result.parts, (
+            f"expected caddy to live under _internal/, got {result}"
+        )
 
     def test_frozen_path_does_not_reference_venv_build(self, _freeze, mocker):
         """In frozen mode we must NOT point at a dev-only path."""
