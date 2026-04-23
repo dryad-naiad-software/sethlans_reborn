@@ -54,7 +54,13 @@ def _reload_settings_with_frozen(monkeypatch, tmp_data_dir, frozen=True):
         parents=True, exist_ok=True,
     )
 
-    # Reload logging_config first (settings imports it)
+    # Reload config_loader first — it computes BASE_DIR and
+    # _config_file_path from the patched ``shared.frozen_paths`` helpers
+    # and is imported by settings.py.  See GitHub issue #103.
+    import sethlans_manager.config_loader as cl_mod
+    importlib.reload(cl_mod)
+
+    # Reload logging_config next (settings imports it)
     import sethlans_manager.logging_config as lc_mod
     importlib.reload(lc_mod)
 
