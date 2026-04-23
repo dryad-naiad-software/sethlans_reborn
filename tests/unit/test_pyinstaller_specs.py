@@ -338,6 +338,45 @@ class TestLauncherSpecBundlesWorkersBroadcaster:
             "package at build time (issue #101)."
         )
 
+    def test_branding_asset_included_in_datas(
+        self, launcher_spec_text: str,
+    ) -> None:
+        # The startup splash (launcher/splash.py) loads the wordmark
+        # via shared.frozen_paths.get_branding_dir(), which resolves
+        # to sys._MEIPASS / 'branding' in frozen mode. PyInstaller
+        # must therefore copy the PNG into that subdirectory of the
+        # bundle. Locking the ``logo-text-dark.png`` + ``'branding'``
+        # wire-up guards against a refactor that silently reverts to
+        # ``datas=[]`` and ships a bundle with no wordmark (spec TR-5).
+        assert "logo-text-dark.png" in launcher_spec_text, (
+            "launcher.spec must reference 'logo-text-dark.png' in its "
+            "datas= wiring so the frozen bundle ships the startup "
+            "splash wordmark."
+        )
+        assert "'branding'" in launcher_spec_text, (
+            "launcher.spec must place the wordmark into the 'branding' "
+            "subdirectory (shared.frozen_paths.get_branding_dir() "
+            "resolves to sys._MEIPASS / 'branding' in frozen mode)."
+        )
+
+    @pytest.mark.parametrize(
+        "module",
+        ["PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets"],
+    )
+    def test_qt_hidden_imports_declared(
+        self, launcher_spec_text: str, module: str,
+    ) -> None:
+        # PySide6 ships its own PyInstaller hook, but the launcher
+        # previously had no Qt deps; being explicit here makes the
+        # build deterministic and documents the splash dependency.
+        assert (
+            f"'{module}'" in launcher_spec_text
+            or f'"{module}"' in launcher_spec_text
+        ), (
+            f"launcher.spec must declare {module!r} as a hidden import "
+            "so the frozen launcher can load the startup splash."
+        )
+
     def test_workers_not_in_excludes(
         self, launcher_spec_text: str,
     ) -> None:

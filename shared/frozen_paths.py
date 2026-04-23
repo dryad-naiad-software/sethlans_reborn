@@ -27,6 +27,8 @@ get_data_dir(component)
     OS-conventional per-user data directory for a given component.
 get_caddy_path()
     Caddy binary path (frozen installer or dev tree).
+get_branding_dir()
+    Directory holding bundled brand assets (wordmark, tray icons).
 """
 
 import os
@@ -192,6 +194,31 @@ def get_caddy_path() -> Path:
         return meipass / binary_name
     # Source / dev tree: tools/fetch_caddy.py installs into .venv-build/caddy/
     return get_app_dir() / ".venv-build" / "caddy" / binary_name
+
+
+def get_branding_dir() -> Path:
+    """Return the directory holding bundled brand assets.
+
+    Frozen mode (PyInstaller one-dir):
+        ``sys._MEIPASS / 'branding'`` — populated by the ``datas=``
+        entry in ``packaging/pyinstaller/launcher.spec`` that copies
+        ``packaging/branding/logo-text-dark.png`` into the bundle.
+    Source mode:
+        ``<project_root>/packaging/branding/``.
+
+    The startup splash uses this to resolve the wordmark PNG at
+    runtime:
+
+        >>> from shared.frozen_paths import get_branding_dir
+        >>> logo = get_branding_dir() / "logo-text-dark.png"
+
+    The returned path is **not** verified to exist. Callers that
+    need a present asset must check ``path.is_file()`` themselves.
+    """
+    if is_frozen():
+        meipass = Path(getattr(sys, '_MEIPASS', ''))
+        return meipass / 'branding'
+    return get_app_dir() / 'packaging' / 'branding'
 
 
 def get_shared_data_dir() -> Path:

@@ -2,12 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Main-loop orchestration for the launcher.
-
-Split from ``run_launcher.py`` to keep that file under the 300-line
-ceiling.  Handles the setup-mode and normal-mode loops and the IPC
-marker consumption + cascade integration.
-"""
+"""Main-loop orchestration for the launcher: setup/normal modes + IPC."""
 
 from __future__ import annotations
 
@@ -108,6 +103,16 @@ def _consume_ipc(
     return tray_ipc.consume_pending_ipc(data_dir, secret, tray_pid)
 
 
+def _notify_ready(cb: Optional[Callable[[], None]]) -> None:
+    """Invoke the on_manager_ready hook (splash dismissal), if any."""
+    if cb is None:
+        return
+    try:
+        cb()
+    except Exception:  # noqa: BLE001
+        logger.exception("on_manager_ready callback raised; ignoring")
+
+
 def run_setup_mode(
     data_dir: Path,
     args,
@@ -115,6 +120,8 @@ def run_setup_mode(
     secret: str,
     start_component: Callable[..., subprocess.Popen],
     bootstrap_first_run: Callable[[Path], Path],
+    *,
+    on_manager_ready: Optional[Callable[[], None]] = None,
 ) -> int:
     """Setup-wizard mode: manager + wait for sentinel / IPC."""
     manager_data = bootstrap_first_run(data_dir)
@@ -128,6 +135,7 @@ def run_setup_mode(
 
     proc = start_component("manager", extra_args=["--workers", "1"])
     wait_for_manager_ready(port, manager_proc=proc)
+    _notify_ready(on_manager_ready)
     open_browser(
         port, args.no_browser, args.print_url, WIZARD_PATH, None,
     )
@@ -238,6 +246,8 @@ def run_normal_mode(
     tray: Optional[subprocess.Popen],
     secret: str,
     start_component: Callable[..., subprocess.Popen],
+    *,
+    on_manager_ready: Optional[Callable[[], None]] = None,
 ) -> int:
     """Post-setup: start services per topology; watch IPC."""
     topology = _read_topology(data_dir)
@@ -260,6 +270,9 @@ def run_normal_mode(
 
     if manager_proc is not None:
         wait_for_manager_ready(MANAGER_PORT, manager_proc=manager_proc)
+    # Worker-only topologies still dismiss the splash here — no manager
+    # to probe, so unblock UX as soon as the children are spawned.
+    _notify_ready(on_manager_ready)
     open_browser(
         MANAGER_PORT, args.no_browser, args.print_url,
         DASHBOARD_PATH, None,

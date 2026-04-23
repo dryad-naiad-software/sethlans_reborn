@@ -2,13 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Bootstrap launcher entry point.
-
-Detects setup completion, spawns tray → manager → worker, and runs the
-IPC + cascade main loop. Manager spec Phase 3: the launcher now owns
-``MulticastBroadcaster`` and Caddy supervision via
-:mod:`launcher.supervision`.
-"""
+"""Bootstrap launcher entry point."""
 
 import argparse
 import json
@@ -66,8 +60,6 @@ def _set_file_permissions(path: Path) -> None:
     set_file_permissions(path)
 
 
-# ---- Sentinel / topology ----
-
 def _is_setup_complete(data_dir: Path) -> bool:
     return (data_dir / ".setup_complete").exists()
 
@@ -79,8 +71,6 @@ def _read_topology(data_dir: Path) -> dict:
             return json.load(f)
     return {}
 
-
-# ---- First-run bootstrap ----
 
 def _bootstrap_first_run(data_dir: Path) -> Path:
     manager_data = data_dir / "manager"
@@ -105,8 +95,6 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
         print(f"Generated manager.ini at {ini_path}")
     return manager_data
 
-
-# ---- Component spawn ----
 
 def _find_component_exe(component: str) -> Path:
     bin_dir = get_bin_dir()
@@ -188,8 +176,6 @@ def _spawn_tray(
     sys.exit(1)
 
 
-# ---- Orchestration ----
-
 def _already_running_notice() -> None:
     print(
         "Sethlans is already running. "
@@ -211,15 +197,12 @@ def _teardown_tray(tray: Optional[subprocess.Popen]) -> None:
             pass
 
 
-def main():
-    global _INSTANCE_LOCK
-
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Sethlans — Distributed Blender Rendering",
     )
     parser.add_argument(
-        "--version", action="version",
-        version=f"Sethlans {__version__}",
+        "--version", action="version", version=f"Sethlans {__version__}",
     )
     parser.add_argument(
         "--no-browser", action="store_true",
@@ -229,59 +212,83 @@ def main():
         "--print-url", action="store_true",
         help="Print the application URL and skip browser auto-open.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def _prepare_data_dir() -> Path:
     data_dir = get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-
-    # Alpha: always capture DEBUG logs for the launcher.  Goes to
-    # ``<data_dir>/logs/launcher.log`` via rotating handler + stderr.
     from launcher.logging_setup import configure as _configure_logging
     _configure_logging("launcher", data_dir=data_dir)
     logger.debug(
         "Launcher starting; version=%s pid=%d data_dir=%s",
         __version__, os.getpid(), data_dir,
     )
+    return data_dir
 
+
+def _run_orchestration(data_dir: Path, args, tray, secret,
+                       *, on_manager_ready=None) -> int:
+    if not _is_setup_complete(data_dir):
+        return orchestration.run_setup_mode(
+            data_dir, args, tray, secret,
+            _start_component, _bootstrap_first_run,
+            on_manager_ready=on_manager_ready,
+        )
+    return orchestration.run_normal_mode(
+        data_dir, args, tray, secret, _start_component,
+        on_manager_ready=on_manager_ready,
+    )
+
+
+def _pre_orchestration_setup(data_dir: Path):
+    """Common pre-orchestration wiring (signals, tray, IPC poll)."""
+    supervision.install_signal_handlers()
+    tray_ipc.sweep_stale_markers(data_dir)
+    secret = tray_ipc.generate_secret()
+    tray = _spawn_tray(data_dir, secret)
+    manager_data = data_dir / "manager"
+    manager_data.mkdir(parents=True, exist_ok=True)
+    supervision.start_ipc_poll_thread(manager_data)
+    return tray, secret
+
+
+def _main_headless(args, data_dir: Path) -> int:
+    tray, secret = _pre_orchestration_setup(data_dir)
+    try:
+        rc = _run_orchestration(data_dir, args, tray, secret)
+    except KeyboardInterrupt:
+        print("\nSethlans shutting down...")
+        rc = 0
+    supervision.shutdown_supervisors()
+    _teardown_tray(tray)
+    return rc
+
+
+def _main_with_splash(args, data_dir: Path) -> int:
+    """Splash-enabled path — Qt scoped to splash lifetime (FR-4)."""
+    from launcher.splash_runner import run_with_splash
+    return run_with_splash(
+        args, data_dir, __version__,
+        pre_orchestration_setup=_pre_orchestration_setup,
+        run_orchestration=_run_orchestration,
+        teardown_tray=_teardown_tray,
+    )
+
+
+def main():
+    global _INSTANCE_LOCK
+    args = _parse_args()
+    data_dir = _prepare_data_dir()
     _INSTANCE_LOCK = acquire_single_instance_lock(data_dir)
     if _INSTANCE_LOCK is None:
         _already_running_notice()
         return 0
-
-    # Manager-spec Phase 3: wire signal handlers + IPC poll BEFORE
-    # spawning children so a SIGTERM at this very instant still
-    # unwinds through _graceful_shutdown.
-    supervision.install_signal_handlers()
-
-    # FR-20e: sweep any stale markers BEFORE spawning anything.
-    tray_ipc.sweep_stale_markers(data_dir)
-
-    # FR-20b: per-session IPC secret; FR-4 / FR-19: tray spawns FIRST.
-    secret = tray_ipc.generate_secret()
-    tray = _spawn_tray(data_dir, secret)
-
-    manager_data = data_dir / "manager"
-    manager_data.mkdir(parents=True, exist_ok=True)
-    supervision.start_ipc_poll_thread(manager_data)
-
+    use_splash = not (args.no_browser or args.print_url)
     try:
-        if not _is_setup_complete(data_dir):
-            rc = orchestration.run_setup_mode(
-                data_dir, args, tray, secret,
-                _start_component, _bootstrap_first_run,
-            )
-        else:
-            rc = orchestration.run_normal_mode(
-                data_dir, args, tray, secret, _start_component,
-            )
-        supervision.shutdown_supervisors()
-        _teardown_tray(tray)
-        return rc
-    except KeyboardInterrupt:
-        print("\nSethlans shutting down...")
-        supervision.shutdown_supervisors()
-        _teardown_tray(tray)
-        return 0
+        if use_splash:
+            return _main_with_splash(args, data_dir)
+        return _main_headless(args, data_dir)
     finally:
         supervision.get_shutdown_event().set()
         supervision.shutdown_supervisors()

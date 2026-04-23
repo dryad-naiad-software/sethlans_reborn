@@ -36,6 +36,17 @@ hiddenimports = [
     # Dynamic import in launcher.caddy_launcher._load_manager_renderer;
     # PyInstaller's static analyzer can't see it (issue #100).
     'sethlans_manager.caddy_template',
+    # Startup splash (PySide6). The launcher imports PySide6 lazily
+    # from launcher.splash_runner when the splash path is enabled;
+    # PySide6 ships a PyInstaller hook that usually resolves these
+    # automatically, but declaring them explicitly keeps the bundle
+    # deterministic.
+    'PySide6.QtCore',
+    'PySide6.QtGui',
+    'PySide6.QtWidgets',
+    'launcher.splash',
+    'launcher.splash_runner',
+    'launcher.orchestration_thread',
 ]
 hiddenimports += collect_submodules('shared')
 
@@ -62,11 +73,25 @@ if not _CADDY_SRC.is_file():
     )
 caddy_binaries = [(str(_CADDY_SRC), '.')]
 
+# --- Branding assets ---
+# The startup splash loads ``logo-text-dark.png`` via
+# ``shared.frozen_paths.get_branding_dir()`` which resolves to
+# ``sys._MEIPASS / 'branding'`` in frozen mode. PyInstaller copies the
+# file to that subdirectory of the bundle's contents dir.
+_BRANDING_SRC = PROJECT_ROOT / 'packaging' / 'branding' / 'logo-text-dark.png'
+if not _BRANDING_SRC.is_file():
+    raise SystemExit(
+        f"Branding asset not found at {_BRANDING_SRC}. "
+        "Expected packaging/branding/logo-text-dark.png to be "
+        "present in the repo before running the launcher build."
+    )
+branding_datas = [(str(_BRANDING_SRC), 'branding')]
+
 a = Analysis(
     [str(LAUNCHER_DIR / 'run_launcher.py')],
     pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT), str(MANAGER_DIR)],
     binaries=caddy_binaries,
-    datas=[],
+    datas=branding_datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

@@ -18,6 +18,7 @@ import pytest
 
 from shared.frozen_paths import (
     get_app_dir,
+    get_branding_dir,
     get_data_dir,
     get_frontend_dist_dir,
     get_manager_dir,
@@ -67,6 +68,19 @@ class TestSourceModePaths:
         )
         assert result == expected
 
+    def test_get_branding_dir(self):
+        result = get_branding_dir()
+        assert result == get_app_dir() / 'packaging' / 'branding'
+
+    def test_get_branding_dir_contains_wordmark_asset(self):
+        # The startup splash relies on this file — make sure
+        # packaging/branding/logo-text-dark.png exists in source mode.
+        asset = get_branding_dir() / 'logo-text-dark.png'
+        assert asset.is_file(), (
+            f"Expected wordmark asset at {asset}; the launcher "
+            "splash loads it at runtime."
+        )
+
 
 # ---- Frozen-mode paths (PyInstaller) --------------------------------------
 
@@ -104,6 +118,11 @@ class TestFrozenModePaths:
         expected = (
             self._meipass / 'frontend' / 'dist' / 'browser' / 'browser'
         )
+        assert result == expected
+
+    def test_get_branding_dir_uses_meipass(self):
+        result = get_branding_dir()
+        expected = self._meipass / 'branding'
         assert result == expected
 
 
