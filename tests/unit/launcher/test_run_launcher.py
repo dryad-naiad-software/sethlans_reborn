@@ -10,7 +10,6 @@ and ``_bootstrap_first_run``.
 """
 
 import json
-import sys
 
 import pytest
 
@@ -71,18 +70,27 @@ class TestReadTopology:
 
 class TestIsHeadless:
 
-    @pytest.mark.skipif(
-        sys.platform.startswith("linux"),
-        reason="Tests Windows-branch headless detection: mocks "
-        "platform.system to 'Windows' so is_headless() reads "
-        "SESSIONNAME, but SESSIONNAME is absent on Linux CI so the "
-        "Windows branch returns True (headless) instead of the "
-        "expected False. The Linux branch is exercised by the other "
-        "tests in this class.",
-    )
-    def test_not_headless_on_non_linux(self, mocker):
+    def test_not_headless_on_windows_with_session(
+        self, mocker, monkeypatch,
+    ):
+        """Windows branch: SESSIONNAME set → interactive (not headless).
+
+        is_headless() reads the real process environment on the Windows
+        branch, so the test MUST set SESSIONNAME itself — Windows CI
+        runners set it but Linux/macOS runners do not, and mocking
+        platform.system alone is not enough.
+        """
         mocker.patch("platform.system", return_value="Windows")
+        monkeypatch.setenv("SESSIONNAME", "Console")
         assert _is_headless() is False
+
+    def test_headless_on_windows_without_session(
+        self, mocker, monkeypatch,
+    ):
+        """Windows branch: no SESSIONNAME → treated as headless/daemon."""
+        mocker.patch("platform.system", return_value="Windows")
+        monkeypatch.delenv("SESSIONNAME", raising=False)
+        assert _is_headless() is True
 
     def test_not_headless_on_darwin(self, mocker):
         mocker.patch("platform.system", return_value="Darwin")
