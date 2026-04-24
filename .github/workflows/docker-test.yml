@@ -119,13 +119,24 @@ jobs:
           path: /tmp
       - run: docker load -i /tmp/test-image.tar
       - run: mkdir -p results
-      - run: >
+      # tests/unit/launcher isolated in its own pytest process — see #117.
+      # DO NOT re-collapse to a single pytest call without resolving #117.
+      - name: Run unit tests (excluding launcher)
+        run: >
           docker run --rm -v ${{ github.workspace }}/results:/results
           sethlans-test:latest
-          pytest tests/unit
+          pytest tests/unit --ignore=tests/unit/launcher
           --junitxml=/results/unit.xml
           --cov=manager --cov=worker
           --cov-report=xml:/results/coverage.xml
+      - name: Run launcher unit tests (isolated)
+        run: >
+          docker run --rm -v ${{ github.workspace }}/results:/results
+          sethlans-test:latest
+          pytest tests/unit/launcher
+          --junitxml=/results/unit-launcher.xml
+          --cov=manager --cov=worker --cov-append
+          --cov-report=xml:/results/coverage-launcher.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
