@@ -49,7 +49,7 @@ _PORT_MAX = 65535
 # (older libc, certain path APIs) truncate at embedded nulls, which
 # could produce surprising behavior even though ``Path.resolve()``
 # preserves them verbatim.
-_FORBIDDEN_STRING_CHARS = ('\r', '\n', '{', '}', '#', '`', '\x00')
+_FORBIDDEN_STRING_CHARS = ('\r', '\n', '{', '}', '#', '`', '"', '\x00')
 
 # Path-traversal tokens. ``Path.resolve()`` canonicalises before the
 # containment check, but an explicit up-front reject keeps error
@@ -220,7 +220,13 @@ def render_worker_caddyfile(
         "# /api/setup/* until the setup-complete sentinel is\n"
         "# written.\n"
         f":{pub_port} {{\n"
-        "    tls " + cert_str + " " + key_str + " {\n"
+        # Paths are double-quoted so directories that contain spaces
+        # (e.g. macOS's ~/Library/Application Support/Sethlans/...)
+        # are parsed as a single Caddyfile token rather than split on
+        # whitespace. The _FORBIDDEN_STRING_CHARS validator rejects
+        # embedded double-quotes so the enclosing quotes are always
+        # balanced.
+        '    tls "' + cert_str + '" "' + key_str + '" {\n'
         "        protocols tls1.2 tls1.3\n"
         "    }\n"
         "\n"

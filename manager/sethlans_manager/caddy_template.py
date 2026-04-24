@@ -49,7 +49,7 @@ _PORT_MAX = 65535
 # a directive/comment. Reject before substitution. ``\x00`` is
 # included as defense-in-depth: some C-extension stringifiers
 # (older libc, certain path APIs) truncate at embedded nulls.
-_FORBIDDEN_STRING_CHARS = ('\r', '\n', '{', '}', '#', '`', '\x00')
+_FORBIDDEN_STRING_CHARS = ('\r', '\n', '{', '}', '#', '`', '"', '\x00')
 
 _TRAVERSAL_TOKENS = ('..',)
 
@@ -201,7 +201,13 @@ def render_manager_caddyfile(
         "# only tray helper endpoint. The URLconf-origin Django\n"
         "# middleware is the second line of defence.\n"
         f":{pub_port} {{\n"
-        "    tls " + cert_str + " " + key_str + " {\n"
+        # Paths are double-quoted so directories that contain spaces
+        # (e.g. macOS's ~/Library/Application Support/Sethlans/...)
+        # are parsed as a single Caddyfile token rather than split on
+        # whitespace. The _FORBIDDEN_STRING_CHARS validator rejects
+        # embedded double-quotes so the enclosing quotes are always
+        # balanced.
+        '    tls "' + cert_str + '" "' + key_str + '" {\n'
         "        protocols tls1.2 tls1.3\n"
         "    }\n"
         "\n"

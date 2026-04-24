@@ -228,3 +228,34 @@ class TestDeterminism:
         kwargs_b['public_tls_port'] = 9090
         b = render_manager_caddyfile(**kwargs_b)
         assert a != b
+
+
+class TestPathWithSpaces:
+    """Regression: macOS data dirs contain 'Library/Application Support/'.
+
+    Caddy tokenizes the tls directive on whitespace, so unquoted paths
+    with spaces were parsed as multiple arguments and Caddy failed
+    with 'wrong argument count or unexpected line ending' (run
+    24896942984 self-hosted Apple Silicon).
+    """
+
+    def test_tls_line_quotes_paths(self, tmp_path):
+        data_dir = tmp_path / 'Application Support' / 'Sethlans'
+        (data_dir / 'tls').mkdir(parents=True)
+        cert = data_dir / 'tls' / 'manager.crt'
+        key = data_dir / 'tls' / 'manager.key'
+        cert.write_text('C')
+        key.write_text('K')
+        out = render_manager_caddyfile(
+            public_tls_port=8080, loopback_plaintext_port=8089,
+            waitress_public_port=18080, waitress_internal_port=18088,
+            cert_path=cert, key_path=key, manager_data_dir=data_dir,
+        )
+        cert_str = str(cert.resolve())
+        key_str = str(key.resolve())
+        assert ' ' in cert_str, "Fixture must produce a space in path"
+        assert f'tls "{cert_str}" "{key_str}"' in out
+
+    def test_double_quote_in_path_rejected(self):
+        with pytest.raises(ValueError, match='must not contain'):
+            _validate_plain_string('cert_path', '/bad"path/cert.pem')
