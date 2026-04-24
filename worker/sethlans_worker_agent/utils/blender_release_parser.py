@@ -27,6 +27,12 @@ BASE_URL = "https://download.blender.org/release/"
 VERSION_REGEX = re.compile(r'^Blender(\d+\.\d+)/$')
 FILE_REGEX = re.compile(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg|msi|msix)')
 
+# Explicit (connect, read) tuple — see issue #113. Scalar ``timeout``
+# resets on each received byte, so a slow-drip response could hold a
+# daemon thread open indefinitely. Tuple form enforces a hard ceiling
+# on the read-phase as well as the connect-phase.
+HTTP_TIMEOUT = (5, 15)
+
 
 def get_blender_releases():
     """
@@ -52,7 +58,7 @@ def get_blender_releases():
     all_releases = {}
     logger.info("Performing dynamic Blender download info generation (4.x+ only)...")
     try:
-        response = requests.get(BASE_URL, timeout=10)
+        response = requests.get(BASE_URL, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -114,7 +120,7 @@ def parse_version_page(url, releases):
         releases (dict): The dictionary to populate with the parsed release data.
     """
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 

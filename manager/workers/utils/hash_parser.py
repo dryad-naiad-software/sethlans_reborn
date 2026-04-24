@@ -17,6 +17,11 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Explicit (connect, read) timeout tuple — see the rationale in
+# ``blender_release_parser.HTTP_TIMEOUT`` (issue #113). Duplicated here
+# rather than imported to keep this module import-cycle-free.
+HTTP_TIMEOUT = (5, 15)
+
 
 def get_all_hashes_from_url(sha_url):
     """
@@ -32,7 +37,7 @@ def get_all_hashes_from_url(sha_url):
     """
     hashes = {}
     try:
-        response = requests.get(sha_url, timeout=5)
+        response = requests.get(sha_url, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
         for line in response.text.splitlines():
             parts = line.strip().split()

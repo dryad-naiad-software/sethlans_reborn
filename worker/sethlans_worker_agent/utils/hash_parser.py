@@ -17,6 +17,11 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Explicit (connect, read) timeout — see issue #113 and the twin
+# constant in ``blender_release_parser``. Kept duplicated (not
+# imported) to avoid adding an import-cycle across sibling utils.
+HTTP_TIMEOUT = (5, 15)
+
 
 def get_all_hashes_from_url(sha_url):
     """
@@ -32,7 +37,7 @@ def get_all_hashes_from_url(sha_url):
     """
     hashes = {}
     try:
-        response = requests.get(sha_url, timeout=5)
+        response = requests.get(sha_url, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
         for line in response.text.splitlines():
             parts = line.strip().split()

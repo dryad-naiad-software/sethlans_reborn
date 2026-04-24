@@ -25,6 +25,13 @@ BASE_URL = "https://download.blender.org/release/"
 VERSION_REGEX = re.compile(r'^Blender(\d+\.\d+)/$')
 FILE_REGEX = re.compile(r'blender-(\d+\.\d+\.\d+)-(.+)\.(zip|tar\.xz|dmg|msi|msix)')
 
+# Explicit (connect, read) tuple so a stalled socket can't hang the
+# daemon thread forever (issue #113). A scalar timeout resets on every
+# byte received, which meant a slow-drip response could keep the
+# populate_cache thread alive indefinitely while blocking shutdown /
+# starving downstream writers.
+HTTP_TIMEOUT = (5, 15)
+
 
 def get_blender_releases():
     """
@@ -51,7 +58,7 @@ def get_blender_releases():
     all_releases = {}
     logger.info("Performing dynamic Blender download info generation (4.x+ only)...")
     try:
-        response = requests.get(BASE_URL, timeout=10)
+        response = requests.get(BASE_URL, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -103,13 +110,16 @@ def _log_latest_per_series(all_releases):
         logger.info(f"  Selected latest for {series} series: {version}")
 
 
-def resolve_latest_patch(series, timeout=5):
+def resolve_latest_patch(series, timeout=HTTP_TIMEOUT):
     """
     Resolve the latest patch version for a given Blender series.
 
     Args:
         series (str): The major.minor series string (e.g., "4.2").
-        timeout (int): HTTP request timeout in seconds.
+        timeout: HTTP request timeout; may be a scalar or a
+            ``(connect, read)`` tuple. Defaults to the module-level
+            ``HTTP_TIMEOUT`` so callers can't accidentally revert to
+            an unbounded scalar (issue #113).
 
     Returns:
         str or None: The latest full patch version (e.g., "4.2.19"),
@@ -152,7 +162,7 @@ def parse_version_page(url, releases):
         releases (dict): The dictionary to populate with the parsed release data.
     """
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 

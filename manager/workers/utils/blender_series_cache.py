@@ -21,6 +21,13 @@ _cached_series: list[str] = []
 _cache_ready: bool = False
 _refresh_in_progress: bool = False
 
+# Hard ceiling on how long ``populate_cache`` is allowed to wait on
+# the parser before giving up and marking the cache ready with whatever
+# (possibly empty) series list it already had. Prevents a stalled
+# download.blender.org connection from holding the daemon thread open
+# indefinitely (issue #113). Module-level so tests can patch it.
+POPULATE_CACHE_BUDGET_SECONDS: float = 60.0
+
 
 def _safe_log(level, msg, *args):
     """Log, swallowing ``ValueError`` / ``OSError`` from closed streams.
@@ -41,8 +48,12 @@ def _safe_log(level, msg, *args):
         pass
 
 
-def populate_cache():
-    """Fetch available Blender series and store in the module-level cache."""
+def _populate_cache_body():
+    """Actual fetch + store logic. Split out from :func:`populate_cache`
+    so the outer wrapper can enforce an overall time budget via
+    ``Thread.join(timeout=...)`` — the parser's per-request timeouts
+    alone aren't enough because the parser loops over dozens of URLs.
+    """
     global _cached_series, _cache_ready
     try:
         releases = get_blender_releases()
@@ -59,6 +70,41 @@ def populate_cache():
         with _cache_lock:
             # Mark ready so endpoint doesn't appear stuck, but preserve
             # any previously cached data rather than overwriting with [].
+            _cache_ready = True
+
+
+def populate_cache():
+    """Fetch available Blender series with a hard wall-clock budget.
+
+    Runs :func:`_populate_cache_body` on a short-lived inner daemon
+    thread and waits up to :data:`POPULATE_CACHE_BUDGET_SECONDS` for
+    it to finish. If the budget is exceeded (e.g. download.blender.org
+    stalls mid-scrape — see issue #113), this function marks the
+    cache ready with whatever it already has and returns cleanly.
+    The inner thread is left running as a daemon; it will not block
+    interpreter shutdown.
+
+    Callers (``WorkersConfig.ready`` background thread, the refresh
+    trigger) depend on this function returning in bounded time.
+    """
+    global _cache_ready
+    worker = threading.Thread(
+        target=_populate_cache_body,
+        name='blender-series-cache-populate-inner',
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=POPULATE_CACHE_BUDGET_SECONDS)
+    if worker.is_alive():
+        _safe_log(
+            'info',
+            "Blender series cache populate exceeded %.1fs budget; "
+            "marking cache ready without updated data (issue #113).",
+            POPULATE_CACHE_BUDGET_SECONDS,
+        )
+        with _cache_lock:
+            # Same contract as the exception branch in the body:
+            # release any waiters, keep whatever was cached before.
             _cache_ready = True
 
 
