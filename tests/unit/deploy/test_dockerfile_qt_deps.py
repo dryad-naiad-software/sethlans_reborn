@@ -183,6 +183,5 @@ def test_dockerfile_copies_packaging_dir(dockerfile: Path) -> None:
     assert matches, (
         f"{dockerfile.name} is missing a `COPY packaging/` instruction. "
         f"Splash/branded Qt surfaces need packaging/branding/ assets "
-        f"present in the image (issue #111).\n"
-        + _debug_dockerfile_state(dockerfile.name, dockerfile)
+        f"present in the image (issue #111)."
     )
