@@ -113,13 +113,20 @@ class TestJobClaim:
         assert resp.status_code == 409
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestJobOutputUpload:
 
     def test_upload_output_saves_file_and_generates_thumbnail(
         self, admin_client, worker_with_token, asset,
     ):
-        """Uploading output file saves it and triggers thumbnail."""
+        """Uploading output file saves it and triggers thumbnail.
+
+        Uses ``transaction=True`` because Issue #118 moved thumbnail
+        generation to ``transaction.on_commit``; on_commit callbacks
+        only fire when the outer transaction actually commits, which
+        never happens under the default wrapped-in-transaction
+        ``django_db`` fixture.
+        """
         worker, worker_client = worker_with_token
 
         create_resp = admin_client.post(

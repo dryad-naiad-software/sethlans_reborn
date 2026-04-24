@@ -23,7 +23,7 @@ from .models import (
 )
 from .constants import TilingConfiguration
 from .manifest_generator import update_project_manifest
-from .signal_helpers import _save_thumbnails_for_instances, _skip_thumbnails
+from .signal_helpers import _skip_thumbnails
 
 logger = logging.getLogger(__name__)
 
@@ -188,33 +188,17 @@ def handle_job_completion(sender, instance, **kwargs):
 
 
 def _maybe_generate_job_thumbnail(instance, generate_thumbnail):
-    """Generate and save a server-side thumbnail for a standard Job.
+    """Schedule a server-side thumbnail generation for a standard Job.
 
-    Extracted from ``handle_job_completion`` to keep that handler's
-    cyclomatic complexity under the project's flake8 budget.
+    Issue #118: the actual generate + save pair runs in a
+    ``transaction.on_commit`` callback so the outer ``output_file.save``
+    write lock on ``workers_job`` is released before Pillow resize + inner
+    ``thumbnail.save`` run.  Implementation lives in
+    ``thumbnail_signals.schedule_job_thumbnail``.
     """
-    if instance.animation_frame or instance.tiled_job or not instance.output_file:
-        return
-    if instance.thumbnail:
-        logger.debug(
-            "Job %s already has a worker-provided thumbnail. "
-            "Skipping server-side generation.",
-            instance.id,
-        )
-        return
-    logger.debug(f"Job {instance.id} has an output file. Generating thumbnail.")
-    thumb_content = generate_thumbnail(instance.output_file)
-    if not thumb_content:
-        return
-    targets = [instance]
-    # If this job belongs to an (untiled) animation, also update the animation thumbnail once.
-    if instance.animation:
-        targets.append(instance.animation)
-    _save_thumbnails_for_instances(
-        targets,
-        sender=Job,
-        handler=handle_job_completion,
-        thumb_content=thumb_content,
+    from .thumbnail_signals import schedule_job_thumbnail
+    schedule_job_thumbnail(
+        instance, generate_thumbnail, handle_job_completion,
     )
 
 
@@ -231,23 +215,18 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
         return
 
     from .image_utils import generate_thumbnail
+    from .thumbnail_signals import schedule_animation_frame_thumbnail
 
     animation = instance.animation
 
     # --- Thumbnail Generation (progress thumbnails) ---
-    if instance.output_file:
-        # The image_assembler is responsible for creating the AnimationFrame's
-        # own thumbnail. This signal's job is to always update the PARENT
-        # animation's thumbnail to show the latest progress.
-        thumb_content = generate_thumbnail(instance.output_file)
-
-        if thumb_content:
-            _save_thumbnails_for_instances(
-                [animation],
-                sender=AnimationFrame,
-                handler=handle_animation_frame_completion,
-                thumb_content=thumb_content,
-            )
+    # The image_assembler is responsible for creating the AnimationFrame's
+    # own thumbnail.  This signal's job is to always update the PARENT
+    # animation's thumbnail to show the latest progress.  Issue #118:
+    # generation is deferred via ``transaction.on_commit``.
+    schedule_animation_frame_thumbnail(
+        instance, generate_thumbnail, handle_animation_frame_completion,
+    )
 
     # --- Parent Animation Status Update ---
     if instance.status == AnimationFrameStatus.DONE and animation.status == JobStatus.QUEUED:

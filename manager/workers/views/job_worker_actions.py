@@ -8,8 +8,9 @@ Extracted from jobs.py to keep file sizes under the 300-line limit.
 """
 
 import logging
+import time
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils import timezone
 from PIL import Image
 from rest_framework import status
@@ -24,6 +25,54 @@ logger = logging.getLogger(__name__)
 
 # Maximum size for worker-provided thumbnails (1 MB)
 MAX_THUMBNAIL_SIZE = 1 * 1024 * 1024
+
+# Issue #118: brief retry on SQLite lock-upgrade failures that
+# ``busy_timeout`` cannot wait on (``SQLITE_LOCKED``).  Each retry doubles
+# the back-off starting at 50 ms; with 6 attempts the worst case is ~3.1 s
+# of retry before surfacing the error, well inside the 30 s HTTP window and
+# far below the 5 s e2e concurrency-test budget.
+_SAVE_RETRY_ATTEMPTS = 6
+_SAVE_RETRY_BASE_DELAY_S = 0.05
+
+
+def _save_output_with_lock_retry(job, safe_name, file_obj):
+    """Persist ``output_file`` with a short retry on SQLite lock errors.
+
+    SQLite (especially in shared-cache mode used by Django's test runner)
+    can raise ``OperationalError: database table is locked`` when a
+    concurrent connection holds a write lock on the same table — this
+    error is *not* covered by ``PRAGMA busy_timeout``, which only retries
+    ``SQLITE_BUSY``.  Production SQLite under WAL almost never hits this,
+    but when it does we'd rather pay a few milliseconds of back-off than
+    bubble a 500 to the worker.  Non-sqlite databases (Postgres / MySQL)
+    never see this error so the retry is effectively a no-op for them.
+    """
+    delay = _SAVE_RETRY_BASE_DELAY_S
+    last_exc = None
+    for attempt in range(_SAVE_RETRY_ATTEMPTS):
+        try:
+            job.output_file.save(safe_name, file_obj, save=True)
+            return
+        except OperationalError as exc:
+            msg = str(exc).lower()
+            if "locked" not in msg:
+                raise
+            last_exc = exc
+            logger.warning(
+                "upload_output for job %s hit a SQLite lock on attempt "
+                "%d/%d: %s. Retrying in %.3fs.",
+                job.pk, attempt + 1, _SAVE_RETRY_ATTEMPTS, exc, delay,
+            )
+            time.sleep(delay)
+            delay *= 2
+            # Rewind the upload so the next attempt re-reads from byte 0.
+            try:
+                file_obj.seek(0)
+            except Exception:
+                pass
+    # Exhausted retries — re-raise the last OperationalError so DRF maps
+    # it to a 500 rather than returning a partial 200.
+    raise last_exc
 
 
 class JobWorkerActionsMixin:
@@ -166,7 +215,15 @@ class JobWorkerActionsMixin:
         # including the thumbnail field set above. This ordering is required
         # so that both fields are written in a single save() call and the
         # post_save signal sees the thumbnail as already present.
-        job.output_file.save(safe_name, file_obj, save=True)
+        #
+        # Issue #118: the ``handle_job_completion`` ``post_save`` handler
+        # defers the thumbnail generate + inner ``thumbnail.save`` pair to
+        # ``transaction.on_commit``, shrinking the critical section to a
+        # single ``UPDATE workers_job``.  The save is wrapped by
+        # ``_save_job_with_lock_retry`` to handle the narrow
+        # ``SQLITE_LOCKED`` window that the ``busy_timeout`` PRAGMA does
+        # not cover (shared-cache / lock-upgrade races on SQLite).
+        _save_output_with_lock_retry(job, safe_name, file_obj)
 
         logger.info(
             f"Received output file for job ID {job.id}. "
