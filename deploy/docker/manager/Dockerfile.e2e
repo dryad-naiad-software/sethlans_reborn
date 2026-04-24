@@ -30,9 +30,14 @@ RUN apt-get update && \
         libglib2.0-0 \
         libglu1-mesa \
         libx11-6 \
+        libxcb-cursor0 \
+        libxcb-icccm4 \
+        libxcb-keysyms1 \
+        libxcb-shape0 \
         libxi6 \
         libxrender1 \
         libxkbcommon0 \
+        libxkbcommon-x11-0 \
         libxxf86vm1 \
         libxfixes3 \
         libxcursor1 \
@@ -69,6 +74,7 @@ COPY shared/ /app/shared/
 COPY launcher/ /app/launcher/
 COPY tests/ /app/tests/
 COPY tools/ /app/tools/
+COPY packaging/ /app/packaging/
 COPY pytest.ini /app/pytest.ini
 
 ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \

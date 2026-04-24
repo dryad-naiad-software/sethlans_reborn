@@ -13,6 +13,16 @@ Locks in the fix for:
   The e2e image (``deploy/docker/manager/Dockerfile.e2e``) was also missing
   ``libglib2.0-0``, ``libfontconfig1``, and ``libdbus-1-3``.
 
+* Issue #111 — after #110, PySide6 imported cleanly but constructing any
+  widget (e.g. the splash screen's ``QLabel``) still segfaulted because Qt
+  6.5+ requires the xcb platform-plugin helper libraries even when using the
+  offscreen platform. The missing ``libxcb-cursor0``/``libxcb-icccm4``/
+  ``libxcb-keysyms1``/``libxcb-shape0``/``libxkbcommon-x11-0`` chain corrupts
+  the heap inside shiboken6's ``BindingManager::findDerivedType`` and exits
+  with status 139. The branding assets under ``packaging/branding/`` were
+  also absent from the image, so the splash-success path never exercised the
+  real pixmap load.
+
 ``requirements-dev.txt`` pulls in ``PySide6-Essentials``, which is a Python-only
 wheel that links against system ``.so`` files. Without these packages present
 in the base image, any test run fails at collection time before a single test
@@ -33,14 +43,22 @@ DOCKERFILE_E2E = DOCKER_DIR / "Dockerfile.e2e"
 
 # Packages required by every PySide6-based image. pytest-qt imports
 # PySide6.QtCore during pytest_configure; its .so chain links through
-# glib, GL, fontconfig, dbus, xkbcommon, and egl.
+# glib, GL, fontconfig, dbus, xkbcommon, and egl. Qt 6.5+ additionally
+# requires the xcb platform-plugin helpers (libxcb-*, libxkbcommon-x11-0)
+# even when running with the offscreen platform, otherwise widget
+# construction segfaults inside shiboken6 (issue #111).
 REQUIRED_PACKAGES = (
     "libdbus-1-3",
     "libegl1",
     "libfontconfig1",
     "libgl1",
     "libglib2.0-0",
+    "libxcb-cursor0",
+    "libxcb-icccm4",
+    "libxcb-keysyms1",
+    "libxcb-shape0",
     "libxkbcommon0",
+    "libxkbcommon-x11-0",
 )
 
 
@@ -125,3 +143,31 @@ def test_dockerfile_e2e_apt_teardown_preserved(dockerfile_e2e_text: str) -> None
     """Dockerfile.e2e must still clean apt caches after installing packages."""
     assert "apt-get clean" in dockerfile_e2e_text
     assert "rm -rf /var/lib/apt/lists/*" in dockerfile_e2e_text
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    (DOCKERFILE_TEST, DOCKERFILE_E2E),
+    ids=("Dockerfile.test", "Dockerfile.e2e"),
+)
+def test_dockerfile_copies_packaging_dir(dockerfile: Path) -> None:
+    """Each manager Docker image must COPY packaging/ into the build.
+
+    The splash screen and other branded Qt surfaces load assets from
+    ``packaging/branding/`` (e.g. ``logo-text-dark.png``). Without the
+    directory present, splash rendering silently falls back to a text
+    label in CI and regressions in the real pixmap path (issue #111)
+    go undetected. Also makes ``pyinstaller/*.spec`` available to any
+    test that needs it.
+    """
+    text = dockerfile.read_text(encoding="utf-8")
+    matches = [
+        line
+        for line in text.splitlines()
+        if "COPY packaging/" in line and not line.lstrip().startswith("#")
+    ]
+    assert matches, (
+        f"{dockerfile.name} is missing a `COPY packaging/` instruction. "
+        f"Splash/branded Qt surfaces need packaging/branding/ assets "
+        f"present in the image (issue #111)."
+    )
