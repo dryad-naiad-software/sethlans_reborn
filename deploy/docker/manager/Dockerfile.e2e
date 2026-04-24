@@ -76,6 +76,7 @@ COPY tests/ /app/tests/
 COPY tools/ /app/tools/
 COPY packaging/ /app/packaging/
 COPY pytest.ini /app/pytest.ini
+COPY VERSION /app/VERSION
 
 ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
     SETHLANS_SECURITY_DEBUG=true \
