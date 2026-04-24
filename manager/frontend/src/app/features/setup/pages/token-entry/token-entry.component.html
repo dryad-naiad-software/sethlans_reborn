@@ -12,14 +12,14 @@
         Paste the setup token printed by your launcher.
       </p>
 
-      <form (ngSubmit)="onSubmit()">
+      <form [formGroup]="form" (ngSubmit)="onSubmit()">
         <mat-form-field appearance="outline" class="token-field">
           <mat-label>Setup token</mat-label>
           <input
             #tokenInput
             matInput
             required
-            [formControl]="token"
+            formControlName="token"
             [type]="showToken() ? 'text' : 'password'"
             [readonly]="submitting() || rateLimited()"
             [name]="fieldName"

@@ -16,6 +16,7 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import {
   FormControl,
+  FormGroup,
   ReactiveFormsModule,
   Validators,
 } from '@angular/forms';
@@ -62,10 +63,17 @@ export class TokenEntryComponent implements AfterViewInit, OnDestroy {
   /** Randomized name attribute to suppress password-manager capture. */
   readonly fieldName = `token-${crypto.randomUUID().slice(0, 8)}`;
 
-  readonly token = new FormControl('', {
-    nonNullable: true,
-    validators: [Validators.required],
+  readonly form = new FormGroup({
+    token: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required],
+    }),
   });
+
+  /** Convenience accessor for tests and the auto-focus/error logic. */
+  get token(): FormControl<string> {
+    return this.form.controls.token;
+  }
 
   readonly submitting = signal(false);
   readonly errorMessage = signal<string | null>(null);
@@ -86,7 +94,7 @@ export class TokenEntryComponent implements AfterViewInit, OnDestroy {
   );
 
   private readonly tokenValue = toSignal(
-    this.token.valueChanges.pipe(startWith('')),
+    this.form.controls.token.valueChanges.pipe(startWith('')),
     { initialValue: '' },
   );
 
@@ -123,7 +131,7 @@ export class TokenEntryComponent implements AfterViewInit, OnDestroy {
     if (this.submitDisabled()) {
       return;
     }
-    const value = this.token.value.trim();
+    const value = this.form.controls.token.value.trim();
     if (!value) {
       return;
     }
