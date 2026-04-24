@@ -22,19 +22,21 @@ from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent.agent_logging import configure_logging
 from sethlans_worker_agent.web_ui import start_server, stop_server
 
-# --- Argument Parsing ---
-parser = argparse.ArgumentParser(description="Sethlans Reborn Worker Agent")
-parser.add_argument(
-    '--loglevel',
-    dest='loglevel',
-    choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-    default='INFO',
-    help='Set the logging level for console and file output.'
-)
-args = parser.parse_args()
-
-configure_logging(args.loglevel)
+# Logger creation is import-safe; configure_logging runs inside main().
 logger = logging.getLogger(__name__)
+
+
+def _parse_args(argv=None):
+    """Parse CLI args. Must be called from main(), never at import time (issue #119)."""
+    parser = argparse.ArgumentParser(description="Sethlans Reborn Worker Agent")
+    parser.add_argument(
+        '--loglevel', dest='loglevel',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        default='INFO',
+        help='Set the logging level for console and file output.'
+    )
+    return parser.parse_args(argv)
+
 
 # --- Shutdown Coordination ---
 _shutdown_event = threading.Event()
@@ -241,8 +243,11 @@ def _run_setup_phase():
 
 
 # --- Main Application Logic ---
-def main():
-    """Main operational loop: register, heartbeat, poll, dispatch, shutdown."""
+def main(argv=None):
+    """Main loop: parse args, configure logging, register, heartbeat, poll, dispatch, shutdown."""
+    args = _parse_args(argv)
+    configure_logging(args.loglevel)
+
     signal.signal(signal.SIGINT, _shutdown_handler)
     signal.signal(signal.SIGTERM, _shutdown_handler)
 
