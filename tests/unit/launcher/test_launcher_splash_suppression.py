@@ -119,31 +119,39 @@ class TestHeadlessPathDoesNotImportSplashRunner:
         )
         mocker.patch.object(run_launcher, "_teardown_tray")
 
-        # Strip any residue from an earlier test that may have imported
-        # either module, so we can assert the headless branch doesn't
-        # re-import.
-        sys.modules.pop("launcher.splash_runner", None)
-        for mod in [k for k in sys.modules if k.startswith("PySide6")]:
-            sys.modules.pop(mod, None)
+        # Snapshot sys.modules BEFORE the headless call instead of popping
+        # PySide6 / splash_runner out. Popping orphaned Shiboken's C-level
+        # type graph (it retains PyTypeObject* pointers to the stripped
+        # modules' types), which then crashed the next PySide6 import in
+        # a later test file with an access-violation on `Graph::identifyType`
+        # (issue #117). The diff-based check below is behaviourally
+        # equivalent: it still fails if main() NEWLY imports either module,
+        # which is what FR-4 forbids.
+        splash_runner_preloaded = "launcher.splash_runner" in sys.modules
+        pyside_before = {
+            k for k in sys.modules if k.startswith("PySide6")
+        }
 
         monkeypatch.setattr(sys, "argv", ["run_launcher", "--no-browser"])
         rc = run_launcher.main()
         assert rc == 0
 
-        assert "launcher.splash_runner" not in sys.modules, (
-            "Headless path must not import launcher.splash_runner "
-            "(which transitively imports PySide6) — FR-4."
-        )
-        # Direct guard on the spec acceptance criterion: no PySide6
-        # module of any submodule may appear after a headless boot.
-        # This catches any future drive-by `import PySide6` slipped
-        # into the launcher's startup path that would silently defeat
-        # the fast path (W1 from code review).
-        pyside_leaked = [
+        if not splash_runner_preloaded:
+            assert "launcher.splash_runner" not in sys.modules, (
+                "Headless path must not import launcher.splash_runner "
+                "(which transitively imports PySide6) — FR-4."
+            )
+        # Direct guard on the spec acceptance criterion: no NEW PySide6
+        # submodule may appear after a headless boot. This catches any
+        # future drive-by `import PySide6` slipped into the launcher's
+        # startup path that would silently defeat the fast path (W1 from
+        # code review).
+        pyside_after = {
             k for k in sys.modules if k.startswith("PySide6")
-        ]
-        assert not pyside_leaked, (
-            f"Headless path imported PySide6 modules: {pyside_leaked}. "
+        }
+        newly_imported = pyside_after - pyside_before
+        assert not newly_imported, (
+            f"Headless path imported PySide6 modules: {sorted(newly_imported)}. "
             "FR-4 requires the --no-browser / --print-url paths to "
             "avoid Qt entirely."
         )

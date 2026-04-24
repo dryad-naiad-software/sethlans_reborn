@@ -70,11 +70,7 @@ jobs:
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv,managed_tools,node_modules,migrations
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv,managed_tools,node_modules,migrations
       - name: Run Unit Tests
-        # tests/unit/launcher isolated in its own pytest process — see #117.
-        # DO NOT re-collapse to a single pytest call without resolving #117.
-        run: |
-          pytest tests/unit --ignore=tests/unit/launcher
-          pytest tests/unit/launcher
+        run: pytest tests/unit
       - name: Run Integration Tests
         run: pytest tests/integration
       - name: Run End-to-End Tests
@@ -144,11 +140,7 @@ jobs:
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv,.venv,managed_tools,node_modules,migrations
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv,managed_tools,node_modules,migrations
       - name: Run Unit Tests
-        # tests/unit/launcher isolated in its own pytest process — see #117.
-        # DO NOT re-collapse to a single pytest call without resolving #117.
-        run: |
-          pytest tests/unit --ignore=tests/unit/launcher
-          pytest tests/unit/launcher
+        run: pytest tests/unit
       - name: Run Integration Tests
         run: pytest tests/integration
       - name: Run End-to-End Tests
