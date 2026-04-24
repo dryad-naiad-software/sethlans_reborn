@@ -197,6 +197,49 @@ class TestHostnameCNTruncation:
         dns = san.value.get_values_for_type(x509.DNSName)
         assert boundary_hostname in dns
 
+    def test_100_char_hostname_generation_does_not_raise(
+        self, mocker, tmp_path,
+    ):
+        """Issue #121: macOS CI hostnames exceed 64 chars.
+
+        A 100-char hostname (e.g. ``sjc22-bt149-...7EB795E643.local``)
+        must not crash cert generation, must produce a <=64-char CN, and
+        must preserve the full untruncated hostname in the SAN DNSName
+        list. This is what modern TLS clients rely on for verification.
+        """
+        # Shape mirrors macOS CI runner hostnames (length 100 here).
+        prefix = 'sjc22-bt149-github-actions-runner-'
+        suffix = '.local'
+        filler_len = 100 - len(prefix) - len(suffix)
+        long_hostname = prefix + ('x' * filler_len) + suffix
+        assert len(long_hostname) == 100
+        self._patch_env(mocker, long_hostname)
+
+        c = tmp_path / 'tls' / 'cert.pem'
+        k = tmp_path / 'tls' / 'key.pem'
+
+        # Must not raise
+        generate_self_signed_cert(c, k)
+
+        cert = x509.load_pem_x509_certificate(c.read_bytes())
+
+        # CN is truncated to 64 chars
+        cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+        assert len(cn_attrs) == 1
+        assert len(cn_attrs[0].value) == 64
+        assert cn_attrs[0].value == long_hostname[:64]
+
+        # Full hostname is preserved untruncated in SAN
+        san = cert.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName,
+        )
+        dns = san.value.get_values_for_type(x509.DNSName)
+        assert long_hostname in dns
+        # Full hostname length preserved in SAN even though > 64
+        matched = [d for d in dns if d == long_hostname]
+        assert len(matched) == 1
+        assert len(matched[0]) == 100
+
 
 class TestLoadAndValidateCert:
 

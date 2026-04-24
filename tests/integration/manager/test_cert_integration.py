@@ -80,7 +80,15 @@ class TestCertRoundTrip:
         assert f'{hostname}.local' in dns_names
 
     def test_generated_cert_subject_cn_matches_hostname(self, tmp_path):
-        """Generated cert CN is the machine hostname."""
+        """Generated cert CN matches hostname, truncated to 64 chars.
+
+        Per RFC 5280 §4.1.2.4, the X.509 commonName field is capped at
+        64 UTF-8 octets. macOS CI runners produce hostnames longer than
+        64 chars (e.g. ``sjc22-bt149-...7EB795E643.local``), so CN is
+        truncated. The full hostname must still appear in the SAN --
+        which is what modern TLS clients use for verification (RFC 2818
+        deprecated CN-based hostname matching in 2000).
+        """
         cert_path = tmp_path / 'tls' / 'cert.pem'
         key_path = tmp_path / 'tls' / 'key.pem'
 
@@ -92,7 +100,18 @@ class TestCertRoundTrip:
             NameOID.COMMON_NAME
         )
         assert len(cn_attrs) == 1
-        assert cn_attrs[0].value == socket.gethostname()
+
+        hostname = socket.gethostname()
+        expected_cn = hostname[:64] if len(hostname) > 64 else hostname
+        assert cn_attrs[0].value == expected_cn
+        assert len(cn_attrs[0].value) <= 64
+
+        # Regardless of CN truncation, the full hostname must be in SAN.
+        san_ext = cert.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName
+        )
+        dns_names = san_ext.value.get_values_for_type(x509.DNSName)
+        assert hostname in dns_names
 
     def test_generated_key_is_rsa_4096(self, tmp_path):
         """Generated private key is RSA 4096-bit."""
