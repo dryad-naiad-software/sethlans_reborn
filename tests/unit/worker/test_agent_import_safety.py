@@ -59,14 +59,16 @@ def _run_probe(extra_argv):
     root on PYTHONPATH so the child interpreter can import the package
     the same way the test runner does.
     """
+    import os
     from pathlib import Path
     repo_root = Path(__file__).resolve().parents[3]
     worker_dir = repo_root / "worker"
-    env_path = str(worker_dir) + ";" + str(repo_root)
-    import os
+    env_path = os.pathsep.join([str(worker_dir), str(repo_root)])
     env = os.environ.copy()
     existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = env_path + (";" + existing if existing else "")
+    env["PYTHONPATH"] = (
+        env_path + os.pathsep + existing if existing else env_path
+    )
     return subprocess.run(
         [sys.executable, "-c", IMPORT_PROBE_SCRIPT, *extra_argv],
         capture_output=True,
