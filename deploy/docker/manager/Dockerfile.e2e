@@ -64,8 +64,12 @@ RUN pip install --no-cache-dir \
     -r /tmp/requirements-dev.txt
 
 # Pre-fetched by docker-test.yml (tools/fetch_caddy.py --multi-arch ...).
-# Present-but-unused; activated by manager spec Phase 3.
-COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /usr/local/bin/caddy
+# Placed at the path shared.frozen_paths.get_caddy_binary() resolves to
+# in source/dev mode (`${get_app_dir()}/.venv-build/caddy/caddy`), which
+# is what shared.caddy_supervisor._find_caddy_binary() looks up. Without
+# this, e2e tests that spin up the real manager fail at setup with
+# "Caddy binary not found".
+COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /app/.venv-build/caddy/caddy
 
 # Copy application source, tests, and tools
 COPY manager/ /app/manager/
