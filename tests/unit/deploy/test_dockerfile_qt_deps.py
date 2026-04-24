@@ -62,13 +62,47 @@ REQUIRED_PACKAGES = (
 )
 
 
+def _debug_dockerfile_state(label: str, path: Path) -> str:
+    """Return a multi-line diagnostic snapshot of a Dockerfile path.
+
+    Emitted when a fixture read fails on CI. The Linux self-hosted GH
+    Actions runner lives under a ``_work`` tree that has historically
+    used symlinks; ``Path(__file__).resolve()`` can land somewhere other
+    than the cloned repo if the resolution leaks through a symlink.
+    Print the raw and resolved paths, the parents chain, and the cwd so
+    the next CI run shows exactly what went wrong.
+    """
+    cwd = Path.cwd()
+    parents = [str(p) for p in Path(__file__).resolve().parents[:5]]
+    return (
+        f"[{label}] expected={path!s}\n"
+        f"  exists={path.exists()} is_file={path.is_file()}\n"
+        f"  parent_exists={path.parent.exists()}\n"
+        f"  test_file={Path(__file__)!s}\n"
+        f"  test_file_resolved={Path(__file__).resolve()!s}\n"
+        f"  parents[:5]={parents}\n"
+        f"  REPO_ROOT={REPO_ROOT!s}\n"
+        f"  cwd={cwd!s}\n"
+    )
+
+
 @pytest.fixture(scope="module")
 def dockerfile_test_text() -> str:
+    if not DOCKERFILE_TEST.is_file():
+        pytest.fail(
+            "Dockerfile.test not found on disk.\n"
+            + _debug_dockerfile_state("Dockerfile.test", DOCKERFILE_TEST)
+        )
     return DOCKERFILE_TEST.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def dockerfile_e2e_text() -> str:
+    if not DOCKERFILE_E2E.is_file():
+        pytest.fail(
+            "Dockerfile.e2e not found on disk.\n"
+            + _debug_dockerfile_state("Dockerfile.e2e", DOCKERFILE_E2E)
+        )
     return DOCKERFILE_E2E.read_text(encoding="utf-8")
 
 
@@ -160,6 +194,11 @@ def test_dockerfile_copies_packaging_dir(dockerfile: Path) -> None:
     go undetected. Also makes ``pyinstaller/*.spec`` available to any
     test that needs it.
     """
+    if not dockerfile.is_file():
+        pytest.fail(
+            f"{dockerfile.name} not readable.\n"
+            + _debug_dockerfile_state(dockerfile.name, dockerfile)
+        )
     text = dockerfile.read_text(encoding="utf-8")
     matches = [
         line
@@ -169,5 +208,6 @@ def test_dockerfile_copies_packaging_dir(dockerfile: Path) -> None:
     assert matches, (
         f"{dockerfile.name} is missing a `COPY packaging/` instruction. "
         f"Splash/branded Qt surfaces need packaging/branding/ assets "
-        f"present in the image (issue #111)."
+        f"present in the image (issue #111).\n"
+        + _debug_dockerfile_state(dockerfile.name, dockerfile)
     )

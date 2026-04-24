@@ -10,6 +10,7 @@ and ``_bootstrap_first_run``.
 """
 
 import json
+import sys
 
 import pytest
 
@@ -70,6 +71,15 @@ class TestReadTopology:
 
 class TestIsHeadless:
 
+    @pytest.mark.skipif(
+        sys.platform.startswith("linux"),
+        reason="Tests Windows-branch headless detection: mocks "
+        "platform.system to 'Windows' so is_headless() reads "
+        "SESSIONNAME, but SESSIONNAME is absent on Linux CI so the "
+        "Windows branch returns True (headless) instead of the "
+        "expected False. The Linux branch is exercised by the other "
+        "tests in this class.",
+    )
     def test_not_headless_on_non_linux(self, mocker):
         mocker.patch("platform.system", return_value="Windows")
         assert _is_headless() is False

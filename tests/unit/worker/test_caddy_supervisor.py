@@ -25,6 +25,7 @@ Every test mocks ``subprocess.Popen`` — no real Caddy is spawned.
 from __future__ import annotations
 
 import subprocess
+import sys
 import time as _time
 from unittest.mock import patch
 
@@ -123,6 +124,11 @@ def test_start_platform_flags_posix(worker_tree):
     assert 'creationflags' not in captured['kwargs']
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows-specific: exercises CREATE_NEW_PROCESS_GROUP / "
+    "CREATE_NO_WINDOW creationflags which only exist on Windows.",
+)
 def test_start_platform_flags_windows(worker_tree):
     sv = make_supervisor(worker_tree)
     captured: dict = {}
@@ -179,6 +185,11 @@ class _FakeProcWithHandle(FakeProc):
         self._handle = handle_value
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows-specific: exercises Win32 Job Object APIs "
+    "(CreateJobObjectW / AssignProcessToJobObject).",
+)
 def test_windows_spawn_attaches_child_to_job_object(
     worker_tree, reset_windows_job_handle,
 ):
@@ -235,6 +246,11 @@ def test_windows_spawn_attaches_child_to_job_object(
         assert proc_h == 0xABCD
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows-specific: exercises Win32 Job Object APIs "
+    "(AssignProcessToJobObject failure path).",
+)
 def test_windows_assign_to_job_failure_is_non_fatal(
     worker_tree, reset_windows_job_handle, caplog,
 ):
@@ -333,6 +349,12 @@ def test_stop_sends_sigterm_on_posix_and_waits(worker_tree):
     assert fake.poll() == 0
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows-specific: stop() escalation path uses "
+    "CreateToolhelp32Snapshot / terminate on Windows; POSIX path "
+    "is covered by test_stop_sends_sigterm_on_posix_and_waits.",
+)
 def test_stop_escalates_to_kill_on_timeout(worker_tree):
     sv = make_supervisor(worker_tree)
     fake = FakeProc()

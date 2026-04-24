@@ -30,6 +30,13 @@ from pathlib import Path
 
 import pytest
 
+# These tests only read the spec files and requirements-build.txt as
+# text, but the whole PyInstaller-specs concern is irrelevant on a test
+# environment that doesn't install PyInstaller (build deps live in
+# requirements-build.txt, not the unit-test install set). Skip the
+# module on CI runners that omit PyInstaller to keep the test env lean.
+pytest.importorskip("PyInstaller")
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILD_REQS = REPO_ROOT / "requirements-build.txt"
 SPEC_DIR = REPO_ROOT / "packaging" / "pyinstaller"

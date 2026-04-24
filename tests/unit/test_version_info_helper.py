@@ -28,6 +28,13 @@ from pathlib import Path
 
 import pytest
 
+# version_info lazy-imports PyInstaller.utils.win32.versioninfo at call
+# time; without PyInstaller installed every test below errors on the
+# make_version_info call. PyInstaller lives in requirements-build.txt
+# (not in the test-env install set), so skip the whole module when the
+# build tool is absent rather than adding a build dep to the test env.
+pytest.importorskip("PyInstaller")
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_DIR = REPO_ROOT / "packaging" / "pyinstaller"
 

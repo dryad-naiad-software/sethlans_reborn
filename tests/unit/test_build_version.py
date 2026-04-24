@@ -36,8 +36,33 @@ DRIVERS = {
 }
 
 
+def _debug_version_state() -> str:
+    """Diagnostic snapshot for VERSION-file path resolution failures.
+
+    Emitted when the fixture can't read VERSION. The Linux CI runner
+    lives under a ``_work`` tree; if a symlink leaks through
+    ``Path(__file__).resolve()`` the computed REPO_ROOT won't match the
+    cloned checkout. Print the raw/resolved file path and parents so
+    the next CI run shows exactly which directory was used.
+    """
+    cwd = Path.cwd()
+    parents = [str(p) for p in Path(__file__).resolve().parents[:4]]
+    return (
+        f"  VERSION_FILE={VERSION_FILE!s} exists={VERSION_FILE.exists()}\n"
+        f"  REPO_ROOT={REPO_ROOT!s} exists={REPO_ROOT.exists()}\n"
+        f"  test_file={Path(__file__)!s}\n"
+        f"  test_file_resolved={Path(__file__).resolve()!s}\n"
+        f"  parents[:4]={parents}\n"
+        f"  cwd={cwd!s}\n"
+    )
+
+
 @pytest.fixture(scope="module")
 def version_text() -> str:
+    if not VERSION_FILE.is_file():
+        pytest.fail(
+            "VERSION file not found on disk.\n" + _debug_version_state()
+        )
     return VERSION_FILE.read_text(encoding="utf-8").strip()
 
 

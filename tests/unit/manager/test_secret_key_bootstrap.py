@@ -70,6 +70,13 @@ def test_atomic_write_no_tmp_leftover(tmp_path):
     platform.system() == "Windows",
     reason="POSIX-only: chmod 0o500 not meaningful on Windows.",
 )
+@pytest.mark.skipif(
+    os.name == "posix" and hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="Root bypasses chmod-based write protection; the CI self-"
+    "hosted runner executes as root, so the 0o500 perms on the locked "
+    "dir don't actually block writes and ImproperlyConfigured never "
+    "fires. Non-root POSIX developers still exercise this path.",
+)
 def test_raises_on_unwritable_dir(tmp_path):
     """Read-only data dir: raises ImproperlyConfigured; no file created."""
     # Create a subdir we can lock down without affecting tmp_path cleanup.
