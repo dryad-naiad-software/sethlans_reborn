@@ -230,3 +230,51 @@ class TestGetCpuNameLinux:
         mocker.patch('builtins.open', mock_open(read_data=cpuinfo))
         from sethlans_worker_agent.cpu_detection import _get_cpu_name_linux
         assert _get_cpu_name_linux() is None
+
+
+# ---- _resolve_ip_address() — issue #122 -----------------------------------
+
+class TestResolveIpAddress:
+    """Regression tests for the mDNS-hang guard in hardware_detection.
+
+    Locks in issue #122: module import must not block indefinitely when
+    ``socket.gethostbyname`` stalls (e.g., macOS ``.local`` hostnames
+    against a broken mDNSResponder). The resolver runs in a daemon
+    thread with a hard join timeout and falls back to 127.0.0.1.
+    """
+
+    def test_returns_address_on_success(self, mocker):
+        mocker.patch(
+            'sethlans_worker_agent.hardware_detection.socket.gethostbyname',
+            return_value='192.0.2.42',
+        )
+        from sethlans_worker_agent.hardware_detection import _resolve_ip_address
+        assert _resolve_ip_address('somehost') == '192.0.2.42'
+
+    def test_returns_fallback_on_gaierror(self, mocker):
+        import socket as _socket
+        mocker.patch(
+            'sethlans_worker_agent.hardware_detection.socket.gethostbyname',
+            side_effect=_socket.gaierror('name or service not known'),
+        )
+        from sethlans_worker_agent.hardware_detection import _resolve_ip_address
+        assert _resolve_ip_address('somehost') == '127.0.0.1'
+
+    def test_returns_fallback_when_lookup_hangs(self, mocker):
+        import time
+
+        def _blocking_lookup(_hostname):
+            # Longer than the test's timeout_seconds — simulates a
+            # stalled mDNS query on macos-latest (issue #122).
+            time.sleep(10)
+            return '10.0.0.1'
+
+        mocker.patch(
+            'sethlans_worker_agent.hardware_detection.socket.gethostbyname',
+            side_effect=_blocking_lookup,
+        )
+        from sethlans_worker_agent.hardware_detection import _resolve_ip_address
+        # Give the daemon thread enough real time to have surpassed the
+        # timeout but not so long the test itself hangs if the guard
+        # fails to enforce it.
+        assert _resolve_ip_address('somehost', timeout_seconds=0.5) == '127.0.0.1'

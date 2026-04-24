@@ -27,7 +27,35 @@ logger = logging.getLogger(__name__)
 
 # --- Module-level constants ---
 HOSTNAME = socket.gethostname()
-IP_ADDRESS = socket.gethostbyname(HOSTNAME)
+
+
+def _resolve_ip_address(hostname, timeout_seconds=5.0):
+    """Resolve hostname to an IPv4 address with a hard timeout.
+
+    macOS ``.local`` hostnames go through mDNSResponder, which can block
+    indefinitely on ephemeral runners or machines with a flaky network
+    setup (issue #122). ``socket.gethostbyname`` has no timeout
+    parameter, so we run it in a daemon helper thread and fall back to
+    ``127.0.0.1`` if the lookup does not finish in time. The daemon
+    thread is abandoned on timeout; it does not prevent process exit.
+    """
+    import threading
+
+    result = {"value": None}
+
+    def _lookup():
+        try:
+            result["value"] = socket.gethostbyname(hostname)
+        except OSError:
+            pass
+
+    t = threading.Thread(target=_lookup, name="ip-resolve", daemon=True)
+    t.start()
+    t.join(timeout=timeout_seconds)
+    return result["value"] or "127.0.0.1"
+
+
+IP_ADDRESS = _resolve_ip_address(HOSTNAME)
 OS_INFO = f"{platform.system()} {platform.release()}"
 
 # --- Module-level caches ---
