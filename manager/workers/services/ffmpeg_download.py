@@ -25,9 +25,19 @@ from pathlib import Path
 
 import requests
 
+from .download_budget import (
+    cancel_or_timeout_error,
+    start_budget_timer,
+)
 from .download_progress import update_task
 
 logger = logging.getLogger(__name__)
+
+# Tuple so a slow-drip stream can't reset the scalar timeout forever
+# (#114, same pattern as #113 / blender_release_parser.HTTP_TIMEOUT).
+# Streaming downloads legitimately need a longer read phase than
+# the index fetch — a CDN can pause between chunks for seconds.
+HTTP_TIMEOUT = (10, 120)
 
 # Pinned FFmpeg version
 FFMPEG_VERSION = "7.1"
@@ -114,25 +124,39 @@ def _stream_download(
     task_id: str,
     cancel: threading.Event,
 ) -> bool:
-    """Download a file with progress reporting.  Returns True on success."""
+    """Download with progress. True=success; False=cancel OR budget timeout.
+
+    Callers pair this with ``cancel_or_timeout_error(task_id)`` to turn
+    a False result into the right user-facing error string.
+    """
     update_task(task_id, status="downloading", percent=0)
-    resp = requests.get(url, stream=True, verify=True, timeout=60)
-    resp.raise_for_status()
+    # Wall-clock guard: timer trips *cancel* if the whole transfer
+    # exceeds the budget; the iter_content loop's cancel check exits.
+    budget_timer = start_budget_timer(task_id, cancel)
+    try:
+        resp = requests.get(
+            url, stream=True, verify=True, timeout=HTTP_TIMEOUT,
+        )
+        resp.raise_for_status()
 
-    total = int(resp.headers.get("content-length", 0))
-    downloaded = 0
+        total = int(resp.headers.get("content-length", 0))
+        downloaded = 0
 
-    with open(archive_path, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=65536):
-            if cancel.is_set():
-                return False
-            f.write(chunk)
-            downloaded += len(chunk)
-            pct = int(downloaded * 100 / total) if total else 0
-            update_task(
-                task_id, status="downloading", percent=min(pct, 99),
-            )
-    return True
+        with open(archive_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if cancel.is_set():
+                    return False
+                f.write(chunk)
+                downloaded += len(chunk)
+                pct = int(downloaded * 100 / total) if total else 0
+                update_task(
+                    task_id, status="downloading",
+                    percent=min(pct, 99),
+                )
+        return True
+    finally:
+        # Cancel the timer so a late fire can't taint a later task.
+        budget_timer.cancel()
 
 
 def _extract_archive(archive_path: Path, dest_dir: Path) -> None:
@@ -172,7 +196,10 @@ def download_ffmpeg(task_id: str, data_dir: Path) -> None:
     try:
         if not _stream_download(url, archive_path, task_id, cancel):
             _cleanup_partial(archive_path, dest_dir)
-            update_task(task_id, status="failed", error="Cancelled")
+            update_task(
+                task_id, status="failed",
+                error=cancel_or_timeout_error(task_id),
+            )
             return
 
         update_task(task_id, status="extracting", percent=0)

@@ -1,16 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""
-Blender pre-download for the setup wizard.
+"""Blender pre-download for the setup wizard.
 
-Uses the existing ``blender_release_parser`` to discover download URLs
-for the default Blender version, then downloads and extracts to the
-manager's data directory.  Progress is reported via the shared
-``download_progress`` module.
-
-The download pattern mirrors ``worker/sethlans_worker_agent/tool_manager.py``
-but runs on the manager side for setup-time pre-download.
+Uses ``blender_release_parser`` to discover download URLs for the
+default Blender version, then downloads and extracts to the manager's
+data directory. Progress is reported via ``download_progress``. The
+wall-clock transfer budget (#114) lives in ``download_budget``.
 """
 
 import logging
@@ -25,9 +21,19 @@ from pathlib import Path
 
 import requests
 
+from .download_budget import (
+    cancel_or_timeout_error,
+    start_budget_timer,
+)
 from .download_progress import get_task, update_task
 
 logger = logging.getLogger(__name__)
+
+# Tuple so a slow-drip stream can't reset the scalar timeout forever
+# (#114, same pattern as #113 / blender_release_parser.HTTP_TIMEOUT).
+# Streaming downloads legitimately need a longer read phase than
+# the index fetch — a CDN can pause between chunks for seconds.
+HTTP_TIMEOUT = (10, 120)
 
 
 def get_platform_id() -> str | None:
@@ -91,9 +97,7 @@ def _safe_zip_extract(archive_path: str, extract_to: str) -> None:
 
 def _get_release_info(version: str, platform_id: str) -> dict | None:
     """Fetch release info via the blender_release_parser."""
-    from workers.utils.blender_release_parser import (
-        get_blender_releases,
-    )
+    from workers.utils.blender_release_parser import get_blender_releases
     releases = get_blender_releases()
     return releases.get(version, {}).get(platform_id)
 
@@ -104,24 +108,37 @@ def _stream_download(
     task_id: str,
     cancel: threading.Event,
 ) -> bool:
-    """Download a file with progress.  Returns True on success."""
-    update_task(task_id, status="downloading", percent=0)
-    resp = requests.get(url, stream=True, verify=True, timeout=60)
-    resp.raise_for_status()
-    total = int(resp.headers.get("content-length", 0))
-    downloaded = 0
+    """Download with progress. True=success; False=cancel OR budget timeout.
 
-    with open(archive_path, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=65536):
-            if cancel.is_set():
-                return False
-            f.write(chunk)
-            downloaded += len(chunk)
-            pct = int(downloaded * 100 / total) if total else 0
-            update_task(
-                task_id, status="downloading", percent=min(pct, 99),
-            )
-    return True
+    Callers pair this with ``cancel_or_timeout_error(task_id)`` to turn
+    a False result into the right user-facing error string.
+    """
+    update_task(task_id, status="downloading", percent=0)
+    # Wall-clock guard: timer trips *cancel* if the whole transfer
+    # exceeds the budget; the iter_content loop's cancel check exits.
+    budget_timer = start_budget_timer(task_id, cancel)
+    try:
+        resp = requests.get(
+            url, stream=True, verify=True, timeout=HTTP_TIMEOUT,
+        )
+        resp.raise_for_status()
+        total = int(resp.headers.get("content-length", 0))
+        downloaded = 0
+        with open(archive_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if cancel.is_set():
+                    return False
+                f.write(chunk)
+                downloaded += len(chunk)
+                pct = int(downloaded * 100 / total) if total else 0
+                update_task(
+                    task_id, status="downloading",
+                    percent=min(pct, 99),
+                )
+        return True
+    finally:
+        # Cancel the timer so a late fire can't taint a later task.
+        budget_timer.cancel()
 
 
 def _extract_archive(archive_path: Path, dest_dir: Path) -> None:
@@ -169,7 +186,10 @@ def _run_pipeline(
     try:
         if not _stream_download(url, archive_path, task_id, cancel):
             _cleanup(archive_path)
-            update_task(task_id, status="failed", error="Cancelled")
+            update_task(
+                task_id, status="failed",
+                error=cancel_or_timeout_error(task_id),
+            )
             return
 
         update_task(task_id, status="verifying", percent=0)
