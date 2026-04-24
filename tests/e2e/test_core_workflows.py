@@ -160,8 +160,21 @@ class TestCoreWorkflows:
             pass
 
     def teardown_method(self, method):
-        """Dump worker and manager logs on test failure for CI debugging."""
-        if self.worker_proc and self.worker_proc.poll() is None:
+        """Dump worker and manager logs on test failure for CI debugging.
+
+        The poll() guard was removed: when a process has already exited
+        (exit code != None) we need the logs MORE urgently, not less,
+        because an unexpected exit is a crash signature. peek_log_files
+        reads files from disk, so it works whether the process is alive
+        or dead.
+        """
+        if self.worker_proc:
+            exit_code = self.worker_proc.poll()
+            if exit_code is not None:
+                logger.error(
+                    "WORKER process exited unexpectedly with code %s",
+                    exit_code,
+                )
             stdout, stderr = peek_log_files(self.worker_proc)
             if stdout:
                 logger.error(
@@ -178,7 +191,18 @@ class TestCoreWorkflows:
                     "--- WORKER STDERR (first 4000 chars) ---\n%s",
                     stderr[:4000],
                 )
-        if self.manager_proc and self.manager_proc.poll() is None:
+                if len(stderr) > 8000:
+                    logger.error(
+                        "--- WORKER STDERR (last 4000 chars) ---\n%s",
+                        stderr[-4000:],
+                    )
+        if self.manager_proc:
+            exit_code = self.manager_proc.poll()
+            if exit_code is not None:
+                logger.error(
+                    "MANAGER process exited unexpectedly with code %s",
+                    exit_code,
+                )
             stdout, stderr = peek_log_files(self.manager_proc)
             if stderr:
                 logger.error(
