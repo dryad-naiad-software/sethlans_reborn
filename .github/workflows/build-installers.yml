@@ -108,8 +108,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path $env:SETHLANS_TLS_DATA_DIR | Out-Null
           New-Item -ItemType Directory -Force -Path $env:SETHLANS_MANAGER_DATA_DIR | Out-Null
 
+          # Capture stdout/stderr so failures are diagnosable. Start-Process
+          # -WindowStyle Hidden detaches from the workflow log; without
+          # -RedirectStandard* the manager's startup output is invisible.
+          $logOut = "$env:TEMP\sethlans-smoke-stdout.log"
+          $logErr = "$env:TEMP\sethlans-smoke-stderr.log"
           $proc = Start-Process -FilePath "dist\manager\run_manager.exe" `
-            -PassThru -WindowStyle Hidden
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput $logOut `
+            -RedirectStandardError $logErr
           try {
             # Poll the Waitress loopback port until it binds (max 90s).
             # /api/status/public/ is allowlisted in setup mode (see
@@ -125,9 +132,19 @@ jobs:
                   -TimeoutSec 2 -ErrorAction Stop
                 if ($r.StatusCode -eq 200) { $status = "200"; break }
               } catch { }
+              if ($proc.HasExited) {
+                Write-Host "Manager process exited early (code $($proc.ExitCode))"
+                break
+              }
               Start-Sleep -Seconds 1
             }
-            if ($status -ne "200") { throw "Manager smoke test failed (last status: $status)" }
+            if ($status -ne "200") {
+              Write-Host "--- manager stdout ---"
+              if (Test-Path $logOut) { Get-Content $logOut } else { Write-Host "(empty)" }
+              Write-Host "--- manager stderr ---"
+              if (Test-Path $logErr) { Get-Content $logErr } else { Write-Host "(empty)" }
+              throw "Manager smoke test failed (last status: $status)"
+            }
             Write-Host "Manager smoke test passed (HTTP $status)"
           } finally {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
