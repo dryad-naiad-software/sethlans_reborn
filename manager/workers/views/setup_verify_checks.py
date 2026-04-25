@@ -23,7 +23,11 @@ from workers.services.sentinel import read_sentinel
 # ``_check_ffmpeg`` MUST NOT subprocess-run the ffmpeg binary until the
 # ``checkpoints.FFMPEG_INSTALLED`` sentinel checkpoint is present:
 # attempting to verify a half-extracted binary can wedge the Waitress
-# worker thread (issue #125).
+# worker thread (issue #125).  ``_check_blender`` carries the symmetric
+# guard against ``checkpoints.BLENDER_PREDOWNLOADED`` (issue #129) — a
+# half-extracted blender binary would wedge the same way, and relying on
+# ``blender_already_installed`` (which only checks ``is_file()``) is not
+# enough on its own.
 
 
 def run_verification_checks(
@@ -157,8 +161,27 @@ def _find_blender_binary(
 
 
 def _check_blender(data_dir: Path) -> dict:
-    """Verify Blender binary runs (manager_worker only, optional)."""
+    """Verify Blender binary runs (manager_worker only, optional).
+
+    Short-circuits BEFORE touching the binary if the
+    ``blender_predownloaded`` sentinel checkpoint is absent.  This
+    guarantees we never subprocess-run a half-extracted binary
+    (issue #129), which would wedge the Waitress worker thread the
+    same way #125 documented for ffmpeg.  ``blender_already_installed``
+    alone is not sufficient here: it checks only ``is_file()`` and
+    will return ``True`` mid-extraction.
+    """
     try:
+        sentinel = read_sentinel(data_dir)
+        checkpoint_list = (
+            sentinel.get("checkpoints", []) if sentinel else []
+        )
+        if checkpoints.BLENDER_PREDOWNLOADED not in checkpoint_list:
+            return {
+                "name": "blender", "passed": True,
+                "error": None,
+                "detail": "Blender not pre-downloaded (optional)",
+            }
         from workers.models import SupportedBlenderVersion
         default_version = SupportedBlenderVersion.objects.filter(
             is_default=True,
