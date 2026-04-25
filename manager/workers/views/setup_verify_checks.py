@@ -199,7 +199,7 @@ def _check_blender(data_dir: Path) -> dict:
                 "error": None,
                 "detail": "No default Blender version configured",
             }
-        version = default_version.version
+        version = default_version.resolved_version
         if not blender_already_installed(data_dir, version):
             return {
                 "name": "blender", "passed": True,

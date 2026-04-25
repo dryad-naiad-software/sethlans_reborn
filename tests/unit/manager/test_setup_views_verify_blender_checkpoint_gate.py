@@ -229,13 +229,18 @@ class TestCheckBlenderCheckpointGate:
 def _patch_default_blender_version(mocker, version):
     """Stub ``SupportedBlenderVersion.objects.filter(...).first()``.
 
-    Pass ``version=None`` to simulate no default-version row.  Using a
-    mock here decouples these tests from the model's actual schema
-    (which uses ``series`` / ``resolved_version`` rather than the
-    ``version`` attribute the gate reads) so the gate behavior is the
-    only thing under test.
+    Pass ``version=None`` to simulate no default-version row.  The
+    stub object exposes ``resolved_version`` to match the production
+    code path (issue #136 — the gate reads ``resolved_version``, not
+    ``version``).  ``series`` is also set so any incidental code that
+    reads either attribute remains consistent with the model.
     """
-    obj = None if version is None else type("V", (), {"version": version})()
+    if version is None:
+        obj = None
+    else:
+        obj = type(
+            "V", (), {"resolved_version": version, "series": version},
+        )()
     qs = mocker.MagicMock()
     qs.first.return_value = obj
     mocker.patch(
