@@ -202,8 +202,12 @@ jobs:
       - name: Build NSIS installer
         run: |
           choco install nsis -y --no-progress
+          # choco doesn't refresh PATH in the same pwsh session, so call
+          # makensis by full path. NSIS installs to the standard 32-bit
+          # Program Files location regardless of host arch.
+          $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
           $version = if ("${{ github.ref_name }}" -match '^v(.+)$') { $Matches[1] } else { "0.0.0-dev" }
-          makensis /DPRODUCT_VERSION=$version packaging\windows\sethlans.nsi
+          & $makensis /DPRODUCT_VERSION=$version packaging\windows\sethlans.nsi
         shell: pwsh
 
       - name: Upload Windows installer
