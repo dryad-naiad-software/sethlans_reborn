@@ -38,10 +38,10 @@ jobs:
       SETHLANS_DISABLE_RELEASE_FETCH: "1"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -76,7 +76,7 @@ jobs:
 
       - name: Cache pip dependencies (Linux/macOS)
         if: runner.os != 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
@@ -85,7 +85,7 @@ jobs:
 
       - name: Cache pip dependencies (Windows)
         if: runner.os == 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~\AppData\Local\pip\Cache
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
@@ -98,7 +98,7 @@ jobs:
           pip install -r manager/requirements.txt -r worker/requirements.txt -r requirements-dev.txt
 
       - name: Cache Caddy binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .venv-build/caddy
           key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
@@ -117,7 +117,7 @@ jobs:
 
       - name: Cache Managed Blender Tools
         id: blender-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: worker/sethlans_worker_agent/managed_tools
           key: ${{ runner.os }}-blender-lts-${{ hashFiles('worker/sethlans_worker_agent/config.py') }}
@@ -150,7 +150,7 @@ jobs:
 
       - name: Upload Test Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-artifacts-${{ matrix.os }}-py${{ matrix.python-version }}
           path: |

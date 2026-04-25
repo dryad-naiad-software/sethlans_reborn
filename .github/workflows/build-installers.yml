@@ -36,10 +36,10 @@ jobs:
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
@@ -52,7 +52,7 @@ jobs:
           pip install -r worker/requirements.txt
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -65,7 +65,7 @@ jobs:
           npm run build
 
       - name: Cache Caddy binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .venv-build/caddy
           key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
@@ -179,7 +179,7 @@ jobs:
         shell: pwsh
 
       - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-installer
           path: |
@@ -196,10 +196,10 @@ jobs:
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
@@ -212,7 +212,7 @@ jobs:
           pip install -r worker/requirements.txt
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -225,7 +225,7 @@ jobs:
           npm run build
 
       - name: Cache Caddy binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .venv-build/caddy
           key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
@@ -361,7 +361,7 @@ jobs:
           xcrun stapler staple "${DMG_PATH}"
 
       - name: Upload macOS installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-installer
           path: dist/sethlans-*-macos-*.dmg
@@ -376,10 +376,10 @@ jobs:
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
@@ -397,7 +397,7 @@ jobs:
           pip install -r worker/requirements.txt
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -410,7 +410,7 @@ jobs:
           npm run build
 
       - name: Cache Caddy binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .venv-build/caddy
           key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
@@ -504,7 +504,7 @@ jobs:
           fi
 
       - name: Upload Linux installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-installer
           path: |
@@ -525,7 +525,7 @@ jobs:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 
