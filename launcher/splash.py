@@ -101,7 +101,12 @@ class SethlansSplash(QWidget):
             font.setPointSize(18)
             font.setBold(True)
             self._wordmark_label.setFont(font)
-        root.addWidget(self._wordmark_label)
+        wordmark_row = QHBoxLayout()
+        wordmark_row.setContentsMargins(0, 20, 0, 0)
+        wordmark_row.addSpacing(35)
+        wordmark_row.addWidget(self._wordmark_label)
+        wordmark_row.addStretch(1)
+        root.addLayout(wordmark_row)
 
         self._starting_label = QLabel("Starting...", self)
         self._starting_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
