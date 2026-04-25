@@ -36,6 +36,21 @@ from workers.views import heartbeat as heartbeat_mod
 HEARTBEAT_URL = '/api/heartbeat/'
 
 
+@pytest.fixture(autouse=True)
+def _reset_heartbeat_setup_cache():
+    """Reset the sticky-True setup-complete cache around every test.
+
+    Heartbeat caches a True observation of ``is_setup_complete`` at
+    module scope (issue #130).  Without this reset, a prior test in the
+    same process that flipped the cache to True would force this
+    test's first (False-expected) heartbeat to also report True — a
+    silent false pass.
+    """
+    heartbeat_mod._reset_setup_complete_cache()
+    yield
+    heartbeat_mod._reset_setup_complete_cache()
+
+
 @pytest.mark.django_db
 class TestHeartbeatSetupCompleteRoundtrip:
     """Heartbeat surfaces ``manager_setup_complete`` reflecting the sentinel."""

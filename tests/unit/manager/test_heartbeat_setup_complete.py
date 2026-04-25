@@ -75,6 +75,24 @@ def fresh_worker_client():
     return 'freshreg', client
 
 
+@pytest.fixture(autouse=True)
+def _reset_heartbeat_setup_cache():
+    """Reset the sticky-True setup-complete cache around every test.
+
+    The heartbeat view caches a True observation of
+    ``is_setup_complete`` at module scope (issue #130) so subsequent
+    heartbeats can short-circuit the sentinel stat/read/parse.  That
+    cache survives across tests in the same process — without this
+    reset, the first test that observes True would force every later
+    test in this file to also see True regardless of its own sentinel
+    setup.  Reset before AND after to guarantee no leakage in either
+    direction (other test files in this run can also pollute the flag).
+    """
+    heartbeat_mod._reset_setup_complete_cache()
+    yield
+    heartbeat_mod._reset_setup_complete_cache()
+
+
 @pytest.fixture
 def patch_data_dir(mocker, tmp_path):
     """Pin heartbeat's ``_get_data_dir`` to ``tmp_path``.

@@ -13,11 +13,8 @@ See ``enroll.py`` for the enrollment flow and
 """
 
 import logging
-import re
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.validators import URLValidator
 from django.db import models, transaction
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
@@ -33,34 +30,58 @@ from rest_framework.response import Response
 
 from sethlans_manager.middleware.setup_gate import _get_data_dir
 
-from ..constants import WorkerStatus
 from ..models import SupportedBlenderVersion, Worker
 from ..serializers import WorkerSerializer
 from ..services.sentinel import is_setup_complete
 from ._helpers import get_or_create_worker_user
+# Validators are re-exported below so tests that import them from this
+# module (``from workers.views.heartbeat import _sanitize_cpu_name``)
+# keep working after the split.
+from .heartbeat_validators import (  # noqa: F401
+    WORKER_ACCEPTED_STATUSES,
+    _extract_gpu_name,
+    _sanitize_cpu_name,
+    _validate_ui_cert_fingerprint,
+    _validate_ui_url,
+    _validate_worker_status,
+)
 from .stuck_jobs import requeue_stuck_jobs
 from .token_actions import WorkerTokenActionsMixin
 from .yield_actions import WorkerYieldActionsMixin
 
 logger = logging.getLogger(__name__)
 
-WORKER_ACCEPTED_STATUSES = {WorkerStatus.IDLE, WorkerStatus.RENDERING}
+# Sticky-True cache for the setup-complete sentinel.  Mirrors the
+# pattern at ``sethlans_manager/middleware/setup_gate.py:38``: the
+# sentinel is monotonic over a process lifetime (writes are atomic and
+# the file is never deleted under normal operation), so once we observe
+# completion we can short-circuit subsequent heartbeats and skip the
+# stat + read + JSON parse.  Operator deletion of the sentinel would
+# require a manager restart anyway, which clears this flag.
+_setup_complete_cached: bool = False
 
 
-def _validate_worker_status(raw_status):
-    """Validate status from worker payload. Returns a valid status string."""
-    if raw_status in WORKER_ACCEPTED_STATUSES:
-        return raw_status
-    return WorkerStatus.IDLE
+def _is_setup_complete_cached() -> bool:
+    """Return True if setup is complete, caching the True result.
+
+    Once setup completes, every subsequent call returns True without
+    touching the filesystem.  Before completion, each call falls
+    through to ``is_setup_complete`` so the wizard transition is
+    observed promptly.
+    """
+    global _setup_complete_cached
+    if _setup_complete_cached:
+        return True
+    if is_setup_complete(_get_data_dir()):
+        _setup_complete_cached = True
+        return True
+    return False
 
 
-def _sanitize_cpu_name(cpu_name):
-    """Sanitize cpu_name input, rejecting strings with HTML/script chars."""
-    if not isinstance(cpu_name, str):
-        return ''
-    if not re.match(r'^[\w\s\-().@,/#+]*$', cpu_name, re.ASCII):
-        return ''
-    return cpu_name
+def _reset_setup_complete_cache() -> None:
+    """Reset the sticky cache flag.  Test-only helper."""
+    global _setup_complete_cached
+    _setup_complete_cached = False
 
 
 @extend_schema_view(
@@ -81,54 +102,12 @@ class WorkerHeartbeatViewSet(
     authentication_classes = [TokenAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated]
 
-    @staticmethod
-    def _validate_ui_url(raw_url):
-        """Validate and return a ui_url, or None if invalid."""
-        if not raw_url:
-            return None
-        try:
-            URLValidator(schemes=['http', 'https'])(raw_url)
-            return raw_url
-        except DjangoValidationError:
-            return None
-
-    @staticmethod
-    def _validate_ui_cert_fingerprint(raw_value):
-        """Validate and return a ui_cert_fingerprint, or '' if invalid.
-
-        Accepts a 64-character lowercase hex string (SHA-256).
-        Logs a warning and returns '' for non-conforming values.
-        """
-        if not raw_value:
-            return ''
-        if not isinstance(raw_value, str):
-            logger.warning(
-                "Rejecting non-string ui_cert_fingerprint: %r",
-                type(raw_value).__name__,
-            )
-            return ''
-        if not re.fullmatch(r'[0-9a-f]{64}', raw_value):
-            logger.warning(
-                "Rejecting invalid ui_cert_fingerprint: %r",
-                raw_value[:80],
-            )
-            return ''
-        return raw_value
-
-    @staticmethod
-    def _extract_gpu_name(available_tools):
-        """Extract GPU name(s) from available_tools JSON."""
-        if not isinstance(available_tools, dict):
-            return ''
-        details = available_tools.get('gpu_devices_details', [])
-        if not isinstance(details, list):
-            return ''
-        names = [
-            d.get('name', '') for d in details
-            if isinstance(d, dict) and d.get('name')
-        ]
-        result = ', '.join(names)
-        return result[:255]
+    # Back-compat shim: existing unit tests
+    # (``tests/unit/manager/test_heartbeat_helpers.py``) call
+    # ``WorkerHeartbeatViewSet._extract_gpu_name(...)`` directly.  The
+    # implementation now lives in ``heartbeat_validators`` — this
+    # staticmethod just delegates so the test surface stays stable.
+    _extract_gpu_name = staticmethod(_extract_gpu_name)
 
     def list(self, request):
         """Lists all registered workers with has_token status."""
@@ -170,17 +149,16 @@ class WorkerHeartbeatViewSet(
         )
         # Surface setup-complete state so workers can self-gate on
         # download/job-claim while the manager wizard is in progress
-        # (issue #126).  Read each heartbeat — sentinel writes are
-        # infrequent and atomic.
-        result['manager_setup_complete'] = is_setup_complete(
-            _get_data_dir(),
-        )
+        # (issue #126).  Cached via sticky-True flag (issue #130) — the
+        # sentinel is monotonic, so once complete we skip the
+        # stat/read/parse on every subsequent heartbeat.
+        result['manager_setup_complete'] = _is_setup_complete_cached()
         return Response(result, status=status.HTTP_200_OK)
 
     def _handle_full_registration(self, request, hostname):
         """Create or update Worker, User, and Token atomically."""
         User = get_user_model()
-        ui_url = self._validate_ui_url(request.data.get('ui_url'))
+        ui_url = _validate_ui_url(request.data.get('ui_url'))
 
         with transaction.atomic():
             username = f'worker_{hostname}'
@@ -206,11 +184,11 @@ class WorkerHeartbeatViewSet(
                     'cpu_name': _sanitize_cpu_name(
                         request.data.get('cpu_name', ''),
                     ),
-                    'gpu_name': self._extract_gpu_name(
+                    'gpu_name': _extract_gpu_name(
                         available_tools,
                     ),
                     'status': _validate_worker_status(raw_status),
-                    'ui_cert_fingerprint': self._validate_ui_cert_fingerprint(
+                    'ui_cert_fingerprint': _validate_ui_cert_fingerprint(
                         request.data.get('ui_cert_fingerprint', ''),
                     ),
                 },
@@ -235,7 +213,7 @@ class WorkerHeartbeatViewSet(
             )
         worker.last_seen = timezone.now()
         worker.is_active = True
-        worker.ui_url = self._validate_ui_url(
+        worker.ui_url = _validate_ui_url(
             request.data.get('ui_url'),
         )
         raw_status = request.data.get('status', worker.status)
@@ -243,7 +221,7 @@ class WorkerHeartbeatViewSet(
             request.data.get('cpu_name', worker.cpu_name),
         )
         worker.status = _validate_worker_status(raw_status)
-        worker.ui_cert_fingerprint = self._validate_ui_cert_fingerprint(
+        worker.ui_cert_fingerprint = _validate_ui_cert_fingerprint(
             request.data.get('ui_cert_fingerprint', ''),
         )
         update_fields = [
@@ -252,7 +230,7 @@ class WorkerHeartbeatViewSet(
         ]
         if 'available_tools' in request.data:
             worker.available_tools = request.data['available_tools']
-            worker.gpu_name = self._extract_gpu_name(
+            worker.gpu_name = _extract_gpu_name(
                 request.data['available_tools'],
             )
             update_fields.extend(['available_tools', 'gpu_name'])
