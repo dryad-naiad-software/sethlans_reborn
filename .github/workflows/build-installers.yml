@@ -105,21 +105,30 @@ jobs:
         run: |
           $env:SETHLANS_TLS_DATA_DIR = "$env:TEMP\sethlans-smoke-tls"
           $env:SETHLANS_MANAGER_DATA_DIR = "$env:TEMP\sethlans-smoke-data"
-          New-Item -ItemType Directory -Force -Path $env:SETHLANS_TLS_DATA_DIR
-          New-Item -ItemType Directory -Force -Path $env:SETHLANS_MANAGER_DATA_DIR
+          New-Item -ItemType Directory -Force -Path $env:SETHLANS_TLS_DATA_DIR | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:SETHLANS_MANAGER_DATA_DIR | Out-Null
 
           $proc = Start-Process -FilePath "dist\manager\run_manager.exe" `
             -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 15
-
           try {
-            # Health check (self-signed cert, skip verification)
-            $response = Invoke-WebRequest -Uri "https://localhost:8080/api/setup/status/" `
-              -SkipCertificateCheck -TimeoutSec 10 -ErrorAction Stop
-            if ($response.StatusCode -ne 200) {
-              throw "Manager health check failed: $($response.StatusCode)"
+            # Poll the Waitress loopback port until it binds (max 90s).
+            # /api/status/public/ is allowlisted in setup mode (see
+            # manager/sethlans_manager/middleware/setup_gate.py) and returns
+            # 200 with no admin/sentinel. Port 8088 is the internal loopback
+            # listener (waitress_config.DEFAULT_WAITRESS_INTERNAL_PORT);
+            # Caddy's TLS port 8080 is supervised by the launcher, not the
+            # manager, so this smoke test does not start TLS.
+            $status = "000"
+            for ($i = 0; $i -lt 90; $i++) {
+              try {
+                $r = Invoke-WebRequest -Uri "http://127.0.0.1:8088/api/status/public/" `
+                  -TimeoutSec 2 -ErrorAction Stop
+                if ($r.StatusCode -eq 200) { $status = "200"; break }
+              } catch { }
+              Start-Sleep -Seconds 1
             }
-            Write-Host "Manager smoke test passed (HTTP $($response.StatusCode))"
+            if ($status -ne "200") { throw "Manager smoke test failed (last status: $status)" }
+            Write-Host "Manager smoke test passed (HTTP $status)"
           } finally {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           }
@@ -268,11 +277,25 @@ jobs:
 
           dist/manager/run_manager &
           MGR_PID=$!
-          sleep 15
+          trap 'kill $MGR_PID 2>/dev/null || true' EXIT
 
-          STATUS=$(curl -sk -o /dev/null -w '%{http_code}' \
-            https://localhost:8080/api/setup/status/ || echo "000")
-          kill $MGR_PID 2>/dev/null || true
+          # Poll the Waitress loopback port until it binds (max 90s).
+          # /api/status/public/ is allowlisted in setup mode (see
+          # manager/sethlans_manager/middleware/setup_gate.py) and returns
+          # 200 with no admin/sentinel. Port 8088 is the internal loopback
+          # listener (waitress_config.DEFAULT_WAITRESS_INTERNAL_PORT);
+          # Caddy's TLS port 8080 is supervised by the launcher, not the
+          # manager, so this smoke test does not start TLS.
+          STATUS="000"
+          for i in $(seq 1 90); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+              http://127.0.0.1:8088/api/status/public/ 2>/dev/null || echo "000")
+            if [ "$CODE" = "200" ]; then
+              STATUS="200"
+              break
+            fi
+            sleep 1
+          done
 
           if [ "$STATUS" = "200" ]; then
             echo "Manager smoke test passed (HTTP ${STATUS})"
@@ -455,11 +478,25 @@ jobs:
 
           dist/manager/run_manager &
           MGR_PID=$!
-          sleep 15
+          trap 'kill $MGR_PID 2>/dev/null || true' EXIT
 
-          STATUS=$(curl -sk -o /dev/null -w '%{http_code}' \
-            https://localhost:8080/api/setup/status/ || echo "000")
-          kill $MGR_PID 2>/dev/null || true
+          # Poll the Waitress loopback port until it binds (max 90s).
+          # /api/status/public/ is allowlisted in setup mode (see
+          # manager/sethlans_manager/middleware/setup_gate.py) and returns
+          # 200 with no admin/sentinel. Port 8088 is the internal loopback
+          # listener (waitress_config.DEFAULT_WAITRESS_INTERNAL_PORT);
+          # Caddy's TLS port 8080 is supervised by the launcher, not the
+          # manager, so this smoke test does not start TLS.
+          STATUS="000"
+          for i in $(seq 1 90); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+              http://127.0.0.1:8088/api/status/public/ 2>/dev/null || echo "000")
+            if [ "$CODE" = "200" ]; then
+              STATUS="200"
+              break
+            fi
+            sleep 1
+          done
 
           if [ "$STATUS" = "200" ]; then
             echo "Manager smoke test passed (HTTP ${STATUS})"
