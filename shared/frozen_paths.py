@@ -170,11 +170,13 @@ def get_caddy_path() -> Path:
     """Return the path to the Caddy binary.
 
     Frozen mode (PyInstaller one-dir):
-        Sits next to the frozen executable in the bundle's ``dist``
-        directory — e.g. ``dist/launcher/caddy`` on Unix or
-        ``dist/launcher/caddy.exe`` on Windows. ``packaging/pyinstaller/
-        launcher.spec`` adds the binary to ``binaries=[...]`` so
-        PyInstaller copies it to that location at build time.
+        Lives under the bundle's ``_internal/`` contents directory —
+        e.g. ``dist/launcher/_internal/caddy`` on Unix or
+        ``dist/launcher/_internal/caddy.exe`` on Windows. PyInstaller
+        6.x places ``binaries=[...]`` entries (declared in
+        ``packaging/pyinstaller/launcher.spec``) under the
+        contents_directory rather than next to the entry-point exe.
+        ``sys._MEIPASS`` resolves to that ``_internal/`` dir at runtime.
     Source mode:
         ``.venv-build/caddy/caddy[.exe]`` — the path populated by
         ``tools/fetch_caddy.py`` for developer builds.

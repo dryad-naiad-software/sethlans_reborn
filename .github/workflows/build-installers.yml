@@ -88,11 +88,13 @@ jobs:
       - name: Assert Caddy binary bundled (Windows)
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist\launcher\caddy.exe")) {
-            Write-Error "dist\launcher\caddy.exe not present — launcher.spec Caddy inclusion is broken"
+          # Caddy is in _internal/ per PyInstaller 6.x layout (binaries land
+          # in the contents_directory, not next to the entry-point exe).
+          if (-not (Test-Path "dist\launcher\_internal\caddy.exe")) {
+            Write-Error "dist\launcher\_internal\caddy.exe not present — launcher.spec Caddy inclusion is broken (PyInstaller 6.x places binaries under _internal/)"
             exit 1
           }
-          Write-Host "Caddy bundled: dist\launcher\caddy.exe"
+          Write-Host "Caddy bundled: dist\launcher\_internal\caddy.exe"
 
       # --- Smoke Tests (FR-20) ---
       - name: Smoke test — Launcher --version
@@ -247,11 +249,13 @@ jobs:
 
       - name: Assert Caddy binary bundled (macOS)
         run: |
-          if [ ! -x "dist/launcher/caddy" ]; then
-            echo "dist/launcher/caddy not present or not executable — launcher.spec Caddy inclusion is broken"
+          # Caddy is in _internal/ per PyInstaller 6.x layout (binaries land
+          # in the contents_directory, not next to the entry-point exe).
+          if [ ! -x "dist/launcher/_internal/caddy" ]; then
+            echo "dist/launcher/_internal/caddy not present or not executable — launcher.spec Caddy inclusion is broken (PyInstaller 6.x places binaries under _internal/)"
             exit 1
           fi
-          echo "Caddy bundled: dist/launcher/caddy"
+          echo "Caddy bundled: dist/launcher/_internal/caddy"
 
       # --- Smoke Tests (FR-20) ---
       - name: Smoke test — Launcher --version
@@ -432,11 +436,13 @@ jobs:
 
       - name: Assert Caddy binary bundled (Linux)
         run: |
-          if [ ! -x "dist/launcher/caddy" ]; then
-            echo "dist/launcher/caddy not present or not executable — launcher.spec Caddy inclusion is broken"
+          # Caddy is in _internal/ per PyInstaller 6.x layout (binaries land
+          # in the contents_directory, not next to the entry-point exe).
+          if [ ! -x "dist/launcher/_internal/caddy" ]; then
+            echo "dist/launcher/_internal/caddy not present or not executable — launcher.spec Caddy inclusion is broken (PyInstaller 6.x places binaries under _internal/)"
             exit 1
           fi
-          echo "Caddy bundled: dist/launcher/caddy"
+          echo "Caddy bundled: dist/launcher/_internal/caddy"
 
       # --- Smoke Tests (FR-20) ---
       - name: Smoke test — Launcher --version
