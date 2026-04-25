@@ -34,6 +34,7 @@ from ..models import SupportedBlenderVersion, Worker
 from ..serializers import WorkerSerializer
 from ..services.sentinel import is_setup_complete
 from ._helpers import get_or_create_worker_user
+from .heartbeat_schema import WorkerHeartbeatResponseSerializer
 # Validators are re-exported below so tests that import them from this
 # module (``from workers.views.heartbeat import _sanitize_cpu_name``)
 # keep working after the split.
@@ -86,7 +87,10 @@ def _reset_setup_complete_cache() -> None:
 
 @extend_schema_view(
     list=extend_schema(tags=['Worker Agent']),
-    create=extend_schema(tags=['Worker Agent']),
+    create=extend_schema(
+        tags=['Worker Agent'],
+        responses=WorkerHeartbeatResponseSerializer,
+    ),
 )
 class WorkerHeartbeatViewSet(
     WorkerYieldActionsMixin,
