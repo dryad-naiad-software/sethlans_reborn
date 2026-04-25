@@ -2,6 +2,7 @@
 
 ![CI](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml/badge.svg)
 ![CI (GPU)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)
+![CI (Self-Hosted)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci-self-hosted.yml/badge.svg)
 ![Docker](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-publish.yml/badge.svg)
 ![Python](https://img.shields.io/badge/Python-3.14+-blue)
 ![Django](https://img.shields.io/badge/Django-5.2-green)
