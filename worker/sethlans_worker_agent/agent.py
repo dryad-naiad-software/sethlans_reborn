@@ -144,6 +144,11 @@ def _run_loop_iteration(worker_id):
     # interval, not once per poll interval.
     job_processor.maybe_assert_gpu_count_unchanged()
 
+    from sethlans_worker_agent.agent_setup import check_manager_setup_complete
+    if not check_manager_setup_complete():  # issue #126: skip work until setup done
+        _shutdown_event.wait(config.HEARTBEAT_INTERVAL_SECONDS)
+        return
+
     if not is_busy:
         version_sync.process_pending_downloads()
         version_sync.process_pending_removals(active_jobs)
@@ -165,9 +170,7 @@ def _run_loop_iteration(worker_id):
         with _active_threads_lock:
             _active_threads.append(thread)
 
-    logger.debug(
-        f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds."
-    )
+    logger.debug(f"Loop finished. Sleeping for {config.JOB_POLLING_INTERVAL_SECONDS} seconds.")
     _shutdown_event.wait(config.JOB_POLLING_INTERVAL_SECONDS)
 
 

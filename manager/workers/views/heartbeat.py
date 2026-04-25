@@ -31,9 +31,12 @@ from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from sethlans_manager.middleware.setup_gate import _get_data_dir
+
 from ..constants import WorkerStatus
 from ..models import SupportedBlenderVersion, Worker
 from ..serializers import WorkerSerializer
+from ..services.sentinel import is_setup_complete
 from ._helpers import get_or_create_worker_user
 from .stuck_jobs import requeue_stuck_jobs
 from .token_actions import WorkerTokenActionsMixin
@@ -164,6 +167,13 @@ class WorkerHeartbeatViewSet(
             SupportedBlenderVersion.objects.values(
                 'series', version=models.F('resolved_version'),
             )
+        )
+        # Surface setup-complete state so workers can self-gate on
+        # download/job-claim while the manager wizard is in progress
+        # (issue #126).  Read each heartbeat — sentinel writes are
+        # infrequent and atomic.
+        result['manager_setup_complete'] = is_setup_complete(
+            _get_data_dir(),
         )
         return Response(result, status=status.HTTP_200_OK)
 

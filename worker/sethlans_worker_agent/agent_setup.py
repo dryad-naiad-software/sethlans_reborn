@@ -18,6 +18,30 @@ from sethlans_worker_agent.web_ui.setup.sentinel import is_setup_complete
 
 logger = logging.getLogger(__name__)
 
+# Last observed manager_setup_complete value from heartbeat responses
+# (issue #126). None = no heartbeat seen yet. Tests may reset to None.
+_last_known_setup_complete = None
+
+
+def check_manager_setup_complete() -> bool:
+    """Return manager_setup_complete from system_monitor and log on transition.
+
+    Logs INFO once on each True->False or False->True transition so the
+    user can see when the worker pauses or resumes against an in-setup
+    manager (issue #126). The very first observation logs only if the
+    state is False; an initial True observation is silent.
+    """
+    global _last_known_setup_complete
+    from sethlans_worker_agent import system_monitor
+    current = system_monitor.is_manager_setup_complete()
+    if current != _last_known_setup_complete:
+        if current and _last_known_setup_complete is False:
+            logger.info("Manager setup is complete; resuming normal operation")
+        elif not current:
+            logger.info("Manager setup not yet complete; idling (heartbeat only)")
+        _last_known_setup_complete = current
+    return current
+
 
 def initialize_setup_gate() -> bool:
     """Initialize the setup gate. Returns True if setup is complete."""

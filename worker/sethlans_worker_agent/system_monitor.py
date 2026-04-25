@@ -43,6 +43,13 @@ WORKER_ID = None
 # is ready to poll for jobs. Set after successful registration download.
 _versions_ready = False
 
+# Tracks the manager's setup-complete state as last reported in a
+# heartbeat response (issue #126). Defaults to True for backward
+# compatibility: if the manager omits the field (older build) or the
+# response cannot be parsed, the worker assumes setup is complete and
+# operates normally. Updated by send_heartbeat / register_with_manager.
+_manager_setup_complete = True
+
 
 def _get_ui_cert_fingerprint():
     """Return the worker UI TLS cert fingerprint, or '' if unavailable."""
@@ -132,6 +139,8 @@ def register_with_manager():
 
     logger.info(f"Heartbeat successful. Worker is registered as ID: {WORKER_ID}")
 
+    _update_manager_setup_complete(response_data)
+
     # Download all required versions before entering the poll loop (P2-F4).
     if response_data:
         ready = _process_heartbeat_versions(response_data)
@@ -187,6 +196,30 @@ def send_heartbeat(is_busy=False, active_jobs=None):
             active_jobs=active_jobs or {}
         )
         _versions_ready = ready
+        _update_manager_setup_complete(response_data)
+
+
+def _update_manager_setup_complete(response_data):
+    """Update cached manager-setup-complete flag from a heartbeat response.
+
+    Defaults to True when the field is absent (older managers) so the
+    worker remains functional against pre-#126 manager builds.
+    """
+    global _manager_setup_complete
+    if not isinstance(response_data, dict):
+        _manager_setup_complete = True
+        return
+    value = response_data.get('manager_setup_complete', True)
+    _manager_setup_complete = bool(value)
+
+
+def is_manager_setup_complete():
+    """Return the manager's setup-complete state from the last heartbeat.
+
+    Defaults to True until the first heartbeat response is processed,
+    and stays True if the manager omits the field (issue #126).
+    """
+    return _manager_setup_complete
 
 
 def are_versions_ready():
