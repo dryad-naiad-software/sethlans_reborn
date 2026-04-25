@@ -161,11 +161,18 @@ def _build_summary_payload(data_dir: Path, sentinel: dict) -> dict:
 def _run_verification_checks(
     data_dir: Path, topology: str | None,
 ) -> list[dict]:
-    """Run the topology-aware verification checklist."""
+    """Run the topology-aware verification checklist.
+
+    The ``worker_only`` topology omits the ffmpeg check: a worker_only
+    manager never renders, so there is no reason to require an ffmpeg
+    binary to satisfy verify (issue #127).  Mirrors the topology gate
+    in ``setup_verify_checks.run_verification_checks``.
+    """
     checks = []
     checks.append(_check_db_reachable())
     checks.append(_check_admin_exists())
-    checks.append(_check_ffmpeg(data_dir))
+    if topology != "worker_only":
+        checks.append(_check_ffmpeg(data_dir))
     checks.append(_check_enrollment_key())
 
     if topology == "manager_worker":

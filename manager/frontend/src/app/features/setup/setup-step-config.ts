@@ -27,11 +27,13 @@ export function getStepsForTopology(topology: Topology | null): StepConfig[] {
     });
   }
 
-  steps.push({
-    key: 'ffmpeg-download',
-    label: 'FFmpeg',
-    checkpoint: 'ffmpeg_installed',
-  });
+  if (topology !== 'worker_only') {
+    steps.push({
+      key: 'ffmpeg-download',
+      label: 'FFmpeg',
+      checkpoint: 'ffmpeg_installed',
+    });
+  }
 
   if (topology === 'manager_worker') {
     steps.push({

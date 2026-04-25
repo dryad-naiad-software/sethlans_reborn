@@ -83,9 +83,10 @@ describe('SetupStateService', () => {
       expect(service.visibleSteps.length).toBe(10);
     });
 
-    it('recomputes visible steps for worker_only', () => {
+    it('recomputes visible steps for worker_only (omits FFmpeg)', () => {
       service.setTopology('worker_only');
-      expect(service.visibleSteps.length).toBe(8);
+      expect(service.visibleSteps.length).toBe(7);
+      expect(service.visibleSteps.map(s => s.key)).not.toContain('ffmpeg-download');
     });
   });
 

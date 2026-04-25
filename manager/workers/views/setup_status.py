@@ -196,9 +196,10 @@ def _infer_current_step(
     ]
     if topology == "manager_worker":
         steps.append("worker_password_set")
-    steps.extend([
-        "ffmpeg_installed",
-    ])
+    if topology != "worker_only":
+        steps.extend([
+            "ffmpeg_installed",
+        ])
     if topology == "manager_worker":
         steps.append("blender_predownloaded")
     steps.append("verified")

@@ -28,13 +28,23 @@ describe('getStepsForTopology', () => {
     ]);
   });
 
-  it('should return 8 steps for worker_only topology', () => {
+  it('should return 7 steps for worker_only topology, omitting FFmpeg', () => {
     const steps = getStepsForTopology('worker_only');
-    expect(steps.length).toBe(8);
+    expect(steps.length).toBe(7);
     expect(stepKeys(steps)).toEqual([
       'welcome', 'topology', 'network', 'database',
-      'admin-user', 'ffmpeg-download', 'verification', 'done',
+      'admin-user', 'verification', 'done',
     ]);
+  });
+
+  it('omits the FFmpeg step for worker_only topology', () => {
+    const steps = getStepsForTopology('worker_only');
+    expect(steps.find(s => s.key === 'ffmpeg-download')).toBeUndefined();
+  });
+
+  it('should include ffmpeg-download for manager_worker topology', () => {
+    const steps = getStepsForTopology('manager_worker');
+    expect(stepKeys(steps)).toContain('ffmpeg-download');
   });
 
   it('should return 8 steps for null topology (default)', () => {

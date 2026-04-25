@@ -34,9 +34,10 @@ def run_verification_checks(
     checks = [
         _check_db_reachable(),
         _check_admin_exists(),
-        _check_ffmpeg(data_dir),
         _check_enrollment_key(),
     ]
+    if topology != "worker_only":
+        checks.append(_check_ffmpeg(data_dir))
     if topology == "manager_worker":
         checks.append(_check_blender(data_dir))
         checks.append(check_local_worker_enrolled())
