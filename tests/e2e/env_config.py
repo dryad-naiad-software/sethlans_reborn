@@ -135,6 +135,12 @@ def build_manager_env(
     tls_data_dir = Path(tls_data_dir)
     tls_data_dir.mkdir(parents=True, exist_ok=True)
     env["SETHLANS_TLS_DATA_DIR"] = str(tls_data_dir)
+    # Anchor the manager data dir at the per-test tmp tree so subprocess
+    # _get_data_dir() (heartbeat, setup gate) reads sentinels written by
+    # the E2E fixture at tls_data_dir.parent (issue #137). Without this
+    # the heartbeat reports manager_setup_complete: false forever, the
+    # worker never claims, and jobs stay QUEUED until E2E times out.
+    env["SETHLANS_MANAGER_DATA_DIR"] = str(tls_data_dir.parent)
     return env
 
 

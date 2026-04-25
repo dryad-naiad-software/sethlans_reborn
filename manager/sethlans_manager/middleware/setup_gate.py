@@ -21,6 +21,7 @@ is now session-based (set by ``setup_bootstrap_view``).  See the
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from django.http import JsonResponse
@@ -56,9 +57,19 @@ _ALLOWED_PREFIXES = (
 
 
 def _get_data_dir() -> Path:
-    """Return the manager data directory."""
+    """Return the manager data directory.
+
+    In frozen builds, the OS-appropriate data dir is used. In non-frozen
+    runs (dev + tests), ``settings.BASE_DIR`` is the default but can be
+    overridden via ``SETHLANS_MANAGER_DATA_DIR`` so the E2E harness can
+    anchor sentinel reads at the same per-test tmp tree it writes to
+    (issue #137).
+    """
     if is_frozen():
         return get_data_dir("manager")
+    override = os.environ.get("SETHLANS_MANAGER_DATA_DIR")
+    if override:
+        return Path(override)
     from django.conf import settings
     return settings.BASE_DIR
 
