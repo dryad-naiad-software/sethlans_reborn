@@ -6,7 +6,10 @@ import { Component, inject, OnInit, ViewChild } from '@angular/core';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { STEPPER_GLOBAL_OPTIONS } from '@angular/cdk/stepper';
+import {
+  STEPPER_GLOBAL_OPTIONS,
+  StepperSelectionEvent,
+} from '@angular/cdk/stepper';
 import { SetupApiService } from './services/setup-api.service';
 import { SetupStateService } from './services/setup-state.service';
 import { StepConfig } from './setup-step-config';
@@ -50,45 +53,75 @@ import { DoneComponent } from './steps/done.component';
       </div>
     } @else {
       <div class="setup-container">
-        <mat-stepper #stepper linear labelPosition="bottom" class="setup-stepper">
+        <mat-stepper #stepper linear labelPosition="bottom" class="setup-stepper"
+                     (selectionChange)="onStepperSelectionChange($event)">
           @for (step of steps; track step.key) {
             <mat-step [label]="step.label" [completed]="isStepCompleted(step)"
                       [editable]="false">
               <div class="step-content">
+                <!--
+                  Each @case body is gated behind activeStepKey so that the
+                  contained component is only instantiated when its step is
+                  the currently-selected step in the stepper. Without this
+                  gate, mat-stepper materializes every step's content on
+                  load, which would fire ngOnInit side-effects (e.g.
+                  ffmpeg/blender downloads, verify, summary) before the
+                  user navigates to those steps. See issue #124.
+                -->
                 @switch (step.key) {
                   @case ('welcome') {
-                    <app-setup-welcome (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'welcome') {
+                      <app-setup-welcome (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('topology') {
-                    <app-setup-topology (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'topology') {
+                      <app-setup-topology (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('network') {
-                    <app-setup-network (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'network') {
+                      <app-setup-network (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('database') {
-                    <app-setup-database (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'database') {
+                      <app-setup-database (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('admin-user') {
-                    <app-setup-admin-user (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'admin-user') {
+                      <app-setup-admin-user (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('worker-password') {
-                    <app-setup-worker-password
-                      (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'worker-password') {
+                      <app-setup-worker-password
+                        (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('ffmpeg-download') {
-                    <app-setup-ffmpeg-download
-                      (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'ffmpeg-download') {
+                      <app-setup-ffmpeg-download
+                        (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('blender-download') {
-                    <app-setup-blender-download
-                      (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'blender-download') {
+                      <app-setup-blender-download
+                        (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('verification') {
-                    <app-setup-verification
-                      (stepComplete)="onStepComplete(step)" />
+                    @if (activeStepKey === 'verification') {
+                      <app-setup-verification
+                        (stepComplete)="onStepComplete(step)" />
+                    }
                   }
                   @case ('done') {
-                    <app-setup-done />
+                    @if (activeStepKey === 'done') {
+                      <app-setup-done />
+                    }
                   }
                 }
               </div>
@@ -128,6 +161,16 @@ export class SetupComponent implements OnInit {
 
   loading = true;
   steps: StepConfig[] = [];
+  /**
+   * Key of the step whose content is currently mounted. Only the
+   * matching @case body in the template instantiates its child
+   * component; all other steps render nothing in their content area
+   * (the stepper header still shows every step). This prevents step
+   * components from running ngOnInit side-effects (download starts,
+   * verify, summary fetches) before the user navigates to them.
+   * See issue #124.
+   */
+  activeStepKey: string | null = null;
   private completedStepKeys = new Set<string>();
 
   ngOnInit(): void {
@@ -138,6 +181,12 @@ export class SetupComponent implements OnInit {
           const resumeIndex = this.state.resumeFromStatus(status);
           this.steps = this.state.visibleSteps;
           this.markPriorStepsCompleted(resumeIndex);
+          // Initial active step is the resume target (or first step
+          // if resumeIndex === 0); set before stepper materializes so
+          // the right child component mounts on first paint.
+          this.activeStepKey =
+            this.steps[Math.min(resumeIndex, this.steps.length - 1)]?.key
+            ?? null;
           this.loading = false;
           // Defer stepper navigation to after view init
           setTimeout(() => {
@@ -147,11 +196,13 @@ export class SetupComponent implements OnInit {
           });
         } else {
           this.steps = this.state.visibleSteps;
+          this.activeStepKey = this.steps[0]?.key ?? null;
           this.loading = false;
         }
       },
       error: () => {
         this.steps = this.state.visibleSteps;
+        this.activeStepKey = this.steps[0]?.key ?? null;
         this.loading = false;
       },
     });
@@ -159,6 +210,11 @@ export class SetupComponent implements OnInit {
 
   isStepCompleted(step: StepConfig): boolean {
     return this.completedStepKeys.has(step.key);
+  }
+
+  onStepperSelectionChange(event: StepperSelectionEvent): void {
+    const next = this.steps[event.selectedIndex];
+    this.activeStepKey = next?.key ?? null;
   }
 
   onStepComplete(step: StepConfig): void {
@@ -169,7 +225,9 @@ export class SetupComponent implements OnInit {
       this.steps = this.state.visibleSteps;
     }
 
-    // Advance stepper on next tick so Angular can process the completed state
+    // Advance stepper on next tick so Angular can process the completed state.
+    // The stepper's (selectionChange) handler updates activeStepKey, which
+    // mounts the next step's content.
     setTimeout(() => {
       if (this.stepper) {
         this.stepper.next();
