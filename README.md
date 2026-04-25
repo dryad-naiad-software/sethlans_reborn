@@ -1,9 +1,9 @@
 # Sethlans Reborn - Distributed Blender Rendering System
 
-![Docker Tests](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml/badge.svg)
-![CI (Matrix)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)
-![CI (Self-Hosted GPU)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci-self-hosted.yml/badge.svg)
-![Docker Publish](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-publish.yml/badge.svg)
+[![Docker Tests](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml)
+[![CI (Matrix)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml)
+[![CI (Self-Hosted GPU)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci-self-hosted.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci-self-hosted.yml)
+[![Docker Publish](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-publish.yml)
 [![Build Native Installers](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/build-installers.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/build-installers.yml)
 ![Python](https://img.shields.io/badge/Python-3.14+-blue)
 ![Django](https://img.shields.io/badge/Django-5.2-green)
