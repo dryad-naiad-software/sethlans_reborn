@@ -186,6 +186,35 @@ class TestManagerSetupCompleteOnHeartbeat:
         assert 'manager_setup_complete' in resp.data
         assert resp.data['manager_setup_complete'] is False
 
+    def test_malformed_sentinel_returns_false_not_500(
+        self, worker_with_token, patch_data_dir,
+    ):
+        """A malformed (non-JSON) sentinel yields False, not a 500.
+
+        ``read_sentinel`` deliberately swallows ``json.JSONDecodeError``
+        and ``OSError`` (logging a warning) and returns ``None``, so
+        ``is_setup_complete`` returns ``False``.  The heartbeat view
+        must inherit that resilience: corrupt on-disk state must NOT
+        bring down a worker's keep-alive.
+
+        This test is load-bearing — if a future refactor of
+        ``read_sentinel`` re-raises on ``JSONDecodeError`` (defensible:
+        operators may want to know), the heartbeat would start 500-ing
+        and this assertion would catch it.
+        """
+        worker, client = worker_with_token
+        (patch_data_dir / '.setup_complete').write_text('not json')
+
+        resp = client.post(
+            HEARTBEAT_URL,
+            data={'hostname': worker.hostname},
+            format='json',
+        )
+
+        assert resp.status_code == 200
+        assert 'manager_setup_complete' in resp.data
+        assert resp.data['manager_setup_complete'] is False
+
 
 # ---------------------------------------------------------------------------
 # Full-registration branch (payload carries an ``os`` field)
