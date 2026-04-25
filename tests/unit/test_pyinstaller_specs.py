@@ -470,6 +470,85 @@ class TestExeVersionResourceEmbedded:
         )
 
 
+class TestVersionInfoCallGatedOnWindows:
+    """All four PyInstaller specs must gate the ``make_version_info(...)``
+    call on ``is_windows`` (issue #138).
+
+    The helper transitively imports ``pefile`` via PyInstaller's
+    ``win32.versioninfo`` module. ``pefile`` is a Windows-only PE-file
+    parser and is not installed in the macOS/Linux PyInstaller deps.
+    Calling the helper unconditionally crashed the macOS and Linux
+    Manager / Worker / Launcher / Tray Helper builds with
+    ``ModuleNotFoundError: No module named 'pefile'`` at PyInstaller
+    startup. The fix wraps the call in
+    ``... if is_windows else None`` (EXE() accepts ``version=None``
+    cleanly on every platform) and locks it here.
+
+    Regression introduced by commit 601cffe ("Embed Windows VERSIONINFO
+    on every PyInstaller exe").
+    """
+
+    @pytest.mark.parametrize("spec_name", list(ALL_SPECS.keys()))
+    def test_make_version_info_call_is_windows_gated(
+        self, spec_name: str,
+    ) -> None:
+        # Match a ``make_version_info(...)`` invocation followed (within
+        # a small whitespace/newline window) by ``if is_windows``. The
+        # ``re.DOTALL`` flag lets ``.`` cross newlines so the multi-line
+        # ternary form is accepted:
+        #
+        #     _version_resource = (
+        #         make_version_info('run_x.exe', 'run_x')
+        #         if is_windows else None
+        #     )
+        #
+        # And the single-line form is also accepted:
+        #
+        #     _version_resource = make_version_info(...) if is_windows else None
+        text = ALL_SPECS[spec_name].read_text(encoding="utf-8")
+        pattern = re.compile(
+            r"make_version_info\([^)]*\)\s*\)?\s*if\s+is_windows\b",
+            re.DOTALL,
+        )
+        assert pattern.search(text), (
+            f"Expected {spec_name}.spec to gate its make_version_info(...) "
+            "call on `is_windows` so macOS/Linux PyInstaller builds do "
+            "not eagerly import the Windows-only `pefile` module "
+            "(issue #138)."
+        )
+
+    @pytest.mark.parametrize("spec_name", list(ALL_SPECS.keys()))
+    def test_is_windows_defined_before_call(
+        self, spec_name: str,
+    ) -> None:
+        # The gate is meaningless if ``is_windows`` is undefined at the
+        # point of call — PyInstaller would raise NameError instead of
+        # ModuleNotFoundError. Lock that the variable assignment
+        # appears before the make_version_info(...) invocation.
+        text = ALL_SPECS[spec_name].read_text(encoding="utf-8")
+        assign_match = re.search(
+            r"^is_windows\s*=\s*sys\.platform\s*==\s*['\"]win32['\"]",
+            text,
+            re.MULTILINE,
+        )
+        assert assign_match, (
+            f"{spec_name}.spec must define `is_windows = sys.platform "
+            "== 'win32'` so the make_version_info(...) gate is "
+            "evaluable (issue #138)."
+        )
+        call_idx = text.index("make_version_info(")
+        # Skip past the import line ("from version_info import
+        # make_version_info") to the actual invocation. The import is
+        # always above the assignment; the call is always below it.
+        # Find the LAST occurrence to be safe (the call site).
+        call_idx = text.rindex("make_version_info(")
+        assert assign_match.start() < call_idx, (
+            f"{spec_name}.spec must define `is_windows` BEFORE the "
+            "make_version_info(...) call site so the gate evaluates "
+            "without NameError (issue #138)."
+        )
+
+
 class TestBundlesVersionFile:
     """Both the launcher and tray_helper specs must bundle the repo-root
     ``VERSION`` file into the frozen contents dir (``sys._MEIPASS``)

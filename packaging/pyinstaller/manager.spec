@@ -161,10 +161,19 @@ pyz = PYZ(a.pure)
 # keeps the spec cross-platform without a file-missing crash.
 icon_path = str(ICON_WIN) if ICON_WIN.exists() else None
 
-# Windows VERSIONINFO resource (issue #109). PyInstaller silently
-# ignores ``version=`` on macOS/Linux builds, so no platform guard is
-# needed here.
-_version_resource = make_version_info('run_manager.exe', 'run_manager')
+# Windows VERSIONINFO resource (issue #109). Windows-only: the
+# ``make_version_info`` helper imports ``pefile`` (via PyInstaller's
+# win32 versioninfo module), which is not installed on macOS/Linux
+# PyInstaller deps. The misleading "no platform guard needed" comment
+# was true for the EXE ``version=`` kwarg but false for the function
+# call itself — calling it on non-Windows raised
+# ``ModuleNotFoundError: No module named 'pefile'`` at PyInstaller
+# startup. EXE() accepts ``version=None`` cleanly on every platform.
+# Issue #138.
+_version_resource = (
+    make_version_info('run_manager.exe', 'run_manager')
+    if is_windows else None
+)
 
 exe = EXE(
     pyz,
