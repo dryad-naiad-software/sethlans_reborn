@@ -31,6 +31,7 @@ from workers.services.setup_lock import (
     setup_mutation_lock,
 )
 from workers.services.setup_session import enforce_setup_session_binding
+from workers.services import checkpoints
 from workers.services.sentinel import append_checkpoint
 from workers.services.setup import (
     apply_migrations,
@@ -90,7 +91,7 @@ def _handle_sqlite():
             500,
         )
 
-    append_checkpoint(_get_data_dir(), "database_configured")
+    append_checkpoint(_get_data_dir(), checkpoints.DATABASE_CONFIGURED)
     return Response({"status": "ok"})
 
 
@@ -149,6 +150,6 @@ def _handle_external(engine: str, data: dict):
         "database.password": password,
     }
     write_manager_ini(config_updates, _get_ini_path())
-    append_checkpoint(_get_data_dir(), "database_configured")
+    append_checkpoint(_get_data_dir(), checkpoints.DATABASE_CONFIGURED)
 
     return Response({"status": "restart_required"})

@@ -35,6 +35,7 @@ from workers.services.filesystem_trust import (
     get_worker_config_path,
     write_worker_config,
 )
+from workers.services import checkpoints
 from workers.services.sentinel import append_checkpoint, read_sentinel
 from workers.services.setup import (
     create_admin_user,
@@ -148,7 +149,7 @@ def _setup_admin_user_locked(request):
     # FR-FT2: Auto-enroll local worker for manager_worker topology
     local_worker_enrolled = _try_auto_enroll_local_worker()
 
-    append_checkpoint(_get_data_dir(), "admin_created")
+    append_checkpoint(_get_data_dir(), checkpoints.ADMIN_CREATED)
     response_data = {"status": "ok", "username": user.username}
     if local_worker_enrolled:
         response_data["local_worker_enrolled"] = True
@@ -190,5 +191,5 @@ def _setup_worker_password_locked(request):
             500,
         )
 
-    append_checkpoint(_get_data_dir(), "worker_password_set")
+    append_checkpoint(_get_data_dir(), checkpoints.WORKER_PASSWORD_SET)
     return Response({"status": "ok"})

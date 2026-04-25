@@ -28,6 +28,7 @@ from rest_framework.response import Response
 from shared.frozen_paths import get_data_dir, is_frozen
 from workers.authentication import SetupPhaseAuthentication
 from workers.permissions import IsSetupPhaseUser
+from workers.services import checkpoints
 from workers.services.sentinel import (
     append_checkpoint,
     read_sentinel,
@@ -72,13 +73,13 @@ def setup_status_view(request):
             "checkpoints": [],
         })
 
-    checkpoints = sentinel.get("checkpoints", [])
+    checkpoint_list = sentinel.get("checkpoints", [])
     topology = sentinel.get("topology")
     return Response({
         "complete": False,
         "topology": topology,
-        "current_step": _infer_current_step(checkpoints, topology),
-        "checkpoints": checkpoints,
+        "current_step": _infer_current_step(checkpoint_list, topology),
+        "checkpoints": checkpoint_list,
     })
 
 
@@ -112,12 +113,12 @@ def _setup_topology_locked(request):
             "version": 1,
             "completed_at": None,
             "topology": topology,
-            "checkpoints": ["topology_chosen"],
+            "checkpoints": [checkpoints.TOPOLOGY_CHOSEN],
         }
     else:
         sentinel["topology"] = topology
         # Reset to only topology checkpoint (idempotency)
-        sentinel["checkpoints"] = ["topology_chosen"]
+        sentinel["checkpoints"] = [checkpoints.TOPOLOGY_CHOSEN]
     write_sentinel(data_dir, sentinel)
 
     # Also write topology.json for the launcher (FR-C3)
@@ -175,7 +176,7 @@ def _setup_network_locked(request):
         config_updates["server.data_dir"] = data_dir_override
 
     write_manager_ini(config_updates, _get_ini_path())
-    append_checkpoint(_get_data_dir(), "network_configured")
+    append_checkpoint(_get_data_dir(), checkpoints.NETWORK_CONFIGURED)
 
     return Response({
         "status": "ok",
@@ -185,26 +186,26 @@ def _setup_network_locked(request):
 
 
 def _infer_current_step(
-    checkpoints: list[str], topology: str | None,
+    checkpoint_list: list[str], topology: str | None,
 ) -> str | None:
     """Determine which wizard step should be shown next."""
     steps = [
-        "topology_chosen",
-        "network_configured",
-        "database_configured",
-        "admin_created",
+        checkpoints.TOPOLOGY_CHOSEN,
+        checkpoints.NETWORK_CONFIGURED,
+        checkpoints.DATABASE_CONFIGURED,
+        checkpoints.ADMIN_CREATED,
     ]
     if topology == "manager_worker":
-        steps.append("worker_password_set")
+        steps.append(checkpoints.WORKER_PASSWORD_SET)
     if topology != "worker_only":
         steps.extend([
-            "ffmpeg_installed",
+            checkpoints.FFMPEG_INSTALLED,
         ])
     if topology == "manager_worker":
-        steps.append("blender_predownloaded")
-    steps.append("verified")
+        steps.append(checkpoints.BLENDER_PREDOWNLOADED)
+    steps.append(checkpoints.VERIFIED)
 
     for step in steps:
-        if step not in checkpoints:
+        if step not in checkpoint_list:
             return step
     return None

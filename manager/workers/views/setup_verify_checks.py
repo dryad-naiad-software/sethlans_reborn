@@ -11,6 +11,7 @@ project's 300-line ceiling.  Each ``_check_*`` returns a
 
 from pathlib import Path
 
+from workers.services import checkpoints
 from workers.services.setup import verify_blender_runs, verify_ffmpeg_runs
 from workers.services.ffmpeg_download import get_ffmpeg_binary
 from workers.services.auto_enroll import check_local_worker_enrolled
@@ -19,12 +20,10 @@ from workers.services.blender_download import (
 )
 from workers.services.sentinel import read_sentinel
 
-# Sentinel checkpoint name written by the ffmpeg download workflow
-# once extraction completes successfully.  ``_check_ffmpeg`` MUST NOT
-# subprocess-run the ffmpeg binary until this checkpoint is present:
+# ``_check_ffmpeg`` MUST NOT subprocess-run the ffmpeg binary until the
+# ``checkpoints.FFMPEG_INSTALLED`` sentinel checkpoint is present:
 # attempting to verify a half-extracted binary can wedge the Waitress
 # worker thread (issue #125).
-FFMPEG_INSTALLED_CHECKPOINT = "ffmpeg_installed"
 
 
 def run_verification_checks(
@@ -87,10 +86,10 @@ def _check_ffmpeg(data_dir: Path) -> dict:
     (issue #125), which would wedge the Waitress worker thread.
     """
     sentinel = read_sentinel(data_dir)
-    checkpoints = (
+    checkpoint_list = (
         sentinel.get("checkpoints", []) if sentinel else []
     )
-    if FFMPEG_INSTALLED_CHECKPOINT not in checkpoints:
+    if checkpoints.FFMPEG_INSTALLED not in checkpoint_list:
         return {
             "name": "ffmpeg", "passed": False,
             "error": "FFmpeg not yet installed",

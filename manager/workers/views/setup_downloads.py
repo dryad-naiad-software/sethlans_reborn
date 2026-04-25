@@ -29,6 +29,7 @@ from workers.services.setup_lock import (
     setup_mutation_lock,
 )
 from workers.services.setup_session import enforce_setup_session_binding
+from workers.services import checkpoints
 from workers.services.sentinel import append_checkpoint
 from workers.services.download_progress import (
     create_tagged_task,
@@ -73,7 +74,7 @@ def _setup_ffmpeg_start_locked():
 
     # Already installed? (FR-FF5)
     if ffmpeg_already_installed(data_dir):
-        append_checkpoint(data_dir, "ffmpeg_installed")
+        append_checkpoint(data_dir, checkpoints.FFMPEG_INSTALLED)
         return Response({
             "status": "already_installed",
             "task_id": None,
@@ -112,7 +113,7 @@ def setup_ffmpeg_progress_view(request, task_id):
     }
 
     if progress.status == "complete":
-        append_checkpoint(_get_data_dir(), "ffmpeg_installed")
+        append_checkpoint(_get_data_dir(), checkpoints.FFMPEG_INSTALLED)
 
     return Response(resp)
 
@@ -173,7 +174,7 @@ def _setup_blender_start_locked():
     data_dir = _get_data_dir()
 
     if blender_already_installed(data_dir, resolved):
-        append_checkpoint(data_dir, "blender_predownloaded")
+        append_checkpoint(data_dir, checkpoints.BLENDER_PREDOWNLOADED)
         return Response({
             "status": "already_installed",
             "task_id": None,
@@ -217,7 +218,7 @@ def setup_blender_progress_view(request, task_id):
     }
 
     if progress.status == "complete":
-        append_checkpoint(_get_data_dir(), "blender_predownloaded")
+        append_checkpoint(_get_data_dir(), checkpoints.BLENDER_PREDOWNLOADED)
 
     return Response(resp)
 

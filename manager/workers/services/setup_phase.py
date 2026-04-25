@@ -21,6 +21,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from workers.services import checkpoints
 from workers.services.sentinel import read_sentinel
 
 # Canonical wizard phase slugs in linear order.
@@ -39,14 +40,14 @@ SETUP_PHASES: tuple[str, ...] = (
 # returned by :func:`read_setup_progress` is the next phase after the
 # highest completed checkpoint.
 _CHECKPOINT_TO_PHASE = {
-    "topology_chosen": "topology",
-    "network_configured": "network",
-    "database_configured": "database",
-    "admin_created": "admin",
-    "worker_password_set": "worker_password",
-    "ffmpeg_installed": "ffmpeg",
-    "blender_predownloaded": "blender",
-    "verified": "verify",
+    checkpoints.TOPOLOGY_CHOSEN: "topology",
+    checkpoints.NETWORK_CONFIGURED: "network",
+    checkpoints.DATABASE_CONFIGURED: "database",
+    checkpoints.ADMIN_CREATED: "admin",
+    checkpoints.WORKER_PASSWORD_SET: "worker_password",
+    checkpoints.FFMPEG_INSTALLED: "ffmpeg",
+    checkpoints.BLENDER_PREDOWNLOADED: "blender",
+    checkpoints.VERIFIED: "verify",
 }
 
 
@@ -82,11 +83,11 @@ def read_setup_progress(data_dir: Path) -> Optional[str]:
         return None
     if sentinel.get("completed_at"):
         return None
-    checkpoints = set(sentinel.get("checkpoints", []))
+    done_checkpoints = set(sentinel.get("checkpoints", []))
 
     # Find the first phase whose checkpoint is NOT present.
     for checkpoint, phase in _CHECKPOINT_TO_PHASE.items():
-        if checkpoint not in checkpoints:
+        if checkpoint not in done_checkpoints:
             return phase
     return None
 

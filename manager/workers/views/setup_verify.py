@@ -83,13 +83,13 @@ def _setup_verify_locked():
         })
 
     topology = sentinel.get("topology") if sentinel else None
-    checkpoints = sentinel.get("checkpoints", []) if sentinel else []
+    checkpoint_list = sentinel.get("checkpoints", []) if sentinel else []
     checks = _run_verification_checks(data_dir, topology)
     all_passed = all(c["passed"] for c in checks)
 
     if all_passed:
         try:
-            create_sentinel(data_dir, topology or "manager", checkpoints)
+            create_sentinel(data_dir, topology or "manager", checkpoint_list)
         except Exception:
             logger.exception("Failed to write setup sentinel")
             return Response({
