@@ -73,7 +73,7 @@ def _mock_all_checks_pass(mocker):
         "_check_ffmpeg", "_check_enrollment_key",
     ):
         mocker.patch(
-            f"workers.views.setup_verify.{fn}",
+            f"workers.views.setup_verify_checks.{fn}",
             return_value={"name": fn, **_CHECK_OK},
         )
 
@@ -96,21 +96,21 @@ class TestVerifyView:
     @pytest.mark.usefixtures("_sentinel_incomplete")
     def test_check_failure_no_sentinel_written(self, api_rf, mocker):
         mocker.patch(
-            "workers.views.setup_verify._check_db_reachable",
+            "workers.views.setup_verify_checks._check_db_reachable",
             return_value={
                 "name": "database", "passed": False, "error": "DB down",
             },
         )
         mocker.patch(
-            "workers.views.setup_verify._check_admin_exists",
+            "workers.views.setup_verify_checks._check_admin_exists",
             return_value={"name": "admin_user", **_CHECK_OK},
         )
         mocker.patch(
-            "workers.views.setup_verify._check_ffmpeg",
+            "workers.views.setup_verify_checks._check_ffmpeg",
             return_value={"name": "ffmpeg", **_CHECK_OK},
         )
         mocker.patch(
-            "workers.views.setup_verify._check_enrollment_key",
+            "workers.views.setup_verify_checks._check_enrollment_key",
             return_value={"name": "enrollment_key", **_CHECK_OK},
         )
         mock_create = mocker.patch(

@@ -33,14 +33,21 @@ from workers.services.sentinel import read_sentinel
 def run_verification_checks(
     data_dir: Path, topology: str | None,
 ) -> list[dict]:
-    """Run the topology-aware verification checklist."""
+    """Run the topology-aware verification checklist.
+
+    The ``worker_only`` topology omits the ffmpeg check: a worker_only
+    manager never renders, so there is no reason to require an ffmpeg
+    binary to satisfy verify (issue #127).  The ``manager_worker``
+    topology additionally runs the optional blender check and the
+    local-worker enrollment check.
+    """
     checks = [
         _check_db_reachable(),
         _check_admin_exists(),
-        _check_enrollment_key(),
     ]
     if topology != "worker_only":
         checks.append(_check_ffmpeg(data_dir))
+    checks.append(_check_enrollment_key())
     if topology == "manager_worker":
         checks.append(_check_blender(data_dir))
         checks.append(check_local_worker_enrolled())

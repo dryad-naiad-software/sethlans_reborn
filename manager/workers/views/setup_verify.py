@@ -38,16 +38,7 @@ from workers.services.sentinel import (
     create_sentinel,
     read_sentinel,
 )
-# Check helpers are re-exported here so ``_run_verification_checks`` and
-# existing unit tests can patch them on this module.
-from workers.views.setup_verify_checks import (  # noqa: F401
-    _check_admin_exists,
-    _check_blender,
-    _check_db_reachable,
-    _check_enrollment_key,
-    _check_ffmpeg,
-)
-from workers.services.auto_enroll import check_local_worker_enrolled
+from workers.views.setup_verify_checks import run_verification_checks
 from workers.utils.errors import setup_error
 
 logger = logging.getLogger(__name__)
@@ -84,7 +75,7 @@ def _setup_verify_locked():
 
     topology = sentinel.get("topology") if sentinel else None
     checkpoint_list = sentinel.get("checkpoints", []) if sentinel else []
-    checks = _run_verification_checks(data_dir, topology)
+    checks = run_verification_checks(data_dir, topology)
     all_passed = all(c["passed"] for c in checks)
 
     if all_passed:
@@ -156,27 +147,3 @@ def _build_summary_payload(data_dir: Path, sentinel: dict) -> dict:
         "cert_fingerprint": runtime_state.cert_fingerprint or "",
         "topology": sentinel.get("topology", ""),
     }
-
-
-def _run_verification_checks(
-    data_dir: Path, topology: str | None,
-) -> list[dict]:
-    """Run the topology-aware verification checklist.
-
-    The ``worker_only`` topology omits the ffmpeg check: a worker_only
-    manager never renders, so there is no reason to require an ffmpeg
-    binary to satisfy verify (issue #127).  Mirrors the topology gate
-    in ``setup_verify_checks.run_verification_checks``.
-    """
-    checks = []
-    checks.append(_check_db_reachable())
-    checks.append(_check_admin_exists())
-    if topology != "worker_only":
-        checks.append(_check_ffmpeg(data_dir))
-    checks.append(_check_enrollment_key())
-
-    if topology == "manager_worker":
-        checks.append(_check_blender(data_dir))
-        checks.append(check_local_worker_enrolled())
-
-    return checks

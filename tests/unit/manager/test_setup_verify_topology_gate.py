@@ -10,20 +10,13 @@ including the check would force the operator to download ffmpeg
 just to satisfy verify, and would also surface a misleading
 "FFmpeg not yet installed" failure on the wizard summary.
 
-The PRIMARY assertion in this module drives the production code
-path through ``POST /api/setup/verify/`` (``setup_verify_view`` →
-``_setup_verify_locked`` → ``setup_verify._run_verification_checks``)
-and asserts the response payload contains no entry with
-``name == 'ffmpeg'``.  This is what the api-reviewer flagged as
-missing in the original fix: gating the unused
-``setup_verify_checks.run_verification_checks`` helper left the
-live endpoint unchanged.
-
-The lower-level tests against the dead helper
-(``setup_verify_checks.run_verification_checks``) are retained as
-documentation of intent, but the helper is not currently called by
-production code.  See follow-up note in
-``.tmp/fix_127_progress.md``.
+These tests drive the production code path through
+``POST /api/setup/verify/`` (``setup_verify_view`` →
+``_setup_verify_locked`` → ``setup_verify_checks.run_verification_checks``)
+and assert the response payload contains/omits the expected check
+entries.  After issue #133 collapsed the duplicate verification
+helper, the live endpoint and the previously-dead helper are now a
+single function, so these tests cover both paths.
 """
 
 from __future__ import annotations
@@ -34,7 +27,6 @@ import pytest
 from rest_framework.test import APIRequestFactory
 
 from workers.views.setup_verify import setup_verify_view
-from workers.views.setup_verify_checks import run_verification_checks
 
 
 def _setup_phase_request(method, *args, **kwargs):
@@ -66,10 +58,9 @@ def _patch_frozen(mocker):
 @pytest.mark.django_db
 class TestVerifyEndpointTopologyGateProduction:
     """Drive ``POST /api/setup/verify/`` through the production
-    callee (``setup_verify._run_verification_checks``).  These tests
-    are what the api-reviewer asked for: they will FAIL if the gate
-    on the production function is reverted, regardless of whether
-    the unused ``setup_verify_checks`` helper remains gated."""
+    callee (``setup_verify_checks.run_verification_checks``).  These
+    tests will FAIL if the topology gate on the production function
+    is reverted."""
 
     def test_verify_worker_only_response_omits_ffmpeg(
         self, api_rf, mocker,
@@ -139,53 +130,13 @@ class TestVerifyEndpointTopologyGateProduction:
             f"{topology} verify response must include exactly one "
             f"ffmpeg check; got names={names}"
         )
-
-
-@pytest.mark.django_db
-class TestRunVerificationChecksTopologyGateHelper:
-    """Lower-level coverage of ``setup_verify_checks.run_verification_checks``.
-
-    This helper is not currently wired into the production verify
-    endpoint (the live call goes through
-    ``setup_verify._run_verification_checks``), but the gate exists
-    here for symmetry and is kept under test as documentation.  If
-    the helper is ever collapsed with the duplicate (option (b) in
-    the followup brief), these tests can move with it or be deleted."""
-
-    def test_worker_only_topology_omits_ffmpeg_check(self, tmp_path):
-        """worker_only must not append the ffmpeg check (#127)."""
-        checks = run_verification_checks(tmp_path, "worker_only")
-
-        names = [c["name"] for c in checks]
-        assert "ffmpeg" not in names, (
-            "worker_only topology must not include ffmpeg in the "
-            "verify checklist (issue #127)."
-        )
-        # blender is also manager_worker-only — confirm the
-        # worker_only path stays minimal.
-        assert "blender" not in names
-
-    @pytest.mark.parametrize(
-        "topology", ["manager", "manager_worker"],
-    )
-    def test_non_worker_only_topologies_keep_ffmpeg_check(
-        self, tmp_path, topology,
-    ):
-        """manager and manager_worker must still include ffmpeg."""
-        checks = run_verification_checks(tmp_path, topology)
-
-        names = [c["name"] for c in checks]
-        assert names.count("ffmpeg") == 1, (
-            f"{topology} topology must include exactly one ffmpeg "
-            f"check; got names={names}"
-        )
-
-    def test_manager_worker_topology_keeps_blender_check(self, tmp_path):
-        """Lock the existing manager_worker contract: blender entry
-        is still produced alongside ffmpeg so the #127 patch did not
-        accidentally drop unrelated checks."""
-        checks = run_verification_checks(tmp_path, "manager_worker")
-
-        names = [c["name"] for c in checks]
-        assert "ffmpeg" in names
-        assert "blender" in names
+        # Lock the existing manager_worker contract so the #133 cleanup
+        # cannot accidentally drop unrelated checks: blender is still
+        # produced for manager_worker but not for plain manager.
+        if topology == "manager_worker":
+            assert "blender" in names, (
+                "manager_worker verify response must still include "
+                "the blender check."
+            )
+        else:
+            assert "blender" not in names
