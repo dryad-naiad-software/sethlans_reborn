@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
+# Hard cap on subprocess runtime during setup verify (issue #125):
+# a wedged child would hold its Waitress worker thread and retries
+# could exhaust the pool.
+VERIFY_SUBPROCESS_TIMEOUT_SECONDS = 5.0
+
 
 def generate_secret_key() -> str:
     """Return a cryptographically random secret key."""
@@ -214,22 +219,19 @@ def verify_ffmpeg_runs(ffmpeg_path: Path) -> str:
             [str(ffmpeg_path), "-version"],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=VERIFY_SUBPROCESS_TIMEOUT_SECONDS,
             shell=False,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
-            "FFmpeg timed out after 30 seconds."
+            f"FFmpeg verification timed out after {VERIFY_SUBPROCESS_TIMEOUT_SECONDS}s."
         ) from exc
     except OSError as exc:
-        raise RuntimeError(
-            f"Failed to execute FFmpeg: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to execute FFmpeg: {exc}") from exc
 
     if result.returncode != 0:
         raise RuntimeError(
-            f"FFmpeg exited with code {result.returncode}: "
-            f"{result.stderr.strip()}"
+            f"FFmpeg exited with code {result.returncode}: {result.stderr.strip()}"
         )
     # First line: "ffmpeg version N.N.N ..."
     first_line = result.stdout.split("\n", 1)[0]
@@ -249,22 +251,19 @@ def verify_blender_runs(blender_path: Path) -> str:
             [str(blender_path), "--version"],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=VERIFY_SUBPROCESS_TIMEOUT_SECONDS,
             shell=False,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
-            "Blender timed out after 30 seconds."
+            f"Blender verification timed out after {VERIFY_SUBPROCESS_TIMEOUT_SECONDS}s."
         ) from exc
     except OSError as exc:
-        raise RuntimeError(
-            f"Failed to execute Blender: {exc}"
-        ) from exc
+        raise RuntimeError(f"Failed to execute Blender: {exc}") from exc
 
     if result.returncode != 0:
         raise RuntimeError(
-            f"Blender exited with code {result.returncode}: "
-            f"{result.stderr.strip()}"
+            f"Blender exited with code {result.returncode}: {result.stderr.strip()}"
         )
     # First line: "Blender X.Y.Z"
     first_line = result.stdout.split("\n", 1)[0]

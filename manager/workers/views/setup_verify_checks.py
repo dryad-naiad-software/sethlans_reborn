@@ -17,6 +17,14 @@ from workers.services.auto_enroll import check_local_worker_enrolled
 from workers.services.blender_download import (
     get_blender_dir, blender_already_installed,
 )
+from workers.services.sentinel import read_sentinel
+
+# Sentinel checkpoint name written by the ffmpeg download workflow
+# once extraction completes successfully.  ``_check_ffmpeg`` MUST NOT
+# subprocess-run the ffmpeg binary until this checkpoint is present:
+# attempting to verify a half-extracted binary can wedge the Waitress
+# worker thread (issue #125).
+FFMPEG_INSTALLED_CHECKPOINT = "ffmpeg_installed"
 
 
 def run_verification_checks(
@@ -70,7 +78,22 @@ def _check_admin_exists() -> dict:
 
 
 def _check_ffmpeg(data_dir: Path) -> dict:
-    """Verify FFmpeg binary is present and runs."""
+    """Verify FFmpeg binary is present and runs.
+
+    Short-circuits BEFORE touching the binary if the
+    ``ffmpeg_installed`` sentinel checkpoint is absent.  This
+    guarantees we never subprocess-run a half-extracted binary
+    (issue #125), which would wedge the Waitress worker thread.
+    """
+    sentinel = read_sentinel(data_dir)
+    checkpoints = (
+        sentinel.get("checkpoints", []) if sentinel else []
+    )
+    if FFMPEG_INSTALLED_CHECKPOINT not in checkpoints:
+        return {
+            "name": "ffmpeg", "passed": False,
+            "error": "FFmpeg not yet installed",
+        }
     binary = get_ffmpeg_binary(data_dir)
     if binary is None:
         return {
