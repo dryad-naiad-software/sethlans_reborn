@@ -143,6 +143,7 @@ desktop.ini
 # Claude Code
 .claude/
 CLAUDE.md
+.mcp.json
 
 # Development workflow (internal agent docs, brainstorming, specs)
 development/
