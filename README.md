@@ -4,6 +4,7 @@
 ![CI (Matrix)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)
 ![CI (Self-Hosted GPU)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci-self-hosted.yml/badge.svg)
 ![Docker Publish](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-publish.yml/badge.svg)
+[![Build Native Installers](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/build-installers.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/build-installers.yml)
 ![Python](https://img.shields.io/badge/Python-3.14+-blue)
 ![Django](https://img.shields.io/badge/Django-5.2-green)
 ![Angular](https://img.shields.io/badge/Angular-21-red)
