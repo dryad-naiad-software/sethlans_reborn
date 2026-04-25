@@ -3,7 +3,7 @@
 ![CI](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml/badge.svg)
 ![CI (GPU)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)
 ![Docker](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-publish.yml/badge.svg)
-![Python](https://img.shields.io/badge/Python-3.12+-blue)
+![Python](https://img.shields.io/badge/Python-3.14+-blue)
 ![Django](https://img.shields.io/badge/Django-5.2-green)
 ![Angular](https://img.shields.io/badge/Angular-21-red)
 ![License](https://img.shields.io/badge/License-GPLv2+-blue)
@@ -136,7 +136,7 @@ See [Docker Deployment](#docker-deployment) below.
 
 #### Prerequisites
 
-- Python 3.12+
+- Python 3.14+
 - Node.js 20+ (for the Angular frontend)
 - Git
 
