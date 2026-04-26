@@ -167,7 +167,7 @@ class TestFindComponentExe:
         mocker.patch.object(sys, 'frozen', True, create=True)
         mocker.patch.object(sys, 'executable', str(exe))
         mocker.patch(
-            'launcher.run_launcher.platform.system',
+            'launcher.component_paths.platform.system',
             return_value='Windows',
         )
         result = _find_component_exe("manager")
@@ -180,7 +180,7 @@ class TestFindComponentExe:
         mocker.patch.object(sys, 'frozen', True, create=True)
         mocker.patch.object(sys, 'executable', str(exe))
         mocker.patch(
-            'launcher.run_launcher.platform.system',
+            'launcher.component_paths.platform.system',
             return_value='Linux',
         )
         mocker.patch(
@@ -203,7 +203,7 @@ class TestFindComponentExe:
         mocker.patch.object(sys, 'frozen', True, create=True)
         mocker.patch.object(sys, 'executable', str(exe))
         mocker.patch(
-            'launcher.run_launcher.platform.system',
+            'launcher.component_paths.platform.system',
             return_value='Darwin',
         )
         mocker.patch(

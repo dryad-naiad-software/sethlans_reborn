@@ -8,20 +8,22 @@ import argparse
 import json
 import logging
 import os
-import platform
 import secrets
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
-from launcher import cascade, orchestration, supervision, tray_ipc
+from launcher import (
+    cascade, orchestration, supervision, tray_ipc, wizard_orchestration,
+)
 from launcher.browser_launch import (  # noqa: F401
     compute_cert_fingerprint as _compute_cert_fingerprint,
     is_headless as _is_headless,
     open_browser,
     print_setup_banner,
 )
+from launcher.component_paths import find_component_exe
 from launcher.paths import (
     get_bin_dir,
     get_data_dir,
@@ -95,23 +97,13 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
 
 
 def _find_component_exe(component: str) -> Path:
-    bin_dir = get_bin_dir()
-    if getattr(sys, 'frozen', False):
-        if platform.system() == "Windows":
-            if component == "tray":
-                return bin_dir / "tray_helper" / "run_tray_helper.exe"
-            return bin_dir / component / f"run_{component}.exe"
-        if component == "tray":
-            return bin_dir / "tray_helper" / "run_tray_helper"
-        return bin_dir / component / f"run_{component}"
-    root = Path(__file__).resolve().parent.parent
-    if component == "manager":
-        return root / "manager" / "run_manager.py"
-    if component == "worker":
-        return root / "worker" / "run_worker.py"
-    if component == "tray":
-        return root / "shared" / "run_tray.py"
-    raise ValueError(f"unknown component {component!r}")
+    """Re-export for tests / back-compat.
+
+    Implementation moved to ``launcher/component_paths.py`` (FR-L12).
+    The ``wizard`` branch lives there alongside ``manager``/``worker``/
+    ``tray``.
+    """
+    return find_component_exe(component)
 
 
 def _start_component(
@@ -228,9 +220,13 @@ def _prepare_data_dir() -> Path:
 def _run_orchestration(data_dir: Path, args, tray, secret,
                        *, on_manager_ready=None) -> int:
     if not _is_setup_complete(data_dir):
-        return orchestration.run_setup_mode(
-            data_dir, args, tray, secret,
-            _start_component, _bootstrap_first_run,
+        # FR-L1: first-run path now spawns the standalone wizard
+        # process instead of the manager. The wizard owns the entire
+        # setup UX; the launcher hands off to the runtime per
+        # topology.json once the wizard writes its .wizard_done marker.
+        del tray, secret  # tray IPC is owned by the post-setup loop
+        return wizard_orchestration.run_wizard_mode(
+            data_dir, args, _bootstrap_first_run, _start_component,
             on_manager_ready=on_manager_ready,
         )
     return orchestration.run_normal_mode(

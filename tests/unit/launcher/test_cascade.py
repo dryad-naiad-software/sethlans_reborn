@@ -150,6 +150,11 @@ class TestSpecConstants:
     def test_tray_grace_2s(self):
         assert cascade.TRAY_GRACE_SECONDS == 2.0
 
+    def test_wizard_grace_5s(self):
+        # FR-L10: launcher uses this grace when SIGINT arrives during
+        # the wizard hand-off window.
+        assert cascade.WIZARD_GRACE_SECONDS == 5.0
+
 
 # ------------------------------------------------------------------
 # Second-quit-during-cascade (Fix C / issue #79)

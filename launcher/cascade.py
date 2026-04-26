@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 WORKER_GRACE_SECONDS = 30.0
 MANAGER_GRACE_SECONDS = 3.0
 TRAY_GRACE_SECONDS = 2.0
+# FR-L10 — wizard polite-shutdown grace for SIGINT during the wizard
+# hand-off window. Kept short because the wizard owns no rendering
+# state and the launcher's idle-timeout logic also calls into here.
+WIZARD_GRACE_SECONDS = 5.0
 
 # Polling cadence inside _terminate_with_grace.  Small enough that a
 # second quit click is honored within ~1s, short enough that we do
