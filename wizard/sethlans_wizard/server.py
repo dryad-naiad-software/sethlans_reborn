@@ -142,6 +142,10 @@ def create_app(
         exact=False,
     )
     router.add("/", make_index_handler(STATIC_ROOT))
+    router.add(
+        "/topology",
+        make_index_handler(STATIC_ROOT, "topology.html"),
+    )
 
     def app(environ: dict, start_response: Callable) -> Iterable[bytes]:
         return router.dispatch(environ, start_response)

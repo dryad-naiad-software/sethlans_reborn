@@ -18,3 +18,23 @@
 .wizard-card {
     max-width: 32rem;
 }
+
+/* Topology picker (FR-W-FE9) — pairs `.selected` with `aria-checked`.
+ * Cards are interactive but rendered as Bootstrap `.card` divs with
+ * role='radio'. The cursor + focus + selected styles are explicit
+ * here so the visual state matches the ARIA state. */
+.topology-card {
+    cursor: pointer;
+    transition: border-color 0.12s ease-in-out, box-shadow 0.12s ease-in-out;
+}
+
+.topology-card:focus {
+    outline: none;
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.35);
+}
+
+.topology-card.selected {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.45);
+}

@@ -139,17 +139,26 @@ def _serve_file(
     return [body]
 
 
-def make_index_handler(static_root: Path) -> Callable:
-    """Build a WSGI handler that serves ``index.html`` at ``/``."""
+def make_index_handler(
+    static_root: Path,
+    filename: str = "index.html",
+) -> Callable:
+    """Build a WSGI handler that serves a single HTML page at a fixed route.
+
+    Defaults to ``index.html`` (B2 / token entry) but takes *filename*
+    so other wizard pages (B3 ``topology.html``, B4 ``redirecting.html``)
+    can reuse the same security-headers / 405 / serve-file plumbing
+    without duplicating the factory.
+    """
     static_root = Path(static_root)
-    index_path = static_root / "index.html"
+    page_path = static_root / filename
 
     def handler(environ: dict, start_response: Callable) -> Iterable[bytes]:
         method = environ.get("REQUEST_METHOD", "GET").upper()
         if method not in ("GET", "HEAD"):
             return _send_405(start_response)
         return _serve_file(
-            index_path,
+            page_path,
             start_response,
             method,
             extra_headers=_HTML_SECURITY_HEADERS,

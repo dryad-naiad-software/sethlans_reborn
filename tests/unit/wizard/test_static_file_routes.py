@@ -108,6 +108,61 @@ class TestIndexRoute:
 
 
 # ---------------------------------------------------------------------
+# /topology → topology.html (FR-W-FE9)
+# ---------------------------------------------------------------------
+
+class TestTopologyRoute:
+
+    def test_get_topology_returns_topology_html(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, headers, body = _invoke(app, _get_environ("/topology"))
+        assert status.startswith("200"), status
+        assert headers.get("Content-Type", "").startswith("text/html"), headers
+        # Sanity: must be the topology page, NOT the index page.
+        # The radiogroup role is unique to topology.html.
+        assert b'role="radiogroup"' in body, (
+            "GET /topology must return topology.html (radiogroup), "
+            "not index.html."
+        )
+        # And the topology card labels appear.
+        assert b"Manager only" in body
+        assert b"Manager + Worker" in body
+        assert b"Worker only" in body
+
+    def test_topology_response_carries_security_headers(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        _, headers, _ = _invoke(app, _get_environ("/topology"))
+        # FR-W-FE2 mandates these headers on every HTML response.
+        assert "Content-Security-Policy" in headers
+        assert headers.get("X-Content-Type-Options") == "nosniff"
+        assert headers.get("Referrer-Policy") == "no-referrer"
+        assert "interest-cohort=()" in headers.get("Permissions-Policy", "")
+
+    def test_post_topology_page_returns_405(self, tmp_path):
+        # POST /topology hits the static page route (NOT the API
+        # /api/wizard/topology/), so it MUST 405. The API route is
+        # exact-equal matched ahead of this in the router.
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, headers, _ = _invoke(app, _post_environ("/topology"))
+        assert status.startswith("405"), status
+        assert "GET" in headers.get("Allow", "")
+
+    def test_topology_route_distinct_from_index(self, tmp_path):
+        """GET / must return index.html; GET /topology must return topology.html."""
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        _, _, root_body = _invoke(app, _get_environ("/"))
+        _, _, topology_body = _invoke(app, _get_environ("/topology"))
+        assert root_body != topology_body, (
+            "Index and topology pages must serve different content."
+        )
+        # index.html has the setup-token form; topology.html has the
+        # radiogroup. Confirm no swap.
+        assert b"setup-token" in root_body
+        assert b'role="radiogroup"' not in root_body
+        assert b'role="radiogroup"' in topology_body
+
+
+# ---------------------------------------------------------------------
 # /static/vendor/* — vendored Petite-vue + Bootstrap
 # ---------------------------------------------------------------------
 
