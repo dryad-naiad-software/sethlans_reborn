@@ -56,6 +56,8 @@ _handoff_state_lock: threading.Lock = threading.Lock()
 # Mutable state guarded by ``_handoff_state_lock``.
 _session_token: Optional[str] = None
 _attempts: dict[str, list[float]] = {}
+_done_sent: bool = False
+_browser_redirect_acknowledged: bool = False
 
 
 def get_handoff_lock() -> threading.Lock:
@@ -163,6 +165,65 @@ def clear_session_token() -> None:
 
 
 # ---------------------------------------------------------------------
+# Done-sent flag (FR-W9a)
+# ---------------------------------------------------------------------
+
+def check_and_set_done_sent() -> bool:
+    """Atomic check-and-set for the FR-W9a ``_done_sent`` flag.
+
+    Returns True if this caller is the first to set the flag (and is
+    therefore responsible for writing the ``.wizard_done`` marker).
+    Returns False if the flag was already set (caller MUST treat the
+    request as a no-op idempotent ``already_done`` response).
+
+    Held under the singleton handoff-state lock per FR-W9a / FR-W12.
+    The lock is held ONLY around the flag check-and-set — NOT around
+    any I/O — per CONC-v23-MED-1.
+    """
+    global _done_sent
+    with _handoff_state_lock:
+        if _done_sent:
+            return False
+        _done_sent = True
+        return True
+
+
+def is_done_sent() -> bool:
+    """Read the ``_done_sent`` flag (FR-W9a)."""
+    with _handoff_state_lock:
+        return _done_sent
+
+
+# ---------------------------------------------------------------------
+# Browser-redirect-acknowledged flag (FR-W14 / FR-W17)
+# ---------------------------------------------------------------------
+
+def mark_browser_redirect_acknowledged() -> bool:
+    """Set the ``_browser_redirect_acknowledged`` flag.
+
+    Returns True the FIRST time the flag transitions to True (FR-W14
+    "first time it returns ready"), False on subsequent calls. The
+    runtime-ready handler uses the True return value to start the
+    FR-W17 condition (a) 3-second grace timer.
+
+    Held under the singleton handoff-state lock per FR-W14 lock-scope
+    rules.
+    """
+    global _browser_redirect_acknowledged
+    with _handoff_state_lock:
+        if _browser_redirect_acknowledged:
+            return False
+        _browser_redirect_acknowledged = True
+        return True
+
+
+def was_browser_redirect_acknowledged() -> bool:
+    """Read the ``_browser_redirect_acknowledged`` flag (FR-W17)."""
+    with _handoff_state_lock:
+        return _browser_redirect_acknowledged
+
+
+# ---------------------------------------------------------------------
 # Test helper (NOT part of the runtime API)
 # ---------------------------------------------------------------------
 
@@ -173,7 +234,9 @@ def reset_state_for_tests() -> None:
     keeps tests independent without monkeypatching internals. Production
     code MUST NOT call this.
     """
-    global _session_token
+    global _session_token, _done_sent, _browser_redirect_acknowledged
     with _handoff_state_lock:
         _session_token = None
         _attempts.clear()
+        _done_sent = False
+        _browser_redirect_acknowledged = False

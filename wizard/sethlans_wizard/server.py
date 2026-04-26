@@ -1,24 +1,20 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Waitress WSGI app + server bootstrap for the wizard (Spec 1 / A3).
+"""Waitress WSGI app + server bootstrap for the wizard (Spec 1).
 
 Implements the FR-W12 server choice (Waitress, ``threads=4``, single
 handoff-state lock invariant) and the FR-W3 port-resolution helper.
 
-TLS: Waitress has no native TLS support, so :func:`run` builds an
-``ssl.SSLContext.wrap_socket(server_side=True)`` from the FR-W4 cert
-and passes the wrapped socket to ``waitress.create_server`` via
-``sockets=[…]`` so the wasyncore loop never sees a raw TCP connection
-that skips the TLS handshake.
+TLS: Waitress has no native TLS support, so :func:`run` wraps the bound
+socket with an ``ssl.SSLContext.wrap_socket(server_side=True)`` and
+passes the wrapped socket to ``waitress.create_server`` via
+``sockets=[…]`` so the wasyncore loop never sees a raw TCP connection.
 
 Lock ordering (CRITICAL — CONC-v23-MED-1): the handoff-state lock from
-:func:`wizard.sethlans_wizard.auth_state.get_handoff_lock` is the
-single lock declared by FR-W12 and MUST be acquired BEFORE A4's
-in-flight probe lock — never the reverse.
-
-A3 wires only the auth route; A4 will register topology / done /
-runtime-ready handlers on the same :class:`Router`.
+:func:`wizard.sethlans_wizard.auth_state.get_handoff_lock` MUST be
+acquired BEFORE the in-flight probe lock owned by
+``handlers/runtime_ready.py`` — never the reverse.
 """
 
 from __future__ import annotations
@@ -34,6 +30,11 @@ from typing import Callable, Iterable, Optional
 import waitress
 
 from wizard.sethlans_wizard.handlers.auth import make_auth_handler
+from wizard.sethlans_wizard.handlers.done import make_done_handler
+from wizard.sethlans_wizard.handlers.runtime_ready import (
+    make_runtime_ready_handler,
+)
+from wizard.sethlans_wizard.handlers.topology import make_topology_handler
 
 logger = logging.getLogger(__name__)
 
@@ -132,24 +133,15 @@ def create_app(
     data_dir: Path,
     setup_token: bytes,
     ipc_secret: bytes,
+    wizard_port: int = 0,
 ) -> Callable:
     """Return the wizard's top-level WSGI app.
 
-    Args:
-        data_dir: The wizard's per-user data directory (FR-W16
-            canonicalised).
-        setup_token: Setup token bytes read from
-            ``<data_dir>/wizard/.setup_token`` via
-            ``ipc.read_secret_file`` (which also unlinks the file per
-            SEC-MED-11). Held in the auth handler's closure.
-        ipc_secret: HMAC secret bytes for the marker IPC. A3 does not
-            consume this directly; it is threaded through so A4's
-            done / runtime-ready handlers (which DO consume it) can
-            be wired in without changing the ``create_app`` signature.
-
-    Returns:
-        A WSGI callable. A3 wires only ``POST /api/wizard/auth/``;
-        every other path returns a JSON 404 until A4 lands.
+    Wires the four wizard endpoints (auth, topology, done,
+    runtime-ready). All other paths return a JSON 404. *wizard_port*
+    is embedded in the ``.wizard_done`` marker payload per FR-IPC1;
+    defaults to 0 so the app can be built before the listener binds
+    (A6's startup glue passes the resolved port).
     """
     if not isinstance(data_dir, Path):
         data_dir = Path(data_dir)
@@ -158,22 +150,27 @@ def create_app(
     if not isinstance(ipc_secret, (bytes, bytearray)) or not ipc_secret:
         raise ValueError("ipc_secret must be non-empty bytes")
 
+    secret_bytes = bytes(ipc_secret)
     router = Router()
     router.add("/api/wizard/auth/", make_auth_handler(bytes(setup_token)))
+    router.add("/api/wizard/topology/", make_topology_handler(data_dir))
+    router.add(
+        "/api/wizard/done/",
+        make_done_handler(data_dir, secret_bytes, wizard_port=wizard_port),
+    )
+    router.add(
+        "/api/wizard/runtime-ready/",
+        make_runtime_ready_handler(data_dir, secret_bytes),
+    )
 
-    # The router instance is closed over by the returned callable so
-    # tests can introspect it via the `_router` attribute below.
-    def app(
-        environ: dict, start_response: Callable,
-    ) -> Iterable[bytes]:
+    def app(environ: dict, start_response: Callable) -> Iterable[bytes]:
         return router.dispatch(environ, start_response)
 
-    # Stash the router + the data_dir + ipc_secret on the app for A4
-    # to extend. ``ipc_secret`` is bytes, retained in memory only;
-    # never logged.
+    # Stash router + config so tests can introspect; bytes never logged.
     app._router = router  # type: ignore[attr-defined]
     app._data_dir = data_dir  # type: ignore[attr-defined]
-    app._ipc_secret = bytes(ipc_secret)  # type: ignore[attr-defined]
+    app._ipc_secret = secret_bytes  # type: ignore[attr-defined]
+    app._wizard_port = int(wizard_port)  # type: ignore[attr-defined]
     return app
 
 
