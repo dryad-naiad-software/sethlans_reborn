@@ -14,6 +14,7 @@ import signal
 import sys
 
 from sethlans_worker_agent import config
+from sethlans_worker_agent import runtime_state  # noqa: F401  # bind boot_id at agent-module import time (FR-RT-5)
 from sethlans_worker_agent.agent_logging import configure_logging
 from sethlans_worker_agent.web_ui import start_server
 

@@ -12,6 +12,11 @@ and state reset fixtures for threading-related modules.
 import pytest
 
 from sethlans_worker_agent.tool_manager import ToolManager
+from sethlans_worker_agent import system_monitor
+from sethlans_worker_agent.web_ui import auth, server
+from sethlans_worker_agent.web_ui.setup.gate import mark_setup_complete
+
+from ._health_fixtures import _bring_up_wsgi, _wait_for_bind
 
 
 @pytest.fixture()
@@ -113,3 +118,65 @@ def _reset_setup_gate():
     gate._setup_complete = False
     yield
     gate._setup_complete = False
+
+
+# --- /api/health/ integration test fixtures ------------------------
+# Bring-up plumbing lives in ``_health_fixtures._bring_up_wsgi``;
+# fixtures live here so pytest auto-discovers them in the worker
+# integration test package without forcing test modules to import
+# (and therefore F811-shadow) the fixture names.
+
+@pytest.fixture()
+def web_ui_setup_complete(mocker, tmp_path):
+    """Bring up the WSGI app with the setup gate **open**.
+
+    Fixes ``system_monitor.WORKER_ID`` to a known sentinel string so
+    the test asserts the post-enrollment branch.  Restores the
+    original value on teardown.
+    """
+    original_worker_id = system_monitor.WORKER_ID
+    system_monitor.WORKER_ID = 'integration-worker-id-42'
+
+    port, password = _bring_up_wsgi(mocker, tmp_path)
+
+    # Setup-complete variant -- gate is open.
+    mark_setup_complete()
+
+    _wait_for_bind(port, '/api/health/', expect_status_in={200})
+
+    yield {
+        'base_url': f'http://127.0.0.1:{port}',
+        'token': password,
+    }
+
+    server.stop_server()
+    auth.reset_cache()
+    system_monitor.WORKER_ID = original_worker_id
+
+
+@pytest.fixture()
+def web_ui_setup_pending(mocker, tmp_path):
+    """Bring up the WSGI app with the setup gate **closed**.
+
+    Forces ``system_monitor.WORKER_ID`` to ``None`` so the handler
+    exercises the pre-enrollment branch (FR-H-7).  ``mark_setup_complete``
+    is intentionally NOT called -- this is the DevOps-LOW-5 inversion
+    of the standard harness and is the entire point of this fixture.
+    """
+    original_worker_id = system_monitor.WORKER_ID
+    system_monitor.WORKER_ID = None
+
+    port, password = _bring_up_wsgi(mocker, tmp_path)
+
+    # Sanity: gate is closed -- ``/api/health/`` is the only path that
+    # should reply 200; everything else replies 503.
+    _wait_for_bind(port, '/api/health/', expect_status_in={200})
+
+    yield {
+        'base_url': f'http://127.0.0.1:{port}',
+        'token': password,
+    }
+
+    server.stop_server()
+    auth.reset_cache()
+    system_monitor.WORKER_ID = original_worker_id

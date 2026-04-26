@@ -7,7 +7,11 @@ Synchronous WSGI application for the worker web UI.
 Routes:
   GET  /               -- serve static HTML dashboard
   GET  /index.html     -- serve static HTML dashboard
-  GET  /api/status     -- JSON status snapshot
+  GET  /api/health/    -- anonymous health probe (boot_id, worker_id, version)
+                         always-on in setup mode AND runtime mode
+  GET  /api/status     -- legacy dashboard snapshot (DEPRECATED -- new
+                         probe consumers MUST use /api/health/; full
+                         removal deferred to Spec 4 of the wizard work)
   POST /api/control/*  -- authenticated control endpoints
   *    /api/setup/*    -- setup wizard routes (gated by setup sentinel)
   *    /setup{,/}      -- setup wizard HTML
@@ -15,6 +19,10 @@ Routes:
 The sync WSGI dispatcher calls setup routes via
 ``setup_gate_wrapper_wsgi`` which gates non-setup traffic with
 ``503 Service Unavailable`` until the setup sentinel is written.
+``/api/health/`` is allowlisted by the gate (see
+``web_ui/setup/gate.py``) so it remains reachable in setup mode for
+Docker HEALTHCHECK and the standalone wizard's worker-only redirect
+probe.
 """
 
 import json
@@ -100,6 +108,13 @@ def _handle_get(
     path = environ.get('PATH_INFO', '') or ''
     if path in ('/', '/index.html'):
         return send_html_file_wsgi(start_response, _INDEX_PATH)
+    if path == '/api/health/':
+        # Lazy import mirrors the existing _get_shutdown_event pattern
+        # and keeps wsgi_app.py import-time-cheap.
+        from sethlans_worker_agent.web_ui.runtime.handlers_health import (
+            handle_health_wsgi,
+        )
+        return handle_health_wsgi(environ, start_response)
     if path == '/api/status':
         snapshot = get_status_snapshot()
         return send_json_wsgi(start_response, snapshot)

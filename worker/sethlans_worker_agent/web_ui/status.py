@@ -32,6 +32,23 @@ def get_status_snapshot():
 
     Acquires each lock independently to avoid deadlocks. No nested locking.
 
+    DEPRECATED: kept for the legacy dashboard at
+    ``web_ui/static/index.html`` (the in-page polling loop).  New probe
+    consumers (Docker HEALTHCHECK, the standalone wizard's worker-only
+    redirect probe, monitoring) MUST use ``GET /api/health/`` instead --
+    that endpoint returns a tiny envelope (``boot_id``, ``worker_id``,
+    ``version``) with the same shape as the manager's ``/api/health/``.
+    Full removal of this snapshot is deferred to Spec 4 of the wizard
+    work (worker dashboard rewrite).  Function body and return shape are
+    unchanged.
+
+    Spec 4 should additionally consider auth-gating this response --
+    see the Security review section of
+    ``development/specs/worker-health-endpoint.md`` (SEC-MED-1) for the
+    disclosure surface (``manager_url``, ``password_configured``,
+    ``hostname``/``ip_address``/``os``, GPU inventory,
+    ``last_output_line``) that the dashboard rewrite needs to address.
+
     Returns:
         dict: Status data suitable for JSON serialization.
     """

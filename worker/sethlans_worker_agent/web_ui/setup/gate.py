@@ -23,7 +23,15 @@ logger = logging.getLogger(__name__)
 
 _setup_complete: bool = False
 
-_SETUP_ALLOWED_PREFIXES = ("/api/setup/", "/setup")
+# Prefixes whose paths bypass the setup gate (returned 200/handler
+# responses instead of 503).  ``/api/setup/`` and ``/setup`` host the
+# wizard itself; ``/api/health/`` is the always-on anonymous probe that
+# Docker HEALTHCHECK and the standalone wizard's worker-only redirect
+# probe both need to reach in setup mode (see worker-health-endpoint
+# spec FR-W-2).  Per the spec's Caddyfile invariant, ``/api/health/``
+# also stays outside the worker Caddyfile's ``@setup_paths`` matcher
+# so the route is reverse-proxied to Waitress as-is.
+_SETUP_ALLOWED_PREFIXES = ("/api/setup/", "/setup", "/api/health/")
 
 
 # --- Shared state helpers ---
