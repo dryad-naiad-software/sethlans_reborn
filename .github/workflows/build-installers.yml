@@ -38,6 +38,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Compute BUILD_VERSION
+        shell: bash
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: VERSION='$VERSION' is not X.Y.Z"
+            exit 1
+          fi
+          GIT_HASH=$(git rev-parse --short=5 HEAD)
+          BUILD_VERSION="${VERSION}.${GIT_HASH}"
+          echo "Build version: $BUILD_VERSION"
+          echo "BUILD_VERSION=$BUILD_VERSION" >> "$GITHUB_ENV"
+
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v6
         with:
@@ -206,8 +219,7 @@ jobs:
           # makensis by full path. NSIS installs to the standard 32-bit
           # Program Files location regardless of host arch.
           $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
-          $version = if ("${{ github.ref_name }}" -match '^v(.+)$') { $Matches[1] } else { "0.0.0-dev" }
-          & $makensis /DPRODUCT_VERSION=$version packaging\windows\sethlans.nsi
+          & $makensis /DPRODUCT_VERSION=$env:BUILD_VERSION packaging\windows\sethlans.nsi
         shell: pwsh
 
       - name: Upload Windows installer
@@ -229,6 +241,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Compute BUILD_VERSION
+        shell: bash
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: VERSION='$VERSION' is not X.Y.Z"
+            exit 1
+          fi
+          GIT_HASH=$(git rev-parse --short=5 HEAD)
+          BUILD_VERSION="${VERSION}.${GIT_HASH}"
+          echo "Build version: $BUILD_VERSION"
+          echo "BUILD_VERSION=$BUILD_VERSION" >> "$GITHUB_ENV"
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v6
@@ -377,12 +402,8 @@ jobs:
       # --- Build DMG ---
       - name: Build DMG
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [ -z "${VERSION}" ] || [ "${VERSION}" = "${GITHUB_REF_NAME}" ]; then
-            VERSION="0.0.0-dev"
-          fi
           chmod +x packaging/macos/build_dmg.sh
-          packaging/macos/build_dmg.sh "${VERSION}"
+          packaging/macos/build_dmg.sh "${BUILD_VERSION}"
 
       - name: Notarize DMG
         if: >-
@@ -397,8 +418,7 @@ jobs:
             echo "Notarization secrets not available, skipping."
             exit 0
           fi
-          VERSION="${GITHUB_REF_NAME#v}"
-          DMG_PATH="dist/sethlans-${VERSION}-macos-arm64.dmg"
+          DMG_PATH="dist/sethlans-${BUILD_VERSION}-macos-arm64.dmg"
 
           xcrun notarytool submit "${DMG_PATH}" \
             --apple-id "${APPLE_ID}" \
@@ -425,6 +445,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Compute BUILD_VERSION
+        shell: bash
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: VERSION='$VERSION' is not X.Y.Z"
+            exit 1
+          fi
+          GIT_HASH=$(git rev-parse --short=5 HEAD)
+          BUILD_VERSION="${VERSION}.${GIT_HASH}"
+          echo "Build version: $BUILD_VERSION"
+          echo "BUILD_VERSION=$BUILD_VERSION" >> "$GITHUB_ENV"
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v6
@@ -543,12 +576,8 @@ jobs:
       # --- Build .run installer ---
       - name: Build .run installer
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [ -z "${VERSION}" ] || [ "${VERSION}" = "${GITHUB_REF_NAME}" ]; then
-            VERSION="0.0.0-dev"
-          fi
           chmod +x packaging/linux/build_run.sh
-          packaging/linux/build_run.sh "${VERSION}"
+          packaging/linux/build_run.sh "${BUILD_VERSION}"
 
       - name: Sign .run installer (GPG)
         if: >-
@@ -561,8 +590,7 @@ jobs:
             echo "GPG key not available, skipping signing."
             exit 0
           fi
-          VERSION="${GITHUB_REF_NAME#v}"
-          RUN_FILE="dist/sethlans-${VERSION}-linux-x64.run"
+          RUN_FILE="dist/sethlans-${BUILD_VERSION}-linux-x64.run"
           if [ -f "${RUN_FILE}" ]; then
             gpg --batch --yes --detach-sign --armor "${RUN_FILE}"
           fi
