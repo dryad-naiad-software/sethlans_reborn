@@ -226,9 +226,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows-installer
-          path: |
-            packaging/windows/sethlans-*.exe
-            dist/
+          path: packaging/windows/sethlans-*.exe
           if-no-files-found: warn
 
   # ---------------------------------------------------------------
