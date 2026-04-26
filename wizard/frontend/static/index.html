@@ -1,0 +1,221 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sethlans &mdash; Setup</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/wizard.css">
+</head>
+<body class="bg-body-tertiary">
+  <noscript>
+    <div class="container py-5">
+      <div class="alert alert-warning" role="alert">
+        This page needs JavaScript to validate the setup token.
+        Please enable JavaScript and reload.
+      </div>
+    </div>
+  </noscript>
+
+  <script nomodule>
+    document.addEventListener('DOMContentLoaded', function () {
+      var root = document.getElementById('app');
+      if (root) {
+        root.innerHTML =
+          '<div class="container py-5">' +
+          '  <div class="alert alert-danger" role="alert">' +
+          '    <h2 class="h5 mb-2">Unsupported browser</h2>' +
+          '    <p class="mb-0">' +
+          '      The Sethlans setup wizard requires a modern browser ' +
+          '      (Chrome 90+, Firefox 90+, Safari 14+, or Edge 90+). ' +
+          '      Please open this page in a recent browser.' +
+          '    </p>' +
+          '  </div>' +
+          '</div>';
+      }
+    });
+  </script>
+
+  <main id="app" class="d-flex align-items-center justify-content-center min-vh-100 py-4 px-3">
+    <div class="card shadow-sm w-100 wizard-card" v-cloak>
+      <div class="card-body p-4 p-md-5">
+        <header class="mb-4 text-center">
+          <h1 class="h3 mb-1">Sethlans Setup</h1>
+          <p class="text-body-secondary mb-0">Paste the setup token to begin.</p>
+        </header>
+
+        <form @submit.prevent="submit" novalidate>
+          <div class="mb-3">
+            <label for="setup-token" class="form-label fw-semibold">
+              Setup token
+            </label>
+            <input
+              id="setup-token"
+              ref="tokenInput"
+              type="text"
+              name="setup_token"
+              class="form-control form-control-lg font-monospace"
+              v-model="token"
+              :class="{ 'is-invalid': !!error }"
+              :disabled="submitting || lockoutSeconds > 0"
+              autocomplete="one-time-code"
+              inputmode="text"
+              spellcheck="false"
+              autocapitalize="off"
+              autocorrect="off"
+              aria-describedby="setup-token-help"
+              :aria-invalid="!!error"
+              required>
+            <div
+              v-if="error"
+              id="setup-token-error"
+              class="invalid-feedback d-block"
+              role="alert"
+              aria-live="assertive">
+              {{ error }}
+            </div>
+            <p id="setup-token-help" class="form-text mt-2">
+              The setup token is shown in your launcher console (and in the
+              system-tray menu). Do not send this token through chat,
+              email, or cloud clipboards &mdash; type or paste it directly
+              into this form.
+            </p>
+          </div>
+
+          <div class="d-grid">
+            <button
+              type="submit"
+              class="btn btn-primary btn-lg"
+              :disabled="submitting || !canSubmit || lockoutSeconds > 0">
+              <span
+                v-if="submitting"
+                class="spinner-border spinner-border-sm me-2"
+                role="status"
+                aria-hidden="true"></span>
+              <span v-if="lockoutSeconds > 0">
+                Try again in {{ lockoutSeconds }}s
+              </span>
+              <span v-else-if="submitting">Verifying&hellip;</span>
+              <span v-else>Continue</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { createApp } from '/static/vendor/petite-vue.js';
+
+    const SESSION_KEY = 'wizard:sessionToken';
+    const LOCKOUT_SECS = 60;
+
+    const scope = {
+      token: '',
+      submitting: false,
+      error: '',
+      lockoutSeconds: 0,
+      _lockoutTimer: null,
+
+      get canSubmit() {
+        return this.token.trim().length > 0;
+      },
+
+      async submit() {
+          if (this.submitting || this.lockoutSeconds > 0) {
+            return;
+          }
+          const trimmed = this.token.trim();
+          if (!trimmed) {
+            this.error = 'Please enter the setup token.';
+            return;
+          }
+          this.error = '';
+          this.submitting = true;
+          let response;
+          try {
+            response = await fetch('/api/wizard/auth/', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: trimmed }),
+              cache: 'no-store',
+              credentials: 'omit',
+            });
+          } catch (err) {
+            this.submitting = false;
+            this.error = 'Network error. Check the launcher logs and try again.';
+            return;
+          }
+
+          if (response.status === 200) {
+            let payload;
+            try {
+              payload = await response.json();
+            } catch (_) {
+              this.submitting = false;
+              this.error = 'Unexpected response from the wizard. Try again.';
+              return;
+            }
+            const sessionToken = payload && payload.session_token;
+            if (typeof sessionToken !== 'string' || !sessionToken) {
+              this.submitting = false;
+              this.error = 'Wizard did not issue a session token. Try again.';
+              return;
+            }
+            try {
+              window.sessionStorage.setItem(SESSION_KEY, sessionToken);
+            } catch (_) {
+              // sessionStorage may be disabled (e.g., privacy mode);
+              // continue with navigation so the user is not stranded.
+            }
+            this.token = '';
+            window.location.assign('/topology');
+            return;
+          }
+
+          if (response.status === 403) {
+            this.submitting = false;
+            this.error = 'Invalid setup token. Check the launcher console and try again.';
+            return;
+          }
+
+          if (response.status === 429) {
+            this.submitting = false;
+            this.error = 'Too many attempts — please wait 60 seconds and try again.';
+            this._startLockout(LOCKOUT_SECS);
+            return;
+          }
+
+          this.submitting = false;
+          this.error = 'Something went wrong. Check the launcher logs and try again.';
+        },
+
+      _startLockout(seconds) {
+        this.lockoutSeconds = seconds;
+        if (this._lockoutTimer) {
+          clearInterval(this._lockoutTimer);
+        }
+        this._lockoutTimer = setInterval(() => {
+          this.lockoutSeconds -= 1;
+          if (this.lockoutSeconds <= 0) {
+            this.lockoutSeconds = 0;
+            clearInterval(this._lockoutTimer);
+            this._lockoutTimer = null;
+          }
+        }, 1000);
+      },
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      createApp(scope).mount('#app');
+      const input = document.getElementById('setup-token');
+      if (input) {
+        input.focus();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -83,7 +83,7 @@ class TestCreateApp:
 
     def test_router_has_auth_route(self, tmp_path):
         app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
-        prefixes = [p for p, _ in app._router._routes]  # type: ignore[attr-defined]
+        prefixes = [r[0] for r in app._router._routes]  # type: ignore[attr-defined]
         assert "/api/wizard/auth/" in prefixes
 
 

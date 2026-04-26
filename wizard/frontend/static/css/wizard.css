@@ -1,0 +1,20 @@
+/* SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
+/*
+ * Sethlans wizard — page-specific overrides on top of Bootstrap 5.
+ * Keep this file small; prefer Bootstrap utility classes in markup.
+ */
+
+/* Hide elements with v-cloak until Petite-vue has mounted, so the user
+ * never sees raw mustache-template syntax flash on load. */
+[v-cloak] {
+    display: none !important;
+}
+
+/* Cap the wizard card at a comfortable reading width on wide viewports
+ * while still allowing it to fill smaller screens via Bootstrap's
+ * w-100. */
+.wizard-card {
+    max-width: 32rem;
+}

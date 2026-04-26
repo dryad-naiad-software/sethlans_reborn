@@ -34,7 +34,20 @@ from wizard.sethlans_wizard.handlers.done import make_done_handler
 from wizard.sethlans_wizard.handlers.runtime_ready import (
     make_runtime_ready_handler,
 )
+from wizard.sethlans_wizard.handlers.static_files import (
+    make_index_handler,
+    make_static_handler,
+)
 from wizard.sethlans_wizard.handlers.topology import make_topology_handler
+from wizard.sethlans_wizard.router import Router
+
+# Frontend static-file root (FR-W-FE2). The wizard repo layout puts
+# ``wizard/frontend/static/`` two levels above this module
+# (``wizard/sethlans_wizard/server.py`` → up to ``wizard/`` → into
+# ``frontend/static/``).
+STATIC_ROOT = (
+    Path(__file__).resolve().parent.parent / "frontend" / "static"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,54 +91,6 @@ def resolve_port(env: Optional[dict] = None) -> int:
 
 
 # ---------------------------------------------------------------------
-# Router — maps PATH_INFO to a per-route WSGI handler
-# ---------------------------------------------------------------------
-
-class Router:
-    """Tiny path-prefix dispatcher used by :func:`create_app`.
-
-    Routes are registered most-specific-first; the first prefix that
-    matches ``PATH_INFO`` wins. Unknown paths get a JSON 404.
-
-    Kept deliberately simple — the wizard only ever exposes a small
-    handful of endpoints (FR-W7, FR-W8, FR-W9, FR-W14 plus static
-    pages from FR-W-FE2). No regex, no method dispatch table.
-    """
-
-    def __init__(self) -> None:
-        self._routes: list[tuple[str, Callable]] = []
-
-    def add(self, prefix: str, handler: Callable) -> None:
-        """Register WSGI *handler* for an exact-match path *prefix*."""
-        if not prefix.startswith("/"):
-            raise ValueError(f"route prefix must start with '/': {prefix!r}")
-        self._routes.append((prefix, handler))
-
-    def dispatch(
-        self,
-        environ: dict,
-        start_response: Callable,
-    ) -> Iterable[bytes]:
-        path = environ.get("PATH_INFO", "") or ""
-        for prefix, handler in self._routes:
-            if path == prefix:
-                return handler(environ, start_response)
-        return _send_404(start_response)
-
-
-def _send_404(start_response: Callable) -> Iterable[bytes]:
-    body = b'{"error": "Not Found"}'
-    start_response(
-        "404 Not Found",
-        [
-            ("Content-Type", "application/json"),
-            ("Content-Length", str(len(body))),
-        ],
-    )
-    return [body]
-
-
-# ---------------------------------------------------------------------
 # create_app — public WSGI factory
 # ---------------------------------------------------------------------
 
@@ -162,6 +127,21 @@ def create_app(
         "/api/wizard/runtime-ready/",
         make_runtime_ready_handler(data_dir, secret_bytes),
     )
+    # Frontend pages and vendored assets (B2 / FR-W-FE2). Static routes
+    # are prefix-matched; API routes above keep their exact-match
+    # semantics so a stray ``/api/wizard/auth/extra`` cannot collide
+    # with a real handler.
+    router.add(
+        "/static/vendor/",
+        make_static_handler(STATIC_ROOT / "vendor", "/static/vendor/"),
+        exact=False,
+    )
+    router.add(
+        "/static/css/",
+        make_static_handler(STATIC_ROOT / "css", "/static/css/"),
+        exact=False,
+    )
+    router.add("/", make_index_handler(STATIC_ROOT))
 
     def app(environ: dict, start_response: Callable) -> Iterable[bytes]:
         return router.dispatch(environ, start_response)
