@@ -4,21 +4,27 @@
 
 """Entry point for the Sethlans Reborn standalone setup wizard.
 
-Spec 1 (subphase A1) scaffold only — this entry point currently parses
-its CLI flags, prints a version banner when ``--version`` is requested,
-and exits cleanly. Subphases A2-A6 add the cert/IPC/probe modules, the
-waitress HTTPS server, request handlers, the PyInstaller spec, and the
-launcher integration.
+Wires the A2-A4 modules (cert, ipc, server, handlers) into a runnable
+HTTPS waitress server per Spec 1 (FR-W1, FR-W3, FR-W4, FR-W5, FR-W6,
+FR-W11, FR-W12, FR-W17). The launcher (A6) writes the chmod-600
+``.setup_token`` and ``.ipc_secret`` files under ``<data_dir>/wizard/``
+before spawning this process; we read them, immediately ``unlink()``
+them (FR-W6 / SEC-MED-11), then bring up the WSGI app behind a
+TLS-wrapped socket.
 
-Flags accepted (no behavior yet beyond ``--version``):
+CLI flags:
   --version       Print the wizard version and exit 0 (FR-W1).
-  --no-browser    Reserved for future use; currently a no-op (FR-L11).
-  --print-url     Reserved for future use; currently a no-op (FR-L11).
+  --no-browser    Reserved (FR-L11): the launcher honours this; the
+                  wizard process itself never opens a browser.
+  --print-url     Print the wizard URL to stdout, then exit before
+                  binding the listener (useful for headless / CI).
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
+import os
 import sys
 from pathlib import Path
 
@@ -33,9 +39,13 @@ if not getattr(sys, "frozen", False):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-from shared.version import get_version  # noqa: E402  (import after sys.path tweak)
+from shared.frozen_paths import get_shared_data_dir  # noqa: E402
+from shared.version import get_version  # noqa: E402
 
 import sethlans_wizard  # noqa: F401, E402  (ensures package importable)
+from wizard.sethlans_wizard import bootstrap, cert, server  # noqa: E402
+
+logger = logging.getLogger("wizard")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,24 +68,112 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-browser",
         action="store_true",
         default=False,
-        help="Reserved (FR-L11): do not open a browser at handoff.",
+        help="Reserved (FR-L11): launcher controls browser open; wizard never opens one.",
     )
     parser.add_argument(
         "--print-url",
         action="store_true",
         default=False,
-        help="Reserved (FR-L11): print the wizard URL to stdout.",
+        help="Print the wizard URL to stdout and exit before binding.",
     )
     return parser
+
+
+def _print_url_banner(port: int, *, no_browser: bool) -> None:
+    """Print the wizard URL to stdout.
+
+    The launcher prints the LAN-bound IP + setup token banner; this is
+    the wizard's own startup banner so operators tailing the wizard log
+    can see the URL it's serving on.
+    """
+    print(f"Wizard URL: https://localhost:{port}/")
+    if no_browser:
+        print("(--no-browser set; wizard will not request browser open)")
+
+
+def _prepare_runtime(data_dir: Path, subdir: Path, requested_port: int):
+    """Read secrets, generate cert, build app. Return ``(app, cert, key)``.
+
+    Raises ``RuntimeError`` with a logged context on any failure so
+    ``main()`` can keep its branching shallow.
+    """
+    try:
+        setup_token, ipc_secret = bootstrap.read_secrets(subdir)
+    except FileNotFoundError as exc:
+        logger.error(
+            "Required wizard secret file missing: %s. The launcher must "
+            "provision .setup_token and .ipc_secret under %s before "
+            "spawning the wizard (FR-L3a / FR-L4a).",
+            exc, subdir,
+        )
+        raise RuntimeError("missing-secret") from exc
+    except (OSError, ValueError) as exc:
+        logger.error("Could not read wizard secret files: %s", exc)
+        raise RuntimeError("bad-secret") from exc
+
+    try:
+        cert_path, key_path = cert.ensure_cert(data_dir)
+    except Exception as exc:
+        logger.exception("Failed to generate / load wizard TLS certificate")
+        raise RuntimeError("cert-failed") from exc
+
+    try:
+        app = server.create_app(
+            data_dir, setup_token, ipc_secret, wizard_port=requested_port,
+        )
+    except Exception as exc:
+        logger.exception("Failed to build wizard WSGI app")
+        raise RuntimeError("app-build-failed") from exc
+
+    return app, cert_path, key_path
 
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Returns the process exit code."""
     parser = build_parser()
-    parser.parse_args(argv)
-    # A1 is scaffold-only: nothing else to do once flags parse cleanly.
-    print(f"sethlans-wizard {get_version()} (scaffold)")
-    return 0
+    args = parser.parse_args(argv)
+
+    data_dir = Path(get_shared_data_dir()).resolve(strict=False)
+    subdir = bootstrap.wizard_subdir(data_dir)
+
+    bootstrap.configure_logging(subdir)
+    logger.info(
+        "sethlans-wizard %s starting (data_dir=%s)", get_version(), data_dir,
+    )
+
+    # Resolve requested port BEFORE reading secrets so a malformed
+    # SETHLANS_WIZARD_PORT fails fast without consuming the secret files.
+    try:
+        requested_port = server.resolve_port(os.environ)
+    except ValueError as exc:
+        logger.error("Invalid SETHLANS_WIZARD_PORT: %s", exc)
+        return 2
+
+    env_port = (
+        requested_port if os.environ.get(server.WIZARD_PORT_ENV) else None
+    )
+
+    if args.print_url:
+        _print_url_banner(requested_port, no_browser=args.no_browser)
+        return 0
+
+    try:
+        app, cert_path, key_path = _prepare_runtime(
+            data_dir, subdir, requested_port,
+        )
+    except RuntimeError:
+        return 2
+
+    bootstrap.install_signal_handlers()
+    _print_url_banner(requested_port, no_browser=args.no_browser)
+
+    try:
+        return bootstrap.serve_with_port_scan(
+            app, cert_path, key_path, env_port, subdir,
+        )
+    except Exception:
+        logger.exception("Wizard server crashed")
+        return 2
 
 
 if __name__ == "__main__":
