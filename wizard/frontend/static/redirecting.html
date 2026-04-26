@@ -1,0 +1,221 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sethlans &mdash; Starting&hellip;</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/wizard.css">
+</head>
+<body class="bg-body-tertiary">
+  <noscript>
+    <div class="container py-5">
+      <div class="alert alert-warning" role="alert">
+        This page needs JavaScript to wait for Sethlans to finish starting.
+        Please enable JavaScript and reload.
+      </div>
+    </div>
+  </noscript>
+
+  <script nomodule>
+    document.addEventListener('DOMContentLoaded', function () {
+      var root = document.getElementById('app');
+      if (root) {
+        root.innerHTML = '<div class="container py-5">' +
+          '<div class="alert alert-danger" role="alert">' +
+          '<h2 class="h5 mb-2">Unsupported browser</h2>' +
+          '<p class="mb-0">The Sethlans setup wizard requires a modern browser ' +
+          '(Chrome 90+, Firefox 90+, Safari 14+, or Edge 90+). ' +
+          'Please open this page in a recent browser.</p></div></div>';
+      }
+    });
+  </script>
+
+  <main id="app" class="d-flex align-items-center justify-content-center min-vh-100 py-4 px-3" v-cloak>
+    <div class="card shadow-sm w-100 wizard-card">
+      <div class="card-body p-4 p-md-5 text-center">
+
+        <div v-if="status !== 'failed'" class="mb-3">
+          <div class="spinner-border text-primary" role="status" aria-hidden="true">
+            <span class="visually-hidden">Loading</span>
+          </div>
+        </div>
+
+        <header class="mb-3">
+          <h1 class="h4 mb-1">{{ status === 'failed' ? 'Sethlans failed to start' : 'Starting Sethlans&hellip;' }}</h1>
+          <p id="redirecting-subtitle" class="text-body-secondary mb-0">
+            Hang tight while the runtime boots. Your browser will move on automatically.
+          </p>
+        </header>
+
+        <div class="redirecting-status" aria-live="polite" aria-describedby="redirecting-subtitle">
+
+          <p v-if="status === 'booting' && !postFailsafeMode" class="mb-2">
+            Starting Sethlans&hellip; ({{ elapsedSeconds }}s)
+          </p>
+
+          <div v-if="postFailsafeMode && cachedUrl" class="alert alert-info mb-2 text-start" role="status">
+            <p class="mb-1 fw-semibold">The setup wizard has shut down.</p>
+            <p class="mb-1">Open this URL in your browser to continue:</p>
+            <a class="text-break" :href="cachedUrl">{{ cachedUrl }}</a>
+          </div>
+
+          <div v-if="logHintVisible" :class="logHintAlertClass" class="mb-2 text-start" :role="logHintRole">
+            <p class="mb-1 fw-semibold">{{ logHintTitle }}</p>
+            <p class="mb-1">Open this file with your text editor to see what went wrong:</p>
+            <code class="d-block text-break">{{ logPath || '(launcher log path not available)' }}</code>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/vendor/bootstrap.bundle.min.js"></script>
+  <script type="module">
+    import { createApp } from '/static/vendor/petite-vue.js';
+
+    const SESSION_KEY = 'wizard:sessionToken';
+    const LAST_READY_URL_KEY = 'wizard:lastReadyUrl';
+    const POLL_INTERVAL_MS = 2000;
+    const TICK_INTERVAL_MS = 1000;
+    const LOG_HINT_AFTER_SECONDS = 60;
+
+    const scope = {
+      status: 'booting',
+      elapsedSeconds: 0,
+      runtimeUrl: null,
+      logPath: '',
+      cachedUrl: null,
+      postFailsafeMode: false,
+      _pollHandle: null,
+      _tickHandle: null,
+
+      // Show the log-path hint when: (a) booting > 60s (FR-W-FE5 fallback,
+      // does NOT replace spinner), or (b) failsafe with no cached URL, or
+      // (c) status === failed. The visible alert variant differs by case.
+      get logHintVisible() {
+        if (this.status === 'failed') return true;
+        if (this.postFailsafeMode && !this.cachedUrl) return true;
+        return (
+          this.status === 'booting' &&
+          !this.postFailsafeMode &&
+          this.elapsedSeconds >= LOG_HINT_AFTER_SECONDS
+        );
+      },
+      get logHintAlertClass() {
+        if (this.status === 'failed') return 'alert alert-danger';
+        return 'alert alert-warning';
+      },
+      get logHintRole() {
+        return this.status === 'failed' ? 'alert' : 'status';
+      },
+      get logHintTitle() {
+        if (this.status === 'failed') return 'Sethlans failed to start.';
+        if (this.postFailsafeMode) return 'The setup wizard is no longer reachable.';
+        return 'Sethlans is taking longer than usual to start.';
+      },
+
+      _readSessionToken() {
+        try { return window.sessionStorage.getItem(SESSION_KEY); }
+        catch (_) { return null; }
+      },
+
+      // CRITICAL (FE-v2.2-MED-1): write cache BEFORE navigation so the
+      // post-failsafe recovery path can surface the URL when fetch() to
+      // the wizard rejects mid-stream.
+      _cacheReadyUrl(url) {
+        try { window.sessionStorage.setItem(LAST_READY_URL_KEY, url); }
+        catch (_) { /* sessionStorage may be disabled */ }
+      },
+      _readCachedReadyUrl() {
+        try { return window.sessionStorage.getItem(LAST_READY_URL_KEY); }
+        catch (_) { return null; }
+      },
+
+      _stopTimers() {
+        if (this._pollHandle !== null) { window.clearInterval(this._pollHandle); this._pollHandle = null; }
+        if (this._tickHandle !== null) { window.clearInterval(this._tickHandle); this._tickHandle = null; }
+      },
+
+      _enterPostFailsafe() {
+        this.postFailsafeMode = true;
+        this.cachedUrl = this._readCachedReadyUrl();
+        this._stopTimers();
+      },
+
+      async _fetchLauncherLogPath(sessionToken) {
+        try {
+          const response = await fetch('/api/wizard/launcher-log-path/', {
+            method: 'GET',
+            headers: { 'X-Wizard-Session': sessionToken },
+            cache: 'no-store',
+            credentials: 'omit',
+          });
+          if (!response.ok) return;
+          const body = await response.json();
+          if (body && typeof body.path === 'string') this.logPath = body.path;
+        } catch (_) { /* non-fatal */ }
+      },
+
+      async _poll() {
+        const sessionToken = this._readSessionToken();
+        if (!sessionToken) { this._enterPostFailsafe(); return; }
+        let response;
+        try {
+          response = await fetch('/api/wizard/runtime-ready/', {
+            method: 'GET',
+            headers: { 'X-Wizard-Session': sessionToken },
+            cache: 'no-store',
+            credentials: 'omit',
+          });
+        } catch (_) {
+          // Network/TLS failure mid-stream — wizard process likely exited.
+          this._enterPostFailsafe();
+          return;
+        }
+        if (!response.ok) { this._enterPostFailsafe(); return; }
+        let body;
+        try { body = await response.json(); }
+        catch (_) { this._enterPostFailsafe(); return; }
+        const status = body && body.status;
+        if (status === 'ready' && typeof body.url === 'string' && body.url) {
+          this.status = 'ready';
+          this.runtimeUrl = body.url;
+          this._cacheReadyUrl(body.url);
+          this._stopTimers();
+          window.setTimeout(() => { window.location.assign(body.url); }, 0);
+          return;
+        }
+        if (status === 'failed') {
+          this.status = 'failed';
+          if (typeof body.log_path === 'string' && body.log_path) this.logPath = body.log_path;
+          this._stopTimers();
+          return;
+        }
+        this.status = 'booting';
+      },
+
+      _tick() { this.elapsedSeconds += 1; },
+
+      start() {
+        const sessionToken = this._readSessionToken();
+        if (sessionToken) this._fetchLauncherLogPath(sessionToken);
+        this._tickHandle = window.setInterval(() => this._tick(), TICK_INTERVAL_MS);
+        this._pollHandle = window.setInterval(() => this._poll(), POLL_INTERVAL_MS);
+        // Kick the first poll immediately so the user does not wait 2s.
+        this._poll();
+      },
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const app = createApp(scope);
+      app.mount('#app');
+      scope.start();
+    });
+  </script>
+</body>
+</html>

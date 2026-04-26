@@ -31,6 +31,9 @@ import waitress
 
 from wizard.sethlans_wizard.handlers.auth import make_auth_handler
 from wizard.sethlans_wizard.handlers.done import make_done_handler
+from wizard.sethlans_wizard.handlers.launcher_log_path import (
+    make_launcher_log_path_handler,
+)
 from wizard.sethlans_wizard.handlers.runtime_ready import (
     make_runtime_ready_handler,
 )
@@ -127,6 +130,10 @@ def create_app(
         "/api/wizard/runtime-ready/",
         make_runtime_ready_handler(data_dir, secret_bytes),
     )
+    router.add(
+        "/api/wizard/launcher-log-path/",
+        make_launcher_log_path_handler(data_dir),
+    )
     # Frontend pages and vendored assets (B2 / FR-W-FE2). Static routes
     # are prefix-matched; API routes above keep their exact-match
     # semantics so a stray ``/api/wizard/auth/extra`` cannot collide
@@ -145,6 +152,10 @@ def create_app(
     router.add(
         "/topology",
         make_index_handler(STATIC_ROOT, "topology.html"),
+    )
+    router.add(
+        "/redirecting",
+        make_index_handler(STATIC_ROOT, "redirecting.html"),
     )
 
     def app(environ: dict, start_response: Callable) -> Iterable[bytes]:

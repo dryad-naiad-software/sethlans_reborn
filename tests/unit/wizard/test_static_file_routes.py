@@ -163,6 +163,52 @@ class TestTopologyRoute:
 
 
 # ---------------------------------------------------------------------
+# /redirecting → redirecting.html (FR-W-FE5)
+# ---------------------------------------------------------------------
+
+class TestRedirectingRoute:
+
+    def test_get_redirecting_returns_redirecting_html(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, headers, body = _invoke(app, _get_environ("/redirecting"))
+        assert status.startswith("200"), status
+        assert headers.get("Content-Type", "").startswith("text/html"), headers
+        # Sanity: this is the redirecting page (its unique markers).
+        assert b"/api/wizard/runtime-ready/" in body, (
+            "GET /redirecting must return redirecting.html (polls runtime-ready), "
+            "not index.html or topology.html."
+        )
+        assert b"Starting Sethlans" in body or b"Starting Sethlans&hellip;" in body
+
+    def test_redirecting_response_carries_security_headers(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        _, headers, _ = _invoke(app, _get_environ("/redirecting"))
+        assert "Content-Security-Policy" in headers
+        assert headers.get("X-Content-Type-Options") == "nosniff"
+        assert headers.get("Referrer-Policy") == "no-referrer"
+        assert "interest-cohort=()" in headers.get("Permissions-Policy", "")
+
+    def test_post_redirecting_page_returns_405(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, headers, _ = _invoke(app, _post_environ("/redirecting"))
+        assert status.startswith("405"), status
+        assert "GET" in headers.get("Allow", "")
+
+    def test_redirecting_route_distinct_from_other_pages(self, tmp_path):
+        """All three wizard pages must serve different content."""
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        _, _, root_body = _invoke(app, _get_environ("/"))
+        _, _, topology_body = _invoke(app, _get_environ("/topology"))
+        _, _, redirecting_body = _invoke(app, _get_environ("/redirecting"))
+        assert root_body != redirecting_body
+        assert topology_body != redirecting_body
+        # Redirecting page polls runtime-ready; others do not.
+        assert b"/api/wizard/runtime-ready/" in redirecting_body
+        assert b"/api/wizard/runtime-ready/" not in root_body
+        assert b"/api/wizard/runtime-ready/" not in topology_body
+
+
+# ---------------------------------------------------------------------
 # /static/vendor/* — vendored Petite-vue + Bootstrap
 # ---------------------------------------------------------------------
 
