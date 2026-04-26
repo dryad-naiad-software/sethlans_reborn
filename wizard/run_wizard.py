@@ -137,6 +137,13 @@ def main(argv: list[str] | None = None) -> int:
     subdir = bootstrap.wizard_subdir(data_dir)
 
     bootstrap.configure_logging(subdir)
+    # MED-1 — install signal handlers IMMEDIATELY after configure_logging,
+    # before any I/O. The handler resolves the server ref at fire-time
+    # so it's a safe no-op when invoked before the listener binds. This
+    # closes the window where SIGTERM during cert generation / secret
+    # read leaves the wizard unresponsive to graceful shutdown.
+    bootstrap.install_signal_handlers()
+
     logger.info(
         "sethlans-wizard %s starting (data_dir=%s)", get_version(), data_dir,
     )
@@ -164,8 +171,16 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError:
         return 2
 
-    bootstrap.install_signal_handlers()
     _print_url_banner(requested_port, no_browser=args.no_browser)
+
+    # FR-W17(b)/(c) — spawn the post-done polling thread before the
+    # listener starts so the .wizard_reject / failsafe machinery is
+    # already wired up by the time the done handler fires.
+    # ipc_secret is held inside the app's closure; pull it out via
+    # the introspection attribute set by server.create_app.
+    ipc_secret = getattr(app, "_ipc_secret", b"")
+    if ipc_secret:
+        bootstrap.start_post_done_threads(data_dir, ipc_secret)
 
     try:
         return bootstrap.serve_with_port_scan(

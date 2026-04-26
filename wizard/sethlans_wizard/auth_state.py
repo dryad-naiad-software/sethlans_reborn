@@ -19,6 +19,13 @@ Lock invariant (FR-W12 / CONC-v23-LOW-2):
 * The in-flight probe lock (FR-W14) is a SEPARATE lock and lives in
   the probe handler module, NOT here.
 
+Lock-coupling rule (CRITICAL — CONC-v23-MED-1):
+* The handoff-state lock MUST NOT be held when the in-flight probe
+  lock is acquired. Once the in-flight probe lock is held, the
+  handoff-state lock may be acquired and released in short critical
+  sections. Never reverse: never hold the handoff-state lock and
+  then try to acquire the in-flight probe lock.
+
 Rate-limit semantics (FR-W7):
 * ``_RATE_LIMIT_MAX = 10`` failed attempts per source IP per
   ``_RATE_LIMIT_WINDOW = 60`` seconds.

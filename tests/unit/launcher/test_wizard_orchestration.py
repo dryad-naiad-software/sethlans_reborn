@@ -17,9 +17,28 @@ class _FakeProc:
     def __init__(self, returncode=None, pid=12345):
         self.returncode = returncode
         self.pid = pid
+        self.terminate_called = False
+        self.kill_called = False
 
     def poll(self):
         return self.returncode
+
+    def terminate(self):
+        # Simulate the process exiting cleanly on terminate so
+        # subsequent poll() returns 0 and the launcher's grace wait
+        # short-circuits.
+        self.terminate_called = True
+        if self.returncode is None:
+            self.returncode = 0
+
+    def kill(self):
+        self.kill_called = True
+        if self.returncode is None:
+            self.returncode = -9
+
+    def wait(self, timeout=None):
+        del timeout
+        return self.returncode or 0
 
 
 # ---- Token + secret generation -------------------------------------------
@@ -192,6 +211,30 @@ class TestRunWizardMode:
             idle_timeout=0.1,
         )
         assert rc == 1
+        terminate.assert_called_once()
+
+    def test_missing_port_file_aborts_handoff(self, tmp_path, mocker):
+        """MED-4 (Phase F1): no silent fallback to 8100 when the wizard
+        never writes its port file — that produced wrong banner URLs."""
+        # No port file written.
+        wizard_proc = _FakeProc()
+        terminate = mocker.patch(
+            "launcher.wizard_runtime.terminate_wizard",
+        )
+        # Speed up the inner wait by patching the timeout floor.
+        mocker.patch(
+            "launcher.wizard_orchestration._wait_for_wizard_port",
+            return_value=None,
+        )
+        rc = wizard_orchestration.run_wizard_mode(
+            tmp_path, self._make_args(),
+            bootstrap_first_run=MagicMock(),
+            start_component=MagicMock(return_value=wizard_proc),
+            idle_timeout=2.0,
+        )
+        assert rc == 1, (
+            "missing port file MUST abort, not fall back to 8100"
+        )
         terminate.assert_called_once()
 
     def test_wizard_failure_exits_nonzero(self, tmp_path, mocker):

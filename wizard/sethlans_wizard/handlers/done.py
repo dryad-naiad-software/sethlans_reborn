@@ -42,7 +42,7 @@ import os
 from pathlib import Path
 from typing import Callable, Iterable
 
-from wizard.sethlans_wizard import auth_state, ipc
+from wizard.sethlans_wizard import auth_state, ipc, shutdown
 from wizard.sethlans_wizard.handlers import _wsgi
 from wizard.sethlans_wizard.handlers.auth import session_header_valid
 from wizard.sethlans_wizard.handlers.topology import TOPOLOGY_FILENAME
@@ -163,6 +163,9 @@ def _handle(
         )
 
     auth_state.clear_session_token()
+    # FR-W17 — signal the post-done polling thread that .wizard_done
+    # is now on disk, arming conditions (b) and (c). Idempotent.
+    shutdown.mark_done_written()
     logger.info("Wizard done; .wizard_done written, session cleared")
     return _wsgi.send_json(start_response, {"status": "ok"}, status=200)
 

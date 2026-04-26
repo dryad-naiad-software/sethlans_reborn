@@ -19,8 +19,8 @@ import time
 
 import pytest
 
-from wizard.sethlans_wizard import auth_state, ipc
-from wizard.sethlans_wizard.handlers import runtime_ready
+from wizard.sethlans_wizard import auth_state, ipc, shutdown
+from wizard.sethlans_wizard.handlers import _runtime_probe, runtime_ready
 from wizard.sethlans_wizard.handlers.topology import write_topology_atomic
 
 
@@ -43,14 +43,27 @@ def _build_environ(*, method="GET", path="/api/wizard/runtime-ready/",
     return env
 
 
-def _call(handler, environ):
+def _call(handler, environ, *, fire_close=True):
+    """Invoke *handler* and (by default) drive the PEP 3333 close() hook.
+
+    Waitress invokes ``close()`` after the response body has been
+    flushed to the wire. Production behaviour for ready responses
+    depends on this hook firing, so the test harness mirrors it.
+    Tests that want to inspect "what would happen if close() never
+    fires" pass ``fire_close=False``.
+    """
     captured = {}
 
     def start_response(status, headers):
         captured["status"] = status
         captured["headers"] = headers
 
-    body = b"".join(handler(environ, start_response))
+    response = handler(environ, start_response)
+    body = b"".join(response)
+    if fire_close:
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
     parsed = json.loads(body.decode("utf-8")) if body else None
     return captured["status"], dict(captured["headers"]), parsed
 
@@ -60,9 +73,16 @@ def _reset_state():
     auth_state.reset_state_for_tests()
     auth_state.set_session_token(_VALID_SESSION)
     runtime_ready.reset_state_for_tests()
+    shutdown.reset_state_for_tests()
     yield
     auth_state.reset_state_for_tests()
     runtime_ready.reset_state_for_tests()
+    shutdown.reset_state_for_tests()
+
+
+def _silent_close():
+    """Default ``on_first_ready_close`` for tests — no real shutdown."""
+    auth_state.mark_browser_redirect_acknowledged()
 
 
 def _auth_env(**kw):
@@ -75,9 +95,10 @@ def _ok_payload():
     return {"boot_id": "x", "worker_id": "y", "version": "1"}
 
 
-def _make_handler(data_dir, probe_fn):
+def _make_handler(data_dir, probe_fn, *, on_first_ready_close=None):
     return runtime_ready.make_runtime_ready_handler(
         data_dir, _IPC_SECRET, probe_runtime_health=probe_fn,
+        on_first_ready_close=on_first_ready_close or _silent_close,
     )
 
 
@@ -197,7 +218,7 @@ class TestProbeCache:
         write_topology_atomic(tmp_path, "manager")
         clock = {"t": 1000.0}
         monkeypatch.setattr(
-            runtime_ready.time, "monotonic", lambda: clock["t"],
+            _runtime_probe.time, "monotonic", lambda: clock["t"],
         )
         call_count = {"n": 0}
 

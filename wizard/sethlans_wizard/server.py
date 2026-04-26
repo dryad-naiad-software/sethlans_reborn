@@ -3,18 +3,16 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Waitress WSGI app + server bootstrap for the wizard (Spec 1).
 
-Implements the FR-W12 server choice (Waitress, ``threads=4``, single
-handoff-state lock invariant) and the FR-W3 port-resolution helper.
+FR-W12 (Waitress, ``threads=4``, single handoff-state lock invariant)
+and FR-W3 port resolution. Waitress has no native TLS, so :func:`run`
+binds + wraps the socket and hands it to ``waitress.create_server``
+via ``sockets=[…]``.
 
-TLS: Waitress has no native TLS support, so :func:`run` wraps the bound
-socket with an ``ssl.SSLContext.wrap_socket(server_side=True)`` and
-passes the wrapped socket to ``waitress.create_server`` via
-``sockets=[…]`` so the wasyncore loop never sees a raw TCP connection.
-
-Lock ordering (CRITICAL — CONC-v23-MED-1): the handoff-state lock from
-:func:`wizard.sethlans_wizard.auth_state.get_handoff_lock` MUST be
-acquired BEFORE the in-flight probe lock owned by
-``handlers/runtime_ready.py`` — never the reverse.
+Lock-coupling rule (CRITICAL — CONC-v23-MED-1): the handoff-state
+lock MUST NOT be held when the in-flight probe lock owned by
+``handlers/runtime_ready.py`` is acquired. Once the in-flight lock is
+held, the handoff-state lock may be acquired and released in short
+critical sections — never the reverse.
 """
 
 from __future__ import annotations
@@ -174,13 +172,7 @@ def create_app(
 # ---------------------------------------------------------------------
 
 def _build_tls_context(cert_path: Path, key_path: Path) -> ssl.SSLContext:
-    """Construct a server-side TLS context from cert + key files.
-
-    Server-side default: ``PROTOCOL_TLS_SERVER`` with the platform's
-    default ciphers. Client cert verification is disabled — the wizard
-    is short-lived, behind a setup-token gate, and serves a self-signed
-    cert; mutual TLS is out of scope for Spec 1.
-    """
+    """Construct a server-side TLS context from cert + key files."""
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
     return ctx
@@ -193,16 +185,12 @@ def _bind_tls_socket(
 ) -> socket.socket:
     """Create a listening TCP socket and TLS-wrap it (server side).
 
-    The wrapped socket is what we hand to Waitress via ``sockets=[…]``
-    so Waitress's wasyncore loop never sees a raw TCP connection that
-    skips the TLS handshake.
-
-    On bind failure the raw socket is closed and the original
-    ``OSError`` is re-raised.
+    On bind failure the raw socket is closed and the ``OSError``
+    is re-raised. FR-W3: SO_REUSEADDR=False so we never silently
+    steal a port.
     """
     raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        # FR-W3: SO_REUSEADDR=False so we never silently steal a port.
         raw.bind((host, port))
         raw.listen(socket.SOMAXCONN)
     except OSError:
@@ -276,6 +264,24 @@ def get_server_ref() -> _ServerRef:
     return _SERVER_REF
 
 
+def shutdown_server() -> None:
+    """Idempotently close the live waitress server, if any.
+
+    Safe to call before the server is bound (no-op), from any thread,
+    and multiple times. Used by the FR-W17 polite-shutdown sequence:
+    the response-wrapper grace timer (close()-hook), the
+    ``.wizard_reject`` polling thread, and the 5-minute failsafe timer
+    all funnel through this helper so the call site stays simple.
+    """
+    srv = _SERVER_REF.get()
+    if srv is None:
+        return
+    try:
+        srv.close()
+    except Exception as exc:  # noqa: BLE001 — defensive; close races
+        logger.warning("server.close() raised during shutdown: %s", exc)
+
+
 __all__ = [
     "DEFAULT_WIZARD_PORT",
     "PORT_SCAN_RANGE",
@@ -287,4 +293,5 @@ __all__ = [
     "resolve_port",
     "run",
     "get_server_ref",
+    "shutdown_server",
 ]

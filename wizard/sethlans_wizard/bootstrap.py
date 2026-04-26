@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
-from wizard.sethlans_wizard import ipc, server
+from wizard.sethlans_wizard import ipc, server, shutdown
 
 logger = logging.getLogger("wizard.bootstrap")
 
@@ -140,17 +140,18 @@ def install_signal_handlers() -> None:
     handlers; this handler is the operator-side escape hatch (e.g.,
     systemd stop, Ctrl+C). It tells waitress to drain in-flight
     requests and exit, instead of being killed mid-response.
+
+    Safe to install BEFORE the server has bound — the handler resolves
+    the live server reference at signal-fire time and is a no-op when
+    none is registered.
     """
     def _handler(signum, _frame):
         logger.info(
             "Wizard caught signal %d; closing waitress server", signum,
         )
-        srv = server.get_server_ref().get()
-        if srv is not None:
-            try:
-                srv.close()
-            except Exception as exc:  # noqa: BLE001 — defensive
-                logger.warning("server.close() raised: %s", exc)
+        # server.shutdown_server is idempotent and a no-op when the
+        # ServerRef slot is empty (i.e., signal fired before binding).
+        server.shutdown_server()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -158,6 +159,15 @@ def install_signal_handlers() -> None:
         except (ValueError, OSError):
             # Non-main thread / unsupported platform — non-fatal.
             pass
+
+
+def start_post_done_threads(data_dir: Path, ipc_secret: bytes) -> None:
+    """Spawn the FR-W17 (b)/(c) post-done polling thread.
+
+    Thin wrapper so ``run_wizard.py`` doesn't need to reach into
+    :mod:`wizard.sethlans_wizard.shutdown` directly. Idempotent.
+    """
+    shutdown.start_post_done_threads(Path(data_dir), bytes(ipc_secret))
 
 
 def serve_with_port_scan(

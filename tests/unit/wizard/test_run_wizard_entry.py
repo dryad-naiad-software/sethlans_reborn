@@ -242,6 +242,13 @@ class TestSuccessfulWiring:
         monkeypatch.setattr(
             bootstrap, "install_signal_handlers", lambda: None,
         )
+        # Neuter the FR-W17 post-done polling thread so the test
+        # doesn't leak a daemon thread that polls for 5 minutes
+        # waiting for .wizard_done.
+        monkeypatch.setattr(
+            bootstrap, "start_post_done_threads",
+            lambda *a, **kw: None,
+        )
 
         run_wizard = importlib.import_module("run_wizard")
         rc = run_wizard.main([])
@@ -267,6 +274,13 @@ class TestSuccessfulWiring:
         )
         monkeypatch.setattr(
             bootstrap, "install_signal_handlers", lambda: None,
+        )
+        # Neuter the FR-W17 post-done polling thread so the test
+        # doesn't leak a daemon thread that polls for 5 minutes
+        # waiting for .wizard_done.
+        monkeypatch.setattr(
+            bootstrap, "start_post_done_threads",
+            lambda *a, **kw: None,
         )
 
         data_dir, _, _ = provisioned_data_dir
@@ -297,6 +311,13 @@ class TestSuccessfulWiring:
         )
         monkeypatch.setattr(
             bootstrap, "install_signal_handlers", lambda: None,
+        )
+        # Neuter the FR-W17 post-done polling thread so the test
+        # doesn't leak a daemon thread that polls for 5 minutes
+        # waiting for .wizard_done.
+        monkeypatch.setattr(
+            bootstrap, "start_post_done_threads",
+            lambda *a, **kw: None,
         )
 
         run_wizard = importlib.import_module("run_wizard")

@@ -181,8 +181,16 @@ def run_wizard_mode(
 
     chosen_port = _wait_for_wizard_port(data_dir, wizard_proc, timeout=10.0)
     if chosen_port is None:
-        logger.warning("wizard did not write port file; using 8100 default")
-        chosen_port = 8100
+        # MED-4 (Phase F1): no silent fallback to 8100 — the wizard's
+        # bind may have landed on any of 8100..8104 (FR-W3 port scan)
+        # or it may have crashed. Either way, surfacing a wrong banner
+        # URL would send the operator to the wrong page. Treat as
+        # handshake failure; the wizard's own log records the cause.
+        logger.error(
+            "wizard did not write port file within 10s; aborting handoff",
+        )
+        wizard_runtime.terminate_wizard(wizard_proc)
+        return wizard_runtime.wizard_failure_exit("wizard_no_port_file")
     surface_wizard_url(
         chosen_port, setup_token, data_dir,
         getattr(args, "no_browser", False),

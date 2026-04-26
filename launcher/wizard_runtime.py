@@ -24,8 +24,11 @@ from __future__ import annotations
 import json
 import logging
 import socket
+import ssl
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -39,6 +42,14 @@ RUNTIME_PORT_BIND_POLL_INTERVAL = 0.25
 
 # FR-W14a deterministic runtime port for manager-bearing topologies.
 RUNTIME_MANAGER_PORT = 8080
+
+# HIGH-1 (Phase F1) — required keys on the runtime's /api/health/
+# response body. Same shape the wizard's FR-W14 probe asserts so the
+# launcher and wizard agree on what "healthy" means.
+_HEALTH_REQUIRED_KEYS = ("boot_id", "version")
+# Per-call timeout for the health probe; small so a hung runtime
+# doesn't dominate the port-bind poll budget.
+_HEALTH_PROBE_TIMEOUT = 2.0
 
 
 # ---- Topology read --------------------------------------------------------
@@ -76,13 +87,58 @@ def _port_is_bound(port: int, host: str = "127.0.0.1") -> bool:
             pass
 
 
+def _probe_runtime_health(
+    port: int, host: str = "127.0.0.1",
+) -> bool:
+    """HIGH-1 (Phase F1): HTTPS GET ``/api/health/``; True on 200 + envelope.
+
+    Mirrors the wizard's FR-W14 probe: stdlib + fresh single-use
+    ``SSLContext`` with verification disabled (matches the Docker
+    ``HEALTHCHECK curl -fsk`` posture). The context MUST NOT be cached.
+    Required envelope is the manager/worker intersection: ``boot_id``
+    and ``version`` (worker also returns ``worker_id``).
+    """
+    url = f"https://{host}:{port}/api/health/"
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(  # noqa: S310 — self-signed by design
+            url, context=ctx, timeout=_HEALTH_PROBE_TIMEOUT,
+        ) as resp:
+            status = getattr(resp, "status", None) or resp.getcode()
+            if status != 200:
+                return False
+            raw = resp.read()
+    except (
+        urllib.error.URLError,
+        socket.timeout,
+        ConnectionRefusedError,
+        ssl.SSLError,
+    ):
+        return False
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(body, dict):
+        return False
+    return all(key in body for key in _HEALTH_REQUIRED_KEYS)
+
+
 def wait_for_runtime_port_bind(
     runtime_proc: subprocess.Popen,
     port: int,
     timeout: float = RUNTIME_PORT_BIND_TIMEOUT,
     poll_interval: float = RUNTIME_PORT_BIND_POLL_INTERVAL,
 ) -> bool:
-    """Poll for runtime *port* binding within *timeout* seconds (FR-L7b)."""
+    """Poll for runtime *port* binding AND a healthy /api/health/ (FR-L7b).
+
+    HIGH-1 (Phase F1): port-bound is necessary but NOT sufficient — a
+    process that has bound the socket but is still loading Django apps
+    can answer connect() while ``/api/health/`` 503s or hangs. We
+    must see a 200 + envelope before treating the runtime as up.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         rc = runtime_proc.poll()
@@ -91,11 +147,12 @@ def wait_for_runtime_port_bind(
                 "runtime exited non-zero (code %d) before port-bind", rc,
             )
             return False
-        if _port_is_bound(port):
+        if _port_is_bound(port) and _probe_runtime_health(port):
             return True
         time.sleep(poll_interval)
     logger.warning(
-        "runtime did not bind port %d within %.0fs", port, timeout,
+        "runtime did not become healthy on port %d within %.0fs",
+        port, timeout,
     )
     return False
 
@@ -219,6 +276,15 @@ def hand_off_to_runtime(
             on_manager_ready()
         except Exception:  # noqa: BLE001
             logger.exception("on_manager_ready callback raised; ignoring")
+
+    # CRITICAL-2 (Phase F1): terminate the wizard BEFORE rmtree-ing
+    # its working directory. With FR-W17 in place the wizard usually
+    # self-exits via the close()-hook + grace timer before we get
+    # here, but terminate_wizard is the safety net — without it,
+    # cleanup_wizard_dir can rmtree the wizard's TLS files and
+    # logfile while the wizard is mid-write, racing the FR-W10
+    # cleanup the wizard performs at exit.
+    terminate_wizard(wizard_proc)
 
     # FR-L13: best-effort delete <data_dir>/wizard/ after handoff.
     # Wizard's own FR-W10 cleanup may race; both are idempotent.
