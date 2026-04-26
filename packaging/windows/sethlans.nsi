@@ -21,8 +21,8 @@
   !define PRODUCT_VERSION "0.1.0"
 !endif
 
-; Root directory containing the four PyInstaller bundle dirs
-; (manager/, worker/, tray_helper/, launcher/). Defaults to the
+; Root directory containing the five PyInstaller bundle dirs
+; (manager/, worker/, tray_helper/, launcher/, wizard/). Defaults to the
 ; legacy location at repo root; the build script overrides this to
 ; ../../.tmp/dist so generated files stay in the gitignored .tmp/.
 !ifndef DIST_ROOT
@@ -97,6 +97,7 @@ Function .onInit
     nsExec::ExecToLog 'taskkill /F /IM run_worker.exe'
     nsExec::ExecToLog 'taskkill /F /IM run_tray_helper.exe'
     nsExec::ExecToLog 'taskkill /F /IM run_launcher.exe'
+    nsExec::ExecToLog 'taskkill /F /IM run_wizard.exe'
 
     ; Run the previous uninstaller silently with _?=$INSTDIR so it blocks until done
     ; and does not self-delete. We then clean up the leftover uninstaller + bin dir.
@@ -127,6 +128,9 @@ Section "Sethlans Core" SEC_CORE
 
   SetOutPath "$INSTDIR\bin\launcher"
   File /r "${DIST_ROOT}\launcher\*.*"
+
+  SetOutPath "$INSTDIR\bin\wizard"
+  File /r "${DIST_ROOT}\wizard\*.*"
 
   ; Copy license and version metadata
   SetOutPath "$INSTDIR"
@@ -184,6 +188,8 @@ Section "Sethlans Core" SEC_CORE
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Manager (TCP 8080)" dir=in action=allow protocol=TCP localport=8080 profile=private,public,domain program="$INSTDIR\bin\manager\run_manager.exe"'
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Worker (TCP 8081)" dir=in action=allow protocol=TCP localport=8081 profile=private,public,domain program="$INSTDIR\bin\worker\run_worker.exe"'
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Broadcast (UDP 8082)" dir=in action=allow protocol=UDP localport=8082 profile=private,public,domain program="$INSTDIR\bin\manager\run_manager.exe"'
+  ; Wizard binds to a port in the 8100-8104 range during first-run setup (see FR-W15, DEVOPS-HIGH-5).
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Wizard (Setup)" dir=in action=allow protocol=TCP localport=8100-8104 profile=private,public,domain program="$INSTDIR\bin\wizard\run_wizard.exe"'
 SectionEnd
 
 ; --- Start Menu shortcuts ---
@@ -211,11 +217,13 @@ Section "Uninstall"
   nsExec::ExecToLog 'taskkill /F /IM run_manager.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_worker.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_tray_helper.exe'
+  nsExec::ExecToLog 'taskkill /F /IM run_wizard.exe'
 
   ; Remove Windows Firewall rules
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Manager (TCP 8080)"'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Worker (TCP 8081)"'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Broadcast (UDP 8082)"'
+  nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Wizard (Setup)"'
 
   ; Remove files
   RMDir /r "$INSTDIR\bin"
