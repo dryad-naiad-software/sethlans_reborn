@@ -63,6 +63,7 @@ jobs:
           pip install -r requirements-build.txt
           pip install -r manager/requirements.txt
           pip install -r worker/requirements.txt
+          pip install -r wizard/requirements.txt
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -97,6 +98,9 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      - name: Run PyInstaller — Wizard
+        run: pyinstaller packaging/pyinstaller/wizard.spec --noconfirm
 
       - name: Assert Caddy binary bundled (Windows)
         shell: pwsh
@@ -161,6 +165,113 @@ jobs:
             Write-Host "Manager smoke test passed (HTTP $status)"
           } finally {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      # Wizard smoke test (AC-B4 + AC-B2 + NF-4 / DEVOPS-MED-11):
+      # - Fresh tmpdir per run (DEVOPS-MED-9, deleted on step exit even on failure).
+      # - Provisions chmod-equivalent .setup_token + .ipc_secret.
+      # - Spawns dist/wizard/run_wizard.exe with SETHLANS_WIZARD_PORT=8100.
+      # - Polls https://localhost:8100/ with cert-skip; 30 s wall-clock budget.
+      # - Asserts dist/wizard <= 30 MB; on overage prints top-10 largest.
+      # - Asserts no django/workers/psycopg/pymysql leaked into the bundle.
+      # - SIGTERMs the wizard and dumps captured stdout/stderr on failure.
+      # MUST run AFTER manager smoke step (DEVOPS-v22-MED-3 ordering).
+      - name: Smoke test — Wizard starts
+        shell: pwsh
+        run: |
+          # Bundle introspection (AC-B2): forbidden imports MUST NOT be
+          # bundled into the wizard PyInstaller output. Mirrors the
+          # pathlib.rglob approach spelled out in AC-B2.
+          $forbidden = @('django', 'workers', 'psycopg', 'pymysql')
+          $leaks = @()
+          foreach ($name in $forbidden) {
+            $hits = Get-ChildItem -Path "dist\wizard" -Recurse -Force `
+              -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "$name*" }
+            if ($hits) {
+              $leaks += "$name -> $($hits.FullName -join ', ')"
+            }
+          }
+          if ($leaks.Count -gt 0) {
+            Write-Host "--- forbidden bundle entries detected ---"
+            $leaks | ForEach-Object { Write-Host $_ }
+            throw "Wizard bundle leaked forbidden modules"
+          }
+          Write-Host "Wizard bundle introspection passed (none of: $($forbidden -join ', '))"
+
+          # Bundle size assertion (NF-4 / DEVOPS-MED-11): 30 MB ceiling.
+          $maxBytes = 30 * 1024 * 1024
+          $totalBytes = (Get-ChildItem -Path "dist\wizard" -Recurse -Force `
+            -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+          if (-not $totalBytes) { $totalBytes = 0 }
+          Write-Host "Wizard bundle size: $totalBytes bytes (ceiling $maxBytes)"
+          if ($totalBytes -gt $maxBytes) {
+            Write-Host "--- top 10 largest files in dist\wizard ---"
+            Get-ChildItem -Path "dist\wizard" -Recurse -Force -File `
+              -ErrorAction SilentlyContinue |
+              Sort-Object -Property Length -Descending |
+              Select-Object -First 10 -Property `
+                @{Name='SizeMB';Expression={[math]::Round($_.Length/1MB,2)}}, FullName |
+              Format-Table -AutoSize | Out-Host
+            throw "Wizard bundle size $totalBytes bytes exceeds NF-4 ceiling $maxBytes bytes"
+          }
+
+          # Provision a fresh per-run tmpdir (DEVOPS-MED-9). Cleaned up
+          # in the finally block regardless of success/failure.
+          $tmpRoot = Join-Path $env:TEMP ("sethlans-wizard-smoke-" + [guid]::NewGuid().ToString('N'))
+          $wizardDir = Join-Path $tmpRoot "wizard"
+          New-Item -ItemType Directory -Force -Path $wizardDir | Out-Null
+
+          # Setup token + IPC secret: 32 random bytes hex-encoded each.
+          # Single-line, non-empty. Windows ACLs already restrict %TEMP%
+          # subdir to the current user; explicit chmod-600 not applicable.
+          $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+          $buf = New-Object byte[] 32
+          $rng.GetBytes($buf)
+          $token = -join ($buf | ForEach-Object { '{0:x2}' -f $_ })
+          $rng.GetBytes($buf)
+          $secret = -join ($buf | ForEach-Object { '{0:x2}' -f $_ })
+          [System.IO.File]::WriteAllText((Join-Path $wizardDir ".setup_token"), $token)
+          [System.IO.File]::WriteAllText((Join-Path $wizardDir ".ipc_secret"), $secret)
+
+          $env:SETHLANS_WIZARD_PORT = "8100"
+          $env:SETHLANS_DATA_DIR = $tmpRoot
+
+          $logOut = Join-Path $tmpRoot "wizard-stdout.log"
+          $logErr = Join-Path $tmpRoot "wizard-stderr.log"
+          $proc = Start-Process -FilePath "dist\wizard\run_wizard.exe" `
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput $logOut `
+            -RedirectStandardError $logErr
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          try {
+            # Poll https://localhost:8100/ until 200 within 30 s
+            # (AC-B4 + DEVOPS-v22-MED-2: 30 s startup, 30 s shutdown headroom).
+            $status = "000"
+            for ($i = 0; $i -lt 30; $i++) {
+              try {
+                $r = Invoke-WebRequest -Uri "https://localhost:8100/" `
+                  -SkipCertificateCheck -TimeoutSec 2 -ErrorAction Stop
+                if ($r.StatusCode -eq 200) { $status = "200"; break }
+              } catch { }
+              if ($proc.HasExited) {
+                Write-Host "Wizard process exited early (code $($proc.ExitCode)) after $($sw.Elapsed.TotalSeconds)s"
+                break
+              }
+              Start-Sleep -Seconds 1
+            }
+            if ($status -ne "200") {
+              Write-Host "--- wizard stdout ---"
+              if (Test-Path $logOut) { Get-Content $logOut } else { Write-Host "(empty)" }
+              Write-Host "--- wizard stderr ---"
+              if (Test-Path $logErr) { Get-Content $logErr } else { Write-Host "(empty)" }
+              throw "Wizard smoke test failed (last status: $status, elapsed $($sw.Elapsed.TotalSeconds)s)"
+            }
+            Write-Host "Wizard smoke test passed (HTTP $status in $($sw.Elapsed.TotalSeconds)s)"
+          } finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
           }
 
       - name: Smoke test — Worker starts
@@ -265,6 +376,7 @@ jobs:
           pip install -r requirements-build.txt
           pip install -r manager/requirements.txt
           pip install -r worker/requirements.txt
+          pip install -r wizard/requirements.txt
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -299,6 +411,9 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      - name: Run PyInstaller — Wizard
+        run: pyinstaller packaging/pyinstaller/wizard.spec --noconfirm
 
       - name: Assert Caddy binary bundled (macOS)
         run: |
@@ -347,6 +462,105 @@ jobs:
             echo "Manager smoke test failed (HTTP ${STATUS})"
             exit 1
           fi
+
+      # Wizard smoke test (AC-B4 + AC-B2 + NF-4 / DEVOPS-MED-11):
+      # - Fresh tmpdir per run (DEVOPS-MED-9, deleted on exit via trap).
+      # - Provisions chmod-600 .setup_token + .ipc_secret.
+      # - Spawns dist/wizard/run_wizard with SETHLANS_WIZARD_PORT=8100.
+      # - Polls https://localhost:8100/ with curl -fsk; 30 s budget.
+      # - Asserts dist/wizard <= 30 MB; on overage prints top-10 largest.
+      # - Asserts no django/workers/psycopg/pymysql leaked into the bundle.
+      # - SIGTERMs the wizard and dumps captured stdout/stderr on failure.
+      # MUST run AFTER manager smoke step (DEVOPS-v22-MED-3 ordering).
+      - name: Smoke test — Wizard starts
+        run: |
+          set -u
+          # Bundle introspection (AC-B2): forbidden imports MUST NOT be
+          # bundled into the wizard PyInstaller output.
+          LEAKS=""
+          for name in django workers psycopg pymysql; do
+            HITS=$(find dist/wizard -name "${name}*" 2>/dev/null || true)
+            if [ -n "$HITS" ]; then
+              LEAKS="${LEAKS}${name}: ${HITS}\n"
+            fi
+          done
+          if [ -n "$LEAKS" ]; then
+            printf -- "--- forbidden bundle entries detected ---\n%b" "$LEAKS"
+            echo "Wizard bundle leaked forbidden modules"
+            exit 1
+          fi
+          echo "Wizard bundle introspection passed (none of: django workers psycopg pymysql)"
+
+          # Bundle size assertion (NF-4 / DEVOPS-MED-11): 30 MB ceiling.
+          MAX_BYTES=$((30 * 1024 * 1024))
+          # macOS du(1) lacks -b; use -k (KB) and convert to bytes.
+          SIZE_KB=$(du -sk dist/wizard | awk '{print $1}')
+          TOTAL_BYTES=$((SIZE_KB * 1024))
+          echo "Wizard bundle size: ${TOTAL_BYTES} bytes (ceiling ${MAX_BYTES})"
+          if [ "$TOTAL_BYTES" -gt "$MAX_BYTES" ]; then
+            echo "--- top 10 largest files in dist/wizard ---"
+            find dist/wizard -type f -exec du -sh {} + | sort -hr | head -n 10
+            echo "Wizard bundle size ${TOTAL_BYTES} bytes exceeds NF-4 ceiling ${MAX_BYTES} bytes"
+            exit 1
+          fi
+
+          # Fresh tmpdir per run (DEVOPS-MED-9). trap cleans up on any exit.
+          TMP_ROOT=$(mktemp -d -t sethlans-wizard-smoke-XXXXXX)
+          WIZARD_DIR="${TMP_ROOT}/wizard"
+          mkdir -p "${WIZARD_DIR}"
+
+          WIZARD_PID=""
+          cleanup() {
+            if [ -n "${WIZARD_PID}" ]; then
+              kill "${WIZARD_PID}" 2>/dev/null || true
+              wait "${WIZARD_PID}" 2>/dev/null || true
+            fi
+            rm -rf "${TMP_ROOT}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          # Setup token + IPC secret: 32 random bytes hex-encoded each.
+          # chmod 600 per FR-L3a / FR-L4a transport rules.
+          openssl rand -hex 32 > "${WIZARD_DIR}/.setup_token"
+          openssl rand -hex 32 > "${WIZARD_DIR}/.ipc_secret"
+          chmod 600 "${WIZARD_DIR}/.setup_token" "${WIZARD_DIR}/.ipc_secret"
+
+          export SETHLANS_WIZARD_PORT=8100
+          export SETHLANS_DATA_DIR="${TMP_ROOT}"
+
+          LOG_OUT="${TMP_ROOT}/wizard-stdout.log"
+          LOG_ERR="${TMP_ROOT}/wizard-stderr.log"
+          dist/wizard/run_wizard > "${LOG_OUT}" 2> "${LOG_ERR}" &
+          WIZARD_PID=$!
+
+          # Poll https://localhost:8100/ until 200 within 30 s
+          # (AC-B4 + DEVOPS-v22-MED-2: 30 s startup budget).
+          STATUS="000"
+          ELAPSED=0
+          for i in $(seq 1 30); do
+            CODE=$(curl -fsk -o /dev/null -w '%{http_code}' \
+              https://localhost:8100/ 2>/dev/null || echo "000")
+            if [ "$CODE" = "200" ]; then
+              STATUS="200"
+              break
+            fi
+            if ! kill -0 "${WIZARD_PID}" 2>/dev/null; then
+              echo "Wizard process exited early after ${ELAPSED}s"
+              break
+            fi
+            sleep 1
+            ELAPSED=$((ELAPSED + 1))
+          done
+
+          if [ "$STATUS" != "200" ]; then
+            echo "--- wizard stdout ---"
+            [ -f "${LOG_OUT}" ] && cat "${LOG_OUT}" || echo "(empty)"
+            echo "--- wizard stderr ---"
+            [ -f "${LOG_ERR}" ] && cat "${LOG_ERR}" || echo "(empty)"
+            echo "Wizard smoke test failed (HTTP ${STATUS}, elapsed ${ELAPSED}s)"
+            exit 1
+          fi
+          echo "Wizard smoke test passed (HTTP ${STATUS} in ${ELAPSED}s)"
 
       # --- Code signing (conditional) ---
       - name: Import signing certificate
@@ -474,6 +688,7 @@ jobs:
           pip install -r requirements-build.txt
           pip install -r manager/requirements.txt
           pip install -r worker/requirements.txt
+          pip install -r wizard/requirements.txt
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -508,6 +723,9 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
+
+      - name: Run PyInstaller — Wizard
+        run: pyinstaller packaging/pyinstaller/wizard.spec --noconfirm
 
       - name: Assert Caddy binary bundled (Linux)
         run: |
@@ -556,6 +774,103 @@ jobs:
             echo "Manager smoke test failed (HTTP ${STATUS})"
             exit 1
           fi
+
+      # Wizard smoke test (AC-B4 + AC-B2 + NF-4 / DEVOPS-MED-11):
+      # - Fresh tmpdir per run (DEVOPS-MED-9, deleted on exit via trap).
+      # - Provisions chmod-600 .setup_token + .ipc_secret.
+      # - Spawns dist/wizard/run_wizard with SETHLANS_WIZARD_PORT=8100.
+      # - Polls https://localhost:8100/ with curl -fsk; 30 s budget.
+      # - Asserts dist/wizard <= 30 MB; on overage prints top-10 largest.
+      # - Asserts no django/workers/psycopg/pymysql leaked into the bundle.
+      # - SIGTERMs the wizard and dumps captured stdout/stderr on failure.
+      # MUST run AFTER manager smoke step (DEVOPS-v22-MED-3 ordering).
+      - name: Smoke test — Wizard starts
+        run: |
+          set -u
+          # Bundle introspection (AC-B2): forbidden imports MUST NOT be
+          # bundled into the wizard PyInstaller output.
+          LEAKS=""
+          for name in django workers psycopg pymysql; do
+            HITS=$(find dist/wizard -name "${name}*" 2>/dev/null || true)
+            if [ -n "$HITS" ]; then
+              LEAKS="${LEAKS}${name}: ${HITS}\n"
+            fi
+          done
+          if [ -n "$LEAKS" ]; then
+            printf -- "--- forbidden bundle entries detected ---\n%b" "$LEAKS"
+            echo "Wizard bundle leaked forbidden modules"
+            exit 1
+          fi
+          echo "Wizard bundle introspection passed (none of: django workers psycopg pymysql)"
+
+          # Bundle size assertion (NF-4 / DEVOPS-MED-11): 30 MB ceiling.
+          MAX_BYTES=$((30 * 1024 * 1024))
+          TOTAL_BYTES=$(du -sb dist/wizard | awk '{print $1}')
+          echo "Wizard bundle size: ${TOTAL_BYTES} bytes (ceiling ${MAX_BYTES})"
+          if [ "$TOTAL_BYTES" -gt "$MAX_BYTES" ]; then
+            echo "--- top 10 largest files in dist/wizard ---"
+            find dist/wizard -type f -exec du -sh {} + | sort -hr | head -n 10
+            echo "Wizard bundle size ${TOTAL_BYTES} bytes exceeds NF-4 ceiling ${MAX_BYTES} bytes"
+            exit 1
+          fi
+
+          # Fresh tmpdir per run (DEVOPS-MED-9). trap cleans up on any exit.
+          TMP_ROOT=$(mktemp -d -t sethlans-wizard-smoke-XXXXXX)
+          WIZARD_DIR="${TMP_ROOT}/wizard"
+          mkdir -p "${WIZARD_DIR}"
+
+          WIZARD_PID=""
+          cleanup() {
+            if [ -n "${WIZARD_PID}" ]; then
+              kill "${WIZARD_PID}" 2>/dev/null || true
+              wait "${WIZARD_PID}" 2>/dev/null || true
+            fi
+            rm -rf "${TMP_ROOT}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          # Setup token + IPC secret: 32 random bytes hex-encoded each.
+          # chmod 600 per FR-L3a / FR-L4a transport rules.
+          openssl rand -hex 32 > "${WIZARD_DIR}/.setup_token"
+          openssl rand -hex 32 > "${WIZARD_DIR}/.ipc_secret"
+          chmod 600 "${WIZARD_DIR}/.setup_token" "${WIZARD_DIR}/.ipc_secret"
+
+          export SETHLANS_WIZARD_PORT=8100
+          export SETHLANS_DATA_DIR="${TMP_ROOT}"
+
+          LOG_OUT="${TMP_ROOT}/wizard-stdout.log"
+          LOG_ERR="${TMP_ROOT}/wizard-stderr.log"
+          dist/wizard/run_wizard > "${LOG_OUT}" 2> "${LOG_ERR}" &
+          WIZARD_PID=$!
+
+          # Poll https://localhost:8100/ until 200 within 30 s
+          # (AC-B4 + DEVOPS-v22-MED-2: 30 s startup budget).
+          STATUS="000"
+          ELAPSED=0
+          for i in $(seq 1 30); do
+            CODE=$(curl -fsk -o /dev/null -w '%{http_code}' \
+              https://localhost:8100/ 2>/dev/null || echo "000")
+            if [ "$CODE" = "200" ]; then
+              STATUS="200"
+              break
+            fi
+            if ! kill -0 "${WIZARD_PID}" 2>/dev/null; then
+              echo "Wizard process exited early after ${ELAPSED}s"
+              break
+            fi
+            sleep 1
+            ELAPSED=$((ELAPSED + 1))
+          done
+
+          if [ "$STATUS" != "200" ]; then
+            echo "--- wizard stdout ---"
+            [ -f "${LOG_OUT}" ] && cat "${LOG_OUT}" || echo "(empty)"
+            echo "--- wizard stderr ---"
+            [ -f "${LOG_ERR}" ] && cat "${LOG_ERR}" || echo "(empty)"
+            echo "Wizard smoke test failed (HTTP ${STATUS}, elapsed ${ELAPSED}s)"
+            exit 1
+          fi
+          echo "Wizard smoke test passed (HTTP ${STATUS} in ${ELAPSED}s)"
 
       # --- GPG signing (conditional) ---
       - name: Import GPG key
