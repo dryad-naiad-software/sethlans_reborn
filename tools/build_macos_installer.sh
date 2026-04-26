@@ -9,7 +9,8 @@
 # DESCRIPTION
 #     Dev-focused script. Orchestrates the full macOS build pipeline:
 #       1. Angular frontend build (npm run build).
-#       2. PyInstaller bundles: manager, worker, tray_helper, launcher.
+#       2. PyInstaller bundles: manager, worker, tray_helper, launcher,
+#          wizard.
 #       3. DMG assembly via packaging/macos/build_dmg.sh (hdiutil UDZO).
 #
 #     Reads the authoritative version from VERSION at the repo root.
@@ -31,6 +32,7 @@
 #     - Python 3.14 virtualenv at .venv-build/ with these packages installed:
 #         * All of manager/requirements.txt
 #         * All of worker/requirements.txt
+#         * All of wizard/requirements.txt
 #         * requirements-build.txt  (pyinstaller, pyinstaller-hooks-contrib,
 #                                    PySide6-Essentials)
 #     - Node.js 20+ with npm on PATH (for Angular build)
@@ -40,7 +42,8 @@
 # BOOTSTRAP (one-time)
 #     /opt/homebrew/bin/python3.14 -m venv .venv-build
 #     .venv-build/bin/pip install -r manager/requirements.txt \
-#       -r worker/requirements.txt -r requirements-build.txt
+#       -r worker/requirements.txt -r wizard/requirements.txt \
+#       -r requirements-build.txt
 #     xcode-select --install   # if CLT not already present
 #
 # USAGE
@@ -65,7 +68,7 @@ EXPLICIT_VERSION=""
 for arg in "$@"; do
   case "$arg" in
     --version=*) EXPLICIT_VERSION="${arg#--version=}" ;;
-    -h|--help) sed -n '2,48p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,50p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Unknown arg: $arg"; exit 1 ;;
   esac
 done
@@ -124,22 +127,45 @@ if ! command -v hdiutil >/dev/null 2>&1; then
 fi
 
 # --- Build steps ---
-echo "=== 1/6 Angular build ==="
+echo "=== 1/7 Angular build ==="
 ( cd manager/frontend && npm run build 2>&1 | tail -3 )
 
-echo "=== 2/6 PyInstaller: manager ==="
+echo "=== 2/7 PyInstaller: manager ==="
 "$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 3/6 PyInstaller: worker ==="
+echo "=== 3/7 PyInstaller: worker ==="
 "$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 4/6 PyInstaller: tray_helper ==="
+echo "=== 4/7 PyInstaller: tray_helper ==="
 "$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 5/6 PyInstaller: launcher ==="
+echo "=== 5/7 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/6 DMG (v$BUILD_VERSION) ==="
+echo "=== 6/7 PyInstaller: wizard ==="
+"$VENV_PYI" packaging/pyinstaller/wizard.spec --noconfirm --clean 2>&1 | tail -3
+
+# NF-4: wizard one-dir bundle MUST stay at or under 30 MB. Fail loudly
+# on exceedance with the top 10 largest files in the bundle, so a
+# regression is diagnosable from CI logs without re-running the build.
+WIZARD_BUNDLE_DIR="dist/wizard"
+WIZARD_SIZE_LIMIT=$((30 * 1024 * 1024))
+if [ ! -d "$WIZARD_BUNDLE_DIR" ]; then
+  echo "ERROR: wizard PyInstaller bundle not produced at $WIZARD_BUNDLE_DIR"
+  exit 1
+fi
+# macOS `du -sb` is not POSIX; use `du -sk` and convert KiB → bytes.
+WIZARD_SIZE_KB=$(du -sk "$WIZARD_BUNDLE_DIR" | cut -f1)
+WIZARD_SIZE=$((WIZARD_SIZE_KB * 1024))
+echo "Wizard bundle size: ${WIZARD_SIZE} bytes (limit ${WIZARD_SIZE_LIMIT})"
+if [ "$WIZARD_SIZE" -gt "$WIZARD_SIZE_LIMIT" ]; then
+  echo "ERROR: wizard bundle exceeds NF-4 30 MB ceiling."
+  echo "Top 10 largest files in $WIZARD_BUNDLE_DIR:"
+  find "$WIZARD_BUNDLE_DIR" -type f -exec du -sh {} + | sort -rh | head -10
+  exit 1
+fi
+
+echo "=== 7/7 DMG (v$BUILD_VERSION) ==="
 bash "$DMG_SCRIPT" "$BUILD_VERSION"
 
 OUTPUT="dist/sethlans-$BUILD_VERSION-macos-arm64.dmg"
@@ -153,7 +179,7 @@ echo "=== cleanup ==="
 # needed. Leave only the deliverable .dmg files in dist/. Only runs on
 # success so failed builds retain artifacts for debugging.
 rm -rf build
-for component in launcher manager worker tray_helper; do
+for component in launcher manager worker tray_helper wizard; do
   rm -rf "dist/$component"
 done
 rm -rf dist/dmg-staging

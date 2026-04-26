@@ -9,7 +9,8 @@
 # DESCRIPTION
 #     Dev-focused script. Orchestrates the full Windows build pipeline:
 #       1. Angular frontend build (npm run build).
-#       2. PyInstaller bundles: manager, worker, tray_helper, launcher.
+#       2. PyInstaller bundles: manager, worker, tray_helper, launcher,
+#          wizard.
 #       3. NSIS compile into a single installer exe.
 #
 #     Reads the authoritative version from VERSION at the repo root.
@@ -38,6 +39,7 @@
 #     - Python 3.14 virtualenv at .venv-build/ with these packages installed:
 #         * All of manager/requirements.txt
 #         * All of worker/requirements.txt
+#         * All of wizard/requirements.txt
 #         * requirements-build.txt  (pyinstaller, pyinstaller-hooks-contrib)
 #     - Node.js 20+ with npm on PATH (for Angular build)
 #     - NSIS 3.11+ at "C:/Program Files (x86)/NSIS/Bin/makensis.exe"
@@ -48,7 +50,8 @@
 # BOOTSTRAP (one-time)
 #     py -3.12 -m venv .venv-build
 #     .venv-build/Scripts/pip install -r manager/requirements.txt \
-#       -r worker/requirements.txt -r requirements-build.txt
+#       -r worker/requirements.txt -r wizard/requirements.txt \
+#       -r requirements-build.txt
 #     choco install nsis -y   # or install NSIS manually
 #
 # USAGE
@@ -70,7 +73,7 @@ EXPLICIT_VERSION=""
 for arg in "$@"; do
   case "$arg" in
     --version=*) EXPLICIT_VERSION="${arg#--version=}" ;;
-    -h|--help) sed -n '2,42p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,45p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Unknown arg: $arg"; exit 1 ;;
   esac
 done
@@ -132,22 +135,45 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 # --- Build steps ---
-echo "=== 1/6 Angular build ==="
+echo "=== 1/7 Angular build ==="
 ( cd manager/frontend && npm run build 2>&1 | tail -3 )
 
-echo "=== 2/6 PyInstaller: manager ==="
+echo "=== 2/7 PyInstaller: manager ==="
 "$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 3/6 PyInstaller: worker ==="
+echo "=== 3/7 PyInstaller: worker ==="
 "$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 4/6 PyInstaller: tray_helper ==="
+echo "=== 4/7 PyInstaller: tray_helper ==="
 "$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 5/6 PyInstaller: launcher ==="
+echo "=== 5/7 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/6 NSIS (v$BUILD_VERSION) ==="
+echo "=== 6/7 PyInstaller: wizard ==="
+"$VENV_PYI" packaging/pyinstaller/wizard.spec --noconfirm --clean 2>&1 | tail -3
+
+# NF-4: wizard one-dir bundle MUST stay at or under 30 MB. Fail loudly
+# on exceedance with the top 10 largest files in the bundle, so a
+# regression is diagnosable from CI logs without re-running the build.
+# C2 (sethlans.nsi) reads the wizard bundle directly from
+# ${DIST_ROOT}/wizard, so no separate staging copy is needed here.
+WIZARD_BUNDLE_DIR="${DIST_ROOT}/wizard"
+WIZARD_SIZE_LIMIT=$((30 * 1024 * 1024))
+if [ ! -d "$WIZARD_BUNDLE_DIR" ]; then
+  echo "ERROR: wizard PyInstaller bundle not produced at $WIZARD_BUNDLE_DIR"
+  exit 1
+fi
+WIZARD_SIZE=$(du -sb "$WIZARD_BUNDLE_DIR" | cut -f1)
+echo "Wizard bundle size: ${WIZARD_SIZE} bytes (limit ${WIZARD_SIZE_LIMIT})"
+if [ "$WIZARD_SIZE" -gt "$WIZARD_SIZE_LIMIT" ]; then
+  echo "ERROR: wizard bundle exceeds NF-4 30 MB ceiling."
+  echo "Top 10 largest files in $WIZARD_BUNDLE_DIR:"
+  find "$WIZARD_BUNDLE_DIR" -type f -exec du -sh {} + | sort -rh | head -10
+  exit 1
+fi
+
+echo "=== 7/7 NSIS (v$BUILD_VERSION) ==="
 "$NSIS" -DPRODUCT_VERSION="$BUILD_VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3
 
 OUTPUT="packaging/windows/sethlans-$BUILD_VERSION-windows-x64.exe"
@@ -160,7 +186,7 @@ ls -lh "$OUTPUT"
 # --- Cleanup ---
 # Installer is produced; the PyInstaller intermediate trees are no
 # longer needed. Selective removal (matches tools/build_macos_installer.sh):
-# wipe build/ and only the four PyInstaller bundle dirs under dist/.
+# wipe build/ and only the five PyInstaller bundle dirs under dist/.
 # Do NOT `rm -rf dist/` wholesale — the macOS builder emits its final
 # dist/sethlans-<V>-macos-arm64.dmg into the same dist/ dir, and a
 # heavy-handed cleanup here would nuke a sibling platform's deliverable
@@ -170,10 +196,10 @@ ls -lh "$OUTPUT"
 # the auto-bump keeps working across runs.
 echo "=== Cleanup ==="
 rm -rf "${BUILD_ROOT:?}"
-for component in launcher manager worker tray_helper; do
+for component in launcher manager worker tray_helper wizard; do
   rm -rf "${DIST_ROOT:?}/$component"
 done
-echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper}"
+echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper,wizard}"
 
 echo ""
 echo "Installer ready: $OUTPUT"

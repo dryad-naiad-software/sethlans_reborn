@@ -59,7 +59,7 @@ fi
 RESOURCES="${STAGING_DIR}/${APP_NAME}/Contents/Resources"
 mkdir -p "${RESOURCES}/bin"
 
-for component in manager worker tray_helper; do
+for component in manager worker tray_helper wizard; do
     if [ -d "${DIST_DIR}/${component}" ]; then
         cp -R "${DIST_DIR}/${component}" "${RESOURCES}/bin/${component}"
     else
