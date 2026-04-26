@@ -135,17 +135,15 @@ def create_app(
     # Frontend pages and vendored assets (B2 / FR-W-FE2). Static routes
     # are prefix-matched; API routes above keep their exact-match
     # semantics so a stray ``/api/wizard/auth/extra`` cannot collide
-    # with a real handler.
-    router.add(
-        "/static/vendor/",
-        make_static_handler(STATIC_ROOT / "vendor", "/static/vendor/"),
-        exact=False,
-    )
-    router.add(
-        "/static/css/",
-        make_static_handler(STATIC_ROOT / "css", "/static/css/"),
-        exact=False,
-    )
+    # with a real handler. The /static/js/ mount carries per-page
+    # scripts split out of the HTML files (FR-W-FE7, Phase F2).
+    for subdir in ("vendor", "css", "js"):
+        prefix = f"/static/{subdir}/"
+        router.add(
+            prefix,
+            make_static_handler(STATIC_ROOT / subdir, prefix),
+            exact=False,
+        )
     router.add("/", make_index_handler(STATIC_ROOT))
     router.add(
         "/topology",

@@ -22,7 +22,11 @@
 /* Topology picker (FR-W-FE9) — pairs `.selected` with `aria-checked`.
  * Cards are interactive but rendered as Bootstrap `.card` divs with
  * role='radio'. The cursor + focus + selected styles are explicit
- * here so the visual state matches the ARIA state. */
+ * here so the visual state matches the ARIA state.
+ *
+ * LOW-2 (Phase F2): use Bootstrap's CSS custom properties (--bs-primary
+ * / --bs-primary-rgb) instead of the hard-coded #0d6efd literal so the
+ * styles automatically follow theme changes. */
 .topology-card {
     cursor: pointer;
     transition: border-color 0.12s ease-in-out, box-shadow 0.12s ease-in-out;
@@ -30,11 +34,11 @@
 
 .topology-card:focus {
     outline: none;
-    border-color: #0d6efd;
-    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.35);
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.35);
 }
 
 .topology-card.selected {
-    border-color: #0d6efd;
-    box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.45);
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 0.15rem rgba(var(--bs-primary-rgb), 0.45);
 }

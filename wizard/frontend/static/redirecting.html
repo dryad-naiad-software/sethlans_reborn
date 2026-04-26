@@ -38,6 +38,26 @@
     <div class="card shadow-sm w-100 wizard-card">
       <div class="card-body p-4 p-md-5 text-center">
 
+        <!-- HIGH-2 — TLS warning banner. Always rendered above the
+             spinner so the user sees the message *before* the browser
+             throws up the self-signed cert prompt. When the runtime URL
+             is known (status === 'ready'), the warning becomes a
+             clickable link as a manual fallback in case the auto
+             window.location.assign() fires before the user accepts the
+             cert. -->
+        <div class="alert alert-info text-start mb-3" role="status" aria-live="polite">
+          <p class="mb-1 fw-semibold">A new server is starting.</p>
+          <p class="mb-0">
+            Your browser will show a security warning for the new server &mdash;
+            this is expected, click <strong>Advanced &rarr; Proceed</strong> to
+            continue setup.
+          </p>
+          <p v-if="status === 'ready' && runtimeUrl" class="mb-0 mt-2">
+            If your browser does not move on automatically, open
+            <a :href="runtimeUrl" class="text-break">{{ runtimeUrl }}</a>.
+          </p>
+        </div>
+
         <div v-if="status !== 'failed'" class="mb-3">
           <div class="spinner-border text-primary" role="status" aria-hidden="true">
             <span class="visually-hidden">Loading</span>
@@ -51,7 +71,13 @@
           </p>
         </header>
 
-        <div class="redirecting-status" aria-live="polite" aria-describedby="redirecting-subtitle">
+        <!-- MEDIUM-4: bind aria-live so the inner region becomes
+             assertive when status === 'failed'. The heading + body of
+             the failure surface need to be announced immediately, not
+             merged into the polite cadence used while booting. -->
+        <div class="redirecting-status"
+             :aria-live="statusLiveRegionPoliteness"
+             aria-describedby="redirecting-subtitle">
 
           <p v-if="status === 'booting' && !postFailsafeMode" class="mb-2">
             Starting Sethlans&hellip; ({{ elapsedSeconds }}s)
@@ -75,147 +101,6 @@
   </main>
 
   <script src="/static/vendor/bootstrap.bundle.min.js"></script>
-  <script type="module">
-    import { createApp } from '/static/vendor/petite-vue.js';
-
-    const SESSION_KEY = 'wizard:sessionToken';
-    const LAST_READY_URL_KEY = 'wizard:lastReadyUrl';
-    const POLL_INTERVAL_MS = 2000;
-    const TICK_INTERVAL_MS = 1000;
-    const LOG_HINT_AFTER_SECONDS = 60;
-
-    const scope = {
-      status: 'booting',
-      elapsedSeconds: 0,
-      runtimeUrl: null,
-      logPath: '',
-      cachedUrl: null,
-      postFailsafeMode: false,
-      _pollHandle: null,
-      _tickHandle: null,
-
-      // Show the log-path hint when: (a) booting > 60s (FR-W-FE5 fallback,
-      // does NOT replace spinner), or (b) failsafe with no cached URL, or
-      // (c) status === failed. The visible alert variant differs by case.
-      get logHintVisible() {
-        if (this.status === 'failed') return true;
-        if (this.postFailsafeMode && !this.cachedUrl) return true;
-        return (
-          this.status === 'booting' &&
-          !this.postFailsafeMode &&
-          this.elapsedSeconds >= LOG_HINT_AFTER_SECONDS
-        );
-      },
-      get logHintAlertClass() {
-        if (this.status === 'failed') return 'alert alert-danger';
-        return 'alert alert-warning';
-      },
-      get logHintRole() {
-        return this.status === 'failed' ? 'alert' : 'status';
-      },
-      get logHintTitle() {
-        if (this.status === 'failed') return 'Sethlans failed to start.';
-        if (this.postFailsafeMode) return 'The setup wizard is no longer reachable.';
-        return 'Sethlans is taking longer than usual to start.';
-      },
-
-      _readSessionToken() {
-        try { return window.sessionStorage.getItem(SESSION_KEY); }
-        catch (_) { return null; }
-      },
-
-      // CRITICAL (FE-v2.2-MED-1): write cache BEFORE navigation so the
-      // post-failsafe recovery path can surface the URL when fetch() to
-      // the wizard rejects mid-stream.
-      _cacheReadyUrl(url) {
-        try { window.sessionStorage.setItem(LAST_READY_URL_KEY, url); }
-        catch (_) { /* sessionStorage may be disabled */ }
-      },
-      _readCachedReadyUrl() {
-        try { return window.sessionStorage.getItem(LAST_READY_URL_KEY); }
-        catch (_) { return null; }
-      },
-
-      _stopTimers() {
-        if (this._pollHandle !== null) { window.clearInterval(this._pollHandle); this._pollHandle = null; }
-        if (this._tickHandle !== null) { window.clearInterval(this._tickHandle); this._tickHandle = null; }
-      },
-
-      _enterPostFailsafe() {
-        this.postFailsafeMode = true;
-        this.cachedUrl = this._readCachedReadyUrl();
-        this._stopTimers();
-      },
-
-      async _fetchLauncherLogPath(sessionToken) {
-        try {
-          const response = await fetch('/api/wizard/launcher-log-path/', {
-            method: 'GET',
-            headers: { 'X-Wizard-Session': sessionToken },
-            cache: 'no-store',
-            credentials: 'omit',
-          });
-          if (!response.ok) return;
-          const body = await response.json();
-          if (body && typeof body.path === 'string') this.logPath = body.path;
-        } catch (_) { /* non-fatal */ }
-      },
-
-      async _poll() {
-        const sessionToken = this._readSessionToken();
-        if (!sessionToken) { this._enterPostFailsafe(); return; }
-        let response;
-        try {
-          response = await fetch('/api/wizard/runtime-ready/', {
-            method: 'GET',
-            headers: { 'X-Wizard-Session': sessionToken },
-            cache: 'no-store',
-            credentials: 'omit',
-          });
-        } catch (_) {
-          // Network/TLS failure mid-stream — wizard process likely exited.
-          this._enterPostFailsafe();
-          return;
-        }
-        if (!response.ok) { this._enterPostFailsafe(); return; }
-        let body;
-        try { body = await response.json(); }
-        catch (_) { this._enterPostFailsafe(); return; }
-        const status = body && body.status;
-        if (status === 'ready' && typeof body.url === 'string' && body.url) {
-          this.status = 'ready';
-          this.runtimeUrl = body.url;
-          this._cacheReadyUrl(body.url);
-          this._stopTimers();
-          window.setTimeout(() => { window.location.assign(body.url); }, 0);
-          return;
-        }
-        if (status === 'failed') {
-          this.status = 'failed';
-          if (typeof body.log_path === 'string' && body.log_path) this.logPath = body.log_path;
-          this._stopTimers();
-          return;
-        }
-        this.status = 'booting';
-      },
-
-      _tick() { this.elapsedSeconds += 1; },
-
-      start() {
-        const sessionToken = this._readSessionToken();
-        if (sessionToken) this._fetchLauncherLogPath(sessionToken);
-        this._tickHandle = window.setInterval(() => this._tick(), TICK_INTERVAL_MS);
-        this._pollHandle = window.setInterval(() => this._poll(), POLL_INTERVAL_MS);
-        // Kick the first poll immediately so the user does not wait 2s.
-        this._poll();
-      },
-    };
-
-    document.addEventListener('DOMContentLoaded', () => {
-      const app = createApp(scope);
-      app.mount('#app');
-      scope.start();
-    });
-  </script>
+  <script type="module" src="/static/js/redirecting.js"></script>
 </body>
 </html>

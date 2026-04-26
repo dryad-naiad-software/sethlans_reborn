@@ -29,12 +29,11 @@ hash recorded here (see `tests/unit/wizard/test_vendored_assets.py`).
 
 - **petite-vue.js** — Lightweight progressive-enhancement Vue subset
   (~6 kB gzipped). Loaded as an ES module via
-  `<script type="module" src="/static/vendor/petite-vue.js"></script>`.
-  Page scripts call `PetiteVue.createApp(...).mount()` after the
-  vendored bundle has parsed. The file is the verbatim
-  `dist/petite-vue.es.js` from the upstream npm tarball; no header
-  comment because upstream ships none in the minified ES module
-  bundle.
+  `<script type="module">import { createApp } from '/static/vendor/petite-vue.js'; ...</script>`.
+  The file is the verbatim `dist/petite-vue.es.js` from the upstream
+  npm tarball; no header comment because upstream ships none in the
+  minified ES module bundle. (Per-page scripts under `static/js/`
+  consume it via the same `import` form.)
 - **bootstrap.min.css** — Bootstrap 5.3.3 minified CSS bundle. Linked
   via `<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">`.
   Upstream license header preserved at the top of the file.

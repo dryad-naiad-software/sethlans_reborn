@@ -124,10 +124,10 @@ class TestTopologyRoute:
             "GET /topology must return topology.html (radiogroup), "
             "not index.html."
         )
-        # And the topology card labels appear.
-        assert b"Manager only" in body
-        assert b"Manager + Worker" in body
-        assert b"Worker only" in body
+        # Distinguishing markers that live in topology.html (not JS):
+        # the page heading + the topology.js module reference.
+        assert b"Choose Topology" in body
+        assert b"/static/js/topology.js" in body
 
     def test_topology_response_carries_security_headers(self, tmp_path):
         app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
@@ -173,10 +173,11 @@ class TestRedirectingRoute:
         status, headers, body = _invoke(app, _get_environ("/redirecting"))
         assert status.startswith("200"), status
         assert headers.get("Content-Type", "").startswith("text/html"), headers
-        # Sanity: this is the redirecting page (its unique markers).
-        assert b"/api/wizard/runtime-ready/" in body, (
-            "GET /redirecting must return redirecting.html (polls runtime-ready), "
-            "not index.html or topology.html."
+        # Distinguishing markers that live in redirecting.html (not JS):
+        # the page heading + the redirecting.js module reference.
+        assert b"/static/js/redirecting.js" in body, (
+            "GET /redirecting must return redirecting.html (loads "
+            "redirecting.js), not index.html or topology.html."
         )
         assert b"Starting Sethlans" in body or b"Starting Sethlans&hellip;" in body
 
@@ -202,10 +203,12 @@ class TestRedirectingRoute:
         _, _, redirecting_body = _invoke(app, _get_environ("/redirecting"))
         assert root_body != redirecting_body
         assert topology_body != redirecting_body
-        # Redirecting page polls runtime-ready; others do not.
-        assert b"/api/wizard/runtime-ready/" in redirecting_body
-        assert b"/api/wizard/runtime-ready/" not in root_body
-        assert b"/api/wizard/runtime-ready/" not in topology_body
+        # Each page loads its own per-page module script (Phase F2).
+        assert b"/static/js/redirecting.js" in redirecting_body
+        assert b"/static/js/redirecting.js" not in root_body
+        assert b"/static/js/redirecting.js" not in topology_body
+        assert b"/static/js/auth.js" in root_body
+        assert b"/static/js/topology.js" in topology_body
 
 
 # ---------------------------------------------------------------------
@@ -300,6 +303,69 @@ class TestCssRoute:
             app, _get_environ("/static/css/missing.css"),
         )
         assert status.startswith("404"), status
+
+
+# ---------------------------------------------------------------------
+# /static/js/* — per-page extracted module scripts (Phase F2)
+# ---------------------------------------------------------------------
+
+class TestJsRoute:
+
+    def test_get_common_js(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, headers, body = _invoke(
+            app, _get_environ("/static/js/common.js"),
+        )
+        assert status.startswith("200"), status
+        assert headers.get("Content-Type", "").startswith(
+            "application/javascript"
+        ), headers
+        assert b"export" in body, (
+            "common.js MUST be served as an ES module (export keyword "
+            "should appear)."
+        )
+
+    def test_get_auth_js(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, headers, _ = _invoke(
+            app, _get_environ("/static/js/auth.js"),
+        )
+        assert status.startswith("200"), status
+        assert headers.get("Content-Type", "").startswith(
+            "application/javascript"
+        ), headers
+
+    def test_get_topology_js(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, _, _ = _invoke(
+            app, _get_environ("/static/js/topology.js"),
+        )
+        assert status.startswith("200"), status
+
+    def test_get_redirecting_js(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, _, _ = _invoke(
+            app, _get_environ("/static/js/redirecting.js"),
+        )
+        assert status.startswith("200"), status
+
+    def test_get_nonexistent_js_returns_404(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        status, _, _ = _invoke(
+            app, _get_environ("/static/js/missing.js"),
+        )
+        assert status.startswith("404"), status
+
+    def test_js_route_path_traversal_blocked(self, tmp_path):
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        for path in (
+            "/static/js/../server.py",
+            "/static/js/../../etc/passwd",
+        ):
+            status, _, _ = _invoke(app, _get_environ(path))
+            assert status.startswith("404"), (
+                f"Path traversal {path!r} must 404, got {status!r}"
+            )
 
 
 # ---------------------------------------------------------------------
