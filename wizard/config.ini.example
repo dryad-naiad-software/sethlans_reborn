@@ -1,0 +1,8 @@
+# Sethlans wizard configuration (placeholder).
+#
+# The standalone setup wizard does NOT read a config.ini at runtime.
+# All wizard state is sourced from the launcher-written marker files
+# under <data_dir>/wizard/ (see Spec 1: setup-wizard-standalone-scaffold).
+#
+# This file exists as a convention placeholder so the wizard package
+# layout mirrors worker/ and manager/. It is intentionally empty.

@@ -1,0 +1,6 @@
+# Wizard runtime dependencies. Per Spec 1 NF-9 the wizard MUST NOT
+# introduce any new top-level dependency beyond what the manager
+# already pulls in. Both pins below mirror manager/requirements.txt
+# exactly.
+waitress==3.0.2
+cryptography>=44.0.0
