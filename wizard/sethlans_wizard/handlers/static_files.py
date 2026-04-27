@@ -28,11 +28,21 @@ from typing import Callable, Iterable
 logger = logging.getLogger(__name__)
 
 # FR-W-FE2 security headers applied to every HTML response.
+#
+# Issue #146 — `script-src` no longer carries `'unsafe-inline'`. After
+# Phase F2 extracted page scripts to ES modules under `static/js/` and
+# the legacy-browser fallback was lifted out of inline `<script
+# nomodule>` blocks into `static/js/legacy-fallback.js`, every `<script>`
+# tag on the wizard pages has a `src=` — there are no inline script
+# bodies to authorise. `style-src` keeps `'unsafe-inline'` because
+# Bootstrap 5 injects style attributes via JS (e.g. for tooltips,
+# collapses, modal backdrops); tightening that without breaking the UI
+# would require nonces or hashes and is out of scope here.
 _HTML_SECURITY_HEADERS: list[tuple[str, str]] = [
     (
         "Content-Security-Policy",
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; "
         "img-src 'self' data:; "

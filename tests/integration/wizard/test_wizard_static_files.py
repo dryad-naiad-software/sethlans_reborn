@@ -93,3 +93,61 @@ def test_redirecting_html_served(wizard_process):
     )
     assert status == 200, body[:200]
     assert headers.get("Content-Type", "").startswith("text/html"), headers
+
+
+def test_csp_script_src_drops_unsafe_inline(wizard_process):
+    """Issue #146 — `script-src` must NOT carry `'unsafe-inline'`.
+
+    After Phase F2 lifted page scripts to ES modules and the
+    nomodule legacy-browser fallback to ``static/js/legacy-fallback.js``,
+    every wizard HTML page references its scripts via ``src=``.
+    Keeping ``'unsafe-inline'`` in `script-src` would weaken CSP
+    against XSS for no benefit.
+
+    `style-src` deliberately keeps ``'unsafe-inline'`` because Bootstrap
+    injects style attributes via JS (tooltips, modals, etc.); that
+    constraint isn't part of this regression.
+    """
+    base = wizard_process.base_url
+    for path in ("/", "/topology", "/redirecting"):
+        _, headers, body = _http.get(f"{base}{path}")
+        csp = headers.get("Content-Security-Policy", "")
+        assert csp, (path, headers)
+        # Parse the CSP into directive -> sources.
+        directives: dict[str, list[str]] = {}
+        for chunk in csp.split(";"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            name, _, rest = chunk.partition(" ")
+            directives[name.strip().lower()] = rest.strip().split()
+        script_src = directives.get("script-src", [])
+        assert "'unsafe-inline'" not in script_src, (
+            path, "script-src must not include 'unsafe-inline' "
+            f"(found: {script_src!r})",
+        )
+        assert "'self'" in script_src, (path, script_src)
+        # Defense in depth — confirm no <script> block on the page is
+        # missing a src= attribute (which would silently fail under
+        # the tightened CSP and is the regression we're guarding).
+        text = body.decode("utf-8", errors="replace")
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("<script"):
+                continue
+            # Permit either inline-but-empty (rare) or a src=-bearing tag.
+            assert "src=" in stripped, (
+                path, line,
+                "Inline <script> bodies are forbidden by the tightened CSP.",
+            )
+
+
+def test_legacy_fallback_js_served(wizard_process):
+    """The extracted legacy-browser fallback is reachable as static JS."""
+    url = f"{wizard_process.base_url}/static/js/legacy-fallback.js"
+    status, headers, body = _http.get(url)
+    assert status == 200, body[:200]
+    ct = headers.get("Content-Type", "")
+    assert ct.startswith("application/javascript"), ct
+    # Sanity: the fallback's user-visible string is present.
+    assert b"Unsupported browser" in body, body[:200]

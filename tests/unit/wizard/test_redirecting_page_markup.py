@@ -86,8 +86,16 @@ def test_redirecting_html_loads_extracted_page_script(redirecting_html):
 
 
 def test_redirecting_html_has_nomodule_fallback(redirecting_html):
-    """NF-11 / browser-compat: <script nomodule> fallback required."""
-    assert "<script nomodule>" in redirecting_html
+    """NF-11 / browser-compat: <script nomodule> fallback required.
+
+    Issue #146 — fallback is loaded from
+    ``/static/js/legacy-fallback.js`` so the CSP can drop
+    ``script-src 'unsafe-inline'``.
+    """
+    assert (
+        '<script nomodule src="/static/js/legacy-fallback.js"></script>'
+        in redirecting_html
+    )
 
 
 def test_redirecting_html_log_path_rendered_as_plain_text(redirecting_html):

@@ -125,10 +125,17 @@ def test_index_html_loads_extracted_auth_script(index_html):
 
 
 def test_index_html_has_nomodule_fallback(index_html):
-    """NF-11 / browser-compat: a <script nomodule> fallback is required."""
-    assert "<script nomodule>" in index_html, (
-        "Missing <script nomodule> fallback for old browsers (NF-11)."
-    )
+    """NF-11 / browser-compat: a <script nomodule> fallback is required.
+
+    Issue #146 — the fallback is loaded from
+    ``/static/js/legacy-fallback.js`` rather than an inline
+    ``<script nomodule>`` block, so the CSP can drop
+    ``script-src 'unsafe-inline'``.
+    """
+    assert (
+        '<script nomodule src="/static/js/legacy-fallback.js"></script>'
+        in index_html
+    ), "Missing <script nomodule src=...> fallback for old browsers (NF-11)."
 
 
 def test_index_html_token_input_attributes(index_html):

@@ -94,10 +94,16 @@ def test_topology_html_loads_extracted_page_script(topology_html):
 
 
 def test_topology_html_has_nomodule_fallback(topology_html):
-    """NF-11 / browser-compat: a <script nomodule> fallback is required."""
-    assert "<script nomodule>" in topology_html, (
-        "Missing <script nomodule> fallback for old browsers (NF-11)."
-    )
+    """NF-11 / browser-compat: a <script nomodule> fallback is required.
+
+    Issue #146 — fallback is loaded from
+    ``/static/js/legacy-fallback.js`` so the CSP can drop
+    ``script-src 'unsafe-inline'``.
+    """
+    assert (
+        '<script nomodule src="/static/js/legacy-fallback.js"></script>'
+        in topology_html
+    ), "Missing <script nomodule src=...> fallback for old browsers (NF-11)."
 
 
 def test_topology_html_has_radiogroup(topology_html):

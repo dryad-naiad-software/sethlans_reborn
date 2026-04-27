@@ -20,19 +20,7 @@
     </div>
   </noscript>
 
-  <script nomodule>
-    document.addEventListener('DOMContentLoaded', function () {
-      var root = document.getElementById('app');
-      if (root) {
-        root.innerHTML = '<div class="container py-5">' +
-          '<div class="alert alert-danger" role="alert">' +
-          '<h2 class="h5 mb-2">Unsupported browser</h2>' +
-          '<p class="mb-0">The Sethlans setup wizard requires a modern browser ' +
-          '(Chrome 90+, Firefox 90+, Safari 14+, or Edge 90+). ' +
-          'Please open this page in a recent browser.</p></div></div>';
-      }
-    });
-  </script>
+  <script nomodule src="/static/js/legacy-fallback.js"></script>
 
   <main id="app" class="d-flex align-items-center justify-content-center min-vh-100 py-4 px-3" v-cloak>
     <div class="card shadow-sm w-100 wizard-card">
