@@ -85,16 +85,25 @@ jobs:
           path: /tmp/e2e-image.tar
           retention-days: 1
 
-  worker-cpu-healthcheck:
-    # Smoke-test the worker-cpu image's HEALTHCHECK end-to-end (#144).
-    # Builds the image, runs it with default env, polls
-    # `docker inspect ... .State.Health.Status` until "healthy" or
-    # 180s timeout. Catches typos in /api/health/, setup-gate
-    # allowlist regressions, and runtime_state.worker_boot_id init
-    # failures BEFORE the image ships to GHCR via docker-publish.yml.
-    # Worker /api/health/ is FR-H-7 anonymous-and-always-reachable,
-    # so no manager URL or seeded config is needed.
-    name: worker-cpu HEALTHCHECK smoke
+  worker-cpu-boot-smoke:
+    # Image-startup smoke for the worker-cpu production image (#144).
+    # Build, run, assert the worker boots through five critical-path
+    # log markers (imports + TLS + Waitress + Caddy spawn + expected
+    # unattended-enrollment exit), and confirm the container exits
+    # rc=4 as designed when SETHLANS_WORKER_ENROLLMENT_KEY is unset.
+    #
+    # Why not HEALTHCHECK validation: the worker is designed to refuse
+    # to start without enrollment config (production deployment expects
+    # the env var via docker-compose), so polling for HEALTHCHECK=
+    # healthy without standing up a stub manager would never succeed.
+    # Real-manager smoke is a separate scope (potential follow-on).
+    #
+    # Catches the same class of regressions as the original #144 design
+    # intended: missing repo packages (#157), wrong artifact paths
+    # (#158), import-time exceptions in the worker entrypoint chain,
+    # Caddy supervisor mis-spawn, and setup-gate / wizard regressions
+    # that change the unattended exit path.
+    name: worker-cpu boot smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -121,13 +130,10 @@ jobs:
           tags: sethlans-worker-cpu:test
           cache-from: type=gha,scope=worker-cpu
           cache-to: type=gha,scope=worker-cpu,mode=max
-      - name: Run worker-cpu container
+      - name: Run worker-cpu container (no enrollment key — expect rc=4)
         run: docker run -d --name sethlans-worker-test sethlans-worker-cpu:test
-      - name: Wait for HEALTHCHECK to report healthy
-        # 180s deadline accommodates Dockerfile's --start-period=60s
-        # plus 30s interval × 3 retries = 150s worst-case healthy
-        # transition, with a small safety margin.
-        run: tools/wait_for_docker_health.sh sethlans-worker-test 180
+      - name: Verify boot path + expected unattended-key exit
+        run: tools/worker_boot_smoke.sh sethlans-worker-test 30
       - name: Cleanup
         if: always()
         run: |
