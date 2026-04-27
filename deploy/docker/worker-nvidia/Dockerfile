@@ -49,6 +49,13 @@ COPY deploy/docker/worker/Caddyfile /etc/caddy/Caddyfile
 
 COPY worker/ /app/
 
+# Repo-root shared/ package — worker imports from shared.cert_utils,
+# shared.caddy_supervisor, shared.frozen_paths, and shared.version.
+# /app is on sys.path (entrypoint is python /app/run_worker.py) so
+# placing shared/ at /app/shared/ resolves the imports the same way
+# as source mode. Issue #157.
+COPY shared/ /app/shared/
+
 VOLUME ["/data", "/config"]
 
 ENV SETHLANS_WORKER_DATA_DIR=/data \
