@@ -12,11 +12,16 @@ the worker — it is an independent process supervised by the launcher
 via the IPC contract in ``wizard/sethlans_wizard/ipc.py``.
 
 NF-4 SIZE CEILING: the wizard one-dir bundle MUST stay at or under
-35 MB (raised from 25 MB → 30 MB on 2026-04-26, then 30 MB → 35 MB
-to absorb tightening headroom; see Spec 1 NF-4 measurement note).
-Be wary of adding new hidden imports or datas. Per Spec 1 NF-9, no
-new top-level dependencies (httpx, requests, certifi, etc.) may be
-introduced beyond what the manager already pulls in.
+85 MB (raised 25 → 30 → 35 → 85 MB; see Spec 1 NF-4 measurement
+note). The 35 → 85 MB jump (issue #154) absorbs the GitHub-hosted CI
+runner's heavier toolcache Python — libpython3.14 plus the
+cryptography Rust binding alone account for ~44 MB on Linux, which
+the prior Docker python:3.14-slim measurement did not see. AC-B2
+(forbidden module names: django, workers, psycopg, pymysql) remains
+the structural guard against the wizard accidentally absorbing the
+manager. Be wary of adding new hidden imports or datas. Per Spec 1
+NF-9, no new top-level dependencies (httpx, requests, certifi, etc.)
+may be introduced beyond what the manager already pulls in.
 
 Usage: pyinstaller packaging/pyinstaller/wizard.spec
 """

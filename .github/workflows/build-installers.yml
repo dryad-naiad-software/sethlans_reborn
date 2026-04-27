@@ -174,7 +174,7 @@ jobs:
       #   - asserts AC-B2 via pathlib.rglob (exact-name match per spec
       #     line 884-888) — fixes the prior PowerShell -like "$name*"
       #     prefix-glob false-positive risk (DEVOPS-HIGH-3);
-      #   - asserts NF-4 / DEVOPS-MED-11 35 MB bundle ceiling;
+      #   - asserts NF-4 / DEVOPS-MED-11 85 MB bundle ceiling;
       #   - provisions a fresh tmpdir + .setup_token + .ipc_secret;
       #   - spawns run_wizard.exe and READS THE PORT FILE at
       #     <tmpdir>/wizard/port (DEVOPS-HIGH-4) to exercise the real
@@ -385,7 +385,7 @@ jobs:
       # delegated to ``tools/wizard_smoke.py`` so CI and local builds
       # share the exact same checks (DEVOPS-MED-5, Phase F3). See the
       # Windows job for the full breakdown of what the script verifies
-      # (AC-B2 via pathlib.rglob, NF-4 35 MB ceiling, AC-B4 port-file
+      # (AC-B2 via pathlib.rglob, NF-4 85 MB ceiling, AC-B4 port-file
       # poll + GET / probe, DEVOPS-LOW-6 log dump on failure, in-script
       # 60 s wall-clock guard). MUST run AFTER the manager smoke step
       # (DEVOPS-v22-MED-3). step-level timeout-minutes: 1 is belt-and-
@@ -612,7 +612,7 @@ jobs:
       # delegated to ``tools/wizard_smoke.py`` so CI and local builds
       # share the exact same checks (DEVOPS-MED-5, Phase F3). See the
       # Windows job for the full breakdown of what the script verifies
-      # (AC-B2 via pathlib.rglob, NF-4 35 MB ceiling, AC-B4 port-file
+      # (AC-B2 via pathlib.rglob, NF-4 85 MB ceiling, AC-B4 port-file
       # poll + GET / probe, DEVOPS-LOW-6 log dump on failure, in-script
       # 60 s wall-clock guard). MUST run AFTER the manager smoke step
       # (DEVOPS-v22-MED-3). step-level timeout-minutes: 1 is belt-and-
