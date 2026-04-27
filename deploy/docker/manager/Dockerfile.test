@@ -29,13 +29,15 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Install all Python deps (manager + worker + dev/test)
+# Install all Python deps (manager + worker + wizard + dev/test)
 COPY manager/requirements.txt /tmp/manager-requirements.txt
 COPY worker/requirements.txt /tmp/worker-requirements.txt
+COPY wizard/requirements.txt /tmp/wizard-requirements.txt
 COPY requirements-dev.txt /tmp/requirements-dev.txt
 RUN pip install --no-cache-dir \
     -r /tmp/manager-requirements.txt \
     -r /tmp/worker-requirements.txt \
+    -r /tmp/wizard-requirements.txt \
     -r /tmp/requirements-dev.txt
 
 # Pre-fetched by docker-test.yml (tools/fetch_caddy.py --multi-arch ...).
@@ -47,6 +49,7 @@ COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /app/.venv-build/caddy/ca
 # Copy application source, tests, and tools
 COPY manager/ /app/manager/
 COPY worker/ /app/worker/
+COPY wizard/ /app/wizard/
 COPY shared/ /app/shared/
 COPY launcher/ /app/launcher/
 COPY tests/ /app/tests/
