@@ -129,10 +129,17 @@ class _HealthHandler(BaseHTTPRequestHandler):
 
 def _serve_https(port: int, stop_event: threading.Event) -> int:
     """Run the HTTPS health server until *stop_event* is set."""
+    # #156 diagnostic: stage timestamps relative to function entry so the
+    # next CI run shows exactly which phase (cert-gen vs TLS wrap vs
+    # serve loop) spent the 30s timeout budget.
+    t0 = time.monotonic()
+    print(f"mock_runtime: serve_https enter t=+{0.0:.3f}s", flush=True)
     tmpdir = Path(tempfile.mkdtemp(prefix="mock-runtime-cert-"))
     cert_path = tmpdir / "tls.crt"
     key_path = tmpdir / "tls.key"
     _generate_self_signed_cert(cert_path, key_path)
+    print(f"mock_runtime: cert generated t=+{time.monotonic() - t0:.3f}s",
+          flush=True)
     try:
         server = HTTPServer(("127.0.0.1", port), _HealthHandler)
     except OSError as exc:
@@ -141,10 +148,13 @@ def _serve_https(port: int, stop_event: threading.Event) -> int:
         print(f"mock_runtime: bind error on 127.0.0.1:{port}: {exc}",
               file=sys.stderr, flush=True)
         return 2
+    print(f"mock_runtime: HTTPServer constructed t=+{time.monotonic() - t0:.3f}s",
+          flush=True)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
     server.socket = ctx.wrap_socket(server.socket, server_side=True)
-    print(f"mock_runtime: bound HTTPS on 127.0.0.1:{port}", flush=True)
+    print(f"mock_runtime: bound HTTPS on 127.0.0.1:{port} "
+          f"t=+{time.monotonic() - t0:.3f}s", flush=True)
     server.timeout = 0.25
     try:
         while not stop_event.is_set():
