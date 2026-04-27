@@ -85,6 +85,55 @@ jobs:
           path: /tmp/e2e-image.tar
           retention-days: 1
 
+  worker-cpu-healthcheck:
+    # Smoke-test the worker-cpu image's HEALTHCHECK end-to-end (#144).
+    # Builds the image, runs it with default env, polls
+    # `docker inspect ... .State.Health.Status` until "healthy" or
+    # 180s timeout. Catches typos in /api/health/, setup-gate
+    # allowlist regressions, and runtime_state.worker_boot_id init
+    # failures BEFORE the image ships to GHCR via docker-publish.yml.
+    # Worker /api/health/ is FR-H-7 anonymous-and-always-reachable,
+    # so no manager URL or seeded config is needed.
+    name: worker-cpu HEALTHCHECK smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Cache Caddy binaries
+        uses: actions/cache@v5
+        with:
+          path: .tmp/caddy
+          # Reuses the same key shape as the other Docker build jobs
+          # so cache content can be shared when the lockfile + arch
+          # list match.
+          key: caddy-docker-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}-linux-amd64-linux-arm64
+      - name: Fetch Caddy (multi-arch)
+        run: python tools/fetch_caddy.py --target-dir .tmp/caddy --multi-arch linux-amd64,linux-arm64
+      - uses: docker/setup-buildx-action@v4
+      - name: Build worker-cpu image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/worker-cpu/Dockerfile
+          load: true
+          tags: sethlans-worker-cpu:test
+          cache-from: type=gha,scope=worker-cpu
+          cache-to: type=gha,scope=worker-cpu,mode=max
+      - name: Run worker-cpu container
+        run: docker run -d --name sethlans-worker-test sethlans-worker-cpu:test
+      - name: Wait for HEALTHCHECK to report healthy
+        # 180s deadline accommodates Dockerfile's --start-period=60s
+        # plus 30s interval × 3 retries = 150s worst-case healthy
+        # transition, with a small safety margin.
+        run: tools/wait_for_docker_health.sh sethlans-worker-test 180
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop sethlans-worker-test || true
+          docker rm sethlans-worker-test || true
+
   lint:
     name: Lint (flake8)
     needs: build-test-image
