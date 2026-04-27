@@ -191,19 +191,27 @@ class TestAttemptsReaper:
         assert removed == 10_000
         assert auth_state._attempts == {}
 
-    def test_reaper_tick_for_tests_invokes_reap(self):
+    def test_reaper_tick_for_tests_invokes_reap(self, mocker):
         """``tick_for_tests`` drives one reap iteration synchronously.
 
         We seed the dict, advance the reaper's clock past the window,
         and confirm the synchronous tick prunes everything without
         having to wait on the real ``REAPER_INTERVAL_SECS`` sleep.
+
+        #155: ``record_attempt`` uses :func:`time.monotonic` directly,
+        whose epoch is process-uptime (small on a fresh boot, large on
+        long-running systems). We monkeypatch it to match the synthetic
+        clock baseline so the bucket's timestamp is comparable to the
+        ``fake_now`` cutoff regardless of host uptime — same pattern
+        the sibling tests above already use.
         """
+        mock_mono = mocker.patch.object(auth_state.time, "monotonic")
+        mock_mono.return_value = 10_000.0
         auth_state.record_attempt("10.0.0.99")
         assert "10.0.0.99" in auth_state._attempts
 
         # Build a one-off reaper with a clock we control directly so
-        # the assertion does not depend on monkeypatching the module
-        # clock used by ``record_attempt``.
+        # the assertion does not depend on the patched module clock.
         from wizard.sethlans_wizard._attempts_reaper import AttemptsReaper
 
         fake_now = [10_000.0]
