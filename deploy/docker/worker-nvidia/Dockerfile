@@ -40,7 +40,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-fetched by CI (tools/fetch_caddy.py --multi-arch linux-amd64,linux-arm64).
 # TARGETARCH is BuildKit-provided; falls back to amd64 for classic docker build.
-COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /usr/local/bin/caddy
+COPY --chmod=0755 .tmp/caddy/linux-${TARGETARCH}/caddy /app/.venv-build/caddy/caddy
 
 # Static worker Caddyfile. caddy_supervisor reads SETHLANS_WORKER_CADDYFILE_PATH
 # and skips its native template-and-write branch; Caddy resolves the
