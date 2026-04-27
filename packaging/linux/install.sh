@@ -23,7 +23,6 @@ TOPOLOGY=""
 MANAGER_HOST=""
 ENROLLMENT_KEY_FILE=""
 TARGET_USER="${SUDO_USER:-$(whoami)}"
-AUTOSTART=0
 
 # --- Denylist for --prefix (prefix-match, not exact-match) ---
 DENIED_PREFIXES="/ /etc /bin /sbin /usr/bin /usr/sbin /boot /dev /proc /sys"
@@ -49,9 +48,6 @@ while [ $# -gt 0 ]; do
         --user=*)
             TARGET_USER="${1#*=}"
             ;;
-        --autostart=*)
-            AUTOSTART="${1#*=}"
-            ;;
         --help|-h)
             echo "Usage: install.sh [OPTIONS]"
             echo ""
@@ -62,7 +58,6 @@ while [ $# -gt 0 ]; do
             echo "  --manager-host=<url>           Manager URL for worker topology"
             echo "  --enrollment-key-file=<path>   Path to file containing enrollment key"
             echo "  --user=<username>              User to run enrollment as"
-            echo "  --autostart=0|1                Enable autostart (default: 0)"
             echo ""
             echo "Enrollment key can also be passed via SETHLANS_ENROLLMENT_KEY env var."
             exit 0

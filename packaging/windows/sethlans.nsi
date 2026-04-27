@@ -106,6 +106,15 @@ Function .onInit
     Delete "$INSTDIR\uninstall.exe"
     RMDir /r "$INSTDIR\bin"
 
+    ; Remove stale firewall rules from the prior install. Windows Firewall
+    ; accepts duplicate rule names by appending, so without this an upgrade
+    ; would yield two of every rule (one stale, one fresh) after the install
+    ; section re-adds them. Mirrors the uninstaller's delete block.
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Manager (TCP 8080)"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Worker (TCP 8081)"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Broadcast (UDP 8082)"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Wizard (Setup)"'
+
     ; NOTE: %LOCALAPPDATA%\Sethlans is intentionally preserved to keep user data.
   upgrade_done:
 FunctionEnd

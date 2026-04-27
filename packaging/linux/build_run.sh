@@ -30,8 +30,10 @@ if ! command -v makeself &>/dev/null; then
     exit 1
 fi
 
-# Validate component bundles exist
-for component in manager worker launcher wizard; do
+# Validate component bundles exist. Must match the copy loop below — every
+# component the copy loop iterates is required at build time so the .run
+# archive is never silently shipped with a missing bundle.
+for component in manager worker tray_helper launcher wizard; do
     if [ ! -d "${DIST_DIR}/${component}" ]; then
         echo "[ERROR] ${component} bundle not found at ${DIST_DIR}/${component}" >&2
         exit 1
@@ -42,11 +44,11 @@ done
 rm -rf "${STAGING_DIR}"
 mkdir -p "${STAGING_DIR}/bin"
 
-# Copy component bundles
+# Copy component bundles. Validation above guarantees every directory
+# exists, so this is unconditional — a missing bundle here is a build-system
+# bug, not a runtime warning.
 for component in manager worker tray_helper launcher wizard; do
-    if [ -d "${DIST_DIR}/${component}" ]; then
-        cp -R "${DIST_DIR}/${component}" "${STAGING_DIR}/bin/${component}"
-    fi
+    cp -R "${DIST_DIR}/${component}" "${STAGING_DIR}/bin/${component}"
 done
 
 # Create main executable symlink

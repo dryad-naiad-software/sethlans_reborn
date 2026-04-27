@@ -37,6 +37,17 @@ if [ ! -d "${DIST_DIR}/${APP_NAME}" ]; then
     exit 1
 fi
 
+# Strictly validate required component bundles. tray_helper is intentionally
+# omitted here — it's optional on macOS (the SethlansHelper.app handles the
+# tray UI) and the copy loop below already warns if it's missing. wizard is
+# required: a DMG without the setup wizard ships an unconfigurable app.
+for component in manager worker wizard; do
+    if [ ! -d "${DIST_DIR}/${component}" ]; then
+        echo "[ERROR] ${component} bundle not found at ${DIST_DIR}/${component}" >&2
+        exit 1
+    fi
+done
+
 # Clean staging area
 rm -rf "${STAGING_DIR}"
 mkdir -p "${STAGING_DIR}"
