@@ -88,9 +88,25 @@ def _generate_self_signed_cert(cert_path: Path, key_path: Path) -> None:
 class _HealthHandler(BaseHTTPRequestHandler):
     """Serve ``GET /api/health/`` with the three FR-W14 keys."""
 
-    # Silence noisy default logging on every request.
+    # #156 diagnostic: surface request lifecycle to stderr so the driver's
+    # captured-stderr dump (added in e0fc952) shows whether probes are
+    # arriving at all.
     def log_message(self, format, *args):  # noqa: A002 — stdlib signature
-        return
+        msg = format % args if args else format
+        print(f"mock_runtime: {self.address_string()} {msg}",
+              file=sys.stderr, flush=True)
+
+    def handle_one_request(self):
+        # Logged BEFORE BaseHTTPRequestHandler reads the request line, so a
+        # successful TLS handshake produces this line even if the request
+        # body / parse fails.
+        print("mock_runtime: handle_one_request enter",
+              file=sys.stderr, flush=True)
+        try:
+            super().handle_one_request()
+        finally:
+            print("mock_runtime: handle_one_request exit",
+                  file=sys.stderr, flush=True)
 
     def do_GET(self):  # noqa: N802 — stdlib name
         if self.path.rstrip("/") in ("/api/health", ""):
@@ -132,7 +148,16 @@ def _serve_https(port: int, stop_event: threading.Event) -> int:
     server.timeout = 0.25
     try:
         while not stop_event.is_set():
-            server.handle_request()
+            try:
+                server.handle_request()
+            except Exception as exc:  # noqa: BLE001 — diagnostic surface
+                # #156 diagnostic: TLS handshake / accept errors are
+                # otherwise written to stderr by BaseServer.handle_error
+                # but only inside an active request — a wedged accept
+                # never triggers it. Catch + log explicitly.
+                print(f"mock_runtime: handle_request raised: "
+                      f"{type(exc).__name__}: {exc}",
+                      file=sys.stderr, flush=True)
     finally:
         try:
             server.server_close()
