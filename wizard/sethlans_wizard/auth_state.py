@@ -48,10 +48,15 @@ Session-token semantics (FR-W7 / FR-W-FE3b):
 
 from __future__ import annotations
 
+import logging
 import secrets
 import threading
 import time
 from typing import Optional
+
+from wizard.sethlans_wizard._attempts_reaper import AttemptsReaper
+
+logger = logging.getLogger(__name__)
 
 # FR-W7 — 10 attempts per source IP per minute.
 _RATE_LIMIT_MAX: int = 10
@@ -116,6 +121,37 @@ def record_attempt(ip: str) -> None:
     with _handoff_state_lock:
         _prune_attempts_locked(ip, now)
         _attempts.setdefault(ip, []).append(now)
+    # Issue #147 — start the reaper on first attempt so a scanner that
+    # hits the auth endpoint once per IP and never returns cannot grow
+    # ``_attempts`` without bound. Idempotent.
+    _reaper.ensure_started()
+
+
+def _reap_stale_buckets(now: float) -> int:
+    """Drop ``_attempts`` buckets with no fresh timestamps.
+
+    Walks every entry under ``_handoff_state_lock`` and removes IPs
+    whose newest attempt is older than ``_RATE_LIMIT_WINDOW`` ago —
+    these can never contribute to a rate-limit decision and only waste
+    memory. Returns the number of buckets removed (test-visible).
+    """
+    cutoff = now - _RATE_LIMIT_WINDOW
+    removed = 0
+    with _handoff_state_lock:
+        # Snapshot the keys because we mutate ``_attempts`` mid-walk.
+        for ip in list(_attempts.keys()):
+            bucket = _attempts.get(ip)
+            if not bucket or max(bucket) < cutoff:
+                _attempts.pop(ip, None)
+                removed += 1
+    return removed
+
+
+# Issue #147 — single AttemptsReaper instance, lazily started by
+# :func:`record_attempt`. Lives at module scope so tests can grab it
+# via ``auth_state._reaper`` to drive synchronous tick-based
+# assertions without waiting on the real interval.
+_reaper: AttemptsReaper = AttemptsReaper(_reap_stale_buckets)
 
 
 # ---------------------------------------------------------------------
@@ -240,6 +276,10 @@ def reset_state_for_tests() -> None:
     Tests share module-level state across the test session; this helper
     keeps tests independent without monkeypatching internals. Production
     code MUST NOT call this.
+
+    Issue #147 — also signals the reaper daemon to exit so tests don't
+    accumulate zombie threads. The next :func:`record_attempt` call
+    will re-spawn it via :meth:`AttemptsReaper.ensure_started`.
     """
     global _session_token, _done_sent, _browser_redirect_acknowledged
     with _handoff_state_lock:
@@ -247,3 +287,7 @@ def reset_state_for_tests() -> None:
         _attempts.clear()
         _done_sent = False
         _browser_redirect_acknowledged = False
+    # Stop the reaper outside the handoff lock — the reaper's iteration
+    # body acquires the handoff lock and we don't want to risk a
+    # join-while-locked stall.
+    _reaper.stop()

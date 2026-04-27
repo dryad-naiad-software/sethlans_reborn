@@ -118,6 +118,107 @@ class TestSessionToken:
         assert auth_state.validate_session_token(123) is False
 
 
+class TestAttemptsReaper:
+    """Issue #147 — periodic reaper that bounds ``_attempts`` growth.
+
+    A scanner / botnet sweep that hits the auth endpoint once per IP
+    used to leak a dict entry per unique IP until process exit. The
+    reaper drops any bucket whose newest timestamp is older than
+    ``_RATE_LIMIT_WINDOW``, walking the dict every
+    ``REAPER_INTERVAL_SECS`` seconds.
+    """
+
+    def test_record_attempt_starts_reaper(self):
+        """First ``record_attempt`` call lazily spawns the daemon."""
+        assert auth_state._reaper.is_running() is False
+        auth_state.record_attempt("10.0.0.1")
+        assert auth_state._reaper.is_running() is True
+
+    def test_reset_state_stops_reaper(self):
+        """``reset_state_for_tests`` joins the reaper between tests."""
+        auth_state.record_attempt("10.0.0.1")
+        assert auth_state._reaper.is_running() is True
+        auth_state.reset_state_for_tests()
+        assert auth_state._reaper.is_running() is False
+
+    def test_reap_drops_buckets_older_than_window(self, mocker):
+        """A bucket whose newest timestamp is past the window is dropped."""
+        mock_mono = mocker.patch.object(auth_state.time, "monotonic")
+        mock_mono.return_value = 1000.0
+        auth_state.record_attempt("10.0.0.1")
+        auth_state.record_attempt("10.0.0.2")
+        assert "10.0.0.1" in auth_state._attempts
+        assert "10.0.0.2" in auth_state._attempts
+
+        # Advance past the window — both buckets should now be reapable.
+        future = 1000.0 + auth_state._RATE_LIMIT_WINDOW + 1
+        removed = auth_state._reap_stale_buckets(future)
+        assert removed == 2
+        assert auth_state._attempts == {}
+
+    def test_reap_keeps_fresh_buckets(self, mocker):
+        """A bucket with a fresh timestamp survives a reap pass."""
+        mock_mono = mocker.patch.object(auth_state.time, "monotonic")
+        mock_mono.return_value = 1000.0
+        auth_state.record_attempt("10.0.0.1")
+        # Time advances less than the window — bucket must stay.
+        future = 1000.0 + (auth_state._RATE_LIMIT_WINDOW / 2)
+        removed = auth_state._reap_stale_buckets(future)
+        assert removed == 0
+        assert "10.0.0.1" in auth_state._attempts
+
+    def test_unique_ip_sweep_is_bounded(self, mocker):
+        """10k unique-IP attempts shrink back to {} after the window slides.
+
+        This is the regression scenario from Issue #147 — each unique
+        IP used to leak one bucket forever. The reaper now reclaims
+        them once their timestamps fall outside the window.
+        """
+        mock_mono = mocker.patch.object(auth_state.time, "monotonic")
+        mock_mono.return_value = 5000.0
+        for i in range(10_000):
+            # Synthetic IPs in 10.x.y.z space — content is irrelevant,
+            # the test cares only about dict cardinality.
+            auth_state.record_attempt(
+                f"10.{(i >> 16) & 0xFF}.{(i >> 8) & 0xFF}.{i & 0xFF}"
+            )
+        assert len(auth_state._attempts) == 10_000
+
+        # Advance past the rate-limit window and drive a single reap
+        # tick manually (no need to wait on the real interval).
+        mock_mono.return_value = 5000.0 + auth_state._RATE_LIMIT_WINDOW + 1
+        removed = auth_state._reap_stale_buckets(mock_mono.return_value)
+        assert removed == 10_000
+        assert auth_state._attempts == {}
+
+    def test_reaper_tick_for_tests_invokes_reap(self):
+        """``tick_for_tests`` drives one reap iteration synchronously.
+
+        We seed the dict, advance the reaper's clock past the window,
+        and confirm the synchronous tick prunes everything without
+        having to wait on the real ``REAPER_INTERVAL_SECS`` sleep.
+        """
+        auth_state.record_attempt("10.0.0.99")
+        assert "10.0.0.99" in auth_state._attempts
+
+        # Build a one-off reaper with a clock we control directly so
+        # the assertion does not depend on monkeypatching the module
+        # clock used by ``record_attempt``.
+        from wizard.sethlans_wizard._attempts_reaper import AttemptsReaper
+
+        fake_now = [10_000.0]
+        reaper = AttemptsReaper(
+            auth_state._reap_stale_buckets,
+            interval_secs=0.05,
+            clock=lambda: fake_now[0],
+        )
+        # Push the clock past the window and tick.
+        fake_now[0] = 10_000.0 + auth_state._RATE_LIMIT_WINDOW + 1
+        removed = reaper.tick_for_tests()
+        assert removed >= 1
+        assert "10.0.0.99" not in auth_state._attempts
+
+
 class TestHandoffLock:
 
     def test_returns_singleton_lock(self):
