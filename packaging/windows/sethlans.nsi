@@ -213,10 +213,17 @@ SectionEnd
 
 ; --- Uninstaller ---
 Section "Uninstall"
-  ; Stop services if running
+  ; Stop services if running. run_launcher.exe is included alongside
+  ; the four worker/manager/tray/wizard execs because it holds the
+  ; single-instance lock and supervises the others; without killing
+  ; it first, RMDir /r on $INSTDIR\bin can fail with file-locked
+  ; errors and leave a zombie launcher process running. The .onInit
+  ; upgrade path (line 100) already kills it for the same reason —
+  ; this matches the symmetry. DEVOPS-MED-2 (Phase F3).
   nsExec::ExecToLog 'taskkill /F /IM run_manager.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_worker.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_tray_helper.exe'
+  nsExec::ExecToLog 'taskkill /F /IM run_launcher.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_wizard.exe'
 
   ; Remove Windows Firewall rules

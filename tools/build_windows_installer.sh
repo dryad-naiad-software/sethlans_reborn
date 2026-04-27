@@ -153,25 +153,17 @@ echo "=== 5/7 PyInstaller: launcher ==="
 echo "=== 6/7 PyInstaller: wizard ==="
 "$VENV_PYI" packaging/pyinstaller/wizard.spec --noconfirm --clean 2>&1 | tail -3
 
-# NF-4: wizard one-dir bundle MUST stay at or under 30 MB. Fail loudly
-# on exceedance with the top 10 largest files in the bundle, so a
-# regression is diagnosable from CI logs without re-running the build.
+# NF-4 + AC-B2 + AC-B4 wizard smoke: delegated to tools/wizard_smoke.py
+# so CI and local builds share the exact same checks (DEVOPS-MED-5,
+# Phase F3). The script asserts NF-4 30 MB bundle ceiling, AC-B2
+# pathlib.rglob bundle introspection, AND spawns the wizard to poll
+# its port file + GET / over HTTPS within a 60 s wall-clock budget.
 # C2 (sethlans.nsi) reads the wizard bundle directly from
 # ${DIST_ROOT}/wizard, so no separate staging copy is needed here.
-WIZARD_BUNDLE_DIR="${DIST_ROOT}/wizard"
-WIZARD_SIZE_LIMIT=$((30 * 1024 * 1024))
-if [ ! -d "$WIZARD_BUNDLE_DIR" ]; then
-  echo "ERROR: wizard PyInstaller bundle not produced at $WIZARD_BUNDLE_DIR"
-  exit 1
-fi
-WIZARD_SIZE=$(du -sb "$WIZARD_BUNDLE_DIR" | cut -f1)
-echo "Wizard bundle size: ${WIZARD_SIZE} bytes (limit ${WIZARD_SIZE_LIMIT})"
-if [ "$WIZARD_SIZE" -gt "$WIZARD_SIZE_LIMIT" ]; then
-  echo "ERROR: wizard bundle exceeds NF-4 30 MB ceiling."
-  echo "Top 10 largest files in $WIZARD_BUNDLE_DIR:"
-  find "$WIZARD_BUNDLE_DIR" -type f -exec du -sh {} + | sort -rh | head -10
-  exit 1
-fi
+# Use the build venv's interpreter so PyInstaller's deps (including
+# psutil) are on the import path for the spawned wizard process.
+echo "=== Wizard smoke (NF-4 + AC-B2 + AC-B4) ==="
+.venv-build/Scripts/python tools/wizard_smoke.py --bundle "${DIST_ROOT}/wizard"
 
 echo "=== 7/7 NSIS (v$BUILD_VERSION) ==="
 "$NSIS" -DPRODUCT_VERSION="$BUILD_VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3

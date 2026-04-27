@@ -1,6 +1,13 @@
 # Wizard runtime dependencies. Per Spec 1 NF-9 the wizard MUST NOT
 # introduce any new top-level dependency beyond what the manager
-# already pulls in. Both pins below mirror manager/requirements.txt
-# exactly.
+# already pulls in. All three pins below mirror manager/requirements.txt
+# exactly (psutil also pinned identically by worker/requirements.txt).
 waitress==3.0.2
 cryptography>=44.0.0
+# psutil is a transitive dep of shared.cert_utils.enumerate_sans
+# (imported at module top in shared/cert_utils.py:21), which the
+# wizard's TLS cert generator (wizard/sethlans_wizard/cert.py) calls.
+# Without this pin a fresh .venv-build populated only from
+# wizard/requirements.txt fails to import shared.cert_utils with
+# ModuleNotFoundError. DEVOPS-HIGH-2 (Phase F3).
+psutil==7.0.0

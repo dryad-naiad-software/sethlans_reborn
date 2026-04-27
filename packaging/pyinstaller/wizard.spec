@@ -11,10 +11,11 @@ during first-run setup. It MUST NOT pull in Django, the manager, or
 the worker — it is an independent process supervised by the launcher
 via the IPC contract in ``wizard/sethlans_wizard/ipc.py``.
 
-NF-4 SIZE CEILING: the wizard one-dir bundle MUST stay under 25 MB.
-Be wary of adding new hidden imports or datas. Per Spec 1 NF-9, no
-new top-level dependencies (httpx, requests, certifi, etc.) may be
-introduced beyond what the manager already pulls in.
+NF-4 SIZE CEILING: the wizard one-dir bundle MUST stay at or under
+30 MB (raised from 25 MB on 2026-04-26; see Spec 1 NF-4 measurement
+note). Be wary of adding new hidden imports or datas. Per Spec 1
+NF-9, no new top-level dependencies (httpx, requests, certifi, etc.)
+may be introduced beyond what the manager already pulls in.
 
 Usage: pyinstaller packaging/pyinstaller/wizard.spec
 """
@@ -40,12 +41,26 @@ from version_info import make_version_info  # noqa: E402
 # --- Hidden imports ---
 # Wizard is intentionally minimal:
 #   * sethlans_wizard package (collect_submodules picks up handlers/*)
-#   * shared package (frozen_paths, version, cert_utils)
+#   * shared.frozen_paths / shared.version / shared.cert_utils only —
+#     NOT collect_submodules('shared') because that pulls in the
+#     PySide6-dependent shared.tray.* and the launcher-only
+#     shared.caddy_supervisor.*, both of which inflate the bundle and
+#     would crash with ImportError if anything ever transitively
+#     touched them (PySide6 is in ``excludes`` below). DEVOPS-HIGH-1
+#     (Phase F3): enumerate the wizard's actual ``shared`` usage
+#     explicitly. Verified by ``grep -n "^from shared" wizard/`` ->
+#     run_wizard.py imports frozen_paths + version,
+#     sethlans_wizard/cert.py imports cert_utils. No other
+#     ``shared.*`` modules are touched by the wizard.
 #   * waitress WSGI server (lazy submodules: task, wasyncore, parser)
 #   * cryptography (lazy backend modules for cert generation)
 hiddenimports = []
 hiddenimports += collect_submodules('sethlans_wizard')
-hiddenimports += collect_submodules('shared')
+hiddenimports += [
+    'shared.frozen_paths',
+    'shared.version',
+    'shared.cert_utils',
+]
 
 # Waitress has several submodules PyInstaller's static import walker
 # misses (``waitress.task``, ``waitress.wasyncore``,
@@ -95,8 +110,14 @@ if FRONTEND_DIR.exists():
 # --- Excludes ---
 # The wizard is a standalone process. Explicitly exclude server-side
 # components so a stray transitive import does not bloat the bundle
-# past the NF-4 25 MB ceiling or pull in forbidden modules.
+# past the NF-4 30 MB ceiling or pull in forbidden modules.
 # AC-B2 (Phase C) verifies these absences via pathlib.rglob assertions.
+#
+# DEVOPS-HIGH-1 (Phase F3): explicitly exclude shared.tray and
+# shared.caddy_supervisor — the wizard does not use either; without
+# the exclude they would still ride along via the prior
+# ``collect_submodules('shared')`` (now removed). ``shared.run_tray``
+# is the launcher's tray entry-point script, also wizard-irrelevant.
 excludes = [
     'django',
     'rest_framework',
@@ -111,6 +132,9 @@ excludes = [
     'PIL',
     'PySide6',
     'pystray',
+    'shared.tray',
+    'shared.caddy_supervisor',
+    'shared.run_tray',
     # NF-9: no new top-level deps beyond manager's set.
     'httpx',
     'requests',

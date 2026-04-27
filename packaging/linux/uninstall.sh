@@ -46,8 +46,11 @@ fi
 
 echo "--- Uninstalling Sethlans from ${INSTALL_DIR} ---"
 
-# Stop running Sethlans processes
-for proc in run_manager run_worker run_tray_helper run_launcher; do
+# Stop running Sethlans processes. run_wizard is included so a
+# user uninstall during a stuck setup-wizard session does not leave
+# a zombie wizard holding port 8100-8104 + writing into the data
+# dir. DEVOPS-MED-3 (Phase F3).
+for proc in run_manager run_worker run_tray_helper run_launcher run_wizard; do
     pkill -f "${proc}" 2>/dev/null || true
 done
 

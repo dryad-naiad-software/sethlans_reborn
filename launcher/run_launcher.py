@@ -121,8 +121,21 @@ def _start_component(
         proc_env.update(env)
     stdout = subprocess.PIPE if component != "tray" else None
     stderr = subprocess.PIPE if component != "tray" else None
+    # DEVOPS-MED-4 (Phase F3): on Windows the launcher is built
+    # ``console=False`` but child PyInstaller bundles (manager, worker,
+    # wizard) are ``console=True`` so their stdout/stderr can be piped
+    # back here for diagnostics. Without CREATE_NO_WINDOW, spawning a
+    # console-mode child from a windowed parent allocates a fresh
+    # console window, which flashes on screen during first-run setup
+    # and any normal-mode component restart. The flag suppresses the
+    # window without breaking PIPE redirection. Effectively a no-op on
+    # POSIX (creationflags is Windows-only; the constant resolves but
+    # is unused).
+    popen_kwargs = {}
+    if sys.platform == 'win32':
+        popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
     return subprocess.Popen(
-        cmd, stdout=stdout, stderr=stderr, env=proc_env,
+        cmd, stdout=stdout, stderr=stderr, env=proc_env, **popen_kwargs,
     )
 
 
