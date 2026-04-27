@@ -7,7 +7,7 @@
   Enterprise IT deployment via msiexec:
     msiexec /i sethlans.msi /quiet TOPOLOGY=worker
             MANAGER_HOST=https://studio:8080
-            AUTOSTART=1 SKIP_WIZARD=1
+            SKIP_WIZARD=1
 
   Enrollment key: via SETHLANS_ENROLLMENT_KEY env var or
   ENROLLMENT_KEY_FILE=<path> property. Uses MsiHiddenProperties
@@ -35,7 +35,6 @@
     <!-- Custom properties for silent install -->
     <Property Id="TOPOLOGY" Value="" />
     <Property Id="MANAGER_HOST" Value="" />
-    <Property Id="AUTOSTART" Value="1" />
     <Property Id="SKIP_WIZARD" Value="0" />
     <Property Id="ENROLLMENT_KEY" Value="" Hidden="yes" />
     <Property Id="ENROLLMENT_KEY_FILE" Value="" />
