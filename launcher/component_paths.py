@@ -20,6 +20,7 @@ Stdlib-only.
 from __future__ import annotations
 
 import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -76,4 +77,26 @@ def find_component_exe(component: str) -> Path:
     return _source_exe(component)
 
 
-__all__ = ["find_component_exe"]
+def popen_kwargs_for_component() -> dict:
+    """Return Popen kwargs that suppress new-console windows on Windows.
+
+    DEVOPS-MED-4 (Phase F3): the launcher itself is built
+    ``console=False`` (windowed) but child PyInstaller bundles (manager,
+    worker, wizard) are ``console=True`` so their stdout/stderr can be
+    piped back to the launcher for diagnostics. Without
+    ``CREATE_NO_WINDOW``, spawning a console-mode child from a windowed
+    parent allocates a fresh console window, which flashes on screen
+    during first-run setup and any normal-mode component restart. The
+    flag suppresses the window without breaking ``PIPE`` redirection.
+
+    No-op on POSIX: ``creationflags`` is a Windows-only ``Popen`` kwarg,
+    so this returns an empty dict everywhere else. Extracted from
+    ``run_launcher.py`` per the Phase G gatekeeper finding to keep the
+    launcher entry point under the 300-line limit.
+    """
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
+__all__ = ["find_component_exe", "popen_kwargs_for_component"]

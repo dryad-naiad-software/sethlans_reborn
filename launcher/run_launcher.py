@@ -23,7 +23,9 @@ from launcher.browser_launch import (  # noqa: F401
     open_browser,
     print_setup_banner,
 )
-from launcher.component_paths import find_component_exe
+from launcher.component_paths import (
+    find_component_exe, popen_kwargs_for_component,
+)
 from launcher.paths import (
     get_bin_dir,
     get_data_dir,
@@ -121,19 +123,8 @@ def _start_component(
         proc_env.update(env)
     stdout = subprocess.PIPE if component != "tray" else None
     stderr = subprocess.PIPE if component != "tray" else None
-    # DEVOPS-MED-4 (Phase F3): on Windows the launcher is built
-    # ``console=False`` but child PyInstaller bundles (manager, worker,
-    # wizard) are ``console=True`` so their stdout/stderr can be piped
-    # back here for diagnostics. Without CREATE_NO_WINDOW, spawning a
-    # console-mode child from a windowed parent allocates a fresh
-    # console window, which flashes on screen during first-run setup
-    # and any normal-mode component restart. The flag suppresses the
-    # window without breaking PIPE redirection. Effectively a no-op on
-    # POSIX (creationflags is Windows-only; the constant resolves but
-    # is unused).
-    popen_kwargs = {}
-    if sys.platform == 'win32':
-        popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+    # DEVOPS-MED-4 (Phase F3): see popen_kwargs_for_component docstring.
+    popen_kwargs = popen_kwargs_for_component()
     return subprocess.Popen(
         cmd, stdout=stdout, stderr=stderr, env=proc_env, **popen_kwargs,
     )

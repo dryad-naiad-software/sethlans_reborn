@@ -22,7 +22,7 @@ What it verifies:
      ``_internal/django_extensions/``.
 
   2. NF-4 / DEVOPS-MED-11 — bundle size. Asserts ``dist/wizard`` is
-     at most 30 MiB. On overage, prints the top-10 largest files for
+     at most 35 MB. On overage, prints the top-10 largest files for
      diagnosis without re-running the build.
 
   3. AC-B4 — spawn-and-poll smoke. Provisions a fresh tmpdir per run
@@ -111,7 +111,7 @@ def check_bundle_introspection(bundle: pathlib.Path) -> bool:
 
 
 def check_bundle_size(bundle: pathlib.Path) -> bool:
-    """NF-4 / DEVOPS-MED-11: assert bundle <= 30 MiB."""
+    """NF-4 / DEVOPS-MED-11: assert bundle <= 35 MB."""
     size = bundle_size_bytes(bundle)
     print(f"Wizard bundle size: {size} bytes (ceiling {SIZE_LIMIT_BYTES})")
     if size > SIZE_LIMIT_BYTES:
