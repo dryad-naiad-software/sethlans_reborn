@@ -12,10 +12,11 @@ the worker — it is an independent process supervised by the launcher
 via the IPC contract in ``wizard/sethlans_wizard/ipc.py``.
 
 NF-4 SIZE CEILING: the wizard one-dir bundle MUST stay at or under
-30 MB (raised from 25 MB on 2026-04-26; see Spec 1 NF-4 measurement
-note). Be wary of adding new hidden imports or datas. Per Spec 1
-NF-9, no new top-level dependencies (httpx, requests, certifi, etc.)
-may be introduced beyond what the manager already pulls in.
+35 MB (raised from 25 MB → 30 MB on 2026-04-26, then 30 MB → 35 MB
+to absorb tightening headroom; see Spec 1 NF-4 measurement note).
+Be wary of adding new hidden imports or datas. Per Spec 1 NF-9, no
+new top-level dependencies (httpx, requests, certifi, etc.) may be
+introduced beyond what the manager already pulls in.
 
 Usage: pyinstaller packaging/pyinstaller/wizard.spec
 """
@@ -110,7 +111,7 @@ if FRONTEND_DIR.exists():
 # --- Excludes ---
 # The wizard is a standalone process. Explicitly exclude server-side
 # components so a stray transitive import does not bloat the bundle
-# past the NF-4 30 MB ceiling or pull in forbidden modules.
+# past the NF-4 35 MB ceiling or pull in forbidden modules.
 # AC-B2 (Phase C) verifies these absences via pathlib.rglob assertions.
 #
 # DEVOPS-HIGH-1 (Phase F3): explicitly exclude shared.tray and

@@ -174,7 +174,7 @@ echo "=== 6/7 PyInstaller: wizard ==="
 
 # NF-4 + AC-B2 + AC-B4 wizard smoke: delegated to tools/wizard_smoke.py
 # so CI and local builds share the exact same checks (DEVOPS-MED-5,
-# Phase F3). The script asserts NF-4 30 MB bundle ceiling, AC-B2
+# Phase F3). The script asserts NF-4 35 MB bundle ceiling, AC-B2
 # pathlib.rglob bundle introspection, AND spawns the wizard to poll
 # its port file + GET / over HTTPS within a 60 s wall-clock budget.
 # Use the build venv's interpreter so PyInstaller's deps (including

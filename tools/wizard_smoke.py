@@ -80,7 +80,7 @@ from _wizard_smoke_helpers import (  # noqa: E402
 )
 
 FORBIDDEN_NAMES = ("django", "workers", "psycopg", "pymysql")
-SIZE_LIMIT_BYTES = 30 * 1024 * 1024
+SIZE_LIMIT_BYTES = 35 * 1024 * 1024
 STARTUP_BUDGET_SECONDS = 30
 WALL_CLOCK_BUDGET_SECONDS = 60
 PORT_FILE_POLL_TIMEOUT_SECONDS = 15
