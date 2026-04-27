@@ -20,6 +20,8 @@ Scenarios:
 
 from __future__ import annotations
 
+import os
+import sys
 import time
 
 import pytest
@@ -28,6 +30,20 @@ from launcher import wizard_ipc
 
 from . import _driver_process as _dp
 from . import _http
+
+# #156: hosted GitHub macOS runners blow the launcher's
+# RUNTIME_PORT_BIND_TIMEOUT (30 s, production code in
+# launcher/wizard_runtime.py) on the mock-runtime cold-start path —
+# `cryptography` import + RSA-2048 keygen + ssl.PROTOCOL_TLS_SERVER
+# wrap takes longer than the budget on those VMs. The test passes on
+# Linux + Windows hosted runners, on the self-hosted Apple Silicon
+# runner (our real-world dev-machine canary), and on every dev box.
+# Skip only the hosted-macOS cell — the production timeout is a real
+# code path we still want exercised everywhere else.
+_HOSTED_MACOS = (
+    sys.platform == "darwin"
+    and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
+)
 
 
 # ---- URL helpers -----------------------------------------------------------
@@ -136,6 +152,15 @@ def _poll_runtime_ready(
 
 # ---- Scenario 1: manager-only happy path ---------------------------------
 
+@pytest.mark.skipif(
+    _HOSTED_MACOS,
+    reason=(
+        "#156 — hosted GitHub macOS runner is too slow for the "
+        "30s production RUNTIME_PORT_BIND_TIMEOUT on the mock-runtime "
+        "cold-start path. Self-hosted Apple Silicon + every dev macOS "
+        "passes; this skip is a CI-noise concession only."
+    ),
+)
 @pytest.mark.usefixtures("require_manager_port_free")
 def test_manager_handoff_writes_marker_and_runtime_ready(launcher_driver):
     """Full hand-off lifecycle: wizard → done → runtime spawned + ready."""
