@@ -26,6 +26,7 @@ import pytest
 
 from launcher import wizard_ipc
 
+from . import _driver_process as _dp
 from . import _http
 
 
@@ -179,7 +180,17 @@ def test_manager_handoff_writes_marker_and_runtime_ready(launcher_driver):
         # launcher's hand_off_to_runtime then cleans up the wizard dir
         # and returns 0.
         rc = handle.proc.wait(timeout=45.0)
-        assert rc == 0, f"driver exited with rc={rc}"
+        if rc != 0:
+            # #156: surface driver stdout/stderr so macOS CI failures
+            # don't leave us blind. The drainer threads in
+            # _driver_process already capture both streams; we just
+            # never dumped them on assertion failure.
+            out, err = _dp.drain_streams(handle.proc)
+            pytest.fail(
+                f"driver exited with rc={rc}\n"
+                f"--- driver stdout ---\n{out}\n"
+                f"--- driver stderr ---\n{err}"
+            )
 
         # Phase 4: post-handoff side effects.
         assert topology_path.is_file(), "topology.json missing post-handoff"
