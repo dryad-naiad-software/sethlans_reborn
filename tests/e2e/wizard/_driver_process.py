@@ -13,6 +13,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -114,15 +115,62 @@ def wait_for_wizard_ready(
 
 
 def drain_streams(proc: subprocess.Popen) -> tuple[str, str]:
-    """Drain stdout / stderr after the process exits."""
-    try:
-        out, err = proc.communicate(timeout=2)
-    except Exception:
+    """Drain stdout / stderr after the process exits.
+
+    CONC-HIGH-2 (Phase F4): drainer threads spawned at fixture
+    startup continuously read ``proc.stdout`` / ``proc.stderr`` into
+    in-memory buffers, so the kernel pipe buffer can never fill and
+    deadlock the child. We just snapshot the buffers here.
+    """
+    accumulator = getattr(proc, "_e2e_drain_buffers", None)
+    if accumulator is None:
         return "", ""
-    return (
-        (out or b"").decode(errors="replace"),
-        (err or b"").decode(errors="replace"),
+    out_buf, err_buf, lock = accumulator
+    with lock:
+        return (
+            b"".join(out_buf).decode(errors="replace"),
+            b"".join(err_buf).decode(errors="replace"),
+        )
+
+
+def _start_drainer_threads(proc: subprocess.Popen) -> None:
+    """Spawn background readers for ``proc.stdout`` / ``proc.stderr``.
+
+    Stashes ``(out_buf, err_buf, lock)`` on the Popen so
+    ``drain_streams`` can snapshot the captured bytes after the
+    process exits.
+    """
+    out_buf: list[bytes] = []
+    err_buf: list[bytes] = []
+    lock = threading.Lock()
+    proc._e2e_drain_buffers = (  # type: ignore[attr-defined]
+        out_buf, err_buf, lock,
     )
+
+    def _drain(stream, sink):
+        try:
+            while True:
+                chunk = stream.read(4096)
+                if not chunk:
+                    break
+                with lock:
+                    sink.append(chunk)
+        except (OSError, ValueError):
+            # Stream closed underneath us during shutdown — fine.
+            pass
+        finally:
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+    for stream, sink in ((proc.stdout, out_buf), (proc.stderr, err_buf)):
+        if stream is None:
+            continue
+        t = threading.Thread(
+            target=_drain, args=(stream, sink), daemon=True,
+        )
+        t.start()
 
 
 def terminate(proc: subprocess.Popen, data_dir: Path | None = None) -> None:
@@ -201,6 +249,16 @@ def spawn_driver(
     if extra_env:
         env.update(extra_env)
 
+    # CONC-HIGH-2 (Phase F4): subprocess.PIPE is fine ONLY if a
+    # concurrent reader drains it. The pytest test calls
+    # ``proc.wait(timeout=45.0)`` without a concurrent reader, so an
+    # INFO-logging driver across a 30-45s test fills the kernel pipe
+    # buffer (~4 KiB on Windows, ~64 KiB on POSIX) and blocks on its
+    # next write — the blocked driver cannot run its
+    # ``terminate_all()`` cleanup, child processes leak, and
+    # subsequent tests fail port-bind. Spawn drainer threads at
+    # fixture startup that continuously read from ``proc.stdout`` /
+    # ``proc.stderr`` so the pipe never fills.
     popen_kwargs: dict = {
         "env": env,
         "stdout": subprocess.PIPE,
@@ -209,4 +267,6 @@ def spawn_driver(
     }
     if platform.system() == "Windows":
         popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    return subprocess.Popen(cmd, **popen_kwargs)
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+    _start_drainer_threads(proc)
+    return proc

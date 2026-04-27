@@ -2,61 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Content tests for the wizard topology picker page (Spec 1 / B3 / FR-W-FE9).
+"""Markup / structure / a11y tests for ``topology.html`` + ``topology.js``.
 
-These tests live next to the asset and inspect the static HTML
-verbatim (mirroring ``test_index_page.py``). They do not exercise the
-WSGI app — that is covered by ``test_static_file_routes.py``. The
-purpose here is to lock down the radiogroup a11y contract from
-FR-W-FE9 and AC-W-FE5 so a future drive-by edit cannot silently break
-the keyboard / screen-reader story.
-
-Phase F2 split the inline page script out into ``static/js/topology.js``.
-Markup-shape tests still inspect ``topology.html`` directly; behaviour
-tests now read the JS files.
+Mirrors the original ``test_topology_page.py`` (Spec 1 / B3 /
+FR-W-FE9). API/behaviour assertions live in
+``test_topology_page_behaviour.py`` so each file stays under the
+300-line limit.
 """
 
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-import pytest
+from ._topology_page_helpers import TOPOLOGY_JS_PATH, TOPOLOGY_PATH
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-TOPOLOGY_PATH = (
-    PROJECT_ROOT / "wizard" / "frontend" / "static" / "topology.html"
-)
-TOPOLOGY_JS_PATH = (
-    PROJECT_ROOT / "wizard" / "frontend" / "static" / "js" / "topology.js"
-)
-COMMON_JS_PATH = (
-    PROJECT_ROOT / "wizard" / "frontend" / "static" / "js" / "common.js"
-)
-
-
-@pytest.fixture(scope="module")
-def topology_html() -> str:
-    assert TOPOLOGY_PATH.is_file(), f"Expected {TOPOLOGY_PATH} to exist"
-    return TOPOLOGY_PATH.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def topology_js() -> str:
-    assert TOPOLOGY_JS_PATH.is_file(), f"Expected {TOPOLOGY_JS_PATH} to exist"
-    return TOPOLOGY_JS_PATH.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def common_js() -> str:
-    assert COMMON_JS_PATH.is_file(), f"Expected {COMMON_JS_PATH} to exist"
-    return COMMON_JS_PATH.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def topology_combined(topology_html: str, topology_js: str, common_js: str) -> str:
-    """Concatenated HTML + JS deps for cross-file behaviour assertions."""
-    return "\n".join((topology_html, topology_js, common_js))
+# The module-scoped asset-loading fixtures (topology_html, topology_js,
+# common_js) are provided by tests/unit/wizard/conftest.py.
 
 
 def test_topology_html_exists():
@@ -192,102 +153,6 @@ def test_topology_html_tabindex_attribute_used(topology_html):
     )
 
 
-def test_topology_html_has_three_topology_values(topology_js):
-    """A4 contract: backend accepts manager | manager_worker | worker_only."""
-    for value in ("'manager'", "'manager_worker'", "'worker_only'"):
-        assert value in topology_js, (
-            f"Topology choice value {value!r} missing — must match A4's "
-            "VALID_TOPOLOGIES set."
-        )
-
-
-def test_topology_html_card_labels_present(topology_js):
-    """The three card labels match the spec exactly (B3 task)."""
-    assert "Manager only" in topology_js
-    assert "Manager + Worker" in topology_js
-    assert "Worker only" in topology_js
-
-
-def test_topology_html_posts_to_topology_endpoint(topology_js):
-    """FR-W-FE4: choice submitted via POST /api/wizard/topology/."""
-    assert "/api/wizard/topology/" in topology_js
-    assert (
-        "method: 'POST'" in topology_js
-        or 'method: "POST"' in topology_js
-    )
-
-
-def test_topology_html_posts_done_after_topology(topology_js):
-    """HIGH-1 (Phase F2): /done/ MUST be called after a successful /topology/.
-
-    Without /done/ the launcher never writes the .wizard_done IPC marker
-    and the runtime never starts. This was the spec-compliance blocker
-    addressed in Phase F2.
-    """
-    assert "/api/wizard/done/" in topology_js, (
-        "topology.js MUST POST /api/wizard/done/ between /topology/ "
-        "success and the navigation to /redirecting (FR-W-FE4 / HIGH-1)."
-    )
-    # The /done/ call must come AFTER the /topology/ call in source order.
-    topology_idx = topology_js.find("/api/wizard/topology/")
-    done_idx = topology_js.find("/api/wizard/done/")
-    assert topology_idx >= 0 and done_idx >= 0
-    assert topology_idx < done_idx, (
-        "/api/wizard/topology/ MUST come before /api/wizard/done/."
-    )
-
-
-def test_topology_html_sends_session_header(common_js):
-    """FR-W8 + FR-W-FE3b: session token sent via X-Wizard-Session header only.
-
-    The header is added by the shared wizardFetch() helper in common.js.
-    """
-    assert "X-Wizard-Session" in common_js, (
-        "common.js wizardFetch() MUST attach X-Wizard-Session "
-        "(FR-W8 / FR-W-FE3b)."
-    )
-
-
-def test_topology_html_uses_session_storage_not_local_storage(common_js, topology_js):
-    """FR-W-FE3: session token retrieved from sessionStorage (NOT local)."""
-    assert "sessionStorage" in common_js
-    assert "localStorage" not in common_js, (
-        "Wizard pages MUST NOT use localStorage (FR-W-FE3)."
-    )
-    assert "localStorage" not in topology_js
-
-
-def test_topology_html_redirects_to_redirecting_on_success(topology_js):
-    """B3 task: on 200, navigate to /redirecting (the B4 page)."""
-    assert "/redirecting" in topology_js
-
-
-def test_topology_html_handles_session_expiry(topology_js, common_js):
-    """FR-W-FE3: 401 from a wizard API call must clear sessionStorage + redirect.
-
-    The expireAndRedirect() helper lives in common.js; topology.js calls
-    it on 401/403.
-    """
-    assert "401" in topology_js
-    assert "expireAndRedirect" in topology_js
-    assert "removeItem" in common_js or "clear()" in common_js
-
-
-def test_topology_html_no_token_in_url(topology_combined):
-    """FR-W-FE3a: setup token MUST NOT appear in URL/query/fragment."""
-    bad_patterns = [
-        "?setup_token=",
-        "?token=",
-        "#setup_token=",
-        "#token=",
-        "?session_token=",
-    ]
-    for pat in bad_patterns:
-        assert pat not in topology_combined, (
-            f"Token must not appear in URL — found pattern {pat!r}."
-        )
-
-
 def test_topology_html_no_cdn_references(topology_html):
     """NF-3 / FR-W-FE10: no external CDN references allowed."""
     stripped_lines = []
@@ -311,7 +176,9 @@ def test_topology_html_v_cloak_used_to_prevent_template_flash(topology_html):
     assert "v-cloak" in topology_html
 
 
-def test_topology_html_submit_disabled_until_selection(topology_html, topology_js):
+def test_topology_html_submit_disabled_until_selection(
+    topology_html, topology_js,
+):
     """Submit button MUST be disabled until a card is selected."""
     assert ":disabled" in topology_html, (
         "Submit button must use a :disabled binding so the user cannot "
@@ -328,34 +195,3 @@ def test_topology_html_submit_disabled_until_selection(topology_html, topology_j
 def test_topology_html_aria_disabled_on_submit(topology_html):
     """ARIA mirror of disabled state for screen readers."""
     assert "aria-disabled" in topology_html
-
-
-def test_topology_html_keyboard_handler_attached_after_mount(topology_js):
-    """Integration pattern point 4: keyboard handler attached after mount.
-
-    The handler MUST be JS-driven (not inline @keydown on each card),
-    per the v2.3 Petite-vue + Bootstrap integration pattern. We verify
-    the handler references the arrow keys + Home/End + Space/Enter and
-    binds via addEventListener (not a Petite-vue @keydown attribute).
-    Phase F2 added Home/End for the WAI-ARIA radiogroup pattern
-    (MEDIUM-3).
-    """
-    assert "ArrowRight" in topology_js
-    assert "ArrowLeft" in topology_js
-    assert "ArrowDown" in topology_js
-    assert "ArrowUp" in topology_js
-    assert "Enter" in topology_js
-    assert "addEventListener" in topology_js
-    assert "DOMContentLoaded" in topology_js
-    # MEDIUM-3 — Home/End cycle to first/last card.
-    assert "'Home'" in topology_js
-    assert "'End'" in topology_js
-
-
-def test_topology_js_uses_history_replace_state(topology_js):
-    """MEDIUM-2 (Phase F2): replace history so Back skips topology page."""
-    assert "history.replaceState" in topology_js, (
-        "topology.js MUST call window.history.replaceState before the "
-        "navigation so Back does not return the user here and re-fire "
-        "/done/ (MEDIUM-2)."
-    )
