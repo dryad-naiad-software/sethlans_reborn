@@ -122,6 +122,24 @@ class _ChildTracker:
             _politely_terminate(proc)
         for proc in self.children:
             _wait_or_kill(proc, grace_seconds)
+        # Surface child stdout/stderr to the driver's own stderr so #156
+        # diagnostics survive _cleanup_log_files. The driver's stderr is
+        # captured by the test harness; child stderr otherwise dies with
+        # the temp file.
+        for proc in self.children:
+            for stream_name, attr in (("stdout", "_e2e_stdout_path"),
+                                      ("stderr", "_e2e_stderr_path")):
+                path = getattr(proc, attr, None)
+                if path is None:
+                    continue
+                try:
+                    content = Path(path).read_text(errors="replace")
+                except OSError:
+                    continue
+                if content.strip():
+                    sys.stderr.write(
+                        f"--- pid={proc.pid} {stream_name} ---\n{content}\n"
+                    )
         for proc in self.children:
             _cleanup_log_files(proc)
 
