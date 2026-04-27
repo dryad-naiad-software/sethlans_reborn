@@ -89,6 +89,12 @@ if not _VERSION_SRC.is_file():
         "running the tray helper build."
     )
 
+# Issue #107: drive the macOS Info.plist version fields off VERSION so the
+# .app bundle advertises the correct version to Finder, mdls, Gatekeeper,
+# and crash reporters. Stripped to drop trailing newline; CFBundle*Version
+# fields are sensitive to whitespace.
+_BUNDLE_VERSION = _VERSION_SRC.read_text(encoding='utf-8').strip()
+
 # --- Data files ---
 # Tray icon PNGs + LGPLv3 attribution shipped inside the bundle.
 # AC-14: licenses/ must contain LGPL-3.0 text and the Qt NOTICE, placed
@@ -203,8 +209,8 @@ if sys.platform == 'darwin':
         bundle_identifier='com.dryadandnaiad.sethlans.helper',
         info_plist={
             'LSUIElement': True,  # No dock icon for tray helper
-            'CFBundleShortVersionString': '0.1.0',
-            'CFBundleVersion': '0.1.0',
+            'CFBundleShortVersionString': _BUNDLE_VERSION,
+            'CFBundleVersion': _BUNDLE_VERSION,
             'NSHighResolutionCapable': True,
         },
     )

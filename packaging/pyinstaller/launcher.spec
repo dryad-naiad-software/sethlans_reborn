@@ -108,6 +108,12 @@ if not _VERSION_SRC.is_file():
     )
 version_datas = [(str(_VERSION_SRC), '.')]
 
+# Issue #107: drive the macOS Info.plist version fields off VERSION so the
+# .app bundle advertises the correct version to Finder, mdls, Gatekeeper,
+# and crash reporters. Stripped to drop trailing newline; CFBundle*Version
+# fields are sensitive to whitespace.
+_BUNDLE_VERSION = _VERSION_SRC.read_text(encoding='utf-8').strip()
+
 a = Analysis(
     [str(LAUNCHER_DIR / 'run_launcher.py')],
     pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT), str(MANAGER_DIR)],
@@ -184,8 +190,8 @@ if sys.platform == 'darwin':
         bundle_identifier='com.dryadandnaiad.sethlans',
         info_plist={
             'LSUIElement': False,
-            'CFBundleShortVersionString': '0.1.0',
-            'CFBundleVersion': '0.1.0',
+            'CFBundleShortVersionString': _BUNDLE_VERSION,
+            'CFBundleVersion': _BUNDLE_VERSION,
             'LSMinimumSystemVersion': '14.0',
             'NSHighResolutionCapable': True,
         },
