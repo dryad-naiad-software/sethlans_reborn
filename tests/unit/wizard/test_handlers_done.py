@@ -209,3 +209,77 @@ class TestFactoryGuards:
         with pytest.raises(ValueError):
             done_handler.make_done_handler(
                 tmp_path, "not-bytes")  # type: ignore[arg-type]
+
+
+class TestOSErrorFailFatal:
+    """Document the fail-fatal contract for the OSError branch (Issue #145).
+
+    FR-W9a sets ``_done_sent`` BEFORE the marker write, so once
+    ``ipc.write_marker`` raises ``OSError`` no retry through ``/done/``
+    can ever produce the marker — the second call hits the idempotent
+    path and returns ``already_done`` without writing.
+
+    Any future change that introduces a retry path (e.g. resetting the
+    flag on OSError or splitting the flag into ``_done_attempted`` /
+    ``_done_written``) MUST also update these tests.
+    """
+
+    def test_oserror_returns_500_and_no_marker(
+        self, handler, data_dir_with_topology, mocker,
+    ):
+        mocker.patch.object(
+            done_handler.ipc, "write_marker",
+            side_effect=OSError("simulated disk full"),
+        )
+        status, _, body = _call(handler, _auth_env())
+        assert status.startswith("500"), body
+        assert "could not write" in body["error"].lower()
+        marker = data_dir_with_topology / "wizard" / ipc.MARKER_WIZARD_DONE
+        assert not marker.exists(), (
+            "marker must not exist after OSError branch"
+        )
+
+    def test_oserror_then_retry_returns_already_done_without_writing(
+        self, handler, data_dir_with_topology, mocker,
+    ):
+        # First call fails with OSError — flag is flipped, no marker written.
+        write_marker_mock = mocker.patch.object(
+            done_handler.ipc, "write_marker",
+            side_effect=OSError("simulated disk full"),
+        )
+        status1, _, _ = _call(handler, _auth_env())
+        assert status1.startswith("500")
+        assert write_marker_mock.call_count == 1
+
+        # Operator retries: re-issue session token (it was NOT cleared in
+        # the OSError branch but the test fixture's first _call may not
+        # have touched it; reissue defensively to model a fresh request).
+        auth_state.set_session_token(_VALID_SESSION)
+
+        # The retry must return 200 + already_done WITHOUT calling
+        # write_marker again — this is the documented fail-fatal contract.
+        status2, _, body2 = _call(handler, _auth_env())
+        assert status2.startswith("200")
+        assert body2 == {"status": "already_done"}
+        assert write_marker_mock.call_count == 1, (
+            "retry must NOT re-attempt the marker write — fail-fatal "
+            "contract per FR-W9a / Issue #145"
+        )
+        marker = data_dir_with_topology / "wizard" / ipc.MARKER_WIZARD_DONE
+        assert not marker.exists(), (
+            "marker still must not exist after retry"
+        )
+
+    def test_oserror_does_not_clear_session_token(
+        self, handler, mocker,
+    ):
+        # The OSError branch intentionally leaves the session token in
+        # place so in-flight requests still authenticate while the
+        # operator decides whether to abort via .wizard_reject.
+        mocker.patch.object(
+            done_handler.ipc, "write_marker",
+            side_effect=OSError("simulated disk full"),
+        )
+        assert auth_state.validate_session_token(_VALID_SESSION) is True
+        _call(handler, _auth_env())
+        assert auth_state.validate_session_token(_VALID_SESSION) is True

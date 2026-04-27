@@ -151,11 +151,21 @@ def _handle(
         )
     except OSError as exc:
         logger.error("Could not write .wizard_done marker: %s", exc)
-        # Don't reset the done-sent flag; the launcher will time out and
-        # surface the failure via .wizard_reject. The session token is
-        # not cleared in this branch — the operator may be able to
-        # retry via /done/ once the I/O fault clears (the idempotent
-        # path will then return "already_done" without re-writing).
+        # FAIL-FATAL: the FR-W9a `_done_sent` flag was already flipped by
+        # `check_and_set_done_sent()` above, BEFORE this write attempt.
+        # That flip is intentional and not reversible here — it preserves
+        # the FR-W9a "exactly one marker" invariant under concurrent
+        # callers. The unfortunate side-effect is that any retry POST to
+        # /done/ now hits the idempotent branch and returns
+        # "already_done" without re-attempting the write.
+        #
+        # No recovery path exists from the wizard side once this branch
+        # is reached. The operator's only option is to abort the wizard
+        # via the launcher's `.wizard_reject` flow (FR-W17(b)); the
+        # session token is intentionally NOT cleared here so that
+        # in-flight requests still authenticate while the operator
+        # decides to abort. The launcher will surface the failure via
+        # the FR-W17 polite-shutdown machinery.
         return _wsgi.send_json(
             start_response,
             {"error": "could not write .wizard_done marker"},
