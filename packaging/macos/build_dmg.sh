@@ -87,9 +87,24 @@ fi
 # Defensively re-sign the nested helper bundle. The `cp -R` above may or
 # may not preserve the ad-hoc signature cleanly across macOS versions,
 # and the outer re-sign below needs a valid seal on every nested bundle.
+#
+# Inside-out signing for the helper: sign nested Mach-O binaries first
+# (.dylib / .so under Contents/), then the executable, then the outer
+# bundle. `--deep` is intentionally avoided here — Apple deprecated it
+# in macOS 11 and notarytool will reject `--deep`-signed artifacts when
+# the Developer ID + notarization workstream lands (#85).
 if [ -d "${RESOURCES}/bin/tray_helper/SethlansHelper.app" ]; then
-    codesign --force --deep --sign - \
-        "${RESOURCES}/bin/tray_helper/SethlansHelper.app"
+    HELPER_BUNDLE="${RESOURCES}/bin/tray_helper/SethlansHelper.app"
+    # Sign nested Mach-O first (dylibs, shared objects)
+    find "${HELPER_BUNDLE}" -type f \( -name "*.dylib" -o -name "*.so" \) \
+        -exec codesign --force --sign - {} +
+    # Sign the helper's main executable explicitly if present
+    HELPER_EXE="${HELPER_BUNDLE}/Contents/MacOS/run_tray_helper"
+    if [ -f "${HELPER_EXE}" ]; then
+        codesign --force --sign - "${HELPER_EXE}"
+    fi
+    # Outer helper bundle last
+    codesign --force --sign - "${HELPER_BUNDLE}"
 fi
 
 # Apply Info.plist from template. Two substitutions: BUILD_VERSION
@@ -128,7 +143,36 @@ xattr -cr "${STAGING_DIR}/${APP_NAME}" || true
 # them would be invalidated again and the verify below would abort.
 # Ad-hoc sign is enough to clear Gatekeeper's "damaged" gate; Developer
 # ID signing + notarization are a separate workstream — see GitHub #85.
-codesign --force --deep --sign - "${STAGING_DIR}/${APP_NAME}"
+#
+# Inside-out signing: nested Mach-O first, then component launchers,
+# then nested .app bundles, then the outer bundle last. Apple
+# deprecated `codesign --deep` starting macOS 11 — notarytool rejects
+# `--deep`-signed bundles, so we avoid it here even for ad-hoc signing
+# to keep the build forward-compatible with #85 (Developer ID +
+# notarization). See:
+# https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution
+
+# 1. Sign every nested Mach-O binary (.dylib, .so) under the staged bundle.
+find "${STAGING_DIR}/${APP_NAME}" -type f \( -name "*.dylib" -o -name "*.so" \) \
+    -exec codesign --force --sign - {} +
+
+# 2. Sign component executables explicitly (PyInstaller-frozen launchers).
+for component in wizard manager worker launcher; do
+    bin="${RESOURCES}/bin/${component}/run_${component}"
+    if [ -f "$bin" ]; then
+        codesign --force --sign - "$bin"
+    fi
+done
+
+# 3. tray_helper bundled as a plain PyInstaller dir (not a .app) on
+#    Linux/Windows but kept for parity if present here.
+if [ -f "${RESOURCES}/bin/tray_helper/run_tray_helper" ]; then
+    codesign --force --sign - "${RESOURCES}/bin/tray_helper/run_tray_helper"
+fi
+
+# 4. Outer bundle LAST. Signing the parent re-seals references to every
+#    nested signature already applied above.
+codesign --force --sign - "${STAGING_DIR}/${APP_NAME}"
 
 # Create Applications symlink for drag-to-install
 ln -sf /Applications "${STAGING_DIR}/Applications"
