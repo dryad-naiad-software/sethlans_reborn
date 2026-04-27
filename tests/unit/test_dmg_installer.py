@@ -122,34 +122,36 @@ class TestDmgInstallerCodesign:
     Fixes #85.
     """
 
+    # Pattern matching the OUTER-bundle re-sign WITHOUT --deep.
+    # Apple deprecated `codesign --deep` for signing in macOS 11 and
+    # notarytool will reject `--deep`-signed artifacts (issue #149). The
+    # script now uses inside-out signing instead: nested Mach-O first,
+    # then component executables, then the outer bundle last — each
+    # without `--deep`.
+    OUTER_RESIGN_PATTERN = re.compile(
+        r'codesign\s+--force\s+--sign\s+-\s+'
+        r'"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
+    )
+
     def test_resigns_bundle_after_plist_edit(self, dmg_contents: str) -> None:
-        # Match `codesign --force --deep --sign -` targeting the staged .app.
-        # Tolerates arbitrary whitespace between flags and across line
-        # continuations.
-        pattern = re.compile(
-            r'codesign\s+--force\s+--deep\s+--sign\s+-\s+'
-            r'"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
-        )
-        assert pattern.search(dmg_contents), (
+        # Match `codesign --force --sign -` targeting the staged .app.
+        # `--deep` is intentionally absent — see OUTER_RESIGN_PATTERN.
+        assert self.OUTER_RESIGN_PATTERN.search(dmg_contents), (
             "Expected the script to re-sign the staged bundle with "
-            '`codesign --force --deep --sign - "${STAGING_DIR}/${APP_NAME}"` '
-            "after the Info.plist template overwrite (issue #85)."
+            '`codesign --force --sign - "${STAGING_DIR}/${APP_NAME}"` '
+            "(no --deep) after the Info.plist template overwrite (issue #85)."
         )
 
     def test_resign_happens_after_plist_template_write(self, dmg_contents: str) -> None:
         # The re-sign must come AFTER the plist edit — signing before the edit
         # is pointless because the edit would strip the signature again.
         plist_marker = 'PLIST_TEMPLATE="${SCRIPT_DIR}/Info.plist.template"'
-        resign_marker_pattern = re.compile(
-            r'codesign\s+--force\s+--deep\s+--sign\s+-\s+'
-            r'"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
-        )
 
         assert plist_marker in dmg_contents, (
             "Expected the Info.plist template block to be present "
             "(sanity check — the fix depends on its location)."
         )
-        resign_match = resign_marker_pattern.search(dmg_contents)
+        resign_match = self.OUTER_RESIGN_PATTERN.search(dmg_contents)
         assert resign_match is not None, (
             "Expected the outer-bundle re-sign line to be present."
         )
@@ -164,16 +166,46 @@ class TestDmgInstallerCodesign:
     def test_resigns_nested_helper_bundle(self, dmg_contents: str) -> None:
         # The nested SethlansHelper.app inside Resources/bin/tray_helper/ must
         # also be re-signed defensively — cp -R doesn't always preserve the
-        # ad-hoc signature cleanly, and the outer --deep re-sign needs a valid
-        # seal on every nested bundle.
-        pattern = re.compile(
-            r'codesign\s+--force\s+--deep\s+--sign\s+-\s+\\?\s*'
-            r'"\$\{RESOURCES\}/bin/tray_helper/SethlansHelper\.app"',
+        # ad-hoc signature cleanly. Inside-out signing means the helper
+        # bundle is signed without `--deep` (issue #149); its nested
+        # Mach-O binaries and main executable are signed individually
+        # before the helper bundle itself is signed.
+        helper_bundle_pattern = re.compile(
+            r'codesign\s+--force\s+--sign\s+-\s+\\?\s*'
+            r'"\$\{HELPER_BUNDLE\}"',
         )
-        assert pattern.search(dmg_contents), (
-            "Expected the script to re-sign the nested helper at "
-            '"${RESOURCES}/bin/tray_helper/SethlansHelper.app" with '
-            "`codesign --force --deep --sign -` (issue #85)."
+        assert helper_bundle_pattern.search(dmg_contents), (
+            "Expected the script to re-sign the nested helper bundle "
+            '"${HELPER_BUNDLE}" with `codesign --force --sign -` (no --deep) '
+            "after signing its nested binaries (issue #85, #149)."
+        )
+
+        # Helper executable must be signed individually (inside-out) so
+        # the helper bundle's signature seals a valid inner signature
+        # rather than relying on deprecated --deep traversal.
+        helper_exe_pattern = re.compile(
+            r'codesign\s+--force\s+--sign\s+-\s+'
+            r'"\$\{HELPER_EXE\}"',
+        )
+        assert helper_exe_pattern.search(dmg_contents), (
+            "Expected the script to sign the helper main executable "
+            '"${HELPER_EXE}" individually (inside-out signing) before '
+            "signing the helper bundle (issue #149)."
+        )
+
+        # Helper's nested Mach-O (.dylib/.so) must be signed individually
+        # via a `find ... -exec codesign` line targeting ${HELPER_BUNDLE}.
+        # The find command spans two lines via `\` continuation.
+        helper_find_pattern = re.compile(
+            r'find\s+"\$\{HELPER_BUNDLE\}"\s+-type\s+f\s+\\\(\s*'
+            r'-name\s+"\*\.dylib"\s+-o\s+-name\s+"\*\.so"\s*\\\)\s*\\?\s*'
+            r'-exec\s+codesign\s+--force\s+--sign\s+-\s+\{\}\s+\+',
+            re.DOTALL,
+        )
+        assert helper_find_pattern.search(dmg_contents), (
+            "Expected a `find ${HELPER_BUNDLE} ... -exec codesign --force "
+            "--sign -` line that signs nested .dylib/.so binaries inside "
+            "the helper before the helper bundle itself (issue #149)."
         )
 
     def test_resign_happens_after_all_contents_mutations(self, dmg_contents: str) -> None:
@@ -182,11 +214,7 @@ class TestDmgInstallerCodesign:
         # version.json heredoc. A re-sign placed before any of those
         # writes gets immediately invalidated by the subsequent write,
         # and codesign --verify (issue #85) would then fail with set -e.
-        resign_pattern = re.compile(
-            r'codesign\s+--force\s+--deep\s+--sign\s+-\s+'
-            r'"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
-        )
-        resign_match = resign_pattern.search(dmg_contents)
+        resign_match = self.OUTER_RESIGN_PATTERN.search(dmg_contents)
         assert resign_match is not None, (
             "Expected the outer-bundle re-sign line to be present."
         )
@@ -202,6 +230,111 @@ class TestDmgInstallerCodesign:
                 f"The outer-bundle re-sign must appear AFTER {marker!r}. "
                 "Post-sign writes into Contents/ invalidate the signature "
                 "(issue #85)."
+            )
+
+    def test_signs_nested_macho_binaries_first(self, dmg_contents: str) -> None:
+        # Issue #149: the inside-out signing pattern requires every nested
+        # Mach-O binary (.dylib, .so) to be signed BEFORE the outer
+        # bundle. The script does this with a single `find ... -exec
+        # codesign` over the staged .app. Tolerates the `\` line
+        # continuation between the predicate and the -exec clause.
+        find_pattern = re.compile(
+            r'find\s+"\$\{STAGING_DIR\}/\$\{APP_NAME\}"\s+-type\s+f\s+\\\(\s*'
+            r'-name\s+"\*\.dylib"\s+-o\s+-name\s+"\*\.so"\s*\\\)\s*\\?\s*'
+            r'-exec\s+codesign\s+--force\s+--sign\s+-\s+\{\}\s+\+',
+            re.DOTALL,
+        )
+        assert find_pattern.search(dmg_contents), (
+            "Expected a `find ${STAGING_DIR}/${APP_NAME} -type f "
+            '\\( -name "*.dylib" -o -name "*.so" \\) -exec codesign '
+            "--force --sign - {} +` line to sign every nested Mach-O "
+            "binary before the outer bundle (issue #149)."
+        )
+
+        # The nested-binary signing must happen BEFORE the outer-bundle
+        # re-sign — inside-out order.
+        find_match = find_pattern.search(dmg_contents)
+        outer_match = self.OUTER_RESIGN_PATTERN.search(dmg_contents)
+        assert find_match is not None and outer_match is not None
+        assert find_match.start() < outer_match.start(), (
+            "Nested Mach-O signing must run BEFORE the outer-bundle "
+            "re-sign (inside-out order, issue #149)."
+        )
+
+    def test_signs_each_component_executable(self, dmg_contents: str) -> None:
+        # Issue #149 inside-out signing: each PyInstaller-frozen component
+        # launcher (wizard, manager, worker, launcher) must be signed
+        # individually before the outer bundle. The script uses a `for
+        # component in wizard manager worker launcher` loop.
+        loop_pattern = re.compile(
+            r'for\s+component\s+in\s+wizard\s+manager\s+worker\s+launcher',
+        )
+        assert loop_pattern.search(dmg_contents), (
+            "Expected a `for component in wizard manager worker launcher` "
+            "loop that signs each component executable individually "
+            "(issue #149 inside-out signing)."
+        )
+
+        # The loop body must invoke `codesign --force --sign -` on
+        # ${RESOURCES}/bin/${component}/run_${component}.
+        component_sign_pattern = re.compile(
+            r'codesign\s+--force\s+--sign\s+-\s+"\$bin"',
+        )
+        assert component_sign_pattern.search(dmg_contents), (
+            "Expected `codesign --force --sign - \"$bin\"` inside the "
+            "component-signing loop (issue #149)."
+        )
+
+    def test_outer_bundle_signed_last(self, dmg_contents: str) -> None:
+        # Issue #149: the outer bundle re-sign MUST be the last
+        # `codesign --sign` line in the script (excluding `codesign
+        # --verify`). Signing the outer bundle re-seals references to
+        # every nested signature, so any signing call placed after it
+        # would invalidate the outer seal.
+        outer_match = self.OUTER_RESIGN_PATTERN.search(dmg_contents)
+        assert outer_match is not None, (
+            "Expected the outer-bundle re-sign line to be present."
+        )
+
+        # Find every `codesign --force --sign -` occurrence; the outer
+        # bundle one must be the last.
+        sign_calls = list(re.finditer(
+            r'codesign\s+--force\s+--sign\s+-',
+            dmg_contents,
+        ))
+        assert sign_calls, "Expected at least one `codesign --force --sign -` call."
+        last_sign = sign_calls[-1]
+        assert last_sign.start() == outer_match.start(), (
+            "The outer-bundle `codesign --force --sign - "
+            '"${STAGING_DIR}/${APP_NAME}"` must be the LAST signing '
+            "call in the script. Inside-out signing requires the parent "
+            "bundle to be sealed after every nested signature is in "
+            "place (issue #149)."
+        )
+
+    def test_no_deep_flag_on_any_signing_call(self, dmg_contents: str) -> None:
+        # Issue #149 drift guard: Apple deprecated `codesign --deep` for
+        # signing in macOS 11; notarytool rejects `--deep`-signed
+        # artifacts. The build_dmg.sh script must never pass `--deep`
+        # to a signing call. `--deep` is only acceptable on `codesign
+        # --verify` (Apple still documents it for verification).
+        for raw_line in dmg_contents.splitlines():
+            stripped = raw_line.lstrip()
+            # Ignore shell comment lines — they explain the rule, they
+            # don't invoke codesign.
+            if stripped.startswith('#'):
+                continue
+            if 'codesign' not in raw_line:
+                continue
+            if '--verify' in raw_line:
+                # `--deep` is allowed on verify only (Apple still
+                # documents it for verification).
+                continue
+            assert '--deep' not in raw_line, (
+                f"Regression: `codesign --deep` used on a non-verify call:\n"
+                f"  {raw_line.strip()}\n"
+                "Apple deprecated `--deep` for signing; notarytool will "
+                "reject it. Use inside-out signing instead (issue #149)."
             )
 
     def test_verifies_bundle_signature_before_hdiutil(self, dmg_contents: str) -> None:
@@ -290,8 +423,10 @@ class TestDmgInstallerBundleExecutable:
             r'"\$\{MACOS_DIR\}/run_launcher"\s+\\?\s*'
             r'"\$\{MACOS_DIR\}/sethlans"',
         )
+        # Inside-out signing (issue #149) — the outer re-sign no longer
+        # passes `--deep`. Match the current pattern.
         resign_pattern = re.compile(
-            r'codesign\s+--force\s+--deep\s+--sign\s+-\s+'
+            r'codesign\s+--force\s+--sign\s+-\s+'
             r'"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
         )
         rename_match = rename_pattern.search(dmg_contents)
@@ -356,8 +491,10 @@ class TestDmgInstallerBundleExecutable:
         xattr_pattern = re.compile(
             r'xattr\s+-cr\s+"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
         )
+        # Inside-out signing (issue #149) — the outer re-sign no longer
+        # passes `--deep`. Match the current pattern.
         resign_pattern = re.compile(
-            r'codesign\s+--force\s+--deep\s+--sign\s+-\s+'
+            r'codesign\s+--force\s+--sign\s+-\s+'
             r'"\$\{STAGING_DIR\}/\$\{APP_NAME\}"',
         )
         xattr_match = xattr_pattern.search(dmg_contents)

@@ -138,7 +138,7 @@ class TestNsiFirewallRules:
         uninstall_idx = nsi_contents.find('Section "Uninstall"')
         assert uninstall_idx != -1, "Expected a 'Section \"Uninstall\"' block in the NSI."
 
-        # add rule lines must appear before the uninstall section (i.e., in install section).
+        # Add-rule lines must appear before the Uninstall section header.
         for name, *_ in self.ADD_RULES:
             add_idx = nsi_contents.find(f'add rule name="{name}"')
             assert add_idx != -1, f"Missing add rule for {name!r}"
@@ -146,12 +146,30 @@ class TestNsiFirewallRules:
                 f"add rule for {name!r} must appear in the install section (before Uninstall)."
             )
 
-        # delete rule lines must appear after the uninstall section header.
+        # A delete-rule call MUST exist within the Uninstall section.
+        # (Phase F5b added duplicate delete-rule calls in .onInit's upgrade
+        # path — those are intentional. The Uninstall section must still
+        # contain its own copies.)
+        uninstall_section = nsi_contents[uninstall_idx:]
         for name in self.DELETE_RULE_NAMES:
-            del_idx = nsi_contents.find(f'delete rule name="{name}"')
-            assert del_idx != -1, f"Missing delete rule for {name!r}"
-            assert del_idx > uninstall_idx, (
+            assert f'delete rule name="{name}"' in uninstall_section, (
                 f"delete rule for {name!r} must appear in the Uninstall section."
+            )
+
+    def test_onInit_upgrade_path_deletes_firewall_rules(self, nsi_contents: str) -> None:
+        """Phase G installer-specialist HIGH-3: .onInit must delete firewall
+        rules during upgrade so re-adding doesn't produce duplicates."""
+        on_init_match = re.search(
+            r'Function \.onInit\b(.*?)\bFunctionEnd',
+            nsi_contents, re.DOTALL,
+        )
+        assert on_init_match, "Expected a Function .onInit ... FunctionEnd block."
+        on_init_body = on_init_match.group(1)
+        for name in self.DELETE_RULE_NAMES:
+            assert f'delete rule name="{name}"' in on_init_body, (
+                f".onInit upgrade path must delete firewall rule {name!r} "
+                "before re-adding it (Phase F5b HIGH-3 fix; prevents stale "
+                "duplicate rules after upgrade-in-place)."
             )
 
 
