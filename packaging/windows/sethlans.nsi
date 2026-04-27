@@ -8,6 +8,7 @@
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
+!include "nsDialogs.nsh"
 
 ; --- Installer metadata ---
 !define PRODUCT_NAME "Sethlans"
@@ -49,6 +50,10 @@ RequestExecutionLevel admin
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM
+; Custom page: data-removal opt-in checkbox (interactive uninstall only).
+; Skipped on silent uninstalls — the silent path reads /REMOVE_DATA=1
+; from the command line in un.onInit instead.
+UninstPage custom un.RemoveDataPage un.RemoveDataPageLeave
 !insertmacro MUI_UNPAGE_INSTFILES
 
 !insertmacro MUI_LANGUAGE "English"
@@ -59,11 +64,23 @@ RequestExecutionLevel admin
 ; /AUTOSTART=0|1
 ; /SKIP_WIZARD=0|1
 ; Enrollment key: via SETHLANS_ENROLLMENT_KEY env var (never CLI arg)
+;
+; --- Silent uninstall parameters ---
+; /S                — silent uninstall (NSIS built-in)
+; /REMOVE_DATA=1    — also wipe %LOCALAPPDATA%\Sethlans (databases,
+;                     configs, render outputs). Mirrors the Linux
+;                     uninstall.sh --remove-data flag. Default is
+;                     to PRESERVE user data.
+;
+; Example (silent + wipe data):
+;   uninstall.exe /S /REMOVE_DATA=1
 
 Var TOPOLOGY
 Var MANAGER_HOST
 Var AUTOSTART
 Var SKIP_WIZARD
+Var REMOVE_DATA
+Var RemoveDataCheckbox
 
 Function .onInit
   ; Read silent install parameters
@@ -220,6 +237,56 @@ SectionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${SEC_DESKTOP} "Create a Desktop shortcut."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
+; --- Uninstall: parse /REMOVE_DATA=1 from silent invocations ---
+Function un.onInit
+  StrCpy $REMOVE_DATA "0"
+
+  ${GetParameters} $0
+  ${GetOptions} $0 "/REMOVE_DATA=" $REMOVE_DATA
+
+  ; Treat any non-empty, non-"0" value as truthy. NSIS has no native
+  ; bool type and operators have historically passed e.g. "yes" or
+  ; "true" expecting it to work; normalize to "0" or "1" here.
+  ${If} $REMOVE_DATA != "0"
+  ${AndIf} $REMOVE_DATA != ""
+    StrCpy $REMOVE_DATA "1"
+  ${Else}
+    StrCpy $REMOVE_DATA "0"
+  ${EndIf}
+FunctionEnd
+
+; --- Custom MUI page: data-removal checkbox ---
+; Shown only on interactive uninstalls (NSIS auto-skips custom
+; UninstPage entries when the uninstaller runs with /S).
+; Default: unchecked — preserve user data.
+Function un.RemoveDataPage
+  !insertmacro MUI_HEADER_TEXT "Remove User Data" \
+    "Choose whether to also delete user data."
+
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 40u "By default the uninstaller PRESERVES your Sethlans user data (databases, configs, render outputs) under %LOCALAPPDATA%\Sethlans so you can reinstall later without losing work.$\r$\n$\r$\nCheck the box below to also delete that data. This cannot be undone."
+
+  ${NSD_CreateCheckbox} 0 50u 100% 12u \
+    "Also remove user data (settings, database, render outputs)"
+  Pop $RemoveDataCheckbox
+
+  nsDialogs::Show
+FunctionEnd
+
+Function un.RemoveDataPageLeave
+  ${NSD_GetState} $RemoveDataCheckbox $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $REMOVE_DATA "1"
+  ${Else}
+    StrCpy $REMOVE_DATA "0"
+  ${EndIf}
+FunctionEnd
+
 ; --- Uninstaller ---
 Section "Uninstall"
   ; Stop services if running. run_launcher.exe is included alongside
@@ -258,6 +325,19 @@ Section "Uninstall"
   DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
   DeleteRegKey HKLM "${PRODUCT_REG_KEY}"
 
-  ; Note: user data in %LOCALAPPDATA%\Sethlans is NOT removed
-  ; to preserve databases, configs, and render outputs.
+  ; Optionally remove user data. Mirrors `uninstall.sh --remove-data`
+  ; on Linux. Driven by:
+  ;   - silent: /REMOVE_DATA=1 parsed in un.onInit
+  ;   - interactive: checkbox on the un.RemoveDataPage MUI page
+  ; Default ($REMOVE_DATA == "0") preserves %LOCALAPPDATA%\Sethlans
+  ; (databases, configs, render outputs) so reinstalls keep state.
+  ${If} $REMOVE_DATA == "1"
+    ReadEnvStr $0 LOCALAPPDATA
+    ${If} $0 != ""
+      RMDir /r "$0\Sethlans"
+      DetailPrint "Removed user data: $0\Sethlans"
+    ${EndIf}
+  ${Else}
+    DetailPrint "User data preserved at %LOCALAPPDATA%\Sethlans. Pass /REMOVE_DATA=1 to also wipe data on silent uninstall."
+  ${EndIf}
 SectionEnd
