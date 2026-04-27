@@ -25,6 +25,15 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
+# Download safety net (#115). Same shape as #113 / #114 manager-side
+# (manager/workers/services/{blender,ffmpeg}_download.py). The connect/
+# read tuple covers per-chunk stalls. The wall-clock budget covers the
+# adversarial case where a server drips a byte every few seconds —
+# below the read timeout but cumulatively unbounded — so iter_content
+# loops would never raise on their own.
+HTTP_TIMEOUT = (10, 120)  # (connect, read) seconds
+STALL_BUDGET_SECONDS = 30 * 60  # 30-minute hard ceiling per download
+
 
 # --- JSON Operations ---
 def load_json(file_handle):
@@ -72,15 +81,39 @@ def download_file(url, dest_folder, session=None):
 
     logger.info(f"Downloading {url} to {download_path}...")
     getter = session or requests
-    with getter.get(url, stream=True) as r:
-        r.raise_for_status()
-        total_size = int(r.headers.get('content-length', 0))
-        with open(download_path, 'wb') as f, tqdm(
-                total=total_size, unit='iB', unit_scale=True, desc=local_filename
-        ) as bar:
-            for chunk in r.iter_content(chunk_size=8192):
-                size = f.write(chunk)
-                bar.update(size)
+    deadline = time.monotonic() + STALL_BUDGET_SECONDS
+    try:
+        with getter.get(
+            url, stream=True, timeout=HTTP_TIMEOUT,
+        ) as r:
+            r.raise_for_status()
+            total_size = int(r.headers.get('content-length', 0))
+            with open(download_path, 'wb') as f, tqdm(
+                    total=total_size, unit='iB', unit_scale=True, desc=local_filename
+            ) as bar:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(
+                            f"Download exceeded {STALL_BUDGET_SECONDS}s "
+                            f"wall-clock budget; aborting: {url}"
+                        )
+                    size = f.write(chunk)
+                    bar.update(size)
+    except Exception:
+        # #115: a partial file from a hung / failed download is junk.
+        # Cleanup is best-effort; swallow OSError so the original
+        # exception still propagates to the caller. Excludes
+        # KeyboardInterrupt / SystemExit (BaseException-only) so
+        # process-shutdown signals follow their usual fast path.
+        try:
+            if os.path.exists(download_path):
+                os.remove(download_path)
+        except OSError as cleanup_exc:
+            logger.warning(
+                "Could not remove partial download %s: %s",
+                download_path, cleanup_exc,
+            )
+        raise
     logger.info("Download complete.")
     return download_path
 
