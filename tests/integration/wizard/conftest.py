@@ -195,12 +195,18 @@ def wizard_data_dir(tmp_path: Path) -> Path:
 def wizard_secrets(wizard_data_dir: Path) -> tuple[str, bytes]:
     """Provision the launcher-written secret files; return ``(token, secret)``.
 
-    The setup token is URL-safe base64 (matches the launcher's
-    ``secrets.token_urlsafe(32)`` shape). The IPC secret is 32 random
-    bytes (the wizard treats both files as opaque payloads).
+    Both the setup token and the IPC secret use
+    ``secrets.token_urlsafe(32).encode("ascii")`` — URL-safe base64
+    bytes (alphabet ``A-Z a-z 0-9 - _``). This MUST match the
+    launcher's production shape (``launcher/wizard_orchestration.py``)
+    because ``ipc.read_secret_file`` calls ``raw.strip()`` on read:
+    against URL-safe bytes the strip is a no-op, but against random
+    binary (``secrets.token_bytes(32)``) ~4.6% of secrets had whitespace
+    edges that got stripped, corrupting the secret and triggering
+    intermittent HMAC mismatches in marker validation. See issue #153.
     """
     setup_token = secrets.token_urlsafe(32)
-    ipc_secret = secrets.token_bytes(32)
+    ipc_secret = secrets.token_urlsafe(32).encode("ascii")
     subdir = wizard_data_dir / "wizard"
     _write_secret(subdir / ".setup_token", setup_token.encode("ascii"))
     _write_secret(subdir / ".ipc_secret", ipc_secret)

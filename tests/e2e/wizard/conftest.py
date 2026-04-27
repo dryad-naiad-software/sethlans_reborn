@@ -110,8 +110,12 @@ def launcher_driver(isolated_data_dir: Path) -> Iterator:
         # Pin the setup token + IPC secret so the test can authenticate
         # without racing the wizard's FR-W6 immediate-unlink and so the
         # test can validate the .wizard_done HMAC against a known key.
+        # Both secrets use token_urlsafe(...).encode("ascii") to match
+        # the launcher's production shape (issue #153) — random binary
+        # via token_bytes() got whitespace-stripped on read, causing
+        # intermittent HMAC mismatches.
         setup_token = secrets.token_urlsafe(32)
-        ipc_secret = secrets.token_bytes(32)
+        ipc_secret = secrets.token_urlsafe(32).encode("ascii")
         # Pin the wizard's listening port via SETHLANS_WIZARD_PORT so
         # the .wizard_done marker's wizard_port field matches what we
         # observe (the wizard otherwise scans 8100-8104 and the marker
