@@ -4,6 +4,12 @@
 
 """Shared fixtures for the wizard subprocess integration tests.
 
+Issue #170: the wizard subprocess now binds plain HTTP on loopback;
+TLS termination has moved to the launcher's Caddy supervisor. The
+integration tests bypass Caddy and connect directly to the wizard's
+loopback HTTP listener (the spec out-of-scope explicitly allows the
+'headless / scripted' path to use the loopback port directly).
+
 Each test that needs a live wizard process uses :func:`wizard_process`
 which:
 
@@ -14,9 +20,8 @@ which:
   prod).
 * Allocates a free TCP port on 127.0.0.1.
 * Spawns ``python wizard/run_wizard.py`` with ``SETHLANS_DATA_DIR``
-  + ``SETHLANS_WIZARD_PORT`` set, polls the HTTPS root until it
-  responds 200 (self-signed cert acceptance via
-  :class:`ssl.SSLContext` with ``CERT_NONE``).
+  + ``SETHLANS_WIZARD_PORT`` set, polls the HTTP root until it
+  responds 200.
 * Yields a :class:`WizardProcess` dataclass with ``proc``, ``port``,
   ``base_url``, ``data_dir``, ``setup_token`` (str), and
   ``ipc_secret`` (bytes).
@@ -31,7 +36,6 @@ import os
 import platform
 import secrets
 import socket
-import ssl
 import subprocess
 import sys
 import time
@@ -78,14 +82,6 @@ def _find_free_port() -> int:
         sock.close()
 
 
-def _no_verify_context() -> ssl.SSLContext:
-    """Return a context that accepts the wizard's self-signed cert."""
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
-
-
 def _write_secret(path: Path, value: bytes) -> None:
     """Atomically write *value* to *path* with chmod 600 on POSIX."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,7 +101,6 @@ def _write_secret(path: Path, value: bytes) -> None:
 def _wait_for_ready(base_url: str, proc: subprocess.Popen) -> None:
     """Poll ``GET <base_url>/`` until 200, or raise if process exits."""
     deadline = time.monotonic() + READY_TIMEOUT_S
-    ctx = _no_verify_context()
     last_err: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -116,10 +111,10 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen) -> None:
             )
         try:
             req = urllib.request.Request(f"{base_url}/", method="GET")
-            with urllib.request.urlopen(req, timeout=2, context=ctx) as resp:
+            with urllib.request.urlopen(req, timeout=2) as resp:
                 if resp.status == 200:
                     return
-        except (urllib.error.URLError, ConnectionError, OSError, ssl.SSLError) as exc:
+        except (urllib.error.URLError, ConnectionError, OSError) as exc:
             last_err = exc
         time.sleep(0.25)
     stdout, stderr = _peek_streams(proc)
@@ -225,7 +220,10 @@ def wizard_process(
     """
     setup_token, ipc_secret = wizard_secrets
     port = _find_free_port()
-    base_url = f"https://localhost:{port}"
+    # Issue #170: wizard now binds plain HTTP on loopback. Caddy fronts
+    # the public TLS listener; the integration suite skips Caddy and
+    # connects to the wizard's loopback HTTP listener directly.
+    base_url = f"http://127.0.0.1:{port}"
 
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"

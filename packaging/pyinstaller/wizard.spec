@@ -47,7 +47,7 @@ from version_info import make_version_info  # noqa: E402
 # --- Hidden imports ---
 # Wizard is intentionally minimal:
 #   * sethlans_wizard package (collect_submodules picks up handlers/*)
-#   * shared.frozen_paths / shared.version / shared.cert_utils only —
+#   * shared.frozen_paths / shared.version only —
 #     NOT collect_submodules('shared') because that pulls in the
 #     PySide6-dependent shared.tray.* and the launcher-only
 #     shared.caddy_supervisor.*, both of which inflate the bundle and
@@ -55,17 +55,16 @@ from version_info import make_version_info  # noqa: E402
 #     touched them (PySide6 is in ``excludes`` below). DEVOPS-HIGH-1
 #     (Phase F3): enumerate the wizard's actual ``shared`` usage
 #     explicitly. Verified by ``grep -n "^from shared" wizard/`` ->
-#     run_wizard.py imports frozen_paths + version,
-#     sethlans_wizard/cert.py imports cert_utils. No other
-#     ``shared.*`` modules are touched by the wizard.
+#     only frozen_paths + version after issue #170 dropped the
+#     wizard's TLS plumbing (the launcher now generates the wizard
+#     cert via shared.cert_utils, which keeps cryptography off the
+#     wizard bundle entirely).
 #   * waitress WSGI server (lazy submodules: task, wasyncore, parser)
-#   * cryptography (lazy backend modules for cert generation)
 hiddenimports = []
 hiddenimports += collect_submodules('sethlans_wizard')
 hiddenimports += [
     'shared.frozen_paths',
     'shared.version',
-    'shared.cert_utils',
 ]
 
 # Waitress has several submodules PyInstaller's static import walker
@@ -76,20 +75,6 @@ hiddenimports += [
 # if the submodule walk returns empty on some platforms.
 hiddenimports += collect_submodules('waitress')
 hiddenimports += ['waitress']
-
-# Cryptography lazy modules used by wizard/sethlans_wizard/cert.py for
-# the self-signed RSA-2048 X.509 cert (FR-W4 / FR-W5).
-hiddenimports += [
-    'cryptography',
-    'cryptography.hazmat.primitives',
-    'cryptography.hazmat.primitives.asymmetric',
-    'cryptography.hazmat.primitives.asymmetric.rsa',
-    'cryptography.hazmat.primitives.hashes',
-    'cryptography.hazmat.primitives.serialization',
-    'cryptography.hazmat.backends',
-    'cryptography.x509',
-    'cryptography.x509.oid',
-]
 
 # --- Data files ---
 datas = []
@@ -141,6 +126,13 @@ excludes = [
     'shared.tray',
     'shared.caddy_supervisor',
     'shared.run_tray',
+    # Issue #170: wizard no longer generates a TLS cert (Caddy fronts
+    # it from the launcher), so the cryptography Rust binding is dead
+    # weight (~28 MB on Linux). Excluding here also forces a build
+    # failure if a future change accidentally reintroduces the
+    # dependency.
+    'cryptography',
+    'shared.cert_utils',
     # NF-9: no new top-level deps beyond manager's set.
     'httpx',
     'requests',

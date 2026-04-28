@@ -2,28 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Tiny HTTPS client helpers shared by the wizard integration tests.
+"""Tiny HTTP client helpers shared by the wizard integration tests.
 
-Wraps :mod:`urllib.request` with a self-signed-cert-tolerant context so
-tests don't have to repeat the SSL boilerplate. Returns
+Wraps :mod:`urllib.request` with sensible defaults. Returns
 ``(status, headers, body_bytes)`` tuples regardless of HTTP status —
 even 4xx/5xx responses are returned (not raised) so test assertions
 can inspect the JSON error envelope.
+
+Issue #170: the wizard subprocess speaks plain HTTP on loopback now
+(Caddy in front terminates TLS); the integration suite skips Caddy and
+connects directly to the loopback listener, so no TLS context is
+needed.
 """
 
 from __future__ import annotations
 
 import json
-import ssl
 import urllib.error
 import urllib.request
-
-
-def _no_verify_context() -> ssl.SSLContext:
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
 
 
 def request(
@@ -38,9 +34,8 @@ def request(
     req = urllib.request.Request(url, data=body, method=method)
     for k, v in (headers or {}).items():
         req.add_header(k, v)
-    ctx = _no_verify_context()
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return (
                 resp.status,
                 {k: v for k, v in resp.headers.items()},

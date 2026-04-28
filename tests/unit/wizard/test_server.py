@@ -38,11 +38,13 @@ def _reset_auth_state():
 class TestResolvePort:
 
     def test_default_when_env_unset(self):
+        # Issue #170: wizard moved off the public TLS port (8100, now
+        # Caddy's) onto a loopback range starting at 8099.
         assert server.resolve_port(env={}) == server.DEFAULT_WIZARD_PORT
-        assert server.DEFAULT_WIZARD_PORT == 8100
+        assert server.DEFAULT_WIZARD_PORT == 8099
 
     def test_default_when_env_empty_string(self):
-        assert server.resolve_port(env={"SETHLANS_WIZARD_PORT": ""}) == 8100
+        assert server.resolve_port(env={"SETHLANS_WIZARD_PORT": ""}) == 8099
 
     def test_env_override_honored(self):
         port = server.resolve_port(env={"SETHLANS_WIZARD_PORT": "8103"})
@@ -59,8 +61,40 @@ class TestResolvePort:
             server.resolve_port(env={"SETHLANS_WIZARD_PORT": "0"})
 
     def test_scan_range_constants_match_spec(self):
-        # FR-W3: 8100..8104 inclusive.
-        assert server.PORT_SCAN_RANGE == (8100, 8101, 8102, 8103, 8104)
+        # Issue #170 FR-W3: 8099 + 8101..8104 (skipping 8100 which is
+        # reserved for Caddy's public TLS bind).
+        assert server.PORT_SCAN_RANGE == (8099, 8101, 8102, 8103, 8104)
+
+
+class TestBindHost:
+
+    def test_bind_host_is_loopback(self):
+        # Issue #170 NFR-6 / AC-WizardLoopback: wizard binds 127.0.0.1
+        # only — Caddy fronts public reachability.
+        assert server.WIZARD_BIND_HOST == "127.0.0.1"
+
+
+class TestNoTLSPlumbing:
+    """Issue #170 AC-NoListenerTLS: no ssl/wrap_socket in the wizard."""
+
+    def test_run_signature_has_no_cert_args(self):
+        import inspect
+        sig = inspect.signature(server.run)
+        params = list(sig.parameters)
+        # Exactly (app, host, port) — no cert_path/key_path leftovers.
+        assert params == ["app", "host", "port"], params
+
+    def test_server_module_does_not_import_ssl(self):
+        import wizard.sethlans_wizard.server as srv
+        assert not hasattr(srv, "ssl"), (
+            "ssl module must not be imported in the wizard server"
+        )
+        # Source-level check: catches a future regression that imports
+        # ssl lazily inside a function body too.
+        from pathlib import Path
+        source = Path(srv.__file__).read_text(encoding="utf-8")
+        assert "import ssl" not in source
+        assert "wrap_socket" not in source
 
 
 # ---------------------------------------------------------------------

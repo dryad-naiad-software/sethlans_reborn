@@ -43,7 +43,7 @@ from shared.frozen_paths import get_shared_data_dir  # noqa: E402
 from shared.version import get_version  # noqa: E402
 
 import sethlans_wizard  # noqa: F401, E402  (ensures package importable)
-from wizard.sethlans_wizard import bootstrap, cert, server  # noqa: E402
+from wizard.sethlans_wizard import bootstrap, server  # noqa: E402
 
 logger = logging.getLogger("wizard")
 
@@ -80,22 +80,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _print_url_banner(port: int, *, no_browser: bool) -> None:
-    """Print the wizard URL to stdout.
+    """Print the wizard's loopback URL to stdout.
 
     The launcher prints the LAN-bound IP + setup token banner; this is
     the wizard's own startup banner so operators tailing the wizard log
-    can see the URL it's serving on.
+    can see the loopback URL Caddy reverse-proxies to. Issue #170: the
+    wizard now serves plain HTTP on loopback.
     """
-    print(f"Wizard URL: https://localhost:{port}/")
+    print(f"Wizard loopback URL: http://127.0.0.1:{port}/")
     if no_browser:
         print("(--no-browser set; wizard will not request browser open)")
 
 
 def _prepare_runtime(data_dir: Path, subdir: Path, requested_port: int):
-    """Read secrets, generate cert, build app. Return ``(app, cert, key)``.
+    """Read secrets, build app. Return the WSGI ``app``.
 
     Raises ``RuntimeError`` with a logged context on any failure so
-    ``main()`` can keep its branching shallow.
+    ``main()`` can keep its branching shallow. Issue #170: TLS cert
+    generation moved to the launcher (``shared.cert_utils``); the
+    wizard process no longer touches certs.
     """
     try:
         setup_token, ipc_secret = bootstrap.read_secrets(subdir)
@@ -112,12 +115,6 @@ def _prepare_runtime(data_dir: Path, subdir: Path, requested_port: int):
         raise RuntimeError("bad-secret") from exc
 
     try:
-        cert_path, key_path = cert.ensure_cert(data_dir)
-    except Exception as exc:
-        logger.exception("Failed to generate / load wizard TLS certificate")
-        raise RuntimeError("cert-failed") from exc
-
-    try:
         app = server.create_app(
             data_dir, setup_token, ipc_secret, wizard_port=requested_port,
         )
@@ -125,7 +122,7 @@ def _prepare_runtime(data_dir: Path, subdir: Path, requested_port: int):
         logger.exception("Failed to build wizard WSGI app")
         raise RuntimeError("app-build-failed") from exc
 
-    return app, cert_path, key_path
+    return app
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -165,9 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        app, cert_path, key_path = _prepare_runtime(
-            data_dir, subdir, requested_port,
-        )
+        app = _prepare_runtime(data_dir, subdir, requested_port)
     except RuntimeError:
         return 2
 
@@ -183,9 +178,7 @@ def main(argv: list[str] | None = None) -> int:
         bootstrap.start_post_done_threads(data_dir, ipc_secret)
 
     try:
-        return bootstrap.serve_with_port_scan(
-            app, cert_path, key_path, env_port, subdir,
-        )
+        return bootstrap.serve_with_port_scan(app, env_port, subdir)
     except Exception:
         logger.exception("Wizard server crashed")
         return 2

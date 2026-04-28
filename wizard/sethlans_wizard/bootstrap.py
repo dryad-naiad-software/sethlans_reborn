@@ -27,7 +27,11 @@ logger = logging.getLogger("wizard.bootstrap")
 WIZARD_SUBDIR = "wizard"
 SETUP_TOKEN_FILENAME = ".setup_token"
 IPC_SECRET_FILENAME = ".ipc_secret"
-PORT_FILENAME = "port"
+# Issue #170: the wizard writes its plain-HTTP loopback port to
+# ``loopback_port``; the public-facing ``port`` file is now written
+# by the launcher (after Caddy binds) and reports the Caddy public
+# TLS port — that's the URL the tray + browser open.
+PORT_FILENAME = "loopback_port"
 LOG_FILENAME = "wizard.log"
 LOG_PREV_FILENAME = "wizard.log.prev"
 
@@ -171,13 +175,18 @@ def start_post_done_threads(data_dir: Path, ipc_secret: bytes) -> None:
 
 
 def serve_with_port_scan(
-    app, cert_path: Path, key_path: Path,
-    env_port: Optional[int], subdir: Path,
+    app, env_port: Optional[int], subdir: Path,
 ) -> int:
     """Run waitress, scanning the FR-W3 port range when no env override.
 
     Returns the process exit code (0 from a normal shutdown, 2 if every
     candidate port is taken or a single-port env override fails to bind).
+
+    Issue #170: TLS plumbing has moved to the launcher's Caddy
+    supervisor. The wizard binds plain HTTP on
+    :data:`server.WIZARD_BIND_HOST` (loopback) and the launcher's
+    Caddy fronts it. ``cert_path`` / ``key_path`` are no longer
+    threaded through.
     """
     if env_port is not None:
         candidates: tuple[int, ...] = (env_port,)
@@ -194,13 +203,11 @@ def serve_with_port_scan(
             pass
         write_port_file(subdir, port)
         try:
-            server.run(
-                app, server.WIZARD_BIND_HOST, port, cert_path, key_path,
-            )
+            server.run(app, server.WIZARD_BIND_HOST, port)
         except OSError as exc:
             last_error = exc
             logger.warning(
-                "Wizard could not bind https://%s:%d/: %s",
+                "Wizard could not bind http://%s:%d/: %s",
                 server.WIZARD_BIND_HOST, port, exc,
             )
             if env_port is not None:

@@ -21,11 +21,27 @@ from __future__ import annotations
 import argparse
 from unittest.mock import MagicMock
 
+import pytest
+
 from launcher import wizard_orchestration
 
 
 def _args_ns():
     return argparse.Namespace(no_browser=True, print_url=True)
+
+
+@pytest.fixture(autouse=True)
+def _mock_wizard_caddy(mocker):
+    """Issue #170: stub the cert generator + Caddy supervisor."""
+    mocker.patch(
+        "launcher.wizard_caddy_lifecycle.generate_wizard_cert",
+        return_value=(MagicMock(), MagicMock()),
+    )
+    fake_supervisor = MagicMock()
+    mocker.patch(
+        "launcher.wizard_caddy_wiring.start_wizard_caddy_supervisor",
+        return_value=fake_supervisor,
+    )
 
 
 class _FakeProc:
@@ -53,7 +69,10 @@ class _FakeProc:
 
 def _stage_port_file(tmp_path, port=8101):
     (tmp_path / "wizard").mkdir()
-    (tmp_path / "wizard" / "port").write_text(str(port))
+    # Issue #170: wizard now writes its loopback port to
+    # ``loopback_port``; the public-facing ``port`` file is owned by
+    # the launcher (post-Caddy-up).
+    (tmp_path / "wizard" / "loopback_port").write_text(str(port))
 
 
 # ---------------------------------------------------------------------

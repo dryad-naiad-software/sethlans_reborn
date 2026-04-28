@@ -81,11 +81,21 @@ def test_wizard_spec_includes_waitress_hidden_imports(spec_text: str):
     assert "collect_submodules('waitress')" in spec_text
 
 
-def test_wizard_spec_includes_cryptography_hidden_imports(spec_text: str):
-    """Cryptography lazy modules used by cert.py are in hidden imports."""
-    assert "'cryptography'" in spec_text
-    assert "'cryptography.x509'" in spec_text
-    assert "'cryptography.hazmat.primitives.asymmetric.rsa'" in spec_text
+def test_wizard_spec_excludes_cryptography(spec_text: str):
+    """Issue #170: wizard no longer generates a TLS cert (Caddy fronts it).
+
+    The cryptography Rust binding is ~28 MB on Linux; excluding it from
+    the wizard bundle keeps the size budget healthy and forces a build
+    failure if a future change accidentally reintroduces the dep.
+    """
+    assert "'cryptography'" in spec_text  # appears in excludes
+    assert "'shared.cert_utils'" in spec_text  # appears in excludes
+    # The asymmetric.rsa lazy import was the cert-generation hook; with
+    # the cert work moved to the launcher, no cryptography submodule
+    # should be in the wizard's hiddenimports anywhere.
+    assert (
+        "'cryptography.hazmat.primitives.asymmetric.rsa'" not in spec_text
+    )
 
 
 @pytest.mark.parametrize(

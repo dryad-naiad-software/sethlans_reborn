@@ -70,7 +70,11 @@ class TestPrintUrl:
         rc = run_wizard.main(["--print-url"])
         assert rc == 0
         captured = capsys.readouterr()
-        assert "Wizard URL: https://localhost:" in captured.out
+        # Issue #170: wizard now binds plain HTTP on loopback; banner
+        # is the loopback URL Caddy reverse-proxies to.
+        assert (
+            "Wizard loopback URL: http://127.0.0.1:" in captured.out
+        )
 
     def test_print_url_does_not_consume_secrets(
         self, provisioned_data_dir,
@@ -97,7 +101,7 @@ class TestPrintUrl:
         rc = run_wizard.main(["--print-url", "--no-browser"])
         assert rc == 0
         captured = capsys.readouterr()
-        assert "Wizard URL:" in captured.out
+        assert "Wizard loopback URL:" in captured.out
         assert "--no-browser" in captured.out
 
 

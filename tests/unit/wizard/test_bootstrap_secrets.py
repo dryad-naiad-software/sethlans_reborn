@@ -77,23 +77,34 @@ class TestReadSecrets:
 # ---------------------------------------------------------------------
 
 class TestWritePortFile:
+    """Issue #170: ``write_port_file`` writes ``loopback_port`` (not ``port``).
+
+    The public-facing ``port`` file is the launcher's responsibility
+    after Caddy binds; the wizard subprocess only knows its own
+    plain-HTTP loopback bind.
+    """
 
     def test_writes_atomically(self, tmp_path):
         subdir = tmp_path / "wizard"
         subdir.mkdir()
         bootstrap.write_port_file(subdir, 8101)
-        port_file = subdir / "port"
+        port_file = subdir / "loopback_port"
         assert port_file.exists()
         assert port_file.read_text(encoding="ascii").strip() == "8101"
         # No leftover .tmp.
-        assert not (subdir / "port.tmp").exists()
+        assert not (subdir / "loopback_port.tmp").exists()
+        # The launcher-owned ``port`` file MUST NOT be written here.
+        assert not (subdir / "port").exists()
 
     def test_overwrites_existing(self, tmp_path):
         subdir = tmp_path / "wizard"
         subdir.mkdir()
-        (subdir / "port").write_text("9999\n")
+        (subdir / "loopback_port").write_text("9999\n")
         bootstrap.write_port_file(subdir, 8102)
-        assert (subdir / "port").read_text(encoding="ascii").strip() == "8102"
+        assert (
+            (subdir / "loopback_port").read_text(encoding="ascii").strip()
+            == "8102"
+        )
 
     def test_failure_is_logged_not_raised(self, tmp_path, caplog):
         # Point at a non-existent parent directory; OSError is caught.

@@ -4,9 +4,11 @@
 """Waitress WSGI app + server bootstrap for the wizard (Spec 1).
 
 FR-W12 (Waitress, ``threads=4``, single handoff-state lock invariant)
-and FR-W3 port resolution. Waitress has no native TLS, so :func:`run`
-binds + wraps the socket and hands it to ``waitress.create_server``
-via ``sockets=[…]``.
+and FR-W3 port resolution. After the issue #170 consolidation the
+wizard binds **plain HTTP on loopback only**; the launcher's Caddy
+supervisor terminates TLS in front (mirrors manager + worker). This
+eliminates the listener-socket-TLS-wrapping accept-loop corruption
+that aborted browser handshakes triggered (#167).
 
 Lock-coupling rule (CRITICAL — CONC-v23-MED-1): the handoff-state
 lock MUST NOT be held when the in-flight probe lock owned by
@@ -19,8 +21,6 @@ from __future__ import annotations
 
 import logging
 import os
-import socket
-import ssl
 import threading
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -53,17 +53,20 @@ STATIC_ROOT = (
 
 logger = logging.getLogger(__name__)
 
-# FR-W3 port-range constants. Public so A6 can import them when wiring
-# the launcher / scan logic.
-DEFAULT_WIZARD_PORT = 8100
-PORT_SCAN_RANGE = (8100, 8101, 8102, 8103, 8104)
+# FR-W3 loopback port-range constants. Public so A6 / launcher can
+# import them when wiring the loopback scan logic. Issue #170 moved
+# the wizard off the public TLS port (8100, now Caddy's) onto a
+# separate loopback range so the two listeners don't clash.
+DEFAULT_WIZARD_PORT = 8099
+PORT_SCAN_RANGE = (8099, 8101, 8102, 8103, 8104)
 WIZARD_PORT_ENV = "SETHLANS_WIZARD_PORT"
 
 # FR-W12 — Waitress thread count.
 WAITRESS_THREADS = 4
 
-# Bind address per FR-W3 (LAN-bound, NOT operator-controllable).
-WIZARD_BIND_HOST = "0.0.0.0"
+# Bind address per issue #170: loopback only — Caddy fronts the
+# wizard for public reachability.
+WIZARD_BIND_HOST = "127.0.0.1"
 
 
 def resolve_port(env: Optional[dict] = None) -> int:
@@ -170,61 +173,30 @@ def create_app(
 
 
 # ---------------------------------------------------------------------
-# run — Waitress launcher with TLS-wrapped socket
+# run — Waitress launcher (plain HTTP, loopback)
 # ---------------------------------------------------------------------
 
-def _build_tls_context(cert_path: Path, key_path: Path) -> ssl.SSLContext:
-    """Construct a server-side TLS context from cert + key files."""
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
-    return ctx
-
-
-def _bind_tls_socket(
-    host: str,
-    port: int,
-    ctx: ssl.SSLContext,
-) -> socket.socket:
-    """Create a listening TCP socket and TLS-wrap it (server side).
-
-    On bind failure the raw socket is closed and the ``OSError``
-    is re-raised. FR-W3: SO_REUSEADDR=False so we never silently
-    steal a port.
-    """
-    raw = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        raw.bind((host, port))
-        raw.listen(socket.SOMAXCONN)
-    except OSError:
-        raw.close()
-        raise
-    return ctx.wrap_socket(raw, server_side=True)
-
-
-def run(
-    app: Callable,
-    host: str,
-    port: int,
-    cert_path: Path,
-    key_path: Path,
-) -> None:
-    """Bind a TLS-wrapped socket and run Waitress on the current thread.
+def run(app: Callable, host: str, port: int) -> None:
+    """Run Waitress on the current thread, plain HTTP, loopback only.
 
     Blocks until the Waitress event loop exits. The launcher (A6) is
     expected to call this on a dedicated thread or to treat the wizard
     as the main process. The wizard's polite-shutdown sequence
     (FR-W17, A4) calls ``server.close()`` on the returned-and-stashed
     server reference; A3 keeps the runtime path minimal.
+
+    Issue #170: TLS termination has moved to the launcher's Caddy
+    supervisor. Waitress no longer needs a TLS listener — the wizard
+    listens plain HTTP on loopback and Caddy reverse-proxies to it.
     """
-    ctx = _build_tls_context(cert_path, key_path)
-    sock = _bind_tls_socket(host, port, ctx)
     logger.info(
-        "Wizard Waitress listener bound on https://%s:%d/ (threads=%d)",
+        "Wizard Waitress listener bound on http://%s:%d/ (threads=%d)",
         host, port, WAITRESS_THREADS,
     )
     server = waitress.create_server(
         app,
-        sockets=[sock],
+        host=host,
+        port=port,
         threads=WAITRESS_THREADS,
         ident="sethlans-wizard",
     )

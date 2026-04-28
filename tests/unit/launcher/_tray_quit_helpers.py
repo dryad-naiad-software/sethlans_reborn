@@ -84,9 +84,14 @@ def write_quit_marker(data_dir: Path, secret: str, pid: int) -> None:
 
 
 def stage_port_file(tmp_path, port=8101):
-    """Pre-write the wizard port file used by run_wizard_mode tests."""
+    """Pre-write the wizard loopback port file used by run_wizard_mode tests.
+
+    Issue #170: the wizard now writes its loopback port to
+    ``loopback_port``; the public-facing ``port`` file is written by
+    the launcher post-Caddy-up.
+    """
     (tmp_path / "wizard").mkdir(exist_ok=True)
-    (tmp_path / "wizard" / "port").write_text(str(port))
+    (tmp_path / "wizard" / "loopback_port").write_text(str(port))
 
 
 def args_ns():

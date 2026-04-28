@@ -7,6 +7,9 @@
 Covers FR-W3 / FR-W6 / FR-W11 wiring through the entry-point with
 ``server.run`` patched so no TCP socket is ever bound.
 
+Issue #170: TLS plumbing moved to the launcher's Caddy supervisor;
+``serve_with_port_scan`` no longer takes cert/key paths.
+
 Argparse / --print-url / missing-secret tests live in
 ``test_run_wizard_entry_cli.py`` so each file stays under the
 300-line limit.
@@ -25,19 +28,17 @@ class TestSuccessfulWiring:
     def test_main_invokes_server_run_when_secrets_present(
         self, provisioned_data_dir, monkeypatch,
     ):
-        """Happy path: cert generated, app built, server.run called."""
+        """Happy path: app built, server.run called via serve_with_port_scan."""
         bootstrap = importlib.import_module(
             "wizard.sethlans_wizard.bootstrap",
         )
 
         invocations: list[dict] = []
 
-        def fake_serve(app, cert_path, key_path, env_port, subdir):
+        def fake_serve(app, env_port, subdir):
             invocations.append(
                 dict(
                     has_app=app is not None,
-                    cert_path=cert_path,
-                    key_path=key_path,
                     env_port=env_port,
                     subdir=subdir,
                 ),
@@ -64,8 +65,6 @@ class TestSuccessfulWiring:
         assert len(invocations) == 1
         inv = invocations[0]
         assert inv["has_app"] is True
-        assert inv["cert_path"].name == "tls.crt"
-        assert inv["key_path"].name == "tls.key"
         # No env override → env_port is None.
         assert inv["env_port"] is None
 
@@ -109,7 +108,7 @@ class TestSuccessfulWiring:
         )
         captured: dict = {}
 
-        def fake_serve(app, cert_path, key_path, env_port, subdir):
+        def fake_serve(app, env_port, subdir):
             captured["env_port"] = env_port
             return 0
 
@@ -142,3 +141,11 @@ class TestSuccessfulWiring:
         run_wizard = importlib.import_module("run_wizard")
         rc = run_wizard.main([])
         assert rc == 2
+
+    def test_run_wizard_does_not_import_cert_module(self):
+        """Issue #170 AC-NoWizardCertModule: cert module is gone."""
+        import importlib.util
+        spec = importlib.util.find_spec("wizard.sethlans_wizard.cert")
+        assert spec is None, (
+            "wizard/sethlans_wizard/cert.py must not exist after #170"
+        )

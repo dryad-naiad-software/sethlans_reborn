@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from launcher import (
     orchestration, supervision, wizard_orchestration, wizard_runtime,
 )
@@ -37,6 +39,19 @@ from ._tray_quit_helpers import (
     stage_port_file,
     write_topology,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mock_wizard_caddy(mocker):
+    """Issue #170: stub the cert generator + Caddy supervisor."""
+    mocker.patch(
+        "launcher.wizard_caddy_lifecycle.generate_wizard_cert",
+        return_value=(MagicMock(), MagicMock()),
+    )
+    mocker.patch(
+        "launcher.wizard_caddy_wiring.start_wizard_caddy_supervisor",
+        return_value=MagicMock(),
+    )
 
 
 # ----------------------------------------------------------------------

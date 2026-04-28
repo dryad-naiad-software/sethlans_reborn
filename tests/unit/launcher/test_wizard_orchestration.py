@@ -7,10 +7,25 @@
 import argparse
 from unittest.mock import MagicMock
 
+import pytest
+
 from launcher import wizard_ipc, wizard_orchestration
 
 
 SECRET = b"a" * 32
+
+
+@pytest.fixture(autouse=True)
+def _mock_wizard_caddy(mocker):
+    """Issue #170: stub the cert generator + Caddy supervisor."""
+    mocker.patch(
+        "launcher.wizard_caddy_lifecycle.generate_wizard_cert",
+        return_value=(MagicMock(), MagicMock()),
+    )
+    mocker.patch(
+        "launcher.wizard_caddy_wiring.start_wizard_caddy_supervisor",
+        return_value=MagicMock(),
+    )
 
 
 class _FakeProc:
@@ -24,9 +39,8 @@ class _FakeProc:
         return self.returncode
 
     def terminate(self):
-        # Simulate the process exiting cleanly on terminate so
-        # subsequent poll() returns 0 and the launcher's grace wait
-        # short-circuits.
+        # ``terminate`` flips returncode to 0 so the launcher's grace
+        # wait short-circuits without needing a real OS subprocess.
         self.terminate_called = True
         if self.returncode is None:
             self.returncode = 0
@@ -156,7 +170,7 @@ class TestRunWizardMode:
         )
         # Wizard writes its port file and the .wizard_done marker.
         (tmp_path / "wizard").mkdir()
-        (tmp_path / "wizard" / "port").write_text("8101")
+        (tmp_path / "wizard" / "loopback_port").write_text("8101")
 
         wizard_proc = _FakeProc()
         runtime_proc = _FakeProc()
@@ -200,7 +214,7 @@ class TestRunWizardMode:
         wizard_proc = _FakeProc()
         # Pre-create wizard dir + port file so URL surface doesn't hang.
         (tmp_path / "wizard").mkdir()
-        (tmp_path / "wizard" / "port").write_text("8100")
+        (tmp_path / "wizard" / "loopback_port").write_text("8100")
 
         terminate = mocker.patch(
             "launcher.wizard_runtime.terminate_wizard",
@@ -249,7 +263,7 @@ class TestRunWizardMode:
     def test_wizard_failure_exits_nonzero(self, tmp_path, mocker):
         wizard_proc = _FakeProc(returncode=2)
         (tmp_path / "wizard").mkdir()
-        (tmp_path / "wizard" / "port").write_text("8100")
+        (tmp_path / "wizard" / "loopback_port").write_text("8100")
         mocker.patch(
             "launcher.wizard_orchestration.surface_wizard_url",
         )
@@ -269,47 +283,6 @@ class TestRunWizardMode:
         assert rc == 1
 
 
-# ---- run_launcher integration: setup mode now spawns wizard --------------
-
-class TestRunLauncherWizardWiring:
-    """Verify run_launcher._run_orchestration routes first-run to wizard."""
-
-    def test_first_run_calls_wizard_mode(self, tmp_path, mocker):
-        from launcher import run_launcher
-        run_wizard = mocker.patch(
-            "launcher.run_launcher.wizard_orchestration.run_wizard_mode",
-            return_value=0,
-        )
-        run_normal = mocker.patch(
-            "launcher.run_launcher.orchestration.run_normal_mode",
-            return_value=0,
-        )
-
-        rc = run_launcher._run_orchestration(
-            tmp_path, argparse.Namespace(no_browser=True, print_url=True),
-            tray=None, secret="dummy-secret",
-        )
-        assert rc == 0
-        run_wizard.assert_called_once()
-        run_normal.assert_not_called()
-
-    def test_post_setup_calls_normal_mode(self, tmp_path, mocker):
-        from launcher import run_launcher
-        # Sentinel present → post-setup path.
-        (tmp_path / ".setup_complete").write_text("{}")
-        run_wizard = mocker.patch(
-            "launcher.run_launcher.wizard_orchestration.run_wizard_mode",
-            return_value=0,
-        )
-        run_normal = mocker.patch(
-            "launcher.run_launcher.orchestration.run_normal_mode",
-            return_value=0,
-        )
-
-        rc = run_launcher._run_orchestration(
-            tmp_path, argparse.Namespace(no_browser=True, print_url=True),
-            tray=None, secret="dummy-secret",
-        )
-        assert rc == 0
-        run_normal.assert_called_once()
-        run_wizard.assert_not_called()
+# Run-launcher routing tests live in
+# ``test_wizard_orchestration_routing.py`` (split out for the 300-line
+# ceiling).

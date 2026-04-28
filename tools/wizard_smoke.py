@@ -31,13 +31,16 @@ What it verifies:
   3. AC-B4 — spawn-and-poll smoke. Provisions a fresh tmpdir per run
      (DEVOPS-MED-9), writes ``.setup_token`` and ``.ipc_secret``,
      spawns ``run_wizard``, READS THE PORT FILE at
-     ``<tmpdir>/wizard/port`` (DEVOPS-HIGH-4: previously the CI hit
-     ``https://localhost:8100/`` directly, which only worked because
-     ``SETHLANS_WIZARD_PORT=8100`` pinned the bind — that bypassed
-     the actual ``bootstrap.write_port_file()`` code path so future
-     regressions there would silently survive smoke), then polls
-     ``GET /`` over HTTPS until 200 within 30 s. SIGTERMs the wizard
-     and dumps captured stdout/stderr on failure (DEVOPS-LOW-6).
+     ``<tmpdir>/wizard/loopback_port`` (DEVOPS-HIGH-4: previously the
+     CI hit ``https://localhost:8100/`` directly, which only worked
+     because ``SETHLANS_WIZARD_PORT=8100`` pinned the bind — that
+     bypassed the actual ``bootstrap.write_port_file()`` code path so
+     future regressions there would silently survive smoke), then
+     polls ``GET /`` over plain HTTP until 200 within 30 s. SIGTERMs
+     the wizard and dumps captured stdout/stderr on failure
+     (DEVOPS-LOW-6). Issue #170: the standalone wizard is plain HTTP
+     now (Caddy fronts it in production via the launcher); the smoke
+     spawns the wizard alone so it tests the loopback HTTP listener.
 
 Wall-clock budget: the script self-enforces a 60-second hard ceiling
 (AC-B4 / DEVOPS-v22-MED-2) via SIGALRM (POSIX) or a threading
@@ -218,7 +221,10 @@ def smoke_spawn(bundle: pathlib.Path, port: int) -> bool:
             stdout=out_fh, stderr=err_fh, env=env, **popen_kwargs,
         )
         try:
-            port_file = wizard_dir / "port"
+            # Issue #170: wizard subprocess writes its loopback port
+            # to ``loopback_port`` (the launcher writes ``port`` after
+            # Caddy binds, but the smoke spawns the wizard alone).
+            port_file = wizard_dir / "loopback_port"
             chosen_port = wait_for_port_file(
                 port_file, proc, PORT_FILE_POLL_TIMEOUT_SECONDS,
             )
@@ -238,7 +244,10 @@ def smoke_spawn(bundle: pathlib.Path, port: int) -> bool:
                     f"expected {port} (SETHLANS_WIZARD_PORT pin); "
                     "polling actual port from file"
                 )
-            base_url = f"https://localhost:{chosen_port}"
+            # Issue #170: standalone wizard speaks plain HTTP. Caddy
+            # in front (production) terminates TLS; the smoke skips
+            # Caddy and connects to the loopback HTTP listener.
+            base_url = f"http://127.0.0.1:{chosen_port}"
             url = base_url + "/"
             if not _poll_until_ok(url, proc, started, log_out, log_err):
                 return False

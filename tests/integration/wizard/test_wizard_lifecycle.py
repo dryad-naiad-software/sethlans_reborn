@@ -43,9 +43,17 @@ def test_wizard_unlinks_setup_token_and_ipc_secret(wizard_process):
     )
 
 
-def test_wizard_writes_port_file(wizard_process):
-    """The bootstrap writes ``<wizard_subdir>/port`` per FR-CFG2."""
-    port_file = wizard_process.wizard_subdir / "port"
+def test_wizard_writes_loopback_port_file(wizard_process):
+    """Issue #170: the bootstrap writes ``<wizard_subdir>/loopback_port``.
+
+    The public-facing ``port`` file is the launcher's responsibility
+    after Caddy binds; the wizard subprocess only knows its own
+    plain-HTTP loopback bind.
+    """
+    port_file = wizard_process.wizard_subdir / "loopback_port"
     assert port_file.is_file(), f"expected port file at {port_file}"
     contents = port_file.read_text(encoding="ascii").strip()
     assert contents == str(wizard_process.port), contents
+    # The launcher-owned port file should NOT be present in this
+    # standalone wizard test (no Caddy in front).
+    assert not (wizard_process.wizard_subdir / "port").exists()
