@@ -11,11 +11,13 @@ import os
 import secrets
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
 from launcher import (
-    cascade, orchestration, supervision, tray_ipc, wizard_orchestration,
+    cascade, diagnostics, orchestration, supervision, tray_ipc,
+    wizard_orchestration,
 )
 from launcher.browser_launch import (  # noqa: F401
     compute_cert_fingerprint as _compute_cert_fingerprint,
@@ -41,22 +43,12 @@ _INSTANCE_LOCK = None  # type: ignore[var-annotated]
 logger = logging.getLogger(__name__)
 
 
-# ---- Re-exports for tests / back-compat ----
-
-def _get_data_dir() -> Path:
-    return get_data_dir()
-
-
-def _get_bin_dir() -> Path:
-    return get_bin_dir()
-
-
-def _get_install_dir() -> Path:
-    return get_install_dir()
-
-
-def _set_file_permissions(path: Path) -> None:
-    set_file_permissions(path)
+# Re-exports for tests / back-compat — aliases keep the file under the
+# 300-line ceiling and ``mocker.patch`` still works against bindings.
+_get_data_dir = get_data_dir
+_get_bin_dir = get_bin_dir
+_get_install_dir = get_install_dir
+_set_file_permissions = set_file_permissions
 
 
 def _is_setup_complete(data_dir: Path) -> bool:
@@ -80,8 +72,7 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
         ini_content = (
             "[security]\n"
             f"secret_key = {secret_key}\n"
-            "debug = False\n"
-            "\n"
+            "debug = False\n\n"
             "[server]\n"
             "host = 0.0.0.0\n"
             f"port = {MANAGER_PORT}\n"
@@ -95,9 +86,7 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
     return manager_data
 
 
-def _find_component_exe(component: str) -> Path:
-    """Re-export for tests / back-compat. See ``component_paths`` (FR-L12)."""
-    return find_component_exe(component)
+_find_component_exe = find_component_exe  # tests / back-compat (FR-L12)
 
 
 def _start_component(
@@ -113,9 +102,7 @@ def _start_component(
     proc_env = os.environ.copy()
     if env:
         proc_env.update(env)
-    # FR-10 (D4): launcher-spawned workers force the embedded web UI
-    # on so the cold-boot splash can dismiss on /api/health/. Headless
-    # workers (worker/run_worker.py direct, docker) keep their default.
+    # FR-10 (D4): launcher-spawned workers force the embedded web UI on.
     if component == "worker":
         proc_env["SETHLANS_WORKER_UI_ENABLED"] = "true"
     stdout = subprocess.PIPE if component != "tray" else None
@@ -127,17 +114,14 @@ def _start_component(
     )
 
 
-def _open_browser(
-    port: int, no_browser: bool, print_url: bool,
-    path: str = DASHBOARD_PATH, setup_token: str | None = None,
-):
+def _open_browser(port: int, no_browser: bool, print_url: bool,
+                  path: str = DASHBOARD_PATH,
+                  setup_token: str | None = None):
     del setup_token  # FR-13: URL never carries ?token=.
     open_browser(port, no_browser, print_url, path, None)
 
 
-def _spawn_tray(
-    data_dir: Path, secret: str,
-) -> subprocess.Popen:
+def _spawn_tray(data_dir: Path, secret: str) -> subprocess.Popen:
     """Spawn the tray subprocess; fail hard if it does not come up."""
     del data_dir
     env = {
@@ -170,8 +154,7 @@ def _spawn_tray(
 def _already_running_notice() -> None:
     print(
         "Sethlans is already running. "
-        "Check the system tray / running windows.",
-        file=sys.stderr,
+        "Check the system tray / running windows.", file=sys.stderr,
     )
 
 
@@ -222,9 +205,9 @@ def _run_orchestration(data_dir: Path, args, tray, secret,
                        *, on_cold_boot_ready=None,
                        on_startup_failed=None) -> int:
     if not _is_setup_complete(data_dir):
-        # FR-L1: first-run spawns the wizard; the launcher hands off to
-        # the runtime per topology.json once .wizard_done is written.
-        del tray, secret  # tray IPC is owned by the post-setup loop
+        # FR-L1: first-run spawns the wizard; tray IPC is owned by the
+        # post-setup loop, not the wizard path.
+        del tray, secret
         return wizard_orchestration.run_wizard_mode(
             data_dir, args, _bootstrap_first_run, _start_component,
             on_cold_boot_ready=on_cold_boot_ready,
@@ -256,12 +239,15 @@ def _pre_orchestration_setup(data_dir: Path):
 def _main_headless(args, data_dir: Path) -> int:
     tray, secret = _pre_orchestration_setup(data_dir)
     try:
-        rc = _run_orchestration(data_dir, args, tray, secret)
-    except KeyboardInterrupt:
-        print("\nSethlans shutting down...")
-        rc = 0
+        try:
+            rc = _run_orchestration(data_dir, args, tray, secret)
+        except KeyboardInterrupt:
+            print("\nSethlans shutting down...")
+            rc = 0
+    finally:
+        # FR-6: tray teardown reaches every exit path (incl. uncaught).
+        _teardown_tray(tray)
     supervision.shutdown_supervisors()
-    _teardown_tray(tray)
     return rc
 
 
@@ -276,23 +262,33 @@ def _main_with_splash(args, data_dir: Path) -> int:
     )
 
 
+def _shutdown_supervisors_for_finally() -> None:
+    supervision.get_shutdown_event().set()
+    supervision.shutdown_supervisors()
+
+
 def main():
     global _INSTANCE_LOCK
-    args = _parse_args()
-    data_dir = _prepare_data_dir()
-    _INSTANCE_LOCK = acquire_single_instance_lock(data_dir)
-    if _INSTANCE_LOCK is None:
-        _already_running_notice()
-        return 0
-    use_splash = not (args.no_browser or args.print_url)
+    diagnostics.install_diagnostics()
+    started_at = time.monotonic()
+    rc = 1
     try:
-        if use_splash:
-            return _main_with_splash(args, data_dir)
-        return _main_headless(args, data_dir)
+        args = _parse_args()
+        data_dir = _prepare_data_dir()
+        _INSTANCE_LOCK = acquire_single_instance_lock(data_dir)
+        if _INSTANCE_LOCK is None:
+            _already_running_notice()
+            return 0
+        use_splash = not (args.no_browser or args.print_url)
+        boot = _main_with_splash if use_splash else _main_headless
+        rc = boot(args, data_dir)
+        return rc
     finally:
-        supervision.get_shutdown_event().set()
-        supervision.shutdown_supervisors()
-        release_lock(_INSTANCE_LOCK)
+        diagnostics.finalize_main(
+            rc=rc, started_at=started_at,
+            shutdown_supervisors=_shutdown_supervisors_for_finally,
+            release_lock=release_lock, instance_lock=_INSTANCE_LOCK,
+        )
         _INSTANCE_LOCK = None
 
 

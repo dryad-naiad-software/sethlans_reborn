@@ -82,9 +82,12 @@ class OrchestrationThread(QThread):
             if self._ready_signalled:
                 # Post-ready failure: the splash is already gone; let
                 # the normal logging + process-exit behaviour apply.
+                # Issue #168 (FR-3): log via ``logger.exception`` so the
+                # actual exception lands in launcher.log instead of
+                # vanishing into ``finished_with_code(1)`` silently.
                 logger.exception(
-                    "Orchestration raised after cold_boot_ready; "
-                    "surfacing to process exit",
+                    "Orchestration raised AFTER cold_boot_ready "
+                    "(post-ready failure); surfacing to process exit",
                 )
                 self.finished_with_code.emit(1)
                 return

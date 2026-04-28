@@ -150,8 +150,15 @@ def probe_health_once(
         ConnectionRefusedError,
         ssl.SSLError,
         OSError,
-    ):
-        # OSError covers WinError 10061 etc. before the socket is up.
+    ) as exc:
+        # FR-4 (#168): each swallowed exception is logged at DEBUG with
+        # its concrete type so the cumulative pattern is visible in
+        # launcher.log when the caller flips the level. Production stays
+        # quiet. OSError covers WinError 10061 etc. before the socket is
+        # up.
+        logger.debug(
+            "%s probing %s: %s", type(exc).__name__, url, exc,
+        )
         return False
     try:
         body = json.loads(raw.decode("utf-8"))
