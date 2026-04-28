@@ -111,19 +111,20 @@ def run_with_splash(
         splash.morph_to_error(reason, trace)
 
     def _on_finished(rc):
-        # finished_with_code may arrive after app.quit() in the failure
-        # path, where the slot can be dropped by the non-pumping main
-        # loop. _on_failed has already set rc=1 in that case, so we
-        # only overwrite when the existing rc is still the default 0
-        # (or when finished_with_code carries a non-zero code we should
-        # preserve over a clobbering 0).
+        # Issue #164: do NOT call app.quit() here. FR-3 of #162 was
+        # wrong — it dismissed the error card before the user had
+        # a chance to read it. The user-driven dismissal paths (Close
+        # button via _dismiss_and_quit; alt-F4 / OS close via the
+        # closeEvent override on SethlansSplash, both from #162) are
+        # the only legitimate quit paths on the failure side.
+        # _on_failed left the splash visible; we leave it visible too,
+        # blocking in the first app.exec() until the user explicitly
+        # dismisses. finished_with_code may arrive before or after
+        # _on_failed, so we only overwrite when the existing rc is
+        # still the default 0 (preserves a non-zero rc set by _on_failed
+        # against a clobbering 0 from the runner's natural return).
         if exit_code["rc"] == 0:
             exit_code["rc"] = int(rc)
-        # Issue #162 FR-3: ensure the first app.exec() returns once
-        # orchestration completes, even if the user has not yet
-        # dismissed the error card. The second exec() pass below then
-        # waits for user dismissal (FR-1/FR-2). Idempotent.
-        app.quit()
 
     thread.cold_boot_ready.connect(_on_ready)
     thread.startup_failed.connect(_on_failed)
