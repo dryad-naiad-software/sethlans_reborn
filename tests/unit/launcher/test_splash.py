@@ -136,14 +136,100 @@ class TestMorphToError:
         assert "second" in widget._reason_label.text()
         assert "trace-two" in widget._trace_area.toPlainText()
 
-    def test_reason_line_truncated_to_single_line(self, qtbot):
+    def test_reason_line_joins_multiline_with_spaces(self, qtbot):
+        # Per the splash_error_card_layout spec, multi-line reasons are
+        # joined with spaces (no embedded newlines) so the QLabel's
+        # word-wrap engine can lay them out within the 420 px card.
         widget = SethlansSplash(version="9.9.9")
         qtbot.addWidget(widget)
         widget.morph_to_error("line1\nline2\nline3", "tb")
         text = widget._reason_label.text()
         assert "\n" not in text
         assert "line1" in text
-        assert "line2" not in text
+        assert "line2" in text
+        assert "line3" in text
+
+
+# ---- Error card layout (spec: splash_error_card_layout.md) -----------
+
+class TestErrorCardLayout:
+
+    def test_error_card_is_420x420_after_morph(self, qtbot):
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        widget.morph_to_error("reason", "trace")
+        assert abs(widget.width() - 420) <= 1
+        assert abs(widget.height() - 420) <= 1
+        assert widget.width() == widget.height()
+
+    def test_error_card_width_unchanged_by_long_traceback(self, qtbot):
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        long_line = "x" * 5000
+        traceback_text = "\n".join(
+            ["Traceback (most recent call last):", long_line] + [
+                f"  File \"foo.py\", line {i}, in bar" for i in range(50)
+            ],
+        )
+        widget.morph_to_error("boom", traceback_text)
+        assert abs(widget.width() - 420) <= 1
+
+    def test_reason_label_word_wraps(self, qtbot):
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        widget.morph_to_error("reason", "trace")
+        assert widget._reason_label.wordWrap() is True
+
+    def test_trace_area_word_wraps(self, qtbot):
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        widget.morph_to_error("reason", "trace")
+        assert (
+            widget._trace_area.lineWrapMode()
+            == QPlainTextEdit.LineWrapMode.WidgetWidth
+        )
+
+    def test_error_widgets_have_dark_foreground(self, qtbot):
+        # The splash's centralized stylesheet sets explicit foreground
+        # colors on QWidget / QPlainTextEdit / QPushButton so Windows
+        # dark mode does not override the text to white on the splash's
+        # forced light background (issue #161).
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        widget.morph_to_error("reason", "trace")
+        sheet = widget.styleSheet()
+        # All three selectors that hold error-card content must declare
+        # the dark foreground constant.
+        assert "#1f1f1f" in sheet
+        assert "QWidget" in sheet
+        assert "QPlainTextEdit" in sheet
+        assert "QPushButton" in sheet
+        # And the panel background is the documented light color.
+        assert "#fafafa" in sheet
+
+    def test_format_reason_does_not_truncate_at_160(self, qtbot):
+        # Old behavior truncated at 160 chars; new spec preserves up to
+        # _REASON_MAX_CHARS (600) intact.
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        long_reason = "a" * 400
+        widget.morph_to_error(long_reason, "tb")
+        text = widget._reason_label.text()
+        assert long_reason in text
+        assert "..." not in text
+
+    def test_format_reason_bounds_at_600(self, qtbot):
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        huge_reason = "b" * 1000
+        widget.morph_to_error(huge_reason, "tb")
+        text = widget._reason_label.text()
+        # The "Reason: " prefix plus up to 600 chars (with "..." in
+        # the last 3 once truncation kicks in).
+        assert text.endswith("...")
+        # Exclude the "Reason: " prefix when measuring the bound.
+        body = text[len("Reason: "):]
+        assert len(body) == 600
 
 
 # ---- keyPressEvent / alt-F4 ---------------------------------------
@@ -186,3 +272,72 @@ class TestAltF4Handling:
             "Error-state alt-F4 handler must not swallow the event; "
             "the user needs to be able to close the error card."
         )
+
+
+# ---- Issue #162: dismissal must quit Qt ------------------------------
+
+class TestDismissalQuitsQt:
+    """The splash uses Qt.WindowType.Tool, which is excluded from
+    ``quitOnLastWindowClosed``. Hiding the widget therefore does NOT
+    return from ``app.exec()``. Both the Close button and the
+    ``closeEvent`` override must explicitly call ``app.quit()`` so the
+    launcher can complete teardown after a startup failure.
+    """
+
+    def test_close_button_calls_app_quit(self, qtbot, mocker):
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        widget.morph_to_error("boom", "Traceback...\nboom")
+
+        # Patch the QApplication instance lookup INSIDE the splash
+        # module so we can observe the quit() call without tearing
+        # down the real qtbot QApplication.
+        from launcher import splash as splash_mod
+        fake_app = mocker.MagicMock()
+        mocker.patch.object(
+            splash_mod.QApplication, "instance", return_value=fake_app,
+        )
+
+        # Find the Close button on the error card and click it.
+        close_btn = next(
+            b for b in widget.findChildren(QPushButton)
+            if b.text() == "Close"
+        )
+        qtbot.mouseClick(close_btn, Qt.MouseButton.LeftButton)
+
+        fake_app.quit.assert_called()
+        # And the widget itself was hidden.
+        assert not widget.isVisible()
+
+    def test_close_event_calls_app_quit(self, qtbot, mocker):
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+
+        from launcher import splash as splash_mod
+        fake_app = mocker.MagicMock()
+        mocker.patch.object(
+            splash_mod.QApplication, "instance", return_value=fake_app,
+        )
+
+        # Programmatic close — simulates alt-F4, OS close, or any
+        # caller invoking widget.close() directly.
+        widget.close()
+
+        fake_app.quit.assert_called()
+
+    def test_dismiss_and_quit_when_app_instance_is_none(
+        self, qtbot, mocker,
+    ):
+        # Defensive: _quit_app must tolerate a missing QApplication
+        # instance (e.g., during teardown). It should NOT raise.
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+
+        from launcher import splash as splash_mod
+        mocker.patch.object(
+            splash_mod.QApplication, "instance", return_value=None,
+        )
+
+        # Both paths must be safe.
+        widget._dismiss_and_quit()
+        widget.close()  # routes through closeEvent

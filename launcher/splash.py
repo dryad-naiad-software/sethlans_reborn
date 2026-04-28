@@ -4,16 +4,10 @@
 
 """Startup splash widget for the Sethlans launcher.
 
-This module owns the :class:`SethlansSplash` QWidget — a borderless,
-always-on-top, un-dismissible identity banner shown while the manager
-boots.  See ``development/specs/launcher_startup_splash.md`` for the
-full behavioural contract.
-
-Two visual states live in a single widget: a success layout with
-wordmark + "Starting..." + version (dismissed via
-:meth:`close_for_success`), and an error layout with a scrollable
-traceback + Show log / Close buttons (entered via
-:meth:`morph_to_error`).
+Owns :class:`SethlansSplash`. See
+``development/specs/launcher_startup_splash.md`` for the contract.
+Holds success (wordmark/Starting/version) and error (traceback +
+Show log / Close) states, swapped via :meth:`morph_to_error`.
 """
 
 from __future__ import annotations
@@ -26,7 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QKeyEvent, QPixmap
+from PySide6.QtGui import QCloseEvent, QFont, QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -42,11 +36,27 @@ from shared.frozen_paths import get_branding_dir
 logger = logging.getLogger(__name__)
 
 _SUCCESS_SIZE = (420, 140)
-_ERROR_SIZE = (560, 360)
+_ERROR_SIZE = (420, 420)
 _WORDMARK_ASSET = "logo-text-dark.png"
 _PANEL_BG = "#fafafa"
 _MUTED = "#888888"
 _ERROR_RED = "#c62828"
+_TEXT_DARK = "#1f1f1f"
+_BORDER = "#cccccc"
+_BUTTON_BG = "#ffffff"
+_BUTTON_HOVER = "#f0f0f0"
+_REASON_MAX_CHARS = 600
+
+# Forces light theme regardless of OS dark mode (issue #161).
+_STYLESHEET = (
+    f"QWidget {{ background-color: {_PANEL_BG}; color: {_TEXT_DARK}; }}"
+    f"QPlainTextEdit {{ background-color: {_PANEL_BG};"
+    f" color: {_TEXT_DARK}; border: 1px solid {_BORDER}; }}"
+    f"QPushButton {{ background-color: {_BUTTON_BG};"
+    f" color: {_TEXT_DARK}; border: 1px solid {_BORDER};"
+    f" padding: 4px 12px; }}"
+    f"QPushButton:hover {{ background-color: {_BUTTON_HOVER}; }}"
+)
 
 
 class SethlansSplash(QWidget):
@@ -68,15 +78,14 @@ class SethlansSplash(QWidget):
         self._starting_label: Optional[QLabel] = None
         self._error_widgets_built = False
 
-        flags = (
+        self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
+            | Qt.WindowType.Tool,
         )
-        self.setWindowFlags(flags)
         self.setWindowTitle("Sethlans")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
-        self.setStyleSheet(f"background-color: {_PANEL_BG};")
+        self.setStyleSheet(_STYLESHEET)
 
         self._build_success_layout()
         self.resize(*_SUCCESS_SIZE)
@@ -95,12 +104,8 @@ class SethlansSplash(QWidget):
         if pixmap is not None and not pixmap.isNull():
             self._wordmark_label.setPixmap(pixmap)
         else:
-            # Fallback: text-only wordmark so the widget still paints.
             self._wordmark_label.setText("Sethlans")
-            font = QFont()
-            font.setPointSize(18)
-            font.setBold(True)
-            self._wordmark_label.setFont(font)
+            self._wordmark_label.setFont(_make_font(18, bold=True))
         wordmark_row = QHBoxLayout()
         wordmark_row.setContentsMargins(0, 20, 0, 0)
         wordmark_row.addSpacing(35)
@@ -110,21 +115,16 @@ class SethlansSplash(QWidget):
 
         self._starting_label = QLabel("Starting...", self)
         self._starting_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        starting_font = QFont()
-        starting_font.setPointSize(10)
-        self._starting_label.setFont(starting_font)
+        self._starting_label.setFont(_make_font(10))
         root.addWidget(self._starting_label)
 
         version_row = QHBoxLayout()
         version_row.addStretch(1)
         self._version_label = QLabel(f"v{self._version}", self)
-        version_font = QFont()
-        version_font.setPointSize(8)
-        self._version_label.setFont(version_font)
+        self._version_label.setFont(_make_font(8))
         self._version_label.setStyleSheet(f"color: {_MUTED};")
-        self._version_label.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
-        )
+        align = Qt.AlignmentFlag
+        self._version_label.setAlignment(align.AlignRight | align.AlignBottom)
         version_row.addWidget(self._version_label)
         root.addLayout(version_row)
 
@@ -141,10 +141,8 @@ class SethlansSplash(QWidget):
         if pix.isNull():
             logger.warning("Wordmark asset failed to load: %s", path)
             return None
-        # Scale sensibly — the raw asset may be large.
-        return pix.scaledToHeight(
-            60, Qt.TransformationMode.SmoothTransformation,
-        )
+        mode = Qt.TransformationMode.SmoothTransformation
+        return pix.scaledToHeight(60, mode)
 
     def _centre_on_primary_screen(self) -> None:
         app = QApplication.instance()
@@ -164,37 +162,22 @@ class SethlansSplash(QWidget):
         """Dismiss the splash cleanly on the happy-path cold_boot_ready."""
         self.close()
 
-    def morph_to_error(
-        self, reason: str, traceback_text: str,
-    ) -> None:
-        """Swap the success layout for the error card.
-
-        Must be called on the main (GUI) thread.  Idempotent: a second
-        invocation updates the reason + traceback text without
-        re-layouting.
-        """
+    def morph_to_error(self, reason: str, traceback_text: str) -> None:
+        """Swap to the error card (main-thread only, idempotent)."""
         if self._error_mode:
-            # Already in error mode — just refresh the copy.
-            if self._reason_label is not None:
-                self._reason_label.setText(
-                    self._format_reason_line(reason),
-                )
-            if self._trace_area is not None:
-                self._trace_area.setPlainText(traceback_text)
+            # Refresh copy on subsequent calls.
+            self._reason_label.setText(self._format_reason_line(reason))
+            self._trace_area.setPlainText(traceback_text)
             return
 
         self._error_mode = True
         self._build_error_widgets()
-        if self._starting_label is not None:
-            self._starting_label.hide()
-        if self._title_label is not None:
-            self._title_label.show()
-        if self._reason_label is not None:
-            self._reason_label.setText(self._format_reason_line(reason))
-            self._reason_label.show()
-        if self._trace_area is not None:
-            self._trace_area.setPlainText(traceback_text)
-            self._trace_area.show()
+        self._starting_label.hide()
+        self._title_label.show()
+        self._reason_label.setText(self._format_reason_line(reason))
+        self._reason_label.show()
+        self._trace_area.setPlainText(traceback_text)
+        self._trace_area.show()
         for btn in self._error_buttons:
             btn.show()
         self.resize(*_ERROR_SIZE)
@@ -210,28 +193,24 @@ class SethlansSplash(QWidget):
         layout = self.layout()
 
         self._title_label = QLabel("Failed to start", self)
-        title_font = QFont()
-        title_font.setPointSize(12)
-        title_font.setBold(True)
-        self._title_label.setFont(title_font)
+        self._title_label.setFont(_make_font(12, bold=True))
         self._title_label.setStyleSheet(f"color: {_ERROR_RED};")
         self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title_label.hide()
         layout.insertWidget(1, self._title_label)
 
         self._reason_label = QLabel("", self)
-        reason_font = QFont()
-        reason_font.setPointSize(9)
-        self._reason_label.setFont(reason_font)
-        self._reason_label.setWordWrap(False)
-        self._reason_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse,
-        )
+        self._reason_label.setFont(_make_font(9))
+        self._reason_label.setWordWrap(True)
+        flag = Qt.TextInteractionFlag.TextSelectableByMouse
+        self._reason_label.setTextInteractionFlags(flag)
         self._reason_label.hide()
         layout.insertWidget(2, self._reason_label)
 
         self._trace_area = QPlainTextEdit(self)
         self._trace_area.setReadOnly(True)
+        wrap = QPlainTextEdit.LineWrapMode.WidgetWidth
+        self._trace_area.setLineWrapMode(wrap)
         mono = QFont("Courier New")
         mono.setStyleHint(QFont.StyleHint.Monospace)
         mono.setPointSize(8)
@@ -243,7 +222,7 @@ class SethlansSplash(QWidget):
         show_log_btn = QPushButton("Show log", self)
         show_log_btn.clicked.connect(self._on_show_log)
         close_btn = QPushButton("Close", self)
-        close_btn.clicked.connect(self.close)
+        close_btn.clicked.connect(self._dismiss_and_quit)
         buttons_row.addWidget(show_log_btn)
         buttons_row.addWidget(close_btn)
         buttons_row.addStretch(1)
@@ -252,11 +231,11 @@ class SethlansSplash(QWidget):
 
     @staticmethod
     def _format_reason_line(reason: str) -> str:
-        # Single line only, truncated for predictability.
-        first = reason.splitlines()[0] if reason else ""
-        if len(first) > 160:
-            first = first[:157] + "..."
-        return f"Reason: {first}"
+        # Join newlines with spaces; bound at _REASON_MAX_CHARS.
+        joined = " ".join(reason.splitlines()) if reason else ""
+        if len(joined) > _REASON_MAX_CHARS:
+            joined = joined[: _REASON_MAX_CHARS - 3] + "..."
+        return f"Reason: {joined}"
 
     def _on_show_log(self) -> None:
         path = self._log_path
@@ -268,21 +247,42 @@ class SethlansSplash(QWidget):
         except Exception:  # pragma: no cover — OS integration
             logger.exception("Failed to open launcher log at %s", path)
 
+    # ---- Dismissal (issue #162: Tool windows skip quitOnLast...) ----
+
+    def _quit_app(self) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
+    def _dismiss_and_quit(self) -> None:
+        """Close-button handler: hide widget AND quit Qt."""
+        self.close()
+        self._quit_app()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        """Quit Qt on any close path (alt-F4, OS close, .close())."""
+        super().closeEvent(event)
+        self._quit_app()
+
     # ---- Input handling ----
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
-        # Swallow alt-F4 on the success layout so users cannot dismiss
-        # the splash during boot.  On the error layout the launcher has
-        # already exited; alt-F4 is allowed through to close the window.
+        # Swallow alt-F4 in success mode; error mode lets it through.
         if not self._error_mode:
             is_f4 = event.key() == Qt.Key.Key_F4
-            is_alt = bool(
-                event.modifiers() & Qt.KeyboardModifier.AltModifier,
-            )
-            if is_f4 and is_alt:
+            mods = event.modifiers()
+            if is_f4 and bool(mods & Qt.KeyboardModifier.AltModifier):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+
+def _make_font(point_size: int, bold: bool = False) -> QFont:
+    font = QFont()
+    font.setPointSize(point_size)
+    if bold:
+        font.setBold(True)
+    return font
 
 
 def _open_in_default_app(path: Path) -> None:

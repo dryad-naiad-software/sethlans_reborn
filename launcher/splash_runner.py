@@ -119,6 +119,11 @@ def run_with_splash(
         # preserve over a clobbering 0).
         if exit_code["rc"] == 0:
             exit_code["rc"] = int(rc)
+        # Issue #162 FR-3: ensure the first app.exec() returns once
+        # orchestration completes, even if the user has not yet
+        # dismissed the error card. The second exec() pass below then
+        # waits for user dismissal (FR-1/FR-2). Idempotent.
+        app.quit()
 
     thread.cold_boot_ready.connect(_on_ready)
     thread.startup_failed.connect(_on_failed)
