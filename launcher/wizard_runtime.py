@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from launcher import cascade, wizard_dir, wizard_ipc
+from launcher import cascade, supervision, wizard_dir, wizard_ipc
 from launcher.health_probe import (
     HEALTH_PROBE_TIMEOUT as _HEALTH_PROBE_TIMEOUT,
     probe_health_once,
@@ -119,7 +119,12 @@ def wait_for_runtime_port_bind(
             return False
         if _port_is_bound(port) and _probe_runtime_health(port):
             return True
-        time.sleep(poll_interval)
+        # Issue #163: tray quit during the runtime port-bind window
+        # collapses to ``False``; the caller checks the quit event to
+        # distinguish from a real port-bind timeout.
+        if supervision.wait_or_quit(poll_interval):
+            logger.info("Tray quit observed during runtime port-bind wait")
+            return False
     logger.warning(
         "runtime did not become healthy on port %d within %.0fs",
         port, timeout,
@@ -192,6 +197,28 @@ def terminate_wizard(wizard_proc: Optional[subprocess.Popen]) -> None:
             pass
 
 
+def _terminate_runtime(runtime_proc: Optional[subprocess.Popen]) -> None:
+    """Politely terminate the runtime; SIGKILL after manager grace (#163)."""
+    if runtime_proc is None or runtime_proc.poll() is not None:
+        return
+    try:
+        runtime_proc.terminate()
+    except OSError as exc:
+        logger.warning("terminate() on runtime failed: %s", exc)
+        return
+    try:
+        runtime_proc.wait(timeout=cascade.MANAGER_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "runtime did not exit within %.1fs; SIGKILL",
+            cascade.MANAGER_GRACE_SECONDS,
+        )
+        try:
+            runtime_proc.kill()
+        except OSError:
+            pass
+
+
 # ---- Failure / hand-off entrypoints --------------------------------------
 
 def wizard_failure_exit(reason: str) -> int:
@@ -240,6 +267,12 @@ def hand_off_to_runtime(
     if watch_port is not None:
         bound = wait_for_runtime_port_bind(runtime_proc, watch_port)
         if not bound:
+            # Issue #163: tray-quit returns False too; distinguish via
+            # the quit event so we don't write a misleading marker.
+            if supervision.get_quit_requested_event().is_set():
+                _terminate_runtime(runtime_proc)
+                terminate_wizard(wizard_proc)
+                return 0
             write_runtime_failed_marker(
                 data_dir, ipc_secret, reason="port_bind_timeout",
             )

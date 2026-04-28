@@ -73,6 +73,18 @@ class NonLoopbackHealthURL(ValueError):
     """
 
 
+class QuitRequested(Exception):
+    """Raised when ``wait_for_health`` aborts due to a tray-quit signal.
+
+    Issue #163: the launcher's IPC poll thread sets the process-wide
+    quit event when a tray ``.quit_requested`` marker is observed.
+    ``wait_for_health`` polls that event between probes; when set it
+    raises this exception so the caller (``run_wizard_mode`` /
+    ``_await_cold_boot``) can run the user-quit cleanup path instead
+    of the health-timeout failure path.
+    """
+
+
 def _validate_loopback_url(url: str) -> None:
     """Reject non-loopback URLs (NFR-6).
 
@@ -181,6 +193,11 @@ def wait_for_health(
             timeout, url,
         )
         return False
+    # Issue #163: lazy import to avoid a circular dependency.
+    from launcher import supervision
+    quit_event = supervision.get_quit_requested_event()
+    if quit_event.is_set():
+        raise QuitRequested()
     deadline = time.monotonic() + timeout
     try:
         while True:
@@ -198,7 +215,11 @@ def wait_for_health(
                     url, timeout,
                 )
                 return False
-            time.sleep(poll_interval)
+            # Issue #163: wait on the tray-quit event instead of plain
+            # sleep. If the event fires mid-wait we raise so the caller
+            # can run user-quit cleanup, not the timeout failure path.
+            if supervision.wait_or_quit(poll_interval):
+                raise QuitRequested()
     except KeyboardInterrupt:
         # FR-3 — KI from any phase (urlopen handshake, proc.poll(),
         # time.sleep) MUST collapse to False so the launcher's normal
@@ -212,6 +233,7 @@ __all__ = [
     "HEALTH_PROBE_TIMEOUT",
     "HEALTH_TIMEOUT",
     "NonLoopbackHealthURL",
+    "QuitRequested",
     "probe_health_once",
     "wait_for_health",
 ]

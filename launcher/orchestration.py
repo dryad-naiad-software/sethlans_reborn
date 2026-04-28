@@ -6,17 +6,15 @@
 
 Splash-dismissal contract (v2 — splash phase states spec):
 
-* Cold-boot health is observed via :func:`launcher.health_probe.wait_for_health`
+* Cold-boot health is observed via ``launcher.health_probe.wait_for_health``
   on each call site (wizard, manager, manager+worker, worker).
-* Manager+worker mode polls the two URLs **strictly serially** under a
-  single shared 30 s wall-clock deadline (FR-6) — no parallel threads,
-  no shared concurrent-futures machinery, no manual thread join.
-* On health timeout, ``startup_failed`` is emitted **first** (FR-11(c))
-  so the splash error card appears within ~250 ms; child termination
-  then runs to completion before this function returns.
+* Manager+worker mode polls the two URLs strictly serially under a
+  single shared 30 s wall-clock deadline (FR-6).
+* On health timeout, ``startup_failed`` is emitted first (FR-11(c)) so
+  the splash error card appears within ~250 ms; child termination then
+  runs to completion before this function returns.
 * Manager+worker termination on timeout issues both ``proc.terminate()``
-  calls back-to-back BEFORE awaiting either ``wait()`` (FR-11(b)) so
-  total termination latency is bounded by ``max(grace)`` not the sum.
+  calls back-to-back BEFORE awaiting either ``wait()`` (FR-11(b)).
 """
 
 from __future__ import annotations
@@ -27,11 +25,13 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from launcher import cascade, tray_ipc
+from launcher import cascade, supervision, tray_ipc
 from launcher.browser_launch import open_browser
 from launcher.caddy_wiring import start_caddy_supervisor
-from launcher.cold_boot import fail_cold_boot, safe_invoke
-from launcher.health_probe import HEALTH_TIMEOUT, wait_for_health
+from launcher.cold_boot import fail_cold_boot, parallel_terminate, safe_invoke
+from launcher.health_probe import (
+    HEALTH_TIMEOUT, QuitRequested, wait_for_health,
+)
 from launcher.restart_orchestrator import handle_restart_request
 from launcher.setup_helpers import remove_setup_section
 
@@ -69,11 +69,10 @@ def _all_live_exited(state: dict) -> bool:
 
 
 def _make_second_quit_check(data_dir, secret, tray):
-    """Return a callable that reports True when a 2nd quit marker lands.
+    """Return a callable: True when a 2nd quit marker lands (FR-21).
 
     Consulted inside ``cascade._terminate_with_grace`` at ~1s cadence
-    so the second Quit Sethlans click triggers an immediate SIGKILL
-    of any survivors (FR-21) instead of waiting out the full grace.
+    so the second Quit click escalates to immediate SIGKILL.
     """
     def _check() -> bool:
         q, _r = _consume_ipc(data_dir, secret, tray)
@@ -133,6 +132,24 @@ def _read_topology(data_dir: Path) -> dict:
         return {}
 
 
+def _quit_cold_boot(
+    manager_proc: Optional[subprocess.Popen],
+    worker_proc: Optional[subprocess.Popen],
+    on_cold_boot_ready: Optional[Callable[[], None]],
+) -> int:
+    """Tray-quit cleanup during normal-mode cold boot (issue #163).
+
+    Mirrors the wizard-mode quit cleanup: fire ``on_cold_boot_ready``
+    so the splash dismisses via the success path (NOT the error
+    card), then parallel-terminate manager + worker. Returns 0 — tray
+    quit is a user-initiated quit, not a startup failure.
+    """
+    logger.info("Tray quit observed during cold-boot health probe")
+    safe_invoke(on_cold_boot_ready)
+    parallel_terminate(manager_proc, worker_proc)
+    return 0
+
+
 def _await_cold_boot(
     topo: str,
     manager_proc: Optional[subprocess.Popen],
@@ -143,9 +160,9 @@ def _await_cold_boot(
     """Wait for cold-boot health; return non-None exit code on timeout.
 
     Manager+worker mode polls strictly serially under a single shared
-    30 s deadline (FR-6). On any-side timeout, returns 1 after firing
-    startup_failed and terminating the cold-boot child(ren); the caller
-    should propagate the return code without spinning up the IPC loop.
+    30 s deadline (FR-6). On timeout, fires startup_failed and
+    terminates child(ren); on issue #163 ``QuitRequested`` (tray quit
+    mid-probe), routes through the user-quit cleanup path (rc=0).
     """
     is_manager_topo = topo in ("manager", "manager_worker", "manager+worker")
     is_worker_topo = topo in ("worker", "manager_worker", "manager+worker")
@@ -155,26 +172,70 @@ def _await_cold_boot(
 
     if has_manager:
         remaining = deadline - time.monotonic()
-        # Look up wait_for_health on the module so tests that patch
-        # ``orchestration.wait_for_health`` are honored (default-arg
-        # binding would freeze the original at import time).
-        if not wait_for_health(
-            _MANAGER_HEALTH_URL, manager_proc, timeout=remaining,
-        ):
+        try:
+            healthy = wait_for_health(
+                _MANAGER_HEALTH_URL, manager_proc, timeout=remaining,
+            )
+        except QuitRequested:
+            return _quit_cold_boot(
+                manager_proc, worker_proc, on_cold_boot_ready,
+            )
+        if not healthy:
             return fail_cold_boot(
                 _REASON_MANAGER_TIMEOUT,
                 manager_proc, worker_proc, on_startup_failed,
             )
     if has_worker:
         remaining = deadline - time.monotonic()
-        if not wait_for_health(
-            _WORKER_HEALTH_URL, worker_proc, timeout=remaining,
-        ):
+        try:
+            healthy = wait_for_health(
+                _WORKER_HEALTH_URL, worker_proc, timeout=remaining,
+            )
+        except QuitRequested:
+            return _quit_cold_boot(
+                manager_proc, worker_proc, on_cold_boot_ready,
+            )
+        if not healthy:
             return fail_cold_boot(
                 _REASON_WORKER_TIMEOUT,
                 manager_proc, worker_proc, on_startup_failed,
             )
     safe_invoke(on_cold_boot_ready)
+    return None
+
+
+def _normal_mode_main_loop_iteration(
+    state: dict,
+    data_dir: Path,
+    secret: str,
+    tray: Optional[subprocess.Popen],
+    start_component: Callable[..., subprocess.Popen],
+) -> Optional[int]:
+    """Run one iteration of the normal-mode main loop (issue #163).
+
+    Returns a non-None exit code when the loop should terminate.
+
+    The IPC poll daemon (``launcher.supervision``) consumes
+    ``.quit_requested`` markers and sets a process-wide event; we
+    observe that event here so a tray quit is never silently lost.
+    The daemon skips marker consumption while the event is already
+    set, so a second click's marker remains on disk for
+    ``_make_second_quit_check`` (preserves FR-21 fast-path SIGKILL).
+    Restart markers stay routed through ``_consume_ipc``.
+    """
+    if _all_live_exited(state):
+        return 0
+    if supervision.get_quit_requested_event().is_set():
+        rc = _handle_quit("all", state, tray, data_dir, secret)
+        if rc is not None:
+            return rc
+    quit_target, restart_target = _consume_ipc(data_dir, secret, tray)
+    # Fallback for the narrow window in which a marker arrived between
+    # the event check above and this read (e.g. daemon not yet ticked).
+    rc = _handle_quit(quit_target, state, tray, data_dir, secret)
+    if rc is not None:
+        return rc
+    _handle_restart(restart_target, state, data_dir, start_component)
     return None
 
 
@@ -228,15 +289,12 @@ def run_normal_mode(
         "cascade": False,
     }
     while True:
-        if _all_live_exited(state):
-            return 0
-        quit_target, restart_target = _consume_ipc(
-            data_dir, secret, tray,
+        rc = _normal_mode_main_loop_iteration(
+            state, data_dir, secret, tray, start_component,
         )
-        rc = _handle_quit(quit_target, state, tray, data_dir, secret)
         if rc is not None:
             return rc
-        _handle_restart(
-            restart_target, state, data_dir, start_component,
-        )
-        time.sleep(RESTART_POLL_INTERVAL)
+        # Wake immediately on tray quit so the cascade fires within
+        # one ``IPC_POLL_INTERVAL_SECONDS`` instead of burning the
+        # full ``RESTART_POLL_INTERVAL`` wall-clock budget.
+        supervision.wait_or_quit(RESTART_POLL_INTERVAL)

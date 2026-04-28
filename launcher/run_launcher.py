@@ -27,10 +27,7 @@ from launcher.component_paths import (
     find_component_exe, popen_kwargs_for_component,
 )
 from launcher.paths import (
-    get_bin_dir,
-    get_data_dir,
-    get_install_dir,
-    set_file_permissions,
+    get_bin_dir, get_data_dir, get_install_dir, set_file_permissions,
 )
 from launcher.single_instance import acquire_single_instance_lock, release_lock
 from shared.version import get_version
@@ -248,7 +245,11 @@ def _pre_orchestration_setup(data_dir: Path):
     tray = _spawn_tray(data_dir, secret)
     manager_data = data_dir / "manager"
     manager_data.mkdir(parents=True, exist_ok=True)
-    supervision.start_ipc_poll_thread(manager_data)
+    # #163: poll thread consumes .quit_requested during wizard mode.
+    supervision.start_ipc_poll_thread(
+        manager_data, secret=secret,
+        tray_pid_provider=lambda: tray.pid if tray is not None else -1,
+    )
     return tray, secret
 
 

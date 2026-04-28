@@ -21,10 +21,10 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from launcher import wizard_dir, wizard_ipc, wizard_runtime
+from launcher import supervision, wizard_dir, wizard_ipc, wizard_runtime
 from launcher.browser_launch import open_browser, print_setup_banner
 from launcher.cold_boot import safe_invoke
-from launcher.health_probe import wait_for_health
+from launcher.health_probe import QuitRequested, wait_for_health
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,11 @@ def _wait_for_wizard_port(
             return port
         if wizard_proc.poll() is not None:
             return None
-        time.sleep(poll_interval)
+        # Issue #163: a tray quit observed mid-wait collapses to the
+        # same ``None`` sentinel used for a port-file timeout — the
+        # caller already routes that into ``_quit_cleanup``.
+        if supervision.wait_or_quit(poll_interval):
+            return None
     return None
 
 
@@ -144,7 +148,12 @@ def wait_for_wizard_done(
             )
             return None, "idle_timeout"
 
-        time.sleep(poll_interval)
+        # Issue #163: a tray quit during the (potentially 30 minute)
+        # wizard wait must abort within one poll interval rather than
+        # waiting out the idle timeout.
+        if supervision.wait_or_quit(poll_interval):
+            logger.info("Tray quit observed during wizard wait")
+            return None, "quit_requested"
 
 
 # ---- Wizard URL surfacing (FR-L3 / FR-L11) --------------------------------
@@ -163,6 +172,24 @@ def surface_wizard_url(
 def _wizard_health_url(port: int) -> str:
     """FR-7: wizard's own /api/health/ URL for cold-boot health check."""
     return f"https://127.0.0.1:{port}/api/health/"
+
+
+def _quit_cleanup(
+    wizard_proc: Optional[subprocess.Popen],
+    on_cold_boot_ready: Optional[Callable[[], None]],
+) -> int:
+    """Cascade teardown when a tray quit fires during wizard mode.
+
+    Issue #163: tray quit is a *user-initiated* shutdown, not a
+    startup failure. We fire ``on_cold_boot_ready`` (NOT
+    ``on_startup_failed``) so the splash dismisses via its
+    success path — the error card MUST NOT appear. Returns 0
+    so the launcher exits cleanly. Runtime termination on quit
+    during ``hand_off_to_runtime`` is handled inside that helper.
+    """
+    safe_invoke(on_cold_boot_ready)
+    wizard_runtime.terminate_wizard(wizard_proc)
+    return 0
 
 
 def run_wizard_mode(
@@ -187,9 +214,16 @@ def run_wizard_mode(
     wizard_proc = start_component("wizard")
     logger.info("wizard spawned (pid=%s)", wizard_proc.pid)
 
+    quit_event = supervision.get_quit_requested_event()
+
     # FR-13 — two independent budgets: 10 s port-file discovery, then a
     # separate 30 s health budget. No shared wall clock between them.
     chosen_port = _wait_for_wizard_port(data_dir, wizard_proc, timeout=10.0)
+    # Issue #163: distinguish a tray-quit abort from a real port-file
+    # timeout — both surface as ``None`` from the helper, so we check
+    # the event explicitly here.
+    if chosen_port is None and quit_event.is_set():
+        return _quit_cleanup(wizard_proc, on_cold_boot_ready)
     if chosen_port is None:
         # MED-4 (Phase F1): no silent fallback to 8100 — the wizard's
         # bind may have landed on any of 8100..8104 (FR-W3 port scan)
@@ -211,9 +245,14 @@ def run_wizard_mode(
     # FR-7 — pass ``proc=wizard_proc`` so a wizard crash between the
     # port-file write and HTTP responsiveness is detected within one
     # poll interval (~250 ms) instead of burning the full 30 s budget.
-    healthy = wait_for_health(
-        _wizard_health_url(chosen_port), wizard_proc,
-    )
+    try:
+        healthy = wait_for_health(
+            _wizard_health_url(chosen_port), wizard_proc,
+        )
+    except QuitRequested:
+        # Issue #163 / AC-NoErrorCard: tray quit during cold-boot
+        # health probe dismisses the splash via the success path.
+        return _quit_cleanup(wizard_proc, on_cold_boot_ready)
     if not healthy:
         # FR-11(c) — emit startup_failed BEFORE terminate so the splash
         # error card appears within ~250 ms of budget expiry.
@@ -236,6 +275,12 @@ def run_wizard_mode(
         wizard_proc, data_dir, ipc_secret, idle_timeout=idle_timeout,
     )
 
+    if reason == "quit_requested":
+        # Issue #163: tray quit during the wizard's URL-banner phase.
+        # The splash has already been dismissed via on_cold_boot_ready
+        # above; do NOT fire it again. Just clean up.
+        wizard_runtime.terminate_wizard(wizard_proc)
+        return 0
     if reason != "done":
         if reason == "idle_timeout":
             wizard_runtime.terminate_wizard(wizard_proc)
