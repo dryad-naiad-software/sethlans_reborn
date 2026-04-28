@@ -178,13 +178,21 @@ class TestConsumePendingIpc:
 
 
 # ------------------------------------------------------------------
-# tighten_acls_windows — no-op on non-Windows
+# tighten_acls_windows — re-export from shared.file_acls
 # ------------------------------------------------------------------
 
 class TestTightenAclsWindows:
+    """Backward-compat: ``launcher.tray_ipc`` re-exports the helper that
+    now lives in ``shared.file_acls`` (issue #169).
+    """
+
+    def test_re_export_points_at_shared(self):
+        from shared import file_acls
+        assert tray_ipc.tighten_acls_windows is file_acls.tighten_acls_windows
 
     def test_no_op_on_posix(self, tmp_path, mocker):
-        mocker.patch.object(tray_ipc.sys, "platform", "linux")
+        from shared import file_acls
+        mocker.patch.object(file_acls.sys, "platform", "linux")
         # Must not raise on a POSIX test run.
         tray_ipc.tighten_acls_windows(tmp_path)
 

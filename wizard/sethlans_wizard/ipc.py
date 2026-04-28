@@ -30,10 +30,11 @@ import time
 from pathlib import Path
 from typing import Optional
 
-# tray_ipc owns the canonical Windows ACL helper for chmod-600-equivalent
-# filesystem objects; reuse per FR-IPC6 / NF-8 ("reuse the canonical
-# JSON + hmac.new(..., hashlib.sha256) pattern from launcher/tray_ipc.py").
-from launcher.tray_ipc import tighten_acls_windows
+# shared/file_acls owns the canonical Windows ACL helper for chmod-600-
+# equivalent filesystem objects; reuse per FR-IPC6 / NF-8 ("reuse the
+# canonical JSON + hmac.new(..., hashlib.sha256) pattern from
+# launcher/tray_ipc.py").
+from shared.file_acls import tighten_acls_windows
 
 logger = logging.getLogger(__name__)
 

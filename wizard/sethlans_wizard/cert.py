@@ -33,10 +33,10 @@ from cryptography.x509.oid import NameOID
 
 from shared.cert_utils import enumerate_sans
 
-# tray_ipc owns the canonical Windows ACL helper for chmod-600-equivalent
-# filesystem objects; reuse it per FR-IPC6 / FR-W4 ("same helper used by
-# launcher/tray_ipc.py").
-from launcher.tray_ipc import tighten_acls_windows
+# shared/file_acls owns the canonical Windows ACL helper for chmod-600-
+# equivalent filesystem objects; reuse it per FR-IPC6 / FR-W4 ("same
+# helper used by launcher/tray_ipc.py").
+from shared.file_acls import tighten_acls_windows
 
 logger = logging.getLogger(__name__)
 

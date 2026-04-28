@@ -27,7 +27,7 @@ import os
 import platform
 from pathlib import Path
 
-from launcher.tray_ipc import tighten_acls_windows
+from shared.file_acls import tighten_acls_windows
 
 logger = logging.getLogger(__name__)
 

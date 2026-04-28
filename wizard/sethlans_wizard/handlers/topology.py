@@ -41,7 +41,7 @@ import time
 from pathlib import Path
 from typing import Callable, Iterable
 
-from launcher.tray_ipc import tighten_acls_windows
+from shared.file_acls import tighten_acls_windows
 from wizard.sethlans_wizard.handlers import _wsgi
 from wizard.sethlans_wizard.handlers.auth import session_header_valid
 

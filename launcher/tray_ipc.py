@@ -12,9 +12,10 @@ FR-20f / FR-20g:
 * Marker read + HMAC/PID/target/staleness validation.
 * Stale-marker sweep on startup.
 * Quit-beats-restart collision resolution.
-* Optional Windows ACL tightening when ``pywin32`` is available.
+* Optional Windows ACL tightening when ``pywin32`` is available
+  (re-exported from ``shared.file_acls`` for backward compat).
 
-Stdlib only apart from optional ``win32security``.
+Stdlib only.
 """
 
 from __future__ import annotations
@@ -23,11 +24,13 @@ import datetime as _dt
 import hmac
 import json
 import logging
-import os
 import secrets
-import sys
 from pathlib import Path
 from typing import Optional
+
+# Re-exported for backward compatibility with code that imported the
+# helper from this module before it moved to ``shared.file_acls``.
+from shared.file_acls import tighten_acls_windows  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -55,38 +58,6 @@ def sweep_stale_markers(data_dir: Path) -> None:
             pass
         except OSError as exc:
             logger.warning("Could not sweep %s: %s", p, exc)
-
-
-def tighten_acls_windows(path: Path) -> None:
-    """Optionally restrict *path* to the current user on Windows."""
-    if sys.platform != "win32":
-        return
-    try:
-        import win32security  # type: ignore[import-not-found]
-    except ImportError:
-        logger.warning(
-            "pywin32 unavailable; cannot tighten ACLs on %s", path,
-        )
-        return
-    try:  # pragma: no cover
-        user, _domain, _type = win32security.LookupAccountName(
-            None, os.environ.get("USERNAME", ""),
-        )
-        sd = win32security.SECURITY_DESCRIPTOR()
-        dacl = win32security.ACL()
-        dacl.AddAccessAllowedAce(
-            win32security.ACL_REVISION,
-            0x1F01FF,  # FILE_ALL_ACCESS
-            user,
-        )
-        sd.SetSecurityDescriptorDacl(1, dacl, 0)
-        win32security.SetFileSecurity(
-            str(path),
-            win32security.DACL_SECURITY_INFORMATION,
-            sd,
-        )
-    except Exception as exc:
-        logger.warning("ACL tighten failed on %s: %s", path, exc)
 
 
 def _delete_quiet(path: Path) -> None:
