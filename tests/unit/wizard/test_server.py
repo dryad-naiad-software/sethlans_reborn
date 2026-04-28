@@ -86,6 +86,38 @@ class TestCreateApp:
         prefixes = [r[0] for r in app._router._routes]  # type: ignore[attr-defined]
         assert "/api/wizard/auth/" in prefixes
 
+    def test_router_has_health_route(self, tmp_path):
+        """Issue #160: ``/api/health/`` is registered for the launcher probe."""
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        prefixes = [r[0] for r in app._router._routes]  # type: ignore[attr-defined]
+        assert "/api/health/" in prefixes
+
+    def test_health_route_registered_before_index(self, tmp_path):
+        """AC-RouteOrdering: ``/api/health/`` precedes the ``/`` index mount."""
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        prefixes = [r[0] for r in app._router._routes]  # type: ignore[attr-defined]
+        assert "/api/health/" in prefixes
+        assert "/" in prefixes
+        assert prefixes.index("/api/health/") < prefixes.index("/")
+
+    def test_health_route_returns_envelope(self, tmp_path):
+        """AC-EndpointExists via the live router (exact-match dispatch)."""
+        app = server.create_app(tmp_path, _SETUP_TOKEN, _IPC_SECRET)
+        env = {
+            "REQUEST_METHOD": "GET",
+            "PATH_INFO": "/api/health/",
+            "QUERY_STRING": "",
+            "REMOTE_ADDR": "127.0.0.1",
+            "CONTENT_LENGTH": "0",
+            "wsgi.input": io.BytesIO(b""),
+        }
+        status, headers, body = _invoke(app, env)
+        assert status.startswith("200"), status
+        assert headers.get("Content-Type") == "application/json"
+        payload = json.loads(body.decode("utf-8"))
+        assert "boot_id" in payload and payload["boot_id"]
+        assert "version" in payload and payload["version"]
+
 
 # ---------------------------------------------------------------------
 # WSGI dispatch behaviour

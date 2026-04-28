@@ -11,6 +11,7 @@ the constants imported at use-site.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import signal
@@ -76,6 +77,61 @@ def http_get_ok(url: str) -> bool:
             return resp.status == 200
     except (urllib.error.URLError, urllib.error.HTTPError, OSError):
         return False
+
+
+def http_get_json(url: str) -> tuple[int, dict | None]:
+    """GET url with self-signed-cert tolerance; return (status, parsed).
+
+    Used by the ``/api/health/`` smoke check (issue #160). Returns
+    ``(0, None)`` on transport failure so callers can distinguish
+    "server not yet up" from "server up but bad envelope".
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(url, timeout=2, context=ctx) as resp:
+            raw = resp.read()
+            try:
+                return resp.status, json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return resp.status, None
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+        return 0, None
+
+
+def check_health_endpoint(
+    base_url: str,
+    log_out: pathlib.Path,
+    log_err: pathlib.Path,
+) -> bool:
+    """Issue #160: assert ``GET /api/health/`` returns 200 + envelope.
+
+    The launcher's cold-boot probe needs ``{boot_id, version}`` keys; a
+    regression where the wizard stops serving this route (or returns
+    the wrong envelope) would break first-run on every fresh install.
+    Catching it here keeps the failure at build time, not user time.
+    """
+    url = base_url.rstrip("/") + "/api/health/"
+    status, payload = http_get_json(url)
+    if status != 200:
+        err(f"HEALTH FAILED: GET {url} returned status {status}")
+        dump_logs(log_out, log_err)
+        return False
+    if not isinstance(payload, dict):
+        err(f"HEALTH FAILED: GET {url} did not return a JSON object")
+        dump_logs(log_out, log_err)
+        return False
+    missing = [k for k in ("boot_id", "version") if not payload.get(k)]
+    if missing:
+        err(
+            f"HEALTH FAILED: GET {url} envelope missing keys: "
+            f"{missing} (got {sorted(payload)})"
+        )
+        dump_logs(log_out, log_err)
+        return False
+    print(f"HEALTH passed: GET {url} -> 200 with {{boot_id, version}}")
+    return True
 
 
 def dump_logs(out_path: pathlib.Path, err_path: pathlib.Path) -> None:

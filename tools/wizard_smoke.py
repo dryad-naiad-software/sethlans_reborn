@@ -74,6 +74,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from _wizard_smoke_helpers import (  # noqa: E402
     bundle_size_bytes,
+    check_health_endpoint,
     dump_logs,
     err,
     http_get_ok,
@@ -237,8 +238,13 @@ def smoke_spawn(bundle: pathlib.Path, port: int) -> bool:
                     f"expected {port} (SETHLANS_WIZARD_PORT pin); "
                     "polling actual port from file"
                 )
-            url = f"https://localhost:{chosen_port}/"
-            return _poll_until_ok(url, proc, started, log_out, log_err)
+            base_url = f"https://localhost:{chosen_port}"
+            url = base_url + "/"
+            if not _poll_until_ok(url, proc, started, log_out, log_err):
+                return False
+            # Issue #160: launcher health probe target. Both AC-B4 and
+            # the health check must pass for the installer to ship.
+            return check_health_endpoint(base_url, log_out, log_err)
         finally:
             terminate(proc)
             shutil.rmtree(tmp_root, ignore_errors=True)

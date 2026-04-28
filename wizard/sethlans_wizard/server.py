@@ -29,6 +29,7 @@ import waitress
 
 from wizard.sethlans_wizard.handlers.auth import make_auth_handler
 from wizard.sethlans_wizard.handlers.done import make_done_handler
+from wizard.sethlans_wizard.handlers.health import make_health_handler
 from wizard.sethlans_wizard.handlers.launcher_log_path import (
     make_launcher_log_path_handler,
 )
@@ -118,6 +119,9 @@ def create_app(
 
     secret_bytes = bytes(ipc_secret)
     router = Router()
+    # FR-W14 cold-boot probe (issue #160). Anonymous, exact-match,
+    # registered first so it can never be shadowed by a static mount.
+    router.add("/api/health/", make_health_handler())
     router.add("/api/wizard/auth/", make_auth_handler(bytes(setup_token)))
     router.add("/api/wizard/topology/", make_topology_handler(data_dir))
     router.add(
