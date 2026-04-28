@@ -20,6 +20,7 @@ SPEC_DIR = Path(SPECPATH)
 PROJECT_ROOT = SPEC_DIR.parent.parent
 LAUNCHER_DIR = PROJECT_ROOT / 'launcher'
 MANAGER_DIR = PROJECT_ROOT / 'manager'
+WIZARD_DIR = PROJECT_ROOT / 'wizard'
 ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
 # Import the Windows VERSIONINFO helper (issue #109). The spec file
@@ -43,6 +44,10 @@ hiddenimports = [
     # Dynamic import in launcher.caddy_launcher._load_manager_renderer;
     # PyInstaller's static analyzer can't see it (issue #100).
     'sethlans_manager.caddy_template',
+    # Same pattern for the wizard's Caddy renderer (issue #170).
+    # launcher.wizard_caddy_wiring._load_wizard_renderer imports it
+    # via sys.path manipulation that PyInstaller can't see.
+    'sethlans_wizard.caddy_template',
     # Startup splash (PySide6). The launcher imports PySide6 lazily
     # from launcher.splash_runner when the splash path is enabled;
     # PySide6 ships a PyInstaller hook that usually resolves these
@@ -116,7 +121,7 @@ _BUNDLE_VERSION = _VERSION_SRC.read_text(encoding='utf-8').strip()
 
 a = Analysis(
     [str(LAUNCHER_DIR / 'run_launcher.py')],
-    pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT), str(MANAGER_DIR)],
+    pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT), str(MANAGER_DIR), str(WIZARD_DIR)],
     binaries=caddy_binaries,
     datas=branding_datas + version_datas,
     hiddenimports=hiddenimports,
@@ -127,8 +132,6 @@ a = Analysis(
         'django',
         'rest_framework',
         'PIL',
-        'psutil',
-        'cryptography',
     ],
     noarchive=False,
 )
