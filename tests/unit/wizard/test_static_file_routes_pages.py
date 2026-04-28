@@ -54,6 +54,11 @@ class TestIndexRoute:
         csp = headers["Content-Security-Policy"]
         assert "default-src 'self'" in csp
         assert "frame-ancestors 'none'" in csp
+        # Issue #171 — Petite-vue's reactive bindings are compiled with
+        # ``new Function(...)`` and require ``'unsafe-eval'`` in
+        # script-src. Drop this and the wizard becomes uninteractive
+        # from the very first page (token input shows "undefined").
+        assert "script-src 'self' 'unsafe-eval'" in csp
         assert headers.get("X-Content-Type-Options") == "nosniff"
         assert headers.get("Referrer-Policy") == "no-referrer"
         assert "interest-cohort=()" in headers.get("Permissions-Policy", "")

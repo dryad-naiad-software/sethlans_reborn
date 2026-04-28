@@ -34,15 +34,26 @@ logger = logging.getLogger(__name__)
 # the legacy-browser fallback was lifted out of inline `<script
 # nomodule>` blocks into `static/js/legacy-fallback.js`, every `<script>`
 # tag on the wizard pages has a `src=` — there are no inline script
-# bodies to authorise. `style-src` keeps `'unsafe-inline'` because
-# Bootstrap 5 injects style attributes via JS (e.g. for tooltips,
-# collapses, modal backdrops); tightening that without breaking the UI
-# would require nonces or hashes and is out of scope here.
+# bodies to authorise.
+#
+# Issue #171 — `'unsafe-eval'` IS required in `script-src`. Petite-vue
+# compiles every reactive expression (v-model, :class, :disabled,
+# @submit, etc.) with `new Function(...)`, which CSP categorises under
+# `'unsafe-eval'`. Without it the bindings silently fail and the wizard
+# is unusable from the very first page. The wizard runs only on
+# loopback, never accepts external scripts (`script-src 'self'` still
+# blocks third-party injection), and renders no untrusted content, so
+# the marginal XSS-eval risk is acceptable.
+#
+# `style-src` keeps `'unsafe-inline'` because Bootstrap 5 injects style
+# attributes via JS (e.g. for tooltips, collapses, modal backdrops);
+# tightening that without breaking the UI would require nonces or
+# hashes and is out of scope here.
 _HTML_SECURITY_HEADERS: list[tuple[str, str]] = [
     (
         "Content-Security-Policy",
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' 'unsafe-eval'; "
         "style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; "
         "img-src 'self' data:; "

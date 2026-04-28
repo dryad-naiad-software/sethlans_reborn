@@ -127,6 +127,16 @@ def test_csp_script_src_drops_unsafe_inline(wizard_process):
             f"(found: {script_src!r})",
         )
         assert "'self'" in script_src, (path, script_src)
+        # Issue #171 — Petite-vue compiles reactive expressions with
+        # `new Function(...)`, which the browser blocks unless
+        # `'unsafe-eval'` is present. Without it every v-model / :class /
+        # @submit binding silently fails and the wizard is unusable
+        # (token input renders the literal string "undefined", Continue
+        # button never enables). Guard the regression here.
+        assert "'unsafe-eval'" in script_src, (
+            path, "script-src must include 'unsafe-eval' for Petite-vue "
+            f"(found: {script_src!r})",
+        )
         # Defense in depth — confirm no <script> block on the page is
         # missing a src= attribute (which would silently fail under
         # the tightened CSP and is the regression we're guarding).
