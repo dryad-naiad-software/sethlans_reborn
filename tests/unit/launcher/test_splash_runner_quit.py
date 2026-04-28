@@ -11,6 +11,12 @@ legitimate quit paths are user-driven (Close button via
 on ``SethlansSplash``).  These tests pin both the "finished alone does
 not quit" guarantee and the idempotency / rc-preservation guarantee
 when both ``_on_finished`` and the user-dismissal path fire.
+
+Issue #163 (reopened) adds a ``QTimer`` on the QApplication that polls
+``supervision.get_quit_requested_event()`` every 250 ms and routes
+dismissal through ``splash.close()``. Tests pin timer presence,
+cadence, dismissal behaviour, and clean teardown.
+
 The splash runner mocks Qt fully so no event loop is spawned.
 """
 
@@ -79,10 +85,61 @@ class _ScriptedThread:
         pass
 
 
-def _patch_runner(mocker, scripted_thread, stub_splash):
+class _StubTimer:
+    """Stand-in for ``QTimer`` so tests can drive ticks manually.
+
+    Records connected timeout slots, interval, and active state.
+    Calling :meth:`fire` invokes every connected slot exactly once,
+    simulating a single timer tick.
+    """
+
+    def __init__(self):
+        self._interval = 0
+        self._slots = []
+        self.active = False
+
+    # Qt API surface used by splash_runner --------------------------------
+
+    def setInterval(self, ms):  # noqa: N802 — Qt API
+        self._interval = int(ms)
+
+    def interval(self):
+        return self._interval
+
+    def start(self):
+        self.active = True
+
+    def stop(self):
+        self.active = False
+
+    def isActive(self):  # noqa: N802 — Qt API
+        return self.active
+
+    @property
+    def timeout(self):
+        timer = self
+
+        class _TimeoutSignal:
+            def connect(self_inner, slot):  # noqa: N805
+                timer._slots.append(slot)
+
+        return _TimeoutSignal()
+
+    # Test-driver helper --------------------------------------------------
+
+    def fire(self):
+        """Simulate a single timer tick by invoking all connected slots."""
+        for slot in list(self._slots):
+            slot()
+
+
+def _patch_runner(mocker, scripted_thread, stub_splash, stub_timer=None):
     """Patch splash_runner so we can drive _on_finished directly.
 
     Returns the QApplication mock so tests can assert on quit() calls.
+    The created ``_StubTimer`` is captured on the QApplication mock as
+    ``qapp_inst._stub_timer`` so tests that need it can reach it without
+    a second return value.
     """
     qapp_cls = mocker.patch.object(splash_runner, "QApplication")
     qapp_inst = qapp_cls.instance.return_value = mocker.MagicMock()
@@ -93,6 +150,10 @@ def _patch_runner(mocker, scripted_thread, stub_splash):
     # exec() is a no-op — the test drives signals manually before
     # exec() is called, then exec() returns immediately.
     qapp_inst.exec.return_value = 0
+
+    timer = stub_timer if stub_timer is not None else _StubTimer()
+    mocker.patch.object(splash_runner, "QTimer", lambda: timer)
+    qapp_inst._stub_timer = timer
 
     mocker.patch.object(
         splash_runner, "SethlansSplash", lambda *a, **kw: stub_splash,
@@ -242,3 +303,166 @@ class TestIdempotentQuit:
         assert teardown_calls == [None]
         # quit() was called exactly once (by the user-Close path).
         assert qapp.quit.call_count == 1
+
+
+class TestQuitEventTimer:
+    """Issue #163 (reopened) — a ``QTimer`` polls the cross-thread quit
+    event from the Qt main thread so a tray Quit click during the
+    error-card phase actually dismisses the splash. Without the timer,
+    Qt's event loop has no way to observe a ``threading.Event`` set by
+    the IPC daemon thread.
+    """
+
+    def test_quit_event_during_error_card_dismisses_splash(
+        self, mocker, tmp_path,
+    ):
+        """AC-EventDuringErrorCard: timer tick during the error-card
+        window dismisses the splash and reaches teardown_tray.
+        """
+        thread = _ScriptedThread()
+        splash = _StubSplash()
+        qapp = _patch_runner(mocker, thread, splash)
+        timer = qapp._stub_timer
+        teardown_calls = []
+
+        # Force the supervision quit event to behave as "set" so that
+        # when the timer's slot fires it observes the event and calls
+        # splash.close().
+        quit_event = mocker.MagicMock()
+        quit_event.is_set.return_value = True
+        mocker.patch.object(
+            splash_runner.supervision,
+            "get_quit_requested_event",
+            return_value=quit_event,
+        )
+
+        def driver():
+            # Failure path → error card visible → orchestration done.
+            thread.startup_failed.emit("boom", "tb")
+            thread.finished_with_code.emit(1)
+            assert splash.isVisible() is True
+            assert qapp.quit.call_count == 0
+            # Tray Quit marker fires → daemon sets event → timer ticks
+            # → splash.close() called via the connected slot.
+            timer.fire()
+            return 0
+        qapp.exec.side_effect = driver
+
+        rc = splash_runner.run_with_splash(
+            args=mocker.MagicMock(),
+            data_dir=tmp_path,
+            version="9.9.9",
+            pre_orchestration_setup=lambda _dd: (None, "secret"),
+            run_orchestration=lambda *a, **kw: 1,
+            teardown_tray=lambda t: teardown_calls.append(t),
+        )
+
+        # AC-TimerCallsClose — the splash got closed by the timer slot.
+        assert splash.isVisible() is False
+        # AC-EventDuringErrorCard — teardown was reached, rc preserved.
+        assert teardown_calls == [None]
+        assert rc == 1
+
+    def test_timer_polls_at_250ms_cadence(self, mocker, tmp_path):
+        """AC-TimerExists / NFR-4: timer interval is exactly 250 ms."""
+        thread = _ScriptedThread()
+        splash = _StubSplash()
+        qapp = _patch_runner(mocker, thread, splash)
+        timer = qapp._stub_timer
+
+        def driver():
+            # Drive a normal failure + user dismiss so the runner
+            # returns cleanly. We only care about timer interval here.
+            thread.startup_failed.emit("boom", "tb")
+            thread.finished_with_code.emit(1)
+            # While the timer is live, assert its cadence.
+            assert timer.interval() == 250
+            assert timer.isActive() is True
+            splash.close()
+            qapp.quit()
+            return 0
+        qapp.exec.side_effect = driver
+
+        splash_runner.run_with_splash(
+            args=mocker.MagicMock(),
+            data_dir=tmp_path,
+            version="9.9.9",
+            pre_orchestration_setup=lambda _dd: (None, "secret"),
+            run_orchestration=lambda *a, **kw: 1,
+            teardown_tray=lambda _t: None,
+        )
+
+    def test_timer_stopped_after_runner_returns(self, mocker, tmp_path):
+        """AC-TimerStopped / FR-4: the timer is explicitly stopped once
+        ``run_with_splash`` returns.
+        """
+        thread = _ScriptedThread()
+        splash = _StubSplash()
+        qapp = _patch_runner(mocker, thread, splash)
+        timer = qapp._stub_timer
+
+        def driver():
+            thread.startup_failed.emit("boom", "tb")
+            thread.finished_with_code.emit(1)
+            splash.close()
+            qapp.quit()
+            return 0
+        qapp.exec.side_effect = driver
+
+        splash_runner.run_with_splash(
+            args=mocker.MagicMock(),
+            data_dir=tmp_path,
+            version="9.9.9",
+            pre_orchestration_setup=lambda _dd: (None, "secret"),
+            run_orchestration=lambda *a, **kw: 1,
+            teardown_tray=lambda _t: None,
+        )
+
+        assert timer.isActive() is False
+
+    def test_timer_does_not_fire_when_event_not_set(
+        self, mocker, tmp_path,
+    ):
+        """AC-EventDuringColdBoot (negative half) / FR-5: ticks while
+        the quit event is not set must NOT dismiss the splash. The
+        cold-boot success path proceeds via ``_on_ready`` only.
+        """
+        thread = _ScriptedThread()
+        splash = _StubSplash()
+        qapp = _patch_runner(mocker, thread, splash)
+        timer = qapp._stub_timer
+
+        # Quit event stays unset throughout — timer ticks must be no-ops.
+        quit_event = mocker.MagicMock()
+        quit_event.is_set.return_value = False
+        mocker.patch.object(
+            splash_runner.supervision,
+            "get_quit_requested_event",
+            return_value=quit_event,
+        )
+
+        def driver():
+            # Several harmless ticks while orchestration is "in progress".
+            for _ in range(5):
+                timer.fire()
+            # No dismissal happened: splash is still visible, quit not
+            # called, isVisible() unchanged.
+            assert splash.isVisible() is True
+            assert qapp.quit.call_count == 0
+            # End the test cleanly via the success path.
+            thread.cold_boot_ready.emit()
+            return 0
+        qapp.exec.side_effect = driver
+
+        splash_runner.run_with_splash(
+            args=mocker.MagicMock(),
+            data_dir=tmp_path,
+            version="9.9.9",
+            pre_orchestration_setup=lambda _dd: (None, "secret"),
+            run_orchestration=lambda *a, **kw: 0,
+            teardown_tray=lambda _t: None,
+        )
+
+        # is_set was polled at least once per fire() — confirms the slot
+        # actually ran and chose not to dismiss.
+        assert quit_event.is_set.call_count >= 5

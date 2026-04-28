@@ -28,6 +28,7 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from launcher import supervision
@@ -35,6 +36,29 @@ from launcher.orchestration_thread import OrchestrationThread
 from launcher.splash import SethlansSplash
 
 logger = logging.getLogger(__name__)
+
+
+def _start_quit_poll_timer(splash) -> QTimer:
+    """Create and start the 250 ms cross-thread quit-event poller.
+
+    Issue #163 (reopened): the IPC daemon thread sets
+    ``supervision.get_quit_requested_event()`` on a tray Quit marker.
+    Wait loops in orchestration consume the event during the cold-boot
+    phase; this timer covers the post-orchestration window where the
+    splash error card is visible and no wait loop is running. Routes
+    through ``splash.close()`` so the existing ``closeEvent`` override
+    (#162) handles dismissal + ``app.quit()`` — single source of
+    teardown wiring.
+    """
+    def _check_quit_requested():
+        if supervision.get_quit_requested_event().is_set():
+            splash.close()
+
+    timer = QTimer()
+    timer.setInterval(250)  # ms — see NFR-4 in spec.
+    timer.timeout.connect(_check_quit_requested)
+    timer.start()
+    return timer
 
 
 def _brand_app(app: QApplication) -> None:
@@ -131,6 +155,8 @@ def run_with_splash(
     thread.finished_with_code.connect(_on_finished)
     thread.start()
 
+    quit_poll_timer = _start_quit_poll_timer(splash)
+
     try:
         app.exec()
     except KeyboardInterrupt:
@@ -140,6 +166,9 @@ def run_with_splash(
     # wait for user dismissal via a second exec() pass.
     if splash.isVisible():
         app.exec()
+
+    # FR-4: explicit stop after both exec() passes have returned.
+    quit_poll_timer.stop()
 
     # Orchestration may still be running its IPC-poll loop.  Wait for
     # it to return before shutting down supervisors and the tray.
