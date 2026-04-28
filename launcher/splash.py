@@ -31,6 +31,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from launcher.splash_log_snippet import (
+    LOG_HEADER as _LOG_HEADER,
+    TRACE_HEADER as _TRACE_HEADER,
+    read_recent_log_snippet as _read_recent_log_snippet,
+)
 from shared.frozen_paths import get_branding_dir
 
 logger = logging.getLogger(__name__)
@@ -45,7 +50,7 @@ _TEXT_DARK = "#1f1f1f"
 _BORDER = "#cccccc"
 _BUTTON_BG = "#ffffff"
 _BUTTON_HOVER = "#f0f0f0"
-_REASON_MAX_CHARS = 600
+_TRACE_AREA_MIN_HEIGHT = 250
 
 # Forces light theme regardless of OS dark mode (issue #161).
 _STYLESHEET = (
@@ -73,7 +78,6 @@ class SethlansSplash(QWidget):
         self._log_path = log_path
         self._error_mode = False
         self._trace_area: Optional[QPlainTextEdit] = None
-        self._reason_label: Optional[QLabel] = None
         self._title_label: Optional[QLabel] = None
         self._starting_label: Optional[QLabel] = None
         self._error_widgets_built = False
@@ -164,24 +168,30 @@ class SethlansSplash(QWidget):
 
     def morph_to_error(self, reason: str, traceback_text: str) -> None:
         """Swap to the error card (main-thread only, idempotent)."""
+        body = self._compose_error_body(reason, traceback_text)
         if self._error_mode:
-            # Refresh copy on subsequent calls.
-            self._reason_label.setText(self._format_reason_line(reason))
-            self._trace_area.setPlainText(traceback_text)
+            self._trace_area.setPlainText(body)
             return
 
         self._error_mode = True
         self._build_error_widgets()
         self._starting_label.hide()
         self._title_label.show()
-        self._reason_label.setText(self._format_reason_line(reason))
-        self._reason_label.show()
-        self._trace_area.setPlainText(traceback_text)
+        self._trace_area.setPlainText(body)
         self._trace_area.show()
         for btn in self._error_buttons:
             btn.show()
         self.resize(*_ERROR_SIZE)
         self._centre_on_primary_screen()
+
+    def _compose_error_body(self, reason: str, traceback_text: str) -> str:
+        body_parts = [f"Reason: {reason or '(no reason given)'}"]
+        snippet = _read_recent_log_snippet(self._log_path)
+        if snippet:
+            body_parts.append(f"\n{_LOG_HEADER}\n{snippet}")
+        if traceback_text:
+            body_parts.append(f"\n{_TRACE_HEADER}\n{traceback_text}")
+        return "\n".join(body_parts)
 
     # ---- Error layout ----
 
@@ -199,14 +209,6 @@ class SethlansSplash(QWidget):
         self._title_label.hide()
         layout.insertWidget(1, self._title_label)
 
-        self._reason_label = QLabel("", self)
-        self._reason_label.setFont(_make_font(9))
-        self._reason_label.setWordWrap(True)
-        flag = Qt.TextInteractionFlag.TextSelectableByMouse
-        self._reason_label.setTextInteractionFlags(flag)
-        self._reason_label.hide()
-        layout.insertWidget(2, self._reason_label)
-
         self._trace_area = QPlainTextEdit(self)
         self._trace_area.setReadOnly(True)
         wrap = QPlainTextEdit.LineWrapMode.WidgetWidth
@@ -215,8 +217,9 @@ class SethlansSplash(QWidget):
         mono.setStyleHint(QFont.StyleHint.Monospace)
         mono.setPointSize(8)
         self._trace_area.setFont(mono)
+        self._trace_area.setMinimumHeight(_TRACE_AREA_MIN_HEIGHT)
         self._trace_area.hide()
-        layout.insertWidget(3, self._trace_area, 1)
+        layout.insertWidget(2, self._trace_area, 1)
 
         buttons_row = QHBoxLayout()
         show_log_btn = QPushButton("Show log", self)
@@ -228,14 +231,6 @@ class SethlansSplash(QWidget):
         buttons_row.addStretch(1)
         layout.addLayout(buttons_row)
         self._error_buttons = (show_log_btn, close_btn)
-
-    @staticmethod
-    def _format_reason_line(reason: str) -> str:
-        # Join newlines with spaces; bound at _REASON_MAX_CHARS.
-        joined = " ".join(reason.splitlines()) if reason else ""
-        if len(joined) > _REASON_MAX_CHARS:
-            joined = joined[: _REASON_MAX_CHARS - 3] + "..."
-        return f"Reason: {joined}"
 
     def _on_show_log(self) -> None:
         path = self._log_path

@@ -100,13 +100,12 @@ class TestMorphToError:
         assert widget._title_label.text() == "Failed to start"
         assert widget._title_label.isVisible() or not widget.isVisible()
 
-        # Reason label visible and contains the provided reason.
-        assert widget._reason_label is not None
-        assert "boom" in widget._reason_label.text()
-
-        # Traceback area shows the full text.
+        # Trace area carries reason + traceback (issue #165: the
+        # standalone _reason_label QLabel is gone).
         assert widget._trace_area is not None
-        assert "Traceback" in widget._trace_area.toPlainText()
+        body = widget._trace_area.toPlainText()
+        assert body.startswith("Reason: boom")
+        assert "Traceback" in body
 
         # Starting label is hidden.
         assert not widget._starting_label.isVisible() \
@@ -133,21 +132,9 @@ class TestMorphToError:
         assert len(widget.findChildren(QLabel)) == labels_before
         assert len(widget.findChildren(QPlainTextEdit)) == traces_before
         assert len(widget.findChildren(QPushButton)) == btns_before
-        assert "second" in widget._reason_label.text()
-        assert "trace-two" in widget._trace_area.toPlainText()
-
-    def test_reason_line_joins_multiline_with_spaces(self, qtbot):
-        # Per the splash_error_card_layout spec, multi-line reasons are
-        # joined with spaces (no embedded newlines) so the QLabel's
-        # word-wrap engine can lay them out within the 420 px card.
-        widget = SethlansSplash(version="9.9.9")
-        qtbot.addWidget(widget)
-        widget.morph_to_error("line1\nline2\nline3", "tb")
-        text = widget._reason_label.text()
-        assert "\n" not in text
-        assert "line1" in text
-        assert "line2" in text
-        assert "line3" in text
+        body = widget._trace_area.toPlainText()
+        assert body.startswith("Reason: second")
+        assert "trace-two" in body
 
 
 # ---- Error card layout (spec: splash_error_card_layout.md) -----------
@@ -173,12 +160,6 @@ class TestErrorCardLayout:
         )
         widget.morph_to_error("boom", traceback_text)
         assert abs(widget.width() - 420) <= 1
-
-    def test_reason_label_word_wraps(self, qtbot):
-        widget = SethlansSplash(version="9.9.9")
-        qtbot.addWidget(widget)
-        widget.morph_to_error("reason", "trace")
-        assert widget._reason_label.wordWrap() is True
 
     def test_trace_area_word_wraps(self, qtbot):
         widget = SethlansSplash(version="9.9.9")
@@ -207,29 +188,122 @@ class TestErrorCardLayout:
         # And the panel background is the documented light color.
         assert "#fafafa" in sheet
 
-    def test_format_reason_does_not_truncate_at_160(self, qtbot):
-        # Old behavior truncated at 160 chars; new spec preserves up to
-        # _REASON_MAX_CHARS (600) intact.
-        widget = SethlansSplash(version="9.9.9")
-        qtbot.addWidget(widget)
-        long_reason = "a" * 400
-        widget.morph_to_error(long_reason, "tb")
-        text = widget._reason_label.text()
-        assert long_reason in text
-        assert "..." not in text
 
-    def test_format_reason_bounds_at_600(self, qtbot):
+# ---- Reason + log snippet in trace field (spec #165) -----------------
+
+class TestReasonAndLogSnippetInTraceField:
+    """Coverage for splash_error_card_log_snippet.md.
+
+    The standalone _reason_label QLabel was removed; the reason now
+    lives inside _trace_area as the first line, optionally followed by
+    a launcher.log tail and an optional traceback section.
+    """
+
+    def test_morph_to_error_includes_reason_in_trace_field(self, qtbot):
+        # AC-ReasonInField
         widget = SethlansSplash(version="9.9.9")
         qtbot.addWidget(widget)
-        huge_reason = "b" * 1000
-        widget.morph_to_error(huge_reason, "tb")
-        text = widget._reason_label.text()
-        # The "Reason: " prefix plus up to 600 chars (with "..." in
-        # the last 3 once truncation kicks in).
-        assert text.endswith("...")
-        # Exclude the "Reason: " prefix when measuring the bound.
-        body = text[len("Reason: "):]
-        assert len(body) == 600
+        widget.morph_to_error("test reason", "")
+        body = widget._trace_area.toPlainText()
+        assert body.startswith("Reason: test reason")
+
+    def test_morph_to_error_includes_log_snippet(self, qtbot, tmp_path):
+        # AC-LogSnippetIncluded
+        log = tmp_path / "launcher.log"
+        lines = [f"line {i}" for i in range(10)]
+        log.write_text("\n".join(lines), encoding="utf-8")
+        widget = SethlansSplash(version="9.9.9", log_path=log)
+        qtbot.addWidget(widget)
+        widget.morph_to_error("boom", "")
+        body = widget._trace_area.toPlainText()
+        assert "--- Recent launcher log ---" in body
+        # All 10 lines are within the 20-line cap, so all appear.
+        for ln in lines:
+            assert ln in body
+
+    def test_morph_to_error_handles_missing_log_file(
+        self, qtbot, tmp_path,
+    ):
+        # AC-LogSnippetAbsent
+        log = tmp_path / "does-not-exist.log"
+        widget = SethlansSplash(version="9.9.9", log_path=log)
+        qtbot.addWidget(widget)
+        widget.morph_to_error("boom", "")
+        body = widget._trace_area.toPlainText()
+        assert body.startswith("Reason: boom")
+        assert "--- Recent launcher log ---" not in body
+
+    def test_morph_to_error_handles_corrupt_log(self, qtbot, tmp_path):
+        # AC-LogSnippetCorrupt — non-utf8 bytes must not crash.
+        log = tmp_path / "launcher.log"
+        log.write_bytes(b"prelude\n\xff\xfe\xfd\nepilogue\n")
+        widget = SethlansSplash(version="9.9.9", log_path=log)
+        qtbot.addWidget(widget)
+        widget.morph_to_error("boom", "")
+        body = widget._trace_area.toPlainText()
+        assert body.startswith("Reason: boom")
+        assert "prelude" in body
+        assert "epilogue" in body
+
+    def test_log_snippet_is_bounded_to_20_lines(
+        self, qtbot, tmp_path,
+    ):
+        # AC-LogSnippetBounded — write 1000 lines, only last 20 appear.
+        log = tmp_path / "launcher.log"
+        lines = [f"row-{i}" for i in range(1000)]
+        log.write_text("\n".join(lines), encoding="utf-8")
+        widget = SethlansSplash(version="9.9.9", log_path=log)
+        qtbot.addWidget(widget)
+        widget.morph_to_error("boom", "")
+        body = widget._trace_area.toPlainText()
+        # First 980 lines must be absent.
+        assert "row-0\n" not in body
+        assert "row-979" not in body
+        # Last 20 lines (980..999) must all be present.
+        for i in range(980, 1000):
+            assert f"row-{i}" in body
+
+    def test_morph_to_error_includes_traceback_when_provided(
+        self, qtbot,
+    ):
+        # AC-TracebackIncluded
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        tb = "Traceback (most recent call last):\n  File ..."
+        widget.morph_to_error("boom", tb)
+        body = widget._trace_area.toPlainText()
+        assert "--- Traceback ---" in body
+        assert tb in body
+        # Traceback section appears after the reason.
+        assert body.index("Reason: boom") < body.index("--- Traceback ---")
+
+    def test_morph_to_error_omits_traceback_section_when_empty(
+        self, qtbot,
+    ):
+        # Empty traceback => no --- Traceback --- header rendered.
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        widget.morph_to_error("boom", "")
+        body = widget._trace_area.toPlainText()
+        assert "--- Traceback ---" not in body
+
+    def test_no_standalone_reason_label_attribute(self, qtbot):
+        # AC-NoStandaloneReasonLabel
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        widget.morph_to_error("boom", "")
+        # The widget no longer carries a _reason_label attribute.
+        assert not hasattr(widget, "_reason_label") or \
+            getattr(widget, "_reason_label", None) is None
+
+    def test_trace_area_is_copyable(self, qtbot):
+        # AC-Copyable — the field is read-only and selectable.
+        widget = SethlansSplash(version="9.9.9")
+        qtbot.addWidget(widget)
+        widget.morph_to_error("boom", "")
+        assert widget._trace_area.isReadOnly() is True
+        flags = widget._trace_area.textInteractionFlags()
+        assert bool(flags & Qt.TextInteractionFlag.TextSelectableByMouse)
 
 
 # ---- keyPressEvent / alt-F4 ---------------------------------------
