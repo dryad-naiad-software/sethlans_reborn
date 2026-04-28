@@ -36,9 +36,13 @@ def detect_phase(
 
     Returns ``"wizard"`` when either of the following holds:
 
-    1. ``<data_dir>/wizard/.setup_token`` exists (the launcher only
-       writes this file during wizard mode and removes it / the whole
-       ``<data_dir>/wizard/`` subdir on handoff).
+    1. ``<data_dir>/wizard/setup_token`` exists (the launcher writes
+       this persistent token copy during wizard mode and removes the
+       whole ``<data_dir>/wizard/`` subdir on handoff). Per #172 this
+       is the persistent (non-dotted) tray-readable copy of the token;
+       the dotted ``.setup_token`` is consumed and unlinked by the
+       wizard subprocess within milliseconds of startup, so it is not
+       a reliable signal for "wizard mode is active".
     2. No setup-complete sentinel exists at any accepted location (per
        :func:`shared.tray.menu_manager_helpers.sentinel_exists`).
 
@@ -48,7 +52,7 @@ def detect_phase(
     denied, race with file unlink, etc.) cannot escape this function.
     """
     try:
-        if (data_dir / "wizard" / ".setup_token").exists():
+        if (data_dir / "wizard" / "setup_token").exists():
             return "wizard"
     except OSError:
         # Treat as missing; sentinel branch below decides outcome.

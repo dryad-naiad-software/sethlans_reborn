@@ -43,6 +43,12 @@ DEFAULT_WIZARD_IDLE_TIMEOUT = wizard_done_watch.DEFAULT_WIZARD_IDLE_TIMEOUT
 WIZARD_PATH = "/"
 SETUP_TOKEN_FILENAME = ".setup_token"
 IPC_SECRET_FILENAME = ".ipc_secret"
+# Issue #172: persistent (non-dotted) copy of the setup token, read by
+# the system tray's ``Copy Setup Token`` action. The wizard subprocess
+# consumes-and-unlinks ``.setup_token`` at startup (FR-W6/SEC-MED-11),
+# so the tray needs a separate file that survives wizard runtime.
+# Removed at handoff by ``cleanup_wizard_dir`` (FR-L13).
+TRAY_SETUP_TOKEN_FILENAME = "setup_token"
 
 
 # ---- Secrets generation + chmod-600 file writes ---------------------------
@@ -60,13 +66,28 @@ def generate_ipc_secret() -> bytes:
 def write_secret_files(
     data_dir: Path, setup_token: str, ipc_secret: bytes,
 ) -> None:
-    """Write the FR-L3a / FR-L4a chmod-600 secret files."""
+    """Write the FR-L3a / FR-L4a chmod-600 secret files.
+
+    Three files are produced:
+
+    * ``.setup_token`` — consumed and unlinked by the wizard subprocess
+      at startup (FR-W6 / SEC-MED-11).
+    * ``.ipc_secret`` — same lifecycle as ``.setup_token``.
+    * ``setup_token`` (no dot) — persistent copy for the system tray's
+      ``Copy Setup Token`` action (#172). Identical content; same
+      chmod-600 / Windows ACL hardening. Removed at handoff by
+      ``cleanup_wizard_dir`` (FR-L13).
+    """
     target_dir = wizard_dir.ensure_wizard_dir(data_dir)
+    token_bytes = setup_token.encode("utf-8")
     wizard_dir.write_secret_file(
-        target_dir / SETUP_TOKEN_FILENAME, setup_token.encode("utf-8"),
+        target_dir / SETUP_TOKEN_FILENAME, token_bytes,
     )
     wizard_dir.write_secret_file(
         target_dir / IPC_SECRET_FILENAME, ipc_secret,
+    )
+    wizard_dir.write_secret_file(
+        target_dir / TRAY_SETUP_TOKEN_FILENAME, token_bytes,
     )
 
 

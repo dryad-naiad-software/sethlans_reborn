@@ -7,7 +7,7 @@
 Covers spec acceptance criteria:
 
 * AC-OpenWizardUrl — bare URL, NO ``?token=`` / ``#token``.
-* AC-CopyToken — reads from ``<data_dir>/wizard/.setup_token`` only.
+* AC-CopyToken — reads from ``<data_dir>/wizard/setup_token`` only.
 * FR-9 — View Setup Wizard Logs prefers ``wizard.log`` and falls back
   to ``launcher.log``.
 * FR-10 — Open Setup Wizard / Copy Setup Token greyed out when
@@ -37,11 +37,11 @@ from shared.tray.wizard_state import WizardState  # noqa: E402
 
 
 def _write_wizard_files(tmp_path, port=8443, token="tok-abc"):
-    """Helper: create ``<tmp_path>/wizard/{port,.setup_token}``."""
+    """Helper: create ``<tmp_path>/wizard/{port,setup_token}``."""
     wd = tmp_path / "wizard"
     wd.mkdir(exist_ok=True)
     (wd / "port").write_text(str(port), encoding="utf-8")
-    (wd / ".setup_token").write_text(token, encoding="utf-8")
+    (wd / "setup_token").write_text(token, encoding="utf-8")
     return wd
 
 
@@ -57,7 +57,7 @@ def section(qapp, tmp_path):
 
 @pytest.fixture
 def section_with_files(qapp, tmp_path):
-    """``WizardSection`` with valid wizard/port + wizard/.setup_token."""
+    """``WizardSection`` with valid wizard/port + wizard/setup_token."""
     _write_wizard_files(tmp_path)
     return WizardSection(
         data_dir=tmp_path,
@@ -148,7 +148,7 @@ class TestCopyTokenHandler:
     def test_reads_from_wizard_subdir_not_manager_ini(
         self, section_with_files, mocker,
     ):
-        """AC-CopyToken: reads from ``<data_dir>/wizard/.setup_token``,
+        """AC-CopyToken: reads from ``<data_dir>/wizard/setup_token``,
         NOT ``<manager_data_dir>/manager.ini``."""
         copy_spy = mocker.patch.object(
             qmw, "copy_token_to_clipboard", return_value=True,
@@ -176,7 +176,7 @@ class TestCopyTokenHandler:
         copy_spy.assert_called_once_with("tok-abc")
 
     def test_noop_when_state_unavailable(self, section, mocker):
-        """Missing wizard/port + wizard/.setup_token -> no clipboard
+        """Missing wizard/port + wizard/setup_token -> no clipboard
         call (action would have been greyed out, but the slot stays
         defensive anyway)."""
         copy_spy = mocker.patch.object(qmw, "copy_token_to_clipboard")
@@ -390,7 +390,7 @@ class TestRefreshGating:
         assert section._act_copy_token.isEnabled() is False
 
     def test_actions_enabled_when_state_available(self, section_with_files):
-        """Section built with wizard/port + wizard/.setup_token ->
+        """Section built with wizard/port + wizard/setup_token ->
         actions are enabled."""
         section_with_files.build_qmenu()
         assert section_with_files._act_open_wizard.isEnabled() is True

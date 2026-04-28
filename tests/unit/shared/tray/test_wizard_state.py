@@ -5,7 +5,7 @@
 """Unit tests for ``shared/tray/wizard_state.py`` (spec FR-3, NFR-7).
 
 ``read_wizard_state(data_dir)`` reads ``<data_dir>/wizard/port`` and
-``<data_dir>/wizard/.setup_token``. It returns a ``WizardState`` only
+``<data_dir>/wizard/setup_token``. It returns a ``WizardState`` only
 when both files are present and well-formed. Otherwise ``None``.
 
 Security invariant (NFR-7): the token VALUE must never appear in any
@@ -22,13 +22,13 @@ from shared.tray.wizard_state import WizardState, read_wizard_state
 
 
 def _write_wizard_files(tmp_path, port=None, token=None):
-    """Helper: create ``<tmp_path>/wizard/{port,.setup_token}``."""
+    """Helper: create ``<tmp_path>/wizard/{port,setup_token}``."""
     wd = tmp_path / "wizard"
     wd.mkdir(exist_ok=True)
     if port is not None:
         (wd / "port").write_text(str(port), encoding="utf-8")
     if token is not None:
-        (wd / ".setup_token").write_text(token, encoding="utf-8")
+        (wd / "setup_token").write_text(token, encoding="utf-8")
     return wd
 
 
@@ -140,7 +140,7 @@ class TestOversizeFiles:
         wd.mkdir()
         # >1024 bytes.
         (wd / "port").write_text("8" * 2000, encoding="utf-8")
-        (wd / ".setup_token").write_text("tok", encoding="utf-8")
+        (wd / "setup_token").write_text("tok", encoding="utf-8")
         with caplog.at_level(logging.WARNING, logger=ws_mod.logger.name):
             result = read_wizard_state(tmp_path)
         assert result is None
@@ -153,7 +153,7 @@ class TestOversizeFiles:
         wd.mkdir()
         (wd / "port").write_text("8443", encoding="utf-8")
         oversize_token = "x" * 2000
-        (wd / ".setup_token").write_text(oversize_token, encoding="utf-8")
+        (wd / "setup_token").write_text(oversize_token, encoding="utf-8")
         with caplog.at_level(logging.WARNING, logger=ws_mod.logger.name):
             result = read_wizard_state(tmp_path)
         assert result is None
@@ -206,7 +206,7 @@ class TestTokenNeverLogged:
         wd = tmp_path / "wizard"
         wd.mkdir(exist_ok=True)
         (wd / "port").write_text(port_value, encoding="utf-8")
-        (wd / ".setup_token").write_text(self.SECRET, encoding="utf-8")
+        (wd / "setup_token").write_text(self.SECRET, encoding="utf-8")
 
     def test_token_not_logged_when_port_unparseable(
         self, tmp_path, caplog,

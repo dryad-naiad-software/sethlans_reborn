@@ -95,6 +95,24 @@ class TestWriteSecretFiles:
         assert token_file.read_bytes() == b"my-token"
         assert secret_file.read_bytes() == b"my-ipc-secret-bytes"
 
+    def test_writes_persistent_tray_token_copy(self, tmp_path):
+        """Issue #172: tray needs a copy of the token that survives the
+        wizard subprocess's consume-and-unlink of ``.setup_token``.
+
+        The persistent ``setup_token`` (no leading dot) is identical
+        content; same chmod-600 / Windows ACL hardening.
+        """
+        wizard_orchestration.write_secret_files(
+            tmp_path, "my-token", b"my-ipc-secret-bytes",
+        )
+        tray_copy = tmp_path / "wizard" / "setup_token"
+        dotted = tmp_path / "wizard" / ".setup_token"
+        assert tray_copy.exists()
+        assert tray_copy.read_bytes() == b"my-token"
+        # The two files must hold identical content so they cannot
+        # diverge as a source of confusion.
+        assert tray_copy.read_bytes() == dotted.read_bytes()
+
     def test_creates_wizard_dir_if_missing(self, tmp_path):
         wizard_orchestration.write_secret_files(
             tmp_path, "x", b"y",

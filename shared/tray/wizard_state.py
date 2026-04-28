@@ -11,8 +11,13 @@ setup wizard is running:
   Caddy consolidation in #170). The launcher writes this AFTER Caddy
   has bound, so the file's presence is a proxy for "wizard URL is
   reachable now."
-* ``.setup_token`` — the one-shot bearer token the user pastes into
-  the wizard's ``TokenEntryComponent`` to authenticate the session.
+* ``setup_token`` — the bearer token the user pastes into the wizard's
+  ``TokenEntryComponent`` to authenticate the session. Per #172, this
+  is a *persistent* copy distinct from the dotted ``.setup_token`` file
+  the wizard subprocess consumes-and-unlinks at startup
+  (FR-W6 / SEC-MED-11). The persistent copy lives only for the
+  duration of wizard mode and is cleaned up by ``cleanup_wizard_dir``
+  at handoff (FR-L13).
 
 Both files are tiny (<<1 KB). This reader is hardened against missing
 files, oversize files, decode failures, and unparseable port values.
@@ -80,7 +85,7 @@ def read_wizard_state(data_dir: Path) -> Optional[WizardState]:
 
     Returns ``None`` when:
 
-    * Either the ``port`` or ``.setup_token`` file is missing /
+    * Either the ``port`` or ``setup_token`` file is missing /
       unreadable / oversize (>1 KB).
     * The token file is empty after stripping whitespace.
     * The port file does not parse as a positive ``int`` in 1..65535.
@@ -89,7 +94,9 @@ def read_wizard_state(data_dir: Path) -> Optional[WizardState]:
     ``token_len=<N>`` at most.
     """
     port_raw = _read_capped(data_dir / "wizard" / "port")
-    token = _read_capped(data_dir / "wizard" / ".setup_token")
+    # Issue #172: read the persistent ``setup_token`` (no dot), NOT the
+    # dotted ``.setup_token`` that the wizard consumes-and-unlinks.
+    token = _read_capped(data_dir / "wizard" / "setup_token")
     if port_raw is None or not token:
         return None
     try:

@@ -6,7 +6,7 @@
 
 Truth table for ``detect_phase(data_dir, manager_data_dir)``:
 
-* ``<data_dir>/wizard/.setup_token`` exists  -> ``"wizard"``
+* ``<data_dir>/wizard/setup_token`` exists  -> ``"wizard"``
 * No wizard token AND a setup-complete sentinel exists -> ``"runtime"``
 * No wizard token AND no sentinel -> ``"wizard"`` (covers fresh install)
 * Token-file ``exists()`` raises ``OSError`` -> falls through to sentinel
@@ -45,12 +45,12 @@ class TestDetectPhaseTruthTable:
         assert detect_phase(tmp_path, manager_dir) == "runtime"
 
     def test_wizard_when_token_file_present(self, tmp_path):
-        """Wizard's ``.setup_token`` short-circuits regardless of sentinel."""
+        """Wizard's ``setup_token`` short-circuits regardless of sentinel."""
         manager_dir = tmp_path / "manager"
         manager_dir.mkdir()
         wizard_dir = tmp_path / "wizard"
         wizard_dir.mkdir()
-        (wizard_dir / ".setup_token").write_text(
+        (wizard_dir / "setup_token").write_text(
             "tok", encoding="utf-8",
         )
         # Even with sentinel present, token file forces wizard phase.
@@ -62,7 +62,7 @@ class TestDetectPhaseTruthTable:
         manager_dir.mkdir()
         wizard_dir = tmp_path / "wizard"
         wizard_dir.mkdir()
-        (wizard_dir / ".setup_token").write_text(
+        (wizard_dir / "setup_token").write_text(
             "tok", encoding="utf-8",
         )
         assert detect_phase(tmp_path, manager_dir) == "wizard"

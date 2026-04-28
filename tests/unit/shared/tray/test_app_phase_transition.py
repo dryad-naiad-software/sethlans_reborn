@@ -63,7 +63,7 @@ def _make_ctx_for_transition(qapp_unused, tmp_path):
 def _write_wizard_token(tmp_path, token="tok-abc"):
     wd = tmp_path / "wizard"
     wd.mkdir(exist_ok=True)
-    (wd / ".setup_token").write_text(token, encoding="utf-8")
+    (wd / "setup_token").write_text(token, encoding="utf-8")
     (wd / "port").write_text("8443", encoding="utf-8")
 
 
@@ -97,7 +97,7 @@ class TestWizardToRuntimeSwap:
         assert isinstance(ctx.manager_section, WizardSection)
 
         # Now flip the disk: remove wizard token, write sentinel.
-        (tmp_path / "wizard" / ".setup_token").unlink()
+        (tmp_path / "wizard" / "setup_token").unlink()
         _write_setup_complete(tmp_path)
 
         # One tick: phase transitions wizard -> runtime.
@@ -151,7 +151,7 @@ class TestWizardToRuntimeSwap:
         old_quit_action = old_section._act_quit
 
         # Flip disk + swap.
-        (tmp_path / "wizard" / ".setup_token").unlink()
+        (tmp_path / "wizard" / "setup_token").unlink()
         _write_setup_complete(tmp_path)
         tray = mocker.MagicMock()
         app_phase.swap_menu_for_phase(ctx, tray, "runtime")
