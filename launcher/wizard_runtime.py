@@ -24,15 +24,16 @@ from __future__ import annotations
 import json
 import logging
 import socket
-import ssl
 import subprocess
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
 from launcher import cascade, wizard_dir, wizard_ipc
+from launcher.health_probe import (
+    HEALTH_PROBE_TIMEOUT as _HEALTH_PROBE_TIMEOUT,
+    probe_health_once,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +43,6 @@ RUNTIME_PORT_BIND_POLL_INTERVAL = 0.25
 
 # FR-W14a deterministic runtime port for manager-bearing topologies.
 RUNTIME_MANAGER_PORT = 8080
-
-# HIGH-1 (Phase F1) — required keys on the runtime's /api/health/
-# response body. Same shape the wizard's FR-W14 probe asserts so the
-# launcher and wizard agree on what "healthy" means.
-_HEALTH_REQUIRED_KEYS = ("boot_id", "version")
-# Per-call timeout for the health probe; small so a hung runtime
-# doesn't dominate the port-bind poll budget.
-_HEALTH_PROBE_TIMEOUT = 2.0
 
 
 # ---- Topology read --------------------------------------------------------
@@ -92,38 +85,15 @@ def _probe_runtime_health(
 ) -> bool:
     """HIGH-1 (Phase F1): HTTPS GET ``/api/health/``; True on 200 + envelope.
 
-    Mirrors the wizard's FR-W14 probe: stdlib + fresh single-use
-    ``SSLContext`` with verification disabled (matches the Docker
-    ``HEALTHCHECK curl -fsk`` posture). The context MUST NOT be cached.
-    Required envelope is the manager/worker intersection: ``boot_id``
-    and ``version`` (worker also returns ``worker_id``).
+    Delegates to :func:`launcher.health_probe.probe_health_once` so the
+    cold-boot splash path and the post-handoff port-bind watch share a
+    single envelope contract (OQ-2). The loopback gate (NFR-6) lives on
+    the cold-boot helper only — it is not applied here because the
+    runtime port is also localhost-bound and adding the gate twice
+    would not narrow the security surface further.
     """
     url = f"https://{host}:{port}/api/health/"
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    try:
-        with urllib.request.urlopen(  # noqa: S310 — self-signed by design
-            url, context=ctx, timeout=_HEALTH_PROBE_TIMEOUT,
-        ) as resp:
-            status = getattr(resp, "status", None) or resp.getcode()
-            if status != 200:
-                return False
-            raw = resp.read()
-    except (
-        urllib.error.URLError,
-        socket.timeout,
-        ConnectionRefusedError,
-        ssl.SSLError,
-    ):
-        return False
-    try:
-        body = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return False
-    if not isinstance(body, dict):
-        return False
-    return all(key in body for key in _HEALTH_REQUIRED_KEYS)
+    return probe_health_once(url, timeout=_HEALTH_PROBE_TIMEOUT)
 
 
 def wait_for_runtime_port_bind(
@@ -238,9 +208,14 @@ def hand_off_to_runtime(
     wizard_proc: subprocess.Popen,
     bootstrap_first_run: Callable[[Path], Path],
     start_component: Callable[..., subprocess.Popen],
-    on_manager_ready: Optional[Callable[[], None]],
 ) -> int:
-    """FR-L7 / FR-L7b runtime spawn + port-bind watch + cleanup."""
+    """FR-L7 / FR-L7b runtime spawn + port-bind watch + cleanup.
+
+    Splash dismissal is NOT driven from this function (FR-8 / D6 — v2
+    spec). The cold-boot splash dismisses on the wizard's own
+    ``/api/health/`` from ``run_wizard_mode`` BEFORE the wizard hands
+    off; by the time we get here the splash is already gone.
+    """
     topology = read_topology_file(data_dir)
     if not topology:
         logger.error("topology.json missing or unreadable post-handoff")
@@ -270,12 +245,6 @@ def hand_off_to_runtime(
             )
             terminate_wizard(wizard_proc)
             return 1
-
-    if on_manager_ready is not None:
-        try:
-            on_manager_ready()
-        except Exception:  # noqa: BLE001
-            logger.exception("on_manager_ready callback raised; ignoring")
 
     # CRITICAL-2 (Phase F1): terminate the wizard BEFORE rmtree-ing
     # its working directory. With FR-W17 in place the wizard usually

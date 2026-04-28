@@ -9,13 +9,17 @@ Split from ``launcher/run_launcher.py`` to keep that file under the
 top-level PySide6 imports are only reachable when the user launched
 Sethlans without ``--no-browser`` / ``--print-url`` (FR-4).
 
-Design: Qt is scoped to splash lifetime only.  Once ``manager_ready``
+Design: Qt is scoped to splash lifetime only. Once ``cold_boot_ready``
 or ``startup_failed`` lands, the Qt event loop quits and control
-returns to the launcher's normal shutdown path.  The orchestration
+returns to the launcher's normal shutdown path. The orchestration
 QThread keeps running afterwards — Qt does not require its event loop
 for a QThread to stay alive as long as we never touch widgets from
-that thread again.  ``thread.wait()`` then joins the orchestration
+that thread again. ``thread.wait()`` then joins the orchestration
 before supervisors + tray teardown.
+
+NFR-7: ``app.processEvents()`` is called from a SINGLE site (between
+``splash.show()`` and ``thread.start()``). Splash dismissal is driven
+solely by Qt-signal slots (``cold_boot_ready`` / ``startup_failed``).
 """
 
 from __future__ import annotations
@@ -69,8 +73,8 @@ def run_with_splash(
         Callable invoked on ``data_dir`` to spawn the tray and start
         the IPC poll thread.  Returns ``(tray, secret)``.
     run_orchestration:
-        Callable ``(data_dir, args, tray, secret, *, on_manager_ready)``
-        that dispatches to setup or normal mode.
+        Callable ``(data_dir, args, tray, secret, *, on_cold_boot_ready,
+        on_startup_failed)`` that dispatches to wizard or normal mode.
     teardown_tray:
         Callable invoked with the tray Popen at shutdown.
     """
@@ -85,10 +89,11 @@ def run_with_splash(
 
     exit_code = {"rc": 0}
 
-    def _runner(on_manager_ready):
+    def _runner(on_cold_boot_ready, on_startup_failed):
         return run_orchestration(
             data_dir, args, tray, secret,
-            on_manager_ready=on_manager_ready,
+            on_cold_boot_ready=on_cold_boot_ready,
+            on_startup_failed=on_startup_failed,
         )
 
     thread = OrchestrationThread(_runner)
@@ -98,12 +103,24 @@ def run_with_splash(
         app.quit()
 
     def _on_failed(reason, trace):
+        # Option A from the v2 spec's exit-code race note: set rc=1 in
+        # the failure slot directly. The slot runs on the Qt main loop
+        # while events are still pumping, so the assignment is reliable
+        # even if ``finished_with_code`` arrives after ``app.quit()``.
+        exit_code["rc"] = 1
         splash.morph_to_error(reason, trace)
 
     def _on_finished(rc):
-        exit_code["rc"] = int(rc)
+        # finished_with_code may arrive after app.quit() in the failure
+        # path, where the slot can be dropped by the non-pumping main
+        # loop. _on_failed has already set rc=1 in that case, so we
+        # only overwrite when the existing rc is still the default 0
+        # (or when finished_with_code carries a non-zero code we should
+        # preserve over a clobbering 0).
+        if exit_code["rc"] == 0:
+            exit_code["rc"] = int(rc)
 
-    thread.manager_ready.connect(_on_ready)
+    thread.cold_boot_ready.connect(_on_ready)
     thread.startup_failed.connect(_on_failed)
     thread.finished_with_code.connect(_on_finished)
     thread.start()

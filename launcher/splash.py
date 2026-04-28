@@ -161,7 +161,7 @@ class SethlansSplash(QWidget):
     # ---- Public API ----
 
     def close_for_success(self) -> None:
-        """Dismiss the splash cleanly on the happy-path manager_ready."""
+        """Dismiss the splash cleanly on the happy-path cold_boot_ready."""
         self.close()
 
     def morph_to_error(

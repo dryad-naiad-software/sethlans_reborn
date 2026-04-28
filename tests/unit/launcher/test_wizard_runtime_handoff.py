@@ -158,7 +158,6 @@ class TestHandOffToRuntime:
             wizard_proc=wizard_proc,
             bootstrap_first_run=bootstrap,
             start_component=start,
-            on_manager_ready=None,
         )
         assert rc == 0
         cleanup.assert_called_once_with(tmp_path)
@@ -169,7 +168,6 @@ class TestHandOffToRuntime:
             wizard_proc=FakeProc(),
             bootstrap_first_run=MagicMock(),
             start_component=MagicMock(),
-            on_manager_ready=None,
         )
         assert rc == 1
 
@@ -196,7 +194,6 @@ class TestHandOffToRuntime:
             wizard_proc=FakeProc(),
             bootstrap_first_run=bootstrap,
             start_component=start,
-            on_manager_ready=None,
         )
         assert rc == 1
         write_marker.assert_called_once()
@@ -224,7 +221,6 @@ class TestHandOffToRuntime:
             wizard_proc=FakeProc(),
             bootstrap_first_run=MagicMock(),
             start_component=MagicMock(return_value=FakeProc()),
-            on_manager_ready=None,
         )
         assert order == ["terminate", "cleanup"], (
             "terminate_wizard MUST run before cleanup_wizard_dir "
@@ -233,20 +229,15 @@ class TestHandOffToRuntime:
         terminate.assert_called_once()
         cleanup.assert_called_once_with(tmp_path)
 
-    def test_invokes_on_manager_ready_callback(self, tmp_path, mocker):
-        (tmp_path / "topology.json").write_text(
-            json.dumps({"topology": "worker_only"}), encoding="utf-8",
-        )
-        callback = MagicMock()
-        wizard_runtime.hand_off_to_runtime(
-            payload={"topology": "worker_only"},
-            data_dir=tmp_path, ipc_secret=SECRET,
-            wizard_proc=FakeProc(),
-            bootstrap_first_run=MagicMock(),
-            start_component=MagicMock(return_value=FakeProc()),
-            on_manager_ready=callback,
-        )
-        callback.assert_called_once()
+    def test_signature_no_longer_takes_on_manager_ready(self):
+        """FR-8 (v2 splash phase states): the post-handoff splash-dismiss
+        callback is GONE. ``hand_off_to_runtime`` no longer accepts an
+        ``on_manager_ready`` parameter — splash dismissal is now driven
+        by the cold-boot health probe in ``run_wizard_mode``.
+        """
+        import inspect
+        sig = inspect.signature(wizard_runtime.hand_off_to_runtime)
+        assert "on_manager_ready" not in sig.parameters
 
 
 if __name__ == "__main__":

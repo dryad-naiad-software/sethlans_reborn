@@ -99,12 +99,7 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
 
 
 def _find_component_exe(component: str) -> Path:
-    """Re-export for tests / back-compat.
-
-    Implementation moved to ``launcher/component_paths.py`` (FR-L12).
-    The ``wizard`` branch lives there alongside ``manager``/``worker``/
-    ``tray``.
-    """
+    """Re-export for tests / back-compat. See ``component_paths`` (FR-L12)."""
     return find_component_exe(component)
 
 
@@ -121,6 +116,11 @@ def _start_component(
     proc_env = os.environ.copy()
     if env:
         proc_env.update(env)
+    # FR-10 (D4): launcher-spawned workers force the embedded web UI
+    # on so the cold-boot splash can dismiss on /api/health/. Headless
+    # workers (worker/run_worker.py direct, docker) keep their default.
+    if component == "worker":
+        proc_env["SETHLANS_WORKER_UI_ENABLED"] = "true"
     stdout = subprocess.PIPE if component != "tray" else None
     stderr = subprocess.PIPE if component != "tray" else None
     # DEVOPS-MED-4 (Phase F3): see popen_kwargs_for_component docstring.
@@ -222,20 +222,21 @@ def _prepare_data_dir() -> Path:
 
 
 def _run_orchestration(data_dir: Path, args, tray, secret,
-                       *, on_manager_ready=None) -> int:
+                       *, on_cold_boot_ready=None,
+                       on_startup_failed=None) -> int:
     if not _is_setup_complete(data_dir):
-        # FR-L1: first-run path now spawns the standalone wizard
-        # process instead of the manager. The wizard owns the entire
-        # setup UX; the launcher hands off to the runtime per
-        # topology.json once the wizard writes its .wizard_done marker.
+        # FR-L1: first-run spawns the wizard; the launcher hands off to
+        # the runtime per topology.json once .wizard_done is written.
         del tray, secret  # tray IPC is owned by the post-setup loop
         return wizard_orchestration.run_wizard_mode(
             data_dir, args, _bootstrap_first_run, _start_component,
-            on_manager_ready=on_manager_ready,
+            on_cold_boot_ready=on_cold_boot_ready,
+            on_startup_failed=on_startup_failed,
         )
     return orchestration.run_normal_mode(
         data_dir, args, tray, secret, _start_component,
-        on_manager_ready=on_manager_ready,
+        on_cold_boot_ready=on_cold_boot_ready,
+        on_startup_failed=on_startup_failed,
     )
 
 

@@ -291,7 +291,8 @@ def main(argv: list[str] | None = None) -> int:
             args=fake_args,
             bootstrap_first_run=_bootstrap_first_run,
             start_component=tracker.start_component,
-            on_manager_ready=None,
+            on_cold_boot_ready=None,
+            on_startup_failed=None,
             idle_timeout=args.idle_timeout,
         )
     finally:

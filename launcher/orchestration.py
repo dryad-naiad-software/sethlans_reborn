@@ -2,98 +2,57 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Main-loop orchestration for the launcher: setup/normal modes + IPC."""
+"""Main-loop orchestration for the launcher: normal mode + IPC.
+
+Splash-dismissal contract (v2 — splash phase states spec):
+
+* Cold-boot health is observed via :func:`launcher.health_probe.wait_for_health`
+  on each call site (wizard, manager, manager+worker, worker).
+* Manager+worker mode polls the two URLs **strictly serially** under a
+  single shared 30 s wall-clock deadline (FR-6) — no parallel threads,
+  no shared concurrent-futures machinery, no manual thread join.
+* On health timeout, ``startup_failed`` is emitted **first** (FR-11(c))
+  so the splash error card appears within ~250 ms; child termination
+  then runs to completion before this function returns.
+* Manager+worker termination on timeout issues both ``proc.terminate()``
+  calls back-to-back BEFORE awaiting either ``wait()`` (FR-11(b)) so
+  total termination latency is bounded by ``max(grace)`` not the sum.
+"""
 
 from __future__ import annotations
 
 import logging
 import subprocess
 import time
-import warnings
 from pathlib import Path
 from typing import Callable, Optional
 
-import requests
-from urllib3.exceptions import InsecureRequestWarning
-
 from launcher import cascade, tray_ipc
-from launcher.browser_launch import open_browser, print_setup_banner
+from launcher.browser_launch import open_browser
 from launcher.caddy_wiring import start_caddy_supervisor
-from launcher.restart_orchestrator import (
-    handle_restart_request,
-    poll_for_restart_request,
-)
-from launcher.setup_helpers import (
-    find_available_port,
-    generate_setup_token,
-    remove_setup_section,
-)
+from launcher.cold_boot import fail_cold_boot, safe_invoke
+from launcher.health_probe import HEALTH_TIMEOUT, wait_for_health
+from launcher.restart_orchestrator import handle_restart_request
+from launcher.setup_helpers import remove_setup_section
 
 logger = logging.getLogger(__name__)
 
 RESTART_POLL_INTERVAL = 2.0
-WIZARD_PATH = "/setup/"
 DASHBOARD_PATH = "/"
 MANAGER_PORT = 8080
-HEALTH_POLL_INTERVAL = 0.25
-HEALTH_TIMEOUT = 30.0
+WORKER_PORT = 8081
 
+_MANAGER_HEALTH_URL = f"https://127.0.0.1:{MANAGER_PORT}/api/health/"
+_WORKER_HEALTH_URL = f"https://127.0.0.1:{WORKER_PORT}/api/health/"
 
-def wait_for_manager_ready(
-    port: int,
-    manager_proc: Optional[subprocess.Popen] = None,
-    timeout: float = HEALTH_TIMEOUT,
-    poll_interval: float = HEALTH_POLL_INTERVAL,
-) -> bool:
-    """Block until the manager's /api/health/ returns 200 or we give up.
-
-    Polls ``https://127.0.0.1:<port>/api/health/`` at ``poll_interval``
-    cadence (default 250ms). Returns ``True`` on the first HTTP 200.
-    Returns ``False`` on three failure paths: (a) the wall-clock
-    timeout elapses, (b) ``manager_proc`` has exited (caller spawned
-    it and we can see the corpse), or (c) the wait was interrupted by
-    KeyboardInterrupt. In all False paths a warning is logged. Caller
-    is expected to proceed with ``open_browser()`` either way (graceful
-    degradation: the user sees the same "can't connect" UX as today,
-    but with a log line to debug from).
-    """
-    url = f"https://127.0.0.1:{port}/api/health/"
-    deadline = time.monotonic() + timeout
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", InsecureRequestWarning)
-        try:
-            while True:
-                if manager_proc is not None and manager_proc.poll() is not None:
-                    logger.warning(
-                        "manager subprocess exited (code %s) before becoming "
-                        "ready",
-                        manager_proc.returncode,
-                    )
-                    return False
-                try:
-                    resp = requests.get(url, verify=False, timeout=1)
-                    if resp.status_code == 200:
-                        return True
-                except requests.exceptions.RequestException:
-                    # Caddy / Waitress still binding or TLS handshake not
-                    # ready — expected during cold start, keep polling.
-                    pass
-                if time.monotonic() >= deadline:
-                    logger.warning(
-                        "manager not ready after %.1fs at %s; opening browser "
-                        "anyway",
-                        timeout,
-                        url,
-                    )
-                    return False
-                time.sleep(poll_interval)
-        except KeyboardInterrupt:
-            # Catches KI from any phase: requests.get TLS handshake,
-            # manager_proc.poll(), or time.sleep. Without the outer
-            # except, KI raised mid-request would skip the warning-log +
-            # False return contract and unwind out of the function.
-            logger.warning("manager readiness wait interrupted by user")
-            return False
+# Timeout reason strings — kept module-level so tests can assert on
+# stable identifiers (OQ-4 recommendation; not yet i18n-ified).
+_REASON_MANAGER_TIMEOUT = (
+    f"manager did not start within {HEALTH_TIMEOUT:.0f} s"
+)
+_REASON_WORKER_TIMEOUT = (
+    f"worker did not start within {HEALTH_TIMEOUT:.0f} s"
+)
 
 
 def _consume_ipc(
@@ -101,72 +60,6 @@ def _consume_ipc(
 ) -> tuple[Optional[str], Optional[str]]:
     tray_pid = tray.pid if tray is not None else -1
     return tray_ipc.consume_pending_ipc(data_dir, secret, tray_pid)
-
-
-def _notify_ready(cb: Optional[Callable[[], None]]) -> None:
-    """Invoke the on_manager_ready hook (splash dismissal), if any."""
-    if cb is None:
-        return
-    try:
-        cb()
-    except Exception:  # noqa: BLE001
-        logger.exception("on_manager_ready callback raised; ignoring")
-
-
-def run_setup_mode(
-    data_dir: Path,
-    args,
-    tray: Optional[subprocess.Popen],
-    secret: str,
-    start_component: Callable[..., subprocess.Popen],
-    bootstrap_first_run: Callable[[Path], Path],
-    *,
-    on_manager_ready: Optional[Callable[[], None]] = None,
-) -> int:
-    """Setup-wizard mode: manager + wait for sentinel / IPC."""
-    manager_data = bootstrap_first_run(data_dir)
-    port = find_available_port()
-    setup_token = generate_setup_token(manager_data)
-
-    print("Starting Sethlans setup wizard...")
-    print_setup_banner(port, WIZARD_PATH, setup_token, data_dir)
-
-    start_caddy_supervisor(manager_data)
-
-    proc = start_component("manager", extra_args=["--workers", "1"])
-    wait_for_manager_ready(port, manager_proc=proc)
-    _notify_ready(on_manager_ready)
-    open_browser(
-        port, args.no_browser, args.print_url, WIZARD_PATH, None,
-    )
-
-    def _respawn():
-        return start_component("manager")
-
-    current = proc
-    while True:
-        try:
-            current.wait(timeout=RESTART_POLL_INTERVAL)
-            return current.returncode or 0
-        except subprocess.TimeoutExpired:
-            pass
-        quit_target, restart_target = _consume_ipc(
-            data_dir, secret, tray,
-        )
-        if quit_target == "all":
-            check = _make_second_quit_check(data_dir, secret, tray)
-            cascade.cascade_quit(
-                None, current, tray, second_quit_check=check,
-            )
-            return 0
-        if quit_target == "manager":
-            cascade.quit_manager_only(current)
-            return 0
-        if restart_target == "manager" or poll_for_restart_request(data_dir):
-            new_proc = handle_restart_request(current, data_dir, _respawn)
-            if new_proc is None:
-                return 1
-            current = new_proc
 
 
 def _all_live_exited(state: dict) -> bool:
@@ -240,6 +133,51 @@ def _read_topology(data_dir: Path) -> dict:
         return {}
 
 
+def _await_cold_boot(
+    topo: str,
+    manager_proc: Optional[subprocess.Popen],
+    worker_proc: Optional[subprocess.Popen],
+    on_cold_boot_ready: Optional[Callable[[], None]],
+    on_startup_failed: Optional[Callable[[str, str], None]],
+) -> Optional[int]:
+    """Wait for cold-boot health; return non-None exit code on timeout.
+
+    Manager+worker mode polls strictly serially under a single shared
+    30 s deadline (FR-6). On any-side timeout, returns 1 after firing
+    startup_failed and terminating the cold-boot child(ren); the caller
+    should propagate the return code without spinning up the IPC loop.
+    """
+    is_manager_topo = topo in ("manager", "manager_worker", "manager+worker")
+    is_worker_topo = topo in ("worker", "manager_worker", "manager+worker")
+    has_manager = is_manager_topo and manager_proc is not None
+    has_worker = is_worker_topo and worker_proc is not None
+    deadline = time.monotonic() + HEALTH_TIMEOUT
+
+    if has_manager:
+        remaining = deadline - time.monotonic()
+        # Look up wait_for_health on the module so tests that patch
+        # ``orchestration.wait_for_health`` are honored (default-arg
+        # binding would freeze the original at import time).
+        if not wait_for_health(
+            _MANAGER_HEALTH_URL, manager_proc, timeout=remaining,
+        ):
+            return fail_cold_boot(
+                _REASON_MANAGER_TIMEOUT,
+                manager_proc, worker_proc, on_startup_failed,
+            )
+    if has_worker:
+        remaining = deadline - time.monotonic()
+        if not wait_for_health(
+            _WORKER_HEALTH_URL, worker_proc, timeout=remaining,
+        ):
+            return fail_cold_boot(
+                _REASON_WORKER_TIMEOUT,
+                manager_proc, worker_proc, on_startup_failed,
+            )
+    safe_invoke(on_cold_boot_ready)
+    return None
+
+
 def run_normal_mode(
     data_dir: Path,
     args,
@@ -247,7 +185,8 @@ def run_normal_mode(
     secret: str,
     start_component: Callable[..., subprocess.Popen],
     *,
-    on_manager_ready: Optional[Callable[[], None]] = None,
+    on_cold_boot_ready: Optional[Callable[[], None]] = None,
+    on_startup_failed: Optional[Callable[[str, str], None]] = None,
 ) -> int:
     """Post-setup: start services per topology; watch IPC."""
     topology = _read_topology(data_dir)
@@ -268,15 +207,20 @@ def run_normal_mode(
         print("Starting Sethlans Worker...")
         worker_proc = start_component("worker")
 
-    if manager_proc is not None:
-        wait_for_manager_ready(MANAGER_PORT, manager_proc=manager_proc)
-    # Worker-only topologies still dismiss the splash here — no manager
-    # to probe, so unblock UX as soon as the children are spawned.
-    _notify_ready(on_manager_ready)
-    open_browser(
-        MANAGER_PORT, args.no_browser, args.print_url,
-        DASHBOARD_PATH, None,
+    rc = _await_cold_boot(
+        topo, manager_proc, worker_proc,
+        on_cold_boot_ready, on_startup_failed,
     )
+    if rc is not None:
+        return rc
+
+    # FR-12: open the browser only after all required URLs are healthy.
+    # Worker-only topology has no browser to open (existing semantics).
+    if topo in ("manager", "manager_worker", "manager+worker"):
+        open_browser(
+            MANAGER_PORT, args.no_browser, args.print_url,
+            DASHBOARD_PATH, None,
+        )
 
     state = {
         "manager": manager_proc,

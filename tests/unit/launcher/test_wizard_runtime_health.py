@@ -9,8 +9,6 @@ facets live in ``test_wizard_runtime_handoff.py`` so each file stays
 under the 300-line limit.
 """
 
-import json
-
 import pytest
 
 from launcher import wizard_runtime
@@ -82,60 +80,36 @@ class TestWaitForRuntimePortBind:
 # ---- _probe_runtime_health (HIGH-1, Phase F1) -----------------------------
 
 class TestProbeRuntimeHealth:
+    """``_probe_runtime_health`` delegates to
+    :func:`launcher.health_probe.probe_health_once` (OQ-2 consolidation,
+    v2 splash phase states spec). The envelope-validation contract is
+    therefore tested in ``test_health_probe.py``; here we only verify
+    the wizard_runtime wrapper builds the expected URL and forwards
+    the result.
+    """
 
-    def _stub_urlopen(self, mocker, *, status=200, body=None):
-        """Patch urllib.request.urlopen to return a fake response."""
-
-        class _Resp:
-            def __init__(self, st, payload):
-                self.status = st
-                self._payload = payload
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-            def read(self):
-                return self._payload
-
-            def getcode(self):
-                return self.status
-
-        if body is None:
-            body = json.dumps({
-                "boot_id": "abc", "version": "1.0",
-            }).encode("utf-8")
+    def _stub_probe(self, mocker, return_value=True):
         return mocker.patch(
-            "launcher.wizard_runtime.urllib.request.urlopen",
-            return_value=_Resp(status, body),
+            "launcher.wizard_runtime.probe_health_once",
+            return_value=return_value,
         )
 
-    def test_returns_true_on_200_with_envelope(self, mocker):
-        self._stub_urlopen(mocker)
+    def test_returns_true_when_probe_returns_true(self, mocker):
+        spy = self._stub_probe(mocker, return_value=True)
         assert wizard_runtime._probe_runtime_health(8080) is True
+        spy.assert_called_once()
+        url = spy.call_args.args[0]
+        assert url == "https://127.0.0.1:8080/api/health/"
 
-    def test_returns_false_on_non_200(self, mocker):
-        self._stub_urlopen(mocker, status=503)
+    def test_returns_false_when_probe_returns_false(self, mocker):
+        self._stub_probe(mocker, return_value=False)
         assert wizard_runtime._probe_runtime_health(8080) is False
 
-    def test_returns_false_on_missing_keys(self, mocker):
-        self._stub_urlopen(
-            mocker, body=json.dumps({"boot_id": "x"}).encode("utf-8"),
-        )
-        assert wizard_runtime._probe_runtime_health(8080) is False
-
-    def test_returns_false_on_non_json(self, mocker):
-        self._stub_urlopen(mocker, body=b"not json")
-        assert wizard_runtime._probe_runtime_health(8080) is False
-
-    def test_returns_false_on_connection_refused(self, mocker):
-        mocker.patch(
-            "launcher.wizard_runtime.urllib.request.urlopen",
-            side_effect=ConnectionRefusedError(),
-        )
-        assert wizard_runtime._probe_runtime_health(8080) is False
+    def test_uses_custom_host(self, mocker):
+        spy = self._stub_probe(mocker, return_value=True)
+        wizard_runtime._probe_runtime_health(8080, host="127.0.0.2")
+        url = spy.call_args.args[0]
+        assert url == "https://127.0.0.2:8080/api/health/"
 
 
 # ---- wizard_failure_exit --------------------------------------------------

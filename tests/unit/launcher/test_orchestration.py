@@ -197,65 +197,14 @@ def _args_ns():
     return argparse.Namespace(no_browser=True, print_url=True)
 
 
-class TestRunSetupModeStartsCaddy:
-    """``run_setup_mode`` must build + register + start a Caddy supervisor
-    after bootstrap and before spawning the manager (issue #100)."""
-
-    def test_caddy_supervisor_started_before_manager(
-        self, mocker, tmp_path,
-    ):
-        manager_data = tmp_path / "manager"
-        manager_data.mkdir()
-
-        caddy_start = mocker.patch.object(
-            orchestration, "start_caddy_supervisor",
-        )
-        mocker.patch.object(orchestration, "find_available_port",
-                            return_value=8080)
-        mocker.patch.object(orchestration, "generate_setup_token",
-                            return_value="tok")
-        mocker.patch.object(orchestration, "print_setup_banner")
-        mocker.patch.object(orchestration, "wait_for_manager_ready")
-        mocker.patch.object(orchestration, "open_browser")
-
-        manager_proc = mocker.MagicMock()
-        manager_proc.wait.return_value = 0
-        manager_proc.returncode = 0
-
-        call_order = []
-
-        def _bootstrap(_data_dir):
-            call_order.append("bootstrap")
-            return manager_data
-
-        def _start_component(name, extra_args=None, env=None):
-            call_order.append(f"start:{name}")
-            return manager_proc
-
-        def _caddy_side_effect(md):
-            call_order.append("caddy")
-
-        caddy_start.side_effect = _caddy_side_effect
-
-        rc = orchestration.run_setup_mode(
-            tmp_path, _args_ns(), tray=None, secret="s",
-            start_component=_start_component,
-            bootstrap_first_run=_bootstrap,
-        )
-
-        assert rc == 0
-        caddy_start.assert_called_once_with(manager_data)
-        assert call_order[0] == "bootstrap"
-        assert call_order.index("caddy") < call_order.index("start:manager")
-
-
 class TestRunNormalModeStartsCaddy:
     """``run_normal_mode`` starts Caddy for manager-bearing topologies
     and skips it for worker-only installs (issue #100)."""
 
     def _common_mocks(self, mocker, tmp_path):
         mocker.patch.object(orchestration, "remove_setup_section")
-        mocker.patch.object(orchestration, "wait_for_manager_ready")
+        mocker.patch.object(orchestration, "wait_for_health",
+                            return_value=True)
         mocker.patch.object(orchestration, "open_browser")
         # Short-circuit the main loop: pretend all children exited.
         mocker.patch.object(

@@ -178,6 +178,11 @@ class TestRunWizardMode:
                 return wizard_proc
             return runtime_proc
 
+        # FR-7: wizard health probe — no real server in unit tests, mock True.
+        mocker.patch(
+            "launcher.wizard_orchestration.wait_for_health",
+            return_value=True,
+        )
         mocker.patch(
             "launcher.wizard_runtime.wait_for_runtime_port_bind",
             return_value=True,
@@ -202,6 +207,10 @@ class TestRunWizardMode:
         )
         mocker.patch(
             "launcher.wizard_orchestration.surface_wizard_url",
+        )
+        mocker.patch(
+            "launcher.wizard_orchestration.wait_for_health",
+            return_value=True,
         )
 
         rc = wizard_orchestration.run_wizard_mode(
@@ -243,6 +252,12 @@ class TestRunWizardMode:
         (tmp_path / "wizard" / "port").write_text("8100")
         mocker.patch(
             "launcher.wizard_orchestration.surface_wizard_url",
+        )
+        # Wizard exits 2 — wait_for_health detects the dead proc and
+        # returns False; FR-11(c) routes through wizard_health_timeout.
+        mocker.patch(
+            "launcher.wizard_orchestration.wait_for_health",
+            return_value=False,
         )
 
         rc = wizard_orchestration.run_wizard_mode(

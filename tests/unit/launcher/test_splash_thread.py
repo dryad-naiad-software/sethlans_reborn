@@ -4,12 +4,14 @@
 
 """Unit tests for :mod:`launcher.orchestration_thread`.
 
-Verifies signal wiring:
+Verifies signal wiring (post-v2 splash phase states refactor):
 
-* ``manager_ready`` fires when the wrapped orchestration callable
-  invokes its ``on_manager_ready`` hook.
+* ``cold_boot_ready`` fires when the wrapped orchestration callable
+  invokes its ``on_cold_boot_ready`` hook.
 * ``startup_failed(reason, traceback)`` fires when the wrapped
-  callable raises before ``manager_ready`` was emitted.
+  callable raises before ``cold_boot_ready`` was emitted, OR when
+  orchestration calls ``on_startup_failed`` directly (e.g. health
+  timeout).
 * ``finished_with_code`` fires at the end of a normal run with the
   orchestration's return code.
 """
@@ -29,21 +31,23 @@ from launcher.orchestration_thread import (  # noqa: E402
 
 # ---- Signal emission --------------------------------------------------
 
-class TestManagerReadySignal:
+class TestColdBootReadySignal:
 
-    def test_emits_manager_ready_when_hook_invoked(self, qtbot):
-        def target(on_manager_ready=None):
-            on_manager_ready()
+    def test_emits_cold_boot_ready_when_hook_invoked(self, qtbot):
+        def target(on_cold_boot_ready=None, on_startup_failed=None):
+            del on_startup_failed
+            on_cold_boot_ready()
             return 0
 
         thread = OrchestrationThread(target)
-        with qtbot.waitSignal(thread.manager_ready, timeout=2000):
+        with qtbot.waitSignal(thread.cold_boot_ready, timeout=2000):
             thread.start()
         thread.wait(2000)
 
     def test_emits_finished_with_code_on_clean_exit(self, qtbot):
-        def target(on_manager_ready=None):
-            on_manager_ready()
+        def target(on_cold_boot_ready=None, on_startup_failed=None):
+            del on_startup_failed
+            on_cold_boot_ready()
             return 7
 
         thread = OrchestrationThread(target)
@@ -54,16 +58,19 @@ class TestManagerReadySignal:
         thread.wait(2000)
         assert blocker.args == [7]
 
-    def test_manager_ready_only_fires_once(self, qtbot):
+    def test_cold_boot_ready_only_fires_once(self, qtbot):
         count = {"n": 0}
 
-        def target(on_manager_ready=None):
-            on_manager_ready()
-            on_manager_ready()  # second call should be a no-op
+        def target(on_cold_boot_ready=None, on_startup_failed=None):
+            del on_startup_failed
+            on_cold_boot_ready()
+            on_cold_boot_ready()  # second call should be a no-op
             return 0
 
         thread = OrchestrationThread(target)
-        thread.manager_ready.connect(lambda: count.update(n=count["n"] + 1))
+        thread.cold_boot_ready.connect(
+            lambda: count.update(n=count["n"] + 1),
+        )
         with qtbot.waitSignal(thread.finished_with_code, timeout=2000):
             thread.start()
         thread.wait(2000)
@@ -75,7 +82,8 @@ class TestManagerReadySignal:
 class TestStartupFailedSignal:
 
     def test_emits_startup_failed_when_target_raises(self, qtbot):
-        def target(on_manager_ready=None):
+        def target(on_cold_boot_ready=None, on_startup_failed=None):
+            del on_cold_boot_ready, on_startup_failed
             raise RuntimeError("boom")
 
         thread = OrchestrationThread(target)
@@ -93,8 +101,9 @@ class TestStartupFailedSignal:
         """Post-ready exceptions must not revive the splash (FR-5)."""
         failed_calls = []
 
-        def target(on_manager_ready=None):
-            on_manager_ready()
+        def target(on_cold_boot_ready=None, on_startup_failed=None):
+            del on_startup_failed
+            on_cold_boot_ready()
             raise RuntimeError("post-ready failure")
 
         thread = OrchestrationThread(target)
@@ -105,6 +114,43 @@ class TestStartupFailedSignal:
             thread.start()
         thread.wait(2000)
         assert failed_calls == []
+
+    def test_explicit_on_startup_failed_callback_emits_signal(
+        self, qtbot,
+    ):
+        """FR-11(c): orchestration may emit startup_failed on health timeout
+        BEFORE returning, so the splash error card appears within ~250 ms."""
+        def target(on_cold_boot_ready=None, on_startup_failed=None):
+            del on_cold_boot_ready
+            on_startup_failed("worker did not start within 30 s", "")
+            return 1
+
+        thread = OrchestrationThread(target)
+        with qtbot.waitSignal(
+            thread.startup_failed, timeout=2000,
+        ) as blocker:
+            thread.start()
+        thread.wait(2000)
+        reason, _trace = blocker.args
+        assert "worker" in reason
+
+    def test_explicit_on_startup_failed_then_finished_propagates_rc(
+        self, qtbot,
+    ):
+        """The exit-code race fix (Option A): finished_with_code carries
+        rc=1 when orchestration returns 1 after firing startup_failed."""
+        def target(on_cold_boot_ready=None, on_startup_failed=None):
+            del on_cold_boot_ready
+            on_startup_failed("manager did not start within 30 s", "")
+            return 1
+
+        thread = OrchestrationThread(target)
+        with qtbot.waitSignal(
+            thread.finished_with_code, timeout=2000,
+        ) as blocker:
+            thread.start()
+        thread.wait(2000)
+        assert blocker.args == [1]
 
 
 # ---- _format_reason --------------------------------------------------

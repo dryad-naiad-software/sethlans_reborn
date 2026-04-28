@@ -26,14 +26,14 @@ class _StubThread:
     """Minimal OrchestrationThread stub — records connect() but never runs."""
 
     def __init__(self, *_args, **_kwargs):
-        self.manager_ready = _StubSignal()
+        self.cold_boot_ready = _StubSignal()
         self.startup_failed = _StubSignal()
         self.finished_with_code = _StubSignal()
 
     def start(self):
-        # Immediately notify manager_ready so app.exec() returns early
+        # Immediately notify cold_boot_ready so app.exec() returns early
         # via the _on_ready -> app.quit() closure captured by connect().
-        for slot in self.manager_ready.slots:
+        for slot in self.cold_boot_ready.slots:
             slot()
 
     def wait(self):

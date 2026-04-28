@@ -23,6 +23,8 @@ from typing import Callable, Optional
 
 from launcher import wizard_dir, wizard_ipc, wizard_runtime
 from launcher.browser_launch import open_browser, print_setup_banner
+from launcher.cold_boot import safe_invoke
+from launcher.health_probe import wait_for_health
 
 logger = logging.getLogger(__name__)
 
@@ -158,13 +160,19 @@ def surface_wizard_url(
 
 # ---- Top-level orchestration entry ----------------------------------------
 
+def _wizard_health_url(port: int) -> str:
+    """FR-7: wizard's own /api/health/ URL for cold-boot health check."""
+    return f"https://127.0.0.1:{port}/api/health/"
+
+
 def run_wizard_mode(
     data_dir: Path,
     args,
     bootstrap_first_run: Callable[[Path], Path],
     start_component: Callable[..., subprocess.Popen],
     *,
-    on_manager_ready: Optional[Callable[[], None]] = None,
+    on_cold_boot_ready: Optional[Callable[[], None]] = None,
+    on_startup_failed: Optional[Callable[[str, str], None]] = None,
     idle_timeout: float = DEFAULT_WIZARD_IDLE_TIMEOUT,
 ) -> int:
     """First-run wizard hand-off (FR-L1 → FR-L13). Returns exit code."""
@@ -179,6 +187,8 @@ def run_wizard_mode(
     wizard_proc = start_component("wizard")
     logger.info("wizard spawned (pid=%s)", wizard_proc.pid)
 
+    # FR-13 — two independent budgets: 10 s port-file discovery, then a
+    # separate 30 s health budget. No shared wall clock between them.
     chosen_port = _wait_for_wizard_port(data_dir, wizard_proc, timeout=10.0)
     if chosen_port is None:
         # MED-4 (Phase F1): no silent fallback to 8100 — the wizard's
@@ -189,8 +199,33 @@ def run_wizard_mode(
         logger.error(
             "wizard did not write port file within 10s; aborting handoff",
         )
+        # FR-13: port-file discovery failure also drives the splash
+        # error card.
+        safe_invoke(
+            on_startup_failed, "wizard did not write port file within 10 s",
+            "",
+        )
         wizard_runtime.terminate_wizard(wizard_proc)
         return wizard_runtime.wizard_failure_exit("wizard_no_port_file")
+
+    # FR-7 — pass ``proc=wizard_proc`` so a wizard crash between the
+    # port-file write and HTTP responsiveness is detected within one
+    # poll interval (~250 ms) instead of burning the full 30 s budget.
+    healthy = wait_for_health(
+        _wizard_health_url(chosen_port), wizard_proc,
+    )
+    if not healthy:
+        # FR-11(c) — emit startup_failed BEFORE terminate so the splash
+        # error card appears within ~250 ms of budget expiry.
+        safe_invoke(
+            on_startup_failed,
+            "wizard did not become healthy within 30 s", "",
+        )
+        wizard_runtime.terminate_wizard(wizard_proc)
+        return wizard_runtime.wizard_failure_exit("wizard_health_timeout")
+
+    # FR-12 — dismiss splash and open browser only after health success.
+    safe_invoke(on_cold_boot_ready)
     surface_wizard_url(
         chosen_port, setup_token, data_dir,
         getattr(args, "no_browser", False),
@@ -206,7 +241,9 @@ def run_wizard_mode(
             wizard_runtime.terminate_wizard(wizard_proc)
         return wizard_runtime.wizard_failure_exit(reason)
 
+    # FR-8 — splash dismissal is no longer driven from
+    # ``hand_off_to_runtime``; the cold-boot trigger fired above.
     return wizard_runtime.hand_off_to_runtime(
         payload, data_dir, ipc_secret, wizard_proc,
-        bootstrap_first_run, start_component, on_manager_ready,
+        bootstrap_first_run, start_component,
     )
