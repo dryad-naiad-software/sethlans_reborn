@@ -246,3 +246,55 @@ class TestNotifyWiring:
         )
         # Must not raise; ``on_copy_token`` catches notify failures.
         sec.on_copy_token()
+
+
+# ------------------------------------------------------------------ #
+# AC-UniversalActions — About + Quit installed via the shared helper
+# (spec FR-6, #166)
+# ------------------------------------------------------------------ #
+
+class TestUniversalActionsIntegration:
+    """``ManagerSection.build_qmenu`` must delegate About + Quit to
+    ``add_universal_actions``. Verified by:
+
+    * patching the helper and asserting it's called once with the
+      manager's ``on_about`` / ``on_quit_manager`` slots, and
+    * confirming the post-extraction QActions still expose the same
+      labels and click semantics (``target="manager"`` unchanged).
+    """
+
+    def test_build_qmenu_invokes_add_universal_actions(
+        self, section, mocker,
+    ):
+        spy = mocker.spy(qmm, "add_universal_actions")
+        section.build_qmenu()
+        assert spy.call_count == 1
+        # Helper receives the manager's on_about + on_quit_manager
+        # slots and the "Quit Manager" label override.
+        _args, kwargs = spy.call_args
+        assert kwargs.get("quit_label") == "Quit Manager"
+
+    def test_about_slot_still_show_about_dialog(self, section, mocker):
+        """Post-extraction sanity: About QAction still wires to
+        ``show_about_dialog`` via the universal helper."""
+        spy = mocker.patch.object(qmm, "show_about_dialog")
+        section.build_qmenu()
+        section._act_about.trigger()
+        spy.assert_called_once()
+
+    def test_quit_action_uses_target_manager_post_extraction(
+        self, section, mocker,
+    ):
+        """AC-UniversalActions: extraction must NOT alter the manager
+        menu's quit-target. Quit Manager still calls
+        ``ipc.request_quit(target="manager")``."""
+        spy = mocker.patch.object(qmm.ipc, "request_quit")
+        section.build_qmenu()
+        section._act_quit.trigger()
+        spy.assert_called_once_with(section.data_dir, target="manager")
+
+    def test_quit_label_text_is_quit_manager(self, section):
+        """Sanity: the helper's ``quit_label`` override propagates to
+        the rendered QAction text."""
+        section.build_qmenu()
+        assert section._act_quit.text() == "Quit Manager"

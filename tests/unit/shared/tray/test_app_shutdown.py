@@ -21,6 +21,7 @@ pytest.importorskip("PySide6", reason="PySide6 required for app")
 pytest.importorskip("pytestqt", reason="pytest-qt required for qapp fixture")
 
 from shared.tray import app  # noqa: E402
+from shared.tray import app_phase  # noqa: E402
 from shared.tray import topology as topo_mod  # noqa: E402
 from shared.tray.notifications import NotificationEvent  # noqa: E402
 
@@ -150,8 +151,16 @@ def _patch_main_for_shutdown(mocker, tmp_path,
                         return_value=("h", 1, 2))
     mocker.patch.object(app, "_configure_logging")
     mocker.patch.object(app.launcher_watch, "init")
-    mgr_cls = mocker.patch.object(app, "ManagerSection")
-    wk_cls = mocker.patch.object(app, "WorkerSection")
+    # Pin phase to "runtime" so the manager-section path is exercised
+    # rather than the wizard path (#166).
+    mocker.patch("shared.tray.phase.detect_phase", return_value="runtime")
+    # Post-#166: ManagerSection is imported by ``app_phase``, not
+    # ``app``. ``WorkerSection`` is imported by both, so patch on
+    # ``app_phase`` and reflect onto ``app`` for any older direct refs.
+    mgr_cls = mocker.patch.object(app_phase, "ManagerSection")
+    mocker.patch.object(app_phase, "WizardSection")
+    wk_cls = mocker.patch.object(app_phase, "WorkerSection")
+    mocker.patch.object(app, "WorkerSection", wk_cls)
     mgr_cls.return_value.build_qmenu.side_effect = (
         lambda parent=None: QMenu(parent))
     wk_cls.return_value.build_qmenu.side_effect = (

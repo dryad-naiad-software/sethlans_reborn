@@ -203,8 +203,11 @@ class TestOpenLogs:
         with caplog.at_level(logging.WARNING, logger=helpers.logger.name):
             open_logs(data_dir)
         run_spy.assert_not_called()
+        # The log message generalised to "Log not found at <path>"
+        # (the helper now accepts a ``name`` arg so callers can target
+        # ``wizard.log`` / ``launcher.log`` per FR-9 / #166).
         assert any(
-            "Manager log not found" in rec.message
+            "Log not found" in rec.message
             for rec in caplog.records
         )
 
@@ -248,4 +251,52 @@ class TestOpenLogs:
         open_logs(data_dir)
         run_spy.assert_called_once_with(
             ["xdg-open", str(log_path)], check=False,
+        )
+
+    def test_name_arg_targets_alternative_log_file(self, tmp_path, mocker):
+        """FR-9: ``open_logs(data_dir, name="wizard.log")`` opens the
+        wizard log instead of the default manager.log."""
+        data_dir = tmp_path / "data"
+        (data_dir / "logs").mkdir(parents=True)
+        wizard_log = data_dir / "logs" / "wizard.log"
+        wizard_log.write_text("wizard log contents", encoding="utf-8")
+        mocker.patch.object(sys, "platform", "linux")
+        run_spy = mocker.patch("shared.tray.menu_manager_helpers."
+                               "subprocess.run")
+        open_logs(data_dir, name="wizard.log")
+        run_spy.assert_called_once_with(
+            ["xdg-open", str(wizard_log)], check=False,
+        )
+
+    def test_name_default_is_manager_log(self, tmp_path, mocker):
+        """Backwards-compat: the ``name`` default is ``"manager.log"``,
+        so existing manager-phase callers keep working."""
+        data_dir, manager_log = self._prepare_log(tmp_path)
+        mocker.patch.object(sys, "platform", "linux")
+        run_spy = mocker.patch("shared.tray.menu_manager_helpers."
+                               "subprocess.run")
+        # No ``name`` arg supplied — must default to manager.log.
+        open_logs(data_dir)
+        run_spy.assert_called_once_with(
+            ["xdg-open", str(manager_log)], check=False,
+        )
+
+    def test_name_arg_no_op_when_target_log_missing(
+        self, tmp_path, mocker, caplog,
+    ):
+        """If the requested log doesn't exist, no helper is invoked."""
+        data_dir = tmp_path / "data"
+        (data_dir / "logs").mkdir(parents=True)
+        # Only manager.log exists; request wizard.log.
+        (data_dir / "logs" / "manager.log").write_text(
+            "x", encoding="utf-8",
+        )
+        mocker.patch.object(sys, "platform", "linux")
+        run_spy = mocker.patch("shared.tray.menu_manager_helpers."
+                               "subprocess.run")
+        with caplog.at_level(logging.WARNING, logger=helpers.logger.name):
+            open_logs(data_dir, name="wizard.log")
+        run_spy.assert_not_called()
+        assert any(
+            "Log not found" in rec.message for rec in caplog.records
         )

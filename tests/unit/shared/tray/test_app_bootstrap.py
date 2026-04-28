@@ -26,6 +26,7 @@ pytest.importorskip("pytestqt", reason="pytest-qt required for qapp fixture")
 from PySide6.QtCore import Qt  # noqa: E402
 
 from shared.tray import app  # noqa: E402
+from shared.tray import app_phase  # noqa: E402
 from shared.tray import topology as topo_mod  # noqa: E402
 from shared.tray.notifications import NotificationEvent  # noqa: E402
 
@@ -34,7 +35,7 @@ from shared.tray.notifications import NotificationEvent  # noqa: E402
 # Helpers
 # ------------------------------------------------------------------ #
 
-def _patch_main_deps(mocker, topology, tmp_path):
+def _patch_main_deps(mocker, topology, tmp_path, phase="runtime"):
     """Patch everything ``app.main`` reaches at module scope.
 
     Returns a dict of the key mocks so tests can assert against them.
@@ -61,16 +62,35 @@ def _patch_main_deps(mocker, topology, tmp_path):
                         return_value=("localhost", 8080, 8088))
     mocker.patch.object(app, "_configure_logging")
     mocker.patch.object(app.launcher_watch, "init")
+    # Pin the detected phase so tests asserting against ManagerSection
+    # construction don't accidentally trigger the wizard path (a fresh
+    # tmp_path has no .setup_complete sentinel, which would yield the
+    # wizard phase by default — see #166 FR-1).
+    mocker.patch("shared.tray.phase.detect_phase", return_value=phase)
 
     # Section + poller classes — instances capture the constructor args.
-    mgr_cls = mocker.patch.object(app, "ManagerSection")
-    wk_cls = mocker.patch.object(app, "WorkerSection")
+    # NOTE: post-#166, ``ManagerSection`` is imported by ``app_phase``
+    # rather than ``app`` directly, so we patch it on ``app_phase``.
+    # ``WorkerSection`` and ``QtStatePoller`` are still imported by
+    # ``app.py`` at module scope.
+    mgr_cls = mocker.patch.object(app_phase, "ManagerSection")
+    # Patch WizardSection too so the wizard-phase build path produces
+    # a deterministic mock instead of touching the real disk-based
+    # wizard-state predicates.
+    wiz_cls = mocker.patch.object(app_phase, "WizardSection")
+    wk_cls = mocker.patch.object(app_phase, "WorkerSection")
+    # ``app.py`` also imports WorkerSection directly for type hints —
+    # patch it there too to avoid attribute errors from older tests.
+    mocker.patch.object(app, "WorkerSection", wk_cls)
     poller_cls = mocker.patch.object(app, "QtStatePoller")
 
     # Make build_qmenu return a real (empty) QMenu so _build_menu's
     # action iteration terminates.  We need a QApplication alive for
     # QMenu construction — the caller's ``qapp`` fixture guarantees it.
     mgr_cls.return_value.build_qmenu.side_effect = (
+        lambda parent=None: QMenu(parent)
+    )
+    wiz_cls.return_value.build_qmenu.side_effect = (
         lambda parent=None: QMenu(parent)
     )
     wk_cls.return_value.build_qmenu.side_effect = (
@@ -95,10 +115,14 @@ def _patch_main_deps(mocker, topology, tmp_path):
     qtimer_cls = mocker.patch.object(app, "QTimer")
     icons_mod = mocker.patch.object(app, "icons")
     icons_mod.get_icon.return_value = mocker.MagicMock(name="pixmap")
+    # Patch notifications on both modules — app_phase also dispatches
+    # via this module when building the manager-slot section.
     notif_mod = mocker.patch.object(app, "notifications")
+    mocker.patch.object(app_phase, "notifications", notif_mod)
 
     return {
         "mgr_cls": mgr_cls,
+        "wiz_cls": wiz_cls,
         "wk_cls": wk_cls,
         "poller_cls": poller_cls,
         "poller_instance": poller_instance,

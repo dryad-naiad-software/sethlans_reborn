@@ -31,6 +31,7 @@ from shared.tray.menu_manager_helpers import (
     sentinel_exists,
     validate_token,
 )
+from shared.tray.menu_universal import add_universal_actions
 from shared.tray.notifications import NotificationEvent
 
 logger = logging.getLogger(__name__)
@@ -213,13 +214,13 @@ class ManagerSection:
         self._act_view_logs = self._add(
             menu, "View Manager Logs", self.on_view_logs,
         )
-        self._act_quit = self._add(
-            menu, "Quit Manager", self.on_quit_manager,
-        )
-        # About Sethlans action (NFR-1) placed above the final
-        # separator / footer per spec FR-2.
-        self._act_about = self._add(
-            menu, "About Sethlans", self.on_about,
+        # About + Quit installed via the shared universal helper
+        # (spec FR-6 / AC-UniversalActions). Order: About, separator,
+        # Quit.  Manager phase passes ``target="manager"`` via the
+        # bound ``on_quit_manager`` slot.
+        self._act_about, self._act_quit = add_universal_actions(
+            menu, self.on_about, self.on_quit_manager,
+            quit_label="Quit Manager",
         )
         menu.addSeparator()
         self._act_footer = self._add_disabled(menu, "")

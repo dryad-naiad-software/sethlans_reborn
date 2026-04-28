@@ -74,10 +74,18 @@ def validate_token(token: str) -> bool:
     return True
 
 
-def open_logs(data_dir: Path) -> None:
-    log_path = data_dir / "logs" / "manager.log"
+def open_logs(data_dir: Path, name: str = "manager.log") -> None:
+    """Open ``<data_dir>/logs/<name>`` in the platform's default viewer.
+
+    The ``name`` argument was added so wizard-phase callers can target
+    ``wizard.log`` / ``launcher.log`` without inlining the cross-
+    platform launcher switch (FR-9). The default ``"manager.log"``
+    preserves backwards compatibility with existing manager-phase
+    callers.
+    """
+    log_path = data_dir / "logs" / name
     if not log_path.exists():
-        logger.warning("Manager log not found at %s", log_path)
+        logger.warning("Log not found at %s", log_path)
         return
     try:
         if sys.platform == "win32":

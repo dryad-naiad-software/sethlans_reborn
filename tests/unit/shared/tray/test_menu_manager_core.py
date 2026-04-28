@@ -34,6 +34,14 @@ from shared.tray.menu_manager import ManagerSection  # noqa: E402
 # Local constants (structural expectations)
 # ------------------------------------------------------------------ #
 
+#
+# NOTE: action order updated for spec FR-6 (#166). The
+# ``add_universal_actions`` helper now installs About + Quit in the
+# order ``About -> separator -> Quit``, which means the manager menu
+# shows ``View Manager Logs -> About Sethlans -> (universal sep) ->
+# Quit Manager -> (final sep) -> footer`` (15 entries total,
+# previously 14). The QActions and their click semantics are
+# unchanged — only the on-screen ordering moved.
 EXPECTED_ACTIONS_IN_ORDER = [
     ("_act_header", False),
     ("_act_setup", False),
@@ -45,8 +53,9 @@ EXPECTED_ACTIONS_IN_ORDER = [
     ("_act_open_wizard", True),
     ("_act_restart", True),
     ("_act_view_logs", True),
-    ("_act_quit", True),
     ("_act_about", True),
+    ("__sep__", None),
+    ("_act_quit", True),
     ("__sep__", None),
     ("_act_footer", False),
 ]
@@ -57,8 +66,8 @@ EXPECTED_ENABLED_TEXTS = [
     "Open Setup Wizard",
     "Restart Manager",
     "View Manager Logs",
-    "Quit Manager",
     "About Sethlans",
+    "Quit Manager",
 ]
 
 
@@ -136,14 +145,18 @@ class TestBuildQMenuStructure:
 
     def test_enabled_action_texts_match_spec(self, section):
         section.build_qmenu()
+        # Order MUST match the visual order in the QMenu, which after
+        # spec FR-6 (#166) is: Open Dashboard, Copy Setup Token, Open
+        # Setup Wizard, Restart Manager, View Manager Logs, About
+        # Sethlans, Quit Manager (About moved up, Quit moved down).
         texts = [
             section._act_open_dashboard.text(),
             section._act_copy_token.text(),
             section._act_open_wizard.text(),
             section._act_restart.text(),
             section._act_view_logs.text(),
-            section._act_quit.text(),
             section._act_about.text(),
+            section._act_quit.text(),
         ]
         assert texts == EXPECTED_ENABLED_TEXTS
 

@@ -32,9 +32,9 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from shared.frozen_paths import get_data_dir, get_shared_data_dir
-from shared.tray import icons, launcher_watch, notifications
+from shared.tray import app_phase, icons, launcher_watch, notifications
+from shared.tray import phase as phase_mod
 from shared.tray import topology as topo_mod
-from shared.tray.menu_manager import ManagerSection
 from shared.tray.menu_worker import WorkerSection
 from shared.tray.notifications import NotificationEvent
 from shared.tray.poller import ManagerSnapshot, QtStatePoller
@@ -113,9 +113,15 @@ class _TrayContext:
         )
         # Placeholders populated by ``wire(tray)`` once the tray icon
         # exists (the ManagerSection's notify closure captures it).
-        self.manager_section: Optional[ManagerSection] = None
+        self.manager_section = None
         self.worker_section: Optional[WorkerSection] = None
         self.poller: Optional[QtStatePoller] = None
+        # Initial phase resolved here so the very first menu (built in
+        # ``main()`` before ``app.exec()``) reflects the right shape
+        # without waiting for the first poller tick (FR-11).
+        self.current_phase: str = phase_mod.detect_phase(
+            self.data_dir, self.manager_data_dir,
+        )
 
     def current_snapshot(self) -> ManagerSnapshot:
         if self.poller is None:
@@ -134,32 +140,15 @@ def _build_sections(ctx: _TrayContext, tray: QSystemTrayIcon) -> None:
     Must be called AFTER the tray icon exists so the notify closure
     can capture it.  The poller is constructed here on the GUI thread;
     its thread affinity is the creating thread (spec FR-6).
+
+    The manager slot is filled with either a ``WizardSection`` or
+    ``ManagerSection`` based on ``ctx.current_phase`` (FR-11). The
+    worker section is unchanged across phases (FR-13).
     """
-
-    def _notify(event: NotificationEvent) -> None:
-        notifications.dispatch(tray, event)
-
-    if ctx.wants_manager:
-        ctx.manager_section = ManagerSection(
-            data_dir=ctx.data_dir,
-            manager_data_dir=ctx.manager_data_dir,
-            manager_host=ctx.host,
-            manager_port=ctx.main_port,
-            quit_requested_flag=ctx.quit_flag,
-            get_snapshot=ctx.current_snapshot,
-            notify=_notify,
-        )
-    if ctx.wants_worker:
-        # Worker-only topology: the manager section is absent, so the
-        # About Sethlans action must live on the worker section (spec
-        # FR-2 sub-bullet).  When both sections are present the
-        # manager owns About.
-        worker_only = ctx.wants_worker and not ctx.wants_manager
-        ctx.worker_section = WorkerSection(
-            data_dir=ctx.worker_data_dir.parent,
-            quit_requested_flag=ctx.quit_flag,
-            include_about=worker_only,
-        )
+    ctx.manager_section = app_phase.build_section_for_phase(
+        ctx, tray, ctx.current_phase,
+    )
+    ctx.worker_section = app_phase.build_worker_section(ctx)
     ctx.poller = QtStatePoller(
         loopback_url=ctx.loopback_url,
         stop_event=ctx.stop_event,
@@ -170,22 +159,11 @@ def _build_sections(ctx: _TrayContext, tray: QSystemTrayIcon) -> None:
 def _build_menu(ctx: _TrayContext) -> QMenu:
     """Build the combined QMenu from the topology-appropriate sections.
 
-    Both sections (when present) have their QActions parented to the
-    same top-level QMenu.  A separator is inserted between them when
-    both are present (mirroring the legacy pystray layout).
+    Delegates to :func:`shared.tray.app_phase.build_root_menu`. The
+    indirection lets phase-swap helpers reuse the same layout logic
+    without importing this module.
     """
-    root = QMenu()
-    if ctx.manager_section is not None:
-        mgr_menu = ctx.manager_section.build_qmenu(parent=root)
-        for action in mgr_menu.actions():
-            root.addAction(action)
-    if ctx.manager_section is not None and ctx.worker_section is not None:
-        root.addSeparator()
-    if ctx.worker_section is not None:
-        worker_menu = ctx.worker_section.build_qmenu(parent=root)
-        for action in worker_menu.actions():
-            root.addAction(action)
-    return root
+    return app_phase.build_root_menu(ctx)
 
 
 def _refresh_icon(ctx: _TrayContext, tray: QSystemTrayIcon) -> None:
@@ -215,10 +193,23 @@ def _refresh_sections(ctx: _TrayContext) -> None:
 def _connect_signals(
     ctx: _TrayContext, tray: QSystemTrayIcon, app: QApplication,
 ) -> None:
-    """Wire poller signals to GUI-thread slots via QueuedConnection."""
+    """Wire poller signals to GUI-thread slots via QueuedConnection.
+
+    Each tick re-evaluates the lifecycle phase (FR-11). On a phase
+    transition the menu is rebuilt wholesale via
+    :func:`app_phase.swap_menu_for_phase`; otherwise the active
+    sections refresh in place as before.
+    """
 
     def on_snapshot(snapshot: ManagerSnapshot) -> None:
         del snapshot  # predicates read from ctx.current_snapshot()
+        next_phase = app_phase.compute_phase(ctx)
+        if next_phase != ctx.current_phase:
+            logger.info(
+                "Tray phase swap: %s -> %s",
+                ctx.current_phase, next_phase,
+            )
+            app_phase.swap_menu_for_phase(ctx, tray, next_phase)
         _refresh_icon(ctx, tray)
         _refresh_sections(ctx)
 
