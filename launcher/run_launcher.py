@@ -15,24 +15,29 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from launcher import (
+# In frozen mode PyInstaller handles sys.path; only add the launcher
+# directory and project root when running from source (issue #177).
+# Mirrors ``wizard/run_wizard.py`` / ``worker/run_worker.py``.
+if not getattr(sys, "frozen", False):
+    launcher_dir = str(Path(__file__).resolve().parent)
+    if launcher_dir not in sys.path:
+        sys.path.insert(0, launcher_dir)
+    project_root = str(Path(__file__).resolve().parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+from launcher import (  # noqa: E402
     cascade, diagnostics, orchestration, supervision, tray_ipc,
     wizard_orchestration,
 )
-from launcher.browser_launch import (  # noqa: F401
+from launcher.browser_launch import (  # noqa: F401, E402
     compute_cert_fingerprint as _compute_cert_fingerprint,
-    is_headless as _is_headless,
-    open_browser,
-    print_setup_banner,
+    is_headless as _is_headless, open_browser, print_setup_banner,
 )
-from launcher.component_paths import (
-    find_component_exe, popen_kwargs_for_component,
-)
-from launcher.paths import (
-    get_bin_dir, get_data_dir, get_install_dir, set_file_permissions,
-)
-from launcher.single_instance import acquire_single_instance_lock, release_lock
-from shared.version import get_version
+from launcher.component_paths import find_component_exe, popen_kwargs_for_component  # noqa: E402
+from launcher.paths import get_bin_dir, get_data_dir, get_install_dir, set_file_permissions  # noqa: E402
+from launcher.single_instance import acquire_single_instance_lock, release_lock  # noqa: E402
+from shared.version import get_version  # noqa: E402
 
 __version__ = get_version()
 
@@ -43,8 +48,7 @@ _INSTANCE_LOCK = None  # type: ignore[var-annotated]
 logger = logging.getLogger(__name__)
 
 
-# Re-exports for tests / back-compat — aliases keep the file under the
-# 300-line ceiling and ``mocker.patch`` still works against bindings.
+# Re-exports for tests/back-compat — bindings ``mocker.patch`` targets.
 _get_data_dir = get_data_dir
 _get_bin_dir = get_bin_dir
 _get_install_dir = get_install_dir
