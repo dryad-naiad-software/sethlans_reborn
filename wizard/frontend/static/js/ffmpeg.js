@@ -4,11 +4,20 @@
 
 // FFmpeg page (ffmpeg.html) controller (FR-M2-7).
 //
-// On mount: POST /api/wizard/ffmpeg/start/ (idempotent under the
-// single-task invariant), then poll /progress/<task_id>/ at 1 Hz until
-// status is `complete` or `failed`. Failure copy + retry-allowed table
-// live in ./ffmpeg_failures.js. Form-state stash is cleared on
-// `complete` per FR-CHK3-FORM-STATE.
+// On mount: POST /api/wizard/ffmpeg/start/. Idempotent under the
+// single-task invariant — start may return an existing task_id when
+// the user revisits the page mid-download.
+//
+// Polls /api/wizard/ffmpeg/progress/<task_id>/ at 1 Hz until status
+// is `complete` or `failed`. Failure category drives the headline /
+// retry affordance (FR-M2-7 taxonomy):
+//   download_failed   — retry allowed.
+//   sha_mismatch      — retry NOT allowed (re-pin required).
+//   version_mismatch  — retry NOT allowed (re-pin required).
+//   extraction_failed — retry allowed.
+//   network_error     — retry allowed.
+//
+// Form-state stash is cleared on `complete` per FR-CHK3-FORM-STATE.
 
 import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
@@ -23,17 +32,28 @@ import {
   buildStepperModel,
   fetchChromeContext,
 } from '/static/js/wizard_chrome.js';
-import {
-  FAILURE_HEADLINES,
-  FAILURE_BODIES,
-  RETRY_ALLOWED,
-} from '/static/js/ffmpeg_failures.js';
 
 const POLL_INTERVAL_MS = 1000;
-// Issue #182 — cap consecutive non-2xx polls so a vanished task (404
-// unknown_task, transient 5xx) surfaces a Retry button instead of an
-// indefinite spinner. 3 polls is ~3s — absorbs jitter, surfaces outages.
-const MAX_CONSECUTIVE_POLL_FAILURES = 3;
+
+const FAILURE_HEADLINES = {
+  download_failed: 'Could not download FFmpeg.',
+  sha_mismatch: 'FFmpeg download verification failed.',
+  version_mismatch: 'FFmpeg installed but reports an unexpected version.',
+  extraction_failed: 'FFmpeg archive could not be extracted.',
+  network_error: 'Network error during download.',
+  generic: 'FFmpeg installation failed.',
+};
+
+const FAILURE_BODIES = {
+  download_failed: 'Check your network connection and try again.',
+  sha_mismatch: 'The file does not match the expected checksum. Setup cannot proceed safely.',
+  version_mismatch: 'Setup cannot proceed without the expected FFmpeg version.',
+  extraction_failed: 'The download finished but the archive contents were unsafe or corrupt.',
+  network_error: 'A network error occurred during the download.',
+  generic: 'Check the launcher logs for the underlying error.',
+};
+
+const RETRY_ALLOWED = new Set(['download_failed', 'extraction_failed', 'network_error', 'generic']);
 
 const scope = reactive({
   status: 'starting',
@@ -43,8 +63,6 @@ const scope = reactive({
   errorDetail: '',
   resumeBanner: '',
   _pollHandle: null,
-  _started: false,       // Issue #182 — guard against double start().
-  _pollFailures: 0,      // Issue #182 — see MAX_CONSECUTIVE_POLL_FAILURES.
   topology: null,
   stepper: buildStepperModel(
     null, STEP_FFMPEG,
@@ -80,9 +98,6 @@ const scope = reactive({
   },
 
   async start() {
-    if (this._started) return;  // Issue #182 — idempotent.
-    this._started = true;
-    this._pollFailures = 0;
     let response;
     try {
       response = await wizardFetch('/api/wizard/ffmpeg/start/', { method: 'POST' });
@@ -132,10 +147,7 @@ const scope = reactive({
       response = await wizardFetch(
         '/api/wizard/ffmpeg/progress/' + encodeURIComponent(this.taskId) + '/',
       );
-    } catch (_) {
-      this._recordPollFailure();
-      return;
-    }
+    } catch (_) { return; /* transient — keep polling */ }
     if (response.status === 401 || response.status === 403) {
       this._stopPolling();
       expireAndRedirect(
@@ -143,18 +155,11 @@ const scope = reactive({
       );
       return;
     }
-    if (!response.ok) {
-      this._recordPollFailure();
-      return;
-    }
+    if (!response.ok) return;
     let body;
     try { body = await response.json(); }
-    catch (_) { this._recordPollFailure(); return; }
-    if (!body || typeof body.status !== 'string') {
-      this._recordPollFailure();
-      return;
-    }
-    this._pollFailures = 0;  // 2xx + parseable body resets the streak.
+    catch (_) { return; }
+    if (!body || typeof body.status !== 'string') return;
     this.status = body.status;
     if (typeof body.percent === 'number') this.percent = body.percent;
     if (typeof body.category === 'string') this.category = body.category;
@@ -162,7 +167,9 @@ const scope = reactive({
     if (this.status === 'complete') {
       this.percent = 100;
       this._stopPolling();
-      clearAllFormState();  // FR-CHK3-FORM-STATE.
+      // FR-CHK3-FORM-STATE: clear form state past the irreversible
+      // installer boundary.
+      clearAllFormState();
     } else if (this.status === 'failed') {
       this._stopPolling();
     }
@@ -174,16 +181,7 @@ const scope = reactive({
     this.category = '';
     this.errorDetail = '';
     this.taskId = '';
-    this._started = false;  // Clear #182 guard so start() re-fires.
-    this._pollFailures = 0;
     this.start();
-  },
-
-  _recordPollFailure() {
-    this._pollFailures += 1;
-    if (this._pollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
-      this._failGeneric('Lost contact with the FFmpeg installer task. Retry to start a fresh download.');
-    }
   },
 
   _failGeneric(detail) {
@@ -199,20 +197,16 @@ const scope = reactive({
   },
 });
 
-// Issue #182 — bfcache restore fires pageshow (event.persisted=true)
-// but NOT DOMContentLoaded; hooking both keeps revisits unstuck.
-let _mounted = false;
-function _mountOnce() {
-  if (_mounted) return;
-  _mounted = true;
+document.addEventListener('DOMContentLoaded', () => {
   const banner = consumeResumeBanner();
   if (banner) scope.resumeBanner = banner;
   createApp(scope).mount('#app');
-}
-
-function _kickoffStart() {
   scope.start();
-  // Topology is unknown sync — paint manager stepper, widen async.
+  // The set of completed checkpoints depends on topology — manager
+  // skips the worker-password step entirely. We can't know the
+  // topology synchronously, so apply a manager-flavoured stepper now
+  // and let `applyChromeContext` widen it once /resume-target reports
+  // the actual topology.
   (async () => {
     const ctx = await fetchChromeContext();
     scope.topology = ctx.topology;
@@ -220,31 +214,9 @@ function _kickoffStart() {
       'topology_chosen', 'network_configured',
       'database_configured', 'admin_validated',
     ];
-    if (ctx.topology === 'manager_worker') completed.push('worker_password_set');
+    if (ctx.topology === 'manager_worker') {
+      completed.push('worker_password_set');
+    }
     scope.stepper = buildStepperModel(ctx.topology, STEP_FFMPEG, completed);
   })();
-}
-
-function _resetForRevisit() {
-  // Bfcache preserves the reactive scope; clear prior terminal state
-  // so the fresh /start/ does not flash stale 'complete' first.
-  scope._started = false;
-  scope._pollFailures = 0;
-  scope.taskId = '';
-  scope.status = 'starting';
-  scope.percent = 0;
-  scope.category = '';
-  scope.errorDetail = '';
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  _mountOnce();
-  _kickoffStart();
-});
-
-window.addEventListener('pageshow', (event) => {
-  if (!event.persisted) return;
-  _resetForRevisit();
-  _mountOnce();
-  _kickoffStart();
 });
