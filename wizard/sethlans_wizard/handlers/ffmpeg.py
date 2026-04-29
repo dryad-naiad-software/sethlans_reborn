@@ -128,12 +128,32 @@ def _handle_start(
             status=401,
         )
 
-    # Idempotent short-circuit if already installed (FR-M2-7).
-    if ffdl.already_installed(data_dir):
-        binary = ffdl.get_ffmpeg_binary(data_dir)
-        if binary is not None:
-            wizard_state.set_ffmpeg(ffdl.FFMPEG_VERSION, str(binary))
-            with _task_lock:
+    # Concurrency-reviewer C1 — single-task invariant + the already-
+    # installed short-circuit MUST both be evaluated under ``_task_lock``.
+    # Checking ``already_installed`` outside the lock allows a second
+    # start mid-extraction to clobber the in-flight task. Lock-ordering:
+    # ``_task_lock`` is acquired alone here; ``wizard_state.set_ffmpeg``
+    # and ``progress.append_checkpoint`` (each with their own lock) run
+    # OUTSIDE ``_task_lock`` to avoid nesting.
+    short_circuit_task_id: Optional[str] = None
+    spawn_args: Optional[tuple[str, threading.Event]] = None
+    binary_for_state: Optional[Path] = None
+    with _task_lock:
+        if _active_task is not None and _active_task["status"] not in (
+            "complete", "failed",
+        ):
+            # In-flight task wins — return its id regardless of disk
+            # state. Single-task invariant (FR-M2-7a).
+            return _wsgi.send_json(
+                start_response,
+                {"status": "in_progress",
+                 "task_id": _active_task["task_id"]},
+                status=200,
+            )
+        # No in-flight task. Decide between short-circuit and spawn.
+        if ffdl.already_installed(data_dir):
+            binary = ffdl.get_ffmpeg_binary(data_dir)
+            if binary is not None:
                 _active_task = {
                     "task_id": _new_task_id(),
                     "status": "complete",
@@ -142,36 +162,34 @@ def _handle_start(
                     "error": None,
                     "cancel_event": threading.Event(),
                 }
-                snapshot = _snapshot_locked()
-            progress.append_checkpoint(data_dir, FFMPEG_INSTALLED)
-            return _wsgi.send_json(
-                start_response,
-                {"status": "in_progress", "task_id": snapshot["task_id"]},
-                status=200,
-            )
+                short_circuit_task_id = _active_task["task_id"]
+                binary_for_state = binary
+        if short_circuit_task_id is None:
+            cancel_event = threading.Event()
+            new_id = _new_task_id()
+            _active_task = {
+                "task_id": new_id,
+                "status": "downloading",
+                "percent": 0,
+                "category": None,
+                "error": None,
+                "cancel_event": cancel_event,
+            }
+            spawn_args = (new_id, cancel_event)
 
-    with _task_lock:
-        if _active_task is not None and _active_task["status"] not in (
-            "complete", "failed",
-        ):
-            # Single-task invariant — return existing task_id.
-            return _wsgi.send_json(
-                start_response,
-                {"status": "in_progress",
-                 "task_id": _active_task["task_id"]},
-                status=200,
-            )
-        cancel_event = threading.Event()
-        new_id = _new_task_id()
-        _active_task = {
-            "task_id": new_id,
-            "status": "downloading",
-            "percent": 0,
-            "category": None,
-            "error": None,
-            "cancel_event": cancel_event,
-        }
+    # Side effects that touch other modules' locks happen OUTSIDE
+    # ``_task_lock`` to keep the lock-ordering convention simple.
+    if short_circuit_task_id is not None and binary_for_state is not None:
+        wizard_state.set_ffmpeg(ffdl.FFMPEG_VERSION, str(binary_for_state))
+        progress.append_checkpoint(data_dir, FFMPEG_INSTALLED)
+        return _wsgi.send_json(
+            start_response,
+            {"status": "in_progress", "task_id": short_circuit_task_id},
+            status=200,
+        )
 
+    assert spawn_args is not None  # nosec: invariant of branch above
+    new_id, cancel_event = spawn_args
     thread = threading.Thread(
         target=download_worker,
         args=(new_id, data_dir, cancel_event, _set_status),

@@ -87,6 +87,55 @@ class TestCategorizeException:
         assert cat in ("auth_failed", "generic")
 
 
+class TestCategorizeExceptionAuthHostnameRegression:
+    """Security-reviewer LOW-3 — a connection-refused exception whose
+    text contains the literal substring ``auth`` (because the hostname
+    contains it) MUST classify as ``host_unreachable``, NOT
+    ``auth_failed``. The bare ``"auth" in text`` heuristic the dev
+    pass shipped was over-broad; the fix matches on the class name or
+    on specific phrases like ``"authentication failed"``.
+    """
+
+    def test_connection_refused_with_auth_in_hostname(self):
+        # Real psycopg-shaped message with a hostname containing "auth".
+        exc = Exception(
+            'connection to server at "auth-server.local" '
+            "(1.2.3.4), port 5432 failed: Connection refused",
+        )
+        assert db_validate.categorize_exception(exc, "") == \
+            "host_unreachable"
+
+    def test_could_not_connect_with_auth_in_hostname(self):
+        exc = Exception(
+            "could not connect to server at auth.example.com:5432",
+        )
+        assert db_validate.categorize_exception(exc, "") == \
+            "host_unreachable"
+
+    def test_specific_auth_phrase_still_categorizes_as_auth(self):
+        # Defensive: the specific phrase MUST still trip auth_failed.
+        for msg in (
+            "FATAL: password authentication failed for user 'u'",
+            "authentication failed",
+            "auth_method 'scram-sha-256' not supported",
+        ):
+            exc = Exception(msg)
+            assert db_validate.categorize_exception(exc, "") == \
+                "auth_failed", msg
+
+    def test_class_name_auth_overrides_text_host(self):
+        # If the exception class name is auth-shaped, that wins even
+        # when the message text mentions a host (e.g. driver wraps
+        # the failure in a class hierarchy where the parent is named
+        # AuthenticationError).
+        class AuthError(Exception):
+            pass
+
+        exc = AuthError("connection to host failed")
+        assert db_validate.categorize_exception(exc, "") == \
+            "auth_failed"
+
+
 class TestRedact:
 
     def test_replaces_password(self):

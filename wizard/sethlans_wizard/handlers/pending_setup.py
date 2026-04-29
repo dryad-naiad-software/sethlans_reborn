@@ -61,14 +61,23 @@ def _read_topology(data_dir: Path) -> str | None:
 
 
 def _build_payload(topology: str) -> dict:
-    """Serialize the in-memory wizard state into the FR-PEND1 schema."""
-    admin = wizard_state.get_admin()
+    """Serialize the in-memory wizard state into the FR-PEND1 schema.
+
+    Concurrency-reviewer C2 — every slice is read from a single
+    consistent ``wizard_state.snapshot()``. Reading slice-by-slice via
+    ``get_admin()`` / ``get_ffmpeg()`` / ``get_worker_password()`` would
+    take the wizard-state lock three separate times and could observe a
+    torn cross-slice payload if a concurrent setter (e.g. a Back-button
+    re-submit) interleaves between calls.
+    """
+    state = wizard_state.snapshot()
+    admin = state["admin"]
     if admin is None:
         raise ValueError("admin tuple not set")
-    ffmpeg = wizard_state.get_ffmpeg()
+    ffmpeg = state["ffmpeg"]
     if ffmpeg is None:
         raise ValueError("ffmpeg metadata not set")
-    worker_pw = wizard_state.get_worker_password()
+    worker_pw = state["worker_password"]
     payload: dict = {
         "schema_version": PENDING_SCHEMA_VERSION,
         "topology": topology,
@@ -94,7 +103,21 @@ def _build_payload(topology: str) -> dict:
 
 
 def _atomic_write(target: Path, body: bytes) -> None:
-    """FR-PEND1a fsync sequence + chmod 600 / Windows ACL tighten."""
+    """FR-PEND1a atomic write of *body* to *target*.
+
+    Sequence (security-reviewer LOW-2): the temp file is created with
+    mode ``0o600`` via ``os.open(..., O_CREAT, 0o600)`` so the file is
+    NEVER world-readable from creation. We then write + ``fsync(fd)`` +
+    close + ``os.replace(tmp, target)`` (atomic on POSIX + NTFS), then
+    ``fsync(parent_dir_fd)`` on POSIX so the directory entry is durable.
+    The post-replace ``os.chmod(target, 0o600)`` on POSIX is defense in
+    depth — ``os.replace`` preserves the inode's mode bits, so the file
+    is already 0o600 from creation. On Windows ``tighten_acls_windows``
+    handles ACLs after the replace.
+
+    The chmod / ACL tighten happens AFTER ``os.replace``; the temp file
+    was already 0o600 so there is no world-readable window.
+    """
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
     fd = os.open(

@@ -137,6 +137,50 @@ def get_ffmpeg() -> Optional[dict]:
         }
 
 
+def snapshot() -> dict:
+    """Return a single coherent snapshot of every wizard_state slice.
+
+    Concurrency-reviewer C2 — callers that read more than one slice
+    (admin tuple AND worker pw AND ffmpeg) MUST use this helper instead
+    of chaining individual getters. The lock is held for the duration
+    of the read so the returned dict reflects a single moment in time;
+    the snapshot is plain data afterward and safe to read lock-free.
+
+    Shape::
+
+        {
+            "admin": {"username", "email", "password_plaintext"} | None,
+            "worker_password": {"hash", "salt"} | None,
+            "ffmpeg": {"version", "binary_path"} | None,
+        }
+    """
+    with _state_lock:
+        admin: Optional[dict] = None
+        if _admin_username:
+            admin = {
+                "username": _admin_username,
+                "email": _admin_email or "",
+                "password_plaintext": _admin_password_plaintext or "",
+            }
+        worker_pw: Optional[dict] = None
+        if _worker_ui_password_hash and _worker_ui_password_salt:
+            worker_pw = {
+                "hash": _worker_ui_password_hash,
+                "salt": _worker_ui_password_salt,
+            }
+        ffmpeg: Optional[dict] = None
+        if _ffmpeg_version and _ffmpeg_binary_path:
+            ffmpeg = {
+                "version": _ffmpeg_version,
+                "binary_path": _ffmpeg_binary_path,
+            }
+    return {
+        "admin": admin,
+        "worker_password": worker_pw,
+        "ffmpeg": ffmpeg,
+    }
+
+
 def reset_state_for_tests() -> None:
     """Wipe every slice. Tests share module-level state across the run."""
     global _admin_username, _admin_email, _admin_password_plaintext
@@ -160,5 +204,6 @@ __all__ = [
     "get_worker_password",
     "set_ffmpeg",
     "get_ffmpeg",
+    "snapshot",
     "reset_state_for_tests",
 ]

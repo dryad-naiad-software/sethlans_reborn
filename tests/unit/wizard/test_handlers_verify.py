@@ -16,6 +16,7 @@ from __future__ import annotations
 import configparser
 import json
 import socket
+import threading
 
 import pytest
 
@@ -407,6 +408,92 @@ class TestTopologyReader:
             json.dumps({"topology": "manager"}), encoding="utf-8",
         )
         assert verify_handler._read_topology(tmp_path) == "manager"
+
+
+class TestManagerIniLockedRead:
+    """Concurrency-reviewer C3 — ``_read_manager_ini`` MUST acquire the
+    manager-ini lock so a concurrent write of the file (atomic
+    ``os.replace``) cannot be observed mid-parse on Windows or as a
+    structurally-inconsistent read on POSIX.
+    """
+
+    def test_read_acquires_manager_ini_lock(self, tmp_path, mocker):
+        """Spy on ``manager_ini.get_manager_ini_lock`` and confirm the
+        verify reader acquires it before parsing the file.
+        """
+        from wizard.sethlans_wizard import manager_ini
+        _provision_manager_ini(tmp_path)
+        lock_spy = mocker.spy(manager_ini, "get_manager_ini_lock")
+        verify_handler._read_manager_ini(tmp_path)
+        assert lock_spy.call_count >= 1
+
+    def test_concurrent_writer_does_not_torn_parse(
+        self, tmp_path,
+    ):
+        """Two threads — one repeatedly writes manager.ini via
+        ``manager_ini.update_manager_ini`` (acquiring the lock for the
+        full RMW), one repeatedly calls ``_read_manager_ini``. Every
+        read MUST see a parseable, structurally-coherent ConfigParser
+        (the guarantee ``manager_ini`` provides because both paths
+        serialize through the same lock).
+        """
+        from wizard.sethlans_wizard import manager_ini
+
+        # Seed the file so it exists.
+        manager_ini.update_manager_ini(
+            tmp_path, "server",
+            {"bind_host": "127.0.0.1", "bind_port": "8080"},
+        )
+
+        stop = threading.Event()
+        torn_reads: list[str] = []
+
+        def writer():
+            i = 0
+            while not stop.is_set():
+                try:
+                    # Alternate between two ports so the body length
+                    # changes — increases the chance of catching a
+                    # torn read if the lock is missing.
+                    port = "8080" if i % 2 == 0 else "8443"
+                    manager_ini.update_manager_ini(
+                        tmp_path, "server",
+                        {"bind_host": "127.0.0.1", "bind_port": port},
+                    )
+                    manager_ini.update_manager_ini(
+                        tmp_path, "database",
+                        {
+                            "engine": "sqlite",
+                            "name": f"db-{i}.sqlite",
+                        },
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    torn_reads.append(f"writer crash: {exc!r}")
+                i += 1
+
+        def reader():
+            for _ in range(200):
+                parser = verify_handler._read_manager_ini(tmp_path)
+                # Validate structure: server section should exist with
+                # the expected keys.
+                if not parser.has_section("server"):
+                    torn_reads.append("missing [server] section")
+                    continue
+                port = parser.get(
+                    "server", "bind_port", fallback="",
+                )
+                if port not in ("8080", "8443"):
+                    torn_reads.append(f"unexpected port: {port!r}")
+
+        writer_thread = threading.Thread(target=writer, daemon=True)
+        writer_thread.start()
+        reader_thread = threading.Thread(target=reader)
+        reader_thread.start()
+        reader_thread.join(timeout=10)
+        stop.set()
+        writer_thread.join(timeout=2)
+
+        assert not torn_reads, torn_reads[:5]
 
 
 class TestExports:

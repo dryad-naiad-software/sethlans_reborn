@@ -38,12 +38,29 @@ def _redact(text: str, password: str) -> str:
 
 
 def categorize_exception(exc: BaseException, password: str) -> str:
-    """Map a driver exception to one of the fixed category strings."""
+    """Map a driver exception to one of the fixed category strings.
+
+    Security-reviewer LOW-3: the ``auth`` signal MUST come from the
+    exception class name (driver-controlled, stable) or from a more
+    specific phrase in the message text — NOT from a bare ``"auth"``
+    substring. Otherwise a user-controlled hostname containing ``auth``
+    (e.g. ``auth-server.local``) would mis-classify a connection-refused
+    error as ``auth_failed`` and mislead the operator into checking
+    credentials when the host is just unreachable.
+    """
     name = exc.__class__.__name__.lower()
     text = str(exc).lower()
     if password:
         text = text.replace(password.lower(), "<redacted>")
-    if "auth" in name or "auth" in text or "password" in text:
+    auth_text_signals = (
+        "authentication failed",
+        "password authentication",
+        "auth_method",
+        "auth method",
+    )
+    if "auth" in name or any(s in text for s in auth_text_signals):
+        return "auth_failed"
+    if "password" in text:
         return "auth_failed"
     if "ssl" in name or "ssl" in text or "tls" in text:
         return "ssl_error"
@@ -51,7 +68,11 @@ def categorize_exception(exc: BaseException, password: str) -> str:
         return "permission_denied"
     if "timeout" in name or "timeout" in text or "timed out" in text:
         return "timeout"
-    if "host" in text or "could not connect" in text or "refused" in text:
+    if (
+        "could not connect" in text
+        or "refused" in text
+        or "host" in text
+    ):
         return "host_unreachable"
     if "database" in text and (
         "not exist" in text or "unknown" in text or "not found" in text

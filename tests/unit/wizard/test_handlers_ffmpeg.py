@@ -159,6 +159,110 @@ class TestStartHandler:
         assert latest.kwargs.get("daemon") is True
 
 
+class TestAlreadyInstalledRaceRegression:
+    """Concurrency-reviewer C1 — ``already_installed`` short-circuit
+    must NOT clobber an in-flight task. Regression test for the race
+    where the binary lands on disk mid-extraction and a second start
+    arrives before extraction finishes.
+    """
+
+    def test_already_installed_does_not_clobber_in_flight(
+        self, start_handler, monkeypatch, tmp_path,
+    ):
+        """Pin an in-flight task in mid-extraction state via a
+        ``threading.Event``, fire a second start() that observes
+        ``already_installed=True``, and confirm the second start
+        returns the FIRST task's id (single-task invariant) rather
+        than overwriting ``_active_task`` with a new ``complete`` task.
+        """
+        # Stage 1: spawn a real in-flight task. Block its worker thread
+        # so the registry stays in 'downloading' state.
+        worker_started = threading.Event()
+        worker_release = threading.Event()
+
+        def blocking_worker(*_args, **_kwargs):
+            worker_started.set()
+            worker_release.wait(timeout=5)
+
+        monkeypatch.setattr(
+            ffmpeg_handler, "download_worker", blocking_worker,
+        )
+        monkeypatch.setattr(
+            ffmpeg_download, "already_installed", lambda dd: False,
+        )
+        env1 = auth_env(b"")
+        _, _, body1 = call_handler(start_handler, env1)
+        first_task_id = body1["task_id"]
+        assert worker_started.wait(timeout=2), "worker thread did not start"
+
+        # Stage 2: simulate the race — binary appears mid-extraction.
+        monkeypatch.setattr(
+            ffmpeg_download, "already_installed", lambda dd: True,
+        )
+        binary_path = tmp_path / "bin" / "ffmpeg" / "7.1" / "ffmpeg"
+        monkeypatch.setattr(
+            ffmpeg_download, "get_ffmpeg_binary", lambda dd: binary_path,
+        )
+
+        try:
+            # Stage 3: second start should observe in-flight task and
+            # return its id without clobbering _active_task.
+            env2 = auth_env(b"")
+            status, _, body2 = call_handler(start_handler, env2)
+            assert status.startswith("200")
+            assert body2["task_id"] == first_task_id, (
+                "second start clobbered the in-flight task; "
+                "single-task invariant violated"
+            )
+            with ffmpeg_handler._task_lock:
+                # Active task is still the FIRST task; status is
+                # still 'downloading' (not 'complete').
+                assert ffmpeg_handler._active_task["task_id"] == \
+                    first_task_id
+                assert ffmpeg_handler._active_task["status"] == \
+                    "downloading"
+        finally:
+            worker_release.set()
+
+    def test_already_installed_does_not_clobber_failed_in_flight(
+        self, start_handler, monkeypatch, tmp_path,
+    ):
+        """Sanity case: the ``not in (complete, failed)`` guard means
+        a task in terminal state (``failed``) does NOT block the
+        short-circuit. A new short-circuit task replaces the failed
+        one, since no worker thread is alive to be orphaned.
+        """
+        monkeypatch.setattr(
+            ffmpeg_download, "already_installed", lambda dd: False,
+        )
+        monkeypatch.setattr(
+            ffmpeg_handler, "download_worker", lambda *a, **k: None,
+        )
+        env = auth_env(b"")
+        _, _, body1 = call_handler(start_handler, env)
+        first_id = body1["task_id"]
+        # Manually transition to failed (terminal state).
+        with ffmpeg_handler._task_lock:
+            ffmpeg_handler._active_task["status"] = "failed"
+
+        # Now flip already_installed=True and call start again.
+        monkeypatch.setattr(
+            ffmpeg_download, "already_installed", lambda dd: True,
+        )
+        binary_path = tmp_path / "bin" / "ffmpeg" / "7.1" / "ffmpeg"
+        monkeypatch.setattr(
+            ffmpeg_download, "get_ffmpeg_binary", lambda dd: binary_path,
+        )
+        env2 = auth_env(b"")
+        status, _, body2 = call_handler(start_handler, env2)
+        assert status.startswith("200")
+        # Terminal state was replaced -> a fresh short-circuit task.
+        assert body2["task_id"] != first_id
+        with ffmpeg_handler._task_lock:
+            assert ffmpeg_handler._active_task["status"] == "complete"
+            assert ffmpeg_handler._active_task["percent"] == 100
+
+
 class TestCancelHandler:
 
     def test_cancel_with_no_active_task_returns_not_found(

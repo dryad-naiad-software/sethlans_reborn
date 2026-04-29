@@ -32,7 +32,12 @@ import time
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
-from wizard.sethlans_wizard import progress, wizard_state, ffmpeg_download
+from wizard.sethlans_wizard import (
+    ffmpeg_download,
+    manager_ini,
+    progress,
+    wizard_state,
+)
 from wizard.sethlans_wizard.checkpoints import VERIFIED
 from wizard.sethlans_wizard.handlers import _wsgi
 from wizard.sethlans_wizard.handlers.auth import session_header_valid
@@ -51,9 +56,22 @@ _cached_result: Optional[dict] = None
 
 
 def _read_manager_ini(data_dir: Path) -> configparser.ConfigParser:
+    """Read ``manager.ini`` under the manager-ini lock.
+
+    Concurrency-reviewer C3 — the verify handler must NOT race a
+    concurrent ``/network/`` or ``/database/`` POST that is mid-write
+    of the ini. Acquire ``manager_ini.get_manager_ini_lock()`` for the
+    duration of the parse so a partially-written file (after
+    ``os.replace`` but before parser.read finishes) cannot be observed.
+    On POSIX ``os.replace`` is atomic at the directory entry level but
+    ``parser.read`` issues multiple read syscalls, so cross-syscall
+    consistency requires the same lock the writer takes.
+    """
     parser = configparser.ConfigParser()
     target = data_dir / "manager.ini"
-    if target.exists():
+    if not target.exists():
+        return parser
+    with manager_ini.get_manager_ini_lock():
         try:
             parser.read(str(target), encoding="utf-8")
         except configparser.Error as exc:

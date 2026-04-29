@@ -99,7 +99,18 @@ def update_manager_ini(
 
 
 def _atomic_write(target: Path, body: bytes) -> None:
-    """FR-PEND1a fsync sequence + chmod 600 / Windows ACL tighten."""
+    """FR-PEND1a atomic write of *body* to *target*.
+
+    Sequence (security-reviewer LOW-2): the temp file is created with
+    mode ``0o600`` via ``os.open(..., O_CREAT, 0o600)`` so the file is
+    NEVER world-readable from creation. We then write + ``fsync(fd)`` +
+    close + ``os.replace(tmp, target)`` (atomic on POSIX + NTFS), then
+    ``fsync(parent_dir_fd)`` on POSIX so the directory entry is durable.
+    The post-replace ``os.chmod(target, 0o600)`` on POSIX is defense in
+    depth — ``os.replace`` preserves the inode's mode bits, so the file
+    is already 0o600 from creation. On Windows ``tighten_acls_windows``
+    handles ACLs after the replace.
+    """
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
     fd = os.open(
