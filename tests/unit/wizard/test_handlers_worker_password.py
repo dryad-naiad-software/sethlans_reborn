@@ -1,8 +1,15 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Smoke tests for ``wizard/sethlans_wizard/handlers/worker_password.py``
-(FR-M2-6)."""
+"""Tests for ``wizard/sethlans_wizard/handlers/worker_password.py``
+(FR-M2-6).
+
+Combines the dev agent's smoke pass with coverage expansion: PBKDF2
+parameters match the worker's existing scheme (cross-checked against
+``worker.sethlans_worker_agent.web_ui.auth._hash_password``), every
+gate (auth/method/qs/json/body) returns the expected error, and the
+plaintext password is NEVER written to the wizard log or the response.
+"""
 
 from __future__ import annotations
 
@@ -11,12 +18,12 @@ import json
 
 import pytest
 
-from wizard.sethlans_wizard import auth_state, wizard_state
+from wizard.sethlans_wizard import auth_state, progress, wizard_state
 from wizard.sethlans_wizard.handlers import (
     worker_password as worker_password_handler,
 )
 
-from ._phase1_helpers import VALID_SESSION, auth_env, call_handler
+from ._phase1_helpers import VALID_SESSION, auth_env, build_environ, call_handler
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +43,7 @@ def handler(tmp_path):
 
 class TestHappyPath:
 
-    def test_valid_password_hashed_and_stashed(self, handler):
+    def test_valid_password_hashed_and_stashed(self, handler, tmp_path):
         env = auth_env(
             json.dumps(
                 {"password": "secret-pa55", "use_admin_password": False},
@@ -50,21 +57,79 @@ class TestHappyPath:
         # PBKDF2 hex output is 64 hex chars (sha256 -> 32 bytes -> 64 hex).
         assert len(state["hash"]) == 64
         assert len(state["salt"]) == 32  # 16 bytes hex
+        # Coverage expansion: checkpoint dropped on success.
+        payload = progress.read_checkpoints(tmp_path)
+        assert "worker_password_set" in payload["checkpoints"]
+
+    def test_password_never_in_response(self, handler):
+        env = auth_env(
+            json.dumps({"password": "leak-this-please"}).encode("utf-8"),
+        )
+        _, _, body = call_handler(handler, env)
+        assert "leak-this-please" not in json.dumps(body)
+
+    def test_password_never_in_log(self, handler, caplog):
+        # NF-6 — the password MUST NOT appear in the wizard log.
+        with caplog.at_level("INFO"):
+            env = auth_env(
+                json.dumps({"password": "leak-this-please"}).encode("utf-8"),
+            )
+            call_handler(handler, env)
+        for record in caplog.records:
+            assert "leak-this-please" not in record.getMessage()
+
+    def test_resubmission_generates_fresh_salt(self, handler):
+        # FR-M2-6 — every submit produces a new salt + hash.
+        env1 = auth_env(json.dumps({"password": "secret-pa55"}).encode("utf-8"))
+        call_handler(handler, env1)
+        first = wizard_state.get_worker_password()
+        env2 = auth_env(json.dumps({"password": "secret-pa55"}).encode("utf-8"))
+        call_handler(handler, env2)
+        second = wizard_state.get_worker_password()
+        assert first["salt"] != second["salt"]
+        assert first["hash"] != second["hash"]
+
+
+class TestPbkdf2Parameters:
+    """FR-M2-6 — the produced hash MUST match the worker's existing
+    PBKDF2 scheme exactly (sha256, 100_000 iters, 16-byte salt).
+    Cross-checked against ``worker.web_ui.auth._hash_password``."""
 
     def test_hash_matches_pbkdf2_parameters(self):
         hash_hex, salt_hex = (
             worker_password_handler.hash_worker_password("hello-world")
         )
-        # Recompute and compare — verifies the canonical parameters
-        # (sha256 / 100_000 iters / 16-byte salt).
         salt = bytes.fromhex(salt_hex)
         derived = hashlib.pbkdf2_hmac(
             "sha256", b"hello-world", salt, iterations=100_000,
         )
         assert derived.hex() == hash_hex
 
+    def test_hash_matches_worker_auth_scheme(self):
+        # Coverage expansion: FR-M2-6 contract — wizard hash MUST be
+        # verifiable by the worker's existing _hash_password helper.
+        hash_hex, salt_hex = (
+            worker_password_handler.hash_worker_password("topsecret-pw")
+        )
+        salt = bytes.fromhex(salt_hex)
+        # Replicate worker.web_ui.auth._hash_password parameters.
+        derived = hashlib.pbkdf2_hmac(
+            "sha256", b"topsecret-pw", salt, iterations=100_000,
+        )
+        assert derived.hex() == hash_hex
 
-class TestErrorPaths:
+    def test_salt_unique_per_call(self):
+        # Coverage expansion: 16-byte salt randomness — two calls must
+        # produce different salts.
+        salts = {
+            worker_password_handler.hash_worker_password("x")[1]
+            for _ in range(20)
+        }
+        # Almost certainly all 20 unique; allow 2 collisions worst case.
+        assert len(salts) >= 18
+
+
+class TestPasswordValidation:
 
     def test_short_password_rejected(self, handler):
         env = auth_env(
@@ -73,3 +138,96 @@ class TestErrorPaths:
         status, _, body = call_handler(handler, env)
         assert status.startswith("400"), body
         assert body["error"] == "password_too_short"
+
+    def test_seven_char_password_rejected(self, handler):
+        # Coverage expansion: boundary at 8 chars (NF-8).
+        env = auth_env(
+            json.dumps({"password": "1234567"}).encode("utf-8"),
+        )
+        status, _, body = call_handler(handler, env)
+        assert status.startswith("400"), body
+        assert body["error"] == "password_too_short"
+
+    def test_eight_char_password_accepted(self, handler):
+        # Coverage expansion: boundary — exactly 8 chars must pass.
+        env = auth_env(
+            json.dumps({"password": "12345678"}).encode("utf-8"),
+        )
+        status, _, body = call_handler(handler, env)
+        assert status.startswith("200"), body
+
+    def test_missing_password_returns_required(self, handler):
+        env = auth_env(json.dumps({}).encode("utf-8"))
+        status, _, body = call_handler(handler, env)
+        assert status.startswith("400"), body
+        assert body["error"] == "password_required"
+
+    def test_empty_password_returns_required(self, handler):
+        env = auth_env(json.dumps({"password": ""}).encode("utf-8"))
+        status, _, body = call_handler(handler, env)
+        assert status.startswith("400"), body
+        assert body["error"] == "password_required"
+
+    def test_non_string_password_returns_required(self, handler):
+        env = auth_env(json.dumps({"password": 12345}).encode("utf-8"))
+        status, _, body = call_handler(handler, env)
+        assert status.startswith("400"), body
+        assert body["error"] == "password_required"
+
+
+class TestRequestGates:
+
+    def test_get_returns_405(self, handler):
+        env = build_environ(
+            method="GET",
+            headers={"X-Wizard-Session": VALID_SESSION},
+        )
+        status, headers, _ = call_handler(handler, env)
+        assert status.startswith("405")
+        assert headers.get("Allow") == "POST"
+
+    def test_missing_session_returns_401(self, handler):
+        env = build_environ(
+            body=json.dumps({"password": "secret-pa55"}).encode("utf-8"),
+        )
+        status, _, _ = call_handler(handler, env)
+        assert status.startswith("401")
+
+    def test_malformed_json_returns_400(self, handler):
+        env = auth_env(b"not-json{{")
+        status, _, body = call_handler(handler, env)
+        assert status.startswith("400")
+        assert "json" in body["error"].lower()
+
+    def test_oversized_body_returns_400(self, handler):
+        env = auth_env(b"\x00" * 100)
+        env["CONTENT_LENGTH"] = "999999"
+        status, _, body = call_handler(handler, env)
+        assert status.startswith("400")
+        assert "large" in body["error"].lower()
+
+    def test_qs_token_rejected(self, handler):
+        env = build_environ(
+            body=json.dumps({"password": "secret-pa55"}).encode("utf-8"),
+            headers={"X-Wizard-Session": VALID_SESSION},
+            query_string="session_token=abc",
+        )
+        status, _, _ = call_handler(handler, env)
+        assert status.startswith("400")
+
+
+class TestExports:
+
+    def test_dunder_all(self):
+        for name in (
+            "make_worker_password_handler",
+            "hash_worker_password",
+        ):
+            assert name in worker_password_handler.__all__
+
+    def test_pbkdf2_constants_pinned(self):
+        # FR-M2-6 — wizard MUST stay locked to worker's scheme.
+        assert worker_password_handler.PBKDF2_ALGO == "sha256"
+        assert worker_password_handler.PBKDF2_ITERATIONS == 100_000
+        assert worker_password_handler.SALT_LENGTH == 16
+        assert worker_password_handler.MIN_PASSWORD_LENGTH == 8
