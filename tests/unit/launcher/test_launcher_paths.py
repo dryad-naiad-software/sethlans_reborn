@@ -93,6 +93,58 @@ class TestGetDataDir:
         expected = fake_home / ".local" / "share" / "sethlans"
         assert result == expected
 
+    def test_env_override_wins_over_platform(self, mocker, tmp_path):
+        """Issue #181: ``SETHLANS_DATA_DIR`` overrides the per-OS default.
+
+        Mirrors :func:`shared.frozen_paths.get_shared_data_dir` so the
+        launcher resolves to the same shared root the wizard / manager /
+        worker subprocesses do — without the override the launcher
+        polled ``%LOCALAPPDATA%\\Sethlans`` while the wizard wrote to
+        the dev tree under ``temp/dev-data``, hanging the wizard
+        hand-off (issue #180).
+        """
+        override = (tmp_path / "shared-data").resolve()
+        env = os.environ.copy()
+        env["SETHLANS_DATA_DIR"] = str(override)
+        # Set every platform-specific signal too so the test fails if
+        # the override is silently ignored on any branch.
+        env["LOCALAPPDATA"] = "C:\\Users\\artist\\AppData\\Local"
+        env["XDG_DATA_HOME"] = "/home/artist/.local/share"
+        for system in ("Windows", "Darwin", "Linux"):
+            with patch.dict(os.environ, env, clear=True):
+                mocker.patch("platform.system", return_value=system)
+                result = _get_data_dir()
+            assert result == override, (
+                f"override ignored on {system}: got {result}"
+            )
+
+    def test_env_override_must_be_absolute(self, mocker):
+        env = os.environ.copy()
+        env["SETHLANS_DATA_DIR"] = "relative/path"
+        with patch.dict(os.environ, env, clear=True):
+            mocker.patch("platform.system", return_value="Linux")
+            try:
+                _get_data_dir()
+            except ValueError as exc:
+                assert "absolute path" in str(exc)
+                assert "relative/path" in str(exc)
+            else:
+                raise AssertionError(
+                    "expected ValueError for relative SETHLANS_DATA_DIR"
+                )
+
+    def test_env_override_empty_string_falls_through(self, mocker):
+        """Empty ``SETHLANS_DATA_DIR`` is treated as unset (matches shared)."""
+        fake_home = Path("/home/artist")
+        mocker.patch("pathlib.Path.home", return_value=fake_home)
+        env = os.environ.copy()
+        env["SETHLANS_DATA_DIR"] = ""
+        env.pop("XDG_DATA_HOME", None)
+        with patch.dict(os.environ, env, clear=True):
+            mocker.patch("platform.system", return_value="Linux")
+            result = _get_data_dir()
+        assert result == fake_home / ".local" / "share" / "sethlans"
+
 
 # ---- _get_install_dir() / _get_bin_dir() ----------------------------------
 

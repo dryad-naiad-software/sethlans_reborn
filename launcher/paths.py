@@ -20,7 +20,29 @@ from pathlib import Path
 
 
 def get_data_dir() -> Path:
-    """Return the per-OS Sethlans data directory."""
+    """Return the per-OS Sethlans shared data directory.
+
+    Honours the ``SETHLANS_DATA_DIR`` env override (issue #181) so the
+    launcher resolves to the same shared root the wizard / manager /
+    worker do via :func:`shared.frozen_paths.get_shared_data_dir`. The
+    override must be an absolute path; relative paths raise ``ValueError``
+    rather than silently mis-resolving against the cwd.
+
+    Without an override, falls back to the per-OS convention:
+    ``%LOCALAPPDATA%\\Sethlans`` on Windows,
+    ``~/Library/Application Support/Sethlans`` on macOS,
+    ``$XDG_DATA_HOME/sethlans`` (default ``~/.local/share/sethlans``)
+    on Linux.
+    """
+    env_override = os.environ.get("SETHLANS_DATA_DIR")
+    if env_override:
+        p = Path(env_override)
+        if not p.is_absolute():
+            raise ValueError(
+                "SETHLANS_DATA_DIR must be an absolute path, got: "
+                f"{env_override}"
+            )
+        return p
     system = platform.system()
     if system == "Windows":
         base = os.environ.get("LOCALAPPDATA")
