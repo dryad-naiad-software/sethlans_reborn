@@ -14,6 +14,15 @@ from __future__ import annotations
 import logging
 import signal
 import sys
+from pathlib import Path
+
+# In frozen mode PyInstaller handles sys.path; only add the project
+# root when running from source (issue #178). Mirrors
+# ``wizard/run_wizard.py`` and ``launcher/run_launcher.py``.
+if not getattr(sys, "frozen", False):
+    project_root = str(Path(__file__).resolve().parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
 
 def _shutdown(signum, frame):  # pragma: no cover - signal path
