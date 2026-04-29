@@ -14,3 +14,8 @@ pytest-qt==4.5.0
 PySide6-Essentials==6.11.0
 # dev-mode hot-reload wrapper; not shipped in frozen builds
 watchdog==6.0.0
+# Playwright browser automation for the Phase 2 wizard frontend
+# integration tests (tests/integration/frontend/test_phase2_*.py).
+# Install browsers with: python -m playwright install chromium
+playwright==1.58.0
+pytest-playwright==0.7.2

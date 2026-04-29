@@ -4,15 +4,17 @@
 """
 Shared fixtures for frontend-backend contract integration tests.
 
-These tests verify that the live Django API responds with shapes the
-Angular frontend expects -- specifically the envelopes and payloads
-defined in:
+Two test families share this directory:
 
-* ``manager/frontend/src/app/core/models/error-envelope.ts``
-* ``manager/frontend/src/app/features/setup/models/setup.models.ts``
-
-Tests here do NOT mock the backend; they exercise the real Django
-URLconf + middleware + DRF via the test client.
+* The legacy Angular contract tests verify that the live Django API
+  responds with shapes the Angular frontend expects.
+* The Phase 2 (Spec 2) Playwright tests drive the live wizard
+  subprocess in a real browser. They reuse the ``wizard_process``
+  fixture from :mod:`tests.integration.wizard.conftest` (re-exported
+  below) plus a ``browser_context_args`` override that disables HTTPS
+  errors — the wizard binds plain HTTP on loopback (issue #170) so
+  the override is defense-in-depth for environments that still front
+  it with TLS.
 """
 
 from __future__ import annotations
@@ -20,6 +22,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
+# Re-export the wizard subprocess fixtures so Playwright tests in this
+# directory can request them. Pytest fixtures are picked up by name from
+# any conftest in the path; bringing them in via plain import + assigning
+# to a module-scoped fixture-decorated alias is the canonical way to
+# share fixtures across sibling test packages without moving them up to
+# tests/integration/conftest.py (which would broaden the blast radius).
+from tests.integration.wizard.conftest import (  # noqa: F401
+    wizard_data_dir,
+    wizard_secrets,
+    wizard_process,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_ROOT = REPO_ROOT / "manager" / "frontend" / "src" / "app"
@@ -101,6 +115,26 @@ def patch_bootstrap_data_dir(mocker, tmp_path):
         bootstrap_mod, "bind_setup_session_id", return_value=True,
     )
     return tmp_path
+
+
+# ---------------------------------------------------------------------
+# Playwright browser context overrides for the Phase 2 wizard tests.
+# ---------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def browser_context_args(browser_context_args):
+    """Override the default Playwright browser context.
+
+    The wizard's loopback listener is plain HTTP (issue #170), so the
+    cert override is defensive — kept in case a future configuration
+    fronts it with TLS again. Disabling HTTPS errors here means a
+    single context can drive the whole flow even if the URL scheme
+    flips between pages.
+    """
+    return {
+        **browser_context_args,
+        "ignore_https_errors": True,
+    }
 
 
 def assert_envelope_shape(body: dict) -> None:
