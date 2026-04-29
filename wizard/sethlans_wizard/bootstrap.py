@@ -17,6 +17,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -137,27 +138,68 @@ def write_port_file(subdir: Path, port: int) -> None:
         pass
 
 
+_signal_count_lock = threading.Lock()
+_signal_count = 0
+
+
+def _reset_signal_count_for_tests() -> None:
+    """Test-only: reset the signal-count counter. Production never calls."""
+    global _signal_count
+    with _signal_count_lock:
+        _signal_count = 0
+
+
 def install_signal_handlers() -> None:
-    """Install SIGTERM (and SIGINT) → graceful waitress close.
+    """Install SIGTERM/SIGINT handler → polite shutdown + escalation.
 
-    FR-W17 polite-shutdown is driven by the runtime-ready / done
-    handlers; this handler is the operator-side escape hatch (e.g.,
-    systemd stop, Ctrl+C). It tells waitress to drain in-flight
-    requests and exit, instead of being killed mid-response.
+    Issue #176: the prior handler called ``server.close()`` directly,
+    which did NOT reliably break the waitress run loop (observed
+    30-minute hang). The new handler signals the wizard's shutdown
+    event; ``server.run()`` then unblocks on the main thread, drains,
+    and returns normally.
 
-    Safe to install BEFORE the server has bound — the handler resolves
-    the live server reference at signal-fire time and is a no-op when
-    none is registered.
+    Second-SIGINT escalation: if the operator presses Ctrl+C twice (or
+    SIGTERM races with SIGINT), the second signal calls
+    ``os._exit(130)`` (128 + SIGINT) so the process can be force-quit
+    without ``taskkill``.
+
+    Safe to install BEFORE the server has bound — both
+    :func:`server.shutdown_server` and :func:`server.request_shutdown`
+    are no-ops when the slot is empty.
     """
     def _handler(signum, _frame):
+        global _signal_count
+        with _signal_count_lock:
+            _signal_count += 1
+            count = _signal_count
+        if count >= 2:
+            # Operator pressed Ctrl+C a second time — force-exit. We
+            # use os._exit (not sys.exit) so atexit handlers and
+            # daemon-thread joins don't keep us alive.
+            logger.warning(
+                "Wizard caught signal %d again (count=%d); force-exit",
+                signum, count,
+            )
+            os._exit(130)
         logger.info(
-            "Wizard caught signal %d; closing waitress server", signum,
+            "Wizard caught signal %d; requesting graceful shutdown",
+            signum,
         )
-        # server.shutdown_server is idempotent and a no-op when the
-        # ServerRef slot is empty (i.e., signal fired before binding).
+        # request_shutdown unblocks the main-thread wait in server.run.
+        # shutdown_server also closes the listening socket (drains
+        # in-flight requests faster).
         server.shutdown_server()
 
-    for sig in (signal.SIGTERM, signal.SIGINT):
+    sigs = [signal.SIGTERM, signal.SIGINT]
+    # Issue #176: on Windows, dev scripts (and the launcher) deliver
+    # CTRL_BREAK_EVENT for cross-process Ctrl+C — that surfaces as
+    # SIGBREAK, NOT SIGINT. Without this hook the default Windows
+    # SIGBREAK behaviour hard-terminates the process before any
+    # graceful-shutdown path runs.
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is not None:
+        sigs.append(sigbreak)
+    for sig in sigs:
         try:
             signal.signal(sig, _handler)
         except (ValueError, OSError):

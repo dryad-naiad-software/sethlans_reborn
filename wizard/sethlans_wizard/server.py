@@ -34,20 +34,14 @@ import waitress
 from wizard.sethlans_wizard.router import Router
 from wizard.sethlans_wizard.routes import register_routes
 
-# Frontend static-file root (FR-W-FE2). The wizard repo layout puts
-# ``wizard/frontend/static/`` two levels above this module
-# (``wizard/sethlans_wizard/server.py`` → up to ``wizard/`` → into
-# ``frontend/static/``).
+# Frontend static-file root (FR-W-FE2): ``wizard/frontend/static/``.
 STATIC_ROOT = (
     Path(__file__).resolve().parent.parent / "frontend" / "static"
 )
 
 logger = logging.getLogger(__name__)
 
-# FR-W3 loopback port-range constants. Public so A6 / launcher can
-# import them when wiring the loopback scan logic. Issue #170 moved
-# the wizard off the public TLS port (8100, now Caddy's) onto a
-# separate loopback range so the two listeners don't clash.
+# FR-W3 loopback port-range constants (issue #170: 8100 belongs to Caddy).
 DEFAULT_WIZARD_PORT = 8099
 PORT_SCAN_RANGE = (8099, 8101, 8102, 8103, 8104)
 WIZARD_PORT_ENV = "SETHLANS_WIZARD_PORT"
@@ -55,8 +49,7 @@ WIZARD_PORT_ENV = "SETHLANS_WIZARD_PORT"
 # FR-W12 — Waitress thread count.
 WAITRESS_THREADS = 4
 
-# Bind address per issue #170: loopback only — Caddy fronts the
-# wizard for public reachability.
+# Issue #170: bind loopback only; Caddy fronts public reachability.
 WIZARD_BIND_HOST = "127.0.0.1"
 
 
@@ -139,32 +132,35 @@ def create_app(
 # run — Waitress launcher (plain HTTP, loopback)
 # ---------------------------------------------------------------------
 
+# Issue #176 — bound for waitress shutdown wait. ``server.close()``
+# does NOT always cause ``server.run()`` to return (observed 30-minute
+# hang in the wild). We bound the join here at 5 seconds, then fall
+# through and let the caller force-exit on the second SIGINT.
+_RUN_JOIN_TIMEOUT_SECONDS = 5.0
+
+
 def run(app: Callable, host: str, port: int) -> None:
-    """Run Waitress on the current thread, plain HTTP, loopback only.
+    """Run Waitress, returning on shutdown event or escalation.
 
-    Blocks until the Waitress event loop exits. The launcher (A6) is
-    expected to call this on a dedicated thread or to treat the wizard
-    as the main process. The wizard's polite-shutdown sequence
-    (FR-W17, A4) calls ``server.close()`` on the returned-and-stashed
-    server reference; A3 keeps the runtime path minimal.
+    Issue #176 fix: ``waitress.server.run()`` runs on a daemon thread;
+    the calling thread waits on :data:`_SHUTDOWN_EVENT` (set by the
+    signal handler, FR-W17 polite-shutdown paths, or the runtime_ready
+    close-hook). On wake we call ``server.close()`` and ``join()`` for
+    up to :data:`_RUN_JOIN_TIMEOUT_SECONDS`; if the thread is still
+    alive we return and let the caller force-exit.
 
-    Issue #170: TLS termination has moved to the launcher's Caddy
-    supervisor. Waitress no longer needs a TLS listener — the wizard
-    listens plain HTTP on loopback and Caddy reverse-proxies to it.
+    Must be called on the main thread so OS signal delivery lands on
+    the right thread (Python routes signals to main only).
+
+    Issue #170: TLS termination is in Caddy; this binds plain HTTP on
+    loopback. Issue #175: ``trusted_proxy`` allows the X-Forwarded-Proto
+    header from Caddy through to handlers.
     """
     logger.info(
         "Wizard Waitress listener bound on http://%s:%d/ (threads=%d)",
         host, port, WAITRESS_THREADS,
     )
-    # Issue #175 — trust the loopback Caddy front to forward
-    # ``X-Forwarded-Proto`` so the auth handler can decide whether to
-    # mark the wizard_session cookie as Secure. Waitress 2.0+ defaults
-    # to ``clear_untrusted_proxy_headers=True``, which strips
-    # ``X-Forwarded-*`` headers from environ unless the source matches
-    # ``trusted_proxy``. The wizard binds 127.0.0.1 only and Caddy
-    # runs on the same host, so trusting 127.0.0.1 is correct and
-    # cannot be reached by a remote client.
-    server = waitress.create_server(
+    srv = waitress.create_server(
         app,
         host=host,
         port=port,
@@ -174,12 +170,39 @@ def run(app: Callable, host: str, port: int) -> None:
         trusted_proxy_count=1,
         trusted_proxy_headers={"x-forwarded-proto"},
     )
-    # Stash the server reference so A4's polite-shutdown can call
-    # server.close() from another thread without re-importing this
-    # module.
-    _SERVER_REF.set(server)
+    _SERVER_REF.set(srv)
+    # Reset the event so a previous run's shutdown doesn't pre-arm us.
+    _SHUTDOWN_EVENT.clear()
+
+    def _serve() -> None:
+        try:
+            srv.run()
+        except Exception:  # noqa: BLE001 — daemon must surface, not swallow
+            logger.exception("Waitress run loop raised; signalling shutdown")
+            _SHUTDOWN_EVENT.set()
+
+    runner = threading.Thread(
+        target=_serve, name="wizard-waitress", daemon=True,
+    )
+    runner.start()
     try:
-        server.run()
+        # Issue #176: poll the event in short slices instead of one
+        # blocking wait(). Windows' threading.Event.wait() can absorb
+        # signals when implemented as a non-alertable wait — polling
+        # forces a bytecode boundary every slice so the signal handler
+        # actually runs and the next wait observes the set event.
+        while not _SHUTDOWN_EVENT.wait(timeout=0.5):
+            pass
+        try:
+            srv.close()
+        except Exception as exc:  # noqa: BLE001 — defensive
+            logger.warning("server.close() raised on shutdown: %s", exc)
+        runner.join(timeout=_RUN_JOIN_TIMEOUT_SECONDS)
+        if runner.is_alive():
+            logger.warning(
+                "Waitress run loop did not exit within %.1fs; "
+                "caller must force-exit", _RUN_JOIN_TIMEOUT_SECONDS,
+            )
     finally:
         _SERVER_REF.clear()
 
@@ -206,21 +229,42 @@ class _ServerRef:
 
 _SERVER_REF = _ServerRef()
 
+# Issue #176 — shutdown event. ``run()`` waits on this; the signal
+# handler, FR-W17 polite-shutdown paths, and the runtime_ready
+# close-hook all set it via request_shutdown/shutdown_server.
+_SHUTDOWN_EVENT = threading.Event()
+
 
 def get_server_ref() -> _ServerRef:
     """Return the singleton :class:`_ServerRef` (for A4)."""
     return _SERVER_REF
 
 
-def shutdown_server() -> None:
-    """Idempotently close the live waitress server, if any.
+def get_shutdown_event() -> threading.Event:
+    """Return the shutdown event ``run()`` waits on (for A4 / tests)."""
+    return _SHUTDOWN_EVENT
 
-    Safe to call before the server is bound (no-op), from any thread,
-    and multiple times. Used by the FR-W17 polite-shutdown sequence:
-    the response-wrapper grace timer (close()-hook), the
-    ``.wizard_reject`` polling thread, and the 5-minute failsafe timer
-    all funnel through this helper so the call site stays simple.
+
+def request_shutdown() -> None:
+    """Wake any in-flight :func:`run` and ask it to exit. Idempotent.
+
+    Issue #176: setting the event is what actually returns control to
+    the main thread; a bare ``server.close()`` from a signal handler
+    has been observed to hang waitress for 30+ minutes.
     """
+    _SHUTDOWN_EVENT.set()
+
+
+def shutdown_server() -> None:
+    """Idempotently close the live waitress server (if any) + signal exit.
+
+    Safe to call before bind (no-op), from any thread, multiple times.
+    Used by the FR-W17 polite-shutdown sequence (grace timer, reject
+    poller, failsafe). Issue #176: also sets :data:`_SHUTDOWN_EVENT`
+    so the main-thread ``run()`` ``.wait()`` returns — a bare
+    ``server.close()`` does NOT reliably break the waitress accept loop.
+    """
+    _SHUTDOWN_EVENT.set()
     srv = _SERVER_REF.get()
     if srv is None:
         return
@@ -228,6 +272,11 @@ def shutdown_server() -> None:
         srv.close()
     except Exception as exc:  # noqa: BLE001 — defensive; close races
         logger.warning("server.close() raised during shutdown: %s", exc)
+
+
+def reset_shutdown_event_for_tests() -> None:
+    """Clear :data:`_SHUTDOWN_EVENT`. Test-only."""
+    _SHUTDOWN_EVENT.clear()
 
 
 __all__ = [
@@ -241,5 +290,8 @@ __all__ = [
     "resolve_port",
     "run",
     "get_server_ref",
+    "get_shutdown_event",
+    "request_shutdown",
     "shutdown_server",
+    "reset_shutdown_event_for_tests",
 ]

@@ -24,11 +24,13 @@ from __future__ import annotations
 import os
 import secrets
 import socket
-import subprocess
 import sys
-import threading
 from pathlib import Path
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Iterable, Optional, Sequence
+
+# Re-export the subprocess streamer (issue #176 layer 2) so callers
+# that imported it from _dev_common keep working unchanged.
+from tools._dev_streamer import stream_subprocess  # noqa: F401
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_ROOT = PROJECT_ROOT / "temp" / "dev-data"
@@ -179,98 +181,9 @@ def print_banner(title: str, fields: Iterable[tuple[str, str]]) -> None:
 
 
 # ---------------------------------------------------------------------
-# Subprocess streamer
+# Subprocess streamer — extracted to ``_dev_streamer`` (issue #176).
+# ``stream_subprocess`` is re-exported at the top of this module.
 # ---------------------------------------------------------------------
-
-def _stream_pipe(pipe, prefix: str, dest) -> None:
-    """Background pump: forward *pipe* lines to *dest* with *prefix*."""
-    try:
-        for raw_line in iter(pipe.readline, b""):
-            try:
-                line = raw_line.decode("utf-8", errors="replace")
-            except Exception:  # noqa: BLE001 — defensive
-                line = repr(raw_line)
-            dest.write(f"{prefix} {line}")
-            dest.flush()
-    finally:
-        try:
-            pipe.close()
-        except OSError:
-            pass
-
-
-def _terminate_child(proc: "subprocess.Popen[bytes]", prefix: str) -> int:
-    """Best-effort terminate -> wait -> kill cascade. Returns final rc."""
-    sys.stderr.write(f"\n{prefix} caught Ctrl+C; terminating\n")
-    sys.stderr.flush()
-    try:
-        proc.terminate()
-    except OSError:
-        pass
-    try:
-        return proc.wait(timeout=5.0)
-    except subprocess.TimeoutExpired:
-        pass
-    sys.stderr.write(f"{prefix} did not exit in 5s; sending SIGKILL\n")
-    sys.stderr.flush()
-    try:
-        proc.kill()
-    except OSError:
-        pass
-    try:
-        return proc.wait(timeout=2.0)
-    except subprocess.TimeoutExpired:
-        return -9
-
-
-def stream_subprocess(
-    cmd: Sequence[str],
-    *,
-    prefix: str,
-    env: Optional[Mapping[str, str]] = None,
-    cwd: Optional[Path] = None,
-) -> int:
-    """Run *cmd*, prefix each output line with *prefix*, return rc.
-
-    Stdout + stderr are line-merged into the parent's streams. SIGINT
-    (Ctrl+C) is forwarded to the child via :meth:`Popen.terminate`;
-    SIGKILL after a 5 s grace.
-    """
-    proc_env = dict(os.environ)
-    if env:
-        proc_env.update(env)
-
-    proc = subprocess.Popen(
-        list(cmd),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=proc_env,
-        cwd=str(cwd) if cwd else None,
-        bufsize=0,
-    )
-
-    threads = [
-        threading.Thread(
-            target=_stream_pipe, args=(proc.stdout, prefix, sys.stdout),
-            daemon=True,
-        ),
-        threading.Thread(
-            target=_stream_pipe, args=(proc.stderr, prefix, sys.stderr),
-            daemon=True,
-        ),
-    ]
-    for t in threads:
-        t.start()
-
-    try:
-        rc: Optional[int] = proc.wait()
-    except KeyboardInterrupt:
-        rc = _terminate_child(proc, prefix)
-
-    for t in threads:
-        t.join(timeout=2.0)
-
-    return rc if rc is not None else 1
 
 
 # ---------------------------------------------------------------------
