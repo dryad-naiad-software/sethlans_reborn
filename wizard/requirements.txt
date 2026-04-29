@@ -4,6 +4,9 @@
 # exactly (psutil also pinned identically by worker/requirements.txt).
 waitress==3.0.2
 cryptography>=44.0.0
+# requests is used by ffmpeg_download for streamed downloads (FR-M2-7
+# Phase 1, Spec 2). Mirrors manager/worker pin.
+requests>=2.32.0
 # psutil is a transitive dep of shared.cert_utils.enumerate_sans
 # (imported at module top in shared/cert_utils.py:21), which the
 # wizard's TLS cert generator (wizard/sethlans_wizard/cert.py) calls.
@@ -11,3 +14,9 @@ cryptography>=44.0.0
 # wizard/requirements.txt fails to import shared.cert_utils with
 # ModuleNotFoundError. DEVOPS-HIGH-2 (Phase F3).
 psutil==7.0.0
+# DB drivers for FR-M2-4 live-connect validation. Pure-Python pymysql
+# (~150 KB) for MySQL/MariaDB; psycopg 3 with binary wheel for
+# PostgreSQL. mysqlclient is explicitly NOT bundled (FR-M2-4 driver
+# allowlist). Both imported lazily by handlers/database.py.
+psycopg>=3.2.0
+pymysql>=1.1.0

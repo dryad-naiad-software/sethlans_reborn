@@ -15,6 +15,10 @@ lock MUST NOT be held when the in-flight probe lock owned by
 ``handlers/runtime_ready.py`` is acquired. Once the in-flight lock is
 held, the handoff-state lock may be acquired and released in short
 critical sections — never the reverse.
+
+Phase 1 (Spec 2) extracted route registration into
+:mod:`wizard.sethlans_wizard.routes` once new step handlers pushed
+this module over the 300-line ceiling.
 """
 
 from __future__ import annotations
@@ -27,21 +31,8 @@ from typing import Callable, Iterable, Optional
 
 import waitress
 
-from wizard.sethlans_wizard.handlers.auth import make_auth_handler
-from wizard.sethlans_wizard.handlers.done import make_done_handler
-from wizard.sethlans_wizard.handlers.health import make_health_handler
-from wizard.sethlans_wizard.handlers.launcher_log_path import (
-    make_launcher_log_path_handler,
-)
-from wizard.sethlans_wizard.handlers.runtime_ready import (
-    make_runtime_ready_handler,
-)
-from wizard.sethlans_wizard.handlers.static_files import (
-    make_index_handler,
-    make_static_handler,
-)
-from wizard.sethlans_wizard.handlers.topology import make_topology_handler
 from wizard.sethlans_wizard.router import Router
+from wizard.sethlans_wizard.routes import register_routes
 
 # Frontend static-file root (FR-W-FE2). The wizard repo layout puts
 # ``wizard/frontend/static/`` two levels above this module
@@ -107,11 +98,13 @@ def create_app(
 ) -> Callable:
     """Return the wizard's top-level WSGI app.
 
-    Wires the four wizard endpoints (auth, topology, done,
-    runtime-ready). All other paths return a JSON 404. *wizard_port*
-    is embedded in the ``.wizard_done`` marker payload per FR-IPC1;
-    defaults to 0 so the app can be built before the listener binds
-    (A6's startup glue passes the resolved port).
+    Wires the wizard endpoints (auth, topology, network, database,
+    admin-user, worker-password, ffmpeg, verify, pending-setup, done,
+    runtime-ready) plus the static-file mounts. All other paths return
+    a JSON 404. *wizard_port* is embedded in the ``.wizard_done``
+    marker payload per FR-IPC1; defaults to 0 so the app can be built
+    before the listener binds (A6's startup glue passes the resolved
+    port).
     """
     if not isinstance(data_dir, Path):
         data_dir = Path(data_dir)
@@ -122,43 +115,13 @@ def create_app(
 
     secret_bytes = bytes(ipc_secret)
     router = Router()
-    # FR-W14 cold-boot probe (issue #160). Anonymous, exact-match,
-    # registered first so it can never be shadowed by a static mount.
-    router.add("/api/health/", make_health_handler())
-    router.add("/api/wizard/auth/", make_auth_handler(bytes(setup_token)))
-    router.add("/api/wizard/topology/", make_topology_handler(data_dir))
-    router.add(
-        "/api/wizard/done/",
-        make_done_handler(data_dir, secret_bytes, wizard_port=wizard_port),
-    )
-    router.add(
-        "/api/wizard/runtime-ready/",
-        make_runtime_ready_handler(data_dir, secret_bytes),
-    )
-    router.add(
-        "/api/wizard/launcher-log-path/",
-        make_launcher_log_path_handler(data_dir),
-    )
-    # Frontend pages and vendored assets (B2 / FR-W-FE2). Static routes
-    # are prefix-matched; API routes above keep their exact-match
-    # semantics so a stray ``/api/wizard/auth/extra`` cannot collide
-    # with a real handler. The /static/js/ mount carries per-page
-    # scripts split out of the HTML files (FR-W-FE7, Phase F2).
-    for subdir in ("vendor", "css", "js"):
-        prefix = f"/static/{subdir}/"
-        router.add(
-            prefix,
-            make_static_handler(STATIC_ROOT / subdir, prefix),
-            exact=False,
-        )
-    router.add("/", make_index_handler(STATIC_ROOT))
-    router.add(
-        "/topology",
-        make_index_handler(STATIC_ROOT, "topology.html"),
-    )
-    router.add(
-        "/redirecting",
-        make_index_handler(STATIC_ROOT, "redirecting.html"),
+    register_routes(
+        router,
+        data_dir=data_dir,
+        setup_token=bytes(setup_token),
+        ipc_secret=secret_bytes,
+        wizard_port=int(wizard_port),
+        static_root=STATIC_ROOT,
     )
 
     def app(environ: dict, start_response: Callable) -> Iterable[bytes]:
