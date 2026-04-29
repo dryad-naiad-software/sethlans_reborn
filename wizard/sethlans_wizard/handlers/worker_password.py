@@ -10,12 +10,27 @@ Hashes the operator-supplied worker UI password using PBKDF2-HMAC-SHA-
 hash + salt are stashed into the in-memory wizard state — the
 pending-setup handler (FR-PEND2) reads them out at FR-M2-9.
 
+Request body (FR-M2-6 v3 — sessionStorage leak fix):
+* ``use_admin_password`` (bool) — informational/control flag.
+* ``password`` (str | null) — required when ``use_admin_password`` is
+  False; MAY be omitted or null when ``use_admin_password`` is True.
+
+When ``use_admin_password`` is True the handler reads the admin
+plaintext from :mod:`wizard.sethlans_wizard.wizard_state` (the same
+in-memory snapshot the admin-user step stashes into) and uses it as
+the worker UI password input. The browser therefore never holds the
+admin password — Phase 2 originally round-tripped it via
+``window.sessionStorage`` which the frontend-reviewer flagged FE-1
+(plaintext credential lingering until tab close).
+
 Validation:
-* ``password`` must be a non-empty string with length ≥ 8 (NF-8).
-* ``use_admin_password`` is informational metadata; the frontend
-  re-sends the admin password from its own in-memory state when this
-  flag is True. The wizard does NOT read the admin password back from
-  ``pending_setup.json`` — it would not yet exist at this point.
+* When ``use_admin_password`` is False: ``password`` must be a
+  non-empty string of length ≥ 8 (NF-8).
+* When ``use_admin_password`` is True: the admin tuple must already
+  exist in wizard_state. If it does not (operator navigated directly
+  without going through admin-user, or process restarted), the handler
+  returns HTTP 400 with ``error="admin_password_unavailable"`` so the
+  frontend can prompt the user to uncheck the box.
 """
 
 from __future__ import annotations
@@ -107,19 +122,34 @@ def _handle(
             status=400,
         )
 
-    password = payload.get("password")
-    if not isinstance(password, str) or not password:
-        return _wsgi.send_json(
-            start_response,
-            {"error": "password_required"},
-            status=400,
-        )
-    if len(password) < MIN_PASSWORD_LENGTH:
-        return _wsgi.send_json(
-            start_response,
-            {"error": "password_too_short"},
-            status=400,
-        )
+    use_admin_password = bool(payload.get("use_admin_password"))
+    if use_admin_password:
+        admin = wizard_state.get_admin()
+        if not admin or not admin.get("password_plaintext"):
+            # Operator hit worker-password without going through the
+            # admin-user step (or wizard process restarted between
+            # steps). The frontend recovers by unchecking the box and
+            # entering a worker password directly.
+            return _wsgi.send_json(
+                start_response,
+                {"error": "admin_password_unavailable"},
+                status=400,
+            )
+        password = admin["password_plaintext"]
+    else:
+        password = payload.get("password")
+        if not isinstance(password, str) or not password:
+            return _wsgi.send_json(
+                start_response,
+                {"error": "password_required"},
+                status=400,
+            )
+        if len(password) < MIN_PASSWORD_LENGTH:
+            return _wsgi.send_json(
+                start_response,
+                {"error": "password_too_short"},
+                status=400,
+            )
 
     hash_hex, salt_hex = hash_worker_password(password)
     wizard_state.set_worker_password_hash(hash_hex, salt_hex)

@@ -8,10 +8,16 @@
 // resume-target endpoint for topology; if manager (no co-located
 // worker) we forward to /ffmpeg and never render the form.
 //
-// Pre-checked "Use the admin password" checkbox: when on, we re-send
-// the admin password held transiently in sessionStorage from the
-// admin-user step. The wizard never reads admin password back from
-// pending_setup.json; the frontend round-trips it.
+// Pre-checked "Use the admin password" checkbox: when on, the POST
+// body carries `{use_admin_password: true}` with no password field.
+// The wizard backend reads the admin plaintext from its in-memory
+// wizard_state module (FR-M2-5) and uses it as the worker password
+// input. The browser never holds the admin password — earlier Phase 2
+// builds round-tripped it through `window.sessionStorage` which the
+// frontend-reviewer flagged FE-1 as a plaintext-credential leak. If
+// the admin step was never completed (process restart between steps)
+// the backend returns HTTP 400 `admin_password_unavailable` and we
+// surface a recovery prompt.
 
 import { createApp } from '/static/vendor/petite-vue.js';
 import {
@@ -20,13 +26,6 @@ import {
   wizardFetch,
 } from '/static/js/common.js';
 
-const ADMIN_PW_KEY = 'wizard:adminPasswordTransient';
-
-function readAdminPassword() {
-  try { return window.sessionStorage.getItem(ADMIN_PW_KEY) || ''; }
-  catch (_) { return ''; }
-}
-
 const scope = {
   useAdminPassword: true,
   password: '',
@@ -34,20 +33,17 @@ const scope = {
   error: '',
   fieldError: '',
   resumeBanner: '',
-  adminPwAvailable: false,
 
   async submit() {
     if (this.submitting) return;
     this.error = '';
     this.fieldError = '';
-    let pw;
+    let body;
     if (this.useAdminPassword) {
-      pw = readAdminPassword();
-      if (!pw) {
-        this.error = 'The admin password is not available in this tab. '
-          + 'Uncheck the box and enter a password directly.';
-        return;
-      }
+      // No password field — backend reads the admin plaintext from
+      // wizard_state. Sending `password: null` for explicitness;
+      // the handler inspects `use_admin_password` first.
+      body = { use_admin_password: true, password: null };
     } else {
       if (!this.password) {
         this.fieldError = 'password_required';
@@ -57,17 +53,14 @@ const scope = {
         this.fieldError = 'password_too_short';
         return;
       }
-      pw = this.password;
+      body = { use_admin_password: false, password: this.password };
     }
     this.submitting = true;
     let response;
     try {
       response = await wizardFetch('/api/wizard/worker-password/', {
         method: 'POST',
-        body: JSON.stringify({
-          password: pw,
-          use_admin_password: this.useAdminPassword,
-        }),
+        body: JSON.stringify(body),
       });
     } catch (_) {
       this.submitting = false;
@@ -87,6 +80,11 @@ const scope = {
     let payload = null;
     try { payload = await response.json(); } catch (_) { /* tolerate */ }
     this.submitting = false;
+    if (payload && payload.error === 'admin_password_unavailable') {
+      this.error = 'The admin password is not available — uncheck the box '
+        + 'and enter a worker password directly.';
+      return;
+    }
     if (payload && payload.error === 'password_too_short') {
       this.fieldError = 'password_too_short';
       return;
@@ -102,7 +100,6 @@ const scope = {
 document.addEventListener('DOMContentLoaded', () => {
   const banner = consumeResumeBanner();
   if (banner) scope.resumeBanner = banner;
-  scope.adminPwAvailable = !!readAdminPassword();
   // If topology is manager-only, skip this page entirely.
   (async () => {
     try {

@@ -93,13 +93,21 @@ def test_happy_path_navigates_to_worker_password(page, wizard_process):
 
 
 def test_passwords_not_stashed_in_form_state(page, wizard_process):
-    """FR-CHK3-FORM-STATE — admin password fields NEVER stashed."""
+    """FR-CHK3-FORM-STATE — admin password fields NEVER stashed.
+
+    Updated for FE-1 (the admin password sessionStorage leak fix): in
+    addition to the form-state stash key, this test scans the entire
+    sessionStorage for the typed plaintext to make sure no other code
+    path (including the previous ``wizard:adminPasswordTransient``
+    round-trip) writes it to storage.
+    """
+    secret = "leaked-password-must-not-stash"
     wp = wizard_process
     _arrive_at_admin_user(page, wp)
     page.fill("#admin-username", "operator")
     page.fill("#admin-email", "ops@example.com")
-    page.fill("#admin-password", "leaked-password-must-not-stash")
-    page.fill("#admin-password-confirm", "leaked-password-must-not-stash")
+    page.fill("#admin-password", secret)
+    page.fill("#admin-password-confirm", secret)
     # Trigger a stash (the @input handler on the username/email fires on
     # any keystroke). Submit a no-op so _stash runs explicitly too.
     mock_endpoint(
@@ -120,4 +128,21 @@ def test_passwords_not_stashed_in_form_state(page, wizard_process):
         # Inverse: also assert the stashed VALUES don't contain the secret.
         for v in parsed.values():
             if isinstance(v, str):
-                assert "leaked-password-must-not-stash" not in v, parsed
+                assert secret not in v, parsed
+    # FE-1 regression — the previous Phase 2 build wrote the admin
+    # password under ``wizard:adminPasswordTransient``. That key MUST
+    # never appear in storage, AND no other key may contain the typed
+    # secret value either (defense against future ad-hoc stashes).
+    transient = page.evaluate(
+        "() => window.sessionStorage.getItem('wizard:adminPasswordTransient')",
+    )
+    assert transient is None, (
+        "wizard:adminPasswordTransient must not exist (FE-1)"
+    )
+    storage_dump = page.evaluate(
+        "() => Object.fromEntries(Object.entries(window.sessionStorage))",
+    )
+    for k, v in storage_dump.items():
+        assert secret not in (v or ""), (
+            f"admin password leaked into sessionStorage[{k!r}] (FE-1)"
+        )

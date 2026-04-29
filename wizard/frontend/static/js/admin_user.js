@@ -9,12 +9,20 @@
 // with HTTP 400 + a `failures` array which we surface verbatim so the
 // user sees the exact reasons.
 //
-// On success, the next page depends on topology — manager_worker goes
-// to /worker-password; manager goes straight to /ffmpeg. We persist
-// the admin password (in process memory only via sessionStorage's
-// short lifetime) so the worker-password page can re-use it when the
-// "use admin password" checkbox is checked. NEVER stashed in the
-// regular form-state stash (which is for re-display on Back).
+// On success, the admin password is POSTed to /api/wizard/admin-user/
+// where the wizard backend stashes it in its in-memory wizard_state
+// module (FR-M2-5). The worker-password page does NOT receive the
+// password back through the browser — when the operator checks "Use
+// admin password" there, the worker-password handler reads the admin
+// plaintext from wizard_state server-side. This avoids the FE-1
+// sessionStorage leak (admin password was previously written to
+// `wizard:adminPasswordTransient` which lingered until tab close).
+//
+// The admin password therefore lives only in this Petite-vue scope's
+// `form.password` for the lifetime of the admin-user page; on
+// navigation the JS context is torn down and the reference is GC'd.
+// NEVER stashed in the regular form-state stash (which is for
+// re-display on Back; passwords are excluded per FR-CHK3-FORM-STATE).
 
 import { createApp } from '/static/vendor/petite-vue.js';
 import {
@@ -28,15 +36,6 @@ import {
 } from '/static/js/form_state.js';
 
 const STEP = 'admin-user';
-
-// Holding the admin password between admin-user and worker-password
-// pages requires a separate sessionStorage key — the regular form
-// stash is opaque (per FR-CHK3-FORM-STATE, no passwords). This is the
-// minimum lifetime required by FR-M2-6's "use admin password"
-// affordance: the user enters it once on admin-user.html and the
-// worker-password page re-sends it. Lives only until pending-setup
-// fires, then cleared.
-const ADMIN_PW_KEY = 'wizard:adminPasswordTransient';
 
 const FAILURE_LABELS = {
   password_too_short: 'Password must be at least 8 characters.',
@@ -105,13 +104,14 @@ const scope = {
     let payload = null;
     try { payload = await response.json(); } catch (_) { /* tolerate */ }
     if (response.status === 200) {
-      // Save the password transiently so the worker-password page can
-      // reuse it when the "use admin password" checkbox is on. The
+      // The wizard backend has stashed the admin tuple in its
+      // in-memory wizard_state. The browser does NOT round-trip the
+      // password to /worker-password — the worker-password handler
+      // reads the admin plaintext from wizard_state server-side when
+      // the "Use admin password" checkbox is on (FR-M2-6). The
       // worker-password page is always navigated to next; for manager
       // topology that page detects "no worker on this machine" and
       // forwards to /ffmpeg automatically.
-      try { window.sessionStorage.setItem(ADMIN_PW_KEY, this.form.password); }
-      catch (_) { /* storage may be disabled */ }
       window.location.assign('/worker-password');
       return;
     }
