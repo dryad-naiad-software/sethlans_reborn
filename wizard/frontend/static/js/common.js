@@ -137,6 +137,12 @@ export function consumeResumeBanner() {
 // API call returns 401/403. Per FR-W-FE3, the session token MUST be
 // cleared and the user sent back to the token-entry page with a
 // friendly explanation of what happened.
+//
+// Phase 2 (commit 4ccdfdd) moved welcome.html to ``/`` and the token-
+// entry page (``index.html``) to ``/token``. The redirect target MUST
+// be ``/token`` so the user lands on the token form, not on the
+// welcome page where their next API call would 401 again and loop
+// (issue #174).
 // ---------------------------------------------------------------------
 
 export function expireAndRedirect(message) {
@@ -144,7 +150,7 @@ export function expireAndRedirect(message) {
   if (typeof message === 'string' && message) {
     setFlash(message);
   }
-  window.location.assign('/');
+  window.location.assign('/token');
 }
 
 // ---------------------------------------------------------------------
