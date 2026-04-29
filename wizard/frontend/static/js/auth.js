@@ -19,6 +19,7 @@ import {
   setSessionToken,
   consumeFlash,
   setResumeBanner,
+  clearSessionCookie,
   RESUME_STEP_LABELS,
   wizardFetch,
 } from '/static/js/common.js';
@@ -165,6 +166,14 @@ const scope = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Issue #175 — defense in depth: clear any stale wizard_session
+  // cookie before the user pastes the token. The server overwrites
+  // the cookie on a successful auth POST, but a stale cookie from a
+  // prior wizard run could otherwise survive on the entry page until
+  // then. Also avoids the case where a bookmarked /token URL is
+  // visited while a (no-longer-valid) cookie still authorises page
+  // access on the back button.
+  clearSessionCookie();
   const flash = consumeFlash();
   if (flash) {
     scope.error = flash;

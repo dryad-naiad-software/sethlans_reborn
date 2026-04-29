@@ -47,6 +47,7 @@ from wizard.sethlans_wizard.handlers.runtime_ready import (
 )
 from wizard.sethlans_wizard.handlers.static_files import (
     make_index_handler,
+    make_index_handler_authed,
     make_static_handler,
 )
 from wizard.sethlans_wizard.handlers.topology import make_topology_handler
@@ -129,39 +130,47 @@ def register_routes(
         )
     # FR-M2-1: GET / serves welcome.html; the legacy token-entry page
     # moves to GET /token.
-    router.add("/", make_index_handler(static_root, "welcome.html"))
+    #
+    # Issue #175 — every wizard page route EXCEPT ``/token`` and
+    # ``/redirecting`` is gated by the ``wizard_session`` cookie via
+    # ``make_index_handler_authed``. Unauthed GETs 302 to /token; the
+    # token-entry page itself stays unauthed (entry point) and the
+    # post-handoff redirecting page stays unauthed (the wizard is
+    # already shutting down — gating here would just race the cookie
+    # invalidation in clear_session_token()).
+    router.add("/", make_index_handler_authed(static_root, "welcome.html"))
     router.add("/token", make_index_handler(static_root, "index.html"))
     router.add(
         "/topology",
-        make_index_handler(static_root, "topology.html"),
+        make_index_handler_authed(static_root, "topology.html"),
     )
     router.add(
         "/network",
-        make_index_handler(static_root, "network.html"),
+        make_index_handler_authed(static_root, "network.html"),
     )
     router.add(
         "/database",
-        make_index_handler(static_root, "database.html"),
+        make_index_handler_authed(static_root, "database.html"),
     )
     router.add(
         "/admin-user",
-        make_index_handler(static_root, "admin-user.html"),
+        make_index_handler_authed(static_root, "admin-user.html"),
     )
     router.add(
         "/worker-password",
-        make_index_handler(static_root, "worker-password.html"),
+        make_index_handler_authed(static_root, "worker-password.html"),
     )
     router.add(
         "/ffmpeg",
-        make_index_handler(static_root, "ffmpeg.html"),
+        make_index_handler_authed(static_root, "ffmpeg.html"),
     )
     router.add(
         "/verify",
-        make_index_handler(static_root, "verify.html"),
+        make_index_handler_authed(static_root, "verify.html"),
     )
     router.add(
         "/done",
-        make_index_handler(static_root, "done.html"),
+        make_index_handler_authed(static_root, "done.html"),
     )
     router.add(
         "/redirecting",

@@ -244,3 +244,54 @@ class TestExports:
 
     def test_register_routes_exported(self):
         assert "register_routes" in routes.__all__
+
+
+class TestPageAuthGate:
+    """Issue #175 — page routes are gated by the wizard_session cookie."""
+
+    GATED_PATHS = [
+        "/",
+        "/topology",
+        "/network",
+        "/database",
+        "/admin-user",
+        "/worker-password",
+        "/ffmpeg",
+        "/verify",
+        "/done",
+    ]
+
+    def test_unauthed_gated_routes_return_302(self, populated_router):
+        from wizard.sethlans_wizard import auth_state
+
+        auth_state.reset_state_for_tests()
+        try:
+            for path in self.GATED_PATHS:
+                status, _ = _dispatch(populated_router, path)
+                assert status.startswith("302"), (path, status)
+        finally:
+            auth_state.reset_state_for_tests()
+
+    def test_token_route_is_exempt_from_gate(self, populated_router):
+        # /token must remain reachable without auth — it's the entry
+        # point where the user pastes the setup token.
+        status, _ = _dispatch(populated_router, "/token")
+        assert status.startswith("200"), status
+
+    def test_redirecting_route_is_exempt_from_gate(self, populated_router):
+        # /redirecting fires AFTER the wizard clears the session token,
+        # so gating here would turn every legitimate visit into a 302.
+        status, _ = _dispatch(populated_router, "/redirecting")
+        assert status.startswith("200"), status
+
+    def test_static_prefixes_register_in_prefix_mode(self, populated_router):
+        # Static prefix routes must remain prefix-mode — the authed
+        # factory is for documents, not assets, and is registered with
+        # exact=True for /, /topology, etc.
+        for prefix, _, exact in populated_router._routes:
+            if prefix.startswith("/static/"):
+                assert exact is False, prefix
+
+    def test_health_endpoint_is_exempt_from_gate(self, populated_router):
+        status, _ = _dispatch(populated_router, "/api/health/")
+        assert status.startswith("200"), status

@@ -26,7 +26,8 @@ from __future__ import annotations
 from wizard.sethlans_wizard import server
 
 from ._static_file_helpers import (
-    IPC_SECRET, SETUP_TOKEN, get_environ, invoke, post_environ,
+    IPC_SECRET, SETUP_TOKEN, authed_get_environ, get_environ, invoke,
+    post_environ,
 )
 
 # The _reset_auth_state autouse fixture is provided by
@@ -40,15 +41,16 @@ from ._static_file_helpers import (
 class TestIndexRoute:
 
     def test_get_root_returns_index_html(self, tmp_path):
+        # Issue #175 — / is gated; auth via the cookie before GET.
         app = server.create_app(tmp_path, SETUP_TOKEN, IPC_SECRET)
-        status, headers, body = invoke(app, get_environ("/"))
+        status, headers, body = invoke(app, authed_get_environ("/"))
         assert status.startswith("200"), status
         assert headers.get("Content-Type", "").startswith("text/html"), headers
         assert b"<!doctype html>" in body.lower() or b"<!DOCTYPE html>" in body
 
     def test_index_response_carries_security_headers(self, tmp_path):
         app = server.create_app(tmp_path, SETUP_TOKEN, IPC_SECRET)
-        _, headers, _ = invoke(app, get_environ("/"))
+        _, headers, _ = invoke(app, authed_get_environ("/"))
         # FR-W-FE2 mandates these headers on every HTML response.
         assert "Content-Security-Policy" in headers
         csp = headers["Content-Security-Policy"]
@@ -77,8 +79,9 @@ class TestIndexRoute:
 class TestTopologyRoute:
 
     def test_get_topology_returns_topology_html(self, tmp_path):
+        # Issue #175 — /topology is gated; auth via the cookie.
         app = server.create_app(tmp_path, SETUP_TOKEN, IPC_SECRET)
-        status, headers, body = invoke(app, get_environ("/topology"))
+        status, headers, body = invoke(app, authed_get_environ("/topology"))
         assert status.startswith("200"), status
         assert headers.get("Content-Type", "").startswith("text/html"), headers
         # Sanity: must be the topology page, NOT the index page.
@@ -94,7 +97,7 @@ class TestTopologyRoute:
 
     def test_topology_response_carries_security_headers(self, tmp_path):
         app = server.create_app(tmp_path, SETUP_TOKEN, IPC_SECRET)
-        _, headers, _ = invoke(app, get_environ("/topology"))
+        _, headers, _ = invoke(app, authed_get_environ("/topology"))
         # FR-W-FE2 mandates these headers on every HTML response.
         assert "Content-Security-Policy" in headers
         assert headers.get("X-Content-Type-Options") == "nosniff"
@@ -114,8 +117,9 @@ class TestTopologyRoute:
         """FR-M2-1: GET / now serves welcome.html (the legacy token-entry
         page moves to /token); GET /topology must return topology.html."""
         app = server.create_app(tmp_path, SETUP_TOKEN, IPC_SECRET)
-        _, _, root_body = invoke(app, get_environ("/"))
-        _, _, topology_body = invoke(app, get_environ("/topology"))
+        # Issue #175 — / and /topology are gated; /token is exempt.
+        _, _, root_body = invoke(app, authed_get_environ("/"))
+        _, _, topology_body = invoke(app, authed_get_environ("/topology"))
         _, _, token_body = invoke(app, get_environ("/token"))
         assert root_body != topology_body, (
             "Welcome and topology pages must serve different content."
@@ -163,8 +167,9 @@ class TestRedirectingRoute:
     def test_redirecting_route_distinct_from_other_pages(self, tmp_path):
         """All three wizard pages must serve different content."""
         app = server.create_app(tmp_path, SETUP_TOKEN, IPC_SECRET)
-        _, _, root_body = invoke(app, get_environ("/"))
-        _, _, topology_body = invoke(app, get_environ("/topology"))
+        # Issue #175 — / and /topology are gated; /redirecting + /token are not.
+        _, _, root_body = invoke(app, authed_get_environ("/"))
+        _, _, topology_body = invoke(app, authed_get_environ("/topology"))
         _, _, redirecting_body = invoke(app, get_environ("/redirecting"))
         _, _, token_body = invoke(app, get_environ("/token"))
         assert root_body != redirecting_body

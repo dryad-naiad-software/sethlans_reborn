@@ -1,36 +1,15 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""``POST /api/wizard/auth/`` — setup-token validation handler (FR-W7).
+"""``POST /api/wizard/auth/`` — setup-token validation (FR-W7, Spec 1 / A3).
 
-Spec 1 / A3.
+Accepts ``{"token": "..."}`` JSON, ``secrets.compare_digest``s against the
+launcher-delivered setup token; on match issues a fresh single-active-
+session token. Mismatch → 403 + rate-limited per source IP (10/60s → 429).
 
-Behaviour:
-
-* Accepts ``{"token": "<setup-token>"}`` as a JSON request body.
-* Compares against the launcher-delivered setup token using
-  ``secrets.compare_digest`` (FR-W7 constant-time compare).
-* On success, generates a fresh single-active-session token via
-  ``secrets.token_urlsafe(32)`` (any prior session is invalidated)
-  and returns ``{"status": "ok", "session_token": "<...>"}``.
-* On wrong token, returns HTTP 403 + records a failed attempt against
-  the source IP (FR-W7 rate limiter).
-* When a source IP exceeds 10 failed attempts in 60 seconds, returns
-  HTTP 429 with a ``Retry-After: 60`` header.
-
-Security guard rails:
-
-* The setup token is held in process memory only — passed in as a
-  closure argument by ``server.create_app`` after the wizard has read
-  it from the launcher's chmod-600 ``.setup_token`` file (and unlinked
-  the file per SEC-MED-11).
-* The session token MUST NOT appear in any URL, query string, or
-  fragment (FR-W-FE3a parallel rule for the session token, FR-W-FE3b).
-  This handler refuses any request that puts a token-shaped key in the
-  query string — a defense-in-depth check; the frontend never does
-  that under FR-W-FE3a, but a hostile or buggy client might.
-* Per FR-W7 / NF-6: tokens MUST NOT be logged. This module logs
-  attempts and rate-limit hits without emitting the token value.
+Guard rails: setup token in-memory only (SEC-MED-11); session token
+never in URL/query/fragment (FR-W-FE3a/b — 400 if present); tokens
+never logged (FR-W7 / NF-6).
 """
 
 from __future__ import annotations
@@ -50,6 +29,11 @@ _AUTH_BODY_MAX = 4096
 
 _SESSION_HEADER = "X-Wizard-Session"
 _SESSION_HEADER_ENVIRON = "HTTP_X_WIZARD_SESSION"
+
+# Issue #175 — cookie name for the server-side page-level auth gate.
+# Page GETs cannot use the X-Wizard-Session header (address-bar
+# navigations do not send it); we mirror the session token to a cookie.
+_SESSION_COOKIE_NAME = "wizard_session"
 
 # Query-string keys we forbid for the session token (FR-W-FE3b).
 _FORBIDDEN_QS_KEYS = frozenset({"session_token", "session", "token"})
@@ -112,24 +96,19 @@ def _read_body(environ: dict) -> bytes:
 
 
 def _client_ip(environ: dict) -> str:
-    """Extract a stable per-client identifier for rate-limiting.
-
-    Prefers ``REMOTE_ADDR`` (the socket peer). Forwarded headers are
-    NOT consulted — the wizard binds ``0.0.0.0`` directly with no
-    reverse proxy, so ``REMOTE_ADDR`` is always the real peer. Falls
-    back to ``"unknown"`` so a missing key cannot disable the limiter.
-    """
+    """Stable per-client identifier for rate-limiting (REMOTE_ADDR only)."""
     return environ.get("REMOTE_ADDR") or "unknown"
 
 
-def _query_string_has_session(environ: dict) -> bool:
-    """Return True if QUERY_STRING contains a forbidden token key.
+def _is_browser_https(environ: dict) -> bool:
+    """True if the browser-side connection is HTTPS (issue #175 cookie Secure)."""
+    if (environ.get("HTTP_X_FORWARDED_PROTO") or "").lower() == "https":
+        return True
+    return (environ.get("wsgi.url_scheme") or "").lower() == "https"
 
-    FR-W-FE3a / FR-W-FE3b: the session token (and the setup token)
-    MUST NOT appear in any URL, query string, or fragment. Defense in
-    depth: refuse the request rather than honour a token that arrived
-    out of band.
-    """
+
+def _query_string_has_session(environ: dict) -> bool:
+    """Return True if QUERY_STRING contains a forbidden token key (FR-W-FE3a/b)."""
     qs = environ.get("QUERY_STRING", "") or ""
     if not qs:
         return False
@@ -149,15 +128,7 @@ def _query_string_has_session(environ: dict) -> bool:
 # ---------------------------------------------------------------------
 
 def make_auth_handler(setup_token: bytes) -> Callable:
-    """Build the WSGI auth handler bound to *setup_token*.
-
-    *setup_token* is the bytes returned by
-    ``ipc.read_secret_file(<data_dir>/wizard/.setup_token)``. Stored in
-    a closure (not a module-level), held only for the lifetime of the
-    wizard process. The bytes are decoded to ASCII at handler-build
-    time — setup tokens are URL-safe base64 per FR-L3 / FR-L4
-    (``secrets.token_urlsafe(32)``).
-    """
+    """Build the WSGI auth handler bound to *setup_token* (closure-held)."""
     if not isinstance(setup_token, (bytes, bytearray)) or not setup_token:
         raise ValueError("setup_token must be non-empty bytes")
     try:
@@ -236,10 +207,21 @@ def _handle_auth(
         # prior session in one atomic write under the handoff lock.
         session_token = auth_state.issue_session_token()
         logger.info("Auth success from %s; new session issued", ip)
+        # Issue #175 — mirror session token into a cookie so address-
+        # bar GETs to gated pages can be validated server-side.
+        # Secure is conditional on browser-side HTTPS (Caddy forwards
+        # X-Forwarded-Proto in prod; test hits HTTP loopback directly).
+        cookie_value = (
+            f"{_SESSION_COOKIE_NAME}={session_token}; "
+            "Path=/; SameSite=Strict"
+        )
+        if _is_browser_https(environ):
+            cookie_value += "; Secure"
         return _send_json(
             start_response,
             {"status": "ok", "session_token": session_token},
             status=200,
+            extra_headers=[("Set-Cookie", cookie_value)],
         )
 
     auth_state.record_attempt(ip)
@@ -287,8 +269,28 @@ def session_header_valid(environ: dict) -> bool:
     return auth_state.validate_session_token(extract_session_header(environ))
 
 
+def extract_session_cookie(environ: dict) -> Optional[str]:
+    """Return the ``wizard_session`` cookie value from ``HTTP_COOKIE`` (#175)."""
+    raw = environ.get("HTTP_COOKIE")
+    if not raw:
+        return None
+    needle = _SESSION_COOKIE_NAME + "="
+    for chunk in raw.split(";"):
+        chunk = chunk.strip()
+        if chunk.startswith(needle):
+            return chunk[len(needle):]
+    return None
+
+
+def session_cookie_valid(environ: dict) -> bool:
+    """Constant-time validate the ``wizard_session`` cookie (#175 page gate)."""
+    return auth_state.validate_session_token(extract_session_cookie(environ))
+
+
 __all__ = [
     "make_auth_handler",
     "extract_session_header",
     "session_header_valid",
+    "extract_session_cookie",
+    "session_cookie_valid",
 ]

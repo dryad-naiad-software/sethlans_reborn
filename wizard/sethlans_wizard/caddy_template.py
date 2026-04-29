@@ -202,6 +202,12 @@ def render_wizard_caddyfile(
         "        transport http {\n"
         "            versions 1.1\n"
         "        }\n"
+        # Issue #175 — propagate the original scheme to the wizard so
+        # the auth handler can decide whether to mark the
+        # ``wizard_session`` cookie as Secure. Caddy terminates TLS for
+        # the public vhost; the loopback hop is plain HTTP, which would
+        # otherwise look like a non-secure context to the wizard.
+        "        header_up X-Forwarded-Proto https\n"
         "    }\n"
         "}\n"
     )

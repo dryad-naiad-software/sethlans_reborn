@@ -12,6 +12,7 @@ attempts cannot escape the static root.
 from __future__ import annotations
 
 from . import _http
+from ._phase1_session import open_session, session_cookie_header
 
 
 def test_static_vendor_petite_vue_served(wizard_process):
@@ -76,8 +77,16 @@ def test_static_unknown_route_returns_404(wizard_process):
 
 
 def test_topology_html_served_at_topology_route(wizard_process):
-    """``GET /topology`` serves the topology picker page (FR-W-FE9)."""
-    status, headers, body = _http.get(f"{wizard_process.base_url}/topology")
+    """``GET /topology`` serves the topology picker page (FR-W-FE9).
+
+    Issue #175 — ``/topology`` is gated by the wizard_session cookie;
+    the test authenticates first and passes the cookie on the GET.
+    """
+    session = open_session(wizard_process)
+    status, headers, body = _http.get(
+        f"{wizard_process.base_url}/topology",
+        headers=session_cookie_header(session),
+    )
     assert status == 200, body[:200]
     assert headers.get("Content-Type", "").startswith("text/html"), headers
     text = body.decode("utf-8", errors="replace")
@@ -109,8 +118,12 @@ def test_csp_script_src_drops_unsafe_inline(wizard_process):
     constraint isn't part of this regression.
     """
     base = wizard_process.base_url
+    # Issue #175: ``/`` and ``/topology`` are gated; carry the cookie
+    # so the GET serves the page rather than 302'ing to /token.
+    session = open_session(wizard_process)
+    cookie = session_cookie_header(session)
     for path in ("/", "/topology", "/redirecting"):
-        _, headers, body = _http.get(f"{base}{path}")
+        _, headers, body = _http.get(f"{base}{path}", headers=cookie)
         csp = headers.get("Content-Security-Policy", "")
         assert csp, (path, headers)
         # Parse the CSP into directive -> sources.

@@ -170,6 +170,11 @@ def make_index_handler(
     so other wizard pages (B3 ``topology.html``, B4 ``redirecting.html``)
     can reuse the same security-headers / 405 / serve-file plumbing
     without duplicating the factory.
+
+    This factory does NOT gate access — use :func:`make_index_handler_authed`
+    for routes that must be reachable only after a successful auth POST
+    (issue #175). ``/token`` and ``/redirecting`` keep the unauthed
+    factory because they are entry/exit pages.
     """
     static_root = Path(static_root)
     page_path = static_root / filename
@@ -178,6 +183,60 @@ def make_index_handler(
         method = environ.get("REQUEST_METHOD", "GET").upper()
         if method not in ("GET", "HEAD"):
             return _send_405(start_response)
+        return _serve_file(
+            page_path,
+            start_response,
+            method,
+            extra_headers=_HTML_SECURITY_HEADERS,
+        )
+
+    return handler
+
+
+def _send_redirect_to_token(start_response: Callable) -> Iterable[bytes]:
+    """Issue a 302 to ``/token`` for unauthed page hits (issue #175).
+
+    ``Cache-Control: no-store`` prevents a browser back/forward from
+    serving a cached redirect, which would defeat the gate when the
+    user re-authenticates and tries to revisit a page.
+    """
+    body = b""
+    start_response(
+        "302 Found",
+        [
+            ("Location", "/token"),
+            ("Content-Type", "text/plain; charset=utf-8"),
+            ("Content-Length", "0"),
+            ("Cache-Control", "no-store"),
+        ],
+    )
+    return [body]
+
+
+def make_index_handler_authed(
+    static_root: Path,
+    filename: str,
+) -> Callable:
+    """Same as :func:`make_index_handler` but gated on the wizard cookie.
+
+    Issue #175 — page-level auth gate. Page handlers cannot rely on the
+    ``X-Wizard-Session`` header (address-bar GETs do not send it), so
+    the auth POST also sets a ``wizard_session`` cookie and these
+    handlers validate it. Missing or invalid cookie → 302 to ``/token``.
+    """
+    # Imported lazily so the static-files module has no hard dependency
+    # on the auth module's import order.
+    from wizard.sethlans_wizard.handlers.auth import session_cookie_valid
+
+    static_root = Path(static_root)
+    page_path = static_root / filename
+
+    def handler(environ: dict, start_response: Callable) -> Iterable[bytes]:
+        method = environ.get("REQUEST_METHOD", "GET").upper()
+        if method not in ("GET", "HEAD"):
+            return _send_405(start_response)
+        if not session_cookie_valid(environ):
+            return _send_redirect_to_token(start_response)
         return _serve_file(
             page_path,
             start_response,
@@ -234,5 +293,6 @@ def make_static_handler(static_root: Path, url_prefix: str) -> Callable:
 
 __all__ = [
     "make_index_handler",
+    "make_index_handler_authed",
     "make_static_handler",
 ]

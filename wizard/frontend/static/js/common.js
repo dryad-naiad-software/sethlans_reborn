@@ -62,6 +62,28 @@ export function setSessionToken(value) {
 export function clearSessionToken() {
   try { window.sessionStorage.removeItem(SESSION_KEY); }
   catch (_) { /* sessionStorage may be disabled */ }
+  // Issue #175 — also drop the wizard_session cookie so the server-
+  // side page-auth gate sees no auth on the next navigation. Setting
+  // Max-Age=0 with the same Path/Secure/SameSite attributes that were
+  // used at issue time tells the browser to evict the cookie now.
+  clearSessionCookie();
+}
+
+// Issue #175 — drop the wizard_session cookie. Used by
+// :func:`expireAndRedirect` and the token-entry page mount.
+//
+// Two writes are issued: one with the Secure attribute (matches the
+// production-shape cookie set behind Caddy) and one without (matches
+// the test/dev plain-HTTP cookie). Browsers match deletes on
+// name+path+domain only, but issuing both forms protects against
+// edge-case implementations that refuse to *write* a cookie with
+// Secure on a plain-HTTP page.
+export function clearSessionCookie() {
+  try {
+    document.cookie = 'wizard_session=; Max-Age=0; Path=/; SameSite=Strict';
+    document.cookie =
+      'wizard_session=; Max-Age=0; Path=/; SameSite=Strict; Secure';
+  } catch (_) { /* cookie API may be disabled in headless contexts */ }
 }
 
 export function setFlash(message) {
@@ -146,6 +168,9 @@ export function consumeResumeBanner() {
 // ---------------------------------------------------------------------
 
 export function expireAndRedirect(message) {
+  // ``clearSessionToken`` now drops both the sessionStorage entry AND
+  // the wizard_session cookie (issue #175), so the server-side page
+  // gate also sees the session as gone on the next navigation.
   clearSessionToken();
   if (typeof message === 'string' && message) {
     setFlash(message);
@@ -173,11 +198,18 @@ export function wizardFetch(path, opts) {
   if (o.body !== undefined && headers['Content-Type'] === undefined) {
     headers['Content-Type'] = 'application/json';
   }
+  // ``credentials: 'same-origin'`` is required (issue #175) so the
+  // browser stores Set-Cookie headers returned from the auth POST and
+  // sends the wizard_session cookie back on subsequent requests.
+  // The earlier ``'omit'`` value blocked both directions, which kept
+  // the page-auth gate from ever receiving the cookie. Sending the
+  // cookie on API requests is harmless: API auth is gated by the
+  // X-Wizard-Session header, not the cookie.
   return fetch(path, {
     method: o.method || 'GET',
     headers: headers,
     body: o.body,
     cache: 'no-store',
-    credentials: 'omit',
+    credentials: 'same-origin',
   });
 }

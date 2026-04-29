@@ -12,7 +12,11 @@ the two new backend endpoints (``/api/wizard/welcome/`` and
 from __future__ import annotations
 
 from . import _http
-from ._phase1_session import open_session, session_headers
+from ._phase1_session import (
+    open_session,
+    session_cookie_header,
+    session_headers,
+)
 
 
 # ---------------------------------------------------------------------
@@ -33,9 +37,19 @@ PHASE2_PAGES = [
 
 
 def test_each_phase2_page_serves_html(wizard_process):
+    """Every wizard page serves its HTML when the session cookie is present.
+
+    Issue #175 — page routes are gated server-side; the test
+    authenticates first and passes the wizard_session cookie. The
+    ``/token`` page is exempt and reachable without the cookie.
+    """
     wp = wizard_process
+    session = open_session(wp)
+    cookie = session_cookie_header(session)
     for path, marker in PHASE2_PAGES:
-        status, headers, body = _http.get(f"{wp.base_url}{path}")
+        # /token is reachable without the cookie (entry point).
+        hdrs = None if path == "/token" else cookie
+        status, headers, body = _http.get(f"{wp.base_url}{path}", headers=hdrs)
         assert status == 200, (path, status)
         assert headers.get("Content-Type", "").startswith("text/html"), path
         assert marker in body, (
@@ -47,8 +61,11 @@ def test_phase2_pages_carry_csp_headers(wizard_process):
     """Every new HTML page MUST carry the Spec 1 CSP header
     unchanged (FR-VENDOR2)."""
     wp = wizard_process
+    session = open_session(wp)
+    cookie = session_cookie_header(session)
     for path, _marker in PHASE2_PAGES:
-        _, headers, _ = _http.get(f"{wp.base_url}{path}")
+        hdrs = None if path == "/token" else cookie
+        _, headers, _ = _http.get(f"{wp.base_url}{path}", headers=hdrs)
         csp = headers.get("Content-Security-Policy", "")
         assert "default-src 'self'" in csp, path
         assert "frame-ancestors 'none'" in csp, path
@@ -57,8 +74,11 @@ def test_phase2_pages_carry_csp_headers(wizard_process):
 def test_phase2_pages_have_noscript_block(wizard_process):
     """FR-VENDOR3 — every new HTML page has a <noscript> block."""
     wp = wizard_process
+    session = open_session(wp)
+    cookie = session_cookie_header(session)
     for path, _ in PHASE2_PAGES:
-        _, _, body = _http.get(f"{wp.base_url}{path}")
+        hdrs = None if path == "/token" else cookie
+        _, _, body = _http.get(f"{wp.base_url}{path}", headers=hdrs)
         assert b"<noscript>" in body, path
 
 

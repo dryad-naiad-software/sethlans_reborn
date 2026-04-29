@@ -52,9 +52,21 @@ def session_headers(session: str) -> dict[str, str]:
     return {"X-Wizard-Session": session}
 
 
+def session_cookie_header(session: str) -> dict[str, str]:
+    """Return a ``Cookie: wizard_session=...`` header dict (issue #175).
+
+    Page routes are gated by the wizard_session cookie (the API uses
+    the X-Wizard-Session header). Tests that GET a page after auth
+    must pass the cookie via this helper; passing the header alone
+    will trigger the 302-to-/token gate.
+    """
+    return {"Cookie": f"wizard_session={session}"}
+
+
 __all__ = [
     "open_session",
     "select_topology",
     "open_and_select",
     "session_headers",
+    "session_cookie_header",
 ]

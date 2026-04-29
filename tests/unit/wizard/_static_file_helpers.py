@@ -40,8 +40,15 @@ def invoke(app, environ):
     return captured.get("status"), captured.get("headers", {}), body
 
 
-def get_environ(path: str) -> dict:
-    return {
+def get_environ(path: str, *, cookie: str | None = None) -> dict:
+    """Build a minimal WSGI GET environ dict.
+
+    Issue #175 — page routes are gated by the wizard_session cookie.
+    Tests that exercise gated pages must either authenticate via
+    :func:`authed_get_environ` or build their own environ with the
+    Cookie value set on ``HTTP_COOKIE``.
+    """
+    env = {
         "REQUEST_METHOD": "GET",
         "PATH_INFO": path,
         "QUERY_STRING": "",
@@ -49,9 +56,18 @@ def get_environ(path: str) -> dict:
         "CONTENT_LENGTH": "0",
         "wsgi.input": io.BytesIO(b""),
     }
+    if cookie is not None:
+        env["HTTP_COOKIE"] = f"wizard_session={cookie}"
+    return env
 
 
 def post_environ(path: str) -> dict:
     env = get_environ(path)
     env["REQUEST_METHOD"] = "POST"
     return env
+
+
+def authed_get_environ(path: str) -> dict:
+    """Build a GET environ pre-authed with a fresh session cookie (#175)."""
+    token = auth_state.issue_session_token()
+    return get_environ(path, cookie=token)

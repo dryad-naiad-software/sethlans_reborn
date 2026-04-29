@@ -156,12 +156,23 @@ def run(app: Callable, host: str, port: int) -> None:
         "Wizard Waitress listener bound on http://%s:%d/ (threads=%d)",
         host, port, WAITRESS_THREADS,
     )
+    # Issue #175 — trust the loopback Caddy front to forward
+    # ``X-Forwarded-Proto`` so the auth handler can decide whether to
+    # mark the wizard_session cookie as Secure. Waitress 2.0+ defaults
+    # to ``clear_untrusted_proxy_headers=True``, which strips
+    # ``X-Forwarded-*`` headers from environ unless the source matches
+    # ``trusted_proxy``. The wizard binds 127.0.0.1 only and Caddy
+    # runs on the same host, so trusting 127.0.0.1 is correct and
+    # cannot be reached by a remote client.
     server = waitress.create_server(
         app,
         host=host,
         port=port,
         threads=WAITRESS_THREADS,
         ident="sethlans-wizard",
+        trusted_proxy="127.0.0.1",
+        trusted_proxy_count=1,
+        trusted_proxy_headers={"x-forwarded-proto"},
     )
     # Stash the server reference so A4's polite-shutdown can call
     # server.close() from another thread without re-importing this

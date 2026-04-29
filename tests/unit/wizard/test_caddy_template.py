@@ -94,6 +94,17 @@ class TestReverseProxy:
         assert "transport http" in text
         assert "versions 1.1" in text
 
+    def test_forwards_https_proto_header(self, wizard_tree):
+        """Issue #175 — Caddy must propagate the original scheme so the
+        wizard auth handler can decide whether to mark the
+        ``wizard_session`` cookie as Secure. The reverse_proxy block
+        rewrites ``X-Forwarded-Proto`` to ``https`` because Caddy's
+        public vhost terminates TLS regardless of the loopback hop's
+        plain-HTTP transport.
+        """
+        text = _render(wizard_tree)
+        assert "header_up X-Forwarded-Proto https" in text
+
     def test_public_listener_uses_public_port(self, wizard_tree):
         text = _render(wizard_tree, public_tls_port=8100)
         # The site block is keyed on ``:<port>``.

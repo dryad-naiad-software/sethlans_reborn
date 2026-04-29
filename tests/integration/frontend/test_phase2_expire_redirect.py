@@ -38,6 +38,8 @@ from __future__ import annotations
 
 import pytest
 
+from ._phase2_helpers import enter_token
+
 
 # ---------------------------------------------------------------------
 # (a) Direct unit-style test of ``expireAndRedirect``.
@@ -50,12 +52,15 @@ def test_expire_and_redirect_unit_navigates_to_token(page, wizard_process):
     ``/static/js/common.js``; we drive it through Playwright's
     ``page.evaluate`` with a dynamic import so the test exercises the
     *real* shipped module — no copy-paste, no recompilation.
+
+    Issue #175 — page routes are gated by the wizard_session cookie;
+    we must pass through the auth flow before reaching the welcome
+    page so the dynamic import can resolve against the right origin.
     """
     wp = wizard_process
-    # Land on the welcome page so common.js's import URL resolves
-    # against the right origin. We set sessionStorage explicitly so
-    # we can prove the helper clears it.
-    page.goto(f"{wp.base_url}/")
+    # Auth via the real flow so the wizard_session cookie is set; the
+    # helper resolves to the welcome page (FR-CHK3-RESUME default).
+    enter_token(page, wp.base_url, wp.setup_token, expect_url="/")
     page.wait_for_selector("#welcome-next")
     page.evaluate(
         "() => { window.sessionStorage.setItem("
@@ -93,14 +98,21 @@ def test_expire_and_redirect_unit_navigates_to_token(page, wizard_process):
 # (b) End-to-end bounce regression starting from the welcome page.
 # ---------------------------------------------------------------------
 
-def test_welcome_next_without_token_lands_on_token_entry(
+def test_unauthed_root_redirects_to_token_with_no_loop(
     page, wizard_process,
 ):
-    """Click Next on welcome with no session token → land on /token.
+    """Issue #175 — unauthed direct nav to ``/`` 302s to ``/token``.
 
-    Pre-fix, this test would land on ``/`` (welcome again) because
-    ``expireAndRedirect`` hard-coded ``/`` as its target. Post-fix,
-    the user lands on ``/token`` — exactly one navigation, no loop.
+    Pre-#175 the welcome page rendered, the user clicked Next, the
+    POST 401'd and the user was bounced through ``expireAndRedirect``
+    to ``/token`` with a misleading "session expired" flash. Post-#175
+    the server-side page-auth gate redirects BEFORE the page renders,
+    so the user never sees welcome and the welcome POST never fires.
+
+    The original premise of this test (welcome → /token bounce) is
+    now unreachable; we repurpose it to assert the redirect itself
+    happens cleanly: exactly one navigation lands on ``/token``, and
+    the welcome POST is NEVER fired (no loop, no stale page render).
     """
     wp = wizard_process
 
@@ -111,7 +123,7 @@ def test_welcome_next_without_token_lands_on_token_entry(
         navigations.append(f.url) if f == page.main_frame else None
     ))
 
-    # Track POSTs to /api/wizard/welcome/ — must fire exactly once.
+    # Track POSTs to /api/wizard/welcome/ — must NEVER fire under #175.
     welcome_posts: list[str] = []
 
     def _on_request(request):
@@ -120,26 +132,21 @@ def test_welcome_next_without_token_lands_on_token_entry(
 
     page.on("request", _on_request)
 
+    # Direct nav to ``/`` without a wizard_session cookie. The server-
+    # side gate 302s to ``/token``; the browser follows transparently.
     page.goto(f"{wp.base_url}/")
-    page.wait_for_selector("#welcome-next")
-
-    # Make sure no stale session token leaks in.
-    page.evaluate("() => window.sessionStorage.clear()")
-
-    page.click("#welcome-next")
     page.wait_for_url(f"{wp.base_url}/token", timeout=5000)
     assert page.url == f"{wp.base_url}/token"
 
-    # The browser must have navigated to /token exactly once. A loop
-    # would show /token → / → /token → / repeating.
+    # The browser must have landed on /token exactly once.
     token_landings = [u for u in navigations if u.endswith("/token")]
     assert len(token_landings) == 1, (
         f"Expected exactly one navigation to /token, got {token_landings}"
     )
 
-    # The welcome POST must have fired exactly once. A loop would keep
-    # re-firing it as the user re-lands on welcome.
-    assert len(welcome_posts) == 1, welcome_posts
+    # The welcome POST must NEVER have fired — the gate redirects
+    # before welcome.html serves, so welcome.js never runs.
+    assert welcome_posts == [], welcome_posts
 
 
 # ---------------------------------------------------------------------
@@ -179,15 +186,14 @@ PAGES_WITH_SUBMIT_FORMS = [
 def test_mount_time_pages_bounce_on_missing_token(
     page, wizard_process, path,
 ):
-    """Pages that POST on mount must redirect to /token without a token."""
-    wp = wizard_process
+    """Pages that POST on mount must redirect to /token without a token.
 
-    # Land on the wizard root first so we have an origin to clear
-    # sessionStorage on — direct goto to /verify would trigger the
-    # mount POST before we could clear stale state.
-    page.goto(f"{wp.base_url}/")
-    page.wait_for_load_state("domcontentloaded")
-    page.evaluate("() => window.sessionStorage.clear()")
+    Issue #175 — the server-side page-auth gate now 302s before the
+    page even renders, so the mount-time POST never fires. The
+    end-state assertion (browser lands on /token) still holds, just
+    via the gate instead of via the JS expire path.
+    """
+    wp = wizard_process
 
     page.goto(f"{wp.base_url}{path}")
     page.wait_for_url(f"{wp.base_url}/token", timeout=10000)
@@ -200,23 +206,17 @@ def test_expire_and_redirect_from_each_page(page, wizard_process, path):
 
     Every wizard step page imports common.js via
     ``import { expireAndRedirect } from '/static/js/common.js'``. This
-    test lands on each page, dynamically imports that same module from
-    the same origin, and asserts the helper navigates to ``/token``.
-
-    The point is to catch regressions where, e.g., a future page-
-    specific override or a stale cached copy diverges from the shared
-    behaviour. Today there is exactly one common.js module — but the
-    parametrized check makes that invariant explicit and noisy.
+    test authenticates first (issue #175 — pages are gated by the
+    wizard_session cookie), lands on each page, then dynamically
+    imports the shipped module from the same origin and asserts the
+    helper navigates to ``/token``.
     """
     wp = wizard_process
+    # Pass through the auth flow so the page-auth gate lets us reach
+    # the target page; expireAndRedirect's behaviour is unchanged.
+    enter_token(page, wp.base_url, wp.setup_token, expect_url="/")
     page.goto(f"{wp.base_url}{path}")
     page.wait_for_load_state("domcontentloaded")
-
-    # Set a sentinel session token so we can prove the helper clears it.
-    page.evaluate(
-        "() => { window.sessionStorage.setItem("
-        "'wizard:sessionToken', 'sentinel'); }"
-    )
 
     page.evaluate(
         """async () => {

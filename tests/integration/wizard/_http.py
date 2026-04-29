@@ -22,6 +22,29 @@ import urllib.error
 import urllib.request
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Custom redirect handler that surfaces 3xx as ``HTTPError``.
+
+    Issue #175 — page-level auth gate uses 302 redirects. Tests that
+    assert the redirect must NOT follow it; otherwise urllib silently
+    transparently chases the Location header and the assertion sees
+    the final 200 page instead of the 302. By raising ``HTTPError``
+    on redirect codes we route the response through the same code
+    path used for 4xx/5xx (returned, not raised, by :func:`request`).
+    """
+
+    def http_error_301(self, req, fp, code, msg, headers):  # noqa: ARG002
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
+    http_error_302 = http_error_301
+    http_error_303 = http_error_301
+    http_error_307 = http_error_301
+    http_error_308 = http_error_301
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 def request(
     method: str,
     url: str,
@@ -29,21 +52,32 @@ def request(
     body: bytes | None = None,
     headers: dict[str, str] | None = None,
     timeout: float = 5.0,
+    follow_redirects: bool = True,
 ) -> tuple[int, dict[str, str], bytes]:
-    """Execute *method* *url*; return ``(status, headers, body_bytes)``."""
+    """Execute *method* *url*; return ``(status, headers, body_bytes)``.
+
+    By default redirects are followed transparently (urllib's normal
+    behaviour). Pass ``follow_redirects=False`` to surface 3xx
+    responses as their original status / Location header — required
+    for the issue-#175 page-auth-gate tests.
+    """
     req = urllib.request.Request(url, data=body, method=method)
     for k, v in (headers or {}).items():
         req.add_header(k, v)
+    opener = (
+        urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
+    )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener(req, timeout=timeout) as resp:
             return (
                 resp.status,
                 {k: v for k, v in resp.headers.items()},
                 resp.read(),
             )
     except urllib.error.HTTPError as exc:
-        # 4xx / 5xx land here — return the response normally so callers
-        # can assert against the status code without try/except dancing.
+        # 4xx / 5xx (and 3xx when ``follow_redirects=False``) land here
+        # — return the response normally so callers can assert against
+        # the status code without try/except dancing.
         return (
             exc.code,
             {k: v for k, v in exc.headers.items()} if exc.headers else {},
@@ -77,9 +111,16 @@ def get(
     *,
     headers: dict[str, str] | None = None,
     timeout: float = 5.0,
+    follow_redirects: bool = True,
 ) -> tuple[int, dict[str, str], bytes]:
     """GET *url*; return ``(status, headers, body_bytes)``."""
-    return request("GET", url, headers=headers, timeout=timeout)
+    return request(
+        "GET",
+        url,
+        headers=headers,
+        timeout=timeout,
+        follow_redirects=follow_redirects,
+    )
 
 
 def get_json(

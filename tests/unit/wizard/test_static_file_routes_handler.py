@@ -17,7 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from wizard.sethlans_wizard.handlers.static_files import make_static_handler
+from wizard.sethlans_wizard import auth_state
+from wizard.sethlans_wizard.handlers.static_files import (
+    make_index_handler,
+    make_index_handler_authed,
+    make_static_handler,
+)
 
 from ._static_file_helpers import get_environ, invoke
 
@@ -85,3 +90,62 @@ class TestStaticHandlerDirectly:
             assert status.startswith("404"), status
         finally:
             outside.unlink(missing_ok=True)
+
+
+class TestIndexHandlerAuthedFactory:
+    """Issue #175 — make_index_handler_authed gates with the cookie."""
+
+    def _write_page(self, tmp_path):
+        (tmp_path / "page.html").write_text(
+            "<html><body>ok</body></html>", encoding="utf-8",
+        )
+
+    def test_unauthed_get_returns_302_to_token(self, tmp_path):
+        self._write_page(tmp_path)
+        handler = make_index_handler_authed(tmp_path, "page.html")
+        status, headers, body = invoke(handler, get_environ("/page"))
+        assert status.startswith("302"), status
+        assert headers.get("Location") == "/token"
+        assert headers.get("Cache-Control") == "no-store"
+        assert body == b""
+
+    def test_invalid_cookie_returns_302(self, tmp_path):
+        self._write_page(tmp_path)
+        handler = make_index_handler_authed(tmp_path, "page.html")
+        env = get_environ("/page", cookie="not-a-real-token")
+        status, headers, _ = invoke(handler, env)
+        assert status.startswith("302"), status
+        assert headers.get("Location") == "/token"
+
+    def test_valid_cookie_returns_page(self, tmp_path):
+        self._write_page(tmp_path)
+        handler = make_index_handler_authed(tmp_path, "page.html")
+        token = auth_state.issue_session_token()
+        env = get_environ("/page", cookie=token)
+        status, headers, body = invoke(handler, env)
+        assert status.startswith("200"), status
+        assert headers.get("Content-Type", "").startswith("text/html")
+        assert b"<body>ok</body>" in body
+        # FR-W-FE2 security headers still apply.
+        assert "Content-Security-Policy" in headers
+
+    def test_post_returns_405_before_cookie_check(self, tmp_path):
+        # Method check fires first so the auth gate doesn't mask a
+        # client error with a redirect.
+        self._write_page(tmp_path)
+        handler = make_index_handler_authed(tmp_path, "page.html")
+        env = get_environ("/page")
+        env["REQUEST_METHOD"] = "POST"
+        status, headers, _ = invoke(handler, env)
+        assert status.startswith("405"), status
+        assert "GET" in headers.get("Allow", "")
+
+    def test_unauthed_factory_does_not_gate(self, tmp_path):
+        # Sanity guard: the plain factory still serves without a cookie
+        # (used for /token and /redirecting which must remain reachable
+        # to first-time users).
+        self._write_page(tmp_path)
+        handler = make_index_handler(tmp_path, "page.html")
+        status, _, body = invoke(handler, get_environ("/page"))
+        assert status.startswith("200"), status
+        assert b"ok" in body

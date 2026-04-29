@@ -15,7 +15,16 @@ from . import _http
 
 
 def test_wizard_boots_and_serves_index(wizard_process):
-    """Scenario 1: a fresh wizard subprocess serves the token-entry page."""
+    """Scenario 1: a fresh wizard subprocess serves the token-entry page.
+
+    Issue #175 — unauthed ``GET /`` now 302's to ``/token`` (page-auth
+    gate). urllib follows the redirect transparently, so the final
+    response is the ``/token`` page, not the welcome page; both are
+    served via the static-file factory and carry the same security
+    headers + ``<title>Sethlans...`` so the smoke assertions still
+    pass either way. The actual gate behaviour is covered by
+    :mod:`tests.integration.wizard.test_phase2_page_auth_gate`.
+    """
     status, headers, body = _http.get(f"{wizard_process.base_url}/")
     assert status == 200, body
     body_text = body.decode("utf-8", errors="replace")
