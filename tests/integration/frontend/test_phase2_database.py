@@ -118,6 +118,76 @@ def test_engine_value_in_post_body(page, wizard_process):
     assert captured[0]["host"] == "mysql.example.com", captured[0]
 
 
+def test_radiogroup_fieldset_has_no_aria_expanded(page, wizard_process):
+    """FE-2 regression — ``aria-expanded`` is not a valid property on
+    ``role=radiogroup``. Removing it stops axe-core from flagging the
+    fieldset under the supported-roles rule. The disclosure-style
+    announcement still happens via the existing ``aria-live=polite``
+    region adjacent to the credentials block.
+    """
+    wp = wizard_process
+    _arrive_at_database(page, wp)
+    fieldset = page.locator(".db-engine-group")
+    # SQLite (default): aria-expanded must NOT be present.
+    assert fieldset.get_attribute("aria-expanded") is None
+    # Switch engine to mysql (would have triggered :aria-expanded='true'
+    # under the old binding). Still must not appear.
+    page.locator("[data-choice-id='mysql']").click()
+    page.wait_for_function(
+        "() => {"
+        "const f = document.querySelector('.db-engine-group');"
+        "return f && f.getAttribute('aria-checked') === null;"
+        "}",
+        timeout=2000,
+    )
+    assert fieldset.get_attribute("aria-expanded") is None
+
+
+def test_port_resets_to_engine_default_on_swap(page, wizard_process):
+    """FE-5 regression — switching engines snaps the port to the new
+    engine's canonical default. The previous bug stashed the prior
+    engine's port (e.g., 5432 from postgresql) and overrode the new
+    engine's default (3306 for mysql).
+    """
+    wp = wizard_process
+    _arrive_at_database(page, wp)
+    page.locator("[data-choice-id='postgresql']").click()
+    page.wait_for_selector("#db-port", state="visible", timeout=2000)
+    pg_port = page.locator("#db-port").input_value()
+    assert pg_port == "5432", f"PostgreSQL default port should be 5432, got {pg_port}"
+    page.locator("[data-choice-id='mysql']").click()
+    # Port input is the same DOM element under v-show, but the value
+    # should have updated reactively to the mysql default.
+    page.wait_for_function(
+        "() => document.querySelector('#db-port').value === '3306'",
+        timeout=2000,
+    )
+    mysql_port = page.locator("#db-port").input_value()
+    assert mysql_port == "3306", (
+        f"MySQL default port should be 3306 after swap, got {mysql_port} "
+        "(the FE-5 stale-port-after-swap bug regressed)."
+    )
+
+
+def test_port_not_stashed_in_form_state(page, wizard_process):
+    """FE-5 regression — port is recomputed from engine on load and
+    therefore is NOT stashed in sessionStorage. Stashing port across
+    engine swaps is the bug FE-5 prevents from regressing.
+    """
+    wp = wizard_process
+    _arrive_at_database(page, wp)
+    page.locator("[data-choice-id='postgresql']").click()
+    page.wait_for_selector("#db-port", state="visible", timeout=2000)
+    raw = page.evaluate(
+        "() => window.sessionStorage.getItem('wizard.form.database')",
+    )
+    assert raw is not None, "form state should be stashed"
+    parsed = json.loads(raw)
+    assert "port" not in parsed, (
+        f"port should NOT be in stash (FE-5 fix); got: {parsed}"
+    )
+
+
 def test_password_not_stashed_in_form_state(page, wizard_process):
     """FR-CHK3-FORM-STATE — DB password is NEVER stashed in sessionStorage."""
     wp = wizard_process

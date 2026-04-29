@@ -22,9 +22,10 @@
 const STEP_KEY_PREFIX = 'wizard.form.';
 
 // Known step names — used by clearAllFormState. Adding a new step? add
-// the name here too so the all-clear sweep covers it.
+// the name here too so the all-clear sweep covers it. Only steps whose
+// page actually calls stashFormState appear here. 'welcome' and 'done'
+// were removed because neither page stashes any user input (FE-6).
 export const FORM_STATE_STEPS = Object.freeze([
-  'welcome',
   'topology',
   'network',
   'database',
@@ -32,7 +33,6 @@ export const FORM_STATE_STEPS = Object.freeze([
   'worker-password',
   'ffmpeg',
   'verify',
-  'done',
 ]);
 
 function _key(step) {

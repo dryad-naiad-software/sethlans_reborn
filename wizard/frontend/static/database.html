@@ -41,8 +41,7 @@
     <fieldset
       class="mb-4 topology-radiogroup db-engine-group"
       role="radiogroup"
-      aria-labelledby="db-heading"
-      :aria-expanded="engine !== 'sqlite' ? 'true' : 'false'">
+      aria-labelledby="db-heading">
       <legend class="visually-hidden">Database engine</legend>
       <div class="row g-3">
         <div v-for="(opt, idx) in engines" :key="opt.id" class="col-12 col-md-6 col-lg-3">

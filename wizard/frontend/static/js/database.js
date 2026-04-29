@@ -27,6 +27,18 @@ import {
 
 const STEP = 'database';
 
+// Canonical default port per engine. Authoritative on load and on
+// every engine swap — the port is NEVER stashed in sessionStorage,
+// so a user who picks postgresql then switches to mysql gets 3306,
+// not a stale 5432 left over from the previous engine (FE-5 fix).
+// User overrides during the live form session do persist (in scope
+// state) but are dropped on reload to keep the engine/port pairing
+// honest.
+const DEFAULT_PORTS = Object.freeze({
+  postgresql: 5432,
+  mysql: 3306,
+});
+
 const ERROR_MESSAGES = {
   auth_failed: 'Authentication failed. Check the user and password.',
   host_unreachable: 'Could not reach the database host. Check the address and that the server is running.',
@@ -55,18 +67,25 @@ const scope = {
     this.engine = id;
     this.error = '';
     this.canRetry = false;
-    if (id === 'postgresql') this.form.port = this.form.port || 5432;
-    if (id === 'mysql') this.form.port = this.form.port || 3306;
+    // Always snap port to the new engine's canonical default. We
+    // intentionally do NOT preserve the previous engine's port — the
+    // typical case (user clicks pg then switches to mysql) was leaving
+    // 5432 behind, which is the wrong default for mysql (FE-5).
+    if (DEFAULT_PORTS[id] !== undefined) {
+      this.form.port = DEFAULT_PORTS[id];
+    }
     this._stash();
   },
 
   _stash() {
     // Password fields are NEVER stashed (FR-CHK3-FORM-STATE).
+    // Port is NOT stashed either — it is always recomputed from the
+    // engine on load via DEFAULT_PORTS. See selectEngine for the
+    // engine-swap rationale (FE-5).
     stashFormState(STEP, {
       engine: this.engine,
       name: this.form.name,
       host: this.form.host,
-      port: this.form.port,
       user: this.form.user,
       enginePath: this.form.enginePath,
     });
@@ -175,9 +194,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof stash.engine === 'string') scope.engine = stash.engine;
     if (typeof stash.name === 'string') scope.form.name = stash.name;
     if (typeof stash.host === 'string') scope.form.host = stash.host;
-    if (Number.isInteger(stash.port)) scope.form.port = stash.port;
     if (typeof stash.user === 'string') scope.form.user = stash.user;
     if (typeof stash.enginePath === 'string') scope.form.enginePath = stash.enginePath;
+  }
+  // Port is NOT pulled from the stash — it is always recomputed from
+  // the engine here (FE-5). Engine-specific defaults take precedence
+  // over any stale value that older sessions might have stashed.
+  if (DEFAULT_PORTS[scope.engine] !== undefined) {
+    scope.form.port = DEFAULT_PORTS[scope.engine];
   }
   createApp(scope).mount('#app');
   attachKeyboardHandler();

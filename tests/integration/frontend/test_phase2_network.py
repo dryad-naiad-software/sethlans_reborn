@@ -32,6 +32,43 @@ def test_yes_no_radiogroup_renders(page, wizard_process):
     assert page.locator("#network-submit").get_attribute("aria-disabled") == "true"
 
 
+def test_aria_controls_target_exists_when_collapsed(page, wizard_process):
+    """FE-3 regression — ``aria-controls='network-advanced'`` references
+    ``#network-advanced``. The element must exist in the DOM whether the
+    advanced section is open or closed (the previous ``v-if`` made the
+    target disappear when collapsed, breaking the aria-controls contract
+    for assistive tech).
+    """
+    wp = wizard_process
+    _arrive_at_network(page, wp)
+    # Collapsed by default: the controlled element must still exist.
+    page.wait_for_function(
+        "() => {"
+        "const b = document.querySelector("
+        "\"button[aria-controls='network-advanced']\");"
+        "return b && b.getAttribute('aria-expanded') === 'false';"
+        "}",
+        timeout=5000,
+    )
+    assert page.locator("#network-advanced").count() == 1, (
+        "FE-3: #network-advanced must exist in the DOM when the toggle "
+        "is collapsed (v-show, not v-if)."
+    )
+    # And after opening, still exactly one (no double-mount).
+    page.locator("button[aria-controls='network-advanced']").click()
+    page.wait_for_function(
+        "() => {"
+        "const b = document.querySelector("
+        "\"button[aria-controls='network-advanced']\");"
+        "return b && b.getAttribute('aria-expanded') === 'true';"
+        "}",
+        timeout=2000,
+    )
+    assert page.locator("#network-advanced").count() == 1, (
+        "FE-3: #network-advanced must still be exactly one element after open."
+    )
+
+
 def test_advanced_disclosure_reveals_fields(page, wizard_process):
     wp = wizard_process
     _arrive_at_network(page, wp)
