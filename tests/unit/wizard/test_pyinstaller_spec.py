@@ -9,10 +9,13 @@ key configuration markers are present. They do NOT invoke PyInstaller
 itself; the live build is exercised in Phase C / AC-B4 via the CI
 smoke test.
 
-Per Spec 1 NF-4 the wizard bundle MUST stay under 25 MB. Per AC-B2 the
-bundle MUST NOT contain Django, the workers app, psycopg, or pymysql —
-the spec achieves this via ``excludes=`` (verified here) and the live
-``pathlib.rglob`` assertions added in Phase C.
+Per Spec 1 NF-4 the wizard bundle aimed at a hard size ceiling; that
+ceiling was relaxed to alpha latitude in service of the manager-flow
+migration spec (Spec 2 Phase 1+2 added ``psycopg``, ``pymysql``, and
+``requests`` for FR-M2-4 / FR-M2-7). AC-B2 still guards the structural
+separations: the bundle MUST NOT contain Django, the manager app, or
+the worker agent. The spec achieves this via ``excludes=`` (verified
+here) and the live ``pathlib.rglob`` assertions added in Phase C.
 """
 
 from __future__ import annotations
@@ -105,8 +108,6 @@ def test_wizard_spec_excludes_cryptography(spec_text: str):
         "workers",
         "sethlans_manager",
         "sethlans_worker_agent",
-        "psycopg",
-        "pymysql",
     ],
 )
 def test_wizard_spec_excludes_forbidden_module(
@@ -114,9 +115,13 @@ def test_wizard_spec_excludes_forbidden_module(
 ):
     """AC-B2: forbidden imports MUST be in the ``excludes`` list.
 
-    The wizard is a standalone process. Pulling in Django, the manager,
-    the worker, or any DB driver would bloat the bundle past the
-    NF-4 25 MB ceiling and violate the standalone-process contract.
+    The wizard is a standalone process. Pulling in Django, the manager
+    app, or the worker agent would violate the standalone-process
+    contract. Note: ``psycopg`` and ``pymysql`` were removed from this
+    list in Spec 2 Phase 1 (FR-M2-4 needs real DB-connect validation),
+    and ``requests`` was removed because FR-M2-7 uses it for streamed
+    FFmpeg downloads. The structural separations above remain
+    load-bearing.
     """
     assert f"'{forbidden}'" in spec_text, (
         f"{forbidden!r} must appear (in the excludes list) in wizard.spec"
@@ -125,40 +130,47 @@ def test_wizard_spec_excludes_forbidden_module(
 
 @pytest.mark.parametrize(
     "banned",
-    ["httpx", "requests", "certifi"],
+    ["httpx"],
 )
 def test_wizard_spec_no_banned_top_level_deps(
     spec_text: str, banned: str
 ):
-    """NF-9: no new top-level deps beyond manager's existing set.
+    """No-bloat guard: deps the wizard genuinely doesn't use stay excluded.
 
-    ``httpx``, ``requests``, and ``certifi`` are banned. They MUST NOT
-    appear in hiddenimports (a parametrized check; presence in
-    ``excludes`` would also include the literal but our excludes list
-    explicitly carries them, so this test asserts they appear ONLY in
-    the excludes context — not in any hiddenimports list).
+    ``httpx`` is not imported anywhere in ``wizard/``; keeping it in
+    the excludes list prevents a stray transitive import from bloating
+    the bundle. ``requests`` was moved off this list in Spec 2 Phase 1
+    because FR-M2-7 ports the FFmpeg streamed-download path to it,
+    and ``certifi`` had to be removed because ``requests.certs``
+    imports it at module-import time. This test asserts the banned
+    names appear in the excludes context — not as a positive
+    ``hiddenimports`` add.
     """
     # The banned name should appear in the excludes list (defensive
     # exclusion), and only there. Count occurrences and confirm they
     # are colocated with the ``excludes`` keyword block.
     assert f"'{banned}'" in spec_text
     # The substring must not be added under hiddenimports — a stray
-    # ``hiddenimports += ['requests']`` would be a regression. Search
+    # ``hiddenimports += ['httpx']`` would be a regression. Search
     # for that pattern explicitly.
     assert f"hiddenimports += ['{banned}']" not in spec_text
     assert f'hiddenimports += ["{banned}"]' not in spec_text
 
 
-def test_wizard_spec_documents_size_ceiling(spec_text: str):
-    """NF-4: the spec MUST document the size ceiling at the top.
+def test_wizard_spec_documents_size_guidance(spec_text: str):
+    """NF-4: the spec MUST document the size guidance at the top.
 
     Future contributors need to see this constraint without hunting
-    through the issue tracker. The exact MB value drifts (see history
-    in the spec docstring); what we lock in is that *some* "NF-4"
-    + MB ceiling block exists near the top.
+    through the issue tracker. The hard ceiling was relaxed to alpha
+    latitude in Spec 2 Phase 1 (see ``feedback_bundle_ceilings``
+    project memory); what we lock in here is that *some* "NF-4" +
+    size-guidance block exists near the top of the spec.
     """
     assert "NF-4" in spec_text
-    assert "SIZE CEILING" in spec_text
+    # Either "SIZE CEILING" (legacy) or "SIZE GUIDANCE" (current,
+    # post-relax) is acceptable so the test survives further wording
+    # tweaks without churn.
+    assert ("SIZE CEILING" in spec_text) or ("SIZE GUIDANCE" in spec_text)
     assert "MB" in spec_text
 
 

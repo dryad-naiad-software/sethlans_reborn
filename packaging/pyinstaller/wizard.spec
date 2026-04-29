@@ -11,17 +11,21 @@ during first-run setup. It MUST NOT pull in Django, the manager, or
 the worker — it is an independent process supervised by the launcher
 via the IPC contract in ``wizard/sethlans_wizard/ipc.py``.
 
-NF-4 SIZE CEILING: the wizard one-dir bundle MUST stay at or under
-85 MB (raised 25 → 30 → 35 → 85 MB; see Spec 1 NF-4 measurement
-note). The 35 → 85 MB jump (issue #154) absorbs the GitHub-hosted CI
-runner's heavier toolcache Python — libpython3.14 plus the
-cryptography Rust binding alone account for ~44 MB on Linux, which
-the prior Docker python:3.14-slim measurement did not see. AC-B2
-(forbidden module names: django, workers, psycopg, pymysql) remains
-the structural guard against the wizard accidentally absorbing the
-manager. Be wary of adding new hidden imports or datas. Per Spec 1
-NF-9, no new top-level dependencies (httpx, requests, certifi, etc.)
-may be introduced beyond what the manager already pulls in.
+NF-4 SIZE GUIDANCE (alpha): the wizard one-dir bundle aims to stay
+small, but the original Spec 1 hard cap (25 → 30 → 35 → 85 MB) was
+relaxed in service of Phase 1+2 of the manager-flow migration spec
+(``setup-wizard-standalone-manager-migration.md``), which legitimately
+needs ``psycopg`` and ``pymysql`` for FR-M2-4 real DB-connect
+validation and ``requests`` for FR-M2-7 streamed FFmpeg downloads.
+A dedicated post-development trim pass will reset a hard ceiling once
+the migration spec lands — see project memory ``feedback_bundle_ceilings``.
+
+AC-B2 (forbidden module names: django, workers, sethlans_manager,
+sethlans_worker_agent) remains the structural guard against the
+wizard accidentally absorbing the manager or the worker. Those
+excludes are load-bearing and MUST NOT be removed without a spec
+change. Be wary of adding new hidden imports or datas — every
+addition needs a real runtime caller.
 
 Usage: pyinstaller packaging/pyinstaller/wizard.spec
 """
@@ -60,6 +64,19 @@ from version_info import make_version_info  # noqa: E402
 #     cert via shared.cert_utils, which keeps cryptography off the
 #     wizard bundle entirely).
 #   * waitress WSGI server (lazy submodules: task, wasyncore, parser)
+#   * psycopg (3.x) — FR-M2-4 real PostgreSQL connect validation.
+#     Has a C-extension (``psycopg_binary``) plus several pure-python
+#     submodules (``psycopg.connection``, ``psycopg.adapt``,
+#     ``psycopg.types.*``) that PyInstaller's static walker misses
+#     because the wizard imports it lazily inside a function.
+#   * pymysql — FR-M2-4 real MySQL/MariaDB connect validation.
+#     Pure-python; collect_submodules picks up ``pymysql.cursors``,
+#     ``pymysql.connections``, etc. that the lazy import path needs.
+#   * requests — FR-M2-7 streamed FFmpeg downloads (chunked iter).
+#     PyInstaller usually catches ``requests`` cleanly via static
+#     analysis, but ``urllib3`` and ``charset_normalizer`` (its
+#     transitive deps) carry conditional imports that benefit from
+#     collect_submodules.
 hiddenimports = []
 hiddenimports += collect_submodules('sethlans_wizard')
 hiddenimports += [
@@ -75,6 +92,21 @@ hiddenimports += [
 # if the submodule walk returns empty on some platforms.
 hiddenimports += collect_submodules('waitress')
 hiddenimports += ['waitress']
+
+# DB drivers (FR-M2-4, Spec 2 Phase 1). Lazy-imported by
+# ``wizard/sethlans_wizard/db_validate.py`` so the static walker can
+# miss the C-extension submodules — collect_submodules guarantees
+# coverage. ``psycopg_binary`` is the binary wheel companion package
+# that ships the libpq-bound C extension.
+hiddenimports += collect_submodules('psycopg')
+hiddenimports += collect_submodules('psycopg_binary')
+hiddenimports += collect_submodules('pymysql')
+
+# requests (FR-M2-7, Spec 2 Phase 1). Used by ffmpeg_download for
+# streamed downloads.
+hiddenimports += collect_submodules('requests')
+hiddenimports += collect_submodules('urllib3')
+hiddenimports += collect_submodules('charset_normalizer')
 
 # --- Data files ---
 datas = []
@@ -117,9 +149,11 @@ excludes = [
     'workers',
     'sethlans_manager',
     'sethlans_worker_agent',
-    'psycopg',
+    # ``psycopg2`` (the legacy 2.x driver) is intentionally NOT bundled
+    # — Spec 2 Phase 1 standardised on ``psycopg`` 3.x. Keep it in the
+    # excludes list so a stray transitive import does not pull in the
+    # old C extension alongside the new one.
     'psycopg2',
-    'pymysql',
     'PIL',
     'PySide6',
     'pystray',
@@ -130,13 +164,21 @@ excludes = [
     # it from the launcher), so the cryptography Rust binding is dead
     # weight (~28 MB on Linux). Excluding here also forces a build
     # failure if a future change accidentally reintroduces the
-    # dependency.
+    # dependency. Verified absent from ``wizard/`` via
+    # ``grep -rn cryptography wizard/`` (only stale comments remain).
     'cryptography',
     'shared.cert_utils',
-    # NF-9: no new top-level deps beyond manager's set.
+    # ``httpx`` is NOT used by the wizard — kept in excludes so a
+    # stray transitive import does not bloat the bundle.
+    # ``requests`` (originally banned per Spec 1 NF-9) is now allowed
+    # because Spec 2 Phase 1 (FR-M2-7) ports the FFmpeg download path
+    # to use it for streamed transfers; see hiddenimports above.
+    # ``certifi`` MUST ride along because ``requests.certs`` imports
+    # it at module-import time to locate the bundled CA root store —
+    # excluding it crashes the wizard at startup with
+    # ``ModuleNotFoundError: No module named 'certifi'`` the moment
+    # ``ffmpeg_download`` is loaded.
     'httpx',
-    'requests',
-    'certifi',
 ]
 
 a = Analysis(
