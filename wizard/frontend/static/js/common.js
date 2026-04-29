@@ -20,6 +20,28 @@ export const SESSION_KEY = 'wizard:sessionToken';
 export const FLASH_KEY = 'wizard:flashMessage';
 export const LAST_READY_URL_KEY = 'wizard:lastReadyUrl';
 
+// FR-CHK3-RESUME — when a 401 bounces the user back to /token and the
+// resume-target endpoint walks them to a page OTHER than where they
+// were, the destination renders an info banner reading "Your session
+// expired — we've taken you back to the [step label] step where you
+// left off." This stash key carries the message between pages.
+export const RESUME_BANNER_KEY = 'wizard:resumeBanner';
+
+// FR-CHK3-LABELS — checkpoint-name → human-readable step label. The
+// label MUST match the destination page's <h1> exactly (e.g. the
+// admin page's heading is "Admin User", NOT "admin-user"). The
+// frontend MUST NOT compute the label by string-massaging the route.
+export const RESUME_STEP_LABELS = Object.freeze({
+  welcome_seen:        'Welcome',
+  topology_chosen:     'Topology',
+  network_configured:  'Network',
+  database_configured: 'Database',
+  admin_validated:     'Admin User',
+  worker_password_set: 'Worker UI Password',
+  ffmpeg_installed:    'FFmpeg',
+  verified:            'Verify',
+});
+
 // ---------------------------------------------------------------------
 // sessionStorage wrappers — every read/write tolerates a SecurityError
 // (e.g., the user is browsing in a strict-privacy mode that blocks
@@ -84,6 +106,30 @@ export function cacheReadyUrl(url) {
   if (!isSafeRuntimeUrl(url)) return;
   try { window.sessionStorage.setItem(LAST_READY_URL_KEY, url); }
   catch (_) { /* sessionStorage may be disabled */ }
+}
+
+// ---------------------------------------------------------------------
+// Resume banner — FR-CHK3-RESUME. Same one-shot read pattern as the
+// flash message above but a separate key so a stale flash from an
+// earlier 401 cannot collide with a resume banner.
+// ---------------------------------------------------------------------
+
+export function setResumeBanner(message) {
+  try { window.sessionStorage.setItem(RESUME_BANNER_KEY, message); }
+  catch (_) { /* sessionStorage may be disabled */ }
+}
+
+export function consumeResumeBanner() {
+  let message = null;
+  try {
+    message = window.sessionStorage.getItem(RESUME_BANNER_KEY);
+    if (message !== null) {
+      window.sessionStorage.removeItem(RESUME_BANNER_KEY);
+    }
+  } catch (_) {
+    return null;
+  }
+  return message;
 }
 
 // ---------------------------------------------------------------------

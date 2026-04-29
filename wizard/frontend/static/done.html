@@ -1,0 +1,59 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sethlans &mdash; Finishing Up</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/wizard.css">
+</head>
+<body class="bg-body-tertiary">
+  <noscript>
+    <div class="container py-5">
+      <div class="alert alert-warning" role="alert">
+        This page needs JavaScript to complete setup.
+        Please enable JavaScript and reload.
+      </div>
+    </div>
+  </noscript>
+
+  <script nomodule src="/static/js/legacy-fallback.js"></script>
+
+  <main id="app" class="d-flex align-items-center justify-content-center min-vh-100 py-4 px-3" v-cloak>
+    <div class="card shadow-sm w-100 wizard-card">
+      <div class="card-body p-4 p-md-5 text-center">
+
+        <header class="mb-4">
+          <h1 class="h3 mb-1">Finishing Up</h1>
+          <p class="text-body-secondary mb-0">
+            Saving your answers and signalling the launcher.
+          </p>
+        </header>
+
+        <div v-if="!error" class="mb-3" :aria-busy="busy ? 'true' : 'false'">
+          <div class="spinner-border text-primary" role="status" aria-hidden="true">
+            <span class="visually-hidden">Working&hellip;</span>
+          </div>
+          <p class="mt-3 mb-0" aria-live="polite">{{ stageMessage }}</p>
+        </div>
+
+        <div v-if="error" class="alert alert-danger" role="alert" aria-live="assertive">
+          <p class="mb-2">{{ error }}</p>
+          <button
+            type="button"
+            class="btn btn-light btn-sm"
+            @click="run">
+            Retry
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/static/js/done.js"></script>
+</body>
+</html>

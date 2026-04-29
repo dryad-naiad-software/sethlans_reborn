@@ -30,6 +30,7 @@ import pytest
 from wizard.sethlans_wizard.checkpoints import (
     DATABASE_CONFIGURED,
     NETWORK_CONFIGURED,
+    TOPOLOGY_CHOSEN,
     RESUME_NEXT_ROUTE,
 )
 
@@ -65,7 +66,10 @@ def test_progress_accumulates_in_order_across_handlers(wizard_process):
     )
     assert status == 200
     payload1 = _read_progress(wp.data_dir)
-    assert payload1["checkpoints"] == [NETWORK_CONFIGURED], payload1
+    # FR-CHK4 (Spec 2): topology handler also appends topology_chosen.
+    assert payload1["checkpoints"] == [
+        TOPOLOGY_CHOSEN, NETWORK_CONFIGURED,
+    ], payload1
 
     # 2. Database.
     status, _, _ = _http.post_json(
@@ -76,7 +80,7 @@ def test_progress_accumulates_in_order_across_handlers(wizard_process):
     assert status == 200
     payload2 = _read_progress(wp.data_dir)
     assert payload2["checkpoints"] == [
-        NETWORK_CONFIGURED, DATABASE_CONFIGURED,
+        TOPOLOGY_CHOSEN, NETWORK_CONFIGURED, DATABASE_CONFIGURED,
     ], payload2
 
     # 3. Admin user.
@@ -93,7 +97,8 @@ def test_progress_accumulates_in_order_across_handlers(wizard_process):
     assert status == 200
     payload3 = _read_progress(wp.data_dir)
     assert payload3["checkpoints"] == [
-        NETWORK_CONFIGURED, DATABASE_CONFIGURED, "admin_validated",
+        TOPOLOGY_CHOSEN, NETWORK_CONFIGURED, DATABASE_CONFIGURED,
+        "admin_validated",
     ], payload3
 
     # Schema-version pin remains 1 across appends.

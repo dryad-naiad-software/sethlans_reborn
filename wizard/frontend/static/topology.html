@@ -23,6 +23,14 @@
   <script nomodule src="/static/js/legacy-fallback.js"></script>
 
   <main id="app" class="container py-4 py-md-5" v-cloak>
+    <div
+      v-if="resumeBanner"
+      class="alert alert-info"
+      role="status"
+      aria-live="polite">
+      {{ resumeBanner }}
+    </div>
+
     <header class="mb-4 text-center">
       <h1 id="topology-heading" class="h3 mb-1">Choose Topology</h1>
       <p class="text-body-secondary mb-0">

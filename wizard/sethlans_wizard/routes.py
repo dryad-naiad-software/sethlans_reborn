@@ -39,6 +39,9 @@ from wizard.sethlans_wizard.handlers.network import make_network_handler
 from wizard.sethlans_wizard.handlers.pending_setup import (
     make_pending_setup_handler,
 )
+from wizard.sethlans_wizard.handlers.resume_target import (
+    make_resume_target_handler,
+)
 from wizard.sethlans_wizard.handlers.runtime_ready import (
     make_runtime_ready_handler,
 )
@@ -48,6 +51,7 @@ from wizard.sethlans_wizard.handlers.static_files import (
 )
 from wizard.sethlans_wizard.handlers.topology import make_topology_handler
 from wizard.sethlans_wizard.handlers.verify import make_verify_handler
+from wizard.sethlans_wizard.handlers.welcome import make_welcome_handler
 from wizard.sethlans_wizard.handlers.worker_password import (
     make_worker_password_handler,
 )
@@ -108,6 +112,12 @@ def register_routes(
         "/api/wizard/pending-setup/",
         make_pending_setup_handler(data_dir),
     )
+    # Phase 2 (Spec 2) — welcome + resume-target endpoints.
+    router.add("/api/wizard/welcome/", make_welcome_handler(data_dir))
+    router.add(
+        "/api/wizard/resume-target/",
+        make_resume_target_handler(data_dir),
+    )
 
     # Frontend pages + vendored assets (FR-W-FE2).
     for subdir in ("vendor", "css", "js"):
@@ -117,10 +127,41 @@ def register_routes(
             make_static_handler(static_root / subdir, prefix),
             exact=False,
         )
-    router.add("/", make_index_handler(static_root))
+    # FR-M2-1: GET / serves welcome.html; the legacy token-entry page
+    # moves to GET /token.
+    router.add("/", make_index_handler(static_root, "welcome.html"))
+    router.add("/token", make_index_handler(static_root, "index.html"))
     router.add(
         "/topology",
         make_index_handler(static_root, "topology.html"),
+    )
+    router.add(
+        "/network",
+        make_index_handler(static_root, "network.html"),
+    )
+    router.add(
+        "/database",
+        make_index_handler(static_root, "database.html"),
+    )
+    router.add(
+        "/admin-user",
+        make_index_handler(static_root, "admin-user.html"),
+    )
+    router.add(
+        "/worker-password",
+        make_index_handler(static_root, "worker-password.html"),
+    )
+    router.add(
+        "/ffmpeg",
+        make_index_handler(static_root, "ffmpeg.html"),
+    )
+    router.add(
+        "/verify",
+        make_index_handler(static_root, "verify.html"),
+    )
+    router.add(
+        "/done",
+        make_index_handler(static_root, "done.html"),
     )
     router.add(
         "/redirecting",

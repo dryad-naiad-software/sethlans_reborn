@@ -5,23 +5,38 @@
 // Token-entry page (index.html) controller.
 //
 // Implements FR-W-FE3 (token paste + POST /api/wizard/auth/, 401/429
-// handling, lockout). Reads the wizard:flashMessage flash on mount so
-// users redirected here from a 401 on a downstream page see the
-// "Your session expired" explanation immediately (HIGH-3).
+// handling, lockout) and FR-CHK3-RESUME (post-auth resume).
 //
-// Lockout timing uses a wall-clock target (Date.now() + N*1000) instead
-// of a setInterval decrement counter; background tabs throttle
-// setInterval to ~1Hz, so a naive decrement can drift by tens of
-// seconds (MEDIUM-5).
+// On a successful re-auth POST, this page MUST NOT navigate to / (the
+// welcome page) by default. Instead it asks
+// `GET /api/wizard/resume-target/` for the route of the first
+// incomplete checkpoint and navigates there. If the resume route is
+// anything other than `/` (the welcome page) we stash a friendly
+// banner explaining the reentry — read once on the destination page.
 
 import { createApp } from '/static/vendor/petite-vue.js';
 import {
   setSessionToken,
   consumeFlash,
+  setResumeBanner,
+  RESUME_STEP_LABELS,
   wizardFetch,
 } from '/static/js/common.js';
 
 const LOCKOUT_SECS = 60;
+
+// Reverse map: route → checkpoint name. Used to look up the friendly
+// label for the resume banner without re-fetching the checkpoint list.
+const ROUTE_TO_CHECKPOINT = {
+  '/': 'welcome_seen',
+  '/topology': 'topology_chosen',
+  '/network': 'network_configured',
+  '/database': 'database_configured',
+  '/admin-user': 'admin_validated',
+  '/worker-password': 'worker_password_set',
+  '/ffmpeg': 'ffmpeg_installed',
+  '/verify': 'verified',
+};
 
 const scope = {
   token: '',
@@ -51,7 +66,7 @@ const scope = {
       response = await wizardFetch('/api/wizard/auth/', {
         method: 'POST',
         body: JSON.stringify({ token: trimmed }),
-        sessionToken: null, // explicit: pre-auth, no session header
+        sessionToken: null,
       });
     } catch (err) {
       this.submitting = false;
@@ -76,11 +91,9 @@ const scope = {
       }
       setSessionToken(sessionToken);
       this.token = '';
-      // Replace history so the browser Back button does not return the
-      // user to the token-entry page (where re-submitting the same
-      // token consumes a rate-limit attempt) — MEDIUM-2.
-      window.history.replaceState({}, '', '/topology');
-      window.location.assign('/topology');
+      const next = await this._resolveResumeRoute(sessionToken);
+      window.history.replaceState({}, '', next);
+      window.location.assign(next);
       return;
     }
 
@@ -101,12 +114,37 @@ const scope = {
     this.error = 'Something went wrong. Check the launcher logs and try again.';
   },
 
+  // FR-CHK3-RESUME — query the resume-target endpoint for the first
+  // incomplete checkpoint. On any failure, fall back to /.
+  async _resolveResumeRoute(sessionToken) {
+    let r;
+    try {
+      r = await wizardFetch('/api/wizard/resume-target/', {
+        method: 'GET',
+        sessionToken: sessionToken,
+      });
+    } catch (_) {
+      return '/';
+    }
+    if (!r.ok) return '/';
+    let body;
+    try { body = await r.json(); }
+    catch (_) { return '/'; }
+    const route = body && typeof body.route === 'string' ? body.route : '/';
+    if (route !== '/') {
+      const checkpoint = ROUTE_TO_CHECKPOINT[route];
+      const label = checkpoint ? RESUME_STEP_LABELS[checkpoint] : null;
+      if (label) {
+        setResumeBanner(
+          'Your session expired — we’ve taken you back to the '
+          + label + ' step where you left off.',
+        );
+      }
+    }
+    return route;
+  },
+
   _startLockout(seconds) {
-    // Wall-clock based: store the absolute deadline and recompute
-    // remaining seconds on every tick. setInterval is throttled in
-    // background tabs (Chromium clamps to ~1s but skips ticks under
-    // load), so a naive `lockoutSeconds -= 1` can over-report the
-    // remaining wait. MEDIUM-5.
     this._lockoutDeadline = Date.now() + seconds * 1000;
     this.lockoutSeconds = seconds;
     if (this._lockoutTimer) {
@@ -127,8 +165,6 @@ const scope = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  // HIGH-3: surface the flash message that topology.html
-  // (or another page) wrote when it bounced the user back here.
   const flash = consumeFlash();
   if (flash) {
     scope.error = flash;

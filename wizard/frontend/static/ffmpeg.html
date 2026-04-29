@@ -1,0 +1,106 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sethlans &mdash; FFmpeg</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/wizard.css">
+</head>
+<body class="bg-body-tertiary">
+  <noscript>
+    <div class="container py-5">
+      <div class="alert alert-warning" role="alert">
+        This page needs JavaScript to complete setup.
+        Please enable JavaScript and reload.
+      </div>
+    </div>
+  </noscript>
+
+  <script nomodule src="/static/js/legacy-fallback.js"></script>
+
+  <main id="app" class="d-flex align-items-center justify-content-center min-vh-100 py-4 px-3" v-cloak>
+    <div class="card shadow-sm w-100 wizard-card">
+      <div class="card-body p-4 p-md-5">
+
+        <div
+          v-if="resumeBanner"
+          class="alert alert-info"
+          role="status"
+          aria-live="polite">
+          {{ resumeBanner }}
+        </div>
+
+        <header class="mb-4 text-center">
+          <h1 class="h3 mb-1">FFmpeg</h1>
+          <p class="text-body-secondary mb-0">
+            Sethlans uses FFmpeg to assemble rendered animations.
+          </p>
+        </header>
+
+        <div
+          class="ffmpeg-progress"
+          :aria-busy="busy ? 'true' : 'false'"
+          aria-live="polite">
+
+          <p class="mb-2">
+            <span v-if="status === 'downloading'">Downloading FFmpeg&hellip; ({{ percent }}%)</span>
+            <span v-else-if="status === 'extracting'">Extracting&hellip;</span>
+            <span v-else-if="status === 'verifying'">Verifying&hellip;</span>
+            <span v-else-if="status === 'complete'">FFmpeg installed.</span>
+            <span v-else-if="status === 'failed'">FFmpeg installation failed.</span>
+            <span v-else>Starting&hellip;</span>
+          </p>
+
+          <div class="progress mb-3" role="progressbar"
+               :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
+            <div
+              class="progress-bar"
+              :class="{ 'bg-success': status === 'complete', 'bg-danger': status === 'failed' }"
+              :style="'width: ' + percent + '%'">
+            </div>
+          </div>
+        </div>
+
+        <div v-if="status === 'failed'" class="alert alert-danger" role="alert" aria-live="assertive">
+          <p class="fw-semibold mb-1">{{ failureHeadline }}</p>
+          <p class="mb-2">{{ failureBody }}</p>
+          <details v-if="errorDetail">
+            <summary>View details</summary>
+            <pre class="mb-0 mt-2 small text-break">{{ errorDetail }}</pre>
+          </details>
+          <button
+            v-if="retryAllowed"
+            type="button"
+            class="btn btn-light btn-sm mt-2"
+            @click="retry">
+            Retry
+          </button>
+          <p v-if="!retryAllowed" class="mt-2 mb-0 small">
+            This error is unsafe to auto-retry. Cancel and exit the wizard,
+            then check for Sethlans updates before re-running setup.
+          </p>
+        </div>
+
+        <div class="d-grid mt-4">
+          <button
+            id="ffmpeg-next"
+            type="button"
+            class="btn btn-primary btn-lg"
+            :disabled="status !== 'complete'"
+            :aria-disabled="status !== 'complete' ? 'true' : 'false'"
+            @click="next">
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/static/js/ffmpeg.js"></script>
+</body>
+</html>

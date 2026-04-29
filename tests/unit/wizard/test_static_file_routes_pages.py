@@ -111,17 +111,19 @@ class TestTopologyRoute:
         assert "GET" in headers.get("Allow", "")
 
     def test_topology_route_distinct_from_index(self, tmp_path):
-        """GET / must return index.html; GET /topology must return topology.html."""
+        """FR-M2-1: GET / now serves welcome.html (the legacy token-entry
+        page moves to /token); GET /topology must return topology.html."""
         app = server.create_app(tmp_path, SETUP_TOKEN, IPC_SECRET)
         _, _, root_body = invoke(app, get_environ("/"))
         _, _, topology_body = invoke(app, get_environ("/topology"))
+        _, _, token_body = invoke(app, get_environ("/token"))
         assert root_body != topology_body, (
-            "Index and topology pages must serve different content."
+            "Welcome and topology pages must serve different content."
         )
-        # index.html has the setup-token form; topology.html has the
+        # /token now hosts the setup-token form; topology.html has the
         # radiogroup. Confirm no swap.
-        assert b"setup-token" in root_body
-        assert b'role="radiogroup"' not in root_body
+        assert b"setup-token" in token_body
+        assert b'role="radiogroup"' not in token_body
         assert b'role="radiogroup"' in topology_body
 
 
@@ -164,11 +166,15 @@ class TestRedirectingRoute:
         _, _, root_body = invoke(app, get_environ("/"))
         _, _, topology_body = invoke(app, get_environ("/topology"))
         _, _, redirecting_body = invoke(app, get_environ("/redirecting"))
+        _, _, token_body = invoke(app, get_environ("/token"))
         assert root_body != redirecting_body
         assert topology_body != redirecting_body
-        # Each page loads its own per-page module script (Phase F2).
+        # Each page loads its own per-page module script.
         assert b"/static/js/redirecting.js" in redirecting_body
         assert b"/static/js/redirecting.js" not in root_body
         assert b"/static/js/redirecting.js" not in topology_body
-        assert b"/static/js/auth.js" in root_body
+        # /token (legacy index.html) loads auth.js; / (welcome.html)
+        # loads welcome.js.
+        assert b"/static/js/auth.js" in token_body
+        assert b"/static/js/welcome.js" in root_body
         assert b"/static/js/topology.js" in topology_body

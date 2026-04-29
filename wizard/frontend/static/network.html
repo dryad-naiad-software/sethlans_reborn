@@ -1,0 +1,137 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sethlans &mdash; Network</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/wizard.css">
+</head>
+<body class="bg-body-tertiary">
+  <noscript>
+    <div class="container py-5">
+      <div class="alert alert-warning" role="alert">
+        This page needs JavaScript to complete setup.
+        Please enable JavaScript and reload.
+      </div>
+    </div>
+  </noscript>
+
+  <script nomodule src="/static/js/legacy-fallback.js"></script>
+
+  <main id="app" class="container py-4 py-md-5" v-cloak>
+    <div
+      v-if="resumeBanner"
+      class="alert alert-info"
+      role="status"
+      aria-live="polite">
+      {{ resumeBanner }}
+    </div>
+
+    <header class="mb-4 text-center">
+      <h1 id="network-heading" class="h3 mb-1">Network</h1>
+      <p class="text-body-secondary mb-0">
+        Decide how this machine accepts connections from workers.
+      </p>
+    </header>
+
+    <fieldset
+      class="mb-4 topology-radiogroup"
+      role="radiogroup"
+      aria-labelledby="network-heading">
+      <legend class="visually-hidden">Allow workers on the network to connect?</legend>
+
+      <div class="row g-3">
+        <div v-for="(opt, idx) in choices" :key="opt.id" class="col-12 col-md-6">
+          <div
+            class="card h-100 topology-card"
+            :class="{ selected: allowExternal === opt.value }"
+            role="radio"
+            :tabindex="(allowExternal === opt.value || (allowExternal === null && idx === 0)) ? 0 : -1"
+            :aria-checked="allowExternal === opt.value ? 'true' : 'false'"
+            :aria-labelledby="'net-card-label-' + opt.id"
+            :aria-describedby="'net-card-desc-' + opt.id"
+            :data-choice-id="opt.id"
+            @click="selectChoice(opt.value)">
+            <div class="card-body">
+              <h2 :id="'net-card-label-' + opt.id" class="h5 mb-2">{{ opt.label }}</h2>
+              <p :id="'net-card-desc-' + opt.id" class="mb-0 text-body-secondary">{{ opt.desc }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <div class="mb-4">
+      <button
+        type="button"
+        class="btn btn-link p-0"
+        :aria-expanded="advancedOpen ? 'true' : 'false'"
+        aria-controls="network-advanced"
+        @click="advancedOpen = !advancedOpen">
+        {{ advancedOpen ? 'Hide advanced options' : 'Show advanced options' }}
+      </button>
+
+      <div
+        id="network-advanced"
+        v-if="advancedOpen"
+        class="border rounded p-3 mt-2">
+        <div class="mb-3">
+          <label for="bind-port" class="form-label">Bind port</label>
+          <input
+            id="bind-port"
+            type="number"
+            class="form-control"
+            min="1"
+            max="65535"
+            v-model.number="bindPort"
+            :class="{ 'is-invalid': fieldError === 'bind_port' }"
+            aria-describedby="bind-port-help">
+          <div id="bind-port-help" class="form-text">
+            Default 8080. Change only if another service already uses 8080.
+          </div>
+        </div>
+
+        <div class="mb-0">
+          <label for="data-dir" class="form-label">Data directory override</label>
+          <input
+            id="data-dir"
+            type="text"
+            class="form-control"
+            v-model.trim="dataDir"
+            :class="{ 'is-invalid': fieldError === 'data_dir' }"
+            placeholder="(uses platform default if empty)"
+            aria-describedby="data-dir-help">
+          <div id="data-dir-help" class="form-text">
+            Absolute path. Leave blank for the platform default.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="error" class="alert alert-danger" role="alert" aria-live="assertive">
+      {{ error }}
+    </div>
+
+    <div class="d-grid d-md-flex justify-content-md-end">
+      <button
+        id="network-submit"
+        type="button"
+        class="btn btn-primary btn-lg"
+        :disabled="submitting || allowExternal === null"
+        :aria-disabled="(submitting || allowExternal === null) ? 'true' : 'false'"
+        @click="submit">
+        <span v-if="submitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+        <span v-if="submitting">Saving&hellip;</span>
+        <span v-else>Continue</span>
+      </button>
+    </div>
+  </main>
+
+  <script src="/static/vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/static/js/network.js"></script>
+</body>
+</html>

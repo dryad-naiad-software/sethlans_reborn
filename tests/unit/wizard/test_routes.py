@@ -46,10 +46,21 @@ def populated_router(tmp_path):
     static_root.mkdir()
     for sub in ("vendor", "css", "js"):
         (static_root / sub).mkdir()
-    # Provide a stub index file so the index handler doesn't 404.
-    (static_root / "index.html").write_text("<html></html>", encoding="utf-8")
-    (static_root / "topology.html").write_text("<html></html>", encoding="utf-8")
-    (static_root / "redirecting.html").write_text("<html></html>", encoding="utf-8")
+    # Provide stub HTML files so each registered page route resolves.
+    for fn in (
+        "index.html",
+        "welcome.html",
+        "topology.html",
+        "network.html",
+        "database.html",
+        "admin-user.html",
+        "worker-password.html",
+        "ffmpeg.html",
+        "verify.html",
+        "done.html",
+        "redirecting.html",
+    ):
+        (static_root / fn).write_text("<html></html>", encoding="utf-8")
     r = Router()
     routes.register_routes(
         r,
@@ -93,6 +104,9 @@ class TestPhase1Routes:
             "/api/wizard/ffmpeg/cancel/",
             "/api/wizard/verify/",
             "/api/wizard/pending-setup/",
+            # Phase 2 endpoints.
+            "/api/wizard/welcome/",
+            "/api/wizard/resume-target/",
         ],
     )
     def test_route_resolved(self, populated_router, path):
@@ -174,6 +188,27 @@ class TestStaticMounts:
         status, body = _dispatch(populated_router, "/redirecting")
         assert _is_routed(status, body)
 
+    def test_token_entry_page_registered(self, populated_router):
+        # FR-M2-1: the legacy index.html now lives at /token.
+        status, body = _dispatch(populated_router, "/token")
+        assert _is_routed(status, body)
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/network",
+            "/database",
+            "/admin-user",
+            "/worker-password",
+            "/ffmpeg",
+            "/verify",
+            "/done",
+        ],
+    )
+    def test_phase2_pages_registered(self, populated_router, path):
+        status, body = _dispatch(populated_router, path)
+        assert _is_routed(status, body)
+
 
 class TestRegistrationContract:
 
@@ -184,9 +219,12 @@ class TestRegistrationContract:
         static_root.mkdir()
         for sub in ("vendor", "css", "js"):
             (static_root / sub).mkdir()
-        (static_root / "index.html").write_text("ok", encoding="utf-8")
-        (static_root / "topology.html").write_text("ok", encoding="utf-8")
-        (static_root / "redirecting.html").write_text("ok", encoding="utf-8")
+        for fn in (
+            "index.html", "welcome.html", "topology.html", "network.html",
+            "database.html", "admin-user.html", "worker-password.html",
+            "ffmpeg.html", "verify.html", "done.html", "redirecting.html",
+        ):
+            (static_root / fn).write_text("ok", encoding="utf-8")
         r = Router()
         routes.register_routes(
             r,

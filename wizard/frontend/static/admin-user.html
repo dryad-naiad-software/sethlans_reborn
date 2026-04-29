@@ -1,0 +1,132 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sethlans &mdash; Admin User</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/wizard.css">
+</head>
+<body class="bg-body-tertiary">
+  <noscript>
+    <div class="container py-5">
+      <div class="alert alert-warning" role="alert">
+        This page needs JavaScript to complete setup.
+        Please enable JavaScript and reload.
+      </div>
+    </div>
+  </noscript>
+
+  <script nomodule src="/static/js/legacy-fallback.js"></script>
+
+  <main id="app" class="d-flex align-items-center justify-content-center min-vh-100 py-4 px-3" v-cloak>
+    <div class="card shadow-sm w-100 wizard-card">
+      <div class="card-body p-4 p-md-5">
+
+        <div
+          v-if="resumeBanner"
+          class="alert alert-info"
+          role="status"
+          aria-live="polite">
+          {{ resumeBanner }}
+        </div>
+
+        <header class="mb-4 text-center">
+          <h1 class="h3 mb-1">Admin User</h1>
+          <p class="text-body-secondary mb-0">
+            Create the first administrator account for the manager.
+          </p>
+        </header>
+
+        <form @submit.prevent="submit" novalidate>
+          <div class="mb-3">
+            <label for="admin-username" class="form-label">Username</label>
+            <input
+              id="admin-username"
+              ref="firstField"
+              type="text"
+              class="form-control"
+              v-model.trim="form.username"
+              :class="{ 'is-invalid': fieldError === 'username_required' }"
+              autocomplete="username"
+              spellcheck="false"
+              autocapitalize="off"
+              @input="_stash"
+              required>
+          </div>
+
+          <div class="mb-3">
+            <label for="admin-email" class="form-label">Email</label>
+            <input
+              id="admin-email"
+              type="email"
+              class="form-control"
+              v-model.trim="form.email"
+              :class="{ 'is-invalid': fieldError === 'email_required' }"
+              autocomplete="email"
+              spellcheck="false"
+              autocapitalize="off"
+              @input="_stash">
+          </div>
+
+          <div class="mb-3">
+            <label for="admin-password" class="form-label">Password</label>
+            <input
+              id="admin-password"
+              type="password"
+              class="form-control"
+              v-model="form.password"
+              :class="{ 'is-invalid': fieldError === 'password_required' || fieldError === 'password_invalid' }"
+              autocomplete="new-password"
+              required>
+          </div>
+
+          <div class="mb-3">
+            <label for="admin-password-confirm" class="form-label">Confirm password</label>
+            <input
+              id="admin-password-confirm"
+              type="password"
+              class="form-control"
+              v-model="form.passwordConfirm"
+              :class="{ 'is-invalid': fieldError === 'password_mismatch' }"
+              autocomplete="new-password"
+              required>
+            <div
+              v-if="fieldError === 'password_mismatch'"
+              class="invalid-feedback d-block"
+              role="alert">
+              Passwords do not match.
+            </div>
+          </div>
+
+          <div v-if="error" class="alert alert-danger" role="alert" aria-live="assertive">
+            <p class="mb-1">{{ error }}</p>
+            <ul v-if="failures.length > 0" class="mb-0">
+              <li v-for="msg in failures" :key="msg">{{ msg }}</li>
+            </ul>
+          </div>
+
+          <div class="d-grid mt-4">
+            <button
+              id="admin-submit"
+              type="submit"
+              class="btn btn-primary btn-lg"
+              :disabled="submitting"
+              :aria-disabled="submitting ? 'true' : 'false'">
+              <span v-if="submitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              <span v-if="submitting">Validating&hellip;</span>
+              <span v-else>Continue</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/static/js/admin_user.js"></script>
+</body>
+</html>

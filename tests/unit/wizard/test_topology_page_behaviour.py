@@ -42,23 +42,19 @@ def test_topology_html_posts_to_topology_endpoint(topology_js):
     )
 
 
-def test_topology_html_posts_done_after_topology(topology_js):
-    """HIGH-1 (Phase F2): /done/ MUST be called after a successful /topology/.
+def test_topology_html_does_not_post_done(topology_js):
+    """FR-M2-2 (Spec 2): topology.js MUST NOT POST /api/wizard/done/.
 
-    Without /done/ the launcher never writes the .wizard_done IPC marker
-    and the runtime never starts. This was the spec-compliance blocker
-    addressed in Phase F2.
+    In Spec 1 the topology page chained /topology/ → /done/ to fire
+    the IPC marker. Spec 2 reorders this — /done/ moves to the verify
+    / done step (FR-M2-9). The topology page now navigates directly
+    to /network for manager / manager_worker, or /find-manager for
+    worker_only. Code referencing /api/wizard/done/ on this page is
+    a regression.
     """
-    assert "/api/wizard/done/" in topology_js, (
-        "topology.js MUST POST /api/wizard/done/ between /topology/ "
-        "success and the navigation to /redirecting (FR-W-FE4 / HIGH-1)."
-    )
-    # The /done/ call must come AFTER the /topology/ call in source order.
-    topology_idx = topology_js.find("/api/wizard/topology/")
-    done_idx = topology_js.find("/api/wizard/done/")
-    assert topology_idx >= 0 and done_idx >= 0
-    assert topology_idx < done_idx, (
-        "/api/wizard/topology/ MUST come before /api/wizard/done/."
+    assert "/api/wizard/done/" not in topology_js, (
+        "topology.js MUST NOT POST /api/wizard/done/ in Spec 2 — "
+        "/done/ moves to FR-M2-9."
     )
 
 
@@ -84,9 +80,13 @@ def test_topology_html_uses_session_storage_not_local_storage(
     assert "localStorage" not in topology_js
 
 
-def test_topology_html_redirects_to_redirecting_on_success(topology_js):
-    """B3 task: on 200, navigate to /redirecting (the B4 page)."""
-    assert "/redirecting" in topology_js
+def test_topology_html_redirects_to_network_on_success(topology_js):
+    """FR-M2-2: on 200 the topology page navigates to /network for
+    manager / manager_worker, or /find-manager for worker_only."""
+    assert "/network" in topology_js
+    # worker_only deliberately gets a placeholder route until Spec 3
+    # ships the find-manager page.
+    assert "/find-manager" in topology_js
 
 
 def test_topology_html_handles_session_expiry(topology_js, common_js):

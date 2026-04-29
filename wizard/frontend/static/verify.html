@@ -1,0 +1,98 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sethlans &mdash; Verify</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/wizard.css">
+</head>
+<body class="bg-body-tertiary">
+  <noscript>
+    <div class="container py-5">
+      <div class="alert alert-warning" role="alert">
+        This page needs JavaScript to complete setup.
+        Please enable JavaScript and reload.
+      </div>
+    </div>
+  </noscript>
+
+  <script nomodule src="/static/js/legacy-fallback.js"></script>
+
+  <main id="app" class="container py-4 py-md-5" v-cloak>
+    <div
+      v-if="resumeBanner"
+      class="alert alert-info"
+      role="status"
+      aria-live="polite">
+      {{ resumeBanner }}
+    </div>
+
+    <header class="mb-4 text-center">
+      <h1 class="h3 mb-1">Verify</h1>
+      <p class="text-body-secondary mb-0">
+        Re-running the checks against the configuration you just entered.
+      </p>
+    </header>
+
+    <div class="card shadow-sm" :aria-busy="running ? 'true' : 'false'">
+      <ul class="list-group list-group-flush">
+        <li
+          v-if="running && checks.length === 0"
+          class="list-group-item text-center text-body-secondary">
+          <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+          Running checks&hellip;
+        </li>
+        <li
+          v-for="check in checks"
+          :key="check.name"
+          class="list-group-item d-flex align-items-start">
+          <span
+            class="me-2 fw-bold"
+            :class="check.passed ? 'text-success' : 'text-danger'"
+            aria-hidden="true">
+            {{ check.passed ? '✓' : '✗' }}
+          </span>
+          <div class="flex-grow-1">
+            <span class="visually-hidden">{{ check.passed ? 'Passed:' : 'Failed:' }}</span>
+            <span>{{ labelFor(check.name) }}</span>
+            <p v-if="!check.passed && check.error" class="mb-0 small text-danger" aria-live="polite">
+              {{ check.error }}
+            </p>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div v-if="error" class="alert alert-danger mt-3" role="alert" aria-live="assertive">
+      {{ error }}
+    </div>
+
+    <div class="d-grid d-md-flex justify-content-md-end mt-4 gap-2">
+      <button
+        v-if="!allPassed"
+        type="button"
+        class="btn btn-outline-secondary btn-lg"
+        :disabled="running"
+        @click="run">
+        Re-run checks
+      </button>
+      <button
+        id="verify-next"
+        type="button"
+        class="btn btn-primary btn-lg"
+        :disabled="!allPassed"
+        :aria-disabled="!allPassed ? 'true' : 'false'"
+        @click="next">
+        Continue
+      </button>
+    </div>
+  </main>
+
+  <script src="/static/vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/static/js/verify.js"></script>
+</body>
+</html>

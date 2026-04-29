@@ -4,24 +4,24 @@
 
 // Topology picker page (topology.html) controller.
 //
-// FR-W-FE4 / FR-W-FE9 contract:
-//   1. POST /api/wizard/topology/ with the chosen topology
-//   2. On 200, POST /api/wizard/done/ — this is the IPC trigger that
-//      writes .wizard_done so the launcher spawns the runtime
-//   3. On the response from /done/ (200 OR `{"status":"already_done"}`
-//      per FR-W9a idempotency), navigate to /redirecting
+// Spec 2 / FR-M2-2 contract (replaces Spec 1 behaviour):
+//   1. POST /api/wizard/topology/ with the chosen topology.
+//   2. On 200, navigate to /network for `manager` and `manager_worker`,
+//      or /find-manager for `worker_only` (the latter is Spec 3
+//      territory; the route is currently a 404 — leaving the
+//      navigation as a TODO marker so Spec 3 plugs the page in).
 //
-// HIGH-1 fix: the original handler skipped step 2, leaving every
-// first-time setup hung at /redirecting forever. Without /done/ the
-// launcher never sees the IPC marker and never spawns the runtime.
+// The wizard `done` endpoint is NOT fired here anymore. It is fired
+// only from the verify / done step (FR-M2-9).
 //
 // Keyboard handling implements the full WAI-ARIA radiogroup pattern:
-// arrows + Space/Enter + Home/End (MEDIUM-3). The handler is attached
-// to the radiogroup container after Petite-vue mounts so the cards
-// already exist in the DOM (integration pattern point 4).
+// arrows + Space/Enter + Home/End. The handler is attached to the
+// radiogroup container after Petite-vue mounts so the cards already
+// exist in the DOM.
 
 import { createApp } from '/static/vendor/petite-vue.js';
 import {
+  consumeResumeBanner,
   expireAndRedirect,
   wizardFetch,
 } from '/static/js/common.js';
@@ -38,15 +38,13 @@ const scope = {
   selected: null,
   submitting: false,
   error: '',
+  resumeBanner: '',
 
   selectChoice(id) {
     this.selected = id;
     this.error = '';
   },
 
-  // Helper: reset the in-flight UI state and surface a generic error.
-  // Used on network failures and on /done/ failures so the user can
-  // retry without losing their selection.
   _abortWithError(message) {
     this.submitting = false;
     this.error = message;
@@ -59,7 +57,6 @@ const scope = {
     this.error = '';
     this.submitting = true;
 
-    // Step 1 — record the topology choice.
     let topologyResponse;
     try {
       topologyResponse = await wizardFetch('/api/wizard/topology/', {
@@ -86,41 +83,19 @@ const scope = {
       return;
     }
 
-    // Step 2 — fire /done/ to trigger the IPC marker. WITHOUT this the
-    // launcher never spawns the runtime (HIGH-1, FR-W-FE4 + FR-W9a).
-    let doneResponse;
-    try {
-      doneResponse = await wizardFetch('/api/wizard/done/', {
-        method: 'POST',
-      });
-    } catch (_) {
-      this._abortWithError(
-        'Network error finalizing setup. Check the launcher logs and try again.',
-      );
+    // Spec 2 — navigate based on topology. The wizard `done` endpoint
+    // is NOT fired here anymore (FR-M2-2); that is the verify/done
+    // step's job.
+    if (this.selected === 'worker_only') {
+      // TODO(Phase 3 / Spec 3): /find-manager isn't shipped yet. The
+      // route 404s; this is intentional placeholder navigation that
+      // Spec 3 will fill in.
+      window.history.replaceState({}, '', '/find-manager');
+      window.location.assign('/find-manager');
       return;
     }
-
-    if (doneResponse.status === 401 || doneResponse.status === 403) {
-      expireAndRedirect(
-        'Your session expired — please paste the setup token again.',
-      );
-      return;
-    }
-
-    // FR-W9a: /done/ is idempotent. A 200 with status "already_done"
-    // means "the IPC marker already exists" — treat it as success and
-    // continue to the wait page.
-    if (doneResponse.status === 200) {
-      // Replace history so Back does not return the user here and
-      // re-fire /done/ unnecessarily — MEDIUM-2.
-      window.history.replaceState({}, '', '/redirecting');
-      window.location.assign('/redirecting');
-      return;
-    }
-
-    this._abortWithError(
-      'Something went wrong finalizing setup. Check the launcher logs and try again.',
-    );
+    window.history.replaceState({}, '', '/network');
+    window.location.assign('/network');
   },
 };
 
@@ -156,12 +131,10 @@ function attachKeyboardHandler() {
       scope.selectChoice(scope.choices[prev].id);
       requestAnimationFrame(() => focusByIndex(prev));
     } else if (event.key === 'Home') {
-      // MEDIUM-3 — WAI-ARIA radiogroup pattern: Home → first card.
       event.preventDefault();
       scope.selectChoice(scope.choices[0].id);
       requestAnimationFrame(() => focusByIndex(0));
     } else if (event.key === 'End') {
-      // MEDIUM-3 — WAI-ARIA radiogroup pattern: End → last card.
       event.preventDefault();
       scope.selectChoice(scope.choices[total - 1].id);
       requestAnimationFrame(() => focusByIndex(total - 1));
@@ -174,9 +147,8 @@ function attachKeyboardHandler() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const banner = consumeResumeBanner();
+  if (banner) scope.resumeBanner = banner;
   createApp(scope).mount('#app');
-  // Attach the radiogroup keyboard handler after Petite-vue mounts so
-  // the cards exist in the DOM (FR-W-FE9 + integration pattern point 4
-  // — manual handler, not data-bs-* attributes).
   attachKeyboardHandler();
 });

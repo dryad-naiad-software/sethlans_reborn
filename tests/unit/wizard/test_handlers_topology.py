@@ -239,3 +239,29 @@ class TestExports:
 
     def test_filename_constant(self):
         assert topology_handler.TOPOLOGY_FILENAME == "topology.json"
+
+
+class TestChk4Checkpoint:
+    """FR-CHK4: topology handler must also append topology_chosen to
+    .setup_progress.json so resume logic sees it as a completed step."""
+
+    def test_handler_appends_topology_chosen(self, handler, tmp_path):
+        from wizard.sethlans_wizard import progress
+        from wizard.sethlans_wizard.checkpoints import TOPOLOGY_CHOSEN
+        env = _auth_env(json.dumps({"topology": "manager"}).encode("utf-8"))
+        status, _, _ = _call(handler, env)
+        assert status.startswith("200")
+        payload = progress.read_checkpoints(tmp_path)
+        assert TOPOLOGY_CHOSEN in (payload.get("checkpoints") or [])
+        # And topology field is recorded.
+        assert payload.get("topology") == "manager"
+
+    def test_re_post_is_idempotent(self, handler, tmp_path):
+        from wizard.sethlans_wizard import progress
+        from wizard.sethlans_wizard.checkpoints import TOPOLOGY_CHOSEN
+        for topo in ("manager", "manager_worker"):
+            env = _auth_env(json.dumps({"topology": topo}).encode("utf-8"))
+            _call(handler, env)
+        payload = progress.read_checkpoints(tmp_path)
+        # checkpoint appended only once even after multiple submits.
+        assert (payload.get("checkpoints") or []).count(TOPOLOGY_CHOSEN) == 1

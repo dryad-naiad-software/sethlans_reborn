@@ -1,0 +1,142 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Sethlans &mdash; Database</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/wizard.css">
+</head>
+<body class="bg-body-tertiary">
+  <noscript>
+    <div class="container py-5">
+      <div class="alert alert-warning" role="alert">
+        This page needs JavaScript to complete setup.
+        Please enable JavaScript and reload.
+      </div>
+    </div>
+  </noscript>
+
+  <script nomodule src="/static/js/legacy-fallback.js"></script>
+
+  <main id="app" class="container py-4 py-md-5" v-cloak>
+    <div
+      v-if="resumeBanner"
+      class="alert alert-info"
+      role="status"
+      aria-live="polite">
+      {{ resumeBanner }}
+    </div>
+
+    <header class="mb-4 text-center">
+      <h1 id="db-heading" class="h3 mb-1">Database</h1>
+      <p class="text-body-secondary mb-0">
+        Choose where Sethlans stores its data.
+      </p>
+    </header>
+
+    <fieldset
+      class="mb-4 topology-radiogroup db-engine-group"
+      role="radiogroup"
+      aria-labelledby="db-heading"
+      :aria-expanded="engine !== 'sqlite' ? 'true' : 'false'">
+      <legend class="visually-hidden">Database engine</legend>
+      <div class="row g-3">
+        <div v-for="(opt, idx) in engines" :key="opt.id" class="col-12 col-md-6 col-lg-3">
+          <div
+            class="card h-100 topology-card"
+            :class="{ selected: engine === opt.id }"
+            role="radio"
+            :tabindex="(engine === opt.id || (engine === null && idx === 0)) ? 0 : -1"
+            :aria-checked="engine === opt.id ? 'true' : 'false'"
+            :aria-labelledby="'db-card-label-' + opt.id"
+            :data-choice-id="opt.id"
+            @click="selectEngine(opt.id)">
+            <div class="card-body">
+              <h2 :id="'db-card-label-' + opt.id" class="h6 mb-2">{{ opt.label }}</h2>
+              <p class="mb-0 small text-body-secondary">{{ opt.desc }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <div class="db-credentials" aria-live="polite">
+      <div class="mb-3">
+        <label for="db-name" class="form-label">
+          {{ engine === 'sqlite' ? 'Database file path (leave blank for default)' : 'Database name' }}
+        </label>
+        <input
+          id="db-name"
+          type="text"
+          class="form-control"
+          v-model.trim="form.name"
+          @input="_stash">
+      </div>
+
+      <div v-if="engine === 'custom'" class="mb-3">
+        <label for="db-engine-path" class="form-label">Custom engine module path</label>
+        <input
+          id="db-engine-path"
+          type="text"
+          class="form-control"
+          v-model.trim="form.enginePath"
+          placeholder="e.g. mypkg.backends.postgres"
+          @input="_stash">
+      </div>
+
+      <div v-if="engine !== 'sqlite' && engine !== null">
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label for="db-host" class="form-label">Host</label>
+            <input id="db-host" type="text" class="form-control" v-model.trim="form.host" @input="_stash">
+          </div>
+          <div class="col-md-4">
+            <label for="db-port" class="form-label">Port</label>
+            <input
+              id="db-port"
+              type="number"
+              class="form-control"
+              min="1" max="65535"
+              v-model.number="form.port"
+              @input="_stash">
+          </div>
+          <div class="col-md-6">
+            <label for="db-user" class="form-label">User</label>
+            <input id="db-user" type="text" class="form-control" v-model.trim="form.user" @input="_stash">
+          </div>
+          <div class="col-md-6">
+            <label for="db-password" class="form-label">Password</label>
+            <input id="db-password" type="password" class="form-control" v-model="form.password" autocomplete="new-password">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="error" class="alert alert-danger mt-3" role="alert" aria-live="assertive">
+      {{ error }}
+      <button v-if="canRetry" type="button" class="btn btn-sm btn-outline-light ms-2" @click="submit">Retry</button>
+    </div>
+
+    <div class="d-grid d-md-flex justify-content-md-end mt-4">
+      <button
+        id="db-submit"
+        type="button"
+        class="btn btn-primary btn-lg"
+        :disabled="submitting || engine === null"
+        :aria-disabled="(submitting || engine === null) ? 'true' : 'false'"
+        @click="submit">
+        <span v-if="submitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+        <span v-if="submitting">Connecting&hellip;</span>
+        <span v-else>Continue</span>
+      </button>
+    </div>
+  </main>
+
+  <script src="/static/vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/static/js/database.js"></script>
+</body>
+</html>

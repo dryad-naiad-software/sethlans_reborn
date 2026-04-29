@@ -42,6 +42,8 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from shared.file_acls import tighten_acls_windows
+from wizard.sethlans_wizard import progress
+from wizard.sethlans_wizard.checkpoints import TOPOLOGY_CHOSEN
 from wizard.sethlans_wizard.handlers import _wsgi
 from wizard.sethlans_wizard.handlers.auth import session_header_valid
 
@@ -206,8 +208,24 @@ def _handle(
             status=500,
         )
 
+    _record_topology_checkpoint(data_dir, topology)
     logger.info("Topology selected: %s", topology)
     return _wsgi.send_json(start_response, {"status": "ok"}, status=200)
+
+
+def _record_topology_checkpoint(data_dir: Path, topology: str) -> None:
+    """FR-CHK4 — append topology_chosen to the progress file.
+
+    Best effort: the ``topology.json`` write is the source of truth; the
+    progress checkpoint is for resume logic only and is idempotent.
+    """
+    try:
+        progress.append_checkpoint(data_dir, TOPOLOGY_CHOSEN, topology=topology)
+    except OSError as exc:
+        logger.warning(
+            "Could not record topology_chosen checkpoint under %s: %s",
+            data_dir, exc,
+        )
 
 
 __all__ = [
