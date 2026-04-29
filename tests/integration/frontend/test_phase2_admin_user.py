@@ -146,3 +146,96 @@ def test_passwords_not_stashed_in_form_state(page, wizard_process):
         assert secret not in (v or ""), (
             f"admin password leaked into sessionStorage[{k!r}] (FE-1)"
         )
+
+
+def test_password_strength_indicator_hidden_when_empty(page, wizard_process):
+    wp = wizard_process
+    _arrive_at_admin_user(page, wp)
+    # No password typed — strength block must not render.
+    assert page.locator(".password-strength").count() == 0
+
+
+def test_password_strength_all_rules_pass(page, wizard_process):
+    wp = wizard_process
+    _arrive_at_admin_user(page, wp)
+    page.fill("#admin-username", "alice")
+    page.fill("#admin-email", "alice@example.com")
+    page.fill("#admin-password", "Hunter2-secure!")
+    page.wait_for_selector(".password-strength", state="visible", timeout=2000)
+    block = page.locator(".password-strength")
+    assert "strength-strong" in (block.get_attribute("class") or "")
+    # All three checks rendered green (.passed).
+    assert page.locator(".password-strength-checks li.passed").count() == 3
+    assert page.locator(".password-strength-checks li.unmet").count() == 0
+
+
+def test_password_strength_rejects_short_numeric_similar(page, wizard_process):
+    """A bad password fails all three client-side rules at once."""
+    wp = wizard_process
+    _arrive_at_admin_user(page, wp)
+    page.fill("#admin-username", "alice")
+    page.fill("#admin-email", "alice@example.com")
+    # Short, all numeric — fails length and not_numeric.
+    page.fill("#admin-password", "1234")
+    page.wait_for_selector(".password-strength", state="visible", timeout=2000)
+    length_li = page.locator("[data-check-id='length']")
+    numeric_li = page.locator("[data-check-id='not_numeric']")
+    assert "unmet" in (length_li.get_attribute("class") or "")
+    assert "unmet" in (numeric_li.get_attribute("class") or "")
+    # Bar should be in weak state.
+    assert "strength-weak" in (
+        page.locator(".password-strength").get_attribute("class") or ""
+    )
+
+
+def test_password_strength_flags_username_substring(page, wizard_process):
+    """Password containing the username trips the similarity check."""
+    wp = wizard_process
+    _arrive_at_admin_user(page, wp)
+    page.fill("#admin-username", "alice")
+    page.fill("#admin-email", "alice@example.com")
+    page.fill("#admin-password", "alice-is-cool-9!")
+    page.wait_for_selector(".password-strength", state="visible", timeout=2000)
+    similar_li = page.locator("[data-check-id='not_similar']")
+    assert "unmet" in (similar_li.get_attribute("class") or "")
+
+
+def test_match_indicator_hidden_when_confirm_empty(page, wizard_process):
+    wp = wizard_process
+    _arrive_at_admin_user(page, wp)
+    page.fill("#admin-password", "Hunter2-secure!")
+    # Confirm not filled — no live indicator yet.
+    assert page.locator(".password-match-indicator").count() == 0
+
+
+def test_match_indicator_shows_mismatch_live(page, wizard_process):
+    wp = wizard_process
+    _arrive_at_admin_user(page, wp)
+    page.fill("#admin-password", "Hunter2-secure!")
+    page.fill("#admin-password-confirm", "different")
+    page.wait_for_selector(
+        ".password-match-indicator[data-match='false']",
+        state="visible", timeout=2000,
+    )
+    indicator = page.locator(".password-match-indicator")
+    assert "mismatched" in (indicator.get_attribute("class") or "")
+    assert "matched" not in (indicator.get_attribute("class") or "").split()
+
+
+def test_match_indicator_flips_to_match_live(page, wizard_process):
+    """Typing the matching value flips mismatched → matched without a click."""
+    wp = wizard_process
+    _arrive_at_admin_user(page, wp)
+    page.fill("#admin-password", "Hunter2-secure!")
+    page.fill("#admin-password-confirm", "Hunter2-secur")  # one char short
+    page.wait_for_selector(
+        ".password-match-indicator[data-match='false']",
+        state="visible", timeout=2000,
+    )
+    page.fill("#admin-password-confirm", "Hunter2-secure!")
+    page.wait_for_selector(
+        ".password-match-indicator[data-match='true']",
+        state="visible", timeout=2000,
+    )
+    indicator = page.locator(".password-match-indicator")
+    assert "matched" in (indicator.get_attribute("class") or "")

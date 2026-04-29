@@ -25,12 +25,13 @@ def _arrive_at_database(page, wp):
 
 
 def test_sqlite_default_hides_credential_fields(page, wizard_process):
-    """SQLite is the default; host/port/user/password fields are hidden."""
+    """SQLite hides db-name + host/port/user/password — default path is implicit."""
     wp = wizard_process
     _arrive_at_database(page, wp)
     sqlite_card = page.locator("[data-choice-id='sqlite']")
     assert sqlite_card.get_attribute("aria-checked") == "true"
-    # The credential subsection only renders when engine != 'sqlite'.
+    # db-name and the credential subsection only render when engine != sqlite.
+    assert page.locator("#db-name").count() == 0
     assert page.locator("#db-host").count() == 0
     assert page.locator("#db-port").count() == 0
     assert page.locator("#db-user").count() == 0
@@ -41,17 +42,53 @@ def test_postgresql_reveals_credential_fields(page, wizard_process):
     wp = wizard_process
     _arrive_at_database(page, wp)
     page.locator("[data-choice-id='postgresql']").click()
-    page.wait_for_selector("#db-host", state="visible", timeout=2000)
+    page.wait_for_selector("#db-name", state="visible", timeout=2000)
+    page.wait_for_selector("#db-host", state="visible")
     page.wait_for_selector("#db-port", state="visible")
     page.wait_for_selector("#db-user", state="visible")
     page.wait_for_selector("#db-password", state="visible")
 
 
 def test_custom_engine_reveals_engine_path_field(page, wizard_process):
+    """Custom is hidden behind Show advanced options; expand then click."""
     wp = wizard_process
     _arrive_at_database(page, wp)
+    # Default view does NOT expose Custom — verify, then expand.
+    assert page.locator("[data-choice-id='custom']").count() == 0
+    page.click("#db-advanced-toggle")
+    page.wait_for_selector("[data-choice-id='custom']", state="visible", timeout=2000)
     page.locator("[data-choice-id='custom']").click()
     page.wait_for_selector("#db-engine-path", state="visible", timeout=2000)
+
+
+def test_advanced_toggle_collapses_back_to_sqlite(page, wizard_process):
+    """Collapsing while Custom is selected snaps engine back to sqlite."""
+    wp = wizard_process
+    _arrive_at_database(page, wp)
+    page.click("#db-advanced-toggle")
+    page.wait_for_selector("[data-choice-id='custom']", state="visible", timeout=2000)
+    page.locator("[data-choice-id='custom']").click()
+    custom = page.locator("[data-choice-id='custom']")
+    assert custom.get_attribute("aria-checked") == "true"
+    # Collapse — custom card disappears AND engine drops back to sqlite.
+    page.click("#db-advanced-toggle")
+    page.wait_for_selector("[data-choice-id='custom']", state="hidden", timeout=2000)
+    sqlite = page.locator("[data-choice-id='sqlite']")
+    assert sqlite.get_attribute("aria-checked") == "true"
+
+
+def test_advanced_toggle_aria_expanded_reflects_state(page, wizard_process):
+    """The toggle button advertises its expanded/collapsed state via ARIA."""
+    wp = wizard_process
+    _arrive_at_database(page, wp)
+    toggle = page.locator("#db-advanced-toggle")
+    assert toggle.get_attribute("aria-expanded") == "false"
+    toggle.click()
+    page.wait_for_function(
+        "() => document.querySelector('#db-advanced-toggle')"
+        ".getAttribute('aria-expanded') === 'true'",
+        timeout=2000,
+    )
 
 
 def test_sqlite_happy_path_navigates_to_admin_user(page, wizard_process):

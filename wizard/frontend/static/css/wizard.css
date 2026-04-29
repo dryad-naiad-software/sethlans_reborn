@@ -169,6 +169,60 @@ body.wizard-chrome {
     background-color: var(--bs-tertiary-bg, #f8f9fa);
 }
 
+/* Password strength indicator — bar + bulleted checks. Mirrors the
+ * three Django validators we can evaluate client-side (length / not
+ * numeric / not similar to user attrs). The bar's color and fill
+ * percentage track the score; the checklist colors each item green
+ * when its rule passes and red when it doesn't. */
+.password-strength-bar {
+    height: 6px;
+    background-color: #e9ecef;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.password-strength-fill {
+    height: 100%;
+    width: 0;
+    transition: width 0.18s ease, background-color 0.18s ease;
+    background-color: #6c757d;
+}
+.strength-weak .password-strength-fill   { background-color: #dc3545; }
+.strength-medium .password-strength-fill { background-color: #fd7e14; }
+.strength-strong .password-strength-fill { background-color: #198754; }
+
+.password-strength-checks {
+    list-style: none;
+    margin: 0.5rem 0 0 0;
+    padding: 0;
+    font-size: 0.875rem;
+}
+.password-strength-checks li {
+    line-height: 1.4;
+}
+.password-strength-checks li.passed { color: #198754; }
+.password-strength-checks li.unmet  { color: #dc3545; }
+.password-strength-checks li span {
+    display: inline-block;
+    width: 1.1em;
+    font-weight: 700;
+}
+
+/* Live "passwords match" indicator below the confirm-password input.
+ * Shown only once the user has typed in confirm. Green check on
+ * match, red X on mismatch. Polite live region so screen readers
+ * announce changes without interrupting typing. */
+.password-match-indicator {
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+.password-match-indicator.matched   { color: #198754; }
+.password-match-indicator.mismatched { color: #dc3545; }
+.password-match-indicator span {
+    display: inline-block;
+    width: 1.1em;
+    font-weight: 700;
+}
+
 /* ------------------------------------------------------------------
  * Topology picker (FR-W-FE9) — pairs `.selected` with `aria-checked`.
  * Cards are interactive but rendered as Bootstrap `.card` divs with

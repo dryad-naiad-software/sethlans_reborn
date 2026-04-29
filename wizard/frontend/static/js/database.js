@@ -60,7 +60,7 @@ const scope = reactive({
     { id: 'sqlite', label: 'SQLite', desc: 'Default. Single-file embedded database.' },
     { id: 'postgresql', label: 'PostgreSQL', desc: 'External Postgres server.' },
     { id: 'mysql', label: 'MySQL / MariaDB', desc: 'External MySQL or MariaDB server.' },
-    { id: 'custom', label: 'Custom', desc: 'User-supplied Django backend module.' },
+    { id: 'custom', label: 'Custom', desc: 'User-supplied Django backend module.', advanced: true },
   ],
   engine: 'sqlite',
   form: { name: '', host: '', port: 5432, user: '', password: '', enginePath: '' },
@@ -69,9 +69,23 @@ const scope = reactive({
   canRetry: false,
   resumeBanner: '',
   topology: null,
+  showAdvanced: false,
   stepper: buildStepperModel(
     null, STEP_DATABASE, ['topology_chosen', 'network_configured'],
   ),
+
+  get visibleEngines() {
+    return this.showAdvanced
+      ? this.engines : this.engines.filter(e => !e.advanced);
+  },
+
+  toggleAdvanced() {
+    this.showAdvanced = !this.showAdvanced;
+    if (!this.showAdvanced) {
+      const cur = this.engines.find(e => e.id === this.engine);
+      if (cur && cur.advanced) this.selectEngine('sqlite');
+    }
+  },
 
   goBack() {
     const route = backRouteFor(STEP_DATABASE, this.topology);
@@ -177,28 +191,29 @@ function attachKeyboardHandler() {
     if (!target) return;
     const cards = Array.from(document.querySelectorAll('.db-engine-group [role="radio"]'));
     const idx = cards.indexOf(target);
-    const total = scope.engines.length;
+    const visible = scope.visibleEngines;
+    const total = visible.length;
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
       event.preventDefault();
       const next = (idx + 1) % total;
-      scope.selectEngine(scope.engines[next].id);
+      scope.selectEngine(visible[next].id);
       requestAnimationFrame(() => focusByIndex(next));
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
       event.preventDefault();
       const prev = (idx - 1 + total) % total;
-      scope.selectEngine(scope.engines[prev].id);
+      scope.selectEngine(visible[prev].id);
       requestAnimationFrame(() => focusByIndex(prev));
     } else if (event.key === 'Home') {
       event.preventDefault();
-      scope.selectEngine(scope.engines[0].id);
+      scope.selectEngine(visible[0].id);
       requestAnimationFrame(() => focusByIndex(0));
     } else if (event.key === 'End') {
       event.preventDefault();
-      scope.selectEngine(scope.engines[total - 1].id);
+      scope.selectEngine(visible[total - 1].id);
       requestAnimationFrame(() => focusByIndex(total - 1));
     } else if (event.key === ' ' || event.key === 'Enter') {
       event.preventDefault();
-      const choice = scope.engines[idx];
+      const choice = visible[idx];
       if (choice) scope.selectEngine(choice.id);
     }
   });
@@ -215,6 +230,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof stash.user === 'string') scope.form.user = stash.user;
     if (typeof stash.enginePath === 'string') scope.form.enginePath = stash.enginePath;
   }
+  const current = scope.engines.find(e => e.id === scope.engine);
+  if (current && current.advanced) scope.showAdvanced = true;
   // Port is NOT pulled from the stash — it is always recomputed from
   // the engine here (FE-5). Engine-specific defaults take precedence
   // over any stale value that older sessions might have stashed.

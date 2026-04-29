@@ -184,6 +184,7 @@ def test_manual_password_happy_path(page, wizard_process):
     page.click("#use-admin-checkbox")
     page.wait_for_selector("#worker-password", state="visible", timeout=3000)
     page.fill("#worker-password", "validpassword12345")
+    page.fill("#worker-password-confirm", "validpassword12345")
     mock_endpoint(
         page,
         "**/api/wizard/worker-password/",
@@ -192,3 +193,67 @@ def test_manual_password_happy_path(page, wizard_process):
     )
     page.click("#worker-pw-submit")
     page.wait_for_url(f"{wp.base_url}/ffmpeg", timeout=5000)
+
+
+def test_unchecking_reveals_confirm_field(page, wizard_process):
+    """The confirm-password field appears alongside the password field."""
+    wp = wizard_process
+    _arrive_at_worker_password_via_resume(page, wp, "manager_worker")
+    page.wait_for_selector("#use-admin-checkbox", state="visible")
+    assert page.locator("#worker-password-confirm").count() == 0
+    page.click("#use-admin-checkbox")
+    page.wait_for_selector("#worker-password-confirm", state="visible", timeout=3000)
+
+
+def test_password_strength_indicator_renders(page, wizard_process):
+    """Strength bar + checks render with 2 rules (no similarity check)."""
+    wp = wizard_process
+    _arrive_at_worker_password_via_resume(page, wp, "manager_worker")
+    page.wait_for_selector("#use-admin-checkbox", state="visible")
+    page.click("#use-admin-checkbox")
+    page.wait_for_selector("#worker-password", state="visible", timeout=3000)
+    page.fill("#worker-password", "validpassword12345")
+    page.wait_for_selector(".password-strength", state="visible", timeout=2000)
+    # Worker page omits the similarity check (no username/email context).
+    assert page.locator(".password-strength-checks li").count() == 2
+    assert page.locator("[data-check-id='length'].passed").count() == 1
+    assert page.locator("[data-check-id='not_numeric'].passed").count() == 1
+    assert page.locator("[data-check-id='not_similar']").count() == 0
+
+
+def test_match_indicator_blocks_submit_when_mismatched(page, wizard_process):
+    """Mismatched passwords surface the indicator AND block /ffmpeg nav."""
+    wp = wizard_process
+    _arrive_at_worker_password_via_resume(page, wp, "manager_worker")
+    page.wait_for_selector("#use-admin-checkbox", state="visible")
+    page.click("#use-admin-checkbox")
+    page.wait_for_selector("#worker-password-confirm", state="visible", timeout=3000)
+    page.fill("#worker-password", "validpassword12345")
+    page.fill("#worker-password-confirm", "different-password")
+    page.wait_for_selector(
+        ".password-match-indicator[data-match='false']",
+        state="visible", timeout=2000,
+    )
+    page.click("#worker-pw-submit")
+    # Top-level alert shows + URL still on /worker-password.
+    page.wait_for_selector(".alert-danger", state="visible", timeout=2000)
+    assert page.url.endswith("/worker-password")
+
+
+def test_match_indicator_flips_to_match_live(page, wizard_process):
+    wp = wizard_process
+    _arrive_at_worker_password_via_resume(page, wp, "manager_worker")
+    page.wait_for_selector("#use-admin-checkbox", state="visible")
+    page.click("#use-admin-checkbox")
+    page.wait_for_selector("#worker-password-confirm", state="visible", timeout=3000)
+    page.fill("#worker-password", "validpassword12345")
+    page.fill("#worker-password-confirm", "validpassword1234")  # one short
+    page.wait_for_selector(
+        ".password-match-indicator[data-match='false']",
+        state="visible", timeout=2000,
+    )
+    page.fill("#worker-password-confirm", "validpassword12345")
+    page.wait_for_selector(
+        ".password-match-indicator[data-match='true']",
+        state="visible", timeout=2000,
+    )

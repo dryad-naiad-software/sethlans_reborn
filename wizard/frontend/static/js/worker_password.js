@@ -31,17 +31,22 @@ import {
   backRouteFor,
   buildStepperModel,
 } from '/static/js/wizard_chrome.js';
+import {
+  evaluatePassword,
+  strengthClass,
+} from '/static/js/password_strength.js';
 
 const scope = reactive({
   useAdminPassword: true,
   password: '',
+  passwordConfirm: '',
   submitting: false,
   error: '',
   fieldError: '',
   resumeBanner: '',
   topology: 'manager_worker',
-  // Eye-toggle for the optional worker password field. Independent of
-  // the admin-user toggles — this page only renders the field when
+  // Single eye-toggle state shared by both worker password fields —
+  // mirrors the admin-user pattern. The fields only render when
   // `useAdminPassword` is unchecked.
   showPassword: false,
   stepper: buildStepperModel(
@@ -51,6 +56,20 @@ const scope = reactive({
       'database_configured', 'admin_validated',
     ],
   ),
+
+  get strength() {
+    // Worker page has no username/email context — pass empty attrs so
+    // the similarity check is omitted rather than rendered as always-pass.
+    return evaluatePassword(this.password, []);
+  },
+  get strengthClassName() {
+    const s = this.strength;
+    return strengthClass(s.score, s.max);
+  },
+  get passwordsMatch() {
+    if (!this.passwordConfirm) return null;
+    return this.password === this.passwordConfirm;
+  },
 
   goBack() {
     const route = backRouteFor(STEP_WORKER, this.topology);
@@ -76,6 +95,11 @@ const scope = reactive({
       }
       if (this.password.length < 8) {
         this.fieldError = 'password_too_short';
+        return;
+      }
+      if (this.password !== this.passwordConfirm) {
+        this.error = 'Passwords do not match.';
+        this.fieldError = 'password_mismatch';
         return;
       }
       body = { use_admin_password: false, password: this.password };

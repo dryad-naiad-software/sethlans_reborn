@@ -56,12 +56,12 @@
         </header>
 
         <fieldset
-          class="mb-4 topology-radiogroup db-engine-group"
+          class="mb-3 topology-radiogroup db-engine-group"
           role="radiogroup"
           aria-labelledby="db-heading">
           <legend class="visually-hidden">Database engine</legend>
           <div class="row g-3">
-            <div v-for="(opt, idx) in engines" :key="opt.id" class="col-12 col-md-6 col-lg-3">
+            <div v-for="(opt, idx) in visibleEngines" :key="opt.id" class="col-12 col-md-6 col-lg-4">
               <div
                 class="card h-100 topology-card"
                 :class="{ selected: engine === opt.id }"
@@ -80,11 +80,21 @@
           </div>
         </fieldset>
 
+        <div class="mb-4 text-center">
+          <button
+            id="db-advanced-toggle"
+            type="button"
+            class="btn btn-link btn-sm text-decoration-none"
+            :aria-expanded="showAdvanced ? 'true' : 'false'"
+            @click="toggleAdvanced">
+            <span v-if="showAdvanced">&#x25BE; Hide advanced options</span>
+            <span v-else>&#x25B8; Show advanced options</span>
+          </button>
+        </div>
+
         <div class="db-credentials" aria-live="polite">
-          <div class="mb-3">
-            <label for="db-name" class="form-label">
-              {{ engine === 'sqlite' ? 'Database file path (leave blank for default)' : 'Database name' }}
-            </label>
+          <div v-if="engine !== 'sqlite' && engine !== null" class="mb-3">
+            <label for="db-name" class="form-label">Database name</label>
             <input
               id="db-name"
               type="text"

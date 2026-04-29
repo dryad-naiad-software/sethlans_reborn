@@ -40,6 +40,10 @@ import {
   backRouteFor,
   buildStepperModel,
 } from '/static/js/wizard_chrome.js';
+import {
+  evaluatePassword,
+  strengthClass,
+} from '/static/js/password_strength.js';
 
 const STEP = 'admin-user';
 
@@ -59,14 +63,30 @@ const scope = reactive({
   failures: [],
   resumeBanner: '',
   topology: null,
-  // Eye-toggle state per password field (issue #179). Independent so
-  // toggling one mask does not flip the other.
+  // Single eye-toggle state shared by both password fields — clicking
+  // either eye reveals/hides BOTH inputs so the user can verify the
+  // confirm matches without an extra click.
   showPassword: false,
-  showPasswordConfirm: false,
   stepper: buildStepperModel(
     null, STEP_ADMIN,
     ['topology_chosen', 'network_configured', 'database_configured'],
   ),
+
+  get strength() {
+    return evaluatePassword(
+      this.form.password, [this.form.username, this.form.email],
+    );
+  },
+  get strengthClassName() {
+    const s = this.strength;
+    return strengthClass(s.score, s.max);
+  },
+  // Live confirm-match indicator. Returns null when confirm is empty
+  // (so we render nothing) and a boolean once the user has typed.
+  get passwordsMatch() {
+    if (!this.form.passwordConfirm) return null;
+    return this.form.password === this.form.passwordConfirm;
+  },
 
   goBack() {
     const route = backRouteFor(STEP_ADMIN, this.topology);

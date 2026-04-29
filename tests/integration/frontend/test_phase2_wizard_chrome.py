@@ -267,22 +267,66 @@ def test_admin_password_eye_toggle_flips_input_type(page, wizard_process):
     assert btn.get_attribute("aria-pressed") == "false"
 
 
-def test_admin_password_toggles_are_independent(page, wizard_process):
-    """Toggling the Password eye must not flip Confirm Password's mask."""
+def test_admin_password_toggles_are_linked(page, wizard_process):
+    """Clicking either eye flips BOTH password fields together.
+
+    Both fields share a single showPassword state so the user can
+    verify password and confirm match without an extra click.
+    """
     wp = wizard_process
     _arrive_at_admin_user(page, wp)
     pw = page.locator("#admin-password")
     pw_confirm = page.locator("#admin-password-confirm")
     btn_pw = page.locator("#admin-password-toggle")
-    page.locator("#admin-password-confirm-toggle")
+    btn_confirm = page.locator("#admin-password-confirm-toggle")
+    # Click password eye — both inputs flip to text.
     btn_pw.click()
     page.wait_for_function(
-        "() => document.querySelector('#admin-password').type === 'text'",
+        "() => document.querySelector('#admin-password').type === 'text'"
+        " && document.querySelector('#admin-password-confirm').type === 'text'",
         timeout=2000,
     )
     assert pw.get_attribute("type") == "text"
-    # Confirm must still be masked.
+    assert pw_confirm.get_attribute("type") == "text"
+    assert btn_pw.get_attribute("aria-pressed") == "true"
+    assert btn_confirm.get_attribute("aria-pressed") == "true"
+    # Click confirm eye — both flip back to password.
+    btn_confirm.click()
+    page.wait_for_function(
+        "() => document.querySelector('#admin-password').type === 'password'"
+        " && document.querySelector('#admin-password-confirm').type === 'password'",
+        timeout=2000,
+    )
+    assert pw.get_attribute("type") == "password"
     assert pw_confirm.get_attribute("type") == "password"
+    assert btn_pw.get_attribute("aria-pressed") == "false"
+    assert btn_confirm.get_attribute("aria-pressed") == "false"
+
+
+def test_password_eye_toggles_skipped_in_tab_order(page, wizard_process):
+    """Tab from password jumps to confirm-password, not the eye toggle.
+
+    The eye toggle is mouse/touch operable but lives outside the natural
+    tab path so password-manager UX (Tab between fields, Tab to Continue)
+    isn't interrupted.
+    """
+    wp = wizard_process
+    _arrive_at_admin_user(page, wp)
+    assert (
+        page.locator("#admin-password-toggle").get_attribute("tabindex")
+        == "-1"
+    )
+    assert (
+        page.locator("#admin-password-confirm-toggle").get_attribute("tabindex")
+        == "-1"
+    )
+    # Functional sanity: focus password, press Tab, focus lands on confirm.
+    page.locator("#admin-password").focus()
+    page.keyboard.press("Tab")
+    page.wait_for_function(
+        "() => document.activeElement.id === 'admin-password-confirm'",
+        timeout=2000,
+    )
 
 
 def test_worker_password_eye_toggle_flips_input_type(page, wizard_process):
