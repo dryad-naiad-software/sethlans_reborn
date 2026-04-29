@@ -10,7 +10,7 @@
 // message. Form state stashed in sessionStorage per FR-CHK3-FORM-STATE
 // (no password fields on this page, so the whole form is safe to stash).
 
-import { createApp } from '/static/vendor/petite-vue.js';
+import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
   consumeResumeBanner,
   expireAndRedirect,
@@ -20,6 +20,12 @@ import {
   loadFormState,
   stashFormState,
 } from '/static/js/form_state.js';
+import {
+  STEP_NETWORK,
+  applyChromeContext,
+  backRouteFor,
+  buildStepperModel,
+} from '/static/js/wizard_chrome.js';
 
 const STEP = 'network';
 
@@ -30,7 +36,7 @@ const DATA_DIR_MESSAGES = {
   device_namespace: 'Data directory cannot use a Windows device namespace.',
 };
 
-const scope = {
+const scope = reactive({
   choices: [
     {
       id: 'yes', value: true,
@@ -51,6 +57,16 @@ const scope = {
   error: '',
   fieldError: null,
   resumeBanner: '',
+  topology: null,
+  stepper: buildStepperModel(null, STEP_NETWORK, ['topology_chosen']),
+
+  goBack() {
+    const route = backRouteFor(STEP_NETWORK, this.topology);
+    if (route) {
+      this._stash();
+      window.location.assign(route);
+    }
+  },
 
   selectChoice(value) {
     this.allowExternal = value;
@@ -135,7 +151,7 @@ const scope = {
       'Could not save network settings. Check the launcher logs and try again.',
     );
   },
-};
+});
 
 function focusByIndex(idx) {
   const cards = document.querySelectorAll('.topology-radiogroup [role="radio"]');
@@ -190,4 +206,5 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   createApp(scope).mount('#app');
   attachKeyboardHandler();
+  applyChromeContext(scope, STEP_NETWORK, ['topology_chosen']);
 });

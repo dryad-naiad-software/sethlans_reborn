@@ -24,7 +24,7 @@
 // NEVER stashed in the regular form-state stash (which is for
 // re-display on Back; passwords are excluded per FR-CHK3-FORM-STATE).
 
-import { createApp } from '/static/vendor/petite-vue.js';
+import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
   consumeResumeBanner,
   expireAndRedirect,
@@ -34,6 +34,12 @@ import {
   loadFormState,
   stashFormState,
 } from '/static/js/form_state.js';
+import {
+  STEP_ADMIN,
+  applyChromeContext,
+  backRouteFor,
+  buildStepperModel,
+} from '/static/js/wizard_chrome.js';
 
 const STEP = 'admin-user';
 
@@ -45,7 +51,7 @@ const FAILURE_LABELS = {
   password_all_numeric: 'Password cannot be all digits.',
 };
 
-const scope = {
+const scope = reactive({
   form: { username: '', email: '', password: '', passwordConfirm: '' },
   submitting: false,
   error: '',
@@ -53,6 +59,22 @@ const scope = {
   failures: [],
   resumeBanner: '',
   topology: null,
+  // Eye-toggle state per password field (issue #179). Independent so
+  // toggling one mask does not flip the other.
+  showPassword: false,
+  showPasswordConfirm: false,
+  stepper: buildStepperModel(
+    null, STEP_ADMIN,
+    ['topology_chosen', 'network_configured', 'database_configured'],
+  ),
+
+  goBack() {
+    const route = backRouteFor(STEP_ADMIN, this.topology);
+    if (route) {
+      this._stash();
+      window.location.assign(route);
+    }
+  },
 
   _stash() {
     // Passwords NEVER stashed in the form-state stash.
@@ -134,7 +156,7 @@ const scope = {
     }
     this.error = 'Could not validate the admin user. Check the launcher logs.';
   },
-};
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   const banner = consumeResumeBanner();
@@ -147,4 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
   createApp(scope).mount('#app');
   const f = document.getElementById('admin-username');
   if (f) f.focus();
+  applyChromeContext(scope, STEP_ADMIN, [
+    'topology_chosen', 'network_configured', 'database_configured',
+  ]);
 });

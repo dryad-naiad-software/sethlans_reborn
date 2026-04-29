@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="/static/css/wizard.css">
 </head>
-<body class="bg-body-tertiary">
+<body class="wizard-chrome">
   <noscript>
     <div class="container py-5">
       <div class="alert alert-warning" role="alert">
@@ -22,10 +22,24 @@
 
   <script nomodule src="/static/js/legacy-fallback.js"></script>
 
-  <main id="app" class="d-flex align-items-center justify-content-center min-vh-100 py-4 px-3" v-cloak>
-    <div class="card shadow-sm w-100 wizard-card">
-      <div class="card-body p-4 p-md-5">
+  <main id="app" class="wizard-chrome-shell" v-cloak>
+    <div class="card wizard-chrome-card">
+      <header class="card-header">
+        <h1 class="h5 text-center mb-3">Sethlans Setup</h1>
+        <ol class="wizard-stepper" aria-label="Setup progress">
+          <li
+            v-for="step in stepper"
+            :key="step.id"
+            class="wizard-stepper-item"
+            :class="{ 'is-current': step.isCurrent, 'is-completed': step.isCompleted }"
+            :aria-current="step.isCurrent ? 'step' : null">
+            <span class="wizard-stepper-circle" v-html="step.icon" aria-hidden="true"></span>
+            <span class="wizard-stepper-label">{{ step.label }}</span>
+          </li>
+        </ol>
+      </header>
 
+      <div class="card-body">
         <div
           v-if="resumeBanner"
           class="alert alert-info"
@@ -35,7 +49,7 @@
         </div>
 
         <header class="mb-4 text-center">
-          <h1 class="h3 mb-1">FFmpeg</h1>
+          <h2 class="h3 mb-1">FFmpeg</h2>
           <p class="text-body-secondary mb-0">
             Sethlans uses FFmpeg to assemble rendered animations.
           </p>
@@ -84,19 +98,26 @@
             then check for Sethlans updates before re-running setup.
           </p>
         </div>
-
-        <div class="d-grid mt-4">
-          <button
-            id="ffmpeg-next"
-            type="button"
-            class="btn btn-primary btn-lg"
-            :disabled="status !== 'complete'"
-            :aria-disabled="status !== 'complete' ? 'true' : 'false'"
-            @click="next">
-            Continue
-          </button>
-        </div>
       </div>
+
+      <footer class="card-footer d-flex justify-content-between align-items-center">
+        <button
+          id="ffmpeg-back"
+          type="button"
+          class="btn btn-outline-secondary"
+          @click="goBack">
+          &larr; Back
+        </button>
+        <button
+          id="ffmpeg-next"
+          type="button"
+          class="btn btn-primary"
+          :disabled="status !== 'complete'"
+          :aria-disabled="status !== 'complete' ? 'true' : 'false'"
+          @click="next">
+          Continue &rarr;
+        </button>
+      </footer>
     </div>
   </main>
 

@@ -19,14 +19,19 @@
 // radiogroup container after Petite-vue mounts so the cards already
 // exist in the DOM.
 
-import { createApp } from '/static/vendor/petite-vue.js';
+import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
   consumeResumeBanner,
   expireAndRedirect,
   wizardFetch,
 } from '/static/js/common.js';
+import {
+  STEP_TOPOLOGY,
+  buildStepperModel,
+  fetchChromeContext,
+} from '/static/js/wizard_chrome.js';
 
-const scope = {
+const scope = reactive({
   choices: [
     { id: 'manager', label: 'Manager only',
       desc: 'Run as a render farm controller. Workers connect to this machine.' },
@@ -39,10 +44,22 @@ const scope = {
   submitting: false,
   error: '',
   resumeBanner: '',
+  // Stepper model — populated on mount once /resume-target reports the
+  // active topology. Falls back to a manager-flavoured stepper if the
+  // probe is unavailable so the chrome still renders.
+  stepper: buildStepperModel(null, STEP_TOPOLOGY, []),
 
   selectChoice(id) {
     this.selected = id;
     this.error = '';
+  },
+
+  async _loadChromeContext() {
+    const ctx = await fetchChromeContext();
+    this.topology = ctx.topology;
+    // Topology is the first stepper step — no prior checkpoints have
+    // been recorded by the time the user lands here.
+    this.stepper = buildStepperModel(ctx.topology, STEP_TOPOLOGY, []);
   },
 
   _abortWithError(message) {
@@ -97,7 +114,7 @@ const scope = {
     window.history.replaceState({}, '', '/network');
     window.location.assign('/network');
   },
-};
+});
 
 function focusByIndex(idx) {
   const cards = document.querySelectorAll('[role="radio"]');
@@ -149,6 +166,13 @@ function attachKeyboardHandler() {
 document.addEventListener('DOMContentLoaded', () => {
   const banner = consumeResumeBanner();
   if (banner) scope.resumeBanner = banner;
-  createApp(scope).mount('#app');
+  const app = createApp(scope);
+  app.mount('#app');
   attachKeyboardHandler();
+  // Resolve topology once Petite-vue has mounted so the stepper picks
+  // up the manager_worker variant if the user already chose that
+  // topology in a prior session and is now re-visiting. Calling the
+  // method on `scope` goes through the reactive proxy Petite-vue
+  // installed in-place, so the v-for in the header re-renders.
+  scope._loadChromeContext();
 });

@@ -12,12 +12,17 @@
 // We only navigate to /redirecting once BOTH POSTs return 200; if
 // either fails, we surface the error with a Retry button.
 
-import { createApp } from '/static/vendor/petite-vue.js';
+import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
   expireAndRedirect,
   wizardFetch,
 } from '/static/js/common.js';
 import { clearAllFormState } from '/static/js/form_state.js';
+import {
+  STEP_DONE,
+  buildStepperModel,
+  fetchChromeContext,
+} from '/static/js/wizard_chrome.js';
 
 const STAGE_MESSAGES = {
   pending: 'Writing setup file&hellip;',
@@ -25,9 +30,21 @@ const STAGE_MESSAGES = {
   redirecting: 'Redirecting&hellip;',
 };
 
-const scope = {
+const scope = reactive({
   stage: 'pending',
   error: '',
+  // Done is the last step. Mark every previous checkpoint as complete
+  // in the stepper so the user sees the full trail filled in. The
+  // current entry (Done) is the highlighted one.
+  topology: null,
+  stepper: buildStepperModel(
+    null, STEP_DONE,
+    [
+      'topology_chosen', 'network_configured', 'database_configured',
+      'admin_validated', 'worker_password_set', 'ffmpeg_installed',
+      'verified',
+    ],
+  ),
   get busy() { return !this.error; },
   get stageMessage() {
     return STAGE_MESSAGES[this.stage] || STAGE_MESSAGES.pending;
@@ -77,9 +94,24 @@ const scope = {
     window.history.replaceState({}, '', '/redirecting');
     window.location.assign('/redirecting');
   },
-};
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   createApp(scope).mount('#app');
   scope.run();
+  // Done is the terminal step; everything before it is completed.
+  // Worker_password_set only applies to manager_worker topology.
+  (async () => {
+    const ctx = await fetchChromeContext();
+    scope.topology = ctx.topology;
+    const completed = [
+      'topology_chosen', 'network_configured',
+      'database_configured', 'admin_validated',
+    ];
+    if (ctx.topology === 'manager_worker') {
+      completed.push('worker_password_set');
+    }
+    completed.push('ffmpeg_installed', 'verified');
+    scope.stepper = buildStepperModel(ctx.topology, STEP_DONE, completed);
+  })();
 });

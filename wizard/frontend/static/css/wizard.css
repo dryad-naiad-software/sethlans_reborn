@@ -12,21 +12,173 @@
     display: none !important;
 }
 
-/* Cap the wizard card at a comfortable reading width on wide viewports
- * while still allowing it to fill smaller screens via Bootstrap's
- * w-100. */
+/* ------------------------------------------------------------------
+ * Wizard chrome (issue #179) — charcoal gradient background, centered
+ * card with header / body / footer regions, horizontal stepper.
+ *
+ * The new chrome is opt-in via the `.wizard-chrome` body class; the
+ * pre-stepper Welcome page keeps the older bg-body-tertiary aesthetic.
+ * ------------------------------------------------------------------ */
+
+body.wizard-chrome {
+    background: linear-gradient(180deg, #2c2c2c, #0d0d0d);
+    min-height: 100vh;
+}
+
+.wizard-chrome-shell {
+    /* Center the card vertically + horizontally on wide viewports.
+     * Setup is desktop-only (per issue #179 out-of-scope), so a fixed
+     * comfortable width is fine. */
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+}
+
+.wizard-chrome-card {
+    width: 100%;
+    max-width: 720px;
+    border-radius: 0.75rem;
+    box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.45);
+    background-color: #f8f9fa;
+    overflow: hidden;  /* clip rounded corners against header/footer tint */
+}
+
+.wizard-chrome-card .card-header,
+.wizard-chrome-card .card-footer {
+    background-color: rgba(13, 110, 253, 0.04);
+    border-color: rgba(0, 0, 0, 0.06);
+}
+
+.wizard-chrome-card .card-header {
+    padding: 1rem 1.25rem 0.75rem;
+}
+
+.wizard-chrome-card .card-body {
+    padding: 1.5rem 1.75rem;
+}
+
+.wizard-chrome-card .card-footer {
+    padding: 0.875rem 1.25rem;
+}
+
+/* Stepper layout. Horizontal flex row of equal-width steps with the
+ * connecting line drawn between circles. Non-interactive — the entire
+ * thing is a status indicator. */
+.wizard-stepper {
+    display: flex;
+    flex-direction: row;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    gap: 0;
+    align-items: flex-start;
+}
+
+.wizard-stepper-item {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    position: relative;
+    min-width: 0;
+}
+
+/* Connecting line — drawn from the right edge of each item's circle to
+ * the next item's circle. The last item has no trailing line. */
+.wizard-stepper-item:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 1.0625rem;  /* (circle height 2.125rem) / 2 = vertical center */
+    left: calc(50% + 1.0625rem);
+    right: calc(-50% + 1.0625rem);
+    height: 2px;
+    background-color: var(--bs-border-color, #dee2e6);
+    z-index: 0;
+}
+
+.wizard-stepper-item.is-completed:not(:last-child)::after,
+.wizard-stepper-item.is-current:not(:last-child)::after {
+    /* Trail behind the active step is filled in. The leading edge
+     * uses the brand color so the user sees a visible "trail of
+     * completed work" without it looking like a single bar. */
+    background-color: var(--bs-primary, #0d6efd);
+}
+
+.wizard-stepper-circle {
+    width: 2.125rem;
+    height: 2.125rem;
+    border-radius: 50%;
+    background-color: var(--bs-secondary-bg, #e9ecef);
+    color: var(--bs-secondary-color, #6c757d);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--bs-border-color, #dee2e6);
+    position: relative;
+    z-index: 1;
+    transition: background-color 0.12s ease-in-out, color 0.12s ease-in-out,
+                border-color 0.12s ease-in-out;
+}
+
+.wizard-stepper-item.is-completed .wizard-stepper-circle,
+.wizard-stepper-item.is-current .wizard-stepper-circle {
+    background-color: var(--bs-primary, #0d6efd);
+    color: #fff;
+    border-color: var(--bs-primary, #0d6efd);
+}
+
+.wizard-stepper-label {
+    font-size: 0.75rem;
+    line-height: 1.2;
+    margin-top: 0.375rem;
+    color: var(--bs-secondary-color, #6c757d);
+    /* Small viewport: keep the text from wrapping awkwardly under a
+     * narrow column. The acceptance criteria explicitly defer
+     * responsive design, but truncation here keeps the desktop view
+     * predictable on slightly smaller windows. */
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wizard-stepper-item.is-current .wizard-stepper-label {
+    color: var(--bs-body-color, #212529);
+    font-weight: 600;
+}
+
+.wizard-stepper-item.is-completed .wizard-stepper-label {
+    color: var(--bs-body-color, #212529);
+    font-weight: 400;
+}
+
+/* Eye-toggle button inside an input-group (issue #179 password
+ * mask/unmask). Bootstrap's default input-group handles most of this;
+ * we just normalise the button look so it doesn't draw the eye into
+ * an oversized hit-area on tall input variants. */
+.wizard-eye-toggle {
+    border: 1px solid var(--bs-border-color, #ced4da);
+    border-left: 0;
+    background-color: var(--bs-body-bg, #fff);
+}
+
+.wizard-eye-toggle:hover {
+    background-color: var(--bs-tertiary-bg, #f8f9fa);
+}
+
+/* ------------------------------------------------------------------
+ * Topology picker (FR-W-FE9) — pairs `.selected` with `aria-checked`.
+ * Cards are interactive but rendered as Bootstrap `.card` divs with
+ * role='radio'. The cursor + focus + selected styles are explicit
+ * here so the visual state matches the ARIA state.
+ * ------------------------------------------------------------------ */
 .wizard-card {
     max-width: 32rem;
 }
 
-/* Topology picker (FR-W-FE9) — pairs `.selected` with `aria-checked`.
- * Cards are interactive but rendered as Bootstrap `.card` divs with
- * role='radio'. The cursor + focus + selected styles are explicit
- * here so the visual state matches the ARIA state.
- *
- * LOW-2 (Phase F2): use Bootstrap's CSS custom properties (--bs-primary
- * / --bs-primary-rgb) instead of the hard-coded #0d6efd literal so the
- * styles automatically follow theme changes. */
 .topology-card {
     cursor: pointer;
     transition: border-color 0.12s ease-in-out, box-shadow 0.12s ease-in-out;

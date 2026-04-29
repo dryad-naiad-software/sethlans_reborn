@@ -19,13 +19,19 @@
 //
 // Form-state stash is cleared on `complete` per FR-CHK3-FORM-STATE.
 
-import { createApp } from '/static/vendor/petite-vue.js';
+import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
   consumeResumeBanner,
   expireAndRedirect,
   wizardFetch,
 } from '/static/js/common.js';
 import { clearAllFormState } from '/static/js/form_state.js';
+import {
+  STEP_FFMPEG,
+  backRouteFor,
+  buildStepperModel,
+  fetchChromeContext,
+} from '/static/js/wizard_chrome.js';
 
 const POLL_INTERVAL_MS = 1000;
 
@@ -49,7 +55,7 @@ const FAILURE_BODIES = {
 
 const RETRY_ALLOWED = new Set(['download_failed', 'extraction_failed', 'network_error', 'generic']);
 
-const scope = {
+const scope = reactive({
   status: 'starting',
   percent: 0,
   taskId: '',
@@ -57,6 +63,22 @@ const scope = {
   errorDetail: '',
   resumeBanner: '',
   _pollHandle: null,
+  topology: null,
+  stepper: buildStepperModel(
+    null, STEP_FFMPEG,
+    [
+      'topology_chosen', 'network_configured',
+      'database_configured', 'admin_validated',
+    ],
+  ),
+
+  goBack() {
+    const route = backRouteFor(STEP_FFMPEG, this.topology);
+    if (route) {
+      this._stopPolling();
+      window.location.assign(route);
+    }
+  },
 
   get busy() {
     return this.status === 'downloading'
@@ -173,11 +195,28 @@ const scope = {
     if (this.status !== 'complete') return;
     window.location.assign('/verify');
   },
-};
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   const banner = consumeResumeBanner();
   if (banner) scope.resumeBanner = banner;
   createApp(scope).mount('#app');
   scope.start();
+  // The set of completed checkpoints depends on topology — manager
+  // skips the worker-password step entirely. We can't know the
+  // topology synchronously, so apply a manager-flavoured stepper now
+  // and let `applyChromeContext` widen it once /resume-target reports
+  // the actual topology.
+  (async () => {
+    const ctx = await fetchChromeContext();
+    scope.topology = ctx.topology;
+    const completed = [
+      'topology_chosen', 'network_configured',
+      'database_configured', 'admin_validated',
+    ];
+    if (ctx.topology === 'manager_worker') {
+      completed.push('worker_password_set');
+    }
+    scope.stepper = buildStepperModel(ctx.topology, STEP_FFMPEG, completed);
+  })();
 });

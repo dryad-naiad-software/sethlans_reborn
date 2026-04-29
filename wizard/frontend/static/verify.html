@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="/static/css/wizard.css">
 </head>
-<body class="bg-body-tertiary">
+<body class="wizard-chrome">
   <noscript>
     <div class="container py-5">
       <div class="alert alert-warning" role="alert">
@@ -22,73 +22,102 @@
 
   <script nomodule src="/static/js/legacy-fallback.js"></script>
 
-  <main id="app" class="container py-4 py-md-5" v-cloak>
-    <div
-      v-if="resumeBanner"
-      class="alert alert-info"
-      role="status"
-      aria-live="polite">
-      {{ resumeBanner }}
-    </div>
+  <main id="app" class="wizard-chrome-shell" v-cloak>
+    <div class="card wizard-chrome-card">
+      <header class="card-header">
+        <h1 class="h5 text-center mb-3">Sethlans Setup</h1>
+        <ol class="wizard-stepper" aria-label="Setup progress">
+          <li
+            v-for="step in stepper"
+            :key="step.id"
+            class="wizard-stepper-item"
+            :class="{ 'is-current': step.isCurrent, 'is-completed': step.isCompleted }"
+            :aria-current="step.isCurrent ? 'step' : null">
+            <span class="wizard-stepper-circle" v-html="step.icon" aria-hidden="true"></span>
+            <span class="wizard-stepper-label">{{ step.label }}</span>
+          </li>
+        </ol>
+      </header>
 
-    <header class="mb-4 text-center">
-      <h1 class="h3 mb-1">Verify</h1>
-      <p class="text-body-secondary mb-0">
-        Re-running the checks against the configuration you just entered.
-      </p>
-    </header>
+      <div class="card-body">
+        <div
+          v-if="resumeBanner"
+          class="alert alert-info"
+          role="status"
+          aria-live="polite">
+          {{ resumeBanner }}
+        </div>
 
-    <div class="card shadow-sm" :aria-busy="running ? 'true' : 'false'">
-      <ul class="list-group list-group-flush">
-        <li
-          v-if="running && checks.length === 0"
-          class="list-group-item text-center text-body-secondary">
-          <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-          Running checks&hellip;
-        </li>
-        <li
-          v-for="check in checks"
-          :key="check.name"
-          class="list-group-item d-flex align-items-start">
-          <span
-            class="me-2 fw-bold"
-            :class="check.passed ? 'text-success' : 'text-danger'"
-            aria-hidden="true">
-            {{ check.passed ? '✓' : '✗' }}
-          </span>
-          <div class="flex-grow-1">
-            <span class="visually-hidden">{{ check.passed ? 'Passed:' : 'Failed:' }}</span>
-            <span>{{ labelFor(check.name) }}</span>
-            <p v-if="!check.passed && check.error" class="mb-0 small text-danger" aria-live="polite">
-              {{ check.error }}
-            </p>
-          </div>
-        </li>
-      </ul>
-    </div>
+        <header class="mb-4 text-center">
+          <h2 class="h3 mb-1">Verify</h2>
+          <p class="text-body-secondary mb-0">
+            Re-running the checks against the configuration you just entered.
+          </p>
+        </header>
 
-    <div v-if="error" class="alert alert-danger mt-3" role="alert" aria-live="assertive">
-      {{ error }}
-    </div>
+        <div class="card shadow-sm" :aria-busy="running ? 'true' : 'false'">
+          <ul class="list-group list-group-flush">
+            <li
+              v-if="running && checks.length === 0"
+              class="list-group-item text-center text-body-secondary">
+              <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              Running checks&hellip;
+            </li>
+            <li
+              v-for="check in checks"
+              :key="check.name"
+              class="list-group-item d-flex align-items-start">
+              <span
+                class="me-2 fw-bold"
+                :class="check.passed ? 'text-success' : 'text-danger'"
+                aria-hidden="true">
+                {{ check.passed ? '✓' : '✗' }}
+              </span>
+              <div class="flex-grow-1">
+                <span class="visually-hidden">{{ check.passed ? 'Passed:' : 'Failed:' }}</span>
+                <span>{{ labelFor(check.name) }}</span>
+                <p v-if="!check.passed && check.error" class="mb-0 small text-danger" aria-live="polite">
+                  {{ check.error }}
+                </p>
+              </div>
+            </li>
+          </ul>
+        </div>
 
-    <div class="d-grid d-md-flex justify-content-md-end mt-4 gap-2">
-      <button
-        v-if="!allPassed"
-        type="button"
-        class="btn btn-outline-secondary btn-lg"
-        :disabled="running"
-        @click="run">
-        Re-run checks
-      </button>
-      <button
-        id="verify-next"
-        type="button"
-        class="btn btn-primary btn-lg"
-        :disabled="!allPassed"
-        :aria-disabled="!allPassed ? 'true' : 'false'"
-        @click="next">
-        Continue
-      </button>
+        <div v-if="error" class="alert alert-danger mt-3" role="alert" aria-live="assertive">
+          {{ error }}
+        </div>
+
+        <div class="mt-3 text-end">
+          <button
+            v-if="!allPassed"
+            type="button"
+            class="btn btn-outline-secondary"
+            :disabled="running"
+            @click="run">
+            Re-run checks
+          </button>
+        </div>
+      </div>
+
+      <footer class="card-footer d-flex justify-content-between align-items-center">
+        <button
+          id="verify-back"
+          type="button"
+          class="btn btn-outline-secondary"
+          @click="goBack">
+          &larr; Back
+        </button>
+        <button
+          id="verify-next"
+          type="button"
+          class="btn btn-primary"
+          :disabled="!allPassed"
+          :aria-disabled="!allPassed ? 'true' : 'false'"
+          @click="next">
+          Continue &rarr;
+        </button>
+      </footer>
     </div>
   </main>
 

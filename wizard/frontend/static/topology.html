@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="/static/css/wizard.css">
 </head>
-<body class="bg-body-tertiary">
+<body class="wizard-chrome">
   <noscript>
     <div class="container py-5">
       <div class="alert alert-warning" role="alert">
@@ -22,58 +22,78 @@
 
   <script nomodule src="/static/js/legacy-fallback.js"></script>
 
-  <main id="app" class="container py-4 py-md-5" v-cloak>
-    <div
-      v-if="resumeBanner"
-      class="alert alert-info"
-      role="status"
-      aria-live="polite">
-      {{ resumeBanner }}
-    </div>
+  <main id="app" class="wizard-chrome-shell" v-cloak>
+    <div class="card wizard-chrome-card">
+      <header class="card-header">
+        <h1 class="h5 text-center mb-3">Sethlans Setup</h1>
+        <ol class="wizard-stepper" aria-label="Setup progress">
+          <li
+            v-for="step in stepper"
+            :key="step.id"
+            class="wizard-stepper-item"
+            :class="{ 'is-current': step.isCurrent, 'is-completed': step.isCompleted }"
+            :aria-current="step.isCurrent ? 'step' : null">
+            <span class="wizard-stepper-circle" v-html="step.icon" aria-hidden="true"></span>
+            <span class="wizard-stepper-label">{{ step.label }}</span>
+          </li>
+        </ol>
+      </header>
 
-    <header class="mb-4 text-center">
-      <h1 id="topology-heading" class="h3 mb-1">Choose Topology</h1>
-      <p class="text-body-secondary mb-0">
-        Pick how this machine should run. You can change this later by re-running setup.
-      </p>
-    </header>
-
-    <div class="row g-3 mb-4 topology-radiogroup" role="radiogroup" aria-labelledby="topology-heading">
-      <div v-for="(choice, idx) in choices" :key="choice.id" class="col-12 col-md-4">
+      <div class="card-body">
         <div
-          class="card h-100 topology-card"
-          :class="{ selected: selected === choice.id }"
-          role="radio"
-          :tabindex="(selected === choice.id || (selected === null && idx === 0)) ? 0 : -1"
-          :aria-checked="selected === choice.id ? 'true' : 'false'"
-          :aria-labelledby="'topology-card-label-' + choice.id"
-          :aria-describedby="'topology-card-desc-' + choice.id"
-          :data-choice-id="choice.id"
-          @click="selectChoice(choice.id)">
-          <div class="card-body">
-            <h2 :id="'topology-card-label-' + choice.id" class="h5 mb-2">{{ choice.label }}</h2>
-            <p :id="'topology-card-desc-' + choice.id" class="mb-0 text-body-secondary">{{ choice.desc }}</p>
+          v-if="resumeBanner"
+          class="alert alert-info"
+          role="status"
+          aria-live="polite">
+          {{ resumeBanner }}
+        </div>
+
+        <header class="mb-4 text-center">
+          <h2 id="topology-heading" class="h3 mb-1">Choose Topology</h2>
+          <p class="text-body-secondary mb-0">
+            Pick how this machine should run. You can change this later by re-running setup.
+          </p>
+        </header>
+
+        <div class="row g-3 mb-2 topology-radiogroup" role="radiogroup" aria-labelledby="topology-heading">
+          <div v-for="(choice, idx) in choices" :key="choice.id" class="col-12 col-md-4">
+            <div
+              class="card h-100 topology-card"
+              :class="{ selected: selected === choice.id }"
+              role="radio"
+              :tabindex="(selected === choice.id || (selected === null && idx === 0)) ? 0 : -1"
+              :aria-checked="selected === choice.id ? 'true' : 'false'"
+              :aria-labelledby="'topology-card-label-' + choice.id"
+              :aria-describedby="'topology-card-desc-' + choice.id"
+              :data-choice-id="choice.id"
+              @click="selectChoice(choice.id)">
+              <div class="card-body">
+                <h3 :id="'topology-card-label-' + choice.id" class="h5 mb-2">{{ choice.label }}</h3>
+                <p :id="'topology-card-desc-' + choice.id" class="mb-0 text-body-secondary">{{ choice.desc }}</p>
+              </div>
+            </div>
           </div>
         </div>
+
+        <div v-if="error" class="alert alert-danger mt-3" role="alert" aria-live="assertive">
+          {{ error }}
+        </div>
       </div>
-    </div>
 
-    <div v-if="error" class="alert alert-danger" role="alert" aria-live="assertive">
-      {{ error }}
-    </div>
-
-    <div class="d-grid d-md-flex justify-content-md-end">
-      <button
-        id="topology-submit"
-        type="button"
-        class="btn btn-primary btn-lg"
-        :disabled="submitting || selected === null"
-        :aria-disabled="(submitting || selected === null) ? 'true' : 'false'"
-        @click="submit">
-        <span v-if="submitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-        <span v-if="submitting">Saving&hellip;</span>
-        <span v-else>Continue</span>
-      </button>
+      <footer class="card-footer d-flex justify-content-between align-items-center">
+        <span></span>
+        <button
+          id="topology-submit"
+          type="button"
+          class="btn btn-primary"
+          :disabled="submitting || selected === null"
+          :aria-disabled="(submitting || selected === null) ? 'true' : 'false'"
+          @click="submit">
+          <span v-if="submitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+          <span v-if="submitting">Saving&hellip;</span>
+          <span v-else>Continue &rarr;</span>
+        </button>
+      </footer>
     </div>
   </main>
 

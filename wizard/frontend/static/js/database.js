@@ -14,7 +14,7 @@
 //
 // Form state stashed sans password (FR-CHK3-FORM-STATE).
 
-import { createApp } from '/static/vendor/petite-vue.js';
+import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
   consumeResumeBanner,
   expireAndRedirect,
@@ -24,6 +24,12 @@ import {
   loadFormState,
   stashFormState,
 } from '/static/js/form_state.js';
+import {
+  STEP_DATABASE,
+  applyChromeContext,
+  backRouteFor,
+  buildStepperModel,
+} from '/static/js/wizard_chrome.js';
 
 const STEP = 'database';
 
@@ -49,7 +55,7 @@ const ERROR_MESSAGES = {
   generic: 'Could not connect to the database.',
 };
 
-const scope = {
+const scope = reactive({
   engines: [
     { id: 'sqlite', label: 'SQLite', desc: 'Default. Single-file embedded database.' },
     { id: 'postgresql', label: 'PostgreSQL', desc: 'External Postgres server.' },
@@ -62,6 +68,18 @@ const scope = {
   error: '',
   canRetry: false,
   resumeBanner: '',
+  topology: null,
+  stepper: buildStepperModel(
+    null, STEP_DATABASE, ['topology_chosen', 'network_configured'],
+  ),
+
+  goBack() {
+    const route = backRouteFor(STEP_DATABASE, this.topology);
+    if (route) {
+      this._stash();
+      window.location.assign(route);
+    }
+  },
 
   selectEngine(id) {
     this.engine = id;
@@ -143,7 +161,7 @@ const scope = {
     }
     this._abort('Could not save database settings.', true);
   },
-};
+});
 
 function focusByIndex(idx) {
   const cards = document.querySelectorAll('.db-engine-group [role="radio"]');
@@ -205,4 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   createApp(scope).mount('#app');
   attachKeyboardHandler();
+  applyChromeContext(scope, STEP_DATABASE, [
+    'topology_chosen', 'network_configured',
+  ]);
 });

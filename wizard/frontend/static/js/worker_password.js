@@ -19,20 +19,45 @@
 // the backend returns HTTP 400 `admin_password_unavailable` and we
 // surface a recovery prompt.
 
-import { createApp } from '/static/vendor/petite-vue.js';
+import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
   consumeResumeBanner,
   expireAndRedirect,
   wizardFetch,
 } from '/static/js/common.js';
+import {
+  STEP_WORKER,
+  applyChromeContext,
+  backRouteFor,
+  buildStepperModel,
+} from '/static/js/wizard_chrome.js';
 
-const scope = {
+const scope = reactive({
   useAdminPassword: true,
   password: '',
   submitting: false,
   error: '',
   fieldError: '',
   resumeBanner: '',
+  topology: 'manager_worker',
+  // Eye-toggle for the optional worker password field. Independent of
+  // the admin-user toggles — this page only renders the field when
+  // `useAdminPassword` is unchecked.
+  showPassword: false,
+  stepper: buildStepperModel(
+    'manager_worker', STEP_WORKER,
+    [
+      'topology_chosen', 'network_configured',
+      'database_configured', 'admin_validated',
+    ],
+  ),
+
+  goBack() {
+    const route = backRouteFor(STEP_WORKER, this.topology);
+    if (route) {
+      window.location.assign(route);
+    }
+  },
 
   async submit() {
     if (this.submitting) return;
@@ -95,7 +120,7 @@ const scope = {
     }
     this.error = 'Could not save the worker password. Check the launcher logs.';
   },
-};
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   const banner = consumeResumeBanner();
@@ -121,5 +146,9 @@ document.addEventListener('DOMContentLoaded', () => {
     createApp(scope).mount('#app');
     const checkbox = document.getElementById('use-admin-checkbox');
     if (checkbox) checkbox.focus();
+    applyChromeContext(scope, STEP_WORKER, [
+      'topology_chosen', 'network_configured',
+      'database_configured', 'admin_validated',
+    ]);
   })();
 });
