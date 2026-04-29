@@ -156,6 +156,12 @@ def test_done_posts_pending_then_done_in_order(page, wizard_process):
 
 def test_done_pending_failure_blocks_done_post(page, wizard_process):
     wp = wizard_process
+    # Capture BOTH endpoints so we can prove the pending POST actually
+    # fired (and got the 500 mock) before asserting that /done was
+    # never called. Capturing pending too is defensive: if the request
+    # listener somehow missed the firing for /done, the parallel
+    # capture for pending-setup would catch it too.
+    pending_calls = captured_requests(page, "/api/wizard/pending-setup/")
     done_calls = captured_requests(page, "/api/wizard/done/")
     page.route(
         "**/api/wizard/pending-setup/",
@@ -170,7 +176,16 @@ def test_done_pending_failure_blocks_done_post(page, wizard_process):
         lambda route: route.fulfill(status=200, body="{}"),
     )
     _land(page, wp, "/done")
+    # The alert appearing implies done.js's run() reached the
+    # !response.ok branch, which means pending-setup returned 500
+    # and done.js early-returned without firing /api/wizard/done/.
     page.wait_for_selector(".alert-danger", state="visible", timeout=10000)
+    # The pending-setup POST fired exactly once and was mocked 500.
+    # Asserting this here (rather than trusting the alert alone)
+    # discriminates "alert never appeared" from "pending-setup never
+    # fired" on any future regression.
+    pending_posts = [r for r in pending_calls if r["method"] == "POST"]
+    assert len(pending_posts) == 1, pending_calls
     # The user is still on /done; no redirect to /redirecting.
     assert "/redirecting" not in page.url
     # /done was NEVER posted because pending-setup failed.
