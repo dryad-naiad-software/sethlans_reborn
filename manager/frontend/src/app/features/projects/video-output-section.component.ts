@@ -10,6 +10,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Subscription } from 'rxjs';
 import { VIDEO_PRESETS, HDR_FORMATS } from './render-payload.util';
 
@@ -19,6 +20,7 @@ import { VIDEO_PRESETS, HDR_FORMATS } from './render-payload.util';
   imports: [
     ReactiveFormsModule, MatFormFieldModule, MatInputModule,
     MatSelectModule, MatCheckboxModule, MatExpansionModule, MatIconModule,
+    MatProgressSpinnerModule,
   ],
   template: `
     <div class="video-section">
@@ -28,9 +30,17 @@ import { VIDEO_PRESETS, HDR_FORMATS } from './render-payload.util';
           Download images as ZIP instead.</p>
       }
       <mat-checkbox [formControl]="generateVideoCtrl"
-                    [disabled]="isHdrFormat">
+                    [disabled]="isHdrFormat || !assemblyReady">
         Generate Video
       </mat-checkbox>
+      @if (!assemblyReady) {
+        <div class="assembly-hint">
+          @if (assemblyLoading) {
+            <mat-progress-spinner diameter="16" mode="indeterminate"></mat-progress-spinner>
+          }
+          <mat-hint>Video assembly is preparing &mdash; refresh in a moment</mat-hint>
+        </div>
+      }
       @if (generateVideoCtrl.value) {
         <div class="video-controls">
           <div class="form-row">
@@ -88,11 +98,14 @@ import { VIDEO_PRESETS, HDR_FORMATS } from './render-payload.util';
     .video-controls { margin-top: 8px; }
     .form-row { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
     .form-row mat-form-field { flex: 1; min-width: 120px; }
+    .assembly-hint { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
   `],
 })
 export class VideoOutputSectionComponent implements OnInit, OnDestroy {
   @Input() parentForm!: FormGroup;
   @Input() outputFormat = '';
+  @Input() assemblyReady = true;
+  @Input() assemblyLoading = false;
 
   readonly presetEntries = Object.entries(VIDEO_PRESETS).map(
     ([key, val]) => ({ key, label: val.label }),

@@ -1,0 +1,66 @@
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+
+<div class="system-status-page">
+  <header class="page-header">
+    <h1>System status</h1>
+    <p class="page-subtitle">
+      Manager parts check. Refresh to pick up new state.
+    </p>
+  </header>
+
+  @if (loading()) {
+    <div class="loading-state">
+      <mat-progress-spinner diameter="32" mode="indeterminate"></mat-progress-spinner>
+      <span>Loading status&hellip;</span>
+    </div>
+  } @else if (errorMessage()) {
+    <mat-card class="error-card">
+      <mat-card-content>
+        <mat-icon color="warn">error</mat-icon>
+        <span>{{ errorMessage() }}</span>
+      </mat-card-content>
+    </mat-card>
+  } @else if (parts().length === 0) {
+    <mat-card class="empty-card">
+      <mat-card-content>
+        <p>No parts are currently tracked.</p>
+      </mat-card-content>
+    </mat-card>
+  } @else {
+    <div class="parts-grid">
+      @for (part of parts(); track part.name) {
+        <mat-card class="part-card">
+          <mat-card-header>
+            <mat-card-title>{{ part.name }}</mat-card-title>
+            <mat-card-subtitle>
+              <mat-chip [color]="statusColor(part.details.status)" highlighted>
+                {{ part.details.status }}
+              </mat-chip>
+            </mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            <dl class="field-list">
+              <dt>Source</dt>
+              <dd>{{ part.details.source }}</dd>
+              <dt>Version</dt>
+              <dd>{{ part.details.version }}</dd>
+              <dt>Path</dt>
+              <dd class="path-value">{{ part.details.path }}</dd>
+              <dt>Status</dt>
+              <dd>{{ part.details.status }}</dd>
+              <dt>Error</dt>
+              <dd>
+                @if (part.details.error) {
+                  <span class="error-text">{{ part.details.error }}</span>
+                } @else {
+                  <span class="muted">&mdash;</span>
+                }
+              </dd>
+            </dl>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  }
+</div>

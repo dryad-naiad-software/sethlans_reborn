@@ -16,7 +16,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { JobService } from '../../core/services/job.service';
 import { TiledJobService } from '../../core/services/tiled-job.service';
 import { AnimationService } from '../../core/services/animation.service';
-import { SystemInfoService } from '../../core/services/system-info.service';
+import { FFmpegStatusService } from '../../core/services/ffmpeg-status.service';
 import { RENDER_ENGINES, RENDER_DEVICES, TILING_OPTIONS, ANIMATION_TILING_OPTIONS,
   OUTPUT_FORMATS, TILED_OUTPUT_FORMATS, HDR_FORMATS } from './render-payload.util';
 import { buildSingleJobPayload, buildTiledJobPayload, buildAnimationPayload } from './job-create-payload.util';
@@ -107,9 +107,11 @@ import { ResolutionInputComponent } from './resolution-input.component';
               <mat-option value="32">Full Float (32-bit)</mat-option>
             </mat-select></mat-form-field></div>
         }
-        @if (ffmpegAvailable && renderType === 'animation') {
+        @if (renderType === 'animation') {
           <app-video-output-section [parentForm]="form"
-            [outputFormat]="form.value.outputFormat ?? ''" />
+            [outputFormat]="form.value.outputFormat ?? ''"
+            [assemblyReady]="videoAssemblyReady()"
+            [assemblyLoading]="ffmpegStatus.loading()" />
         }
       </form>
     </mat-dialog-content>
@@ -140,7 +142,7 @@ export class JobCreateFormComponent {
   private readonly tiledJobService = inject(TiledJobService);
   private readonly animationService = inject(AnimationService);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly systemInfoService = inject(SystemInfoService);
+  protected readonly ffmpegStatus = inject(FFmpegStatusService);
 
   engines = RENDER_ENGINES;
   devices = RENDER_DEVICES;
@@ -148,7 +150,7 @@ export class JobCreateFormComponent {
   animTilingOptions = ANIMATION_TILING_OPTIONS;
   renderType: RenderType = 'single';
   submitting = false;
-  ffmpegAvailable = false;
+  readonly videoAssemblyReady = this.ffmpegStatus.videoAssemblyReady;
 
   get availableFormats(): typeof OUTPUT_FORMATS {
     if (this.renderType === 'tiled') return TILED_OUTPUT_FORMATS;
@@ -197,9 +199,7 @@ export class JobCreateFormComponent {
   }, { validators: [JobCreateFormComponent.frameRangeValidator] });
 
   constructor() {
-    this.systemInfoService.getSystemInfo().subscribe(info => {
-      this.ffmpegAvailable = info.ffmpeg_available;
-    });
+    this.ffmpegStatus.load().subscribe();
     if (!this.data.prefill) return;
     const p = this.data.prefill;
     this.renderType = p.renderType;

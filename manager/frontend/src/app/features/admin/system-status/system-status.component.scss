@@ -1,0 +1,87 @@
+// SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+//
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+.system-status-page {
+  padding: 24px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-bottom: 24px;
+
+  h1 {
+    margin: 0 0 8px;
+    font-size: 24px;
+    font-weight: 500;
+  }
+
+  .page-subtitle {
+    margin: 0;
+    color: rgba(0, 0, 0, 0.6);
+    font-size: 14px;
+  }
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.error-card,
+.empty-card {
+  margin-bottom: 16px;
+
+  mat-card-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+}
+
+.parts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.part-card {
+  mat-card-subtitle {
+    margin-top: 4px;
+  }
+}
+
+.field-list {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  row-gap: 8px;
+  column-gap: 12px;
+  margin: 0;
+
+  dt {
+    font-weight: 500;
+    color: rgba(0, 0, 0, 0.6);
+  }
+
+  dd {
+    margin: 0;
+    word-break: break-word;
+  }
+
+  .path-value {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 12px;
+  }
+
+  .error-text {
+    color: #d32f2f;
+  }
+
+  .muted {
+    color: rgba(0, 0, 0, 0.4);
+  }
+}

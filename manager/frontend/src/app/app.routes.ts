@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import { Routes } from '@angular/router';
+import { adminGuard } from './core/guards/admin.guard';
 import { authGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -41,6 +42,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/settings/settings.component')
             .then(m => m.SettingsComponent),
+      },
+      {
+        path: 'admin/system-status',
+        canActivate: [adminGuard],
+        loadChildren: () =>
+          import('./features/admin/system-status/system-status.routes')
+            .then(m => m.SYSTEM_STATUS_ROUTES),
       },
     ],
   },
