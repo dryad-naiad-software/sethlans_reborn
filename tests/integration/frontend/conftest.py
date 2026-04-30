@@ -35,6 +35,22 @@ from tests.integration.wizard.conftest import (  # noqa: F401
     wizard_process,
 )
 
+# Re-export manager-side fixtures so contract tests in this directory
+# can build real Project / Asset / admin-authenticated APIClient
+# instances without duplicating the setup code or moving the contract
+# tests into ``tests/integration/manager/``.  The wizard-ffmpeg-rewrite
+# contract tests (``test_ffmpeg_status_contract``,
+# ``test_animation_video_contract``) need ``admin_client``, ``project``,
+# ``asset``, ``default_version``, and ``worker_with_token``.
+from tests.integration.manager.conftest import (  # noqa: F401
+    admin_user,
+    admin_client,
+    default_version,
+    project,
+    asset,
+    worker_with_token,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_ROOT = REPO_ROOT / "manager" / "frontend" / "src" / "app"
 ERROR_ENVELOPE_TS = FRONTEND_ROOT / "core" / "models" / "error-envelope.ts"
@@ -135,6 +151,69 @@ def browser_context_args(browser_context_args):
         **browser_context_args,
         "ignore_https_errors": True,
     }
+
+
+# ---------------------------------------------------------------------
+# Wizard-ffmpeg-rewrite contract-test fixtures.  Shared across
+# ``test_animation_video_contract.py`` and
+# ``test_animation_video_immutable_contract.py`` so the payload + parts-
+# check seed convention stays in lock-step between create-time and
+# update-time rejections.
+# ---------------------------------------------------------------------
+
+@pytest.fixture
+def scoped_parts_state():
+    """Snapshot/restore the FFmpeg parts_check registry between tests.
+
+    Mirrors the pattern used in
+    ``tests/integration/manager/test_ffmpeg_status_api.py``.  Tests
+    that seed a state into the registry MUST consume this fixture so
+    later tests do not inherit the seed.
+    """
+    from workers.services.parts_check import registry
+    prior = registry.get_status("ffmpeg")
+    yield
+    registry._publish("ffmpeg", prior)
+
+
+@pytest.fixture
+def animation_payload(project, asset):  # noqa: F811
+    """Minimal animation create payload — mirrors the backend
+    conftest's ``animation_payload`` fixture in
+    ``tests/integration/manager/test_animation_video.py``.
+
+    The ``project`` and ``asset`` parameters consume the fixtures
+    re-exported from ``tests.integration.manager.conftest`` near the
+    top of this file; flake8 flags the parameter names as redefining
+    the imports, but pytest fixture wiring intentionally shadows
+    names this way.
+    """
+    return {
+        "name": "ContractAnim",
+        "project": project.pk,
+        "asset_id": asset.pk,
+        "output_file_pattern": "frame_####.png",
+        "start_frame": 1,
+        "end_frame": 3,
+        "frame_step": 1,
+        "render_settings": {
+            "render.image_settings.file_format": "PNG",
+        },
+    }
+
+
+@pytest.fixture
+def video_settings():
+    """Default ``video_settings`` block used by both contract files."""
+    return {"preset": "web_h264", "framerate": 24}
+
+
+@pytest.fixture
+def job_create_form_ts() -> str:
+    """Read ``job-create-form.component.ts`` once for the parser-audit
+    test in ``test_animation_video_contract.py``."""
+    from ._animation_video_contract_helpers import JOB_CREATE_FORM_TS
+    return JOB_CREATE_FORM_TS.read_text(encoding="utf-8")
 
 
 def assert_envelope_shape(body: dict) -> None:
