@@ -9,8 +9,6 @@ Topology-aware checklist:
   ``(bind_host, bind_port)``.
 * ``database_reachable`` — re-open the configured DB and run
   ``SELECT 1``.
-* ``ffmpeg_runs`` — re-execute ``ffmpeg -version``; pass if the
-  expected version pin appears.
 * ``pending_setup_writable`` — write a temp file under the manager
   data dir and ``os.replace`` it.
 * ``worker_password_hashed`` — manager_worker only — assert the
@@ -33,7 +31,6 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 from wizard.sethlans_wizard import (
-    ffmpeg_download,
     manager_ini,
     progress,
     wizard_state,
@@ -46,7 +43,6 @@ from wizard.sethlans_wizard.handlers import database as database_handler
 logger = logging.getLogger(__name__)
 
 VERIFY_SOCKET_TIMEOUT = 10
-VERIFY_SUBPROCESS_TIMEOUT = 5
 VERIFY_RESULT_CACHE_SECONDS = 60
 
 # FR-M2-8a — per-handler lock + cache.
@@ -133,23 +129,6 @@ def _check_database_reachable(
     }
 
 
-def _check_ffmpeg_runs(data_dir: Path) -> dict:
-    binary = ffmpeg_download.get_ffmpeg_binary(data_dir)
-    if binary is None:
-        return {"name": "ffmpeg_runs", "passed": False,
-                "error": "binary not found"}
-    ok, version_str = ffmpeg_download.run_version_check(
-        binary, timeout=VERIFY_SUBPROCESS_TIMEOUT,
-    )
-    if not ok:
-        return {"name": "ffmpeg_runs", "passed": False,
-                "error": "ffmpeg -version failed"}
-    if ffmpeg_download.FFMPEG_VERSION not in version_str:
-        return {"name": "ffmpeg_runs", "passed": False,
-                "error": "version mismatch"}
-    return {"name": "ffmpeg_runs", "passed": True, "error": None}
-
-
 def _check_pending_setup_writable(data_dir: Path) -> dict:
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -195,7 +174,6 @@ def _run_checks(data_dir: Path) -> dict:
     checks = [
         _check_network_bindable(parser),
         _check_database_reachable(parser, data_dir),
-        _check_ffmpeg_runs(data_dir),
         _check_pending_setup_writable(data_dir),
     ]
     if topology == "manager_worker":

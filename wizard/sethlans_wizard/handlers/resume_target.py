@@ -78,11 +78,11 @@ def compute_resume_route(data_dir: Path) -> str:
     is_manager_only = topology == "manager"
 
     # Build a per-topology route map: when manager-only, jump from
-    # admin_validated straight to /ffmpeg, skipping /worker-password.
+    # admin_validated straight to /verify, skipping /worker-password.
     route_map = dict(RESUME_NEXT_ROUTE)
     if is_manager_only:
         # The route after admin_validated normally points to
-        # /worker-password; for manager-only it points to /ffmpeg
+        # /worker-password; for manager-only it points to /verify
         # (the WORKER_PASSWORD_SET successor).
         route_map["admin_validated"] = RESUME_NEXT_ROUTE["worker_password_set"]
 

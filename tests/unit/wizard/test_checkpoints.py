@@ -26,7 +26,6 @@ class TestCheckpointNames:
         assert checkpoints.DATABASE_CONFIGURED == "database_configured"
         assert checkpoints.ADMIN_VALIDATED == "admin_validated"
         assert checkpoints.WORKER_PASSWORD_SET == "worker_password_set"
-        assert checkpoints.FFMPEG_INSTALLED == "ffmpeg_installed"
         assert checkpoints.VERIFIED == "verified"
 
     def test_checkpoint_names_tuple_in_canonical_order(self):
@@ -39,7 +38,6 @@ class TestCheckpointNames:
             "database_configured",
             "admin_validated",
             "worker_password_set",
-            "ffmpeg_installed",
             "verified",
         )
 
@@ -94,8 +92,7 @@ class TestResumeNextRoute:
         assert m["network_configured"] == "/database"
         assert m["database_configured"] == "/admin-user"
         assert m["admin_validated"] == "/worker-password"
-        assert m["worker_password_set"] == "/ffmpeg"
-        assert m["ffmpeg_installed"] == "/verify"
+        assert m["worker_password_set"] == "/verify"
         assert m["verified"] == "/done"
 
     def test_all_routes_are_absolute(self):
@@ -151,7 +148,6 @@ class TestExports:
             "DATABASE_CONFIGURED",
             "ADMIN_VALIDATED",
             "WORKER_PASSWORD_SET",
-            "FFMPEG_INSTALLED",
             "VERIFIED",
             "CHECKPOINT_NAMES",
             "MANAGER_WORKER_ONLY_CHECKPOINTS",

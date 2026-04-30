@@ -85,13 +85,9 @@ def _land(page, wp, route: str, *, topology: str = "manager") -> None:
             "welcome_seen", "topology_chosen", "network_configured",
             "database_configured",
         ],
-        "/ffmpeg": [
-            "welcome_seen", "topology_chosen", "network_configured",
-            "database_configured", "admin_validated",
-        ],
         "/verify": [
             "welcome_seen", "topology_chosen", "network_configured",
-            "database_configured", "admin_validated", "ffmpeg_installed",
+            "database_configured", "admin_validated",
         ],
     }
     if route in checkpoints and checkpoints[route]:

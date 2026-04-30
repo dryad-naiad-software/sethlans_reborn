@@ -38,7 +38,6 @@ export const RESUME_STEP_LABELS = Object.freeze({
   database_configured: 'Database',
   admin_validated:     'Admin User',
   worker_password_set: 'Worker UI Password',
-  ffmpeg_installed:    'FFmpeg',
   verified:            'Verify',
 });
 

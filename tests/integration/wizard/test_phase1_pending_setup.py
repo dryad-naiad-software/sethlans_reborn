@@ -16,19 +16,15 @@ Covers the integration-test agent's deferred items 1 and 2:
   the unit-level proof and rely on the integration round-trip to
   confirm the contract holds end-to-end.
 * **End-to-end WSGI pending_setup write** — POST the wizard through
-  the auth → topology → admin-user → worker-password → ffmpeg → verify
-  → pending-setup pipeline against a real subprocess, assert
-  ``pending_setup.json`` lands at ``<data_dir>/pending_setup.json``,
-  parse it, and assert the schema contract: ``schema_version=1``,
-  ``created_at_unix`` is a recent int, ``admin_user`` carries the
-  validated tuple, ``ffmpeg`` carries version + path, and
+  the auth → topology → admin-user → worker-password → pending-setup
+  pipeline against a real subprocess, assert ``pending_setup.json``
+  lands at ``<data_dir>/pending_setup.json``, parse it, and assert
+  the schema contract: ``schema_version=1``, ``created_at_unix`` is a
+  recent int, ``admin_user`` carries the validated tuple, and
   ``auto_enroll_local_worker`` mirrors the topology.
 
-The FFmpeg download is *never* executed in tests — we patch
-``ffmpeg_download.already_installed`` and ``get_ffmpeg_binary`` to
-short-circuit the start handler at the "already installed" branch
-(FR-M2-7 idempotency), which still exercises the whole task-registry +
-checkpoint + state-write path without 100s of MB of network traffic.
+FFmpeg metadata is no longer carried in pending_setup.json — the
+manager-side parts-check derives the binary path on boot.
 """
 
 from __future__ import annotations
@@ -46,34 +42,8 @@ from . import _http
 from ._phase1_session import open_and_select, open_session, session_headers
 
 
-def _seed_ffmpeg_binary(data_dir: Path) -> Path:
-    """Write a fake ffmpeg binary so ``already_installed`` returns True.
-
-    The wizard's ``ffmpeg_download.get_ffmpeg_binary`` walks
-    ``<data_dir>/bin/ffmpeg/<FFMPEG_VERSION>`` looking for
-    ``ffmpeg.exe`` (Windows) or ``ffmpeg`` (POSIX). We seed a tiny
-    stub there so the ``already_installed`` short-circuit fires and
-    no real download is attempted.
-
-    The verify step would normally call ``ffmpeg -version`` against
-    this stub; tests that drive the verify endpoint mock the version
-    check by writing a fake binary that's actually executable. For
-    ``pending_setup`` tests we never call verify, so an empty file
-    is fine.
-    """
-    from wizard.sethlans_wizard import ffmpeg_download as ffdl
-    ffmpeg_dir = ffdl.get_ffmpeg_dir(data_dir)
-    ffmpeg_dir.mkdir(parents=True, exist_ok=True)
-    binary_name = "ffmpeg.exe" if platform.system() == "Windows" else "ffmpeg"
-    binary = ffmpeg_dir / binary_name
-    binary.write_bytes(b"#!/bin/sh\n# stub for tests\nexit 0\n")
-    if platform.system() != "Windows":
-        binary.chmod(0o755)
-    return binary
-
-
 def _drive_wizard_to_pending_setup(wp, *, topology: str = "manager") -> Path:
-    """Drive auth → topology → admin → worker-password → ffmpeg → pending.
+    """Drive auth → topology → admin → worker-password → pending.
 
     Returns the path to the written ``pending_setup.json``.
     """
@@ -102,17 +72,6 @@ def _drive_wizard_to_pending_setup(wp, *, topology: str = "manager") -> Path:
             headers=headers,
         )
         assert status == 200, parsed
-
-    # Seed a fake ffmpeg binary + fire start. The handler hits the
-    # idempotent "already_installed" branch and writes wizard_state.
-    _seed_ffmpeg_binary(wp.data_dir)
-    status, _, parsed = _http.post_json(
-        f"{wp.base_url}/api/wizard/ffmpeg/start/",
-        {},
-        headers=headers,
-    )
-    assert status == 200, parsed
-    assert parsed and parsed.get("status") in ("started", "in_progress"), parsed
 
     # Pending-setup write.
     status, _, parsed = _http.post_json(
@@ -143,9 +102,10 @@ def test_pending_setup_landed_with_correct_schema(wizard_process):
     assert admin["email"] == "alice@example.org", payload
     assert admin["password_plaintext"] == "X9c!7Rq#Tv2pL@s", payload
 
-    ffmpeg = payload["ffmpeg"]
-    assert isinstance(ffmpeg["version"], str) and ffmpeg["version"], payload
-    assert isinstance(ffmpeg["binary_path"], str) and ffmpeg["binary_path"], payload
+    # FFmpeg metadata is not part of the pending_setup contract any
+    # more — the manager-side parts-check derives the binary path
+    # itself on boot.
+    assert "ffmpeg" not in payload, payload
 
     # manager topology never enrolls a local worker.
     assert payload["auto_enroll_local_worker"] is False, payload
@@ -232,13 +192,6 @@ def test_pending_setup_idempotent_under_repeated_post(wizard_process):
         headers=headers,
     )
     assert status == 200, parsed
-    _seed_ffmpeg_binary(wp.data_dir)
-    status, _, parsed = _http.post_json(
-        f"{wp.base_url}/api/wizard/ffmpeg/start/",
-        {},
-        headers=headers,
-    )
-    assert status == 200, parsed
     target = wp.data_dir / "pending_setup.json"
 
     status, _, parsed = _http.post_json(
@@ -250,7 +203,7 @@ def test_pending_setup_idempotent_under_repeated_post(wizard_process):
     first_payload = json.loads(target.read_bytes().decode("utf-8"))
 
     # Re-call pending-setup on the same session — the wizard subprocess
-    # still has the in-memory admin tuple + ffmpeg metadata.
+    # still has the in-memory admin tuple.
     status, _, parsed = _http.post_json(
         f"{wp.base_url}/api/wizard/pending-setup/",
         {},
@@ -262,7 +215,6 @@ def test_pending_setup_idempotent_under_repeated_post(wizard_process):
     # The schema-bearing fields match.
     assert second_payload["topology"] == first_payload["topology"]
     assert second_payload["admin_user"] == first_payload["admin_user"]
-    assert second_payload["ffmpeg"] == first_payload["ffmpeg"]
     assert second_payload["schema_version"] == first_payload["schema_version"]
     # ``created_at_unix`` may advance on the second write — that is
     # documented FR-PEND2 behaviour (the field captures *each* write).

@@ -32,7 +32,6 @@ NETWORK_CONFIGURED = "network_configured"
 DATABASE_CONFIGURED = "database_configured"
 ADMIN_VALIDATED = "admin_validated"
 WORKER_PASSWORD_SET = "worker_password_set"
-FFMPEG_INSTALLED = "ffmpeg_installed"
 VERIFIED = "verified"
 
 CHECKPOINT_NAMES: tuple[str, ...] = (
@@ -42,7 +41,6 @@ CHECKPOINT_NAMES: tuple[str, ...] = (
     DATABASE_CONFIGURED,
     ADMIN_VALIDATED,
     WORKER_PASSWORD_SET,
-    FFMPEG_INSTALLED,
     VERIFIED,
 )
 
@@ -56,11 +54,10 @@ RESUME_NEXT_ROUTE: dict[str, str] = {
     TOPOLOGY_CHOSEN: "/network",
     NETWORK_CONFIGURED: "/database",
     DATABASE_CONFIGURED: "/admin-user",
-    # admin → worker-password (manager_worker) or ffmpeg (manager); the
+    # admin → worker-password (manager_worker) or verify (manager); the
     # frontend resolves the branch from topology.json.
     ADMIN_VALIDATED: "/worker-password",
-    WORKER_PASSWORD_SET: "/ffmpeg",
-    FFMPEG_INSTALLED: "/verify",
+    WORKER_PASSWORD_SET: "/verify",
     VERIFIED: "/done",
 }
 
@@ -72,7 +69,6 @@ __all__ = [
     "DATABASE_CONFIGURED",
     "ADMIN_VALIDATED",
     "WORKER_PASSWORD_SET",
-    "FFMPEG_INSTALLED",
     "VERIFIED",
     "CHECKPOINT_NAMES",
     "MANAGER_WORKER_ONLY_CHECKPOINTS",

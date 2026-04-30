@@ -71,8 +71,8 @@ def test_topology_handler_does_not_write_done_marker(wizard_process):
 def test_topology_then_subsequent_handlers_do_not_write_done(wizard_process):
     """Driving a Phase 1 sequence does not invoke ``/done/`` as a side-effect.
 
-    None of network / database / admin-user / worker-password / ffmpeg
-    / verify / pending-setup handlers may write ``.wizard_done``;
+    None of network / database / admin-user / worker-password /
+    verify / pending-setup handlers may write ``.wizard_done``;
     that is the exclusive domain of ``/api/wizard/done/`` itself.
     """
     wp = wizard_process
@@ -129,13 +129,8 @@ _PHASE1_ROUTES_EXACT = (
     "/api/wizard/database/",         # FR-M2-4
     "/api/wizard/admin-user/",       # FR-M2-5
     "/api/wizard/worker-password/",  # FR-M2-6
-    "/api/wizard/ffmpeg/start/",     # FR-M2-7
-    "/api/wizard/ffmpeg/cancel/",    # FR-M2-7
     "/api/wizard/verify/",           # FR-M2-8
     "/api/wizard/pending-setup/",    # FR-PEND2
-)
-_PHASE1_ROUTES_PREFIX = (
-    "/api/wizard/ffmpeg/progress/",  # task_id is a path component
 )
 _SPEC1_KEPT_ROUTES = (
     "/api/wizard/auth/",
@@ -169,12 +164,6 @@ def test_every_phase1_route_is_registered(tmp_path):
     missing = set(_PHASE1_ROUTES_EXACT) - registered
     assert not missing, f"Phase 1 routes missing: {missing}"
 
-    # Prefix routes also appear (introspect by prefix string).
-    for prefix in _PHASE1_ROUTES_PREFIX:
-        assert prefix in registered, (
-            f"prefix route {prefix} missing"
-        )
-
 
 def test_spec1_routes_still_registered(tmp_path):
     """Spec 1's wizard endpoints survive Phase 1 refactor."""
@@ -182,36 +171,6 @@ def test_spec1_routes_still_registered(tmp_path):
     registered = {prefix for prefix, _, _ in router._routes}
     missing = set(_SPEC1_KEPT_ROUTES) - registered
     assert not missing, f"Spec 1 routes regressed: {missing}"
-
-
-def test_ffmpeg_progress_is_a_prefix_mount(tmp_path):
-    """``/api/wizard/ffmpeg/progress/`` registers with ``exact=False``."""
-    router = _build_router_for_introspection(tmp_path)
-    progress_routes = [
-        (prefix, exact)
-        for prefix, _, exact in router._routes
-        if prefix == "/api/wizard/ffmpeg/progress/"
-    ]
-    assert progress_routes, "progress route not found"
-    for _, exact in progress_routes:
-        assert exact is False, (
-            "FFmpeg progress must be a prefix mount; the trailing path "
-            "component is the task_id"
-        )
-
-
-def test_ffmpeg_start_and_cancel_are_exact_routes(tmp_path):
-    """``ffmpeg/start/`` and ``ffmpeg/cancel/`` must be EXACT-match routes.
-
-    First-match-wins: if these were prefix mounts they would shadow
-    the progress route. Order + exactness together preserve dispatch.
-    """
-    router = _build_router_for_introspection(tmp_path)
-    by_prefix = {}
-    for prefix, _, exact in router._routes:
-        by_prefix.setdefault(prefix, exact)
-    assert by_prefix.get("/api/wizard/ffmpeg/start/") is True
-    assert by_prefix.get("/api/wizard/ffmpeg/cancel/") is True
 
 
 def test_create_app_returns_callable_with_router_attached(tmp_path):

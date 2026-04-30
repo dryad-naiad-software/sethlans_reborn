@@ -5,15 +5,14 @@
 
 Extracted from :mod:`wizard.sethlans_wizard.server` in Phase 1 (Spec 2)
 once the new step handlers (network, database, admin-user,
-worker-password, ffmpeg start/cancel/progress, verify, pending-setup)
-pushed ``server.py`` over the project's 300-line ceiling. Behaviour
-is unchanged — every route the previous monolithic ``create_app`` wired
-is still wired here, in the same registration order.
+worker-password, verify, pending-setup) pushed ``server.py`` over the
+project's 300-line ceiling. Behaviour is unchanged — every route the
+previous monolithic ``create_app`` wired is still wired here, in the
+same registration order.
 
 Order matters (first match wins): API routes register first as exact
-matches; the FFmpeg progress route is the only API-side prefix mount
-(its tail path component is the ``task_id``). Static-file mounts are
-registered last so they can never shadow an API endpoint.
+matches. Static-file mounts are registered last so they can never
+shadow an API endpoint.
 """
 
 from __future__ import annotations
@@ -26,11 +25,6 @@ from wizard.sethlans_wizard.handlers.admin_user import (
 from wizard.sethlans_wizard.handlers.auth import make_auth_handler
 from wizard.sethlans_wizard.handlers.database import make_database_handler
 from wizard.sethlans_wizard.handlers.done import make_done_handler
-from wizard.sethlans_wizard.handlers.ffmpeg import (
-    make_cancel_handler as make_ffmpeg_cancel_handler,
-    make_progress_handler as make_ffmpeg_progress_handler,
-    make_start_handler as make_ffmpeg_start_handler,
-)
 from wizard.sethlans_wizard.handlers.health import make_health_handler
 from wizard.sethlans_wizard.handlers.launcher_log_path import (
     make_launcher_log_path_handler,
@@ -96,18 +90,6 @@ def register_routes(
         "/api/wizard/worker-password/",
         make_worker_password_handler(data_dir),
     )
-    router.add(
-        "/api/wizard/ffmpeg/start/",
-        make_ffmpeg_start_handler(data_dir),
-    )
-    router.add("/api/wizard/ffmpeg/cancel/", make_ffmpeg_cancel_handler())
-    # Prefix mount — task_id is a path component. Registered AFTER the
-    # exact start/cancel routes so first-match-wins picks them.
-    router.add(
-        "/api/wizard/ffmpeg/progress/",
-        make_ffmpeg_progress_handler(),
-        exact=False,
-    )
     router.add("/api/wizard/verify/", make_verify_handler(data_dir))
     router.add(
         "/api/wizard/pending-setup/",
@@ -159,10 +141,6 @@ def register_routes(
     router.add(
         "/worker-password",
         make_index_handler_authed(static_root, "worker-password.html"),
-    )
-    router.add(
-        "/ffmpeg",
-        make_index_handler_authed(static_root, "ffmpeg.html"),
     )
     router.add(
         "/verify",

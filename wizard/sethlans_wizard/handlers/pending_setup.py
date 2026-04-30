@@ -4,7 +4,7 @@
 """``POST /api/wizard/pending-setup/`` — write ``pending_setup.json`` (FR-PEND2).
 
 Reads the in-memory wizard step state (admin tuple, worker UI password
-hash + salt, FFmpeg metadata, topology) and serializes it to
+hash + salt, topology) and serializes it to
 ``<data_dir>/pending_setup.json`` atomically with the FR-PEND1a fsync
 sequence:
 
@@ -65,18 +65,15 @@ def _build_payload(topology: str) -> dict:
 
     Concurrency-reviewer C2 — every slice is read from a single
     consistent ``wizard_state.snapshot()``. Reading slice-by-slice via
-    ``get_admin()`` / ``get_ffmpeg()`` / ``get_worker_password()`` would
-    take the wizard-state lock three separate times and could observe a
-    torn cross-slice payload if a concurrent setter (e.g. a Back-button
+    ``get_admin()`` / ``get_worker_password()`` would take the
+    wizard-state lock multiple times and could observe a torn
+    cross-slice payload if a concurrent setter (e.g. a Back-button
     re-submit) interleaves between calls.
     """
     state = wizard_state.snapshot()
     admin = state["admin"]
     if admin is None:
         raise ValueError("admin tuple not set")
-    ffmpeg = state["ffmpeg"]
-    if ffmpeg is None:
-        raise ValueError("ffmpeg metadata not set")
     worker_pw = state["worker_password"]
     payload: dict = {
         "schema_version": PENDING_SCHEMA_VERSION,
@@ -93,10 +90,6 @@ def _build_payload(topology: str) -> dict:
         "worker_ui_password_salt": (
             worker_pw["salt"] if worker_pw else None
         ),
-        "ffmpeg": {
-            "version": ffmpeg["version"],
-            "binary_path": ffmpeg["binary_path"],
-        },
         "auto_enroll_local_worker": topology == "manager_worker",
     }
     return payload

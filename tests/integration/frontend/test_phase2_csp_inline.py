@@ -31,7 +31,6 @@ PAGES = [
     "/database",
     "/admin-user",
     "/worker-password",
-    "/ffmpeg",
     "/verify",
     "/done",
 ]

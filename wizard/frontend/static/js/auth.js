@@ -35,7 +35,6 @@ const ROUTE_TO_CHECKPOINT = {
   '/database': 'database_configured',
   '/admin-user': 'admin_validated',
   '/worker-password': 'worker_password_set',
-  '/ffmpeg': 'ffmpeg_installed',
   '/verify': 'verified',
 };
 

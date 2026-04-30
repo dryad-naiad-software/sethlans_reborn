@@ -4,9 +4,6 @@
 # exactly (psutil also pinned identically by worker/requirements.txt).
 waitress==3.0.2
 cryptography>=44.0.0
-# requests is used by ffmpeg_download for streamed downloads (FR-M2-7
-# Phase 1, Spec 2). Mirrors manager/worker pin.
-requests>=2.32.0
 # psutil is a transitive dep of shared.cert_utils.enumerate_sans
 # (imported at module top in shared/cert_utils.py:21), which the
 # wizard's TLS cert generator (wizard/sethlans_wizard/cert.py) calls.

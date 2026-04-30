@@ -41,7 +41,7 @@ const scope = reactive({
     null, STEP_DONE,
     [
       'topology_chosen', 'network_configured', 'database_configured',
-      'admin_validated', 'worker_password_set', 'ffmpeg_installed',
+      'admin_validated', 'worker_password_set',
       'verified',
     ],
   ),
@@ -111,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ctx.topology === 'manager_worker') {
       completed.push('worker_password_set');
     }
-    completed.push('ffmpeg_installed', 'verified');
+    completed.push('verified');
     scope.stepper = buildStepperModel(ctx.topology, STEP_DONE, completed);
   })();
 });

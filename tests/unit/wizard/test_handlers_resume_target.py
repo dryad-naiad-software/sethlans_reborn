@@ -23,7 +23,6 @@ from wizard.sethlans_wizard.checkpoints import (
     TOPOLOGY_CHOSEN,
     WELCOME_SEEN,
     ADMIN_VALIDATED,
-    FFMPEG_INSTALLED,
     VERIFIED,
     WORKER_PASSWORD_SET,
 )
@@ -108,8 +107,8 @@ def test_manager_only_skips_worker_password(tmp_path):
     handler = rt.make_resume_target_handler(tmp_path)
     status, _, body = call_handler(handler, _get_env())
     assert status.startswith("200")
-    # admin → ffmpeg directly because worker_password_set is skipped.
-    assert body["route"] == "/ffmpeg"
+    # admin → verify directly because worker_password_set is skipped.
+    assert body["route"] == "/verify"
     assert body["topology"] == "manager"
 
 
@@ -133,7 +132,7 @@ def test_all_done_returns_done_route(tmp_path):
     for name in (
         WELCOME_SEEN, TOPOLOGY_CHOSEN, NETWORK_CONFIGURED,
         DATABASE_CONFIGURED, ADMIN_VALIDATED, WORKER_PASSWORD_SET,
-        FFMPEG_INSTALLED, VERIFIED,
+        VERIFIED,
     ):
         progress.append_checkpoint(tmp_path, name)
     handler = rt.make_resume_target_handler(tmp_path)

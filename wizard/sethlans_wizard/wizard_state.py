@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""In-memory wizard step state (admin tuple, worker pw, ffmpeg metadata).
+"""In-memory wizard step state (admin tuple, worker pw).
 
-Phase 1 / Spec 2 — FR-M2-5 / FR-M2-6 / FR-M2-7. Per the spec the
-admin password and worker UI password hash MUST live in process memory
-between the step that captures them (admin-user / worker-password) and
-the pending-setup serialization at FR-M2-9. They MUST NOT be written
-to ``manager.ini``, the wizard log, or any sentinel — only to
+Phase 1 / Spec 2 — FR-M2-5 / FR-M2-6. Per the spec the admin password
+and worker UI password hash MUST live in process memory between the
+step that captures them (admin-user / worker-password) and the
+pending-setup serialization at FR-M2-9. They MUST NOT be written to
+``manager.ini``, the wizard log, or any sentinel — only to
 ``pending_setup.json`` (and only at FR-M2-9 time, atomically with
 ``chmod 600`` per FR-PEND-LIFECYCLE).
 
@@ -41,11 +41,6 @@ _admin_password_plaintext: Optional[str] = None
 # hash + 16-byte salt hex (FR-M2-6).
 _worker_ui_password_hash: Optional[str] = None
 _worker_ui_password_salt: Optional[str] = None
-
-# FFmpeg install metadata captured at FR-M2-7 completion. The
-# pending-setup handler reads these into the schema.
-_ffmpeg_version: Optional[str] = None
-_ffmpeg_binary_path: Optional[str] = None
 
 
 def set_admin(username: str, email: str, password_plaintext: str) -> None:
@@ -113,45 +108,20 @@ def get_worker_password() -> Optional[dict]:
         }
 
 
-def set_ffmpeg(version: str, binary_path: str) -> None:
-    """Stash the FFmpeg install metadata (FR-M2-7 complete branch)."""
-    global _ffmpeg_version, _ffmpeg_binary_path
-    if not isinstance(version, str) or not version:
-        raise ValueError("ffmpeg version must be a non-empty str")
-    if not isinstance(binary_path, str) or not binary_path:
-        raise ValueError("ffmpeg binary_path must be a non-empty str")
-    with _state_lock:
-        _ffmpeg_version = version
-        _ffmpeg_binary_path = binary_path
-    logger.info("Wizard captured FFmpeg install at %s", binary_path)
-
-
-def get_ffmpeg() -> Optional[dict]:
-    """Return ``{"version","binary_path"}`` or None when not set."""
-    with _state_lock:
-        if not _ffmpeg_version or not _ffmpeg_binary_path:
-            return None
-        return {
-            "version": _ffmpeg_version,
-            "binary_path": _ffmpeg_binary_path,
-        }
-
-
 def snapshot() -> dict:
     """Return a single coherent snapshot of every wizard_state slice.
 
     Concurrency-reviewer C2 — callers that read more than one slice
-    (admin tuple AND worker pw AND ffmpeg) MUST use this helper instead
-    of chaining individual getters. The lock is held for the duration
-    of the read so the returned dict reflects a single moment in time;
-    the snapshot is plain data afterward and safe to read lock-free.
+    (admin tuple AND worker pw) MUST use this helper instead of chaining
+    individual getters. The lock is held for the duration of the read
+    so the returned dict reflects a single moment in time; the snapshot
+    is plain data afterward and safe to read lock-free.
 
     Shape::
 
         {
             "admin": {"username", "email", "password_plaintext"} | None,
             "worker_password": {"hash", "salt"} | None,
-            "ffmpeg": {"version", "binary_path"} | None,
         }
     """
     with _state_lock:
@@ -168,16 +138,9 @@ def snapshot() -> dict:
                 "hash": _worker_ui_password_hash,
                 "salt": _worker_ui_password_salt,
             }
-        ffmpeg: Optional[dict] = None
-        if _ffmpeg_version and _ffmpeg_binary_path:
-            ffmpeg = {
-                "version": _ffmpeg_version,
-                "binary_path": _ffmpeg_binary_path,
-            }
     return {
         "admin": admin,
         "worker_password": worker_pw,
-        "ffmpeg": ffmpeg,
     }
 
 
@@ -185,15 +148,12 @@ def reset_state_for_tests() -> None:
     """Wipe every slice. Tests share module-level state across the run."""
     global _admin_username, _admin_email, _admin_password_plaintext
     global _worker_ui_password_hash, _worker_ui_password_salt
-    global _ffmpeg_version, _ffmpeg_binary_path
     with _state_lock:
         _admin_username = None
         _admin_email = None
         _admin_password_plaintext = None
         _worker_ui_password_hash = None
         _worker_ui_password_salt = None
-        _ffmpeg_version = None
-        _ffmpeg_binary_path = None
 
 
 __all__ = [
@@ -202,8 +162,6 @@ __all__ = [
     "clear_admin",
     "set_worker_password_hash",
     "get_worker_password",
-    "set_ffmpeg",
-    "get_ffmpeg",
     "snapshot",
     "reset_state_for_tests",
 ]

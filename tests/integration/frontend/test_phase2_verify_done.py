@@ -20,7 +20,6 @@ _BASE_CHECKPOINTS = [
     "network_configured",
     "database_configured",
     "admin_validated",
-    "ffmpeg_installed",
 ]
 
 
@@ -28,7 +27,7 @@ def _land(page, wp, route):
     """Pre-populate progress so the resume walker lands on *route*.
 
     The walker emits the next route AFTER the last completed checkpoint,
-    so to land on /verify we stop at ffmpeg_installed; for /done we add
+    so to land on /verify we stop at admin_validated; for /done we add
     verified so the next route is /done.
     """
     if route == "/done":
@@ -55,7 +54,6 @@ def test_verify_renders_checklist_all_passed(page, wizard_process):
                 "checks": [
                     {"name": "network_bindable", "passed": True, "error": ""},
                     {"name": "database_reachable", "passed": True, "error": ""},
-                    {"name": "ffmpeg_runs", "passed": True, "error": ""},
                     {"name": "pending_setup_writable", "passed": True, "error": ""},
                 ],
             }),
@@ -66,7 +64,7 @@ def test_verify_renders_checklist_all_passed(page, wizard_process):
     items = page.locator("ul li").all_inner_texts()
     text = " ".join(items)
     # Each green-check rendered.
-    assert text.count("✓") >= 4, text
+    assert text.count("✓") >= 3, text
     assert "✗" not in text, text
 
 

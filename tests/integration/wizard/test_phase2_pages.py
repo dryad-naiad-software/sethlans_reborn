@@ -30,7 +30,6 @@ PHASE2_PAGES = [
     ("/database", b"database.js"),
     ("/admin-user", b"admin_user.js"),
     ("/worker-password", b"worker_password.js"),
-    ("/ffmpeg", b"ffmpeg.js"),
     ("/verify", b"verify.js"),
     ("/done", b"done.js"),
 ]

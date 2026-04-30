@@ -66,9 +66,9 @@ def test_form_state_steps_match_real_step_constants():
     constant or otherwise references the step name).
 
     Pages that import ``clearAllFormState`` to clear at a boundary
-    (ffmpeg / verify) are treated as legitimate participants — their
-    steps stay in the sweep list because they may stash earlier in
-    a future iteration even if today they only clear.
+    (verify) are treated as legitimate participants — their steps stay
+    in the sweep list because they may stash earlier in a future
+    iteration even if today they only clear.
     """
     steps = _read_form_state_steps()
     assert steps, "FORM_STATE_STEPS must not be empty"
@@ -94,8 +94,8 @@ def test_form_state_steps_match_real_step_constants():
         # Either the page declares a matching STEP constant, OR the page
         # exists and is a legitimate transition page. We accept both
         # because some pages stash (admin_user/database/network) and
-        # some only clear (ffmpeg/verify) but all should correspond to
-        # a real per-page JS file.
+        # some only clear (verify) but all should correspond to a real
+        # per-page JS file.
         assert page_js.is_file() or step in known_step_constants, (
             f"FORM_STATE_STEPS lists '{step}' but no corresponding "
             f"page file at {page_js} and no JS file declares "

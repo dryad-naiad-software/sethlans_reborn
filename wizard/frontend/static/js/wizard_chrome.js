@@ -12,10 +12,10 @@
 // the helpers into its Petite-vue scope.
 //
 // Stepper rules (locked in issue #179):
-//   - 7 entries for `manager` topology:
-//       Topology, Network, Database, Admin, FFmpeg, Verify, Done.
-//   - 8 entries for `manager_worker`: Worker Password between Admin
-//     and FFmpeg.
+//   - 6 entries for `manager` topology:
+//       Topology, Network, Database, Admin, Verify, Done.
+//   - 7 entries for `manager_worker`: Worker Password between Admin
+//     and Verify.
 //   - Welcome is pre-stepper (no entry).
 //   - Visual states: current = brand fill + bold; completed = brand
 //     fill + normal weight; future = muted gray.
@@ -36,7 +36,6 @@ import {
   ICON_DATABASE,
   ICON_PERSON,
   ICON_KEY,
-  ICON_FILM,
   ICON_CHECK,
   ICON_FLAG,
 } from '/static/js/wizard_chrome_icons.js';
@@ -48,7 +47,6 @@ export const STEP_NETWORK = 'network';
 export const STEP_DATABASE = 'database';
 export const STEP_ADMIN = 'admin';
 export const STEP_WORKER = 'worker';
-export const STEP_FFMPEG = 'ffmpeg';
 export const STEP_VERIFY = 'verify';
 export const STEP_DONE = 'done';
 
@@ -60,7 +58,6 @@ const STEP_DEFS = Object.freeze([
   { id: STEP_DATABASE, label: 'Database', icon: ICON_DATABASE, route: '/database' },
   { id: STEP_ADMIN,    label: 'Admin',    icon: ICON_PERSON,   route: '/admin-user' },
   { id: STEP_WORKER,   label: 'Worker',   icon: ICON_KEY,      route: '/worker-password' },
-  { id: STEP_FFMPEG,   label: 'FFmpeg',   icon: ICON_FILM,     route: '/ffmpeg' },
   { id: STEP_VERIFY,   label: 'Verify',   icon: ICON_CHECK,    route: '/verify' },
   { id: STEP_DONE,     label: 'Done',     icon: ICON_FLAG,     route: '/done' },
 ]);
@@ -72,7 +69,6 @@ const CHECKPOINT_TO_STEP = Object.freeze({
   database_configured: STEP_DATABASE,
   admin_validated:     STEP_ADMIN,
   worker_password_set: STEP_WORKER,
-  ffmpeg_installed:    STEP_FFMPEG,
   verified:            STEP_VERIFY,
 });
 
@@ -196,8 +192,8 @@ export async function applyChromeContext(scope, currentStepId, knownCheckpoints)
 // map only covers the navigable post-Welcome pages).
 //
 // Worker-password is special: when topology is `manager` the page
-// auto-forwards to /ffmpeg on mount, so the FFmpeg page's "Back"
-// destination depends on topology. The Back button on /ffmpeg routes
+// auto-forwards to /verify on mount, so the Verify page's "Back"
+// destination depends on topology. The Back button on /verify routes
 // to /admin-user for `manager` and to /worker-password otherwise.
 export function backRouteFor(currentStepId, topology) {
   switch (currentStepId) {
@@ -205,9 +201,8 @@ export function backRouteFor(currentStepId, topology) {
     case STEP_DATABASE: return '/network';
     case STEP_ADMIN:    return '/database';
     case STEP_WORKER:   return '/admin-user';
-    case STEP_FFMPEG:
+    case STEP_VERIFY:
       return (topology === 'manager_worker') ? '/worker-password' : '/admin-user';
-    case STEP_VERIFY:   return '/ffmpeg';
     default:            return null;
   }
 }

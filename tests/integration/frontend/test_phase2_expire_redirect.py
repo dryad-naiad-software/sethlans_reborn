@@ -159,7 +159,7 @@ def test_unauthed_root_redirects_to_token_with_no_loop(
 #    browser must end up on ``/token``.
 #
 #  * The other Phase 2 step pages (``/topology``, ``/network``,
-#    ``/database``, ``/admin-user``, ``/worker-password``, ``/ffmpeg``)
+#    ``/database``, ``/admin-user``, ``/worker-password``)
 #    do not POST until the user submits a form. We don't try to
 #    synthesise valid form state for every page — instead, we land on
 #    the page, dynamically import the shipped ``common.js`` from the
@@ -168,7 +168,6 @@ def test_unauthed_root_redirects_to_token_with_no_loop(
 # ---------------------------------------------------------------------
 
 PAGES_THAT_POST_ON_MOUNT = [
-    pytest.param("/ffmpeg", id="ffmpeg"),
     pytest.param("/verify", id="verify"),
     pytest.param("/done", id="done"),
 ]

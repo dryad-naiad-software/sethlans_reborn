@@ -153,7 +153,7 @@ const scope = reactive({
       // the "Use admin password" checkbox is on (FR-M2-6). The
       // worker-password page is always navigated to next; for manager
       // topology that page detects "no worker on this machine" and
-      // forwards to /ffmpeg automatically.
+      // forwards to /verify automatically.
       window.location.assign('/worker-password');
       return;
     }

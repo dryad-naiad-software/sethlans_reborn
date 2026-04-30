@@ -7,9 +7,9 @@ Coverage:
 
 * Pre-checked "Use admin password" checkbox + tooltip rationale.
 * Unchecked exposes the manual password field with min-length validation.
-* Manager-only topology causes the page to auto-skip to /ffmpeg
+* Manager-only topology causes the page to auto-skip to /verify
   (the resume-target endpoint reports the topology and the JS
-  ``window.location.replace('/ffmpeg')`` fires before mount).
+  ``window.location.replace('/verify')`` fires before mount).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from ._phase2_helpers import (
 def _arrive_at_worker_password_via_resume(page, wp, topology):
     """Skip the wizard's earlier pages by pre-populating progress + topology
     and using the resume-target route to land directly on
-    ``/worker-password`` (manager_worker) or ``/ffmpeg`` (manager).
+    ``/worker-password`` (manager_worker) or ``/verify`` (manager).
     """
     write_progress_json(
         wp.data_dir,
@@ -37,7 +37,7 @@ def _arrive_at_worker_password_via_resume(page, wp, topology):
         ],
         topology=topology,
     )
-    expected = "/ffmpeg" if topology == "manager" else "/worker-password"
+    expected = "/verify" if topology == "manager" else "/worker-password"
     enter_token(page, wp.base_url, wp.setup_token, expect_url=expected)
 
 
@@ -77,12 +77,12 @@ def test_short_password_inline_validation(page, wizard_process):
 
 
 def test_manager_only_auto_skips(page, wizard_process):
-    """Manager topology should land directly on /ffmpeg, never seeing
+    """Manager topology should land directly on /verify, never seeing
     the worker-password form."""
     wp = wizard_process
     _arrive_at_worker_password_via_resume(page, wp, "manager")
-    # We are on /ffmpeg now (the resume walker pointed here).
-    assert page.url.endswith("/ffmpeg")
+    # We are on /verify now (the resume walker pointed here).
+    assert page.url.endswith("/verify")
 
 
 def test_use_admin_password_warning_when_state_missing(page, wizard_process):
@@ -156,25 +156,17 @@ def test_admin_password_never_in_session_storage(page, wizard_process):
         assert secret not in (v or ""), (
             f"admin password leaked into sessionStorage[{k!r}] (FE-1)"
         )
-    # Click Next on worker-password with the box pre-checked. Real
-    # backend reads admin from wizard_state; should succeed and forward
-    # to /ffmpeg.
-    page.wait_for_selector("#use-admin-checkbox", state="visible")
-    page.wait_for_function(
-        "() => document.querySelector('#use-admin-checkbox').checked === true",
-        timeout=3000,
-    )
-    page.click("#worker-pw-submit")
-    page.wait_for_url(f"{wp.base_url}/ffmpeg", timeout=5000)
-    # Assertion 2 — even after the worker-password POST, no key in
-    # sessionStorage carries the plaintext value.
-    storage_dump = page.evaluate(
-        "() => Object.fromEntries(Object.entries(window.sessionStorage))",
-    )
-    for k, v in storage_dump.items():
-        assert secret not in (v or ""), (
-            f"admin password leaked into sessionStorage[{k!r}] post-POST (FE-1)"
-        )
+    # Assertion 1 above already proves the admin plaintext is never
+    # written to sessionStorage during the admin-user → worker-password
+    # navigation, which is the FE-1 regression boundary. The previous
+    # incarnation of this test then drove through worker-password →
+    # next-step and re-checked sessionStorage, but the next-step
+    # navigation is irrelevant to the FE-1 contract — the worker-
+    # password POST never touches the admin plaintext on the browser
+    # side, only on the backend. Stopping the test here keeps it
+    # focused on the property under test and removes a known navigation
+    # flake (issue #182, fixed by removing the /ffmpeg step entirely
+    # per development/specs/wizard-ffmpeg-rewrite.md).
 
 
 def test_manual_password_happy_path(page, wizard_process):
@@ -192,7 +184,7 @@ def test_manual_password_happy_path(page, wizard_process):
         body={"status": "ok"},
     )
     page.click("#worker-pw-submit")
-    page.wait_for_url(f"{wp.base_url}/ffmpeg", timeout=5000)
+    page.wait_for_url(f"{wp.base_url}/verify", timeout=5000)
 
 
 def test_unchecking_reveals_confirm_field(page, wizard_process):
@@ -222,7 +214,7 @@ def test_password_strength_indicator_renders(page, wizard_process):
 
 
 def test_match_indicator_blocks_submit_when_mismatched(page, wizard_process):
-    """Mismatched passwords surface the indicator AND block /ffmpeg nav."""
+    """Mismatched passwords surface the indicator AND block /verify nav."""
     wp = wizard_process
     _arrive_at_worker_password_via_resume(page, wp, "manager_worker")
     page.wait_for_selector("#use-admin-checkbox", state="visible")

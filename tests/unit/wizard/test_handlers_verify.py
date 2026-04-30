@@ -6,7 +6,7 @@ FR-M2-8a).
 
 Combines the dev agent's smoke pass with coverage expansion: each
 individual check returns the documented shape, topology determines
-checklist length (manager: 4 / manager_worker: 5 / worker_only: 4),
+checklist length (manager: 3 / manager_worker: 4 / worker_only: 3),
 the per-handler lock + 60-second cache prevents repeated heavy work,
 verified checkpoint is recorded only when ALL checks pass.
 """
@@ -20,7 +20,7 @@ import threading
 
 import pytest
 
-from wizard.sethlans_wizard import auth_state, ffmpeg_download, wizard_state
+from wizard.sethlans_wizard import auth_state, wizard_state
 from wizard.sethlans_wizard.handlers import verify as verify_handler
 from wizard.sethlans_wizard.handlers.topology import write_topology_atomic
 
@@ -80,7 +80,6 @@ class TestChecklistShape:
         assert names == {
             "network_bindable",
             "database_reachable",
-            "ffmpeg_runs",
             "pending_setup_writable",
         }
 
@@ -95,21 +94,21 @@ class TestChecklistShape:
 class TestTopologyBranching:
     """FR-M2-8 — manager_worker adds the worker_password_hashed check."""
 
-    def test_manager_topology_4_checks(self, handler, tmp_path):
+    def test_manager_topology_3_checks(self, handler, tmp_path):
         write_topology_atomic(tmp_path, "manager")
         env = auth_env(b"")
         _, _, body = call_handler(handler, env)
         names = {c["name"] for c in body["checks"]}
         assert "worker_password_hashed" not in names
-        assert len(body["checks"]) == 4
+        assert len(body["checks"]) == 3
 
-    def test_manager_worker_topology_5_checks(self, handler, tmp_path):
+    def test_manager_worker_topology_4_checks(self, handler, tmp_path):
         write_topology_atomic(tmp_path, "manager_worker")
         env = auth_env(b"")
         _, _, body = call_handler(handler, env)
         names = {c["name"] for c in body["checks"]}
         assert "worker_password_hashed" in names
-        assert len(body["checks"]) == 5
+        assert len(body["checks"]) == 4
 
     def test_manager_worker_worker_password_check_passes_when_set(
         self, handler, tmp_path,
@@ -228,67 +227,6 @@ class TestDatabaseReachableCheck:
         assert result["error"] == "host_unreachable"
 
 
-class TestFFmpegRunsCheck:
-
-    def test_no_binary_fails(self, tmp_path, mocker):
-        mocker.patch.object(
-            ffmpeg_download, "get_ffmpeg_binary", return_value=None,
-        )
-        result = verify_handler._check_ffmpeg_runs(tmp_path)
-        assert result["passed"] is False
-        assert "binary" in result["error"]
-
-    def test_version_check_failure(self, tmp_path, mocker):
-        mocker.patch.object(
-            ffmpeg_download, "get_ffmpeg_binary",
-            return_value=tmp_path / "ffmpeg",
-        )
-        mocker.patch.object(
-            ffmpeg_download, "run_version_check",
-            return_value=(False, ""),
-        )
-        result = verify_handler._check_ffmpeg_runs(tmp_path)
-        assert result["passed"] is False
-
-    def test_version_string_mismatch(self, tmp_path, mocker):
-        mocker.patch.object(
-            ffmpeg_download, "get_ffmpeg_binary",
-            return_value=tmp_path / "ffmpeg",
-        )
-        mocker.patch.object(
-            ffmpeg_download, "run_version_check",
-            return_value=(True, "ffmpeg version 6.0.0"),
-        )
-        result = verify_handler._check_ffmpeg_runs(tmp_path)
-        assert result["passed"] is False
-        assert "version" in result["error"]
-
-    def test_happy_path(self, tmp_path, mocker):
-        mocker.patch.object(
-            ffmpeg_download, "get_ffmpeg_binary",
-            return_value=tmp_path / "ffmpeg",
-        )
-        mocker.patch.object(
-            ffmpeg_download, "run_version_check",
-            return_value=(True, f"ffmpeg version {ffmpeg_download.FFMPEG_VERSION}"),
-        )
-        result = verify_handler._check_ffmpeg_runs(tmp_path)
-        assert result["passed"] is True
-
-    def test_uses_5s_subprocess_timeout(self, tmp_path, mocker):
-        # FR-M2-8 — per-check subprocess timeout is 5s.
-        mocker.patch.object(
-            ffmpeg_download, "get_ffmpeg_binary",
-            return_value=tmp_path / "ffmpeg",
-        )
-        spy = mocker.patch.object(
-            ffmpeg_download, "run_version_check",
-            return_value=(True, f"ffmpeg version {ffmpeg_download.FFMPEG_VERSION}"),
-        )
-        verify_handler._check_ffmpeg_runs(tmp_path)
-        assert spy.call_args.kwargs.get("timeout") == 5
-
-
 class TestPendingSetupWritableCheck:
 
     def test_writable_passes(self, tmp_path):
@@ -307,18 +245,9 @@ class TestPendingSetupWritableCheck:
 
 class TestVerifiedCheckpoint:
 
-    def test_all_passed_records_verified(self, handler, tmp_path, mocker):
+    def test_all_passed_records_verified(self, handler, tmp_path):
         write_topology_atomic(tmp_path, "manager")
         _provision_manager_ini(tmp_path)
-        # Stub ffmpeg + writable check so all four pass.
-        mocker.patch.object(
-            ffmpeg_download, "get_ffmpeg_binary",
-            return_value=tmp_path / "ffmpeg",
-        )
-        mocker.patch.object(
-            ffmpeg_download, "run_version_check",
-            return_value=(True, f"ffmpeg version {ffmpeg_download.FFMPEG_VERSION}"),
-        )
         env = auth_env(b"")
         _, _, body = call_handler(handler, env)
         assert body["all_passed"] is True
@@ -508,5 +437,4 @@ class TestExports:
     def test_constants(self):
         # FR-M2-8 — per-check timeouts MUST be the documented values.
         assert verify_handler.VERIFY_SOCKET_TIMEOUT == 10
-        assert verify_handler.VERIFY_SUBPROCESS_TIMEOUT == 5
         assert verify_handler.VERIFY_RESULT_CACHE_SECONDS == 60

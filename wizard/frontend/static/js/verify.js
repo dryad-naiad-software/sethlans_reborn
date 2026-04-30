@@ -28,7 +28,6 @@ import {
 const CHECK_LABELS = {
   network_bindable: 'Network bind succeeds',
   database_reachable: 'Database is reachable',
-  ffmpeg_runs: 'FFmpeg runs and reports the expected version',
   pending_setup_writable: 'Manager data directory is writable',
   worker_password_hashed: 'Worker UI password is set',
 };
@@ -44,7 +43,7 @@ const scope = reactive({
     null, STEP_VERIFY,
     [
       'topology_chosen', 'network_configured',
-      'database_configured', 'admin_validated', 'ffmpeg_installed',
+      'database_configured', 'admin_validated',
     ],
   ),
 
@@ -109,9 +108,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (banner) scope.resumeBanner = banner;
   createApp(scope).mount('#app');
   scope.run();
-  // Topology-dependent completed list — see ffmpeg.js for the same
-  // pattern. Verify is reached only after FFmpeg, so ffmpeg_installed
-  // is also complete.
+  // Topology-dependent completed list — under manager_worker the
+  // Verify step also implies the worker_password_set checkpoint.
   (async () => {
     const ctx = await fetchChromeContext();
     scope.topology = ctx.topology;
@@ -122,7 +120,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ctx.topology === 'manager_worker') {
       completed.push('worker_password_set');
     }
-    completed.push('ffmpeg_installed');
     scope.stepper = buildStepperModel(ctx.topology, STEP_VERIFY, completed);
   })();
 });

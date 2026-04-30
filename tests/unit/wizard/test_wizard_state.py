@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Coverage expansion: ``wizard/sethlans_wizard/wizard_state.py``
-(FR-M2-5 / FR-M2-6 / FR-M2-7).
+(FR-M2-5 / FR-M2-6).
 
 The dev agent's smoke pass exercised wizard_state INDIRECTLY through
 the admin / worker-password / pending-setup handler tests. This file
@@ -158,44 +158,14 @@ class TestSetWorkerPassword:
         assert state == {"hash": "c" * 64, "salt": "d" * 32}
 
 
-class TestSetFFmpeg:
-
-    def test_round_trip(self):
-        wizard_state.set_ffmpeg("7.1", "/opt/sethlans/ffmpeg/7.1/ffmpeg")
-        meta = wizard_state.get_ffmpeg()
-        assert meta == {
-            "version": "7.1",
-            "binary_path": "/opt/sethlans/ffmpeg/7.1/ffmpeg",
-        }
-
-    @pytest.mark.parametrize(
-        "args",
-        [
-            ("", "/path"),
-            ("7.1", ""),
-            (None, "/path"),
-            ("7.1", None),
-            (7.1, "/path"),
-        ],
-    )
-    def test_rejects_empty_or_non_string(self, args):
-        with pytest.raises(ValueError):
-            wizard_state.set_ffmpeg(*args)
-
-    def test_get_returns_none_when_unset(self):
-        assert wizard_state.get_ffmpeg() is None
-
-
 class TestResetStateForTests:
 
     def test_clears_every_slice(self):
         wizard_state.set_admin("alice", "a@example.org", "pw")
         wizard_state.set_worker_password_hash("a" * 64, "b" * 32)
-        wizard_state.set_ffmpeg("7.1", "/p")
         wizard_state.reset_state_for_tests()
         assert wizard_state.get_admin() is None
         assert wizard_state.get_worker_password() is None
-        assert wizard_state.get_ffmpeg() is None
 
 
 class TestThreadSafety:
@@ -250,17 +220,14 @@ class TestSnapshot:
         assert snap == {
             "admin": None,
             "worker_password": None,
-            "ffmpeg": None,
         }
 
     def test_snapshot_round_trip(self):
         wizard_state.set_admin("alice", "a@example.org", "pw")
         wizard_state.set_worker_password_hash("h" * 64, "s" * 32)
-        wizard_state.set_ffmpeg("7.1", "/p")
         snap = wizard_state.snapshot()
         assert snap["admin"]["username"] == "alice"
         assert snap["worker_password"]["hash"] == "h" * 64
-        assert snap["ffmpeg"]["version"] == "7.1"
 
     def test_snapshot_is_plain_data_after_lock_release(self):
         # The snapshot dict is a fresh dict; mutating it does NOT
@@ -313,7 +280,7 @@ class TestExports:
         for name in (
             "set_admin", "get_admin", "clear_admin",
             "set_worker_password_hash", "get_worker_password",
-            "set_ffmpeg", "get_ffmpeg", "snapshot",
+            "snapshot",
             "reset_state_for_tests",
         ):
             assert name in wizard_state.__all__

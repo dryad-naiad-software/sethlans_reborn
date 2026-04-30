@@ -5,8 +5,8 @@
 """Server-side page-level auth gate (issue #175).
 
 Wizard page routes (``/``, ``/welcome``, ``/topology``, ``/network``,
-``/database``, ``/admin-user``, ``/worker-password``, ``/ffmpeg``,
-``/verify``, ``/done``) are gated by the ``wizard_session`` cookie.
+``/database``, ``/admin-user``, ``/worker-password``, ``/verify``,
+``/done``) are gated by the ``wizard_session`` cookie.
 Unauthed GETs 302 to ``/token`` so first-time users never see a
 wizard step page (and never the misleading "Your session expired"
 flash on /token caused by the API gate kicking in mid-page).
@@ -31,7 +31,6 @@ GATED_PAGES = [
     "/database",
     "/admin-user",
     "/worker-password",
-    "/ffmpeg",
     "/verify",
     "/done",
 ]

@@ -6,7 +6,7 @@
 //
 // Skipped when topology is `manager` — on mount we ask the
 // resume-target endpoint for topology; if manager (no co-located
-// worker) we forward to /ffmpeg and never render the form.
+// worker) we forward to /verify and never render the form.
 //
 // Pre-checked "Use the admin password" checkbox: when on, the POST
 // body carries `{use_admin_password: true}` with no password field.
@@ -123,7 +123,7 @@ const scope = reactive({
       return;
     }
     if (response.status === 200) {
-      window.location.assign('/ffmpeg');
+      window.location.assign('/verify');
       return;
     }
     let payload = null;
@@ -162,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (r.ok) {
         const body = await r.json();
         if (body && body.topology === 'manager') {
-          window.location.replace('/ffmpeg');
+          window.location.replace('/verify');
           return;
         }
       }

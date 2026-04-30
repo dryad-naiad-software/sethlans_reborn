@@ -5,9 +5,7 @@
 
 Verifies every Phase 1 step handler is registered via dispatching a
 GET probe at each registered path and asserting the router does NOT
-return its 404 envelope. The only exception is the FFmpeg progress
-prefix mount — we dispatch a probe with a tail task_id segment to
-prove the prefix-mode registration.
+return its 404 envelope.
 """
 
 from __future__ import annotations
@@ -55,7 +53,6 @@ def populated_router(tmp_path):
         "database.html",
         "admin-user.html",
         "worker-password.html",
-        "ffmpeg.html",
         "verify.html",
         "done.html",
         "redirecting.html",
@@ -100,8 +97,6 @@ class TestPhase1Routes:
             "/api/wizard/database/",
             "/api/wizard/admin-user/",
             "/api/wizard/worker-password/",
-            "/api/wizard/ffmpeg/start/",
-            "/api/wizard/ffmpeg/cancel/",
             "/api/wizard/verify/",
             "/api/wizard/pending-setup/",
             # Phase 2 endpoints.
@@ -116,16 +111,6 @@ class TestPhase1Routes:
         assert _is_routed(status, body), (
             f"Route {path} returned router 404; not registered"
         )
-
-    def test_progress_prefix_mount_resolves_for_arbitrary_task(
-        self, populated_router,
-    ):
-        # The progress route is registered with exact=False so a tail
-        # path component (the task_id) routes through it.
-        status, body = _dispatch(
-            populated_router, "/api/wizard/ffmpeg/progress/abc123",
-        )
-        assert _is_routed(status, body)
 
 
 class TestStaticMounts:
@@ -163,19 +148,6 @@ class TestStaticMounts:
         ]
         assert max(api_indexes) < min(static_indexes)
 
-    def test_progress_prefix_after_exact_start_and_cancel(
-        self, populated_router,
-    ):
-        # First-match-wins: progress (prefix) MUST register AFTER
-        # start/cancel (exact) so a request to /api/wizard/ffmpeg/start/
-        # never gets caught by the progress prefix mount.
-        prefixes = [r[0] for r in populated_router._routes]
-        i_start = prefixes.index("/api/wizard/ffmpeg/start/")
-        i_cancel = prefixes.index("/api/wizard/ffmpeg/cancel/")
-        i_progress = prefixes.index("/api/wizard/ffmpeg/progress/")
-        assert i_start < i_progress
-        assert i_cancel < i_progress
-
     def test_root_index_handler_registered(self, populated_router):
         status, body = _dispatch(populated_router, "/")
         assert _is_routed(status, body)
@@ -200,7 +172,6 @@ class TestStaticMounts:
             "/database",
             "/admin-user",
             "/worker-password",
-            "/ffmpeg",
             "/verify",
             "/done",
         ],
@@ -222,7 +193,7 @@ class TestRegistrationContract:
         for fn in (
             "index.html", "welcome.html", "topology.html", "network.html",
             "database.html", "admin-user.html", "worker-password.html",
-            "ffmpeg.html", "verify.html", "done.html", "redirecting.html",
+            "verify.html", "done.html", "redirecting.html",
         ):
             (static_root / fn).write_text("ok", encoding="utf-8")
         r = Router()
@@ -256,7 +227,6 @@ class TestPageAuthGate:
         "/database",
         "/admin-user",
         "/worker-password",
-        "/ffmpeg",
         "/verify",
         "/done",
     ]

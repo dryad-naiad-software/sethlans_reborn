@@ -111,14 +111,14 @@ def test_token_entry_noscript_block_present(page, wizard_process):
 
 
 @pytest.mark.parametrize("topology,expected_route", [
-    ("manager", "/ffmpeg"),
+    ("manager", "/verify"),
     ("manager_worker", "/worker-password"),
 ])
 def test_resume_walker_topology_aware(
     page, wizard_process, topology, expected_route,
 ):
     """Manager-only topology auto-skips worker_password_set so the
-    resume walker lands on /ffmpeg; manager_worker still visits
+    resume walker lands on /verify; manager_worker still visits
     /worker-password.
     """
     wp = wizard_process

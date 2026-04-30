@@ -92,7 +92,7 @@ def create_app(
     """Return the wizard's top-level WSGI app.
 
     Wires the wizard endpoints (auth, topology, network, database,
-    admin-user, worker-password, ffmpeg, verify, pending-setup, done,
+    admin-user, worker-password, verify, pending-setup, done,
     runtime-ready) plus the static-file mounts. All other paths return
     a JSON 404. *wizard_port* is embedded in the ``.wizard_done``
     marker payload per FR-IPC1; defaults to 0 so the app can be built

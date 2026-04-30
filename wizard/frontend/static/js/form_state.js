@@ -31,7 +31,6 @@ export const FORM_STATE_STEPS = Object.freeze([
   'database',
   'admin-user',
   'worker-password',
-  'ffmpeg',
   'verify',
 ]);
 

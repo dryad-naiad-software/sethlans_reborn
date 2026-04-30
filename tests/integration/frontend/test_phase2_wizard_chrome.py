@@ -40,13 +40,9 @@ def _land_via_resume(page, wp, route, *, topology="manager"):
             "welcome_seen", "topology_chosen", "network_configured",
             "database_configured", "admin_validated",
         ],
-        "/ffmpeg": [
-            "welcome_seen", "topology_chosen", "network_configured",
-            "database_configured", "admin_validated",
-        ],
         "/verify": [
             "welcome_seen", "topology_chosen", "network_configured",
-            "database_configured", "admin_validated", "ffmpeg_installed",
+            "database_configured", "admin_validated",
         ],
     }
     cps = checkpoints.get(route, [])
@@ -70,8 +66,8 @@ def _stepper_labels(page) -> list[str]:
 def _wait_for_step_count(page, count, timeout=5000):
     """Wait until the rendered stepper has exactly *count* items.
 
-    The chrome's stepper starts with a manager-flavoured fallback (7
-    entries) and re-renders to manager_worker (8 entries) once the
+    The chrome's stepper starts with a manager-flavoured fallback (6
+    entries) and re-renders to manager_worker (7 entries) once the
     /resume-target probe completes. Tests that need a specific count
     must wait for the right count to settle.
     """
@@ -86,25 +82,25 @@ def _wait_for_step_count(page, count, timeout=5000):
 # Stepper — topology-aware visibility
 # ---------------------------------------------------------------------------
 
-def test_manager_topology_shows_seven_steps(page, wizard_process):
+def test_manager_topology_shows_six_steps(page, wizard_process):
     wp = wizard_process
     _land_via_resume(page, wp, "/network", topology="manager")
-    _wait_for_step_count(page, 7)
+    _wait_for_step_count(page, 6)
     labels = _stepper_labels(page)
     assert labels == [
         "Topology", "Network", "Database", "Admin",
-        "FFmpeg", "Verify", "Done",
+        "Verify", "Done",
     ], labels
 
 
-def test_manager_worker_topology_shows_eight_steps(page, wizard_process):
+def test_manager_worker_topology_shows_seven_steps(page, wizard_process):
     wp = wizard_process
     _land_via_resume(page, wp, "/network", topology="manager_worker")
-    _wait_for_step_count(page, 8)
+    _wait_for_step_count(page, 7)
     labels = _stepper_labels(page)
     assert labels == [
         "Topology", "Network", "Database", "Admin", "Worker",
-        "FFmpeg", "Verify", "Done",
+        "Verify", "Done",
     ], labels
 
 
@@ -118,7 +114,7 @@ def test_stepper_has_aria_label(page, wizard_process):
 def test_active_step_has_aria_current(page, wizard_process):
     wp = wizard_process
     _land_via_resume(page, wp, "/database", topology="manager")
-    _wait_for_step_count(page, 7)
+    _wait_for_step_count(page, 6)
     # Database is the third step (index 2).
     items = page.locator(".wizard-stepper-item")
     # Exactly one item carries aria-current="step".
@@ -134,15 +130,16 @@ def test_active_step_has_aria_current(page, wizard_process):
 def test_completed_steps_have_is_completed_class(page, wizard_process):
     wp = wizard_process
     _land_via_resume(page, wp, "/database", topology="manager")
-    _wait_for_step_count(page, 7)
+    _wait_for_step_count(page, 6)
     items = page.locator(".wizard-stepper-item")
     # Topology + Network are completed (we have those checkpoints).
     cls0 = items.nth(0).get_attribute("class") or ""
     cls1 = items.nth(1).get_attribute("class") or ""
     assert "is-completed" in cls0, cls0
     assert "is-completed" in cls1, cls1
-    # FFmpeg / Verify / Done are NOT completed.
-    for idx in (4, 5, 6):
+    # Verify / Done are NOT completed (indexes 4, 5 in the 6-step
+    # manager-topology stepper).
+    for idx in (4, 5):
         cls = items.nth(idx).get_attribute("class") or ""
         assert "is-completed" not in cls, (idx, cls)
         assert "is-current" not in cls, (idx, cls)
@@ -206,13 +203,13 @@ def test_back_from_database_restores_network_form_state(page, wizard_process):
 
 
 def test_back_button_visible_on_intermediate_pages(page, wizard_process):
-    """Network, Database, Admin, FFmpeg, Verify all render a Back button."""
+    """Network, Database, Admin, Verify all render a Back button."""
     wp = wizard_process
     cases = [
         ("/network", "#network-back"),
         ("/database", "#db-back"),
         ("/admin-user", "#admin-back"),
-        ("/ffmpeg", "#ffmpeg-back"),
+        ("/verify", "#verify-back"),
     ]
     for route, btn_id in cases:
         _land_via_resume(page, wp, route, topology="manager")

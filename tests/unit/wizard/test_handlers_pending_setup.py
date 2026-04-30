@@ -45,7 +45,6 @@ def handler(tmp_path):
 
 def _populate_state():
     wizard_state.set_admin("alice", "alice@example.org", "Tr0ub4dor&3xp")
-    wizard_state.set_ffmpeg("7.1", "/tmp/ffmpeg/7.1/ffmpeg")
 
 
 class _FsEventTracker:
@@ -187,7 +186,7 @@ class TestSchemaFields:
         for key in (
             "schema_version", "topology", "created_at_unix",
             "admin_user", "worker_ui_password_hash",
-            "worker_ui_password_salt", "ffmpeg",
+            "worker_ui_password_salt",
             "auto_enroll_local_worker",
         ):
             assert key in payload, f"missing {key} in pending_setup payload"
@@ -206,7 +205,10 @@ class TestSchemaFields:
             "username", "email", "password_plaintext",
         }
 
-    def test_ffmpeg_has_version_and_binary_path(self, handler, tmp_path):
+    def test_ffmpeg_field_absent(self, handler, tmp_path):
+        # The wizard no longer carries FFmpeg metadata into
+        # pending_setup.json — the manager-side parts-check derives the
+        # binary path itself on boot.
         write_topology_atomic(tmp_path, "manager")
         _populate_state()
         env = auth_env(b"")
@@ -215,10 +217,7 @@ class TestSchemaFields:
             (tmp_path / pending_handler.PENDING_SETUP_FILENAME)
             .read_text("utf-8"),
         )
-        assert payload["ffmpeg"] == {
-            "version": "7.1",
-            "binary_path": "/tmp/ffmpeg/7.1/ffmpeg",
-        }
+        assert "ffmpeg" not in payload
 
 
 class TestErrorPaths:
@@ -232,14 +231,6 @@ class TestErrorPaths:
 
     def test_missing_admin_state_returns_400(self, handler, tmp_path):
         write_topology_atomic(tmp_path, "manager")
-        env = auth_env(b"")
-        status, _, body = call_handler(handler, env)
-        assert status.startswith("400"), body
-        assert body["error"] == "wizard_state_incomplete"
-
-    def test_missing_ffmpeg_state_returns_400(self, handler, tmp_path):
-        write_topology_atomic(tmp_path, "manager")
-        wizard_state.set_admin("alice", "a@example.org", "pw")
         env = auth_env(b"")
         status, _, body = call_handler(handler, env)
         assert status.startswith("400"), body
@@ -368,7 +359,6 @@ class TestLoggingDiscipline:
         wizard_state.set_admin(
             "alice", "alice@example.org", "very-secret-please",
         )
-        wizard_state.set_ffmpeg("7.1", "/tmp/ffmpeg/7.1/ffmpeg")
         with caplog.at_level("INFO"):
             env = auth_env(b"")
             call_handler(handler, env)
