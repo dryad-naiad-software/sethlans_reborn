@@ -7,30 +7,27 @@ Topology-aware verification checks for ``POST /api/setup/verify/``.
 Extracted from ``setup_verify.py`` to keep that module under the
 project's 300-line ceiling.  Each ``_check_*`` returns a
 ``{"name", "passed", "error"}`` dict.
+
+FFmpeg is intentionally NOT checked here.  Per spec
+``wizard-ffmpeg-rewrite``, FFmpeg acquisition is a runtime concern owned
+by the manager-side parts-check (``workers/services/parts_check/``); the
+wizard is pure configuration.  FFmpeg readiness is surfaced via
+``GET /api/ffmpeg-status/`` and the admin "System status" page.
 """
 
 from pathlib import Path
 
-from workers.services import checkpoints
-from workers.services.setup import verify_blender_runs, verify_ffmpeg_runs
-# Wizard-ffmpeg-rewrite (spec FR §22-25): the wizard FFmpeg flow has
-# been deleted in a parallel worktree; the manager-side parts-check now
-# owns FFmpeg acquisition.  ``get_ffmpeg_binary`` is re-exported from
-# the new ``parts_check.ffmpeg_download`` package for the brief window
-# while the wizard sweeps remove this whole file.
-from workers.services.parts_check.ffmpeg_download import get_ffmpeg_binary  # noqa: F401
 from workers.services.auto_enroll import check_local_worker_enrolled
 from workers.services.blender_download import (
     get_blender_dir, blender_already_installed,
 )
 from workers.services.sentinel import read_sentinel
+from workers.services.setup import verify_blender_runs
+from workers.services import checkpoints
 
-# ``_check_ffmpeg`` MUST NOT subprocess-run the ffmpeg binary until the
-# ``checkpoints.FFMPEG_INSTALLED`` sentinel checkpoint is present:
-# attempting to verify a half-extracted binary can wedge the Waitress
-# worker thread (issue #125).  ``_check_blender`` carries the symmetric
-# guard against ``checkpoints.BLENDER_PREDOWNLOADED`` (issue #129) — a
-# half-extracted blender binary would wedge the same way, and relying on
+# ``_check_blender`` carries a guard against
+# ``checkpoints.BLENDER_PREDOWNLOADED`` (issue #129) — a half-extracted
+# blender binary would wedge the Waitress worker thread, and relying on
 # ``blender_already_installed`` (which only checks ``is_file()``) is not
 # enough on its own.
 
@@ -40,19 +37,15 @@ def run_verification_checks(
 ) -> list[dict]:
     """Run the topology-aware verification checklist.
 
-    The ``worker_only`` topology omits the ffmpeg check: a worker_only
-    manager never renders, so there is no reason to require an ffmpeg
-    binary to satisfy verify (issue #127).  The ``manager_worker``
-    topology additionally runs the optional blender check and the
-    local-worker enrollment check.
+    The ``manager_worker`` topology runs the optional blender check and
+    the local-worker enrollment check.  All topologies run database +
+    admin + enrollment-key checks.
     """
     checks = [
         _check_db_reachable(),
         _check_admin_exists(),
+        _check_enrollment_key(),
     ]
-    if topology != "worker_only":
-        checks.append(_check_ffmpeg(data_dir))
-    checks.append(_check_enrollment_key())
     if topology == "manager_worker":
         checks.append(_check_blender(data_dir))
         checks.append(check_local_worker_enrolled())
@@ -90,43 +83,6 @@ def _check_admin_exists() -> dict:
         return {
             "name": "admin_user", "passed": False,
             "error": str(exc),
-        }
-
-
-def _check_ffmpeg(data_dir: Path) -> dict:
-    """Verify FFmpeg binary is present and runs.
-
-    Short-circuits BEFORE touching the binary if the
-    ``ffmpeg_installed`` sentinel checkpoint is absent.  This
-    guarantees we never subprocess-run a half-extracted binary
-    (issue #125), which would wedge the Waitress worker thread.
-    """
-    sentinel = read_sentinel(data_dir)
-    checkpoint_list = (
-        sentinel.get("checkpoints", []) if sentinel else []
-    )
-    if checkpoints.FFMPEG_INSTALLED not in checkpoint_list:
-        return {
-            "name": "ffmpeg", "passed": False,
-            "error": "FFmpeg not yet installed",
-        }
-    # Parts-check uses the install dir (not data_dir).  Convert at
-    # the call site; the wizard sweep will delete this whole branch.
-    from workers.services.parts_check.ffmpeg_download import get_ffmpeg_dir
-    binary = get_ffmpeg_binary(get_ffmpeg_dir(data_dir))
-    if binary is None:
-        return {
-            "name": "ffmpeg", "passed": False,
-            "error": "FFmpeg binary not found",
-        }
-    try:
-        verify_ffmpeg_runs(binary)
-        return {
-            "name": "ffmpeg", "passed": True, "error": None,
-        }
-    except RuntimeError as exc:
-        return {
-            "name": "ffmpeg", "passed": False, "error": str(exc),
         }
 
 

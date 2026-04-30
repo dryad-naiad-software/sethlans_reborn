@@ -2,21 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Regression tests for issue #127: the verify endpoint must omit the
-ffmpeg check when the chosen topology is ``worker_only``.
+Regression tests for the verify endpoint's topology-aware check list.
 
-The worker_only manager never renders, so ffmpeg is irrelevant —
-including the check would force the operator to download ffmpeg
-just to satisfy verify, and would also surface a misleading
-"FFmpeg not yet installed" failure on the wizard summary.
+Originally the worker_only topology had to omit a wizard FFmpeg check
+(issue #127).  Per spec ``wizard-ffmpeg-rewrite``, the FFmpeg check has
+since been dropped from the verify step entirely — FFmpeg readiness is
+a runtime concern owned by the manager-side parts-check, not the
+wizard.  These tests now lock in that the verify response NEVER
+includes an ``ffmpeg`` entry for any topology, while preserving the
+manager_worker-only ``blender`` and ``local_worker`` entries.
 
 These tests drive the production code path through
 ``POST /api/setup/verify/`` (``setup_verify_view`` →
-``_setup_verify_locked`` → ``setup_verify_checks.run_verification_checks``)
-and assert the response payload contains/omits the expected check
-entries.  After issue #133 collapsed the duplicate verification
-helper, the live endpoint and the previously-dead helper are now a
-single function, so these tests cover both paths.
+``_setup_verify_locked`` → ``setup_verify_checks.run_verification_checks``).
 """
 
 from __future__ import annotations
@@ -100,10 +98,14 @@ class TestVerifyEndpointTopologyGateProduction:
     @pytest.mark.parametrize(
         "topology", ["manager", "manager_worker"],
     )
-    def test_verify_non_worker_only_response_keeps_ffmpeg(
+    def test_verify_non_worker_only_response_omits_ffmpeg(
         self, api_rf, mocker, topology,
     ):
-        """manager and manager_worker still get the ffmpeg check."""
+        """manager and manager_worker also omit the wizard ffmpeg
+        check now that FFmpeg acquisition is a runtime concern owned
+        by the manager-side parts-check (spec
+        ``wizard-ffmpeg-rewrite``).  Manager_worker still gets the
+        optional blender check; plain manager does not."""
         mocker.patch(
             "workers.views.setup_verify.read_sentinel",
             return_value={
@@ -126,12 +128,12 @@ class TestVerifyEndpointTopologyGateProduction:
 
         assert resp.status_code == 200
         names = [c["name"] for c in resp.data["checks"]]
-        assert names.count("ffmpeg") == 1, (
-            f"{topology} verify response must include exactly one "
-            f"ffmpeg check; got names={names}"
+        assert "ffmpeg" not in names, (
+            f"{topology} verify response must omit the wizard ffmpeg "
+            f"check (spec wizard-ffmpeg-rewrite); got names={names}"
         )
-        # Lock the existing manager_worker contract so the #133 cleanup
-        # cannot accidentally drop unrelated checks: blender is still
+        # Lock the existing manager_worker contract so unrelated
+        # checks aren't accidentally dropped: blender is still
         # produced for manager_worker but not for plain manager.
         if topology == "manager_worker":
             assert "blender" in names, (

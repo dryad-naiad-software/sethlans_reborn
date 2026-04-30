@@ -61,7 +61,7 @@ class TestReadSetupProgress:
     def test_all_checkpoints_returns_none(self, tmp_path):
         all_checkpoints = [
             "topology_chosen", "network_configured", "database_configured",
-            "admin_created", "worker_password_set", "ffmpeg_installed",
+            "admin_created", "worker_password_set",
             "blender_predownloaded", "verified",
         ]
         _write_sentinel(tmp_path, checkpoints=all_checkpoints)

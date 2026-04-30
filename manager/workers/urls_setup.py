@@ -21,9 +21,6 @@ from .views.setup_accounts import (
     setup_worker_password_view,
 )
 from .views.setup_downloads import (
-    setup_ffmpeg_start_view,
-    setup_ffmpeg_progress_view,
-    setup_ffmpeg_cancel_view,
     setup_blender_start_view,
     setup_blender_progress_view,
     setup_blender_cancel_view,
@@ -60,24 +57,6 @@ urlpatterns = [
         "worker-password/",
         setup_worker_password_view,
         name="setup-worker-password",
-    ),
-    # FR-A7: FFmpeg download start
-    path(
-        "ffmpeg/start/",
-        setup_ffmpeg_start_view,
-        name="setup-ffmpeg-start",
-    ),
-    # FR-A8: FFmpeg download progress
-    path(
-        "ffmpeg/progress/<str:task_id>/",
-        setup_ffmpeg_progress_view,
-        name="setup-ffmpeg-progress",
-    ),
-    # FR-A9: FFmpeg download cancel
-    path(
-        "ffmpeg/cancel/",
-        setup_ffmpeg_cancel_view,
-        name="setup-ffmpeg-cancel",
     ),
     # FR-A10: Blender download start
     path(

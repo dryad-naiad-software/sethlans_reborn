@@ -98,7 +98,6 @@ class TestCheckBlenderCheckpointGate:
             checkpoints=[
                 "topology_chosen",
                 "network_configured",
-                "ffmpeg_installed",
             ],
         )
         mock_verify = mocker.patch(
@@ -258,7 +257,7 @@ def _patch_default_blender_version(mocker, version):
             "Blender not pre-downloaded (optional)",
         ),
         (
-            ["topology_chosen", "network_configured", "ffmpeg_installed"],
+            ["topology_chosen", "network_configured"],
             True,
             "Blender not pre-downloaded (optional)",
         ),

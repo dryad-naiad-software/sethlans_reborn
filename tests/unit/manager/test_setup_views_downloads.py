@@ -4,15 +4,13 @@
 """
 Unit tests for ``manager/workers/views/setup_downloads.py``.
 
-Covers FFmpeg and Blender start/progress/cancel endpoints under the new
-session-backed auth model.
+Covers Blender start/progress/cancel endpoints under the session-backed
+auth model.
 
-NOTE: the FFmpeg test classes here cover the wizard-side flow that has
-been moved to the manager-side parts-check (spec wizard-ffmpeg-rewrite,
-FR §22-25). The wizard sweep — running in a parallel worktree —
-deletes both these tests and the views they exercise.  Until that
-sweep merges, the FFmpeg classes below are skipped to keep the suite
-green; the Blender classes remain active.
+Per spec ``wizard-ffmpeg-rewrite``, FFmpeg acquisition is a runtime
+concern owned by the manager-side parts-check; the wizard's FFmpeg
+download endpoints have been deleted.  Only the Blender flow remains
+in the wizard.
 """
 
 from __future__ import annotations
@@ -27,17 +25,6 @@ from workers.services.download_progress import DownloadProgress
 from workers.views.setup_downloads import (
     setup_blender_cancel_view,
     setup_blender_start_view,
-    setup_ffmpeg_cancel_view,
-    setup_ffmpeg_progress_view,
-    setup_ffmpeg_start_view,
-)
-
-_WIZARD_FFMPEG_REMOVED = pytest.mark.skip(
-    reason=(
-        "Wizard FFmpeg flow superseded by manager-side parts-check "
-        "(spec wizard-ffmpeg-rewrite). These tests are removed in "
-        "the parallel wizard-removal worktree."
-    ),
 )
 
 
@@ -50,7 +37,7 @@ def _setup_phase_request(method, *args, **kwargs):
     )
     request.session = mock_session
     request._setup_snapshot = {
-        "complete": False, "phase": "ffmpeg", "session_id": None,
+        "complete": False, "phase": "blender", "session_id": None,
     }
     return request
 
@@ -65,130 +52,6 @@ def _patch_frozen(mocker):
     mocker.patch(
         "workers.views.setup_downloads.is_frozen", return_value=False,
     )
-
-
-@_WIZARD_FFMPEG_REMOVED
-class TestFFmpegStart:
-
-    def test_starts_download(self, api_rf, mocker):
-        mocker.patch(
-            "workers.views.setup_downloads.ffmpeg_already_installed",
-            return_value=False,
-        )
-        mocker.patch(
-            "workers.views.setup_downloads.find_active_task",
-            return_value=None,
-        )
-        mocker.patch(
-            "workers.views.setup_downloads.create_tagged_task",
-            return_value=("ffmpeg_abc123", DownloadProgress()),
-        )
-        mocker.patch("workers.views.setup_downloads.start_ffmpeg_download")
-        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/start/")
-        resp = setup_ffmpeg_start_view(req)
-        assert resp.status_code == 200
-        assert resp.data["status"] == "started"
-        assert resp.data["task_id"] == "ffmpeg_abc123"
-
-    def test_returns_existing_when_in_progress(self, api_rf, mocker):
-        mocker.patch(
-            "workers.views.setup_downloads.ffmpeg_already_installed",
-            return_value=False,
-        )
-        prog = DownloadProgress(status="downloading", percent=50)
-        mocker.patch(
-            "workers.views.setup_downloads.find_active_task",
-            return_value=("ffmpeg_existing", prog),
-        )
-        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/start/")
-        resp = setup_ffmpeg_start_view(req)
-        assert resp.status_code == 200
-        assert resp.data["status"] == "in_progress"
-        assert resp.data["task_id"] == "ffmpeg_existing"
-
-    def test_already_installed(self, api_rf, mocker):
-        mocker.patch(
-            "workers.views.setup_downloads.ffmpeg_already_installed",
-            return_value=True,
-        )
-        mocker.patch("workers.views.setup_downloads.append_checkpoint")
-        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/start/")
-        resp = setup_ffmpeg_start_view(req)
-        assert resp.status_code == 200
-        assert resp.data["status"] == "already_installed"
-
-
-@_WIZARD_FFMPEG_REMOVED
-class TestFFmpegProgress:
-
-    def test_returns_progress(self, api_rf, mocker):
-        prog = DownloadProgress(
-            status="downloading", percent=42, error=None,
-        )
-        mocker.patch(
-            "workers.views.setup_downloads.get_task", return_value=prog,
-        )
-        req = _setup_phase_request(
-            api_rf.get, "/api/setup/ffmpeg/progress/ffmpeg_abc123/",
-        )
-        resp = setup_ffmpeg_progress_view(req, task_id="ffmpeg_abc123")
-        assert resp.status_code == 200
-        assert resp.data["percent"] == 42
-
-    def test_unknown_task_returns_404(self, api_rf, mocker):
-        mocker.patch(
-            "workers.views.setup_downloads.get_task", return_value=None,
-        )
-        req = _setup_phase_request(
-            api_rf.get, "/api/setup/ffmpeg/progress/nope/",
-        )
-        resp = setup_ffmpeg_progress_view(req, task_id="nope")
-        assert resp.status_code == 404
-        assert resp.data["error"]["code"] == "precondition_unmet"
-
-    def test_records_checkpoint_on_complete(self, api_rf, mocker):
-        prog = DownloadProgress(status="complete", percent=100)
-        mocker.patch(
-            "workers.views.setup_downloads.get_task", return_value=prog,
-        )
-        mock_cp = mocker.patch(
-            "workers.views.setup_downloads.append_checkpoint",
-        )
-        req = _setup_phase_request(
-            api_rf.get, "/api/setup/ffmpeg/progress/ffmpeg_abc/",
-        )
-        setup_ffmpeg_progress_view(req, task_id="ffmpeg_abc")
-        mock_cp.assert_called_once()
-
-
-@_WIZARD_FFMPEG_REMOVED
-class TestFFmpegCancel:
-
-    def test_cancels_active_task(self, api_rf, mocker):
-        cancel_event = threading.Event()
-        prog = DownloadProgress(
-            status="downloading", percent=50,
-            cancel_event=cancel_event,
-        )
-        mocker.patch(
-            "workers.views.setup_downloads.find_active_task",
-            return_value=("ffmpeg_abc", prog),
-        )
-        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/cancel/")
-        resp = setup_ffmpeg_cancel_view(req)
-        assert resp.status_code == 200
-        assert resp.data["status"] == "cancelled"
-        assert cancel_event.is_set()
-
-    def test_returns_not_found_when_no_active(self, api_rf, mocker):
-        mocker.patch(
-            "workers.views.setup_downloads.find_active_task",
-            return_value=None,
-        )
-        req = _setup_phase_request(api_rf.post, "/api/setup/ffmpeg/cancel/")
-        resp = setup_ffmpeg_cancel_view(req)
-        assert resp.status_code == 200
-        assert resp.data["status"] == "not_found"
 
 
 class TestBlenderStart:

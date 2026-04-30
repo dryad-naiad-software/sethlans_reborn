@@ -22,7 +22,6 @@ from workers.services import checkpoints
     ("DATABASE_CONFIGURED", "database_configured"),
     ("ADMIN_CREATED", "admin_created"),
     ("WORKER_PASSWORD_SET", "worker_password_set"),
-    ("FFMPEG_INSTALLED", "ffmpeg_installed"),
     ("BLENDER_PREDOWNLOADED", "blender_predownloaded"),
     ("VERIFIED", "verified"),
 ])

@@ -31,7 +31,6 @@ SETUP_PHASES: tuple[str, ...] = (
     "database",
     "admin",
     "worker_password",
-    "ffmpeg",
     "blender",
     "verify",
 )
@@ -45,7 +44,6 @@ _CHECKPOINT_TO_PHASE = {
     checkpoints.DATABASE_CONFIGURED: "database",
     checkpoints.ADMIN_CREATED: "admin",
     checkpoints.WORKER_PASSWORD_SET: "worker_password",
-    checkpoints.FFMPEG_INSTALLED: "ffmpeg",
     checkpoints.BLENDER_PREDOWNLOADED: "blender",
     checkpoints.VERIFIED: "verify",
 }

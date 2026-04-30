@@ -2,16 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Regression tests for issue #127: ``_infer_current_step`` must not
-return ``ffmpeg_installed`` when the chosen topology is
-``worker_only``.
+Regression tests for ``_infer_current_step`` topology gating.
 
-Before the fix, a worker_only operator who finished
-``admin_created`` would be sent back to the FFmpeg step — a step
-that has no UI for that topology and that the manager never needs
-because worker_only managers do not render.  Post-fix, the step
-inference jumps straight to the post-admin step that *does* exist
-for worker_only (``verified``).
+Originally for issue #127 (worker_only must not be sent back to a
+non-existent FFmpeg step).  After spec ``wizard-ffmpeg-rewrite``, the
+wizard's FFmpeg step has been deleted entirely; FFmpeg acquisition is
+a runtime concern owned by the manager-side parts-check.  The
+remaining stepper logic now jumps from ``admin_created`` straight to
+``verified`` for ``manager`` and ``worker_only`` topologies, and from
+``worker_password_set`` to ``blender_predownloaded`` for
+``manager_worker``.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ from workers.views.setup_status import _infer_current_step
 
 
 # Checkpoints up through the admin step — common starting point for
-# the post-admin-step assertion.  worker_only and manager skip the
-# ``worker_password_set`` step, so this is the latest checkpoint
-# they will have prior to the next branch.
+# the post-admin-step assertion.  ``worker_only`` and ``manager`` skip
+# ``worker_password_set``; ``manager_worker`` requires it before the
+# next branch.
 _AFTER_ADMIN = [
     "topology_chosen",
     "network_configured",
@@ -32,54 +32,42 @@ _AFTER_ADMIN = [
     "admin_created",
 ]
 
-# manager_worker also requires worker_password_set before the
-# ffmpeg step.  Use this list to assert manager_worker behaviour.
+# manager_worker also requires worker_password_set before blender.
 _AFTER_WORKER_PASSWORD = _AFTER_ADMIN + ["worker_password_set"]
 
 
 class TestInferCurrentStepTopologyGate:
     """Topology gating in ``_infer_current_step``."""
 
-    def test_worker_only_skips_ffmpeg_after_admin(self):
-        """worker_only must jump to ``verified`` after admin (#127).
-
-        Before the fix this returned ``ffmpeg_installed`` and the
-        wizard would dead-end on a step that has no UI for
-        worker_only.
-        """
+    def test_worker_only_jumps_to_verified_after_admin(self):
+        """``worker_only`` jumps straight to ``verified`` after admin."""
         step = _infer_current_step(_AFTER_ADMIN, "worker_only")
-
-        assert step != "ffmpeg_installed", (
-            "worker_only must not return ffmpeg_installed (#127)."
-        )
         assert step == "verified", (
             f"Expected 'verified' as the post-admin step for "
             f"worker_only; got {step!r}"
         )
 
-    def test_manager_returns_ffmpeg_installed_after_admin(self):
-        """manager (no embedded worker) still needs ffmpeg."""
+    def test_manager_jumps_to_verified_after_admin(self):
+        """``manager`` (no embedded worker) goes to ``verified`` after
+        admin now that the FFmpeg wizard step is gone."""
         step = _infer_current_step(_AFTER_ADMIN, "manager")
+        assert step == "verified"
 
-        assert step == "ffmpeg_installed"
-
-    def test_manager_worker_returns_ffmpeg_after_worker_password(self):
-        """manager_worker still flows through ffmpeg after worker
-        password is set — gate fix must not have disturbed this."""
+    def test_manager_worker_returns_blender_after_worker_password(self):
+        """``manager_worker`` flows to ``blender_predownloaded`` after
+        the worker password is set."""
         step = _infer_current_step(
             _AFTER_WORKER_PASSWORD, "manager_worker",
         )
-
-        assert step == "ffmpeg_installed"
+        assert step == "blender_predownloaded"
 
     @pytest.mark.parametrize("checkpoints,expected", [
         # worker_only completes verify directly after admin.
         (_AFTER_ADMIN + ["verified"], None),
     ])
-    def test_worker_only_completes_without_ffmpeg_or_blender(
+    def test_worker_only_completes_without_blender(
         self, checkpoints, expected,
     ):
-        """worker_only setup is complete once verified — no
-        ffmpeg_installed or blender_predownloaded should ever be
-        required."""
+        """``worker_only`` setup is complete once verified — no
+        ``blender_predownloaded`` should ever be required."""
         assert _infer_current_step(checkpoints, "worker_only") == expected

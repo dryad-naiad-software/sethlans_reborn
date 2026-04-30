@@ -76,7 +76,6 @@ class TestVerifyEndpointBlenderCheckpointGate:
             checkpoints=[
                 "topology_chosen",
                 "network_configured",
-                "ffmpeg_installed",
             ],
         )
 

@@ -197,11 +197,6 @@ def _infer_current_step(
     ]
     if topology == "manager_worker":
         steps.append(checkpoints.WORKER_PASSWORD_SET)
-    if topology != "worker_only":
-        steps.extend([
-            checkpoints.FFMPEG_INSTALLED,
-        ])
-    if topology == "manager_worker":
         steps.append(checkpoints.BLENDER_PREDOWNLOADED)
     steps.append(checkpoints.VERIFIED)
 

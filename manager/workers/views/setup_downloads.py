@@ -2,10 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Setup wizard download endpoints for FFmpeg and Blender.
+Setup wizard download endpoints for Blender.
 
-FR-A7 through FR-A12: start, progress, and cancel endpoints for
-background download tasks.
+FR-A10 through FR-A12: start, progress, and cancel endpoints for the
+background Blender download task.
+
+FFmpeg downloads are NOT handled here.  Per spec
+``wizard-ffmpeg-rewrite``, FFmpeg acquisition is a runtime concern
+owned by the manager-side parts-check
+(``workers/services/parts_check/``); the wizard is pure configuration.
 """
 
 from __future__ import annotations
@@ -36,15 +41,6 @@ from workers.services.download_progress import (
     find_active_task,
     get_task,
 )
-# Wizard-ffmpeg-rewrite (spec FR §22-25): the wizard FFmpeg flow has
-# been deleted; the manager-side parts-check owns FFmpeg acquisition
-# now.  These three setup_ffmpeg_* endpoints below are stubs returning
-# 410 Gone for the brief window before the parallel wizard sweep
-# removes them.
-from workers.services.parts_check.ffmpeg_download import (
-    get_ffmpeg_binary,
-    get_ffmpeg_dir,
-)
 from workers.services.blender_download import (
     blender_already_installed,
     start_blender_download,
@@ -58,75 +54,6 @@ def _get_data_dir() -> Path:
     if is_frozen():
         return get_data_dir("manager")
     return settings.BASE_DIR
-
-
-# ---- FFmpeg endpoints (FR-A7, FR-A8, FR-A9) ----
-
-@api_view(["POST"])
-@authentication_classes([SetupPhaseAuthentication])
-@permission_classes([IsSetupPhaseUser])
-def setup_ffmpeg_start_view(request):
-    """POST /api/setup/ffmpeg/start/ (FR-A7)."""
-    enforce_setup_session_binding(request)
-    with setup_mutation_lock() as acquired:
-        if not acquired:
-            return setup_conflict_response()
-        return _setup_ffmpeg_start_locked()
-
-
-def _setup_ffmpeg_start_locked():
-    # Wizard FFmpeg flow has been moved to the manager-side parts-check
-    # (spec wizard-ffmpeg-rewrite).  This endpoint short-circuits to
-    # ``already_installed`` whenever the manager-bundled binary is
-    # already on disk; otherwise it reports the non-actionable status
-    # so existing wizard clients exit cleanly until the parallel sweep
-    # deletes this view.
-    data_dir = _get_data_dir()
-    if get_ffmpeg_binary(get_ffmpeg_dir(data_dir)) is not None:
-        append_checkpoint(data_dir, checkpoints.FFMPEG_INSTALLED)
-        return Response({
-            "status": "already_installed",
-            "task_id": None,
-        })
-    return Response({"status": "already_installed", "task_id": None})
-
-
-@api_view(["GET"])
-@authentication_classes([SetupPhaseAuthentication])
-@permission_classes([IsSetupPhaseUser])
-def setup_ffmpeg_progress_view(request, task_id):
-    """GET /api/setup/ffmpeg/progress/<task_id>/ (FR-A8)."""
-    progress = get_task(task_id)
-    if progress is None:
-        return setup_error(
-            "precondition_unmet", "Task not found.", 404,
-        )
-
-    resp = {
-        "status": progress.status,
-        "percent": progress.percent,
-        "error": progress.error,
-    }
-
-    if progress.status == "complete":
-        append_checkpoint(_get_data_dir(), checkpoints.FFMPEG_INSTALLED)
-
-    return Response(resp)
-
-
-@api_view(["POST"])
-@authentication_classes([SetupPhaseAuthentication])
-@permission_classes([IsSetupPhaseUser])
-def setup_ffmpeg_cancel_view(request):
-    """POST /api/setup/ffmpeg/cancel/ (FR-A9)."""
-    enforce_setup_session_binding(request)
-    active = find_active_task("ffmpeg_")
-    if not active:
-        return Response({"status": "not_found"})
-
-    _, progress = active
-    progress.cancel_event.set()
-    return Response({"status": "cancelled"})
 
 
 # ---- Blender endpoints (FR-A10, FR-A11, FR-A12) ----

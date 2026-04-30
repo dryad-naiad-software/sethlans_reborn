@@ -61,7 +61,6 @@ def _sentinel_incomplete(mocker):
             "checkpoints": [
                 "topology_chosen", "network_configured",
                 "database_configured", "admin_created",
-                "ffmpeg_installed",
             ],
         },
     )
@@ -70,7 +69,7 @@ def _sentinel_incomplete(mocker):
 def _mock_all_checks_pass(mocker):
     for fn in (
         "_check_db_reachable", "_check_admin_exists",
-        "_check_ffmpeg", "_check_enrollment_key",
+        "_check_enrollment_key",
     ):
         mocker.patch(
             f"workers.views.setup_verify_checks.{fn}",
@@ -90,7 +89,7 @@ class TestVerifyView:
         resp = setup_verify_view(req)
         assert resp.status_code == 200
         assert resp.data["all_passed"] is True
-        assert len(resp.data["checks"]) == 4
+        assert len(resp.data["checks"]) == 3
         mock_create.assert_called_once()
 
     @pytest.mark.usefixtures("_sentinel_incomplete")
@@ -104,10 +103,6 @@ class TestVerifyView:
         mocker.patch(
             "workers.views.setup_verify_checks._check_admin_exists",
             return_value={"name": "admin_user", **_CHECK_OK},
-        )
-        mocker.patch(
-            "workers.views.setup_verify_checks._check_ffmpeg",
-            return_value={"name": "ffmpeg", **_CHECK_OK},
         )
         mocker.patch(
             "workers.views.setup_verify_checks._check_enrollment_key",
