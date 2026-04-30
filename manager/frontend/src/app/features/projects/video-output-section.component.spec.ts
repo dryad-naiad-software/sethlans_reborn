@@ -10,16 +10,17 @@ import { By } from '@angular/platform-browser';
 import { VideoOutputSectionComponent } from './video-output-section.component';
 
 /**
- * Implementation note (flagged, NOT fixed in this tests-only commit):
- * `<mat-checkbox>` in `video-output-section.component.html` carries both
- * `[formControl]` and `[disabled]` bindings. Reactive forms' built-in
- * `setDisabledState()` overrides the template `[disabled]` Input — so the
- * MatCheckbox's `disabled` property always reads the form control state
- * (false), and `input.disabled` in the DOM is also false. Per spec FR §106
- * the checkbox should render disabled when assemblyReady is false. These
- * tests assert the contract that drives that behaviour (assemblyReady
- * input + visible hint + spinner) rather than the checkbox-disabled
- * symptom, since the symptom is broken until the implementation is fixed.
+ * Spec FR §106 / AC §473: the `generateVideo` checkbox must render disabled
+ * while `videoAssemblyReady === false` (or for HDR formats). Reactive forms'
+ * `setDisabledState()` overrides any template `[disabled]` Input, so the
+ * component drives this via an `effect()` that calls
+ * `generateVideoCtrl.disable()/enable()` on the FormControl itself.
+ *
+ * These tests assert the resulting DOM contract: the underlying `<input>`
+ * carries `disabled === true` for the not-ready and HDR cases, and
+ * `disabled === false` for the ready + non-HDR case. They also guard against
+ * the Angular reactive-forms warning about combining `[disabled]` with
+ * `[formControl]` regressing.
  */
 
 /**
@@ -55,6 +56,14 @@ class HostComponent {
   readonly section = viewChild(VideoOutputSectionComponent);
 }
 
+function checkboxInput(fixture: ComponentFixture<HostComponent>): HTMLInputElement {
+  // mat-checkbox renders a real <input type="checkbox"> internally; the
+  // FormControl's disabled state is reflected onto its `disabled` property.
+  const el = fixture.debugElement.query(By.css('mat-checkbox input'));
+  expect(el).withContext('expected <mat-checkbox input> in DOM').not.toBeNull();
+  return el.nativeElement as HTMLInputElement;
+}
+
 describe('VideoOutputSectionComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   let host: HostComponent;
@@ -68,7 +77,7 @@ describe('VideoOutputSectionComponent', () => {
     host = fixture.componentInstance;
   });
 
-  describe('assemblyReady === true', () => {
+  describe('assemblyReady === true (non-HDR format)', () => {
     beforeEach(() => {
       host.assemblyReady = true;
       host.assemblyLoading = false;
@@ -78,7 +87,7 @@ describe('VideoOutputSectionComponent', () => {
     it('reflects assemblyReady=true into the section component instance', () => {
       const section = host.section();
       expect(section).toBeTruthy();
-      expect(section!.assemblyReady).toBeTrue();
+      expect(section!.assemblyReady()).toBeTrue();
     });
 
     it('does NOT render the assembly-hint block', () => {
@@ -86,13 +95,15 @@ describe('VideoOutputSectionComponent', () => {
     });
 
     it('does NOT render the assembly-progress spinner', () => {
-      // Spinner only appears under the assembly-hint guard, so absence of
-      // .assembly-hint implies absence of the spinner. Sanity-check by
-      // querying for the spinner directly under the section.
       const spinner = fixture.debugElement.query(
         By.css('.assembly-hint mat-progress-spinner'),
       );
       expect(spinner).toBeNull();
+    });
+
+    it('renders the generateVideo checkbox enabled (input.disabled === false)', () => {
+      expect(checkboxInput(fixture).disabled).toBeFalse();
+      expect(host.form.controls.generateVideo.disabled).toBeFalse();
     });
   });
 
@@ -115,7 +126,7 @@ describe('VideoOutputSectionComponent', () => {
     it('reflects assemblyReady=false into the section component instance', () => {
       const section = host.section();
       expect(section).toBeTruthy();
-      expect(section!.assemblyReady).toBeFalse();
+      expect(section!.assemblyReady()).toBeFalse();
     });
 
     it('does NOT render the in-flight spinner when assemblyLoading is false', () => {
@@ -123,6 +134,18 @@ describe('VideoOutputSectionComponent', () => {
         By.css('.assembly-hint mat-progress-spinner'),
       );
       expect(spinner).toBeNull();
+    });
+
+    it('renders the generateVideo checkbox disabled (input.disabled === true)', () => {
+      expect(checkboxInput(fixture).disabled).toBeTrue();
+      expect(host.form.controls.generateVideo.disabled).toBeTrue();
+    });
+
+    it('re-enables the checkbox once assemblyReady flips to true', () => {
+      host.assemblyReady = true;
+      fixture.detectChanges();
+      expect(checkboxInput(fixture).disabled).toBeFalse();
+      expect(host.form.controls.generateVideo.disabled).toBeFalse();
     });
   });
 
@@ -142,7 +165,11 @@ describe('VideoOutputSectionComponent', () => {
 
     it('keeps assemblyReady=false on the section component instance', () => {
       const section = host.section();
-      expect(section!.assemblyReady).toBeFalse();
+      expect(section!.assemblyReady()).toBeFalse();
+    });
+
+    it('keeps the checkbox disabled while loading', () => {
+      expect(checkboxInput(fixture).disabled).toBeTrue();
     });
   });
 
@@ -152,7 +179,7 @@ describe('VideoOutputSectionComponent', () => {
       host.outputFormat = 'OPEN_EXR';
       fixture.detectChanges();
       const section = host.section();
-      expect(section!.isHdrFormat).toBeTrue();
+      expect(section!.isHdrFormat()).toBeTrue();
     });
 
     it('renders the HDR hint paragraph for an HDR format', () => {
@@ -164,6 +191,53 @@ describe('VideoOutputSectionComponent', () => {
       expect(hdr.nativeElement.textContent).toContain(
         'not available for HDR formats',
       );
+    });
+
+    it('disables the checkbox for an HDR format even when assemblyReady=true', () => {
+      host.assemblyReady = true;
+      host.outputFormat = 'OPEN_EXR';
+      fixture.detectChanges();
+      expect(checkboxInput(fixture).disabled).toBeTrue();
+      expect(host.form.controls.generateVideo.disabled).toBeTrue();
+    });
+
+    it('re-enables the checkbox when leaving an HDR format', () => {
+      host.assemblyReady = true;
+      host.outputFormat = 'OPEN_EXR';
+      fixture.detectChanges();
+      expect(checkboxInput(fixture).disabled).toBeTrue();
+
+      host.outputFormat = 'PNG';
+      fixture.detectChanges();
+      expect(checkboxInput(fixture).disabled).toBeFalse();
+    });
+  });
+
+  describe('reactive-forms warning regression guard', () => {
+    it('does NOT emit the "[disabled] + reactive form directive" warning', () => {
+      const warnSpy = spyOn(console, 'warn').and.callThrough();
+      const errorSpy = spyOn(console, 'error').and.callThrough();
+
+      host.assemblyReady = false;
+      fixture.detectChanges();
+      host.assemblyReady = true;
+      fixture.detectChanges();
+      host.outputFormat = 'OPEN_EXR';
+      fixture.detectChanges();
+
+      const offending = (msg: unknown) =>
+        typeof msg === 'string' &&
+        msg.includes('disabled attribute') &&
+        msg.includes('reactive form');
+
+      const warnedAboutDisabled = warnSpy.calls.allArgs().some(
+        args => args.some(offending),
+      );
+      const erroredAboutDisabled = errorSpy.calls.allArgs().some(
+        args => args.some(offending),
+      );
+      expect(warnedAboutDisabled).toBeFalse();
+      expect(erroredAboutDisabled).toBeFalse();
     });
   });
 });

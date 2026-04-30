@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { Component, Input, OnInit, OnDestroy } from '@angular/core';
+import {
+  Component, Input, OnInit, OnDestroy, computed, effect, input,
+} from '@angular/core';
 import { ReactiveFormsModule, FormGroup, FormControl } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -25,15 +27,14 @@ import { VIDEO_PRESETS, HDR_FORMATS } from './render-payload.util';
   template: `
     <div class="video-section">
       <h4><mat-icon>videocam</mat-icon> Video Output</h4>
-      @if (isHdrFormat) {
+      @if (isHdrFormat()) {
         <p class="hdr-hint">Video output is not available for HDR formats.
           Download images as ZIP instead.</p>
       }
-      <mat-checkbox [formControl]="generateVideoCtrl"
-                    [disabled]="isHdrFormat || !assemblyReady">
+      <mat-checkbox [formControl]="generateVideoCtrl">
         Generate Video
       </mat-checkbox>
-      @if (!assemblyReady) {
+      @if (!assemblyReady()) {
         <div class="assembly-hint">
           @if (assemblyLoading) {
             <mat-progress-spinner diameter="16" mode="indeterminate"></mat-progress-spinner>
@@ -103,9 +104,16 @@ import { VIDEO_PRESETS, HDR_FORMATS } from './render-payload.util';
 })
 export class VideoOutputSectionComponent implements OnInit, OnDestroy {
   @Input() parentForm!: FormGroup;
-  @Input() outputFormat = '';
-  @Input() assemblyReady = true;
   @Input() assemblyLoading = false;
+
+  // Signal inputs drive the effect() that toggles generateVideoCtrl.disabled.
+  // Reactive forms' setDisabledState() overrides any template [disabled] input,
+  // so we must call disable()/enable() on the FormControl itself
+  // (spec FR §106 / AC §473).
+  readonly outputFormat = input<string>('');
+  readonly assemblyReady = input<boolean>(true);
+
+  readonly isHdrFormat = computed(() => HDR_FORMATS.has(this.outputFormat()));
 
   readonly presetEntries = Object.entries(VIDEO_PRESETS).map(
     ([key, val]) => ({ key, label: val.label }),
@@ -113,16 +121,27 @@ export class VideoOutputSectionComponent implements OnInit, OnDestroy {
 
   private subs: Subscription[] = [];
 
-  get isHdrFormat(): boolean {
-    return HDR_FORMATS.has(this.outputFormat);
-  }
-
   get generateVideoCtrl() { return this.parentForm.get('generateVideo') as FormControl; }
   get presetCtrl() { return this.parentForm.get('videoPreset') as FormControl; }
   get framerateCtrl() { return this.parentForm.get('videoFramerate') as FormControl; }
   get containerCtrl() { return this.parentForm.get('videoContainer') as FormControl; }
   get codecCtrl() { return this.parentForm.get('videoCodec') as FormControl; }
   get crfCtrl() { return this.parentForm.get('videoCrf') as FormControl; }
+
+  constructor() {
+    // Sync FormControl.disabled with isHdrFormat || !assemblyReady. Runs after
+    // parentForm is bound (Angular calls effects after input + ngOnInit setup).
+    effect(() => {
+      const shouldDisable = this.isHdrFormat() || !this.assemblyReady();
+      const ctrl = this.parentForm?.get('generateVideo');
+      if (!ctrl) return;
+      if (shouldDisable && ctrl.enabled) {
+        ctrl.disable({ emitEvent: false });
+      } else if (!shouldDisable && ctrl.disabled) {
+        ctrl.enable({ emitEvent: false });
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.applyPreset(this.presetCtrl.value as string);
