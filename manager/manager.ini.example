@@ -156,3 +156,10 @@ port = 8080
 # studio hosts that have both a studio LAN NIC and a private
 # render-network NIC.  (env: SETHLANS_ENROLLMENT_ADVERTISED_IP)
 # advertised_ip = 192.168.1.50
+
+# [ffmpeg]
+# Optional: path to a custom FFmpeg binary. When set, this overrides PATH
+# detection and the bundled download. Useful for power users with custom
+# builds (NVENC, VAAPI, or other exotic codecs) where a major version >= 8
+# is required.
+# path = /usr/local/bin/ffmpeg

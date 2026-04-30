@@ -35,23 +35,39 @@ def _trigger_video_assembly(animation):
     Uses filter(pk=..., video_status='PENDING').update() to ensure
     exactly one concurrent handler wins the race to spawn the assembly
     thread.
+
+    Short-circuits when ``animation.video_settings is None`` (per spec
+    FR §141, wizard-ffmpeg-rewrite).  Race-impossibility argument:
+    animations created during the FFmpeg loading window have
+    ``video_settings = None`` (the admin UI grey-out and the create
+    serializer's ``validate_video_settings`` guard block that path),
+    AND ``video_settings`` is immutable after creation (the update
+    serializer rejects any change with
+    ``code="video_settings_immutable"``).  An animation can therefore
+    never enter the assembly path with FFmpeg not-yet-ready.
+
+    NOTE: this handler MUST NOT call ``instance.save()`` — issue #10
+    in development/code_review_findings.md is the recurring footgun.
+    All state writes use ``Animation.objects.filter(pk=...).update(...)``.
     """
     from .video_assembler import assemble_animation_video
 
-    if animation.video_settings is not None:
-        with transaction.atomic():
-            updated = Animation.objects.filter(
-                pk=animation.pk,
-                video_status='PENDING',
-            ).update(video_status='ASSEMBLING')
-            if updated == 1:
-                transaction.on_commit(
-                    lambda aid=animation.pk: threading.Thread(
-                        target=assemble_animation_video,
-                        args=(aid,),
-                        daemon=True,
-                    ).start()
-                )
+    if animation.video_settings is None:
+        return
+
+    with transaction.atomic():
+        updated = Animation.objects.filter(
+            pk=animation.pk,
+            video_status='PENDING',
+        ).update(video_status='ASSEMBLING')
+        if updated == 1:
+            transaction.on_commit(
+                lambda aid=animation.pk: threading.Thread(
+                    target=assemble_animation_video,
+                    args=(aid,),
+                    daemon=True,
+                ).start()
+            )
 
 
 @receiver(post_save, sender=Project)

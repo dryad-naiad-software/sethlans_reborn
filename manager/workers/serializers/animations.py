@@ -92,6 +92,34 @@ class AnimationSerializer(serializers.ModelSerializer):
         """Validate render_settings field values."""
         return validate_render_settings(value)
 
+    def validate_video_settings(self, value):
+        """Reject video_settings creates while FFmpeg is not ready.
+
+        Defensive guard for the boot-window race where an admin
+        submits an animation with ``video_settings`` before the
+        manager's parts-check has finished resolving FFmpeg.  Per
+        spec FR §128-133, the rejection is a standard DRF 400 with
+        ``code="video_assembly_unavailable"`` (not a custom error
+        envelope), and a non-null ``video_settings`` is the only
+        case that triggers it.
+
+        Race-window note (LOW concurrency, per spec FR §133):
+        there is a microscopic window between this status read and
+        the model save where the parts-check could flip
+        ``installing -> ready``.  Worst case is a spurious 400
+        during the boot-overlap window; the user retries.  Failing
+        closed is the safe direction — synchronization is not added.
+        """
+        if value is not None:
+            from ..services import parts_check
+            snapshot = parts_check.get_status("ffmpeg")
+            if snapshot.status != "ready":
+                raise serializers.ValidationError(
+                    "video_assembly_unavailable",
+                    code="video_assembly_unavailable",
+                )
+        return value
+
     def validate(self, data):
         """
         Custom validation to ensure the selected `Asset` belongs to the `Project`,
@@ -106,11 +134,22 @@ class AnimationSerializer(serializers.ModelSerializer):
                 "The selected Asset does not belong to the selected Project."
             )
 
-        # Prevent modification of video_settings on existing instances
-        if self.instance is not None:
-            if 'video_settings' in data and data['video_settings'] is not None:
+        # video_settings is immutable after creation (spec FR §135-138).
+        # Without this, the post-save signal handler's race-impossibility
+        # argument collapses: an admin could PATCH video_settings to
+        # non-null after a frame completes and assembly would fire
+        # against a not-yet-ready FFmpeg.  Any change — adding,
+        # removing, or replacing — is rejected with the closed-vocab
+        # code ``video_settings_immutable``.
+        if self.instance is not None and 'video_settings' in data:
+            if data['video_settings'] != self.instance.video_settings:
                 raise serializers.ValidationError(
-                    "video_settings cannot be modified after creation."
+                    {
+                        "video_settings": [
+                            "video_settings_immutable",
+                        ],
+                    },
+                    code="video_settings_immutable",
                 )
 
         # Validate output_file_pattern extension matches format

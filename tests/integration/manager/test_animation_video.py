@@ -170,17 +170,23 @@ class TestVideoSettingsImmutability:
             format='json',
         )
         assert patch_resp.status_code == 400
-        assert 'cannot be modified after creation' in str(patch_resp.data)
+        # Spec wizard-ffmpeg-rewrite FR §137: closed-vocabulary code.
+        assert 'video_settings_immutable' in str(patch_resp.data)
 
 
 class TestSystemInfoEndpoint:
-    """Tests for GET /api/system-info/."""
+    """Tests for GET /api/system-info/.
 
-    def test_returns_ffmpeg_status(self, admin_client):
+    The legacy ``ffmpeg_available`` field has moved to
+    ``GET /api/ffmpeg-status/`` (spec wizard-ffmpeg-rewrite FR §114-122).
+    /api/system-info/ now returns an empty body for staff callers.
+    """
+
+    def test_returns_empty_body(self, admin_client):
         resp = admin_client.get('/api/system-info/')
         assert resp.status_code == 200
-        assert 'ffmpeg_available' in resp.data
-        assert isinstance(resp.data['ffmpeg_available'], bool)
+        # ffmpeg_available has been removed from this endpoint.
+        assert 'ffmpeg_available' not in resp.data
 
     def test_requires_auth(self, db):
         from rest_framework.test import APIClient

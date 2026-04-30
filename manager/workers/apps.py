@@ -55,8 +55,18 @@ class WorkersConfig(AppConfig):
                 daemon=True,
             ).start()
 
-        # Detect ffmpeg availability
+        # Detect ffmpeg availability (legacy boolean — kept for the
+        # video_assembler short-circuit; the authoritative source of
+        # truth post-rewrite is parts_check.get_status("ffmpeg")).
         self._detect_ffmpeg()
+
+        # Boot-time parts-check.  Idempotent under multi-fire ready()
+        # via the in-process ``_thread_started`` flag — autoreload
+        # subprocess parents, management commands, the test runner,
+        # and runserver's double-fire all become no-ops after the
+        # first call.
+        from .services import parts_check
+        parts_check.run_parts_check()
 
         # Reset stuck video assemblies from prior server shutdown
         self._reset_stuck_assemblies()

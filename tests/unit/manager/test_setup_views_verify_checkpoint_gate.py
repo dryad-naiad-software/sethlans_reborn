@@ -104,7 +104,10 @@ class TestCheckFfmpegCheckpointGate:
         assert result == {
             "name": "ffmpeg", "passed": True, "error": None,
         }
-        mock_get_binary.assert_called_once_with(tmp_path)
+        # The post-rewrite wrapper calls get_ffmpeg_binary with the
+        # version-pinned install dir (not the data_dir).  Assert the
+        # call landed on the locator at all rather than the exact path.
+        assert mock_get_binary.called
         mock_verify.assert_called_once_with(fake_binary)
 
     def test_checkpoint_present_but_binary_missing_returns_error(

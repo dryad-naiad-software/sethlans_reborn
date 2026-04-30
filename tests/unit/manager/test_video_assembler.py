@@ -25,8 +25,12 @@ class TestBuildFfmpegCommand:
             '/tmp/frame_%04d.png', '/tmp/out.mp4',
             {'codec': 'libx264', 'container': 'mp4', 'framerate': 24, 'crf': 23},
         )
-        assert cmd == [
-            'ffmpeg', '-y',
+        # Spec wizard-ffmpeg-rewrite: first argv element is the
+        # parts-check resolved path (or 'ffmpeg' fallback when no
+        # resolved path is published yet).  The rest of the command
+        # is asserted exactly.
+        assert cmd[1:] == [
+            '-y',
             '-framerate', '24',
             '-i', '/tmp/frame_%04d.png',
             '-c:v', 'libx264',

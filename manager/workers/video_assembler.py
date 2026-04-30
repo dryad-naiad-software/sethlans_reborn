@@ -30,23 +30,21 @@ _max_concurrent = getattr(settings, 'SETHLANS_MAX_CONCURRENT_ASSEMBLIES', 2)
 _assembly_semaphore = threading.Semaphore(_max_concurrent)
 
 
+def _resolve_ffmpeg_executable():
+    """Return parts-check resolved FFmpeg path (fallback ``'ffmpeg'``)."""
+    from .services import parts_check
+    return parts_check.get_status('ffmpeg').path or 'ffmpeg'
+
+
 def build_ffmpeg_command(frame_pattern, output_path, video_settings):
     """
     Build the ffmpeg argument list from video_settings.
 
-    Performs defense-in-depth validation of all settings values against
-    hardcoded allowlists before constructing the command.
+    First argv element is the parts-check resolved path (single argv
+    element — never string-formatted, never wrapped in a shell).
+    Performs defense-in-depth validation against hardcoded allowlists.
 
-    Args:
-        frame_pattern: Path pattern for input frames (e.g., /tmp/dir/frame_%04d.png).
-        output_path: Path for the output video file.
-        video_settings: Dict with keys: codec, container, framerate, crf.
-
-    Returns:
-        list[str]: The ffmpeg command as a list of arguments.
-
-    Raises:
-        ValueError: If any setting fails allowlist validation.
+    Raises ``ValueError`` if any setting fails allowlist validation.
     """
     codec = video_settings.get('codec')
     container = video_settings.get('container')
@@ -63,7 +61,7 @@ def build_ffmpeg_command(frame_pattern, output_path, video_settings):
         raise ValueError(f"Invalid crf '{crf}'. Must be int 0-51.")
 
     cmd = [
-        'ffmpeg', '-y',
+        _resolve_ffmpeg_executable(), '-y',
         '-framerate', str(framerate),
         '-i', frame_pattern,
         '-c:v', codec,
@@ -154,8 +152,8 @@ def assemble_animation_video(animation_id):
     Args:
         animation_id: Primary key of the Animation to assemble.
     """
-    from .apps import WorkersConfig
     from .models import Animation
+    from .services import parts_check
 
     try:
         animation = Animation.objects.select_related('project').get(pk=animation_id)
@@ -163,8 +161,8 @@ def assemble_animation_video(animation_id):
         logger.error("Animation %d not found for video assembly.", animation_id)
         return
 
-    # Check ffmpeg availability
-    if not WorkersConfig.ffmpeg_detected:
+    # Check ffmpeg availability via the parts-check (authoritative).
+    if parts_check.get_status('ffmpeg').status != 'ready':
         Animation.objects.filter(pk=animation_id).update(
             video_status='ERROR',
             video_error='FFmpeg is not available on this system.',

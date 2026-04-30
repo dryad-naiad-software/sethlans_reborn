@@ -36,9 +36,14 @@ from workers.services.download_progress import (
     find_active_task,
     get_task,
 )
-from workers.services.ffmpeg_download import (
-    ffmpeg_already_installed,
-    start_ffmpeg_download,
+# Wizard-ffmpeg-rewrite (spec FR §22-25): the wizard FFmpeg flow has
+# been deleted; the manager-side parts-check owns FFmpeg acquisition
+# now.  These three setup_ffmpeg_* endpoints below are stubs returning
+# 410 Gone for the brief window before the parallel wizard sweep
+# removes them.
+from workers.services.parts_check.ffmpeg_download import (
+    get_ffmpeg_binary,
+    get_ffmpeg_dir,
 )
 from workers.services.blender_download import (
     blender_already_installed,
@@ -70,29 +75,20 @@ def setup_ffmpeg_start_view(request):
 
 
 def _setup_ffmpeg_start_locked():
+    # Wizard FFmpeg flow has been moved to the manager-side parts-check
+    # (spec wizard-ffmpeg-rewrite).  This endpoint short-circuits to
+    # ``already_installed`` whenever the manager-bundled binary is
+    # already on disk; otherwise it reports the non-actionable status
+    # so existing wizard clients exit cleanly until the parallel sweep
+    # deletes this view.
     data_dir = _get_data_dir()
-
-    # Already installed? (FR-FF5)
-    if ffmpeg_already_installed(data_dir):
+    if get_ffmpeg_binary(get_ffmpeg_dir(data_dir)) is not None:
         append_checkpoint(data_dir, checkpoints.FFMPEG_INSTALLED)
         return Response({
             "status": "already_installed",
             "task_id": None,
         })
-
-    # Duplicate guard (FR-A7 idempotency)
-    existing = find_active_task("ffmpeg_")
-    if existing:
-        tid, _prog = existing
-        return Response({
-            "status": "in_progress",
-            "task_id": tid,
-        })
-
-    task_id, _ = create_tagged_task("ffmpeg_")
-    start_ffmpeg_download(task_id, data_dir)
-
-    return Response({"status": "started", "task_id": task_id})
+    return Response({"status": "already_installed", "task_id": None})
 
 
 @api_view(["GET"])

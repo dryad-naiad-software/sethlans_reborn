@@ -4,15 +4,20 @@
 """
 System information endpoint.
 
-Provides runtime system capabilities (e.g., ffmpeg availability)
-to the frontend so it can conditionally enable features.
+Provides runtime system capabilities to the frontend so it can
+conditionally enable features.
+
+Note (wizard-ffmpeg-rewrite, spec FR §114-122):
+    The legacy ``ffmpeg_available`` field has been removed from this
+    endpoint.  FFmpeg / video-assembly status is now served by
+    ``GET /api/ffmpeg-status/`` with a role-aware payload.  Frontend
+    consumers migrate to the new ``FFmpegStatusService``.
 """
 
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from ..apps import WorkersConfig
 from ..permissions import IsAdmin
 
 
@@ -21,6 +26,4 @@ from ..permissions import IsAdmin
 @permission_classes([IsAdmin])
 def system_info_view(request):
     """Return system capabilities for the frontend."""
-    return Response({
-        'ffmpeg_available': WorkersConfig.ffmpeg_detected,
-    })
+    return Response({})

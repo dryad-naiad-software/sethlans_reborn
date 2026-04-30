@@ -13,7 +13,12 @@ from pathlib import Path
 
 from workers.services import checkpoints
 from workers.services.setup import verify_blender_runs, verify_ffmpeg_runs
-from workers.services.ffmpeg_download import get_ffmpeg_binary
+# Wizard-ffmpeg-rewrite (spec FR §22-25): the wizard FFmpeg flow has
+# been deleted in a parallel worktree; the manager-side parts-check now
+# owns FFmpeg acquisition.  ``get_ffmpeg_binary`` is re-exported from
+# the new ``parts_check.ffmpeg_download`` package for the brief window
+# while the wizard sweeps remove this whole file.
+from workers.services.parts_check.ffmpeg_download import get_ffmpeg_binary  # noqa: F401
 from workers.services.auto_enroll import check_local_worker_enrolled
 from workers.services.blender_download import (
     get_blender_dir, blender_already_installed,
@@ -105,7 +110,10 @@ def _check_ffmpeg(data_dir: Path) -> dict:
             "name": "ffmpeg", "passed": False,
             "error": "FFmpeg not yet installed",
         }
-    binary = get_ffmpeg_binary(data_dir)
+    # Parts-check uses the install dir (not data_dir).  Convert at
+    # the call site; the wizard sweep will delete this whole branch.
+    from workers.services.parts_check.ffmpeg_download import get_ffmpeg_dir
+    binary = get_ffmpeg_binary(get_ffmpeg_dir(data_dir))
     if binary is None:
         return {
             "name": "ffmpeg", "passed": False,
