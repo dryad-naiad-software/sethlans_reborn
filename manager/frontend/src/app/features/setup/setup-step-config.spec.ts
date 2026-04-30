@@ -9,26 +9,26 @@ describe('getStepsForTopology', () => {
     return steps.map(s => s.key);
   }
 
-  it('should return 8 steps for manager topology', () => {
+  it('should return 7 steps for manager topology', () => {
     const steps = getStepsForTopology('manager');
-    expect(steps.length).toBe(8);
+    expect(steps.length).toBe(7);
     expect(stepKeys(steps)).toEqual([
       'welcome', 'topology', 'network', 'database',
-      'admin-user', 'ffmpeg-download', 'verification', 'done',
+      'admin-user', 'verification', 'done',
     ]);
   });
 
-  it('should return 10 steps for manager_worker topology', () => {
+  it('should return 9 steps for manager_worker topology', () => {
     const steps = getStepsForTopology('manager_worker');
-    expect(steps.length).toBe(10);
+    expect(steps.length).toBe(9);
     expect(stepKeys(steps)).toEqual([
       'welcome', 'topology', 'network', 'database',
-      'admin-user', 'worker-password', 'ffmpeg-download',
+      'admin-user', 'worker-password',
       'blender-download', 'verification', 'done',
     ]);
   });
 
-  it('should return 7 steps for worker_only topology, omitting FFmpeg', () => {
+  it('should return 7 steps for worker_only topology', () => {
     const steps = getStepsForTopology('worker_only');
     expect(steps.length).toBe(7);
     expect(stepKeys(steps)).toEqual([
@@ -37,22 +37,12 @@ describe('getStepsForTopology', () => {
     ]);
   });
 
-  it('omits the FFmpeg step for worker_only topology', () => {
-    const steps = getStepsForTopology('worker_only');
-    expect(steps.find(s => s.key === 'ffmpeg-download')).toBeUndefined();
-  });
-
-  it('should include ffmpeg-download for manager_worker topology', () => {
-    const steps = getStepsForTopology('manager_worker');
-    expect(stepKeys(steps)).toContain('ffmpeg-download');
-  });
-
-  it('should return 8 steps for null topology (default)', () => {
+  it('should return 7 steps for null topology (default)', () => {
     const steps = getStepsForTopology(null);
-    expect(steps.length).toBe(8);
+    expect(steps.length).toBe(7);
     expect(stepKeys(steps)).toEqual([
       'welcome', 'topology', 'network', 'database',
-      'admin-user', 'ffmpeg-download', 'verification', 'done',
+      'admin-user', 'verification', 'done',
     ]);
   });
 
@@ -85,7 +75,6 @@ describe('getStepsForTopology', () => {
     expect(checkpointMap.get('database')).toBe('database_configured');
     expect(checkpointMap.get('admin-user')).toBe('admin_created');
     expect(checkpointMap.get('worker-password')).toBe('worker_password_set');
-    expect(checkpointMap.get('ffmpeg-download')).toBe('ffmpeg_installed');
     expect(checkpointMap.get('blender-download')).toBe('blender_predownloaded');
     expect(checkpointMap.get('verification')).toBe('verified');
     expect(checkpointMap.get('done')).toBeNull();

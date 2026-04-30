@@ -65,18 +65,6 @@ export class SetupApiService {
     return this.http.post<WorkerPasswordResponse>(`${this.base}/worker-password/`, req);
   }
 
-  startFfmpegDownload(): Observable<DownloadStartResponse> {
-    return this.http.post<DownloadStartResponse>(`${this.base}/ffmpeg/start/`, {});
-  }
-
-  getFfmpegProgress(taskId: string): Observable<DownloadProgress> {
-    return this.http.get<DownloadProgress>(`${this.base}/ffmpeg/progress/${taskId}/`);
-  }
-
-  cancelFfmpegDownload(): Observable<DownloadCancelResponse> {
-    return this.http.post<DownloadCancelResponse>(`${this.base}/ffmpeg/cancel/`, {});
-  }
-
   startBlenderDownload(): Observable<DownloadStartResponse> {
     return this.http.post<DownloadStartResponse>(`${this.base}/blender/start/`, {});
   }

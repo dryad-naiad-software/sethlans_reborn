@@ -21,8 +21,7 @@ import { SetupStatus } from './models/setup.models';
 
 const API_METHODS = [
   'getStatus', 'setTopology', 'configureNetwork', 'configureDatabase',
-  'createAdminUser', 'setWorkerPassword', 'startFfmpegDownload',
-  'getFfmpegProgress', 'cancelFfmpegDownload', 'startBlenderDownload',
+  'createAdminUser', 'setWorkerPassword', 'startBlenderDownload',
   'getBlenderProgress', 'cancelBlenderDownload', 'verify', 'getSummary',
   'getHealth', 'requestRestart',
 ] as const;
@@ -44,7 +43,6 @@ describe('SetupComponent — lazy step content mounting (issue #124)', () => {
     mockApi.getStatus.and.returnValue(of(status));
     // NEVER so subscribers stay open without resolving — we only care
     // whether the call was made, not what it returned.
-    mockApi.startFfmpegDownload.and.returnValue(NEVER);
     mockApi.startBlenderDownload.and.returnValue(NEVER);
     mockApi.verify.and.returnValue(NEVER);
     mockApi.getSummary.and.returnValue(NEVER);
@@ -63,11 +61,10 @@ describe('SetupComponent — lazy step content mounting (issue #124)', () => {
   }
 
   describe('fresh start — no premature side-effects', () => {
-    it('does NOT call startFfmpegDownload before user reaches ffmpeg step',
+    it('starts on welcome step without firing later step side-effects',
       async () => {
         await renderFresh();
         expect(component.activeStepKey).toBe('welcome');
-        expect(mockApi.startFfmpegDownload).not.toHaveBeenCalled();
       });
 
     it('does NOT call verify before user reaches verification step',
@@ -90,25 +87,25 @@ describe('SetupComponent — lazy step content mounting (issue #124)', () => {
   });
 
   describe('gate flips on at the right time', () => {
-    it('mounts ffmpeg step and fires startFfmpegDownload exactly once ' +
-       'when activeStepKey flips to ffmpeg-download', async () => {
+    it('mounts verification step and fires verify exactly once ' +
+       'when activeStepKey flips to verification', async () => {
       await renderFresh();
-      expect(mockApi.startFfmpegDownload).not.toHaveBeenCalled();
+      expect(mockApi.verify).not.toHaveBeenCalled();
 
-      component.activeStepKey = 'ffmpeg-download';
+      component.activeStepKey = 'verification';
       fixture.detectChanges();
       await fixture.whenStable();
 
-      expect(mockApi.startFfmpegDownload).toHaveBeenCalledTimes(1);
+      expect(mockApi.verify).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('resume mid-wizard', () => {
-    it('mounts the resume-target step (ffmpeg-download) and fires its ' +
+    it('mounts the resume-target step (verification) and fires its ' +
        'side-effect exactly once on first paint', async () => {
       const status: SetupStatus = {
         complete: false, topology: 'manager',
-        current_step: 'ffmpeg_installed',
+        current_step: 'verified',
         checkpoints: [
           'topology_chosen', 'network_configured',
           'database_configured', 'admin_created',
@@ -120,11 +117,10 @@ describe('SetupComponent — lazy step content mounting (issue #124)', () => {
       fixture.detectChanges();
       await fixture.whenStable();
 
-      expect(component.activeStepKey).toBe('ffmpeg-download');
-      expect(mockApi.startFfmpegDownload).toHaveBeenCalledTimes(1);
+      expect(component.activeStepKey).toBe('verification');
+      expect(mockApi.verify).toHaveBeenCalledTimes(1);
       // Other gated step side-effects must still NOT have fired —
       // only the resume-target step is mounted, not every later step.
-      expect(mockApi.verify).not.toHaveBeenCalled();
       expect(mockApi.getSummary).not.toHaveBeenCalled();
       expect(mockApi.startBlenderDownload).not.toHaveBeenCalled();
     });

@@ -19,7 +19,6 @@ import { NetworkComponent } from './steps/network.component';
 import { DatabaseComponent } from './steps/database.component';
 import { AdminUserComponent } from './steps/admin-user.component';
 import { WorkerPasswordComponent } from './steps/worker-password.component';
-import { FfmpegDownloadComponent } from './steps/ffmpeg-download.component';
 import { BlenderDownloadComponent } from './steps/blender-download.component';
 import { VerificationComponent } from './steps/verification.component';
 import { DoneComponent } from './steps/done.component';
@@ -37,7 +36,6 @@ import { DoneComponent } from './steps/done.component';
     DatabaseComponent,
     AdminUserComponent,
     WorkerPasswordComponent,
-    FfmpegDownloadComponent,
     BlenderDownloadComponent,
     VerificationComponent,
     DoneComponent,
@@ -65,7 +63,7 @@ import { DoneComponent } from './steps/done.component';
                   the currently-selected step in the stepper. Without this
                   gate, mat-stepper materializes every step's content on
                   load, which would fire ngOnInit side-effects (e.g.
-                  ffmpeg/blender downloads, verify, summary) before the
+                  blender download, verify, summary) before the
                   user navigates to those steps. See issue #124.
                 -->
                 @switch (step.key) {
@@ -97,12 +95,6 @@ import { DoneComponent } from './steps/done.component';
                   @case ('worker-password') {
                     @if (activeStepKey === 'worker-password') {
                       <app-setup-worker-password
-                        (stepComplete)="onStepComplete(step)" />
-                    }
-                  }
-                  @case ('ffmpeg-download') {
-                    @if (activeStepKey === 'ffmpeg-download') {
-                      <app-setup-ffmpeg-download
                         (stepComplete)="onStepComplete(step)" />
                     }
                   }

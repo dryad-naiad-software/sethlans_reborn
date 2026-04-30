@@ -40,14 +40,6 @@ describe('SetupApiService', () => {
       });
     });
 
-    it('GETs ffmpeg progress without X-Setup-Token', () => {
-      service.getFfmpegProgress('task-1').subscribe();
-      const req = httpMock.expectOne('/api/setup/ffmpeg/progress/task-1/');
-      expect(req.request.method).toBe('GET');
-      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
-      req.flush({ status: 'downloading', percent: 50, error: null });
-    });
-
     it('GETs blender progress without X-Setup-Token', () => {
       service.getBlenderProgress('task-2').subscribe();
       const req = httpMock.expectOne('/api/setup/blender/progress/task-2/');
@@ -111,13 +103,6 @@ describe('SetupApiService', () => {
       const req = httpMock.expectOne('/api/setup/worker-password/');
       expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
       req.flush({ status: 'ok' });
-    });
-
-    it('POSTs ffmpeg start without X-Setup-Token', () => {
-      service.startFfmpegDownload().subscribe();
-      const req = httpMock.expectOne('/api/setup/ffmpeg/start/');
-      expect(req.request.headers.has('X-Setup-Token')).toBeFalse();
-      req.flush({ status: 'started', task_id: 'task-1' });
     });
 
     it('POSTs blender start without X-Setup-Token', () => {

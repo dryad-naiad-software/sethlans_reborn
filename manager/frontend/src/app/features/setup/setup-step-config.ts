@@ -25,17 +25,6 @@ export function getStepsForTopology(topology: Topology | null): StepConfig[] {
       label: 'Worker Password',
       checkpoint: 'worker_password_set',
     });
-  }
-
-  if (topology !== 'worker_only') {
-    steps.push({
-      key: 'ffmpeg-download',
-      label: 'FFmpeg',
-      checkpoint: 'ffmpeg_installed',
-    });
-  }
-
-  if (topology === 'manager_worker') {
     steps.push({
       key: 'blender-download',
       label: 'Blender',

@@ -75,18 +75,17 @@ describe('SetupStateService', () => {
 
     it('recomputes visible steps for manager', () => {
       service.setTopology('manager');
-      expect(service.visibleSteps.length).toBe(8);
+      expect(service.visibleSteps.length).toBe(7);
     });
 
     it('recomputes visible steps for manager_worker', () => {
       service.setTopology('manager_worker');
-      expect(service.visibleSteps.length).toBe(10);
+      expect(service.visibleSteps.length).toBe(9);
     });
 
-    it('recomputes visible steps for worker_only (omits FFmpeg)', () => {
+    it('recomputes visible steps for worker_only', () => {
       service.setTopology('worker_only');
       expect(service.visibleSteps.length).toBe(7);
-      expect(service.visibleSteps.map(s => s.key)).not.toContain('ffmpeg-download');
     });
   });
 
@@ -138,7 +137,7 @@ describe('SetupStateService', () => {
       };
       service.resumeFromStatus(status);
       expect(service.topology).toBe('manager_worker');
-      expect(service.visibleSteps.length).toBe(10);
+      expect(service.visibleSteps.length).toBe(9);
     });
 
     it('restores checkpoints', () => {
@@ -170,7 +169,7 @@ describe('SetupStateService', () => {
         current_step: null,
         checkpoints: [
           'topology_chosen', 'network_configured', 'database_configured',
-          'admin_created', 'ffmpeg_installed', 'verified',
+          'admin_created', 'verified',
         ],
       };
       const idx = service.resumeFromStatus(status);

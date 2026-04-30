@@ -12,8 +12,7 @@ import { SetupStatus } from './models/setup.models';
 
 const API_METHODS = [
   'getStatus', 'setTopology', 'configureNetwork', 'configureDatabase',
-  'createAdminUser', 'setWorkerPassword', 'startFfmpegDownload',
-  'getFfmpegProgress', 'cancelFfmpegDownload', 'startBlenderDownload',
+  'createAdminUser', 'setWorkerPassword', 'startBlenderDownload',
   'getBlenderProgress', 'cancelBlenderDownload', 'verify', 'getSummary',
   'getHealth', 'requestRestart',
 ] as const;
@@ -34,7 +33,6 @@ describe('SetupComponent', () => {
   function buildModule(status: SetupStatus = freshStatus) {
     mockApi = jasmine.createSpyObj('SetupApiService', [...API_METHODS]);
     mockApi.getStatus.and.returnValue(of(status));
-    mockApi.startFfmpegDownload.and.returnValue(NEVER);
     mockApi.startBlenderDownload.and.returnValue(NEVER);
     mockApi.verify.and.returnValue(NEVER);
     mockApi.getSummary.and.returnValue(NEVER);
@@ -70,7 +68,7 @@ describe('SetupComponent', () => {
       fixture = TestBed.createComponent(SetupComponent);
       component = fixture.componentInstance;
       fixture.detectChanges();
-      expect(component.steps.length).toBe(8);
+      expect(component.steps.length).toBe(7);
     });
 
     it('does NOT read setup token from query params (moved to APP_INITIALIZER)',
@@ -167,7 +165,7 @@ describe('SetupComponent', () => {
         key: 'topology', label: 'Topology', checkpoint: 'topology_chosen',
       });
       tick();
-      expect(component.steps.length).toBe(10);
+      expect(component.steps.length).toBe(9);
     }));
   });
 });
