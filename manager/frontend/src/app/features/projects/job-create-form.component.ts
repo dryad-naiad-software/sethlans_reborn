@@ -21,6 +21,7 @@ import { RENDER_ENGINES, RENDER_DEVICES, TILING_OPTIONS, ANIMATION_TILING_OPTION
   OUTPUT_FORMATS, TILED_OUTPUT_FORMATS, HDR_FORMATS } from './render-payload.util';
 import { buildSingleJobPayload, buildTiledJobPayload, buildAnimationPayload } from './job-create-payload.util';
 import { RenderType, JobCreateDialogData } from './job-create-form.types';
+import { parseJobCreateError } from './job-create-form.errors';
 import { VideoOutputSectionComponent } from './video-output-section.component';
 import { ResolutionInputComponent } from './resolution-input.component';
 
@@ -240,9 +241,6 @@ export class JobCreateFormComponent {
 
   private fail(err: { error?: Record<string, unknown> }): void {
     this.submitting = false;
-    const b = err.error;
-    const msg = (b?.['name'] as string[])?.[0] || (b?.['detail'] as string)
-      || (b?.['non_field_errors'] as string[])?.[0] || 'Failed to create job';
-    this.snackBar.open(msg, 'Dismiss', { duration: 5000 });
+    this.snackBar.open(parseJobCreateError(err.error), 'Dismiss', { duration: 5000 });
   }
 }

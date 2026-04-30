@@ -141,55 +141,72 @@ class TestVideoAssemblyUnavailableErrorShape:
 
 @pytest.mark.django_db
 class TestFrontendErrorParserAlignment:
-    """Audit the ``job-create-form.component.ts`` error parser.
+    """Audit the job-create form error parser.
 
-    The form's ``fail()`` handler accepts ``{ error?: Record<string,
-    unknown> }`` and walks specific keys.  This test does NOT enforce
-    a particular set of keys — it documents what the parser currently
-    inspects, so future drift either way (DRF response keys or TS
-    parser keys) shows up as a test failure pointing at the line.
+    The form's ``fail()`` handler delegates to the ``parseJobCreateError``
+    helper in ``job-create-form.errors.ts``.  This test verifies that
+    helper recognizes both closed-vocab codes from the spec — the
+    contract is the code, not the prose (FR §131, FR §137).
 
-    Spec note: the spec lets the frontend match on ``code`` OR on the
-    literal string in the ``video_settings`` array — the contract
-    is the code, not the prose (FR §131).
+    Tightened from the original soft-assertion form (which documented
+    the gap) after commit ``9fb40d21`` flagged the drift.  The fallback
+    path now honors the API contract.
     """
 
-    def test_response_field_is_documented_against_form_parser(
+    def test_form_parser_recognizes_video_assembly_unavailable(
         self, admin_client, animation_payload, video_settings,
-        job_create_form_ts,
+        job_create_form_errors_ts,
     ):
-        """If the form's ``fail()`` extracts a key set that does NOT
-        include ``video_settings``, the user sees the generic
-        'Failed to create job' fallback instead of a specific
-        'Video assembly is preparing' message.  This is documented
-        contract drift — the test does not fail the build (the
-        grey-out path in ``FFmpegStatusService`` is the primary
-        defense), but the assertion message points reviewers at the
-        gap."""
+        """Spec FR §131 — the parser must branch on
+        ``video_assembly_unavailable`` and surface a specific snackbar
+        message instead of the generic ``Failed to create job``
+        fallback."""
         seed_status("installing")
         animation_payload["video_settings"] = video_settings
         resp = admin_client.post(
             "/api/animations/", animation_payload, format="json",
         )
         assert resp.status_code == 400
-        assert "video_settings" in resp.data
-
-        parser_walks_video_settings = (
-            "video_settings" in job_create_form_ts
-            or "videoSettings" in job_create_form_ts
+        assert resp.data["video_settings"] == [
+            "video_assembly_unavailable",
+        ]
+        # Hard-assert the parser recognizes the code.  The TS source
+        # parses the closed-vocab string literal — if a refactor moves
+        # the branch elsewhere, this test must be updated to follow.
+        assert (
+            "'video_assembly_unavailable'"
+            in job_create_form_errors_ts
+            or '"video_assembly_unavailable"'
+            in job_create_form_errors_ts
+        ), (
+            "parseJobCreateError must branch on the closed-vocab "
+            "string 'video_assembly_unavailable' (spec FR §131)."
         )
-        # NB: this is a soft signal.  The form may render the generic
-        # message; tests in
-        # ``manager/frontend/src/app/features/projects/job-create-form.component.ffmpeg.spec.ts``
-        # cover the user-facing UX.  This test exists to document the
-        # contract so a reviewer who sees the assertion change knows
-        # exactly what shifted.
-        assert parser_walks_video_settings or True, (
-            "Documented contract drift: job-create-form.component.ts "
-            "does not currently destructure ``video_settings`` from "
-            "DRF error bodies, so the user sees the generic "
-            "'Failed to create job' toast on a video-assembly-"
-            "unavailable rejection.  The grey-out path "
-            "(FFmpegStatusService.load() + disabled checkbox) is the "
-            "primary defense; this is the secondary fallback."
+
+    def test_form_parser_recognizes_video_settings_immutable(
+        self, job_create_form_errors_ts,
+    ):
+        """Spec FR §137 — PATCH rejection emits
+        ``video_settings_immutable``.  The parser must surface a
+        distinct ``can't be changed after creation`` message."""
+        assert (
+            "'video_settings_immutable'"
+            in job_create_form_errors_ts
+            or '"video_settings_immutable"'
+            in job_create_form_errors_ts
+        ), (
+            "parseJobCreateError must branch on the closed-vocab "
+            "string 'video_settings_immutable' (spec FR §137)."
+        )
+
+    def test_form_parser_walks_video_settings_key(
+        self, job_create_form_errors_ts,
+    ):
+        """Regression guard — the parser must destructure the
+        ``video_settings`` key from the DRF error body.  Without this
+        branch, the generic ``Failed to create job`` fallback fires
+        on every video-related rejection."""
+        assert "video_settings" in job_create_form_errors_ts, (
+            "parseJobCreateError must read the ``video_settings`` "
+            "key off the DRF error body (spec FR §131)."
         )

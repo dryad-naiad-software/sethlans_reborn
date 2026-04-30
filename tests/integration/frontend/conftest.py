@@ -216,6 +216,18 @@ def job_create_form_ts() -> str:
     return JOB_CREATE_FORM_TS.read_text(encoding="utf-8")
 
 
+@pytest.fixture
+def job_create_form_errors_ts() -> str:
+    """Read ``job-create-form.errors.ts`` once for the parser-audit
+    test in ``test_animation_video_contract.py``.  The error parser
+    was extracted from the component file to keep both modules under
+    the 250-line cap (CLAUDE.md)."""
+    from ._animation_video_contract_helpers import (
+        JOB_CREATE_FORM_ERRORS_TS,
+    )
+    return JOB_CREATE_FORM_ERRORS_TS.read_text(encoding="utf-8")
+
+
 def assert_envelope_shape(body: dict) -> None:
     """Assert the body matches the unified ``SetupErrorEnvelope`` shape.
 

@@ -214,6 +214,26 @@ describe('JobCreateFormComponent', () => {
       component.onSubmit();
       expect(component.submitting).toBeFalse();
     });
+    it('should surface video_assembly_unavailable code with specific message (spec FR §131)', () => {
+      mockAnimationService.create.and.returnValue(throwError(() => ({
+        error: { video_settings: ['video_assembly_unavailable'] },
+      })));
+      component.renderType = 'animation';
+      component.onSubmit();
+      expect(snackBar.open).toHaveBeenCalledWith(
+        'Video assembly is preparing — refresh in a moment, or skip the video output for now.',
+        'Dismiss', { duration: 5000 });
+    });
+    it('should surface video_settings_immutable code with specific message (spec FR §137)', () => {
+      mockAnimationService.create.and.returnValue(throwError(() => ({
+        error: { video_settings: ['video_settings_immutable'] },
+      })));
+      component.renderType = 'animation';
+      component.onSubmit();
+      expect(snackBar.open).toHaveBeenCalledWith(
+        "Video settings can't be changed after the animation is created.",
+        'Dismiss', { duration: 5000 });
+    });
   });
 
   it('should not submit when form is invalid', () => {

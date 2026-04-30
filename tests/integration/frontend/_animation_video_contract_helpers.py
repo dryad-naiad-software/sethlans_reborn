@@ -22,6 +22,10 @@ JOB_CREATE_FORM_TS = (
     REPO_ROOT / "manager" / "frontend" / "src" / "app"
     / "features" / "projects" / "job-create-form.component.ts"
 )
+JOB_CREATE_FORM_ERRORS_TS = (
+    REPO_ROOT / "manager" / "frontend" / "src" / "app"
+    / "features" / "projects" / "job-create-form.errors.ts"
+)
 
 
 def seed_status(status, error=None):
