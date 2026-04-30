@@ -12,6 +12,7 @@ and startup recovery.
 import pytest
 
 from workers.models import Animation
+from workers.services.parts_check import registry as parts_registry
 
 
 @pytest.fixture
@@ -267,6 +268,106 @@ class TestDownloadVideoAction:
         anim_id = create_resp.data['id']
         resp = admin_client.get(f'/api/animations/{anim_id}/download-video/')
         assert resp.status_code == 404
+
+
+class TestVideoAssemblyAvailabilityGuard:
+    """Defensive serializer rejection per spec FR §128-133 / AC §478-479.
+
+    When ``parts_check.get_status('ffmpeg').status != 'ready'``, an
+    animation create with non-null ``video_settings`` must fail with
+    the standard DRF ``ValidationError`` shape and the closed-vocab
+    code ``video_assembly_unavailable``.
+
+    These tests seed the in-process registry directly via the
+    registry's ``_publish`` helper — the same mechanism the real
+    parts-check thread uses — to drive each FFmpeg state without
+    invoking the real ``check_ffmpeg``.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _scoped_parts_state(self):
+        # Snapshot the in-process status so the test seeds don't leak
+        # into later test classes (TestStartupRecovery exercises the
+        # animation-create path expecting the test machine's resolved
+        # FFmpeg status to remain in effect).
+        prior = parts_registry.get_status("ffmpeg")
+        yield
+        parts_registry._publish("ffmpeg", prior)
+
+    def _seed(self, status, error=None):
+        parts_registry._publish(
+            "ffmpeg",
+            parts_registry.Status(status=status, error=error),
+        )
+
+    def test_create_with_video_settings_while_installing_returns_400(
+        self, admin_client, animation_payload,
+    ):
+        self._seed("installing")
+        animation_payload['video_settings'] = {
+            'preset': 'web_h264',
+            'framerate': 24,
+        }
+        resp = admin_client.post(
+            '/api/animations/', animation_payload, format='json',
+        )
+        assert resp.status_code == 400
+        # Standard DRF shape: {"video_settings": ["video_assembly_unavailable"]}.
+        assert 'video_settings' in resp.data
+        assert resp.data['video_settings'] == ['video_assembly_unavailable']
+        # No custom ``{"error": "..."}`` envelope (spec AC §478).
+        assert 'error' not in resp.data
+
+    def test_create_with_video_settings_while_failed_returns_400(
+        self, admin_client, animation_payload,
+    ):
+        self._seed("failed", error="checksum_mismatch")
+        animation_payload['video_settings'] = {
+            'preset': 'web_h264',
+            'framerate': 24,
+        }
+        resp = admin_client.post(
+            '/api/animations/', animation_payload, format='json',
+        )
+        assert resp.status_code == 400
+        assert resp.data['video_settings'] == ['video_assembly_unavailable']
+
+    def test_create_with_video_settings_while_ready_succeeds(
+        self, admin_client, animation_payload,
+    ):
+        self._seed("ready")
+        animation_payload['video_settings'] = {
+            'preset': 'web_h264',
+            'framerate': 24,
+        }
+        resp = admin_client.post(
+            '/api/animations/', animation_payload, format='json',
+        )
+        assert resp.status_code == 201, resp.data
+        assert resp.data['video_status'] == 'PENDING'
+
+    def test_create_without_video_settings_while_installing_succeeds(
+        self, admin_client, animation_payload,
+    ):
+        # Spec AC §479: animations without video_settings are unaffected
+        # by the parts-check status.
+        self._seed("installing")
+        resp = admin_client.post(
+            '/api/animations/', animation_payload, format='json',
+        )
+        assert resp.status_code == 201
+        assert resp.data['video_settings'] is None
+
+    def test_create_with_null_video_settings_while_failed_succeeds(
+        self, admin_client, animation_payload,
+    ):
+        self._seed("failed", error="download_failed")
+        animation_payload['video_settings'] = None
+        resp = admin_client.post(
+            '/api/animations/', animation_payload, format='json',
+        )
+        assert resp.status_code == 201
+        assert resp.data['video_settings'] is None
 
 
 class TestStartupRecovery:
