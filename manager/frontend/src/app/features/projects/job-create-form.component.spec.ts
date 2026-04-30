@@ -6,11 +6,19 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
 import { JobCreateFormComponent } from './job-create-form.component';
 import { JobService } from '../../core/services/job.service';
 import { TiledJobService } from '../../core/services/tiled-job.service';
 import { AnimationService } from '../../core/services/animation.service';
+import { FFmpegStatusResponse } from '../../core/services/ffmpeg-status.service';
+
+const FFMPEG_URL = '/api/ffmpeg-status/';
 
 describe('JobCreateFormComponent', () => {
   let component: JobCreateFormComponent;
@@ -19,6 +27,7 @@ describe('JobCreateFormComponent', () => {
   let mockTiledJobService: jasmine.SpyObj<TiledJobService>;
   let mockAnimationService: jasmine.SpyObj<AnimationService>;
   let mockDialogRef: jasmine.SpyObj<MatDialogRef<JobCreateFormComponent>>;
+  let httpMock: HttpTestingController;
   let snackBar: MatSnackBar;
 
   beforeEach(async () => {
@@ -29,6 +38,8 @@ describe('JobCreateFormComponent', () => {
     await TestBed.configureTestingModule({
       imports: [JobCreateFormComponent, NoopAnimationsModule],
       providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
         { provide: JobService, useValue: mockJobService },
         { provide: TiledJobService, useValue: mockTiledJobService },
         { provide: AnimationService, useValue: mockAnimationService },
@@ -37,12 +48,26 @@ describe('JobCreateFormComponent', () => {
       ],
     }).compileComponents();
 
+    httpMock = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(JobCreateFormComponent);
     component = fixture.componentInstance;
     snackBar = fixture.debugElement.injector.get(MatSnackBar);
     spyOn(snackBar, 'open');
     fixture.detectChanges();
+    // Default to a "FFmpeg ready" world for the existing test set so the
+    // form behaves as it did before the FFmpeg-status integration. The
+    // describe('FFmpeg video-assembly status integration') block below
+    // builds its own fixtures and asserts call count + grey-out behaviour.
+    flushDefaultFFmpegReady();
   });
+
+  function flushDefaultFFmpegReady() {
+    const reqs = httpMock.match(FFMPEG_URL);
+    reqs.forEach(r => r.flush({ video_assembly_ready: true } as FFmpegStatusResponse));
+    fixture.detectChanges();
+  }
+
+  afterEach(() => httpMock.verify());
 
   it('should create', () => {
     expect(component).toBeTruthy();
