@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import os
 import platform
 import socket
 
@@ -343,6 +344,66 @@ class TestDataDirValidation:
         # Resolving through the symlink yields /etc which is denied.
         assert canonical is None
         assert code == "forbidden_root"
+
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="POSIX-only realpath aliases",
+    )
+    @pytest.mark.parametrize("denied_input", ["/etc", "/etc/sethlans"])
+    def test_macos_private_alias_rejected(self, mocker, denied_input):
+        # Issue #185 — macOS aliases ``/etc`` to ``/private/etc`` via a
+        # filesystem-level symlink. ``Path("/etc").resolve()`` returns
+        # ``/private/etc`` on macOS, which the original denylist
+        # (containing only literal ``/etc``) failed to match. Mock
+        # realpath so the macOS aliasing is reproduced on any POSIX
+        # runner; the denylist must accept BOTH forms so the resolved
+        # input still matches.
+        real_realpath = os.path.realpath
+
+        def macos_realpath(p, *args, **kwargs):
+            s = str(p)
+            for alias_root in ("/etc", "/tmp", "/var"):
+                if s == alias_root or s.startswith(alias_root + "/"):
+                    return "/private" + s
+            return real_realpath(p, *args, **kwargs)
+
+        mocker.patch.object(
+            network_handler.os.path,
+            "realpath",
+            side_effect=macos_realpath,
+        )
+        canonical, code = network_handler.validate_data_dir(denied_input)
+        assert canonical is None, (
+            f"input {denied_input!r} resolved through macOS-style "
+            f"realpath alias must be rejected"
+        )
+        assert code == "forbidden_root"
+
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="POSIX-only realpath aliases",
+    )
+    def test_resolved_forbidden_roots_includes_macos_aliases(
+        self, mocker,
+    ):
+        # Issue #185 — when realpath aliases ``/etc`` to ``/private/etc``,
+        # the denylist must include BOTH forms so that an input which
+        # ``Path.resolve()`` returns in its realpath form still matches.
+        real_realpath = os.path.realpath
+
+        def macos_realpath(p, *args, **kwargs):
+            if str(p) in ("/etc", "/tmp", "/var"):
+                return f"/private{p}"
+            return real_realpath(p, *args, **kwargs)
+
+        mocker.patch.object(
+            network_handler.os.path,
+            "realpath",
+            side_effect=macos_realpath,
+        )
+        roots = network_handler._resolved_forbidden_roots()
+        assert "/etc" in roots
+        assert "/private/etc" in roots
 
 
 class TestHandlerOverrideDataDir:

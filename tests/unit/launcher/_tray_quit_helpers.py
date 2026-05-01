@@ -71,16 +71,31 @@ class FakeBroadcasterSupervisor:
 
 
 def write_quit_marker(data_dir: Path, secret: str, pid: int) -> None:
-    """Drop a tray ``.quit_requested`` marker into ``data_dir``."""
+    """Drop a tray ``.quit_requested`` marker into ``data_dir``.
+
+    The launcher's IPC poll thread (``IPC_POLL_INTERVAL_SECONDS=0.02``
+    in tests) can race a non-atomic write: ``Path.write_text`` does
+    open + write + close as separate steps, and the poll thread can
+    read between the open and the close, getting an empty or partial
+    file. A failed parse logs a warning and returns ``None`` from
+    ``read_and_validate_marker``, which makes the test miss the marker
+    entirely. Issue #185 saw this flake on macOS CI.
+
+    Write to a sibling temp file then ``os.replace`` for an atomic
+    rename — the poll thread either sees no marker or the complete one,
+    never a half-written file.
+    """
+    import os
     payload = {
         "secret": secret,
         "pid": pid,
         "target": "all",
         "requested_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
     }
-    (data_dir / ".quit_requested").write_text(
-        json.dumps(payload), encoding="utf-8",
-    )
+    target = data_dir / ".quit_requested"
+    tmp = data_dir / ".quit_requested.tmp"
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    os.replace(str(tmp), str(target))
 
 
 def stage_port_file(tmp_path, port=8101):

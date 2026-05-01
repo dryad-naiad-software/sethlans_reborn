@@ -50,6 +50,31 @@ _WINDOWS_FORBIDDEN_ROOTS = (
 _WINDOWS_DEVICE_NAMESPACE_PREFIXES = ("\\\\?\\", "\\\\.\\")
 
 
+def _resolved_forbidden_roots() -> tuple[str, ...]:
+    """Return the platform forbidden-root list, each resolved through realpath.
+
+    macOS aliases ``/etc``, ``/tmp``, ``/var`` to ``/private/etc`` etc. via
+    a filesystem-level symlink, so a denylist of literal POSIX paths
+    misses inputs that ``Path.resolve()`` returns in their realpath form.
+    Resolving the denylist itself once keeps the comparison platform-
+    independent without per-OS branching.
+    """
+    raw = (
+        _WINDOWS_FORBIDDEN_ROOTS if platform.system() == "Windows"
+        else _POSIX_FORBIDDEN_ROOTS
+    )
+    resolved: list[str] = []
+    for root in raw:
+        resolved.append(root)
+        try:
+            real = os.path.realpath(root)
+        except OSError:
+            continue
+        if real != root:
+            resolved.append(real)
+    return tuple(resolved)
+
+
 def _is_under(path: str, root: str) -> bool:
     norm_path = os.path.normcase(os.path.normpath(path))
     norm_root = os.path.normcase(os.path.normpath(root))
@@ -79,12 +104,13 @@ def _check_windows_device_namespace(raw: str) -> Optional[str]:
 
 
 def _check_forbidden_root(canonical_str: str) -> Optional[str]:
-    """Return ``"forbidden_root"`` if *canonical_str* is under a denied root."""
-    roots = (
-        _WINDOWS_FORBIDDEN_ROOTS if platform.system() == "Windows"
-        else _POSIX_FORBIDDEN_ROOTS
-    )
-    for root in roots:
+    """Return ``"forbidden_root"`` if *canonical_str* is under a denied root.
+
+    The denylist is computed dynamically per call so platform-specific
+    realpath aliases (e.g. macOS ``/etc`` -> ``/private/etc``) are
+    matched against the resolved input path.
+    """
+    for root in _resolved_forbidden_roots():
         if _is_under(canonical_str, root):
             return "forbidden_root"
     return None
