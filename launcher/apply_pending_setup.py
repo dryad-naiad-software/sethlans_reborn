@@ -33,11 +33,27 @@ DJANGO_SETTINGS_MODULE = "sethlans_manager.settings"
 
 
 def _manager_dir() -> Path:
-    """Return the manager source directory (contains ``manage.py``)."""
-    # When running from source, this file lives in launcher/ and the
-    # manager source is alongside it.  When frozen, sys.executable is
-    # the launcher binary; the manage.py wrapper lives in
-    # ``<install>/manager/manage.py``.
+    """Return the manager source directory (contains ``manage.py``).
+
+    Source mode: this file lives in ``launcher/`` and the manager
+    source is alongside it (``<project_root>/manager/``).
+
+    Frozen mode (PyInstaller): ``__file__`` resolves inside the
+    runtime extraction directory (e.g. ``_MEIxxx``) so the source-mode
+    relative path is wrong.  Defer to
+    :func:`shared.frozen_paths.get_manager_dir` which knows where the
+    bundled manager runtime lives (next to the frozen executable in
+    one-dir mode).
+    """
+    try:  # Source mode.
+        from shared.frozen_paths import get_manager_dir, is_frozen
+    except ImportError:  # pragma: no cover - defensive
+        from sethlans_manager.frozen_paths import (  # type: ignore[no-redef]
+            get_manager_dir,
+            is_frozen,
+        )
+    if is_frozen():
+        return get_manager_dir()
     here = Path(__file__).resolve().parent
     return here.parent / "manager"
 
@@ -65,6 +81,13 @@ def build_curated_env(manager_dir: Optional[Path] = None) -> dict:
 
     Drops everything from the launcher's environment except the bare
     minimum needed for a Django subprocess to start.
+
+    POSIX: ``HOME`` only (sufficient for ``~`` expansion + tempfile).
+    Windows: a small curated allowlist beyond ``SystemRoot`` because
+    stdlib operations (``tempfile``, subprocess fallback shell,
+    ``PATHEXT`` resolution, libs that read ``%APPDATA%``/``%USERPROFILE%``)
+    each require additional vars to function.  We still strip
+    everything else from the launcher's environment.
     """
     if manager_dir is None:
         manager_dir = _manager_dir()
@@ -75,6 +98,17 @@ def build_curated_env(manager_dir: Optional[Path] = None) -> dict:
     }
     if platform.system() == "Windows":
         env["SystemRoot"] = os.environ.get("SystemRoot", r"C:\Windows")
+        env["USERPROFILE"] = os.environ.get("USERPROFILE", "")
+        env["LOCALAPPDATA"] = os.environ.get("LOCALAPPDATA", "")
+        env["APPDATA"] = os.environ.get("APPDATA", "")
+        env["TEMP"] = os.environ.get("TEMP", "")
+        env["TMP"] = os.environ.get("TMP", "")
+        env["COMSPEC"] = os.environ.get(
+            "COMSPEC", r"C:\Windows\system32\cmd.exe",
+        )
+        env["PATHEXT"] = os.environ.get(
+            "PATHEXT", ".COM;.EXE;.BAT;.CMD",
+        )
     else:
         env["HOME"] = os.environ.get("HOME", "/")
     return env

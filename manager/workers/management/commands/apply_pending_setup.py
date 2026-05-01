@@ -21,34 +21,33 @@ import logging
 import os
 from pathlib import Path
 
-from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
-from django.db import IntegrityError, transaction
 
+from workers.management.commands.apply_pending_setup_db import (
+    apply_atomic,
+    scrub_payload_password,
+)
 from workers.management.commands.apply_pending_setup_helpers import (
     PENDING_SETUP_FILENAME,
     PROGRESS_FILENAME,
-    AdminCreateError,
-    EnrollmentKeyError,
     PendingSetupError,
     PendingSetupGuardError,
     SentinelError,
     acquire_apply_lock,
-    apply_filesystem_trust,
     best_effort_unlink,
     emit_stderr_and_exit,
     is_pending_stale,
     post_apply_self_check,
     read_pending_setup,
     reread_password,
+    rerun_self_check_for_recovery,
     schema_version_supported,
+)
+from workers.management.commands.apply_pending_setup_trust import (
+    apply_filesystem_trust,
 )
 
 logger = logging.getLogger(__name__)
-
-User = get_user_model()
 
 
 def _validate_data_dir(value: str) -> Path:
@@ -126,7 +125,17 @@ class Command(BaseCommand):
             return
 
         payload = self._read_and_gate(pending_path)
-        self._apply_payload(payload, data_dir, pending_path, progress_path)
+        try:
+            self._apply_payload(
+                payload, data_dir, pending_path, progress_path,
+            )
+        finally:
+            # Spec 2 security LOW (review 6688ada): belt-and-suspenders.
+            # _apply_payload's finally already mutates the dict in
+            # place to scrub password_plaintext; here we also clear
+            # this frame's reference so the dict is collectable.
+            payload = None
+            del payload
 
     def _handle_recovery_branches(
         self,
@@ -136,9 +145,15 @@ class Command(BaseCommand):
     ) -> bool:
         """FR-APPLY5: return True when the run is a no-op recovery."""
         if sentinel_path.exists() and pending_path.exists():
+            # Spec 2 django/API LOW (review 6688ada): a previous apply
+            # wrote the sentinel and failed BEFORE unlinking pending —
+            # the likely failure point is the post-apply self-check.
+            # Re-run it before declaring recovery successful.
             logger.info(
-                "apply already complete; cleaning stale pending file",
+                "apply previously crashed between sentinel write and "
+                "pending unlink; re-running self-check",
             )
+            rerun_self_check_for_recovery(pending_path)
             best_effort_unlink(pending_path)
             best_effort_unlink(progress_path)
             return True
@@ -183,8 +198,13 @@ class Command(BaseCommand):
         auto_enroll = bool(payload.get("auto_enroll_local_worker", False))
 
         try:
-            self._apply_atomic(username, email, password)
+            apply_atomic(username, email, password)
         finally:
+            # Spec 2 security LOW (review 6688ada): in-place dict scrub
+            # so other frames still referencing this payload (notably
+            # ``_run``) see ``password_plaintext = None``.  Then clear
+            # this frame's locals.
+            scrub_payload_password(payload)
             admin = None
             payload = None
             del admin
@@ -218,81 +238,3 @@ class Command(BaseCommand):
 
         best_effort_unlink(pending_path)
         best_effort_unlink(progress_path)
-
-    # ---- Steps 1-3 (atomic) ----------------------------------------------
-
-    def _apply_atomic(
-        self, username: str, email: str, password: str,
-    ) -> None:
-        """FR-APPLY2 steps 1-3 inside a single ``transaction.atomic``.
-
-        Concurrency invariant (Spec 2 LOW): DB-mutating steps MUST run
-        inside ``atomic()``; ``emit_stderr_and_exit`` uses ``os._exit``
-        which skips ``finally`` — only ``atomic()`` rollback during
-        unwind keeps state consistent.
-        """
-        try:
-            with transaction.atomic():
-                # Step 1 — defensive password validation.
-                try:
-                    validate_password(password)
-                except ValidationError as exc:
-                    raise AdminCreateError(
-                        f"password validation failed for "
-                        f"username={username!r}: {exc.messages}",
-                    ) from None
-                # Step 2 — create superuser (idempotent on duplicate).
-                self._create_superuser(username, email, password)
-                # Step 3 — enrollment key (idempotent).
-                self._ensure_enrollment_key()
-        except (AdminCreateError, EnrollmentKeyError):
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise AdminCreateError(
-                f"atomic apply failed: {exc.__class__.__name__}",
-            ) from None
-
-    def _create_superuser(
-        self, username: str, email: str, password: str,
-    ) -> None:
-        try:
-            User.objects.create_superuser(
-                username=username, email=email, password=password,
-            )
-        except IntegrityError:
-            # FR-APPLY2 step 2 — idempotent on existing username.
-            logger.warning(
-                "superuser %r already exists; skipping creation",
-                username,
-            )
-            return
-        except ValidationError as exc:
-            raise AdminCreateError(
-                f"create_superuser validation: {exc.messages}",
-            ) from None
-        except Exception as exc:  # noqa: BLE001
-            raise AdminCreateError(
-                f"create_superuser failed for username={username!r}: "
-                f"{exc.__class__.__name__}",
-            ) from None
-        else:
-            logger.info("superuser %r created", username)
-
-    def _ensure_enrollment_key(self) -> None:
-        """FR-APPLY2 step 3 — get-or-create singleton, ensure key set."""
-        from workers import enrollment_key as ek
-        from workers.models import ManagerSettings
-        try:
-            row, created = ManagerSettings.objects.get_or_create(pk=1)
-            if created or not row.enrollment_key:
-                row.enrollment_key = ek.generate_key()
-                row.save(update_fields=[
-                    "enrollment_key", "enrollment_key_updated_at",
-                ])
-                logger.info("enrollment key generated/persisted")
-            else:
-                logger.info("enrollment key already present; reusing")
-        except Exception as exc:  # noqa: BLE001
-            raise EnrollmentKeyError(
-                f"ensure_enrollment_key: {exc.__class__.__name__}",
-            ) from None

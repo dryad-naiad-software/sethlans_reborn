@@ -150,6 +150,101 @@ class TestHelpers:
             helpers.read_pending_setup(target)
 
 
+# ---- Fix 3: in-place payload scrub (Spec 2 security LOW, 6688ada) --------
+
+class TestPayloadScrub:
+    """``scrub_payload_password`` mutates the dict so all referrers see None."""
+
+    def test_scrub_clears_password_in_place(self):
+        from workers.management.commands.apply_pending_setup_db import (
+            scrub_payload_password,
+        )
+        payload = {
+            "admin_user": {
+                "username": "alice",
+                "password_plaintext": STRONG_PASSWORD,
+            },
+        }
+        # Hold an aliased reference to assert in-place mutation.
+        alias = payload
+        scrub_payload_password(payload)
+        assert alias["admin_user"]["password_plaintext"] is None
+
+    def test_scrub_handles_missing_admin_user(self):
+        """Defensive: payload without admin_user must not raise."""
+        from workers.management.commands.apply_pending_setup_db import (
+            scrub_payload_password,
+        )
+        scrub_payload_password({})
+        scrub_payload_password({"admin_user": None})
+
+    def test_scrub_handles_non_dict(self):
+        """Defensive: scrub on a non-dict payload silently no-ops."""
+        from workers.management.commands.apply_pending_setup_db import (
+            scrub_payload_password,
+        )
+        scrub_payload_password(None)
+        scrub_payload_password("not a dict")
+
+
+@pytest.mark.django_db
+class TestRunPayloadScrubbed:
+    """End-to-end: after _run, the payload dict's password is cleared."""
+
+    def test_apply_payload_scrubs_caller_dict(self, tmp_path, mocker):
+        """Calling _apply_payload directly: caller's dict is mutated in place.
+
+        The caller (``_run``) keeps a reference to the same dict that
+        ``_apply_payload`` receives.  The fix's in-place scrub must
+        ensure the caller's view of the dict has the password cleared
+        once apply returns.
+        """
+        from workers.management.commands.apply_pending_setup import Command
+
+        _write_pending(tmp_path, username="ivy", password=STRONG_PASSWORD)
+        # Build the payload dict the way _read_and_gate would.
+        cmd = Command()
+        pending_path = tmp_path / "pending_setup.json"
+        progress_path = tmp_path / ".setup_progress.json"
+        payload = cmd._read_and_gate(pending_path)
+        # Sanity: password is present before apply.
+        assert (
+            payload["admin_user"]["password_plaintext"] == STRONG_PASSWORD
+        )
+        cmd._apply_payload(payload, tmp_path, pending_path, progress_path)
+        # In-place scrub: caller's dict now has None for the password.
+        assert payload["admin_user"]["password_plaintext"] is None
+
+    def test_apply_payload_scrubs_even_on_failure(
+        self, tmp_path, mocker,
+    ):
+        """If apply_atomic raises, the in-place scrub still fires."""
+        from workers.management.commands import apply_pending_setup_db
+        from workers.management.commands.apply_pending_setup import Command
+        from workers.management.commands.apply_pending_setup_helpers import (
+            AdminCreateError,
+        )
+
+        _write_pending(tmp_path, username="jack", password=STRONG_PASSWORD)
+        # Force apply_atomic to raise so we exercise the finally path.
+        mocker.patch.object(
+            apply_pending_setup_db, "apply_atomic",
+            side_effect=AdminCreateError("forced"),
+        )
+        # Also patch the import binding inside the command module.
+        mocker.patch(
+            "workers.management.commands.apply_pending_setup.apply_atomic",
+            side_effect=AdminCreateError("forced"),
+        )
+        cmd = Command()
+        pending_path = tmp_path / "pending_setup.json"
+        progress_path = tmp_path / ".setup_progress.json"
+        payload = cmd._read_and_gate(pending_path)
+        with pytest.raises(AdminCreateError):
+            cmd._apply_payload(payload, tmp_path, pending_path, progress_path)
+        assert payload["admin_user"]["password_plaintext"] is None
+
+
 # ---- emit_stderr_and_exit ------------------------------------------------
 
 class TestEmitStderrAndExit:

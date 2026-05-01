@@ -74,10 +74,9 @@ class _LockHandle:
 def acquire_apply_lock(data_dir: Path) -> Optional[_LockHandle]:
     """Acquire ``<data_dir>/.apply.lock`` (FR-APPLY1a).
 
-    Returns the handle on success; ``None`` if another process holds
-    it.  POSIX uses ``fcntl.flock(LOCK_EX|LOCK_NB)``, Windows uses
-    ``msvcrt.locking(LK_NBLCK, 1)``.  The fd is NEVER closed by
-    callers; process exit releases the OS lock.
+    Returns the handle on success; ``None`` if another process holds it.
+    POSIX uses ``fcntl.flock`` LOCK_EX|LOCK_NB, Windows uses
+    ``msvcrt.locking`` LK_NBLCK. fd is never closed by callers.
     """
     lock_path = Path(data_dir) / APPLY_LOCK_FILENAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,60 +151,6 @@ def best_effort_unlink(path: Path) -> None:
         logger.warning("Could not unlink %s: %s", path, exc)
 
 
-# ---- Filesystem-trust enrollment (FR-APPLY2 step 4) -----------------------
-
-def prime_runtime_state_for_auto_enroll() -> None:
-    """Populate ``runtime_state`` so ``auto_enroll_local_worker`` works.
-
-    Reads manager_id from the DB and the cert fingerprint from on-disk
-    TLS material (generated on first call). The apply subprocess does
-    not boot through ``run_manager.py``, so both start as ``None``.
-
-    Invariant (Spec 2 security MED, res. A): ``dev_mode=False`` is
-    correct. The launcher has no ``--dev`` flag and is the only caller
-    of this subprocess; dev mode is a ``run_manager.py --dev`` path
-    handled by ``_dispatch_dev_mode`` and never invokes apply. Adding
-    dev plumbing would require widening the FR-APPLY-INVOKE allowlist
-    (currently ``--data-dir`` only).
-    """
-    from django.conf import settings as dj_settings
-    from sethlans_manager import runtime_state
-    from sethlans_manager.cert_utils import get_cert_fingerprint
-    from sethlans_manager.tls_setup import setup_certificates
-    from workers.models import ManagerSettings
-
-    if runtime_state.manager_id is None:
-        runtime_state.manager_id = ManagerSettings.objects.get(pk=1).manager_id
-    if runtime_state.cert_fingerprint is None:
-        manager_dir = Path(dj_settings.BASE_DIR)
-        _, _, cert = setup_certificates(
-            dev_mode=False,  # see invariant in docstring above
-            manager_dir=manager_dir,
-            project_root=manager_dir.parent,
-        )
-        runtime_state.cert_fingerprint = get_cert_fingerprint(cert)
-
-
-def apply_filesystem_trust() -> None:
-    """FR-APPLY2 step 4 — write the co-located worker's config.json."""
-    from workers.services import auto_enroll, filesystem_trust
-    try:
-        prime_runtime_state_for_auto_enroll()
-        envelope = auto_enroll.auto_enroll_local_worker()
-        filesystem_trust.write_worker_config(
-            config_path=filesystem_trust.get_worker_config_path(),
-            api_token=envelope["api_token"],
-            cert_fingerprint=envelope["cert_fingerprint"],
-            manager_url=envelope["manager_url"],
-            manager_id=envelope["manager_id"],
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise FilesystemTrustError(
-            f"filesystem trust enrollment failed: "
-            f"{exc.__class__.__name__}",
-        ) from None
-
-
 # ---- Self-check (FR-APPLY3) ------------------------------------------------
 
 def post_apply_self_check(
@@ -256,15 +201,31 @@ def reread_password(pending_path: Path) -> Optional[str]:
     return admin.get("password_plaintext")
 
 
+def rerun_self_check_for_recovery(pending_path: Path) -> None:
+    """Re-run post-apply self-check during sentinel+pending recovery.
+
+    Spec 2 django/API LOW (review 6688ada): the old recovery branch
+    silently masked a previously-failed self-check; re-run it so
+    :class:`SelfCheckError` can propagate (command exits 2).
+    """
+    check_password = reread_password(pending_path)
+    try:
+        payload = read_pending_setup(pending_path)
+        username = (payload.get("admin_user") or {}).get("username", "")
+        post_apply_self_check(username, check_password)
+    finally:
+        check_password = None
+        del check_password
+
+
 # ---- Stderr emission (FR-APPLY-LOG1) --------------------------------------
 
 def emit_stderr_and_exit(message: str, code: int) -> None:
-    """Write *message* to stderr; ``os._exit(code)`` (bypasses traceback printer).
+    """Write *message* to stderr then ``os._exit(code)``.
 
-    Concurrency invariant (Spec 2 LOW): ``os._exit`` skips ``finally``
-    and transaction rollbacks — DB-mutating steps MUST run inside
-    ``transaction.atomic()`` so the rollback fires during exception
-    unwind. See ``_apply_atomic`` in ``apply_pending_setup``.
+    Spec 2 LOW invariant: ``os._exit`` skips ``finally`` and
+    ``transaction.atomic`` rollbacks; DB-mutating steps MUST run
+    inside ``atomic()`` (see ``apply_pending_setup_db.apply_atomic``).
     """
     sys.stderr.write(message)
     if not message.endswith("\n"):
@@ -288,13 +249,12 @@ __all__ = [
     "SentinelError",
     "_LockHandle",
     "acquire_apply_lock",
-    "apply_filesystem_trust",
     "best_effort_unlink",
     "emit_stderr_and_exit",
     "is_pending_stale",
     "post_apply_self_check",
-    "prime_runtime_state_for_auto_enroll",
     "read_pending_setup",
     "reread_password",
+    "rerun_self_check_for_recovery",
     "schema_version_supported",
 ]
