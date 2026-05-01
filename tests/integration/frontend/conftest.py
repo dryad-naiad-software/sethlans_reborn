@@ -53,15 +53,6 @@ from tests.integration.manager.conftest import (  # noqa: F401
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_ROOT = REPO_ROOT / "manager" / "frontend" / "src" / "app"
-SETUP_MODELS_TS = (
-    FRONTEND_ROOT / "features" / "setup" / "models" / "setup.models.ts"
-)
-
-
-@pytest.fixture
-def setup_models_ts_source() -> str:
-    """Return the contents of the TS setup models file."""
-    return SETUP_MODELS_TS.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------

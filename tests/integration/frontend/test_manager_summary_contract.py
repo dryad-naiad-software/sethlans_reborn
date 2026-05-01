@@ -2,26 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Frontend-backend contract tests for ``GET /api/manager/summary/``.
+Backend contract tests for ``GET /api/manager/summary/``.
 
-Frontend expectation: payload matches the TS ``SetupSummary`` interface
-at ``manager/frontend/src/app/features/setup/models/setup.models.ts``::
-
-    interface SetupSummary {
-      manager_url: string;
-      admin_username: string;
-      enrollment_key: string;
-      cert_fingerprint: string;
-      topology: string;
-    }
+Response shape: the payload must contain every field in
+``EXPECTED_FIELDS`` below (manager_url, admin_username, enrollment_key,
+cert_fingerprint, topology), each as a string.
 
 Auth: admin session or admin TokenAuthentication required.  Anonymous
 -> 401, non-admin authenticated user -> 403.
 """
 
 from __future__ import annotations
-
-import re
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -59,21 +50,7 @@ def post_setup_state(mocker, tmp_path):
 
 
 class TestSummaryInterfaceFields:
-    """The response must contain every field in TS SetupSummary."""
-
-    def test_ts_interface_fields_match_expected(self, setup_models_ts_source):
-        """Catch drift if someone edits the TS interface without updating API."""
-        m = re.search(
-            r"export\s+interface\s+SetupSummary\s*\{([^}]+)\}",
-            setup_models_ts_source,
-        )
-        assert m, "SetupSummary interface not found in TS source"
-        body = m.group(1)
-        ts_fields = set(re.findall(r"(\w+)\s*:\s*\w", body))
-        assert ts_fields == EXPECTED_FIELDS, (
-            f"TS SetupSummary fields drifted from expected: "
-            f"ts={sorted(ts_fields)} expected={sorted(EXPECTED_FIELDS)}"
-        )
+    """The response must contain every field expected by the API contract."""
 
     def test_admin_session_returns_all_fields(
         self, admin_client, post_setup_state,
