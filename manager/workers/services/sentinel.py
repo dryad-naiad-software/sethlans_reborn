@@ -136,9 +136,10 @@ def is_setup_complete(data_dir: Path) -> bool:
 
     A sentinel with a missing/null ``completed_at`` is a mid-wizard
     checkpoint record (written by :func:`append_checkpoint`) and must
-    NOT be treated as "complete".  This keeps this helper in agreement
-    with ``SetupGateMiddleware._check_sentinel``, which also gates on
-    a truthy ``completed_at``.
+    NOT be treated as "complete".  Setup-mode no longer relies on a
+    request-time middleware gate; the ``apply_pending_setup`` command
+    is the sole writer that flips this to "complete" by setting a
+    truthy ``completed_at``.
     """
     data = read_sentinel(data_dir)
     return data is not None and bool(data.get("completed_at"))
