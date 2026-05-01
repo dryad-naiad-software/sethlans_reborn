@@ -22,11 +22,15 @@ What it verifies:
      ``_internal/django_extensions/``.
 
   2. NF-4 / DEVOPS-MED-11 — bundle size. Asserts ``dist/wizard`` is
-     at most 85 MB. On overage, prints the top-10 largest files for
-     diagnosis without re-running the build. The 85 MB cap matches
-     the GitHub-hosted CI runner's heavier toolcache Python weight
+     at most 95 MB. On overage, prints the top-10 largest files for
+     diagnosis without re-running the build. The cap matches the
+     GitHub-hosted CI runner's heavier toolcache Python weight
      (libpython3.14 + cryptography Rust binding alone account for
-     ~44 MB on Linux); see issue #154.
+     ~44 MB on Linux); see issue #154. Raised 85→95 MB during the
+     wizard standalone migration (Spec 2) per the project's policy
+     of treating alpha-phase NF ceilings as elastic — see project
+     memory ``feedback_bundle_ceilings``. Trim is a post-development
+     pass.
 
   3. AC-B4 — spawn-and-poll smoke. Provisions a fresh tmpdir per run
      (DEVOPS-MED-9), writes ``.setup_token`` and ``.ipc_secret``,
@@ -87,7 +91,7 @@ from _wizard_smoke_helpers import (  # noqa: E402
 )
 
 FORBIDDEN_NAMES = ("django", "workers", "psycopg", "pymysql")
-SIZE_LIMIT_BYTES = 85 * 1024 * 1024
+SIZE_LIMIT_BYTES = 95 * 1024 * 1024
 STARTUP_BUDGET_SECONDS = 30
 WALL_CLOCK_BUDGET_SECONDS = 60
 PORT_FILE_POLL_TIMEOUT_SECONDS = 15
@@ -118,7 +122,7 @@ def check_bundle_introspection(bundle: pathlib.Path) -> bool:
 
 
 def check_bundle_size(bundle: pathlib.Path) -> bool:
-    """NF-4 / DEVOPS-MED-11: assert bundle <= 85 MB."""
+    """NF-4 / DEVOPS-MED-11: assert bundle <= 95 MB."""
     size = bundle_size_bytes(bundle)
     print(f"Wizard bundle size: {size} bytes (ceiling {SIZE_LIMIT_BYTES})")
     if size > SIZE_LIMIT_BYTES:

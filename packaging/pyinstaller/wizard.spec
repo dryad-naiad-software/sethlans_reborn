@@ -12,8 +12,8 @@ the worker — it is an independent process supervised by the launcher
 via the IPC contract in ``wizard/sethlans_wizard/ipc.py``.
 
 NF-4 SIZE GUIDANCE (alpha): the wizard one-dir bundle aims to stay
-small, but the original Spec 1 hard cap (25 → 30 → 35 → 85 MB) was
-relaxed in service of Phase 1+2 of the manager-flow migration spec
+small, but the original Spec 1 hard cap (25 → 30 → 35 → 85 → 95 MB)
+was relaxed in service of Phase 1+2 of the manager-flow migration spec
 (``setup-wizard-standalone-manager-migration.md``), which legitimately
 needs ``psycopg`` and ``pymysql`` for FR-M2-4 real DB-connect
 validation and ``requests`` for FR-M2-7 streamed FFmpeg downloads.
@@ -133,7 +133,7 @@ if FRONTEND_DIR.exists():
 # --- Excludes ---
 # The wizard is a standalone process. Explicitly exclude server-side
 # components so a stray transitive import does not bloat the bundle
-# past the NF-4 35 MB ceiling or pull in forbidden modules.
+# past the NF-4 95 MB ceiling or pull in forbidden modules.
 # AC-B2 (Phase C) verifies these absences via pathlib.rglob assertions.
 #
 # DEVOPS-HIGH-1 (Phase F3): explicitly exclude shared.tray and
