@@ -40,6 +40,13 @@ RUN pip install --no-cache-dir \
     -r /tmp/wizard-requirements.txt \
     -r /tmp/requirements-dev.txt
 
+# Install Playwright Chromium browser + system deps. Required by the Phase 2
+# wizard frontend integration tests (tests/integration/frontend/test_phase2_*),
+# which drive a real headless Chromium via pytest-playwright. Without this,
+# every test errors with "Executable doesn't exist at .../chrome-headless-shell".
+# `--with-deps` works because the base image is debian-bookworm (apt-based).
+RUN python -m playwright install --with-deps chromium
+
 # Pre-fetched by docker-test.yml (tools/fetch_caddy.py --multi-arch ...).
 # Placed at the path shared.frozen_paths.get_caddy_binary() resolves to
 # in source/dev mode (`${get_app_dir()}/.venv-build/caddy/caddy`), which
