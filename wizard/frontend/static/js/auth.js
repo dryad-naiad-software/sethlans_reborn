@@ -92,7 +92,13 @@ const scope = {
       setSessionToken(sessionToken);
       this.token = '';
       const next = await this._resolveResumeRoute(sessionToken);
-      window.history.replaceState({}, '', next);
+      // Issue #187 — call ``location.assign`` only. A prior
+      // ``history.replaceState`` here flipped the visible URL
+      // synchronously before the real navigation began, which let
+      // Playwright's ``wait_for_url`` return while ``/token`` was
+      // still mid-teardown. The next test step's ``page.goto`` then
+      // raced the in-flight ``location.assign`` and aborted with
+      // "navigation interrupted by another navigation".
       window.location.assign(next);
       return;
     }

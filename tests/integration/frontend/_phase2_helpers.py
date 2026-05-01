@@ -57,6 +57,11 @@ def enter_token(page, base_url: str, token: str, *, expect_url=None) -> None:
     else:
         target_url = target
     page.wait_for_url(target_url, timeout=5000)
+    # Issue #187 — wait for the destination page's load event before
+    # returning so the caller's next ``page.goto`` does not race the
+    # destination's still-pending mount-time scripts. Playwright sees
+    # an in-flight navigation as "interrupting" the next goto.
+    page.wait_for_load_state("load", timeout=5000)
 
 
 def wait_for_path(page, base_url: str, path: str, *, timeout: int = 5000) -> None:
