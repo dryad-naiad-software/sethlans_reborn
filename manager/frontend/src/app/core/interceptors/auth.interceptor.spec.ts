@@ -17,14 +17,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { authInterceptor } from './auth.interceptor';
 import { AuthService } from '../services/auth.service';
 
-function envelope(
-  code: string,
-  message = 'error',
-): { error: { code: string; message: string; details: Record<string, unknown> } } {
-  return { error: { code, message, details: {} } };
-}
-
-describe('authInterceptor — setup envelope routing', () => {
+describe('authInterceptor — generic auth error handling', () => {
   let http: HttpClient;
   let httpMock: HttpTestingController;
   let routerSpy: jasmine.SpyObj<Router> & { url: string };
@@ -54,77 +47,7 @@ describe('authInterceptor — setup envelope routing', () => {
 
   afterEach(() => httpMock.verify());
 
-  describe('setup_in_progress (403)', () => {
-    it('navigates to /setup with preserve when current URL is /dashboard', () => {
-      configure('/dashboard');
-      http.get('/api/projects/').subscribe({ error: () => {} });
-      const req = httpMock.expectOne('/api/projects/');
-      req.flush(envelope('setup_in_progress'), {
-        status: 403, statusText: 'Forbidden',
-      });
-      expect(routerSpy.navigate).toHaveBeenCalledOnceWith(
-        ['/setup'], { queryParamsHandling: 'preserve' },
-      );
-    });
-
-    it('does NOT navigate when already on /setup', () => {
-      configure('/setup');
-      http.get('/api/projects/').subscribe({ error: () => {} });
-      const req = httpMock.expectOne('/api/projects/');
-      req.flush(envelope('setup_in_progress'), {
-        status: 403, statusText: 'Forbidden',
-      });
-      expect(routerSpy.navigate).not.toHaveBeenCalled();
-    });
-
-    it('does NOT navigate on /setup with query params', () => {
-      configure('/setup?token=abc');
-      http.get('/api/projects/').subscribe({ error: () => {} });
-      const req = httpMock.expectOne('/api/projects/');
-      req.flush(envelope('setup_in_progress'), {
-        status: 403, statusText: 'Forbidden',
-      });
-      expect(routerSpy.navigate).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('setup_complete', () => {
-    it('navigates to /login on 404 with setup_complete code', () => {
-      configure('/dashboard');
-      http.get('/api/setup/status/').subscribe({ error: () => {} });
-      const req = httpMock.expectOne('/api/setup/status/');
-      req.flush(envelope('setup_complete'), {
-        status: 404, statusText: 'Not Found',
-      });
-      expect(routerSpy.navigate).toHaveBeenCalledOnceWith(['/login']);
-    });
-  });
-
-  describe('setup_session_conflict', () => {
-    it('navigates to /login on 409 setup_session_conflict', () => {
-      configure('/setup');
-      http.post('/api/setup/topology/', {}).subscribe({ error: () => {} });
-      const req = httpMock.expectOne('/api/setup/topology/');
-      req.flush(envelope('setup_session_conflict'), {
-        status: 409, statusText: 'Conflict',
-      });
-      expect(routerSpy.navigate).toHaveBeenCalledOnceWith(['/login']);
-    });
-  });
-
-  describe('invalid_token', () => {
-    it('does NOT navigate (handled inline by TokenEntryComponent)', () => {
-      configure('/dashboard');
-      http.get('/api/setup/bootstrap/').subscribe({ error: () => {} });
-      const req = httpMock.expectOne('/api/setup/bootstrap/');
-      req.flush(envelope('invalid_token'), {
-        status: 403, statusText: 'Forbidden',
-      });
-      expect(routerSpy.navigate).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('non-envelope errors', () => {
+  describe('401 handling', () => {
     it('redirects 401 on non-login URL to /login', () => {
       configure('/dashboard');
       http.get('/api/projects/').subscribe({ error: () => {} });
@@ -145,8 +68,10 @@ describe('authInterceptor — setup envelope routing', () => {
       });
       expect(routerSpy.navigate).not.toHaveBeenCalled();
     });
+  });
 
-    it('shows snackbar for 403 without envelope code', () => {
+  describe('403 handling', () => {
+    it('shows snackbar for 403 responses', () => {
       configure('/dashboard');
       http.get('/api/projects/').subscribe({ error: () => {} });
       const req = httpMock.expectOne('/api/projects/');
@@ -158,21 +83,8 @@ describe('authInterceptor — setup envelope routing', () => {
     });
   });
 
-  describe('503 behavior (legacy removed)', () => {
-    it('does NOT auto-redirect on 503 without envelope code', () => {
-      configure('/dashboard');
-      http.get('/api/projects/').subscribe({ error: () => {} });
-      const req = httpMock.expectOne('/api/projects/');
-      req.flush(
-        { detail: 'Setup not complete.' },
-        { status: 503, statusText: 'Service Unavailable' },
-      );
-      expect(routerSpy.navigate).not.toHaveBeenCalled();
-    });
-  });
-
   describe('pass-through for unexpected codes', () => {
-    it('does not navigate on 418 with no envelope', () => {
+    it('does not navigate on 418', () => {
       configure('/dashboard');
       http.get('/api/projects/').subscribe({ error: () => {} });
       const req = httpMock.expectOne('/api/projects/');
@@ -180,13 +92,85 @@ describe('authInterceptor — setup envelope routing', () => {
       expect(routerSpy.navigate).not.toHaveBeenCalled();
     });
 
-    it('does not navigate on 500 with no envelope', () => {
+    it('does not navigate on 500', () => {
       configure('/dashboard');
       http.get('/api/projects/').subscribe({ error: () => {} });
       const req = httpMock.expectOne('/api/projects/');
       req.flush({}, { status: 500, statusText: 'ISE' });
       expect(routerSpy.navigate).not.toHaveBeenCalled();
     });
+
+    it('does not auto-redirect on 503', () => {
+      configure('/dashboard');
+      http.get('/api/projects/').subscribe({ error: () => {} });
+      const req = httpMock.expectOne('/api/projects/');
+      req.flush(
+        { detail: 'Service unavailable' },
+        { status: 503, statusText: 'Service Unavailable' },
+      );
+      expect(routerSpy.navigate).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('authInterceptor — CSRF cookie attachment', () => {
+  let http: HttpClient;
+  let httpMock: HttpTestingController;
+  let cookieSpy: jasmine.Spy;
+  let originalCookieDescriptor: PropertyDescriptor | undefined;
+
+  function configure(cookieValue: string) {
+    originalCookieDescriptor = Object.getOwnPropertyDescriptor(
+      Document.prototype, 'cookie',
+    );
+    cookieSpy = jasmine.createSpy('cookieGet').and.returnValue(cookieValue);
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: cookieSpy,
+    });
+
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withInterceptors([authInterceptor])),
+        provideHttpClientTesting(),
+        { provide: Router, useValue: jasmine.createSpyObj('Router', ['navigate']) },
+        { provide: MatSnackBar, useValue: jasmine.createSpyObj('MatSnackBar', ['open']) },
+        { provide: AuthService, useValue: jasmine.createSpyObj('AuthService', ['setUnauthenticated']) },
+      ],
+    });
+    http = TestBed.inject(HttpClient);
+    httpMock = TestBed.inject(HttpTestingController);
+  }
+
+  afterEach(() => {
+    httpMock.verify();
+    if (originalCookieDescriptor) {
+      Object.defineProperty(document, 'cookie', originalCookieDescriptor);
+    }
+  });
+
+  it('attaches X-CSRFToken header for POST when csrftoken cookie present', () => {
+    configure('csrftoken=abc123');
+    http.post('/api/projects/', {}).subscribe();
+    const req = httpMock.expectOne('/api/projects/');
+    expect(req.request.headers.get('X-CSRFToken')).toBe('abc123');
+    req.flush({});
+  });
+
+  it('does NOT attach X-CSRFToken header for GET', () => {
+    configure('csrftoken=abc123');
+    http.get('/api/projects/').subscribe();
+    const req = httpMock.expectOne('/api/projects/');
+    expect(req.request.headers.get('X-CSRFToken')).toBeNull();
+    req.flush({});
+  });
+
+  it('omits X-CSRFToken for POST when cookie is absent', () => {
+    configure('');
+    http.post('/api/projects/', {}).subscribe();
+    const req = httpMock.expectOne('/api/projects/');
+    expect(req.request.headers.get('X-CSRFToken')).toBeNull();
+    req.flush({});
   });
 });
 
@@ -196,5 +180,11 @@ describe('authInterceptor FR-9 grep gate (no HTTP required)', () => {
     // that route. The interceptor must no longer mention the path.
     const source = authInterceptor.toString();
     expect(source).not.toMatch(/bootstrap-error/);
+  });
+
+  it('interceptor source does not reference setup envelope codes', () => {
+    // FR-DEL8b removed the setup-envelope branches entirely.
+    const source = authInterceptor.toString();
+    expect(source).not.toMatch(/setup_in_progress|setup_complete|setup_session_conflict/);
   });
 });

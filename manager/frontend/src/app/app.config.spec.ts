@@ -4,10 +4,10 @@
 
 import { TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
-import { initializeSetupCheck, appConfig } from './app.config';
+import { primeCsrfCookie, appConfig } from './app.config';
 import { AuthService } from './core/services/auth.service';
 
-describe('initializeSetupCheck (APP_INITIALIZER factory)', () => {
+describe('primeCsrfCookie (APP_INITIALIZER factory)', () => {
   let mockAuth: jasmine.SpyObj<AuthService>;
 
   beforeEach(() => {
@@ -18,11 +18,11 @@ describe('initializeSetupCheck (APP_INITIALIZER factory)', () => {
   });
 
   function run(): Promise<void> {
-    const factory = TestBed.runInInjectionContext(() => initializeSetupCheck());
+    const factory = TestBed.runInInjectionContext(() => primeCsrfCookie());
     return factory();
   }
 
-  it('resolves after CSRF token fetch succeeds', async () => {
+  it('primes CSRF by calling fetchCsrfToken on the AuthService', async () => {
     mockAuth.fetchCsrfToken.and.returnValue(of(void 0));
     await run();
     expect(mockAuth.fetchCsrfToken).toHaveBeenCalled();
@@ -35,7 +35,7 @@ describe('initializeSetupCheck (APP_INITIALIZER factory)', () => {
 });
 
 describe('appConfig providers', () => {
-  it('declares exactly one APP_INITIALIZER factory (initializeSetupCheck)', () => {
+  it('declares exactly one APP_INITIALIZER factory (primeCsrfCookie)', () => {
     // The prior URL-token bootstrap initializer is gone; the CSRF priming
     // initializer is the only factory registered.
     const source = appConfig.providers as unknown[];
@@ -48,7 +48,7 @@ describe('appConfig providers', () => {
     expect(initializerEntries.length).toBe(1);
   });
 
-  it('the single APP_INITIALIZER factory is initializeSetupCheck', () => {
+  it('the single APP_INITIALIZER factory is primeCsrfCookie', () => {
     const source = appConfig.providers as unknown[];
     const initializerEntries = source.filter(
       (p) =>
@@ -57,7 +57,7 @@ describe('appConfig providers', () => {
         (p as { useFactory?: unknown }).useFactory !== undefined,
     ) as { useFactory: unknown }[];
     expect(initializerEntries[0].useFactory).toBe(
-      initializeSetupCheck as unknown,
+      primeCsrfCookie as unknown,
     );
   });
 });

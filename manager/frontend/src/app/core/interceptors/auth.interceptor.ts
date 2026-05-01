@@ -8,7 +8,6 @@ import { Router } from '@angular/router';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { catchError, throwError } from 'rxjs';
 import { AuthService } from '../services/auth.service';
-import { SetupErrorEnvelope, SetupErrorCode } from '../models/error-envelope';
 
 function getCookie(name: string): string | null {
   const match = document.cookie.match(
@@ -19,16 +18,11 @@ function getCookie(name: string): string | null {
 
 const MUTATING_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
-function extractSetupErrorCode(error: HttpErrorResponse): SetupErrorCode | null {
-  const envelope = error.error as SetupErrorEnvelope | undefined;
-  return envelope?.error?.code ?? null;
-}
-
 /**
- * Attaches CSRF token and withCredentials to requests.
- * Handles 401 (redirect to login), 403 (snackbar), and setup-envelope error
- * codes (setup_in_progress → /setup, setup_complete/setup_session_conflict →
- * /login). invalid_token is handled inline by TokenEntryComponent, not here.
+ * Attaches the CSRF token (for mutating methods) and `withCredentials` to
+ * every outbound request, then translates auth-related error responses into
+ * UX side effects: 401 → redirect to /login (except for the login request
+ * itself), 403 → snackbar.
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
@@ -50,31 +44,11 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(modifiedReq).pipe(
     catchError((error: HttpErrorResponse) => {
-      const code = extractSetupErrorCode(error);
-      const currentPath = router.url.split('?')[0];
-
-      if (code === 'setup_in_progress') {
-        if (!currentPath.startsWith('/setup')) {
-          router.navigate(['/setup'], { queryParamsHandling: 'preserve' });
-        }
-        return throwError(() => error);
-      }
-
-      if (code === 'setup_complete' || code === 'setup_session_conflict') {
-        router.navigate(['/login']);
-        return throwError(() => error);
-      }
-
-      if (code === 'invalid_token') {
-        // TokenEntryComponent renders this inline. No-op here.
-        return throwError(() => error);
-      }
-
       if (error.status === 401 && !isLoginRequest) {
         authService.setUnauthenticated();
         router.navigate(['/login']);
       }
-      if (error.status === 403 && !code) {
+      if (error.status === 403) {
         snackBar.open('Permission denied', 'Dismiss', { duration: 5000 });
       }
       return throwError(() => error);

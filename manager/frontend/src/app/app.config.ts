@@ -22,13 +22,12 @@ import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { AuthService } from './core/services/auth.service';
 
 /**
- * Primes the CSRF cookie before the first mutating request. The setup
- * bootstrap POST itself is `@csrf_exempt` on the server, but every
- * downstream wizard mutation still requires a CSRF token — so the cookie
- * must be populated at app start. Must run whether or not setup is in
- * progress (errors are swallowed).
+ * Primes the CSRF cookie at app start so the first mutating request has
+ * a valid `csrftoken` cookie to copy into `X-CSRFToken`. Errors are
+ * swallowed — the resolver always resolves so app bootstrap is never
+ * blocked by a transient CSRF fetch failure.
  */
-export function initializeSetupCheck(): () => Promise<void> {
+export function primeCsrfCookie(): () => Promise<void> {
   const authService = inject(AuthService);
   return () =>
     new Promise<void>((resolve) => {
@@ -53,7 +52,7 @@ export const appConfig: ApplicationConfig = {
     provideAnimations(),
     {
       provide: APP_INITIALIZER,
-      useFactory: initializeSetupCheck,
+      useFactory: primeCsrfCookie,
       multi: true,
     },
   ],
