@@ -13,27 +13,6 @@ from rest_framework.authtoken.models import Token
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 
-class IsSetupPhaseUser(BasePermission):
-    """Grants access during the setup wizard via a session-bound flag.
-
-    Passes iff the Django session has ``setup_phase`` set True.  The
-    single-writer session_id binding (FR-4a / C3) is enforced separately
-    at the top of each mutating setup view via
-    ``workers.services.setup_session.enforce_setup_session_binding`` --
-    that helper raises ``SetupPhaseError`` so the unified exception
-    handler can render it as 409 ``setup_session_conflict`` instead of
-    the 403 that a False return from ``has_permission`` would produce.
-    """
-
-    message = "Setup-phase session required."
-
-    def has_permission(self, request, view):
-        session = getattr(request, "session", None)
-        if session is None:
-            return False
-        return session.get("setup_phase") is True
-
-
 class IsAdmin(BasePermission):
     """
     Grants access to authenticated staff users (admin via session auth).

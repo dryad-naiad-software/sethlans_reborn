@@ -150,21 +150,15 @@ class TestUrlconfOriginMiddlewareCall:
 
 
 class TestUrlconfOriginMiddlewareInstalledInSettings:
-    """Regression: the middleware is wired into ``MIDDLEWARE`` BEFORE
-    SetupGateMiddleware so that setup-gate sees the correct urlconf."""
+    """Regression: the middleware is wired into ``MIDDLEWARE``."""
 
-    def test_middleware_present_and_before_setup_gate(self):
+    def test_middleware_present(self):
         mw = list(settings.MIDDLEWARE)
         origin = (
             "sethlans_manager.middleware.urlconf_origin."
             "UrlconfOriginMiddleware"
         )
-        gate = (
-            "sethlans_manager.middleware.setup_gate.SetupGateMiddleware"
-        )
         assert origin in mw
-        assert gate in mw
-        assert mw.index(origin) < mw.index(gate)
 
     def test_x_forwarded_headers_disabled(self):
         """Header-injection defense — these must stay False so the

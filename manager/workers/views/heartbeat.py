@@ -28,7 +28,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from sethlans_manager.middleware.setup_gate import _get_data_dir
+from ..services.data_dir import get_manager_data_dir as _get_data_dir
 
 from ..models import SupportedBlenderVersion, Worker
 from ..serializers import WorkerSerializer

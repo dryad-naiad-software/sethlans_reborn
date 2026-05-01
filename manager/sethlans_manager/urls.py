@@ -34,9 +34,6 @@ urlpatterns = [
     # --- API documentation URLs ---
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-    # Setup wizard API — must precede the generic api/ include so
-    # /api/setup/ routes are matched before the DRF router catch-all.
-    path('api/setup/', include('workers.urls_setup')),
     path('api/', include('workers.urls')),
 
     # Always-on media file serving. This is appropriate because the app is a

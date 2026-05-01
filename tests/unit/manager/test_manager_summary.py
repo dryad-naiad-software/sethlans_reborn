@@ -25,14 +25,8 @@ SENTINEL_COMPLETE = {
 
 
 @pytest.fixture(autouse=True)
-def _setup_complete_gate(mocker, tmp_path):
-    """Simulate a post-setup manager (gate lets /api/manager/* through)."""
-    from sethlans_manager.middleware import setup_gate
-    setup_gate._setup_complete = True
-    mocker.patch.object(
-        setup_gate, "_check_sentinel", return_value=True,
-    )
-    # Also stub the summary view's data dir + sentinel.
+def _summary_view_state(mocker, tmp_path):
+    """Stub the summary view's data dir + sentinel for predictable output."""
     from workers.views import manager_summary as mod
     mocker.patch.object(mod, "_data_dir", return_value=tmp_path)
     mocker.patch.object(

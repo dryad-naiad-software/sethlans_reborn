@@ -44,11 +44,6 @@ EXPECTED_FIELDS = {
 def post_setup_state(mocker, tmp_path):
     """Drive the summary view into a post-setup, sentinel-present state."""
     from workers.views import manager_summary as mod
-    from sethlans_manager.middleware import setup_gate
-    setup_gate._setup_complete = True
-    mocker.patch.object(
-        setup_gate, "_check_sentinel", return_value=True,
-    )
     mocker.patch.object(mod, "_data_dir", return_value=tmp_path)
     mocker.patch.object(
         mod,

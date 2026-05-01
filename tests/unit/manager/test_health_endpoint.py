@@ -6,8 +6,7 @@ Unit tests for ``GET /api/health/`` (``manager/workers/views/health.py``).
 
 Health returns ``{boot_id, version}``.  ``boot_id`` matches
 ``runtime_state.manager_boot_id`` and is stable across requests in the
-same process.  The endpoint is anonymous and allowlisted by the setup
-gate (FR-14c / FR-15).
+same process.  The endpoint is anonymous (FR-14c / FR-15).
 """
 
 from __future__ import annotations
@@ -16,15 +15,6 @@ import pytest
 from rest_framework.test import APIClient
 
 pytestmark = pytest.mark.django_db
-
-
-@pytest.fixture(autouse=True)
-def _reset_setup_gate(mocker):
-    from sethlans_manager.middleware import setup_gate
-    setup_gate._setup_complete = False
-    mocker.patch.object(
-        setup_gate, "_check_sentinel", return_value=False,
-    )
 
 
 class TestHealthResponse:
@@ -53,11 +43,3 @@ class TestHealthResponse:
         first = client.get("/api/health/").json()["boot_id"]
         second = client.get("/api/health/").json()["boot_id"]
         assert first == second
-
-
-class TestHealthAllowedBySetupGate:
-    """FR-3: ``/api/health/`` is always allowlisted (setup incomplete)."""
-
-    def test_reachable_during_setup_incomplete(self):
-        resp = APIClient().get("/api/health/")
-        assert resp.status_code == 200

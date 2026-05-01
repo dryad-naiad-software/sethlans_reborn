@@ -194,20 +194,6 @@ class TestStatusPublicMainListener404:
             f"registered only in sethlans_manager.urls_loopback."
         )
 
-    def test_main_urlconf_ignores_during_setup(self, enter_setup_mode):
-        """During setup mode the setup gate is active — the 404 must
-        still be a plain 404 (no setup-mode envelope leakage)."""
-        resp = APIClient().get("/api/status/public/")
-        # Either plain 404 from URLconf OR the setup gate's
-        # setup_complete/setup_in_progress envelope — but NEVER a
-        # 200. The critical invariant is "not reachable on main".
-        assert resp.status_code in (403, 404), (
-            f"Main listener must not 200 on /api/status/public/; "
-            f"got {resp.status_code}"
-        )
-        assert resp.status_code != 200
-
-
 # Note: status_public response is consumed only by the Python tray
 # today; no TypeScript model exists for it. If the frontend ever grows
 # a tray-dashboard widget that hits this payload, add a TS interface

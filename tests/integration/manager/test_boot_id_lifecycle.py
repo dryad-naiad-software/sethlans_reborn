@@ -7,7 +7,7 @@ Boot_id lifecycle integration (FR-14c).
 ``GET /api/health/`` returns ``manager_boot_id``:
  * same value across two requests in the same process
  * rotates when ``runtime_state`` is reloaded
- * endpoint is reachable during setup mode AND post-setup
+ * endpoint is reachable on every manager process
 """
 
 from __future__ import annotations
@@ -18,22 +18,6 @@ import pytest
 from django.test import Client
 
 from sethlans_manager import runtime_state
-
-from tests.integration.manager._setup_helpers import (
-    enter_setup_mode,
-    exit_setup_mode,
-    patch_data_dir,
-    reset_rate_limiter,
-)
-
-
-@pytest.fixture
-def setup_env(mocker, tmp_path):
-    enter_setup_mode(mocker)
-    reset_rate_limiter(mocker)
-    data_dir = patch_data_dir(mocker, tmp_path)
-    yield data_dir
-    exit_setup_mode()
 
 
 @pytest.mark.django_db
@@ -65,13 +49,7 @@ class TestBootIdLifecycle:
         finally:
             runtime_state.manager_boot_id = prev
 
-    def test_health_reachable_during_setup(self, setup_env):
-        client = Client()
-        resp = client.get("/api/health/")
-        assert resp.status_code == 200
-
-    def test_health_reachable_post_setup(self):
-        # Default autouse fixture keeps gate in setup-complete mode.
+    def test_health_reachable(self):
         client = Client()
         resp = client.get("/api/health/")
         assert resp.status_code == 200

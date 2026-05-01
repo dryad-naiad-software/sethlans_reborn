@@ -156,7 +156,6 @@ class TestNoAsyncioEventLoopCallsInWaitressPath:
 
     _AUDITED_FILES = (
         "manager/workers/views/status_public.py",
-        "manager/sethlans_manager/middleware/setup_gate.py",
         "manager/workers/services/sentinel.py",
         "shared/frozen_paths.py",
     )

@@ -2,17 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Management command to bootstrap authentication: create admin user,
-generate SECRET_KEY, generate enrollment key, and write manager.ini.
+Management command to bootstrap authentication for headless / CI installs:
+create the admin superuser and ensure an enrollment key exists in the
+``ManagerSettings`` DB row.
 
-The interactive prompts stay in this command; the underlying logic is
-delegated to ``workers.services.setup`` so it can be shared with the
-setup wizard REST endpoints.
+This is the non-browser counterpart to the standalone setup wizard.  Per
+Spec 2 FR-DEL7 the command is retained as the sole headless / CI
+bootstrap path; the wizard now owns ``manager.ini`` writes
+(FR-M2-INI), SECRET_KEY generation (handled by the launcher's
+``_bootstrap_first_run``), worker UI password hashing (FR-M2-6), and
+DB validation (FR-M2-4), so this command no longer touches any of those.
 """
 
 import getpass
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
@@ -22,8 +25,6 @@ from workers import enrollment_key as ek
 from workers.services.setup import (
     create_admin_user,
     generate_enrollment_key,
-    generate_secret_key,
-    write_manager_ini,
 )
 
 User = get_user_model()
@@ -31,13 +32,14 @@ User = get_user_model()
 
 class Command(BaseCommand):
     help = (
-        'Set up authentication: create admin user, generate '
-        'SECRET_KEY and enrollment key, write manager.ini.'
+        'Set up authentication for headless installs: create admin '
+        'superuser and ensure an enrollment key exists.'
     )
 
     def handle(self, *args, **options):
         self._create_admin_user()
-        self._write_config()
+        new_ek = self._ensure_enrollment_key()
+        self._announce(new_ek)
 
     def _create_admin_user(self):
         """Create an admin superuser if none exists."""
@@ -78,38 +80,11 @@ class Command(BaseCommand):
             self.style.SUCCESS(f'Superuser "{username}" created.')
         )
 
-    def _write_config(self):
-        """Generate keys and write them to manager.ini."""
-        ini_path = settings.BASE_DIR / 'manager.ini'
+    def _ensure_enrollment_key(self) -> str:
+        """Idempotent: create the singleton key only if absent.
 
-        # Determine what config updates to make.
-        updates = {}
-
-        # SECRET_KEY
-        existing_key = settings.SECRET_KEY
-        insecure_default = existing_key.startswith('django-insecure-')
-        if not insecure_default:
-            answer = input(
-                'SECRET_KEY already set. '
-                'Overwrite? [y/N]: '
-            ).strip().lower()
-            if answer == 'y':
-                updates['security.secret_key'] = (
-                    generate_secret_key()
-                )
-                self.stdout.write(
-                    self.style.SUCCESS('SECRET_KEY regenerated.')
-                )
-            else:
-                self.stdout.write('Keeping existing SECRET_KEY.')
-        else:
-            updates['security.secret_key'] = generate_secret_key()
-            self.stdout.write(
-                self.style.SUCCESS('SECRET_KEY generated.')
-            )
-
-        # Enrollment key — now uses Crockford base32 via the shared
-        # service, stored in the ManagerSettings DB row (not ini).
+        Returns the canonical key string (existing or freshly generated).
+        """
         from workers.models import ManagerSettings
         try:
             row = ManagerSettings.objects.get(pk=1)
@@ -123,28 +98,21 @@ class Command(BaseCommand):
                 'Overwrite? [y/N]: '
             ).strip().lower()
             if answer == 'y':
-                new_ek = generate_enrollment_key()
                 self.stdout.write(
                     self.style.SUCCESS(
                         'Enrollment key regenerated.'
                     )
                 )
-            else:
-                new_ek = existing_ek
-                self.stdout.write(
-                    'Keeping existing enrollment key.'
-                )
-        else:
-            new_ek = generate_enrollment_key()
+                return generate_enrollment_key()
+            self.stdout.write(
+                'Keeping existing enrollment key.'
+            )
+            return existing_ek
+        return generate_enrollment_key()
 
-        # DEBUG=False
-        updates['security.debug'] = 'false'
-
-        write_manager_ini(updates, ini_path)
-
+    def _announce(self, new_ek: str) -> None:
+        """Print the enrollment key for the operator to copy."""
         display_key = ek.format_display(new_ek)
-        self.stdout.write('')
-        self.stdout.write(self.style.SUCCESS('manager.ini updated.'))
         self.stdout.write('')
         self.stdout.write(
             'Enrollment key (provide this to each worker '

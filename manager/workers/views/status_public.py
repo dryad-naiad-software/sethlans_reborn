@@ -34,7 +34,7 @@ from rest_framework.response import Response
 
 from sethlans_manager import __version__ as _MANAGER_VERSION
 from sethlans_manager import runtime_state
-from sethlans_manager.middleware.setup_gate import _get_data_dir
+from workers.services.data_dir import get_manager_data_dir as _get_data_dir
 from workers.models import Job, Worker
 from workers.services.sentinel import is_setup_mode
 
