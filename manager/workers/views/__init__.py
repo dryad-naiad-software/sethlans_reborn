@@ -21,7 +21,6 @@ from .auth import (
 from .enroll import enroll_view
 from .health import health_view
 from .shutdown import shutdown_view
-from .system_info import system_info_view
 from .ffmpeg_status import FFmpegStatusView
 
 __all__ = [
@@ -42,6 +41,5 @@ __all__ = [
     "enroll_view",
     "health_view",
     "shutdown_view",
-    "system_info_view",
     "FFmpegStatusView",
 ]

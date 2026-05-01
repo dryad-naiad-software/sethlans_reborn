@@ -174,26 +174,87 @@ class TestVideoSettingsImmutability:
         # Spec wizard-ffmpeg-rewrite FR §137: closed-vocabulary code.
         assert 'video_settings_immutable' in str(patch_resp.data)
 
+    def test_patch_with_preset_only_payload_succeeds_when_unchanged(
+        self, admin_client, animation_payload,
+    ):
+        """Regression: a no-op PATCH that round-trips the persisted
+        video_settings must NOT trip the immutability rejection.
+
+        Pre-fix bug: the immutability check ran BEFORE preset
+        expansion, so the raw incoming dict
+        ``{"preset": "web_h264", "framerate": 24}`` compared unequal
+        to the stored expanded dict
+        ``{"preset": "web_h264", "framerate": 24, "container": "mp4",
+        "codec": "libx264", "crf": 23}`` and the PATCH was rejected
+        even though it was a no-op.  Post-fix: expansion runs first,
+        so the expanded incoming dict matches the stored dict and the
+        check is a true equality test.
+        """
+        animation_payload['video_settings'] = {
+            'preset': 'web_h264',
+            'framerate': 24,
+        }
+        create_resp = admin_client.post(
+            '/api/animations/', animation_payload, format='json',
+        )
+        assert create_resp.status_code == 201
+        anim_id = create_resp.data['id']
+
+        # Re-PATCH with the same preset-only payload (no expanded
+        # fields).  After preset expansion this matches what's stored.
+        patch_resp = admin_client.patch(
+            f'/api/animations/{anim_id}/',
+            {'video_settings': {'preset': 'web_h264', 'framerate': 24}},
+            format='json',
+        )
+        assert patch_resp.status_code == 200, patch_resp.data
+
+    def test_patch_immutability_error_propagates_code(
+        self, admin_client, animation_payload,
+    ):
+        """Regression: spec FR §131 — the closed-vocab ``code`` must be
+        on the leaf ErrorDetail so non-frontend API consumers can
+        introspect it via ``response.data['video_settings'][0].code``.
+
+        Pre-fix bug: ``ValidationError(detail=dict, code=...)`` silently
+        dropped the ``code`` kwarg; leaves were tagged with the default
+        ``'invalid'``.  Post-fix: we construct ErrorDetail explicitly.
+        """
+        animation_payload['video_settings'] = {
+            'preset': 'web_h264',
+            'framerate': 24,
+        }
+        create_resp = admin_client.post(
+            '/api/animations/', animation_payload, format='json',
+        )
+        anim_id = create_resp.data['id']
+
+        patch_resp = admin_client.patch(
+            f'/api/animations/{anim_id}/',
+            {'video_settings': {'preset': 'hq_h265', 'framerate': 30}},
+            format='json',
+        )
+        assert patch_resp.status_code == 400
+        leaf = patch_resp.data['video_settings'][0]
+        # Literal-string fallback (frontend match path).
+        assert str(leaf) == 'video_settings_immutable'
+        # Code propagation (mobile / CLI / integration consumer path).
+        assert getattr(leaf, 'code', None) == 'video_settings_immutable'
+
 
 class TestSystemInfoEndpoint:
     """Tests for GET /api/system-info/.
 
-    The legacy ``ffmpeg_available`` field has moved to
-    ``GET /api/ffmpeg-status/`` (spec wizard-ffmpeg-rewrite FR §114-122).
-    /api/system-info/ now returns an empty body for staff callers.
+    The endpoint was removed entirely after the legacy
+    ``ffmpeg_available`` field migrated to ``GET /api/ffmpeg-status/``
+    (spec wizard-ffmpeg-rewrite FR §114-122).  Frontend's
+    ``SystemInfoService`` was deleted in commit 2799d96; no callers
+    remain.
     """
 
-    def test_returns_empty_body(self, admin_client):
+    def test_url_is_removed(self, admin_client):
         resp = admin_client.get('/api/system-info/')
-        assert resp.status_code == 200
-        # ffmpeg_available has been removed from this endpoint.
-        assert 'ffmpeg_available' not in resp.data
-
-    def test_requires_auth(self, db):
-        from rest_framework.test import APIClient
-        anon_client = APIClient()
-        resp = anon_client.get('/api/system-info/')
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 404
 
 
 class TestRetryVideoAction:
@@ -420,3 +481,111 @@ class TestStartupRecovery:
 
         anim = Animation.objects.get(pk=anim_id)
         assert anim.video_status == 'DONE'
+
+
+class TestTiledAnimationVideoTrigger:
+    """Spec FR §141 — video assembly trigger MUST fire for tiled
+    animations once all frames complete.
+
+    The trigger lives in two places:
+      * ``handle_job_completion`` — for non-tiled animations
+        (Job post_save → all child Jobs DONE).
+      * ``handle_animation_frame_completion`` — for tiled animations
+        (AnimationFrame post_save → all frames DONE).
+
+    The latter ONLY fires if the tile assembler transitions
+    AnimationFrame to DONE via ``frame.save()`` (which fires
+    post_save).  If the assembler ever switches to
+    ``AnimationFrame.objects.filter(...).update(status=DONE)``, the
+    signal is silently bypassed and tiled animations never produce
+    video.  This regression test locks the contract in.
+    """
+
+    def test_frame_save_fires_video_assembly_trigger(
+        self, db, project, asset, mocker,
+    ):
+        """Saving the LAST AnimationFrame as DONE must trigger
+        ``_trigger_video_assembly`` (which transitions
+        ``video_status`` PENDING -> ASSEMBLING and spawns the worker
+        thread).
+        """
+        from workers.models import AnimationFrame, AnimationFrameStatus
+
+        # Mock the actual assembly worker so no ffmpeg fork.
+        # ``_trigger_video_assembly`` does a function-local
+        # ``from .video_assembler import assemble_animation_video``
+        # so we patch the source module, not workers.signals.
+        mock_assemble = mocker.patch(
+            'workers.video_assembler.assemble_animation_video',
+        )
+        # Replace the threading.Thread used inside
+        # _trigger_video_assembly so the (mocked) assembler is invoked
+        # synchronously and we don't leak background threads in tests.
+        mocker.patch(
+            'workers.signals.threading.Thread',
+            side_effect=lambda target, args, daemon: type(
+                'FakeThread', (), {
+                    'start': lambda self_=None, t=target, a=args: t(*a),
+                },
+            )(),
+        )
+        # Under the default ``db`` fixture, the test runs inside an
+        # uncommitted transaction so ``transaction.on_commit``
+        # callbacks never fire.  Patch it to invoke the callback
+        # immediately so we can observe the trigger path.
+        mocker.patch(
+            'workers.signals.transaction.on_commit',
+            side_effect=lambda fn: fn(),
+        )
+
+        anim = Animation.objects.create(
+            name='TiledTrigger',
+            project=project,
+            asset=asset,
+            output_file_pattern='frame_####.png',
+            start_frame=1,
+            end_frame=2,
+            frame_step=1,
+            tiling_config='2x2',
+            render_settings={
+                'render.image_settings.file_format': 'PNG',
+            },
+            video_settings={
+                'preset': 'web_h264',
+                'framerate': 24,
+                'container': 'mp4',
+                'codec': 'libx264',
+                'crf': 23,
+            },
+            video_status='PENDING',
+        )
+        f1 = AnimationFrame.objects.create(animation=anim, frame_number=1)
+        f2 = AnimationFrame.objects.create(animation=anim, frame_number=2)
+
+        # Transition both frames to DONE via ``frame.save()``.  The
+        # post_save handler should observe both DONE and fire
+        # ``_trigger_video_assembly`` after the second save.
+        f1.status = AnimationFrameStatus.DONE
+        f1.save(update_fields=['status'])
+
+        # After the first frame, animation is not yet complete.
+        anim.refresh_from_db()
+        assert anim.video_status == 'PENDING', (
+            "video_status must remain PENDING until all frames are DONE."
+        )
+
+        f2.status = AnimationFrameStatus.DONE
+        f2.save(update_fields=['status'])
+
+        # CAS update inside _trigger_video_assembly flips PENDING ->
+        # ASSEMBLING.  If the trigger never fired (e.g. because the
+        # assembler used .update() instead of frame.save()),
+        # video_status would still be PENDING.
+        anim.refresh_from_db()
+        assert anim.video_status == 'ASSEMBLING', (
+            "video_status must transition to ASSEMBLING once all "
+            "frames are DONE — _trigger_video_assembly was not "
+            "invoked.  Did the tile assembler switch to a queryset "
+            ".update() that bypasses post_save?"
+        )
+        mock_assemble.assert_called_once_with(anim.pk)

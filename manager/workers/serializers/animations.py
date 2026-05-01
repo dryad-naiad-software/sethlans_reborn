@@ -134,24 +134,6 @@ class AnimationSerializer(serializers.ModelSerializer):
                 "The selected Asset does not belong to the selected Project."
             )
 
-        # video_settings is immutable after creation (spec FR §135-138).
-        # Without this, the post-save signal handler's race-impossibility
-        # argument collapses: an admin could PATCH video_settings to
-        # non-null after a frame completes and assembly would fire
-        # against a not-yet-ready FFmpeg.  Any change — adding,
-        # removing, or replacing — is rejected with the closed-vocab
-        # code ``video_settings_immutable``.
-        if self.instance is not None and 'video_settings' in data:
-            if data['video_settings'] != self.instance.video_settings:
-                raise serializers.ValidationError(
-                    {
-                        "video_settings": [
-                            "video_settings_immutable",
-                        ],
-                    },
-                    code="video_settings_immutable",
-                )
-
         # Validate output_file_pattern extension matches format
         validate_output_pattern_extension(data)
 
@@ -169,7 +151,13 @@ class AnimationSerializer(serializers.ModelSerializer):
                     f"tiled rendering. Tiled jobs support: {allowed}."
                 )
 
-        # Validate video_settings
+        # Expand + validate video_settings BEFORE the immutability
+        # check so a no-op PATCH like ``{"preset": "1080p", "framerate":
+        # 30}`` (which expands to the same dict already persisted)
+        # compares equal to ``self.instance.video_settings`` (which is
+        # ALWAYS stored in expanded form).  Without this ordering, every
+        # legitimate PATCH that round-trips video_settings would fire a
+        # spurious ``video_settings_immutable`` rejection.
         video_settings = data.get('video_settings')
         if video_settings is not None:
             data['video_settings'] = self._validate_video_settings(
@@ -177,12 +165,46 @@ class AnimationSerializer(serializers.ModelSerializer):
             )
             data['video_status'] = 'PENDING'
 
-        # Run model-level clean() validation
-        instance = Animation(**data)
-        try:
-            instance.clean()
-        except DjangoValidationError as e:
-            raise serializers.ValidationError(e.message_dict)
+        # video_settings is immutable after creation (spec FR §135-138).
+        # Without this, the post-save signal handler's race-impossibility
+        # argument collapses: an admin could PATCH video_settings to
+        # non-null after a frame completes and assembly would fire
+        # against a not-yet-ready FFmpeg.  Any change — adding,
+        # removing, or replacing — is rejected with the closed-vocab
+        # code ``video_settings_immutable``.
+        #
+        # NOTE: ``serializers.ValidationError(detail=dict, code=...)``
+        # silently drops the ``code`` kwarg (DRF wraps the leaves with
+        # ``ErrorDetail(... code='invalid')``).  Per spec FR §131 the
+        # frontend matches on the leaf string, but any future API
+        # consumer (mobile, CLI, integration tests) that introspects
+        # ``response.data['video_settings'][0].code`` needs the code
+        # propagated to the leaf — so we construct the ``ErrorDetail``
+        # ourselves with the closed-vocab code attached.
+        if self.instance is not None and 'video_settings' in data:
+            if data['video_settings'] != self.instance.video_settings:
+                raise serializers.ValidationError({
+                    "video_settings": [
+                        serializers.ErrorDetail(
+                            "video_settings_immutable",
+                            code="video_settings_immutable",
+                        ),
+                    ],
+                })
+
+        # Run model-level clean() validation only on CREATE.  On
+        # update, ``data`` is partial (PATCH) and ``Animation(**data)``
+        # would have ``None`` for unsupplied fields, which is unsafe to
+        # pass through ``clean()`` (e.g. ``end_frame < start_frame``
+        # would compare two ``None`` values).  The existing instance
+        # is already valid; the partial fields are validated by the
+        # field-level validators above.
+        if self.instance is None:
+            instance = Animation(**data)
+            try:
+                instance.clean()
+            except DjangoValidationError as e:
+                raise serializers.ValidationError(e.message_dict)
 
         return data
 

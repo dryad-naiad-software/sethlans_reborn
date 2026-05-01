@@ -12,7 +12,7 @@ from .views import (
     SupportedBlenderVersionViewSet, dashboard_stats,
     csrf_view, login_view, logout_view, user_view,
     regenerate_enrollment_key_view, enroll_view,
-    health_view, shutdown_view, system_info_view,
+    health_view, shutdown_view,
     FFmpegStatusView,
 )
 from .views.manager_defaults import manager_defaults_view
@@ -35,7 +35,6 @@ urlpatterns = [
     # System endpoints
     path('health/', health_view, name='health'),
     path('system/shutdown/', shutdown_view, name='system-shutdown'),
-    path('system-info/', system_info_view, name='system-info'),
     # FFmpeg / video-assembly status (role-aware payload).
     path(
         'ffmpeg-status/',

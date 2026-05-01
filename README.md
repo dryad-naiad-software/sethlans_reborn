@@ -117,7 +117,7 @@ All endpoints are under `/api/`. Interactive Swagger documentation is available 
 | `supported-versions/` | Blender version registry |
 | `queue-settings/` | Queue configuration |
 | `auth/` | Session auth (CSRF, login, logout, user info, enrollment key rotation) |
-| `system/shutdown/`, `system-info/` | System control and info |
+| `system/shutdown/` | System control |
 | `stats/` | Dashboard statistics |
 | `setup/` | First-run wizard endpoints (topology, network, database, admin, downloads, verify) |
 | `manager-defaults/` | Default Blender version / render engine for enrolled workers |

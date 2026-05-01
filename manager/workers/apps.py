@@ -13,8 +13,6 @@ class WorkersConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "workers"
 
-    ffmpeg_detected: bool = False
-
     def ready(self):
         # Apply our logging config.  Django's built-in logging bootstrap is
         # disabled (``LOGGING_CONFIG = None`` in settings) to avoid a crash
@@ -55,11 +53,6 @@ class WorkersConfig(AppConfig):
                 daemon=True,
             ).start()
 
-        # Detect ffmpeg availability (legacy boolean — kept for the
-        # video_assembler short-circuit; the authoritative source of
-        # truth post-rewrite is parts_check.get_status("ffmpeg")).
-        self._detect_ffmpeg()
-
         # Boot-time parts-check.  Idempotent under multi-fire ready()
         # via the in-process ``_thread_started`` flag — autoreload
         # subprocess parents, management commands, the test runner,
@@ -87,17 +80,6 @@ class WorkersConfig(AppConfig):
         if 'pytest' in sys.modules:
             return False
         return True
-
-    def _detect_ffmpeg(self):
-        from .utils.ffmpeg_utils import ffmpeg_available, ffmpeg_path
-
-        if ffmpeg_available():
-            path = ffmpeg_path()
-            WorkersConfig.ffmpeg_detected = True
-            logger.info("FFmpeg detected at %s. Video assembly is available.", path)
-        else:
-            WorkersConfig.ffmpeg_detected = False
-            logger.warning("FFmpeg not found on PATH. Video assembly will be disabled.")
 
     def _reset_stuck_assemblies(self):
         from django.db import OperationalError, ProgrammingError
