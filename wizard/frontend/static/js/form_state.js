@@ -14,8 +14,8 @@
 // password fields entirely.
 //
 // Stash is cleared on:
-//   (a) successful submission of FFmpeg or Verify steps (irreversible
-//       installer boundaries);
+//   (a) successful submission of the Verify step (the irreversible
+//       installer boundary);
 //   (b) a re-auth event (FR-CHK3-RESUME) — the user re-enters values
 //       uniformly across all steps.
 
