@@ -43,7 +43,18 @@ WORKER_PROBE_PORT = 8081
 
 @dataclasses.dataclass
 class DriverHandle:
-    """Handle to a running wizard E2E driver subprocess."""
+    """Handle to a running wizard E2E driver subprocess.
+
+    ``wizard_port`` is the public-facing TLS port (Caddy fronts the
+    wizard subprocess post-issue #170; the value is read from
+    ``<data_dir>/wizard/port`` after the launcher publishes it).
+    ``wizard_loopback_port`` is the wizard subprocess' plain-HTTP
+    loopback port — the value pinned via ``SETHLANS_WIZARD_PORT`` and
+    the same value the wizard embeds in the ``.wizard_done`` marker's
+    ``wizard_port`` field. The two are different post-#170: tests that
+    drive the wizard via HTTP use ``wizard_base_url`` (Caddy public);
+    tests that validate marker payloads use ``wizard_loopback_port``.
+    """
 
     proc: subprocess.Popen
     data_dir: Path
@@ -53,6 +64,7 @@ class DriverHandle:
     runtime_port: int
     setup_token: str
     ipc_secret: bytes
+    wizard_loopback_port: int | None = None
 
 
 # ---- Fixtures --------------------------------------------------------------
@@ -152,6 +164,12 @@ def launcher_driver(isolated_data_dir: Path) -> Iterator:
                 runtime_port=runtime_port,
                 setup_token=setup_token,
                 ipc_secret=ipc_secret,
+                # Issue #170: the wizard binds plain HTTP loopback on
+                # SETHLANS_WIZARD_PORT, and the .wizard_done marker
+                # carries that port (NOT the public TLS port Caddy
+                # fronts on). Surface it here so marker-payload
+                # assertions stay authoritative.
+                wizard_loopback_port=wizard_port_env,
             )
         finally:
             _dp.terminate(proc, isolated_data_dir)

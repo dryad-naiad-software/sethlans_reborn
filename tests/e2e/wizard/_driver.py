@@ -268,6 +268,27 @@ def _apply_pinning(args: argparse.Namespace) -> None:
         wizard_orchestration.generate_ipc_secret = _fixed_secret  # type: ignore[assignment]
 
 
+def _bypass_apply_pipeline() -> None:
+    """No-op the Spec 2 ``run_apply_pipeline_if_needed`` for driver runs.
+
+    The E2E suite mocks the runtime subprocess and never provisions a
+    real Django DB / ``pending_setup.json``. The launcher's apply
+    pipeline (Spec 2 / commit 12dba07) calls ``manage.py migrate`` +
+    ``manage.py apply_pending_setup``; the latter exits 1 without a
+    pending file, short-circuiting the runtime port-bind /
+    ``.runtime_failed`` codepath the suite is meant to exercise.
+    Mirrors the unit-suite pattern at
+    ``tests/unit/launcher/test_wizard_runtime_handoff.py``.
+    """
+    from launcher import apply_pending_setup as _apply_mod
+
+    def _noop(topology, data_dir, wizard_proc, terminate_cb, failure_cb):
+        del topology, data_dir, wizard_proc, terminate_cb, failure_cb
+        return None
+
+    _apply_mod.run_apply_pipeline_if_needed = _noop  # type: ignore[assignment]
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -275,6 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = _build_parser().parse_args(argv)
     _apply_pinning(args)
+    _bypass_apply_pipeline()
 
     data_dir = Path(args.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)

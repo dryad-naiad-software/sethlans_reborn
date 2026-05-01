@@ -195,9 +195,14 @@ def test_manager_handoff_writes_marker_and_runtime_ready(launcher_driver):
         )
         if snapshot_payload is not None:
             assert snapshot_payload["topology"] == "manager", snapshot_payload
-            assert snapshot_payload["wizard_port"] == handle.wizard_port, (
-                snapshot_payload, handle.wizard_port,
-            )
+            # Issue #170: the marker carries the wizard subprocess'
+            # plain-HTTP loopback port (the value pinned via
+            # SETHLANS_WIZARD_PORT), NOT the Caddy public TLS port the
+            # tray + browser open. Compare against
+            # ``wizard_loopback_port`` accordingly.
+            assert (
+                snapshot_payload["wizard_port"] == handle.wizard_loopback_port
+            ), (snapshot_payload, handle.wizard_loopback_port)
 
         # Phase 3: driver exits 0 once wait_for_runtime_port_bind sees
         # the mock listening on 8080. The wizard self-terminates per
