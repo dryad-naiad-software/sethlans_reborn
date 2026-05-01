@@ -255,6 +255,14 @@ def hand_off_to_runtime(
             expected, topology,
         )
 
+    from launcher.apply_pending_setup import run_apply_pipeline_if_needed
+    apply_failure = run_apply_pipeline_if_needed(
+        topology, data_dir, wizard_proc,
+        terminate_wizard, wizard_failure_exit,
+    )
+    if apply_failure is not None:
+        return apply_failure
+
     runtime_proc, watch_port = spawn_runtime_for_topology(
         topology, bootstrap_first_run, start_component, data_dir,
     )
@@ -279,17 +287,12 @@ def hand_off_to_runtime(
             terminate_wizard(wizard_proc)
             return 1
 
-    # CRITICAL-2 (Phase F1): terminate the wizard BEFORE rmtree-ing
-    # its working directory. With FR-W17 in place the wizard usually
-    # self-exits via the close()-hook + grace timer before we get
-    # here, but terminate_wizard is the safety net — without it,
-    # cleanup_wizard_dir can rmtree the wizard's TLS files and
-    # logfile while the wizard is mid-write, racing the FR-W10
-    # cleanup the wizard performs at exit.
+    # CRITICAL-2 (Phase F1): terminate the wizard BEFORE rmtree-ing its
+    # working directory; FR-W17 usually beats us to it but this is the
+    # safety net.  FR-W10 cleanup is idempotent against ours.
     terminate_wizard(wizard_proc)
 
     # FR-L13: best-effort delete <data_dir>/wizard/ after handoff.
-    # Wizard's own FR-W10 cleanup may race; both are idempotent.
     wizard_dir.cleanup_wizard_dir(data_dir)
     logger.info("wizard directory cleanup completed (FR-L13)")
     return 0

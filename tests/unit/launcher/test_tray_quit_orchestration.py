@@ -160,6 +160,12 @@ class TestHandOffToRuntimeQuit:
         )
         runtime_proc = FakeProc()
         wizard_proc = FakeProc()
+        # Spec 2 FR-APPLY-ORDERING: hand_off_to_runtime now invokes
+        # the apply pipeline before spawn; bypass it for this test.
+        mocker.patch(
+            "launcher.apply_pending_setup.run_apply_pipeline_if_needed",
+            return_value=None,
+        )
         mocker.patch(
             "launcher.wizard_runtime.wait_for_runtime_port_bind",
             return_value=False,
