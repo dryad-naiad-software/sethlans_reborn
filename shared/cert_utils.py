@@ -15,6 +15,7 @@ import os
 import platform
 import socket
 import subprocess
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -92,6 +93,59 @@ def enumerate_sans():
     return _build_san_entries(ip_addresses, dns_names)
 
 
+def _atomic_write_bytes(path, data, posix_mode=None):
+    """Atomically write *data* to *path* via tempfile + fsync + os.replace.
+
+    Sequence:
+      1. ``tempfile.mkstemp`` in the target directory.
+      2. ``os.write`` + ``os.fsync`` so bytes hit the disk.
+      3. (POSIX only, when *posix_mode* is set) ``os.chmod`` the tmp file
+         BEFORE the rename so the final file is born with restrictive
+         perms — no world-readable window between rename and chmod.
+      4. ``os.replace`` (atomic on POSIX and NTFS).
+      5. ``os.fsync`` the parent directory on POSIX so the rename is
+         durably committed. Skipped on Windows (no directory fsync).
+
+    On any failure mid-sequence, the tempfile is best-effort unlinked
+    and the exception re-raised, leaving the previous *path* (if any)
+    untouched.
+
+    Mirrors the pattern used in ``manager/workers/services/sentinel.py``
+    and ``manager/workers/services/filesystem_trust.py``.
+    """
+    path = Path(path)
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(parent), prefix=path.name + ".", suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        if posix_mode is not None and platform.system() != 'Windows':
+            os.chmod(str(tmp_path), posix_mode)
+        os.replace(tmp_path, str(path))
+        if platform.system() != 'Windows':
+            try:
+                dir_fd = os.open(str(parent), os.O_RDONLY)
+            except OSError:
+                # Parent fsync is best-effort durability — failure here
+                # does not invalidate the rename itself.
+                return
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def generate_self_signed_cert(cert_path, key_path):
     """Generate a self-signed X.509 cert and RSA 4096-bit private key.
 
@@ -153,21 +207,22 @@ def generate_self_signed_cert(cert_path, key_path):
         .sign(key, hashes.SHA256())
     )
 
-    # Write key file
+    # Write key file atomically (key first, cert second). If only the
+    # key lands and the cert write fails, ``cert_path.exists()`` returns
+    # False and the next run regenerates a fresh keypair. If both land,
+    # the keypair is consistent. The atomic helper sets POSIX 0o600 on
+    # the tmp file BEFORE rename, so the final key.pem is born with
+    # owner-only perms — no world-readable window.
     key_pem = key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.TraditionalOpenSSL,
         encryption_algorithm=serialization.NoEncryption(),
     )
-    key_path.write_bytes(key_pem)
+    _atomic_write_bytes(key_path, key_pem, posix_mode=0o600)
 
-    # Set key file permissions on POSIX
-    if platform.system() != 'Windows':
-        os.chmod(str(key_path), 0o600)
-
-    # Write cert file
+    # Write cert file atomically.
     cert_pem = cert.public_bytes(serialization.Encoding.PEM)
-    cert_path.write_bytes(cert_pem)
+    _atomic_write_bytes(cert_path, cert_pem)
 
     logger.info("Generated self-signed TLS certificate: %s", cert_path)
 

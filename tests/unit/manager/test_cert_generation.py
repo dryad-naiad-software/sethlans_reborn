@@ -127,6 +127,8 @@ class TestGenerateSelfSignedCert:
     def test_key_file_permissions_posix(
         self, mock_cert_env, mocker, tmp_path
     ):
+        # Atomic write chmods the tempfile BEFORE rename so the final
+        # key.pem is born with 0o600 (no world-readable window).
         mock_chmod = mocker.patch(
             'sethlans_manager.cert_utils.os.chmod'
         )
@@ -135,7 +137,13 @@ class TestGenerateSelfSignedCert:
 
         generate_self_signed_cert(cert_path, key_path)
 
-        mock_chmod.assert_called_once_with(str(key_path), 0o600)
+        mock_chmod.assert_called_once()
+        args, _ = mock_chmod.call_args
+        chmod_path, chmod_mode = args
+        assert chmod_mode == 0o600
+        # chmod targets the tmp file, not the final key path.
+        assert chmod_path != str(key_path)
+        assert str(key_path.parent) in chmod_path
 
     def test_windows_icacls_called(
         self, mock_cert_env, mocker, tmp_path

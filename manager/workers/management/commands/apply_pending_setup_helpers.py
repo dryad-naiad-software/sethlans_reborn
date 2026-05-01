@@ -1,15 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""
-Helpers for ``apply_pending_setup`` (FR-APPLY1 ... FR-APPLY-LOG1).
+"""Helpers for ``apply_pending_setup`` (FR-APPLY1 ... FR-APPLY-LOG1).
 
-Split out of the command module so the command file can stay under the
-300-line ceiling.  The helpers cover:
-
-* Sanitised ``PendingSetupError`` exception hierarchy (FR-APPLY-LOG1).
-* Cross-platform single-instance lock (FR-APPLY1a).
-* Schema-version + TTL gate readers (FR-APPLY1b / FR-APPLY1c).
+Split out so the command file stays under the 300-line ceiling.
+Covers: ``PendingSetupError`` hierarchy (FR-APPLY-LOG1),
+cross-platform single-instance lock (FR-APPLY1a), schema + TTL gate
+readers (FR-APPLY1b / FR-APPLY1c).
 """
 
 from __future__ import annotations
@@ -158,12 +155,18 @@ def best_effort_unlink(path: Path) -> None:
 # ---- Filesystem-trust enrollment (FR-APPLY2 step 4) -----------------------
 
 def prime_runtime_state_for_auto_enroll() -> None:
-    """Populate ``runtime_state`` so ``auto_enroll_local_worker`` does not fail.
+    """Populate ``runtime_state`` so ``auto_enroll_local_worker`` works.
 
-    The apply subprocess does not boot through ``run_manager.py``, so
-    ``runtime_state.manager_id`` / ``cert_fingerprint`` start as ``None``.
-    Read manager_id from the DB and the cert fingerprint from the on-disk
-    TLS material (generated on first call, idempotent thereafter).
+    Reads manager_id from the DB and the cert fingerprint from on-disk
+    TLS material (generated on first call). The apply subprocess does
+    not boot through ``run_manager.py``, so both start as ``None``.
+
+    Invariant (Spec 2 security MED, res. A): ``dev_mode=False`` is
+    correct. The launcher has no ``--dev`` flag and is the only caller
+    of this subprocess; dev mode is a ``run_manager.py --dev`` path
+    handled by ``_dispatch_dev_mode`` and never invokes apply. Adding
+    dev plumbing would require widening the FR-APPLY-INVOKE allowlist
+    (currently ``--data-dir`` only).
     """
     from django.conf import settings as dj_settings
     from sethlans_manager import runtime_state
@@ -176,7 +179,7 @@ def prime_runtime_state_for_auto_enroll() -> None:
     if runtime_state.cert_fingerprint is None:
         manager_dir = Path(dj_settings.BASE_DIR)
         _, _, cert = setup_certificates(
-            dev_mode=False,
+            dev_mode=False,  # see invariant in docstring above
             manager_dir=manager_dir,
             project_root=manager_dir.parent,
         )
@@ -256,7 +259,13 @@ def reread_password(pending_path: Path) -> Optional[str]:
 # ---- Stderr emission (FR-APPLY-LOG1) --------------------------------------
 
 def emit_stderr_and_exit(message: str, code: int) -> None:
-    """Write *message* to stderr; ``os._exit(code)`` (bypasses traceback printer)."""
+    """Write *message* to stderr; ``os._exit(code)`` (bypasses traceback printer).
+
+    Concurrency invariant (Spec 2 LOW): ``os._exit`` skips ``finally``
+    and transaction rollbacks — DB-mutating steps MUST run inside
+    ``transaction.atomic()`` so the rollback fires during exception
+    unwind. See ``_apply_atomic`` in ``apply_pending_setup``.
+    """
     sys.stderr.write(message)
     if not message.endswith("\n"):
         sys.stderr.write("\n")

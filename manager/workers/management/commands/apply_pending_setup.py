@@ -1,8 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""
-Management command: ``python manage.py apply_pending_setup --data-dir DIR``.
+"""Management command: ``apply_pending_setup --data-dir DIR``.
 
 Implements Spec 2 FR-APPLY1 ... FR-APPLY-LOG1.  The launcher invokes
 this command in its own short-lived subprocess between observing
@@ -10,12 +9,10 @@ this command in its own short-lived subprocess between observing
 ``<data-dir>/pending_setup.json`` exactly once and writes the
 ``.setup_complete`` sentinel.
 
-Exit codes:
-
-* ``0`` — apply succeeded (or idempotent re-run no-op'd).
-* ``1`` — pre-apply guard failed (missing / stale / wrong-schema
-  pending file, lock contention, bad arguments).  No DB state mutated.
-* ``2`` — operational failure during steps 1-5 or self-check.
+Exit codes: ``0`` apply succeeded (or idempotent re-run no-op'd);
+``1`` pre-apply guard failed (missing / stale / wrong-schema, lock
+contention, bad arguments — no DB mutation); ``2`` operational
+failure during steps 1-5 or self-check.
 """
 
 from __future__ import annotations
@@ -227,7 +224,13 @@ class Command(BaseCommand):
     def _apply_atomic(
         self, username: str, email: str, password: str,
     ) -> None:
-        """FR-APPLY2 steps 1-3 inside a single ``transaction.atomic``."""
+        """FR-APPLY2 steps 1-3 inside a single ``transaction.atomic``.
+
+        Concurrency invariant (Spec 2 LOW): DB-mutating steps MUST run
+        inside ``atomic()``; ``emit_stderr_and_exit`` uses ``os._exit``
+        which skips ``finally`` — only ``atomic()`` rollback during
+        unwind keeps state consistent.
+        """
         try:
             with transaction.atomic():
                 # Step 1 — defensive password validation.
