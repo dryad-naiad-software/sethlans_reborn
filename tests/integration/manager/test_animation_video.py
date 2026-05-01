@@ -32,8 +32,36 @@ def animation_payload(project, asset):
     }
 
 
+@pytest.fixture
+def _ffmpeg_ready():
+    """Force the parts-check FFmpeg state to ``ready`` for the test.
+
+    The ``video_assembly_unavailable`` create-time guard (FR §128-133)
+    short-circuits any animation create with ``video_settings`` while
+    the parts-check registry reports a non-ready state.  Tests in this
+    module that exercise legacy validation / immutability / retry /
+    download / startup-recovery paths must reach those code paths
+    without bouncing off the guard, so they seed ``ready`` for the
+    duration of the test and restore the prior state on teardown.
+
+    Do NOT autouse this on ``TestVideoAssemblyAvailabilityGuard`` —
+    that class intentionally seeds ``installing`` / ``failed`` to
+    exercise the guard.
+    """
+    prior = parts_registry.get_status("ffmpeg")
+    parts_registry._publish(
+        "ffmpeg", parts_registry.Status(status="ready"),
+    )
+    yield
+    parts_registry._publish("ffmpeg", prior)
+
+
 class TestAnimationVideoSettingsValidation:
     """Serializer validation for video_settings on creation."""
+
+    @pytest.fixture(autouse=True)
+    def _seed_ready(self, _ffmpeg_ready):
+        """Apply the ffmpeg-ready seed to every test in this class."""
 
     def test_create_with_preset_expands_settings(
         self, admin_client, animation_payload,
@@ -152,6 +180,10 @@ class TestAnimationVideoSettingsValidation:
 class TestVideoSettingsImmutability:
     """video_settings cannot be modified after creation."""
 
+    @pytest.fixture(autouse=True)
+    def _seed_ready(self, _ffmpeg_ready):
+        """Apply the ffmpeg-ready seed to every test in this class."""
+
     def test_patch_video_settings_rejected(
         self, admin_client, animation_payload,
     ):
@@ -260,6 +292,10 @@ class TestSystemInfoEndpoint:
 class TestRetryVideoAction:
     """Tests for POST /api/animations/{id}/retry-video/."""
 
+    @pytest.fixture(autouse=True)
+    def _seed_ready(self, _ffmpeg_ready):
+        """Apply the ffmpeg-ready seed to every test in this class."""
+
     def test_retry_rejects_non_error_status(
         self, admin_client, animation_payload,
     ):
@@ -305,6 +341,10 @@ class TestRetryVideoAction:
 
 class TestDownloadVideoAction:
     """Tests for GET /api/animations/{id}/download-video/."""
+
+    @pytest.fixture(autouse=True)
+    def _seed_ready(self, _ffmpeg_ready):
+        """Apply the ffmpeg-ready seed to every test in this class."""
 
     def test_returns_404_when_no_video(
         self, admin_client, animation_payload,
@@ -433,6 +473,10 @@ class TestVideoAssemblyAvailabilityGuard:
 
 class TestStartupRecovery:
     """Tests for stuck ASSEMBLING recovery on startup."""
+
+    @pytest.fixture(autouse=True)
+    def _seed_ready(self, _ffmpeg_ready):
+        """Apply the ffmpeg-ready seed to every test in this class."""
 
     def _run_recovery(self):
         """Call the recovery logic directly via the registered app config."""
