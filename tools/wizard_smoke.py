@@ -2,63 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Wizard PyInstaller bundle smoke test (DEVOPS-MED-5, Phase F3).
+"""Wizard PyInstaller bundle smoke harness.
 
-Single source of truth for the AC-B2 / AC-B4 / NF-4 wizard checks.
-Used by both ``.github/workflows/build-installers.yml`` (CI) and the
-local ``tools/build_*_installer.sh`` scripts so a developer can
-reproduce CI smoke failures locally without re-engineering the
-checks.
-
-What it verifies:
-
-  1. AC-B2 — bundle introspection. ``pathlib.rglob`` (exact-name match,
-     mirroring the spec verbatim) confirms ``django``, ``workers``,
-     ``psycopg``, ``pymysql`` are absent from ``dist/wizard``.
-     DEVOPS-HIGH-3: this replaces the prefix-glob shell loops the CI
-     previously used (PowerShell ``-like "$name*"``, ``find -name
-     "${name}*"``), which would false-positive on benign files like
-     ``psycopg2-binary-X.dist-info`` AND would miss sub-packages like
-     ``_internal/django_extensions/``.
-
-  2. NF-4 / DEVOPS-MED-11 — bundle size. Asserts ``dist/wizard`` is
-     at most 95 MB. On overage, prints the top-10 largest files for
-     diagnosis without re-running the build. The cap matches the
-     GitHub-hosted CI runner's heavier toolcache Python weight
-     (libpython3.14 + cryptography Rust binding alone account for
-     ~44 MB on Linux); see issue #154. Raised 85→95 MB during the
-     wizard standalone migration (Spec 2) per the project's policy
-     of treating alpha-phase NF ceilings as elastic — see project
-     memory ``feedback_bundle_ceilings``. Trim is a post-development
-     pass.
-
-  3. AC-B4 — spawn-and-poll smoke. Provisions a fresh tmpdir per run
-     (DEVOPS-MED-9), writes ``.setup_token`` and ``.ipc_secret``,
-     spawns ``run_wizard``, READS THE PORT FILE at
-     ``<tmpdir>/wizard/loopback_port`` (DEVOPS-HIGH-4: previously the
-     CI hit ``https://localhost:8100/`` directly, which only worked
-     because ``SETHLANS_WIZARD_PORT=8100`` pinned the bind — that
-     bypassed the actual ``bootstrap.write_port_file()`` code path so
-     future regressions there would silently survive smoke), then
-     polls ``GET /`` over plain HTTP until 200 within 30 s. SIGTERMs
-     the wizard and dumps captured stdout/stderr on failure
-     (DEVOPS-LOW-6). Issue #170: the standalone wizard is plain HTTP
-     now (Caddy fronts it in production via the launcher); the smoke
-     spawns the wizard alone so it tests the loopback HTTP listener.
-
-Wall-clock budget: the script self-enforces a 60-second hard ceiling
-(AC-B4 / DEVOPS-v22-MED-2) via SIGALRM (POSIX) or a threading
-watchdog (Windows).
-
-Usage:
-
-    python tools/wizard_smoke.py [--bundle dist/wizard] [--port 8100]
-    python tools/wizard_smoke.py --skip-spawn   # only AC-B2 + NF-4
-
-Exit codes:
-    0  — all checks passed.
-    1  — a check failed; the failure reason is printed to stderr.
-    2  — usage error / prerequisite missing (e.g. bundle dir absent).
+Runs build-time guards against the wizard bundle: forbidden-module
+absence, common-passwords resource integrity, bundle size ceiling,
+and a spawn-and-poll HTTP smoke. See ``wizard_smoke_README.md`` for
+the full pipeline description and acceptance-criterion mapping.
 """
 
 from __future__ import annotations
@@ -73,25 +22,24 @@ import sys
 import tempfile
 import time
 
-# Make sibling helpers module importable regardless of cwd. When this
-# script is invoked as ``python tools/wizard_smoke.py`` from the repo
-# root the implicit cwd-on-sys.path lookup misses the helpers because
-# they live alongside this file in tools/, not at the repo root.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+# Expose tools/ (sibling helpers) and the repo root (so the wizard
+# package is importable for ``COMMON_PASSWORDS_SHA256`` — issue #190).
+_HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))
+sys.path.insert(0, str(_HERE.parent))
 
 from _wizard_smoke_helpers import (  # noqa: E402
-    bundle_size_bytes,
-    check_health_endpoint,
-    dump_logs,
-    err,
-    http_get_ok,
-    install_wall_clock_watchdog,
-    terminate,
-    wait_for_port_file,
+    bundle_size_bytes, check_common_passwords_resource,
+    check_health_endpoint, dump_logs, err, http_get_ok,
+    install_wall_clock_watchdog, terminate, wait_for_port_file,
+)
+from wizard.sethlans_wizard.password_validators import (  # noqa: E402
+    COMMON_PASSWORDS_SHA256,
 )
 
 FORBIDDEN_NAMES = ("django", "workers", "psycopg", "pymysql")
 SIZE_LIMIT_BYTES = 95 * 1024 * 1024
+COMMON_PASSWORDS_FILENAME = "common-passwords.txt"
 STARTUP_BUDGET_SECONDS = 30
 WALL_CLOCK_BUDGET_SECONDS = 60
 PORT_FILE_POLL_TIMEOUT_SECONDS = 15
@@ -287,6 +235,10 @@ def main() -> int:
     install_wall_clock_watchdog(WALL_CLOCK_BUDGET_SECONDS)
 
     if not check_bundle_introspection(bundle):
+        return 1
+    if not check_common_passwords_resource(
+        bundle, COMMON_PASSWORDS_FILENAME, COMMON_PASSWORDS_SHA256,
+    ):
         return 1
     if not check_bundle_size(bundle):
         return 1

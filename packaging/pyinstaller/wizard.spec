@@ -130,6 +130,22 @@ datas.append((str(_VERSION_SRC), '.'))
 if FRONTEND_DIR.exists():
     datas.append((str(FRONTEND_DIR), 'wizard/frontend'))
 
+# Common-passwords resource (issue #190). Load-bearing for FR-M2-5 /
+# the admin-user step: ``password_validators._load_common_passwords()``
+# resolves this file via ``importlib.resources.files(
+# "wizard.sethlans_wizard.data")`` and fail-closes on missing/corrupt
+# data, which surfaces as ``common_passwords_resource_invalid`` and
+# blocks first-run setup. PyInstaller's static walker copies ``.py``
+# files inside packages but not arbitrary data resources, so without
+# this explicit ``datas`` entry the file is silently dropped from every
+# build. SHA-256 integrity is pinned by ``COMMON_PASSWORDS_SHA256`` in
+# ``password_validators.py`` and verified at runtime; the build-time
+# guard lives in ``tools/wizard_smoke.py``.
+datas.append((
+    str(WIZARD_DIR / 'sethlans_wizard' / 'data' / 'common-passwords.txt'),
+    'wizard/sethlans_wizard/data',
+))
+
 # --- Excludes ---
 # The wizard is a standalone process. Explicitly exclude server-side
 # components so a stray transitive import does not bloat the bundle

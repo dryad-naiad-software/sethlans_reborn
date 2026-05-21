@@ -11,6 +11,7 @@ the constants imported at use-site.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -27,6 +28,67 @@ import urllib.request
 def err(msg: str) -> None:
     """stderr print shortcut."""
     print(msg, file=sys.stderr)
+
+
+def check_common_passwords_resource(
+    bundle: pathlib.Path,
+    filename: str,
+    expected_sha256: str,
+) -> bool:
+    """Issue #190: assert common-passwords.txt is bundled with the right hash.
+
+    PyInstaller's static walker copies ``.py`` files inside packages
+    but not arbitrary data resources, so a stray spec edit can silently
+    drop ``wizard/sethlans_wizard/data/common-passwords.txt`` from the
+    bundle. At runtime that surfaces as
+    ``common_passwords_resource_invalid`` on the admin-user step and
+    blocks first-run setup. This check fails the build before shipping.
+
+    Uses ``pathlib.rglob`` (mirroring the AC-B2 style) so the harness
+    is agnostic to where PyInstaller places the file under the bundle
+    (one-dir layouts put data files under ``_internal/``; the exact
+    path is an implementation detail of PyInstaller). The SHA-256 is
+    supplied by the caller from
+    ``wizard.sethlans_wizard.password_validators`` so the smoke can
+    never drift from the runtime integrity check.
+    """
+    hits = [p for p in bundle.rglob(filename) if p.is_file()]
+    if not hits:
+        err(f"--- {filename} missing from bundle ---")
+        err(
+            f"Issue #190 FAILED: {filename} not found anywhere under "
+            f"{bundle}. The admin-user step will fail with "
+            "common_passwords_resource_invalid on first run. "
+            "Check wizard.spec declares the resource in datas=."
+        )
+        return False
+    # If somehow multiple copies got bundled, every one of them must
+    # match. Surface the count for diagnosis.
+    if len(hits) > 1:
+        err(
+            f"Issue #190 WARN: {len(hits)} copies of {filename} found "
+            f"under {bundle}; verifying every copy"
+        )
+    for hit in hits:
+        data = hit.read_bytes()
+        if not data:
+            err(
+                f"Issue #190 FAILED: {hit} is empty (expected the "
+                "bundled common-passwords list)"
+            )
+            return False
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != expected_sha256:
+            err(
+                f"Issue #190 FAILED: {hit} SHA-256 mismatch "
+                f"(expected {expected_sha256}, got {actual})"
+            )
+            return False
+    print(
+        f"Issue #190 passed: {filename} bundled at {hits[0]} with "
+        "matching SHA-256"
+    )
+    return True
 
 
 def bundle_size_bytes(bundle: pathlib.Path) -> int:

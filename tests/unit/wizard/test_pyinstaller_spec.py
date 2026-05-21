@@ -188,3 +188,50 @@ def test_wizard_spec_output_name_is_run_wizard(spec_text: str):
 def test_wizard_spec_collect_dir_name_is_wizard(spec_text: str):
     """COLLECT() ``name=`` is ``wizard`` — output dir under ``dist/``."""
     assert "name='wizard'" in spec_text
+
+
+def test_wizard_spec_bundles_common_passwords_resource(spec_text: str):
+    """Issue #190: ``common-passwords.txt`` MUST be declared in ``datas=``.
+
+    PyInstaller's static walker copies ``.py`` files inside packages
+    but not arbitrary data resources, so without an explicit ``datas``
+    entry the file is silently dropped from the bundle. At runtime
+    ``password_validators._load_common_passwords()`` then fails to
+    resolve the resource and the admin-user step rejects every submit
+    with ``common_passwords_resource_invalid``. This test catches a
+    spec edit that drops the entry before a full installer build is
+    needed; the runtime-bundle SHA-256 check lives in
+    ``tools/wizard_smoke.py``.
+    """
+    # The destination path inside the bundle must match what
+    # ``importlib.resources.files("wizard.sethlans_wizard.data")``
+    # expects at runtime.
+    assert "'common-passwords.txt'" in spec_text, (
+        "wizard.spec must reference 'common-passwords.txt' in datas="
+    )
+    assert "'wizard/sethlans_wizard/data'" in spec_text, (
+        "wizard.spec must declare destination 'wizard/sethlans_wizard/"
+        "data' for the common-passwords resource"
+    )
+    # Both pieces should appear inside a ``datas.append(...)`` call, not
+    # just in a stray comment. Walk lines and confirm at least one
+    # ``datas.append`` block contains the filename within a few lines.
+    lines = spec_text.splitlines()
+    found = False
+    for idx, line in enumerate(lines):
+        if "datas.append" not in line:
+            continue
+        # Consider this append call and up to the next 6 lines (covers
+        # the tuple body when the call spans multiple lines).
+        window = "\n".join(lines[idx:idx + 7])
+        if (
+            "'common-passwords.txt'" in window
+            and "'wizard/sethlans_wizard/data'" in window
+        ):
+            found = True
+            break
+    assert found, (
+        "wizard.spec references the common-passwords resource but not "
+        "inside a datas.append(...) call — the file would not be "
+        "bundled. Confirm the datas entry is present and correct."
+    )
