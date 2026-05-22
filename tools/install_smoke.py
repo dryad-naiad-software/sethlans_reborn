@@ -34,8 +34,9 @@ _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
 from _install_smoke_driver import drive_install  # noqa: E402
+from _install_smoke_teardown import terminate_process_tree  # noqa: E402
 from _wizard_smoke_helpers import (  # noqa: E402
-    dump_logs, err, install_wall_clock_watchdog, terminate,
+    dump_logs, err, install_wall_clock_watchdog,
 )
 
 WALL_CLOCK_BUDGET_SECONDS = 300
@@ -86,9 +87,18 @@ def _spawn_launcher(
     env["SETHLANS_MANAGER_DATA_DIR"] = str(data_dir / "manager")
     env["SETHLANS_WORKER_DATA_DIR"] = str(data_dir / "worker")
 
+    # Issue #198: spawn in a dedicated process group/session so tear-down
+    # can enumerate + signal the launcher's full descendant tree
+    # (run_manager.exe, run_wizard.exe, caddy.exe). Windows: a NEW
+    # process group + no console window. POSIX: a new session so psutil
+    # (or os.killpg) can reach every descendant.
     popen_kwargs: dict = {}
     if sys.platform == "win32":
-        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
 
     out_fh = open(log_out, "w", encoding="utf-8")
     err_fh = open(log_err, "w", encoding="utf-8")
@@ -194,7 +204,10 @@ def _run_smoke(
             log_err=log_err,
         )
     finally:
-        terminate(launcher_proc)
+        # #198: kill the entire launcher tree (run_manager.exe, etc.)
+        # so the next PyInstaller --clean build does not collide on
+        # locked _internal/*.pyd files.
+        terminate_process_tree(launcher_proc)
         _close_log_handles(launcher_proc)
 
     if not ok:
