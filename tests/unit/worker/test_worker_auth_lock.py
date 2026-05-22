@@ -17,8 +17,15 @@ from sethlans_worker_agent.web_ui import auth
 
 
 @pytest.fixture(autouse=True)
-def _reset_auth_cache():
-    """Ensure a clean auth cache before and after each test."""
+def _reset_auth_cache(mocker):
+    """Ensure a clean auth cache before and after each test.
+
+    Mocks config.UI_PASSWORD_HASH and config.UI_PASSWORD_SALT to None so that
+    _load_cache() sees an unconfigured state on any developer machine regardless
+    of what is in the real config.ini.
+    """
+    mocker.patch.object(auth.config, 'UI_PASSWORD_HASH', None)
+    mocker.patch.object(auth.config, 'UI_PASSWORD_SALT', None)
     auth.reset_cache()
     yield
     auth.reset_cache()
