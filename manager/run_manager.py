@@ -11,13 +11,24 @@ serving path to Waitress+WSGI with two loopback listeners
 (public-origin + internal-origin), both fronted by Caddy.
 
 Usage:
-    python manager/run_manager.py          # Production mode (Waitress)
-    python manager/run_manager.py --dev    # Dev hot-reload (watchdog).
+    python manager/run_manager.py                  # Production mode
+    python manager/run_manager.py --dev            # Dev hot-reload
+    python manager/run_manager.py --manage <cmd>   # Run a Django mgmt
+                                                   # subcommand and exit
 
 Phase 6 replaced the ``--dev`` fail-fast stub with a watchdog-based
 parent/child wrapper. The parent process owns the filesystem observer
 and signals the child on any ``*.py`` change under ``manager/``; the
 child process runs the production Waitress path.
+
+Issue #191 added ``--manage <subcommand> [args...]``. In frozen
+PyInstaller mode the launcher cannot invoke
+``[sys.executable, manage.py, ...]`` because ``sys.executable`` is the
+launcher exe. ``--manage`` routes the subcommand through the bundled
+``run_manager`` binary instead. The subcommand is constrained to the
+allowlist in ``sethlans_manager.manage_dispatch`` so that the frozen
+binary never exposes commands like ``createsuperuser`` or ``shell``
+to local users. ``--manage`` is mutually exclusive with ``--dev``.
 """
 import configparser
 import logging
@@ -156,22 +167,21 @@ def _frozen_boot_sequence(dev_mode):
     In frozen mode, subprocess-based migrations fail because
     ``sys.executable`` is the frozen binary, not a Python interpreter.
     Boot order: django.setup() -> migrate -> collectstatic.
-    """
-    import django
 
+    Delegates the ``django.setup()`` + logging-configure prologue to
+    :func:`sethlans_manager.manage_dispatch.setup_django_for_management`
+    so the runtime path and the ``--manage`` dispatch path share a
+    single Django-init implementation (#191).
+    """
+    from sethlans_manager.manage_dispatch import (
+        setup_django_for_management,
+    )
     from sethlans_manager.migration_runner import (
         run_collectstatic_inprocess,
         run_migrations_inprocess,
     )
 
-    try:
-        django.setup()
-    except Exception as exc:
-        print(f"\n[ERROR] Django setup failed: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    from sethlans_manager.logging_config import configure as _cfg
-    _cfg()
+    setup_django_for_management()
 
     run_migrations_inprocess()
     if not dev_mode:
@@ -216,6 +226,13 @@ def _dispatch_dev_mode() -> None:
 
 def main():
     """Entry point for ``python manager/run_manager.py``."""
+    if '--manage' in sys.argv:
+        # Mutual exclusion + missing-subcommand + allowlist checks all
+        # happen inside dispatch_manage_mode BEFORE django.setup runs
+        # (#191 / spec FR-MGMT2 + FR-MGMT3). Never returns.
+        from sethlans_manager.manage_dispatch import dispatch_manage_mode
+        dispatch_manage_mode()
+
     if '--dev' in sys.argv:
         _dispatch_dev_mode()
 

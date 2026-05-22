@@ -243,3 +243,40 @@ def install_wall_clock_watchdog(seconds: int) -> None:
         timer = threading.Timer(seconds, _bail)
         timer.daemon = True
         timer.start()
+
+
+def check_manager_manage_mode(bundle: pathlib.Path) -> bool:
+    """Issue #191: ``run_manager --manage migrate --check`` must reach Django.
+
+    Asserts ``returncode in (0, 1)`` (Django's migrate --check exit
+    codes) AND neither ``unrecognized arguments`` nor ``error:
+    argument`` (argparse-failure fingerprints — exit 2 from argparse
+    was the exact #191 symptom). Skips if no manager bundle present so
+    wizard-only dev iterations still pass.
+    """
+    manager_root = bundle.parent / "manager"
+    if not manager_root.is_dir():
+        print(f"#191 SKIPPED: no manager bundle at {manager_root}")
+        return True
+    exe_name = "run_manager.exe" if sys.platform == "win32" else "run_manager"
+    candidates = list(manager_root.rglob(exe_name))
+    if not candidates:
+        err(f"#191 FAILED: {exe_name} not found under {manager_root}")
+        return False
+    exe = candidates[0]
+    print(f"#191 invoking {exe} --manage migrate --check")
+    try:
+        result = subprocess.run(
+            [str(exe), "--manage", "migrate", "--check"],
+            capture_output=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        err("#191 FAILED: --manage migrate --check timed out")
+        return False
+    fingerprints = (b"unrecognized arguments", b"error: argument")
+    bad_stderr = any(fp in result.stderr for fp in fingerprints)
+    if result.returncode not in (0, 1) or bad_stderr:
+        err(f"#191 FAILED: rc={result.returncode}, stderr={result.stderr!r}")
+        return False
+    print(f"#191 passed: --manage reached Django (rc={result.returncode})")
+    return True

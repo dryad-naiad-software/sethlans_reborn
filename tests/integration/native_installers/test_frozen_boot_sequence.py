@@ -25,18 +25,29 @@ class TestFrozenBootSequenceOrdering:
     """Frozen boot: django.setup() runs BEFORE in-process migrations."""
 
     def test_frozen_boot_calls_setup_then_migrate(self, monkeypatch):
-        """_frozen_boot_sequence calls django.setup() before migrations."""
+        """_frozen_boot_sequence calls django.setup() before migrations.
+
+        After the FR-MGMT4 refactor, ``_frozen_boot_sequence`` delegates
+        its Django-init prologue to
+        ``sethlans_manager.manage_dispatch.setup_django_for_management``.
+        We patch the helper directly so the test asserts ordering at the
+        ``_frozen_boot_sequence`` layer without depending on the helper's
+        internal ``apps.ready`` idempotency guard (which short-circuits
+        ``django.setup()`` when Django was already initialised earlier
+        in the pytest session). The helper's own setup-once behaviour is
+        covered by unit tests in ``test_manage_dispatch_extended.py``.
+        """
         import shared.frozen_paths as fp_mod
+        monkeypatch.setattr(fp_mod, 'is_frozen', lambda: True)
 
         call_order = []
 
-        mock_django = MagicMock()
-        mock_django.setup.side_effect = lambda: call_order.append(
-            'django.setup',
-        )
-        monkeypatch.setattr(fp_mod, 'is_frozen', lambda: True)
-
-        with patch.dict('sys.modules', {'django': mock_django}):
+        with patch(
+            'sethlans_manager.manage_dispatch.setup_django_for_management',
+        ) as mock_setup:
+            mock_setup.side_effect = lambda: call_order.append(
+                'django.setup',
+            )
             with patch(
                 'sethlans_manager.migration_runner.run_migrations_inprocess',
             ) as mock_migrate:
@@ -50,7 +61,6 @@ class TestFrozenBootSequenceOrdering:
                     mock_static.side_effect = lambda: call_order.append(
                         'collectstatic',
                     )
-                    # Import and call after patches are in place
                     from run_manager import _frozen_boot_sequence
                     _frozen_boot_sequence(dev_mode=False)
 
@@ -67,12 +77,10 @@ class TestFrozenBootSequenceOrdering:
 
         call_order = []
 
-        mock_django = MagicMock()
-        mock_django.setup.side_effect = lambda: call_order.append(
-            'setup',
-        )
-
-        with patch.dict('sys.modules', {'django': mock_django}):
+        with patch(
+            'sethlans_manager.manage_dispatch.setup_django_for_management',
+        ) as mock_setup:
+            mock_setup.side_effect = lambda: call_order.append('setup')
             with patch(
                 'sethlans_manager.migration_runner'
                 '.run_migrations_inprocess',
@@ -99,12 +107,10 @@ class TestFrozenBootSequenceOrdering:
 
         call_order = []
 
-        mock_django = MagicMock()
-        mock_django.setup.side_effect = lambda: call_order.append(
-            'setup',
-        )
-
-        with patch.dict('sys.modules', {'django': mock_django}):
+        with patch(
+            'sethlans_manager.manage_dispatch.setup_django_for_management',
+        ) as mock_setup:
+            mock_setup.side_effect = lambda: call_order.append('setup')
             with patch(
                 'sethlans_manager.migration_runner'
                 '.run_migrations_inprocess',

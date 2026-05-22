@@ -6,10 +6,20 @@
 
 Implements Spec 2 FR-APPLY-ORDERING (steps 4 + 5) and FR-APPLY-INVOKE.
 The launcher invokes ``manage.py migrate`` then ``manage.py
-apply_pending_setup --data-dir <path>`` between observing
+apply_pending_setup --data-dir <shared data root>`` between observing
 ``.wizard_done`` and spawning the manager runtime.  Both subprocesses
 are blocking (``subprocess.run``) per FR-APPLY-ORDERING-SYNC; the
 manager runtime MUST NOT start before the apply exits with code 0.
+
+The ``--data-dir`` value is the **shared** Sethlans data root
+(``shared.frozen_paths.get_shared_data_dir()`` — e.g.
+``%LOCALAPPDATA%\\Sethlans`` on Windows), NOT the manager component
+subdir. The wizard writes ``pending_setup.json`` to the shared root,
+and ``apply_pending_setup`` writes ``.setup_complete`` next to it;
+all consumers of ``.setup_complete`` already read from the shared
+root (see ``launcher/run_launcher.py:_is_setup_complete``,
+``wizard/handlers/topology.py``, ``shared/tray/menu_manager_helpers.py``).
+Issue #195 corrected an erroneous ``/manager`` append on this argv.
 
 Environment hardening (FR-APPLY-INVOKE): the curated env contains
 ONLY ``DJANGO_SETTINGS_MODULE``, ``PATH`` (system default), ``PYTHONPATH``
@@ -26,6 +36,9 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+
+from launcher.manager_exe_resolver import is_frozen as _is_frozen
+from launcher.manager_exe_resolver import manager_exe as _manager_exe
 
 logger = logging.getLogger(__name__)
 
@@ -133,13 +146,32 @@ def run_migrate_subprocess(manager_dir: Optional[Path] = None) -> int:
 
     Returns the subprocess exit code.  Idempotent: re-running migrate
     after migrations have already applied is a no-op in Django.
+
+    Argv shape depends on bundling mode (#191):
+
+    * **Frozen** (``run_launcher.exe``): ``[run_manager.exe, --manage,
+      migrate, --noinput]``. ``sys.executable`` is the launcher binary
+      here and cannot accept a ``manage.py`` path.
+    * **Source**: ``[sys.executable, manage.py, migrate, --noinput]``
+      — unchanged.
+
+    Future-proofing: any new ``--manage`` subcommand added to the
+    manager's allowlist that accepts password / token / API-key args
+    on argv MUST be redacted here before the argv is logged. The
+    current subcommands (``migrate``, ``apply_pending_setup``) carry
+    secrets via on-disk JSON, not argv.
     """
     if manager_dir is None:
         manager_dir = _manager_dir()
-    manage_py = _manage_py_path(manager_dir)
-    cmd = [sys.executable, str(manage_py), "migrate", "--noinput"]
+    if _is_frozen():
+        cmd = [str(_manager_exe()), "--manage", "migrate", "--noinput"]
+    else:
+        manage_py = _manage_py_path(manager_dir)
+        cmd = [sys.executable, str(manage_py), "migrate", "--noinput"]
     env = build_curated_env(manager_dir)
-    logger.info("Running migrate subprocess: %s", manage_py)
+    logger.info(
+        "Running migrate subprocess: argv=%s", cmd,
+    )
     result = subprocess.run(
         cmd, check=False, capture_output=True, text=True, env=env,
     )
@@ -159,17 +191,30 @@ def run_apply_pending_setup_subprocess(
 
     Returns ``(exit_code, stderr)``.  The caller surfaces stderr via
     the launcher tray on non-zero.
+
+    Argv shape depends on bundling mode (#191): frozen mode invokes
+    ``run_manager.exe --manage apply_pending_setup --data-dir <path>``;
+    source mode keeps the ``sys.executable + manage.py`` path. See
+    :func:`run_migrate_subprocess` for the argv-redaction contract
+    that applies when adding new ``--manage`` subcommands.
     """
     if manager_dir is None:
         manager_dir = _manager_dir()
-    manage_py = _manage_py_path(manager_dir)
-    cmd = [
-        sys.executable, str(manage_py), "apply_pending_setup",
-        "--data-dir", str(data_dir),
-    ]
+    if _is_frozen():
+        cmd = [
+            str(_manager_exe()), "--manage", "apply_pending_setup",
+            "--data-dir", str(data_dir),
+        ]
+    else:
+        manage_py = _manage_py_path(manager_dir)
+        cmd = [
+            sys.executable, str(manage_py), "apply_pending_setup",
+            "--data-dir", str(data_dir),
+        ]
     env = build_curated_env(manager_dir)
     logger.info(
-        "Running apply_pending_setup subprocess (data_dir=%s)", data_dir,
+        "Running apply_pending_setup subprocess (data_dir=%s) argv=%s",
+        data_dir, cmd,
     )
     result = subprocess.run(
         cmd, check=False, capture_output=True, text=True, env=env,
@@ -208,14 +253,19 @@ def run_apply_pipeline_if_needed(
 ) -> Optional[int]:
     """Run migrate + apply only for manager-bearing topologies.
 
+    ``data_dir`` is the **shared** Sethlans data root (the value
+    returned by :func:`shared.frozen_paths.get_shared_data_dir`) and is
+    threaded verbatim into ``apply_pending_setup --data-dir`` — the
+    wizard writes ``pending_setup.json`` there and ``apply_pending_setup``
+    writes ``.setup_complete`` next to it (issue #195).
+
     Returns ``None`` on success / worker-only skip.  Returns an exit
     code (from ``failure_exit_cb``) when the pipeline fails — caller
     should propagate that as its own return value.
     """
     if topology not in ("manager", "manager_worker", "manager+worker"):
         return None
-    manager_data = data_dir / "manager"
-    ok, message = run_apply_pipeline(manager_data)
+    ok, message = run_apply_pipeline(data_dir)
     if ok:
         return None
     logger.error("apply_pending_setup pipeline failed: %s", message)
