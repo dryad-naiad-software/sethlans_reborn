@@ -18,6 +18,14 @@ import sys
 import typing
 import uuid
 from pathlib import Path
+from typing import Optional
+
+try:
+    from shared.frozen_paths import get_shared_data_dir
+except ImportError:  # pragma: no cover - frozen manager bundle fallback
+    from sethlans_manager.frozen_paths import (  # type: ignore[no-redef]
+        get_shared_data_dir,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +125,10 @@ def apply_enrollment_key_env_override() -> None:
     )
 
 
-def cleanup_stale_setup_section(manager_dir: Path) -> None:
+def cleanup_stale_setup_section(
+    manager_dir: Path,
+    shared_data_dir: Optional[Path] = None,
+) -> None:
     """Remove ``[setup]`` from ``manager.ini`` if setup is complete.
 
     Belt-and-suspenders for the launcher-owned cleanup: if the manager
@@ -126,11 +137,23 @@ def cleanup_stale_setup_section(manager_dir: Path) -> None:
     written, the stale ``[setup] token`` / ``session_id`` would persist
     forever. This boot-time sweep keeps "first normal run
     indistinguishable from any later run" honest.
+
+    ``manager_dir`` is the manager component data dir (``manager.ini``
+    lives here). ``shared_data_dir`` is the shared Sethlans data root
+    where ``.setup_complete`` lives (issue #195: the sentinel is at
+    ``<shared>/`` per ``apply_pending_setup --data-dir <shared>``, not
+    ``<shared>/manager/``). When ``shared_data_dir`` is ``None``, the
+    function resolves it via :func:`shared.frozen_paths.get_shared_data_dir`;
+    the keyword argument exists for testability.
     """
     from workers.services.ini_atomic import remove_ini_section
     from workers.services.sentinel import read_sentinel
 
-    sentinel = read_sentinel(manager_dir)
+    lookup_dir = (
+        shared_data_dir if shared_data_dir is not None
+        else get_shared_data_dir()
+    )
+    sentinel = read_sentinel(lookup_dir)
     if sentinel is None or not sentinel.get("completed_at"):
         return
     ini_path = manager_dir / "manager.ini"
