@@ -130,6 +130,21 @@ for app in ['django.contrib.admin', 'django.contrib.auth',
     datas += collect_data_files(app, subdir='locale')
 datas += collect_data_files('rest_framework', subdir='locale')
 
+# Issue #196 (and sibling of wizard's #190): Django's password validator
+# resource ``django/contrib/auth/common-passwords.txt.gz`` is a binary
+# data file at the package root — PyInstaller's static walker copies
+# ``.py`` files inside packages but NOT arbitrary non-Python resources,
+# so the file is silently dropped from the bundle. At runtime
+# ``CommonPasswordValidator`` resolves the resource via
+# ``importlib.resources``; without this declaration ``validate_password``
+# raises ``FileNotFoundError`` inside the apply pipeline's
+# ``transaction.atomic()`` block and the launcher surfaces it as
+# ``apply operational failure: atomic apply failed: FileNotFoundError``.
+datas += collect_data_files(
+    'django.contrib.auth',
+    includes=['common-passwords.txt.gz'],
+)
+
 # Angular frontend build output
 if FRONTEND_DIST.exists():
     datas.append((str(FRONTEND_DIST), 'frontend/dist'))
