@@ -56,11 +56,21 @@ def apply_atomic(username: str, email: str, password: str) -> None:
 
 
 def create_superuser(username: str, email: str, password: str) -> None:
-    """FR-APPLY2 step 2 — idempotent on existing username."""
+    """FR-APPLY2 step 2 — idempotent on existing username.
+
+    The ``User.objects.create_superuser`` call runs inside a nested
+    ``transaction.atomic()`` block (savepoint) so that an
+    ``IntegrityError`` rolls back only this sub-transaction. Without
+    the savepoint, the outer ``apply_atomic`` transaction would be
+    marked "needs rollback" and the subsequent
+    ``ensure_enrollment_key`` query would raise
+    ``TransactionManagementError`` (issue #200).
+    """
     try:
-        User.objects.create_superuser(
-            username=username, email=email, password=password,
-        )
+        with transaction.atomic():
+            User.objects.create_superuser(
+                username=username, email=email, password=password,
+            )
     except IntegrityError:
         logger.warning(
             "superuser %r already exists; skipping creation", username,
