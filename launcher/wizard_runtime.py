@@ -37,8 +37,10 @@ from launcher.health_probe import (
 
 logger = logging.getLogger(__name__)
 
-# FR-L7b runtime port-bind observation window.
-RUNTIME_PORT_BIND_TIMEOUT = 30.0
+# FR-L7b runtime port-bind window. 120s per #201 (was 30s; manager
+# startup synchronously parses Blender releases over the network, ~35s
+# cold). Real fix: lazy parsing in #201.
+RUNTIME_PORT_BIND_TIMEOUT = 120.0
 RUNTIME_PORT_BIND_POLL_INTERVAL = 0.25
 
 # FR-W14a deterministic runtime port for manager-bearing topologies.

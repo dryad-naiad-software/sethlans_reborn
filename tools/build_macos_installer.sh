@@ -155,6 +155,15 @@ echo "=== 6/7 PyInstaller: wizard ==="
 echo "=== Wizard smoke (NF-4 + AC-B2 + AC-B4) ==="
 .venv-build/bin/python tools/wizard_smoke.py --bundle dist/wizard
 
+# Issue #197: end-to-end frozen install smoke. Drives the real launcher
+# binary through the full wizard walk-through, waits for the apply
+# pipeline's .setup_complete sentinel, and probes the manager's
+# /api/health/. Catches the frozen-mode-only bug cluster (#190 / #191
+# / #192 / #195 / #196) that integration tests miss because they
+# source-mode the launcher and monkey-patch the apply pipeline.
+echo "=== Install smoke (end-to-end frozen) ==="
+.venv-build/bin/python tools/install_smoke.py --dist-root dist
+
 echo "=== 7/7 DMG (v$BUILD_VERSION) ==="
 bash "$DMG_SCRIPT" "$BUILD_VERSION"
 
