@@ -40,7 +40,12 @@ from _wizard_smoke_helpers import (  # noqa: E402
 )
 
 WALL_CLOCK_BUDGET_SECONDS = 300
-DEFAULT_MANAGER_PORT = 8181
+# Must match launcher.wizard_runtime.RUNTIME_MANAGER_PORT (hardcoded
+# 8080) — the launcher's wait_for_runtime_health probes that port
+# regardless of what the wizard's network step wrote to manager.ini.
+# If a production manager is already running on 8080 the smoke will
+# collide; kill it first.
+DEFAULT_MANAGER_PORT = 8080
 LOG_TAIL_DIR_PREFIX = "install_smoke_"
 
 
