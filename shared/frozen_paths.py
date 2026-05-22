@@ -16,7 +16,14 @@ Functions
 is_frozen()
     Whether we are running inside a PyInstaller bundle.
 get_app_dir()
-    Root application / project directory.
+    Root application / project directory (caller's own component dir
+    in frozen mode — see function docstring for the self-component
+    semantic).
+get_install_root()
+    Cross-component install boundary (``bin/`` in the frozen layout,
+    project root in source mode). Use this — not :func:`get_app_dir` —
+    for bounds checks that must hold across component process
+    boundaries (e.g. the manager-exe resolver in the launcher).
 get_manager_dir()
     Manager source or bundle directory.
 get_worker_dir()
@@ -58,31 +65,69 @@ def get_app_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def get_install_root() -> Path:
+    """Return the cross-component install boundary (issue #192).
+
+    Canonical install-tree anchor. Returns the same path regardless
+    of which component's process is the caller (launcher, manager,
+    worker, wizard, tray_helper). Use this — NOT :func:`get_app_dir`
+    — for bounds checks that must hold across component process
+    boundaries (e.g. the launcher resolving the manager binary).
+
+    Frozen mode (Windows / Linux, flat ``bin/<component>/<exe>``
+    layout): ``Path(sys.executable).parent.parent`` — each component
+    exe lives at ``bin/<component>/run_<component>``, so two levels
+    up always lands on ``bin/``.
+
+    Frozen mode (macOS, asymmetric ``.app`` layout per
+    ``packaging/macos/build_dmg.sh``): two caller positions detected
+    structurally via path-component names (no filesystem probes):
+
+        * Launcher: ``sys.executable`` is
+          ``<Sethlans.app>/Contents/MacOS/sethlans`` (renamed from
+          ``run_launcher`` at DMG staging). Install root is
+          ``.parent.parent / "Resources" / "bin"``.
+        * Component (manager/worker/wizard/tray_helper): exe is
+          ``<Sethlans.app>/Contents/Resources/bin/<component>/run_<component>``.
+          Install root is ``.parent.parent`` directly.
+
+    Source mode: ``get_app_dir()`` (project root).
+    """
+    if not is_frozen():
+        return get_app_dir()
+    exe = Path(sys.executable).resolve()
+    if platform.system() == "Darwin":
+        if exe.parent.name == "MacOS":
+            return exe.parent.parent / "Resources" / "bin"
+        if exe.parent.parent.name == "bin":
+            return exe.parent.parent
+        raise RuntimeError(
+            f"get_install_root(): unrecognized macOS layout for {exe}"
+        )
+    return exe.parent.parent
+
+
 def get_manager_dir() -> Path:
     """Return the manager source or bundle directory.
 
-    Frozen mode:
-        The directory containing the frozen manager executable
-        (install_dir/bin/manager/).
-    Source mode:
-        ``<project_root>/manager/``.
+    Frozen mode: ``<install_root>/manager/`` — stable across all
+    caller processes via :func:`get_install_root` (issue #192).
+    Source mode: ``<project_root>/manager/``.
     """
     if is_frozen():
-        return Path(sys.executable).resolve().parent
+        return get_install_root() / 'manager'
     return get_app_dir() / 'manager'
 
 
 def get_worker_dir() -> Path:
     """Return the worker source or bundle directory.
 
-    Frozen mode:
-        The directory containing the frozen worker executable
-        (install_dir/bin/worker/).
-    Source mode:
-        ``<project_root>/worker/``.
+    Frozen mode: ``<install_root>/worker/`` — stable across all
+    caller processes via :func:`get_install_root` (issue #192).
+    Source mode: ``<project_root>/worker/``.
     """
     if is_frozen():
-        return Path(sys.executable).resolve().parent
+        return get_install_root() / 'worker'
     return get_app_dir() / 'worker'
 
 

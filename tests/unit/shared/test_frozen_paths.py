@@ -21,6 +21,7 @@ from shared.frozen_paths import (
     get_branding_dir,
     get_data_dir,
     get_frontend_dist_dir,
+    get_install_root,
     get_manager_dir,
     get_worker_dir,
     is_frozen,
@@ -51,6 +52,10 @@ class TestSourceModePaths:
         # should equal the project root containing manager/ and worker/.
         assert result.is_absolute()
         assert (result / 'manager').exists() or (result / 'shared').exists()
+
+    def test_get_install_root_source_mode(self):
+        result = get_install_root()
+        assert result == get_app_dir()
 
     def test_get_manager_dir(self):
         result = get_manager_dir()
@@ -89,29 +94,45 @@ class TestFrozenModePaths:
 
     @pytest.fixture(autouse=True)
     def _freeze(self, mocker, tmp_path):
-        """Simulate a PyInstaller frozen environment."""
-        exe = tmp_path / 'bin' / 'manager' / 'run_manager.exe'
-        exe.parent.mkdir(parents=True, exist_ok=True)
-        exe.touch()
+        """Simulate a frozen environment from the manager process with full sibling layout."""
+        bin_dir = tmp_path / 'bin'
+        for component, binary in [
+            ('manager', 'run_manager.exe'),
+            ('launcher', 'run_launcher.exe'),
+            ('worker', 'run_worker.exe'),
+            ('wizard', 'run_wizard.exe'),
+            ('tray_helper', 'run_tray_helper.exe'),
+        ]:
+            exe = bin_dir / component / binary
+            exe.parent.mkdir(parents=True, exist_ok=True)
+            exe.touch()
+        manager_exe = bin_dir / 'manager' / 'run_manager.exe'
         mocker.patch.object(sys, 'frozen', True, create=True)
-        mocker.patch.object(sys, 'executable', str(exe))
-        meipass = tmp_path / 'bin' / 'manager' / '_internal'
+        mocker.patch.object(sys, 'executable', str(manager_exe))
+        meipass = bin_dir / 'manager' / '_internal'
         meipass.mkdir(parents=True, exist_ok=True)
         mocker.patch.object(sys, '_MEIPASS', str(meipass), create=True)
-        self._exe = exe
+        self._exe = manager_exe
         self._meipass = meipass
+        self._bin_dir = bin_dir
 
     def test_get_app_dir_returns_executable_parent(self):
         result = get_app_dir()
         assert result == self._exe.resolve().parent
 
-    def test_get_manager_dir_returns_executable_parent(self):
-        result = get_manager_dir()
-        assert result == self._exe.resolve().parent
+    def test_get_install_root_frozen_from_manager(self):
+        result = get_install_root()
+        assert result == self._bin_dir.resolve()
 
-    def test_get_worker_dir_returns_executable_parent(self):
+    def test_get_manager_dir_frozen_returns_install_root_slash_manager(self):
+        # TP-4: assert new correct value, not the old buggy executable parent
+        result = get_manager_dir()
+        assert result == self._bin_dir.resolve() / 'manager'
+
+    def test_get_worker_dir_frozen_returns_install_root_slash_worker(self):
+        # TP-5: assert new correct value, not the old buggy executable parent
         result = get_worker_dir()
-        assert result == self._exe.resolve().parent
+        assert result == self._bin_dir.resolve() / 'worker'
 
     def test_get_frontend_dist_dir_uses_meipass(self):
         result = get_frontend_dist_dir()
