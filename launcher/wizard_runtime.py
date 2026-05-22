@@ -2,21 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Runtime hand-off helpers for the wizard channel.
+"""Runtime hand-off helpers for the wizard channel (post-``.wizard_done``).
 
-Owns the post-``.wizard_done`` half of the launcher's wizard flow:
+* ``hand_off_to_runtime`` (FR-L7) — read topology.json, spawn runtime,
+  watch port-bind (FR-L7b), write ``.runtime_failed`` HMAC marker on
+  failure (FR-IPC8), trigger FR-L13 cleanup on success.
+* ``wait_for_runtime_port_bind`` (FR-L7b) — polled connect_ex + health
+  probe on 127.0.0.1:port with a wall-clock ceiling.
+* ``terminate_wizard`` (FR-L10) — SIGTERM with WIZARD_GRACE_SECONDS.
 
-* ``hand_off_to_runtime`` (FR-L7) — read topology.json, spawn the
-  appropriate runtime component, watch its port-bind for 30 s
-  (FR-L7b), write ``.runtime_failed`` HMAC marker on failure
-  (FR-IPC8), and trigger FR-L13 cleanup on success.
-* ``wait_for_runtime_port_bind`` (FR-L7b) — polled connect_ex on
-  127.0.0.1:port with a 30 s wall-clock ceiling.
-* ``terminate_wizard`` (FR-L10) — SIGTERM with the WIZARD_GRACE_SECONDS
-  grace declared in ``launcher/cascade.py``.
-
-Split from ``launcher/wizard_orchestration.py`` so neither file crosses
-the 300-line limit.
+Split from ``launcher/wizard_orchestration.py`` for the 300-line limit.
 """
 
 from __future__ import annotations
@@ -89,10 +84,7 @@ def _probe_runtime_health(
 
     Delegates to :func:`launcher.health_probe.probe_health_once` so the
     cold-boot splash path and the post-handoff port-bind watch share a
-    single envelope contract (OQ-2). The loopback gate (NFR-6) lives on
-    the cold-boot helper only — it is not applied here because the
-    runtime port is also localhost-bound and adding the gate twice
-    would not narrow the security surface further.
+    single envelope contract (OQ-2).
     """
     url = f"https://{host}:{port}/api/health/"
     return probe_health_once(url, timeout=_HEALTH_PROBE_TIMEOUT)
@@ -275,7 +267,11 @@ def hand_off_to_runtime(
     )
 
     if watch_port is not None:
-        bound = wait_for_runtime_port_bind(runtime_proc, watch_port)
+        # Issue #202: start the manager Caddy reverse proxy BEFORE
+        # health-probing the manager.ini-configured port.
+        from launcher.caddy_wiring import prepare_manager_caddy_and_resolve_port
+        port = prepare_manager_caddy_and_resolve_port(data_dir / "manager")
+        bound = wait_for_runtime_port_bind(runtime_proc, port)
         if not bound:
             # Issue #163: tray-quit returns False too; distinguish via
             # the quit event so we don't write a misleading marker.

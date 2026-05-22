@@ -36,6 +36,26 @@ from launcher.setup_helpers import (
 logger = logging.getLogger(__name__)
 
 
+def ensure_manager_tls_cert(manager_data: Path) -> tuple[Path, Path]:
+    """Pre-generate manager TLS cert if absent; return ``(cert, key)``.
+
+    Mirrors the wizard pattern (see :mod:`launcher.wizard_caddy_lifecycle`):
+    the launcher creates ``<manager_data>/tls/{cert,key}.pem`` before Caddy
+    starts so the supervisor finds the files at boot. The manager runtime's
+    ``tls_setup.py`` is idempotent and will reuse these files unchanged
+    on subsequent boots (FR-CERT2 of issue #202).
+    """
+    from shared.cert_utils import generate_self_signed_cert
+    tls_dir = manager_data / "tls"
+    tls_dir.mkdir(parents=True, exist_ok=True)
+    cert_path = tls_dir / "cert.pem"
+    key_path = tls_dir / "key.pem"
+    if not cert_path.exists():
+        generate_self_signed_cert(cert_path, key_path)
+        logger.info("Pre-generated manager TLS cert at %s", cert_path)
+    return cert_path, key_path
+
+
 def _ensure_manager_on_syspath() -> None:
     """Add ``manager/`` to ``sys.path`` so ``sethlans_manager.*`` imports work.
 
@@ -65,6 +85,23 @@ def _resolve_caddy_public_port(ini_path: Path) -> int:
         except ValueError:
             pass
     return CADDY_PUBLIC_TLS_PORT
+
+
+def prepare_manager_caddy_and_resolve_port(manager_data: Path) -> int:
+    """One-shot helper for the wizard hand-off path (issue #202).
+
+    Bundles the three steps the launcher must take before health-probing
+    the manager runtime: pre-generate the TLS cert, start the Caddy
+    supervisor, and resolve the public TLS port from ``manager.ini``.
+
+    Keeps :func:`launcher.wizard_runtime.hand_off_to_runtime` under the
+    300-line ceiling (NF-1) by hosting the bundled logic here, beside
+    the Caddy bootstrap it wraps. Returns the resolved port so the
+    caller can pass it to ``wait_for_runtime_port_bind``.
+    """
+    ensure_manager_tls_cert(manager_data)
+    start_caddy_supervisor(manager_data)
+    return _resolve_caddy_public_port(manager_data / "manager.ini")
 
 
 def start_caddy_supervisor(manager_data: Path) -> None:

@@ -186,6 +186,13 @@ class TestHandOffToRuntime:
             "launcher.apply_pending_setup.run_apply_pipeline_if_needed",
             return_value=None,
         )
+        # Issue #202 FR-CADDY1: hand_off_to_runtime now starts Caddy in the
+        # manager-bearing branch; stub the prepare helper so this unit test
+        # does not spawn a real Caddy process.
+        mocker.patch(
+            "launcher.caddy_wiring.prepare_manager_caddy_and_resolve_port",
+            return_value=8080,
+        )
         mocker.patch(
             "launcher.wizard_runtime.wait_for_runtime_port_bind",
             return_value=False,
