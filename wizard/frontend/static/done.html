@@ -47,7 +47,7 @@
           </p>
         </header>
 
-        <div v-if="!error" class="mb-3" :aria-busy="busy ? 'true' : 'false'">
+        <div v-if="!error && !success" class="mb-3" :aria-busy="busy ? 'true' : 'false'">
           <div class="spinner-border text-primary" role="status" aria-hidden="true">
             <span class="visually-hidden">Working&hellip;</span>
           </div>
@@ -62,6 +62,11 @@
             @click="run">
             Retry
           </button>
+        </div>
+
+        <div v-if="success" class="alert alert-success" role="alert">
+          Setup complete! Sethlans is starting &mdash; the dashboard will open in a new
+          tab. You can close this tab.
         </div>
       </div>
     </div>

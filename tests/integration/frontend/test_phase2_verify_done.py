@@ -144,7 +144,8 @@ def test_done_posts_pending_then_done_in_order(page, wizard_process):
         lambda route: route.fulfill(status=200, body="{}"),
     )
     _land(page, wp, "/done")
-    page.wait_for_url(f"{wp.base_url}/redirecting", timeout=10000)
+    # Both POSTs succeed — expect the success card (no redirect to /redirecting).
+    page.wait_for_selector(".alert-success", timeout=10000)
     # Both endpoints fired exactly once each, pending BEFORE done.
     pending_posts = [r for r in pending if r["method"] == "POST"]
     done_posts = [r for r in done if r["method"] == "POST"]
@@ -212,5 +213,6 @@ def test_done_retry_button_re_fires_pending_post(page, wizard_process):
     _land(page, wp, "/done")
     page.wait_for_selector(".alert-danger button:has-text('Retry')", timeout=10000)
     page.click(".alert-danger button:has-text('Retry')")
-    page.wait_for_url(f"{wp.base_url}/redirecting", timeout=5000)
+    # Second attempt succeeds — success card shown, no redirect to /redirecting.
+    page.wait_for_selector(".alert-success", timeout=5000)
     assert pending_state["calls"] == 2

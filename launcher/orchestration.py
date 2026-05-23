@@ -269,6 +269,8 @@ def run_normal_mode(
     if rc is not None:
         return rc
 
+    logger.info("manager ready on https://localhost:8080/ — dashboard opening")
+
     # FR-12: open the browser only after all required URLs are healthy.
     # FR-BROWSER2 (issue #203): on a fresh install this fires a 2nd tab
     # (wizard already opened one); expected for v1 UX. Worker-only has

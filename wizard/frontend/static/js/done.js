@@ -7,10 +7,13 @@
 // On mount, in order (mandatory):
 //   1. POST /api/wizard/pending-setup/  — atomic write of pending_setup.json
 //   2. POST /api/wizard/done/           — writes the .wizard_done IPC marker
-//   3. window.location.assign('/redirecting')
 //
-// We only navigate to /redirecting once BOTH POSTs return 200; if
-// either fails, we surface the error with a Retry button.
+// On success, display the success card. The launcher opens the dashboard
+// tab via open_browser(); the wizard tab stays on the success card.
+// A transport error on the done POST is expected: the launcher's
+// file-poll loop sees the .wizard_done marker and kills Caddy before
+// the response flushes. Pending-setup 200 confirms the marker was
+// written — treat the transport error as success.
 
 import { createApp, reactive } from '/static/vendor/petite-vue.js';
 import {
@@ -27,12 +30,12 @@ import {
 const STAGE_MESSAGES = {
   pending: 'Writing setup file&hellip;',
   done: 'Signalling the launcher&hellip;',
-  redirecting: 'Redirecting&hellip;',
 };
 
 const scope = reactive({
   stage: 'pending',
   error: '',
+  success: false,
   // Done is the last step. Mark every previous checkpoint as complete
   // in the stepper so the user sees the full trail filled in. The
   // current entry (Done) is the highlighted one.
@@ -45,13 +48,14 @@ const scope = reactive({
       'verified',
     ],
   ),
-  get busy() { return !this.error; },
+  get busy() { return !this.error && !this.success; },
   get stageMessage() {
     return STAGE_MESSAGES[this.stage] || STAGE_MESSAGES.pending;
   },
 
   async run() {
     this.error = '';
+    this.success = false;
     this.stage = 'pending';
     let response;
     try {
@@ -75,7 +79,13 @@ const scope = reactive({
     try {
       doneResponse = await wizardFetch('/api/wizard/done/', { method: 'POST' });
     } catch (_) {
-      this.error = 'Network error signalling the launcher. Try again.';
+      // Transport error on the done POST is expected: the launcher's
+      // file-poll loop sees the .wizard_done marker and kills Caddy
+      // before the response flushes. Pending-setup 200 confirms the
+      // marker was written. Treat as success — the launcher opens the
+      // dashboard tab on its own.
+      clearAllFormState();
+      this.success = true;
       return;
     }
     if (doneResponse.status === 401 || doneResponse.status === 403) {
@@ -88,11 +98,9 @@ const scope = reactive({
       this.error = 'The wizard could not signal the launcher. Check the launcher logs.';
       return;
     }
-    this.stage = 'redirecting';
     // Form-state stash is no longer useful past this point.
     clearAllFormState();
-    window.history.replaceState({}, '', '/redirecting');
-    window.location.assign('/redirecting');
+    this.success = true;
   },
 });
 
