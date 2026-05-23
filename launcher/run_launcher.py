@@ -107,8 +107,24 @@ def _start_component(
     # FR-10 (D4): launcher-spawned workers force the embedded web UI on.
     if component == "worker":
         proc_env["SETHLANS_WORKER_UI_ENABLED"] = "true"
-    stdout = subprocess.PIPE if component != "tray" else None
-    stderr = subprocess.PIPE if component != "tray" else None
+    # Issue #204: long-running subprocesses (``manager``, ``worker``) MUST
+    # NOT use ``subprocess.PIPE`` here. The launcher does not drain those
+    # pipes in normal mode; the ~64 KB OS pipe buffer fills within minutes
+    # and the next ``write()`` to stderr blocks INSIDE Python's logging
+    # ``Handler.emit()`` — holding the handler's RLock forever. Every
+    # subsequent log call (including Waitress's WARN-level 4xx logs) then
+    # deadlocks, which is exactly why ``/api/auth/user/`` hangs after a
+    # few minutes uptime. Both processes write their own log files; the
+    # launcher does not need to capture their stderr in normal mode.
+    if component == "tray":
+        stdout = None
+        stderr = None
+    elif component in ("manager", "worker"):
+        stdout = subprocess.DEVNULL
+        stderr = subprocess.DEVNULL
+    else:
+        stdout = subprocess.PIPE
+        stderr = subprocess.PIPE
     # DEVOPS-MED-4 (Phase F3): see popen_kwargs_for_component docstring.
     popen_kwargs = popen_kwargs_for_component()
     return subprocess.Popen(
