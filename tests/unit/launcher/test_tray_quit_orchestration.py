@@ -6,33 +6,30 @@
 
 Covers the cascade contracts:
 
-* AC-WizardCleanup — ``run_wizard_mode`` on tray quit terminates
-  wizard (and runtime if applicable), fires ``on_cold_boot_ready``,
-  returns 0.
+* AC-WizardCleanup — ``run_wizard_mode`` on tray quit terminates the
+  wizard, fires ``on_cold_boot_ready``, returns 0.
 * AC-NormalModeCleanup — ``_await_cold_boot`` on tray quit fires
   ``on_cold_boot_ready`` and parallel-terminates manager + worker.
 * AC-NoErrorCard — every quit path fires the success-path callback
   (``on_cold_boot_ready``), NOT the failure-path callback
   (``on_startup_failed``); browser MUST NOT open on quit.
-* Hand-off: when ``wait_for_runtime_port_bind`` returns False due to
-  tray quit (rather than a real port-bind timeout), the caller MUST
-  NOT write a misleading ``.runtime_failed`` marker.
+
+Issue #203 deleted the ``TestHandOffToRuntimeQuit`` block — runtime
+port-bind is no longer driven from ``hand_off_to_runtime``.
 """
 
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock
 
 import pytest
 
 from launcher import (
-    orchestration, supervision, wizard_orchestration, wizard_runtime,
+    orchestration, supervision, wizard_orchestration,
 )
 from launcher.health_probe import QuitRequested
 
 from ._tray_quit_helpers import (
-    SECRET,
     FakeProc,
     args_ns,
     common_normal_mode_mocks,
@@ -144,54 +141,6 @@ class TestRunWizardModeQuitCleanup:
         assert ready.call_count == 1
         on_failed.assert_not_called()
         terminate.assert_called_once()
-
-
-# ----------------------------------------------------------------------
-# Runtime port-bind quit — caller-side disambiguation
-# ----------------------------------------------------------------------
-
-class TestHandOffToRuntimeQuit:
-
-    def test_quit_during_port_bind_terminates_runtime(
-        self, tmp_path, mocker,
-    ):
-        (tmp_path / "topology.json").write_text(
-            json.dumps({"topology": "manager"}), encoding="utf-8",
-        )
-        runtime_proc = FakeProc()
-        wizard_proc = FakeProc()
-        # Spec 2 FR-APPLY-ORDERING: hand_off_to_runtime now invokes
-        # the apply pipeline before spawn; bypass it for this test.
-        mocker.patch(
-            "launcher.apply_pending_setup.run_apply_pipeline_if_needed",
-            return_value=None,
-        )
-        mocker.patch(
-            "launcher.wizard_runtime.wait_for_runtime_port_bind",
-            return_value=False,
-        )
-        write_marker = mocker.patch(
-            "launcher.wizard_runtime.write_runtime_failed_marker",
-        )
-        terminate_runtime = mocker.patch(
-            "launcher.wizard_runtime._terminate_runtime",
-        )
-        terminate_wizard = mocker.patch(
-            "launcher.wizard_runtime.terminate_wizard",
-        )
-        supervision.get_quit_requested_event().set()
-        rc = wizard_runtime.hand_off_to_runtime(
-            payload={"topology": "manager"},
-            data_dir=tmp_path, ipc_secret=SECRET,
-            wizard_proc=wizard_proc,
-            bootstrap_first_run=MagicMock(),
-            start_component=MagicMock(return_value=runtime_proc),
-        )
-        assert rc == 0
-        # AC-NoErrorCard semantics: NO ``.runtime_failed`` marker.
-        write_marker.assert_not_called()
-        terminate_runtime.assert_called_once_with(runtime_proc)
-        terminate_wizard.assert_called_once_with(wizard_proc)
 
 
 # ----------------------------------------------------------------------

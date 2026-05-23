@@ -27,17 +27,13 @@ SENTINEL_POLL_TIMEOUT_SECONDS = 90
 HEALTH_POLL_TIMEOUT_SECONDS = 120
 POLL_INTERVAL_SECONDS = 1.0
 SENTINEL_MAX_AGE_SECONDS = 60
-# Non-dotted persistent copy (#172) — the wizard subprocess consumes-
-# and-unlinks ``.setup_token`` at startup (FR-W6 / SEC-MED-11) which
-# would race the smoke. The non-dotted sibling survives until handoff.
+# Non-dotted persistent token copy (#172) — survives the wizard's
+# consume-and-unlink of ``.setup_token`` (FR-W6/SEC-MED-11).
 SETUP_TOKEN_FILENAME = "setup_token"
 SENTINEL_FILENAME = ".setup_complete"
 
-# Long admin password to survive Django's MinimumLengthValidator
-# (>= 9 chars) AND the bundled CommonPasswordValidator (#190 + #196 —
-# the bugs this smoke exists to catch). ``manager_worker`` topology
-# exercises the full apply pipeline (manager migrate +
-# apply_pending_setup + worker enrollment).
+# Long password survives MinimumLengthValidator + CommonPasswordValidator
+# (#190/#196); manager_worker exercises the full apply pipeline.
 ADMIN_USERNAME = "smoke"
 ADMIN_EMAIL = "smoke@sethlans.test"
 ADMIN_PASSWORD = "Smoke!Install2026XYZ"
@@ -293,7 +289,12 @@ def drive_install(
         return False
     if not _poll_sentinel(data_dir, launcher_proc):
         return False
-    return _poll_manager_health(manager_port, log_out, log_err)
+    if not _poll_manager_health(manager_port, log_out, log_err):
+        return False
+    # FR-SMOKE1/5 (#203): catch the regression where launcher tears Caddy
+    # down moments after health passes.
+    from _install_smoke_liveness import check_post_health_liveness
+    return check_post_health_liveness(manager_port, launcher_proc)
 
 
 __all__ = ["drive_install"]

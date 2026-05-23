@@ -22,8 +22,8 @@ Contract (FR-3 / FR-5 / NFR-6):
 
 The per-poll HTTPS GET is implemented via :func:`probe_health_once`,
 which is the single-source-of-truth for the FR-W14 envelope check.
-``launcher.wizard_runtime._probe_runtime_health`` delegates here so
-the launcher and wizard cannot drift on what "healthy" means
+Both the cold-boot wait loop and the wizard's pre-handoff health
+check route through it so they cannot drift on what "healthy" means
 (OQ-2 consolidation).
 """
 
@@ -114,10 +114,9 @@ def _validate_loopback_url(url: str) -> None:
 def _make_ssl_context() -> ssl.SSLContext:
     """Build a fresh single-use unverified SSLContext.
 
-    Mirrors ``wizard_runtime._probe_runtime_health``: the manager's
-    self-signed cert cannot be verified until enrollment pins it.
-    The context MUST NOT be cached — fresh per call so internal state
-    does not leak across probes.
+    The manager's self-signed cert cannot be verified until enrollment
+    pins it. The context MUST NOT be cached — fresh per call so
+    internal state does not leak across probes.
     """
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
@@ -130,10 +129,9 @@ def probe_health_once(
 ) -> bool:
     """Single HTTPS GET against ``url``; True iff 200 + FR-W14 envelope.
 
-    Used both by :func:`wait_for_health` (per-poll) and by
-    ``launcher.wizard_runtime._probe_runtime_health`` (post-handoff
-    port-bind watch). Single-sourcing the envelope check keeps the
-    cold-boot and post-handoff paths from drifting (OQ-2).
+    Used by :func:`wait_for_health` (per-poll cold-boot wait) and the
+    wizard's pre-handoff health gate; single-sourcing the envelope
+    check keeps the two paths from drifting (OQ-2).
     """
     ctx = _make_ssl_context()
     try:

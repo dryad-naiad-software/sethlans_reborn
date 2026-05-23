@@ -82,13 +82,14 @@ def _make_start_component(tmp_path, wizard_proc, runtime_proc, log=None):
 
 @pytest.fixture
 def common_mocks(mocker):
-    """Patch wait_for_health + runtime port-bind to True for happy path."""
+    """Patch wait_for_health to True for happy path.
+
+    Issue #203 removed the runtime port-bind probe from
+    ``hand_off_to_runtime`` — runtime spawn + health is now owned by
+    ``run_normal_mode``, which these tests don't drive.
+    """
     mocker.patch(
         "launcher.wizard_orchestration.wait_for_health",
-        return_value=True,
-    )
-    mocker.patch(
-        "launcher.wizard_runtime.wait_for_runtime_port_bind",
         return_value=True,
     )
 

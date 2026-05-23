@@ -27,14 +27,18 @@ if not getattr(sys, "frozen", False):
         sys.path.insert(0, project_root)
 
 from launcher import (  # noqa: E402
-    cascade, diagnostics, orchestration, supervision, tray_ipc,
-    wizard_orchestration,
+    cascade, diagnostics, supervision,
 )
 from launcher.browser_launch import (  # noqa: F401, E402
     compute_cert_fingerprint as _compute_cert_fingerprint,
     is_headless as _is_headless, open_browser, print_setup_banner,
 )
 from launcher.component_paths import find_component_exe, popen_kwargs_for_component  # noqa: E402
+from launcher.main_dispatch import (  # noqa: F401, E402
+    _is_setup_complete,
+    _pre_orchestration_setup as _pre_orchestration_setup_impl,
+    _run_orchestration as _run_orchestration_impl,
+)
 from launcher.paths import get_bin_dir, get_data_dir, get_install_dir, set_file_permissions  # noqa: E402
 from launcher.single_instance import acquire_single_instance_lock, release_lock  # noqa: E402
 from shared.version import get_version  # noqa: E402
@@ -43,20 +47,14 @@ __version__ = get_version()
 
 MANAGER_PORT = 8080
 DASHBOARD_PATH = "/"
-
 _INSTANCE_LOCK = None  # type: ignore[var-annotated]
 logger = logging.getLogger(__name__)
-
 
 # Re-exports for tests/back-compat — bindings ``mocker.patch`` targets.
 _get_data_dir = get_data_dir
 _get_bin_dir = get_bin_dir
 _get_install_dir = get_install_dir
 _set_file_permissions = set_file_permissions
-
-
-def _is_setup_complete(data_dir: Path) -> bool:
-    return (data_dir / ".setup_complete").exists()
 
 
 def _read_topology(data_dir: Path) -> dict:
@@ -73,7 +71,7 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
     ini_path = manager_data / "manager.ini"
     if not ini_path.exists():
         secret_key = secrets.token_urlsafe(50)
-        ini_content = (
+        ini_path.write_text(
             "[security]\n"
             f"secret_key = {secret_key}\n"
             "debug = False\n\n"
@@ -82,9 +80,9 @@ def _bootstrap_first_run(data_dir: Path) -> Path:
             f"port = {MANAGER_PORT}\n"
             "loopback_port = 8088\n"
             "waitress_loopback_port_public = 8090\n"
-            "waitress_loopback_port_internal = 8088\n"
+            "waitress_loopback_port_internal = 8088\n",
+            encoding="utf-8",
         )
-        ini_path.write_text(ini_content, encoding="utf-8")
         _set_file_permissions(ini_path)
         print(f"Generated manager.ini at {ini_path}")
     return manager_data
@@ -135,23 +133,17 @@ def _spawn_tray(data_dir: Path, secret: str) -> subprocess.Popen:
     try:
         proc = _start_component("tray", env=env)
     except Exception as exc:
-        print(
-            f"\n[ERROR] Failed to spawn tray helper: {exc}\n"
-            "The Sethlans tray is required for the launcher UX.\n"
-            "Aborting startup.",
-            file=sys.stderr,
-        )
+        print(f"\n[ERROR] Failed to spawn tray helper: {exc}\n"
+              "The Sethlans tray is required for the launcher UX.\n"
+              "Aborting startup.", file=sys.stderr)
         sys.exit(1)
     try:
         rc = proc.wait(timeout=3.0)
     except subprocess.TimeoutExpired:
         return proc  # still alive after 3s = healthy
-    print(
-        f"\n[ERROR] Tray helper exited immediately with code {rc}.\n"
-        "Likely the tray bundle is missing PySide6 or its backend.\n"
-        "Aborting startup.",
-        file=sys.stderr,
-    )
+    print(f"\n[ERROR] Tray helper exited immediately with code {rc}.\n"
+          "Likely the tray bundle is missing PySide6 or its backend.\n"
+          "Aborting startup.", file=sys.stderr)
     sys.exit(1)
 
 
@@ -176,21 +168,13 @@ def _teardown_tray(tray: Optional[subprocess.Popen]) -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Sethlans — Distributed Blender Rendering",
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"Sethlans {__version__}",
-    )
-    parser.add_argument(
-        "--no-browser", action="store_true",
-        help="Do not open a browser window on startup.",
-    )
-    parser.add_argument(
-        "--print-url", action="store_true",
-        help="Print the application URL and skip browser auto-open.",
-    )
-    return parser.parse_args()
+    p = argparse.ArgumentParser(description="Sethlans — Distributed Blender Rendering")
+    p.add_argument("--version", action="version", version=f"Sethlans {__version__}")
+    p.add_argument("--no-browser", action="store_true",
+                   help="Do not open a browser window on startup.")
+    p.add_argument("--print-url", action="store_true",
+                   help="Print the application URL and skip browser auto-open.")
+    return p.parse_args()
 
 
 def _prepare_data_dir() -> Path:
@@ -205,39 +189,18 @@ def _prepare_data_dir() -> Path:
     return data_dir
 
 
-def _run_orchestration(data_dir: Path, args, tray, secret,
-                       *, on_cold_boot_ready=None,
-                       on_startup_failed=None) -> int:
-    if not _is_setup_complete(data_dir):
-        # FR-L1: first-run spawns the wizard; tray IPC is owned by the
-        # post-setup loop, not the wizard path.
-        del tray, secret
-        return wizard_orchestration.run_wizard_mode(
-            data_dir, args, _bootstrap_first_run, _start_component,
-            on_cold_boot_ready=on_cold_boot_ready,
-            on_startup_failed=on_startup_failed,
-        )
-    return orchestration.run_normal_mode(
-        data_dir, args, tray, secret, _start_component,
-        on_cold_boot_ready=on_cold_boot_ready,
-        on_startup_failed=on_startup_failed,
+def _run_orchestration(data_dir: Path, args, tray, secret, **kw) -> int:
+    """Thin shim — delegates to :mod:`launcher.main_dispatch` (issue #203)."""
+    return _run_orchestration_impl(
+        data_dir, args, tray, secret,
+        bootstrap_first_run=_bootstrap_first_run,
+        start_component=_start_component, **kw,
     )
 
 
 def _pre_orchestration_setup(data_dir: Path):
-    """Common pre-orchestration wiring (signals, tray, IPC poll)."""
-    supervision.install_signal_handlers()
-    tray_ipc.sweep_stale_markers(data_dir)
-    secret = tray_ipc.generate_secret()
-    tray = _spawn_tray(data_dir, secret)
-    manager_data = data_dir / "manager"
-    manager_data.mkdir(parents=True, exist_ok=True)
-    # #163: poll thread consumes .quit_requested during wizard mode.
-    supervision.start_ipc_poll_thread(
-        manager_data, secret=secret,
-        tray_pid_provider=lambda: tray.pid if tray is not None else -1,
-    )
-    return tray, secret
+    """Thin shim — delegates to :mod:`launcher.main_dispatch`."""
+    return _pre_orchestration_setup_impl(data_dir, _spawn_tray)
 
 
 def _main_headless(args, data_dir: Path) -> int:

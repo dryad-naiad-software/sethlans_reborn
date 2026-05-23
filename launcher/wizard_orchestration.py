@@ -309,9 +309,9 @@ def _finish_after_done(
     # wizard subprocess is terminated inside ``hand_off_to_runtime``
     # before the wizard dir is rmtree'd; we tear down Caddy here so
     # the public TLS listener is released before runtime takes over.
+    del bootstrap_first_run, start_component  # #203: spawn moved to run_normal_mode
     rc = wizard_runtime.hand_off_to_runtime(
         payload, data_dir, ipc_secret, wizard_proc,
-        bootstrap_first_run, start_component,
     )
     _stop_wizard_caddy(caddy_supervisor)
     return rc

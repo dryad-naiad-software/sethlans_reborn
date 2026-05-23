@@ -87,30 +87,20 @@ def _resolve_caddy_public_port(ini_path: Path) -> int:
     return CADDY_PUBLIC_TLS_PORT
 
 
-def prepare_manager_caddy_and_resolve_port(manager_data: Path) -> int:
-    """One-shot helper for the wizard hand-off path (issue #202).
-
-    Bundles the three steps the launcher must take before health-probing
-    the manager runtime: pre-generate the TLS cert, start the Caddy
-    supervisor, and resolve the public TLS port from ``manager.ini``.
-
-    Keeps :func:`launcher.wizard_runtime.hand_off_to_runtime` under the
-    300-line ceiling (NF-1) by hosting the bundled logic here, beside
-    the Caddy bootstrap it wraps. Returns the resolved port so the
-    caller can pass it to ``wait_for_runtime_port_bind``.
-    """
-    ensure_manager_tls_cert(manager_data)
-    start_caddy_supervisor(manager_data)
-    return _resolve_caddy_public_port(manager_data / "manager.ini")
-
-
 def start_caddy_supervisor(manager_data: Path) -> None:
     """Build + register + start a Caddy supervisor for the manager.
 
     Aborts startup with a stderr banner if ``supervisor.start()``
     raises — a setup wizard / dashboard without a public TLS listener
     is unusable.
+
+    FR-CADDY2 (issue #203): pre-generates the manager TLS cert as the
+    first step so callers no longer need to invoke
+    ``ensure_manager_tls_cert`` separately. ``ensure_manager_tls_cert``
+    is idempotent — a no-op when ``<manager_data>/tls/cert.pem``
+    already exists.
     """
+    ensure_manager_tls_cert(manager_data)
     _ensure_manager_on_syspath()
     # Late import: manager/ must be on sys.path first.
     from launcher.caddy_launcher import build_manager_caddy_supervisor

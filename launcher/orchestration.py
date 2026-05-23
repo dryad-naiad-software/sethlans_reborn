@@ -5,16 +5,10 @@
 """Main-loop orchestration for the launcher: normal mode + IPC.
 
 Splash-dismissal contract (v2 — splash phase states spec):
-
-* Cold-boot health is observed via ``launcher.health_probe.wait_for_health``
-  on each call site (wizard, manager, manager+worker, worker).
-* Manager+worker mode polls the two URLs strictly serially under a
-  single shared 30 s wall-clock deadline (FR-6).
-* On health timeout, ``startup_failed`` is emitted first (FR-11(c)) so
-  the splash error card appears within ~250 ms; child termination then
-  runs to completion before this function returns.
-* Manager+worker termination on timeout issues both ``proc.terminate()``
-  calls back-to-back BEFORE awaiting either ``wait()`` (FR-11(b)).
+manager+worker polls the two health URLs strictly serially under a
+single shared 30 s deadline (FR-6); on timeout, startup_failed fires
+BEFORE terminate (FR-11(c)) and both terminate() calls precede either
+wait() (FR-11(b)).
 """
 
 from __future__ import annotations
@@ -45,14 +39,9 @@ WORKER_PORT = 8081
 _MANAGER_HEALTH_URL = f"https://127.0.0.1:{MANAGER_PORT}/api/health/"
 _WORKER_HEALTH_URL = f"https://127.0.0.1:{WORKER_PORT}/api/health/"
 
-# Timeout reason strings — kept module-level so tests can assert on
-# stable identifiers (OQ-4 recommendation; not yet i18n-ified).
-_REASON_MANAGER_TIMEOUT = (
-    f"manager did not start within {HEALTH_TIMEOUT:.0f} s"
-)
-_REASON_WORKER_TIMEOUT = (
-    f"worker did not start within {HEALTH_TIMEOUT:.0f} s"
-)
+# Timeout reason strings — module-level so tests can assert on them.
+_REASON_MANAGER_TIMEOUT = f"manager did not start within {HEALTH_TIMEOUT:.0f} s"
+_REASON_WORKER_TIMEOUT = f"worker did not start within {HEALTH_TIMEOUT:.0f} s"
 
 
 def _consume_ipc(
@@ -250,6 +239,11 @@ def run_normal_mode(
     on_startup_failed: Optional[Callable[[str, str], None]] = None,
 ) -> int:
     """Post-setup: start services per topology; watch IPC."""
+    # FR-LOOP6 (issue #203): if the user clicked quit during the wizard-
+    # to-normal-mode transition window, bail immediately without
+    # spawning Caddy or the manager (avoids a wasted spawn cycle).
+    if supervision.get_quit_requested_event().is_set():
+        return _quit_cold_boot(None, None, on_cold_boot_ready)
     topology = _read_topology(data_dir)
     topo = topology.get("topology", "manager_worker")
     manager_data = data_dir / "manager"
@@ -276,7 +270,9 @@ def run_normal_mode(
         return rc
 
     # FR-12: open the browser only after all required URLs are healthy.
-    # Worker-only topology has no browser to open (existing semantics).
+    # FR-BROWSER2 (issue #203): on a fresh install this fires a 2nd tab
+    # (wizard already opened one); expected for v1 UX. Worker-only has
+    # no manager browser to open.
     if topo in ("manager", "manager_worker", "manager+worker"):
         open_browser(
             MANAGER_PORT, args.no_browser, args.print_url,

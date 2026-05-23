@@ -11,6 +11,12 @@ Covers FR-CERT1 / FR-CERT2:
   (idempotent — the launcher reuses the wizard's / manager's previous cert).
 * The return value is a ``(cert_path, key_path)`` tuple pointing into
   ``<manager_data>/tls/``.
+
+Also covers AC-8 (issue #203):
+
+* ``start_caddy_supervisor`` invokes ``ensure_manager_tls_cert`` as its
+  first step so callers (now just ``run_normal_mode``) no longer need
+  to call it separately.
 """
 
 from __future__ import annotations
@@ -75,6 +81,61 @@ class TestEnsureManagerTlsCert:
         caddy_wiring.ensure_manager_tls_cert(manager_data)
 
         assert (manager_data / "tls").is_dir()
+
+
+class TestStartCaddySupervisorCallsEnsureCertFirst:
+    """AC-8 (issue #203): cert pre-gen must be the first step of
+    ``start_caddy_supervisor`` so the supervisor finds the cert files
+    at spawn time.
+    """
+
+    def test_ensure_manager_tls_cert_called_before_supervisor_build(
+        self, tmp_path, mocker,
+    ):
+        manager_data = tmp_path / "manager"
+        manager_data.mkdir()
+        (manager_data / "manager.ini").write_text(
+            "[server]\nport = 8080\n", encoding="utf-8",
+        )
+        order: list[str] = []
+
+        def _record_cert(*_a, **_kw):
+            order.append("cert")
+            return (manager_data / "tls" / "cert.pem",
+                    manager_data / "tls" / "key.pem")
+
+        def _record_build(*_a, **_kw):
+            order.append("build")
+            return mocker.MagicMock()
+
+        mocker.patch(
+            "launcher.caddy_wiring.ensure_manager_tls_cert",
+            side_effect=_record_cert,
+        )
+        mocker.patch(
+            "launcher.caddy_wiring._ensure_manager_on_syspath",
+        )
+        mocker.patch(
+            "launcher.caddy_launcher.build_manager_caddy_supervisor",
+            side_effect=_record_build,
+        )
+        mocker.patch(
+            "sethlans_manager.waitress_config.get_waitress_public_port",
+            return_value=8090,
+        )
+        mocker.patch(
+            "sethlans_manager.waitress_config.get_waitress_internal_port",
+            return_value=8088,
+        )
+        mocker.patch("launcher.supervision.set_caddy_supervisor")
+
+        caddy_wiring.start_caddy_supervisor(manager_data)
+
+        assert order == ["cert", "build"], (
+            "AC-8 (issue #203): ensure_manager_tls_cert MUST run BEFORE "
+            "build_manager_caddy_supervisor so the supervisor finds the "
+            "cert file at start time."
+        )
 
 
 if __name__ == "__main__":

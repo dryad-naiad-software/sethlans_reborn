@@ -215,10 +215,6 @@ class TestRunWizardMode:
             "launcher.wizard_orchestration.wait_for_health",
             return_value=True,
         )
-        mocker.patch(
-            "launcher.wizard_runtime.wait_for_runtime_port_bind",
-            return_value=True,
-        )
 
         rc = wizard_orchestration.run_wizard_mode(
             tmp_path, self._make_args(),

@@ -19,12 +19,18 @@ class TestRunLauncherWizardWiring:
 
     def test_first_run_calls_wizard_mode(self, tmp_path, mocker):
         from launcher import run_launcher
+        # Issue #203: wizard mode now FALLS THROUGH to run_normal_mode
+        # after rc=0, so this test asserts both are called. The wizard
+        # must "write" .setup_complete to pass the defensive guard.
+        def _fake_wizard(data_dir, *_a, **_kw):
+            (data_dir / ".setup_complete").touch()
+            return 0
         run_wizard = mocker.patch(
-            "launcher.run_launcher.wizard_orchestration.run_wizard_mode",
-            return_value=0,
+            "launcher.main_dispatch.wizard_orchestration.run_wizard_mode",
+            side_effect=_fake_wizard,
         )
         run_normal = mocker.patch(
-            "launcher.run_launcher.orchestration.run_normal_mode",
+            "launcher.main_dispatch.orchestration.run_normal_mode",
             return_value=0,
         )
 
@@ -34,18 +40,18 @@ class TestRunLauncherWizardWiring:
         )
         assert rc == 0
         run_wizard.assert_called_once()
-        run_normal.assert_not_called()
+        run_normal.assert_called_once()
 
     def test_post_setup_calls_normal_mode(self, tmp_path, mocker):
         from launcher import run_launcher
         # Sentinel present → post-setup path.
         (tmp_path / ".setup_complete").write_text("{}")
         run_wizard = mocker.patch(
-            "launcher.run_launcher.wizard_orchestration.run_wizard_mode",
+            "launcher.main_dispatch.wizard_orchestration.run_wizard_mode",
             return_value=0,
         )
         run_normal = mocker.patch(
-            "launcher.run_launcher.orchestration.run_normal_mode",
+            "launcher.main_dispatch.orchestration.run_normal_mode",
             return_value=0,
         )
 
