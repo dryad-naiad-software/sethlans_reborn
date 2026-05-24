@@ -80,10 +80,10 @@ const scope = reactive({
       doneResponse = await wizardFetch('/api/wizard/done/', { method: 'POST' });
     } catch (_) {
       // Transport error on the done POST is expected: the launcher's
-      // file-poll loop sees the .wizard_done marker and kills Caddy
-      // before the response flushes. Pending-setup 200 confirms the
-      // marker was written. Treat as success — the launcher opens the
-      // dashboard tab on its own.
+      // file-poll loop sees the .wizard_done marker and kills the
+      // wizard subprocess before its response can flush. Pending-setup
+      // 200 above confirms the marker was written; treat the transport
+      // error as success.
       clearAllFormState();
       this.success = true;
       return;
@@ -92,6 +92,21 @@ const scope = reactive({
       expireAndRedirect(
         'Your session expired — please paste the setup token again.',
       );
+      return;
+    }
+    // 502/503/504 from Caddy are the SAME race as a raw transport
+    // error: the wizard backend was already dying / dead when Caddy
+    // tried to forward the request, so Caddy returns "Bad Gateway" /
+    // "Service Unavailable" / "Gateway Timeout" with an empty body
+    // instead of the wizard's would-be 200. Pending-setup 200 already
+    // proved the marker was written. Treat these as success too.
+    // (500 stays an error — that's a real backend bug we want to
+    // surface, not an upstream-gone race.)
+    if (doneResponse.status === 502
+        || doneResponse.status === 503
+        || doneResponse.status === 504) {
+      clearAllFormState();
+      this.success = true;
       return;
     }
     if (doneResponse.status !== 200) {

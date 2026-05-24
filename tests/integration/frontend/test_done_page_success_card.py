@@ -118,3 +118,80 @@ def test_done_200_after_pending_success_shows_success_card(page, wizard_process)
     assert not page.locator(".alert-danger").is_visible()
     # Must NOT redirect to /redirecting.
     assert "/redirecting" not in page.url
+
+
+# ---------------------------------------------------------------------
+# Case 4 — done returns 502/503/504 from Caddy → success card
+# ---------------------------------------------------------------------
+# In live installs the wizard backend dies as part of the launcher
+# handoff before its response can flush; Caddy returns "Bad Gateway"
+# (or 503 / 504) with an empty body instead of a raw TCP reset. The
+# disambiguator must treat these the same as a transport error when
+# pending-setup already returned 200. Originally we only caught the
+# transport throw path; the live repro returned 502 and slipped past.
+
+
+def test_done_502_after_pending_success_shows_success_card(page, wizard_process):
+    """502 from Caddy on done POST → success card (Caddy upstream-gone race)."""
+    wp = wizard_process
+    page.route(
+        "**/api/wizard/pending-setup/",
+        lambda route: route.fulfill(
+            status=200, body="{}", content_type="application/json",
+        ),
+    )
+    page.route(
+        "**/api/wizard/done/",
+        lambda route: route.fulfill(
+            status=502, body="", content_type="text/plain",
+        ),
+    )
+    _land(page, wp, "/done")
+
+    page.wait_for_selector(".alert-success", timeout=5000)
+    assert page.locator(".alert-success").is_visible()
+    assert not page.locator(".alert-danger").is_visible()
+
+
+def test_done_503_after_pending_success_shows_success_card(page, wizard_process):
+    """503 from Caddy on done POST → success card (upstream-gone race)."""
+    wp = wizard_process
+    page.route(
+        "**/api/wizard/pending-setup/",
+        lambda route: route.fulfill(
+            status=200, body="{}", content_type="application/json",
+        ),
+    )
+    page.route(
+        "**/api/wizard/done/",
+        lambda route: route.fulfill(
+            status=503, body="", content_type="text/plain",
+        ),
+    )
+    _land(page, wp, "/done")
+
+    page.wait_for_selector(".alert-success", timeout=5000)
+    assert page.locator(".alert-success").is_visible()
+    assert not page.locator(".alert-danger").is_visible()
+
+
+def test_done_500_after_pending_success_still_shows_error(page, wizard_process):
+    """500 stays an ERROR (real backend bug, not upstream-gone race)."""
+    wp = wizard_process
+    page.route(
+        "**/api/wizard/pending-setup/",
+        lambda route: route.fulfill(
+            status=200, body="{}", content_type="application/json",
+        ),
+    )
+    page.route(
+        "**/api/wizard/done/",
+        lambda route: route.fulfill(
+            status=500, body="", content_type="text/plain",
+        ),
+    )
+    _land(page, wp, "/done")
+
+    page.wait_for_selector(".alert-danger", timeout=5000)
+    assert page.locator(".alert-danger").is_visible()
+    assert not page.locator(".alert-success").is_visible()
