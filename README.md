@@ -24,8 +24,8 @@ Sethlans started as a Blender render farm. It is becoming a farm for **both Blen
 
 | | Blender | Unreal Engine |
 |---|---|---|
-| **Project delivery** | Upload a `.blend` file (implemented), or a `.zip` with the `.blend` and its linked assets (planned) | Render from the project directory on a shared network path (UNC); nothing is uploaded, since Unreal projects run to many gigabytes |
-| **Engine versions** | Workers download and cache any registered Blender version | Workers use a local Unreal install that must match the job's **exact** engine build (version and changelist) |
+| **Project delivery** | Upload a `.blend` file (implemented), or a `.zip` with the `.blend` and its linked assets (planned) | The project is kept as a `.zip` on a shared network path (UNC). Workers copy it locally, extract it, and render from the local copy. Nothing is uploaded to the manager, since Unreal projects run to many gigabytes |
+| **Engine versions** | Workers download and cache any registered Blender version | Unreal Engine 5.8 to start. Workers use a local install that must match the job's **exact** engine build (version and changelist) |
 | **Rendering** | Blender in background mode | `UnrealEditor-Cmd` running Movie Render Queue headless, one process per GPU |
 | **Animations** | One job per frame (optionally tiled) | Whole shots packed into jobs balanced by frame count; long shots are split and short ones grouped |
 | **Audio** | n/a | Rendered once by a separate audio job, then muxed into the assembled video |
@@ -34,7 +34,8 @@ Sethlans started as a Blender render farm. It is becoming a farm for **both Blen
 
 ### Unreal Engine design points
 
-- **Local project cache.** Workers copy the shared project to fast local storage and render from that copy, never from the share itself. A worker that cannot reach a project's share does not claim its jobs.
+- **Local project cache.** Workers copy the project archive from the share, extract it to fast local storage, and reuse that copy until the archive changes. Rendering directly from the share is not supported, because it is too slow on networks below about 10 Gbit. A worker that cannot reach a project's share does not claim its jobs.
+- **The artist's project is never modified.** Sethlans never changes the archive on the share or anything in it. Everything the farm needs (render queue settings, console variables, warm-up, file overlays) is applied to the worker's local copy, and each job's changes stay separate from every other job's.
 - **Automatic warm-up.** The first render of a project on a node runs a warm-up pass so shader and kernel compilation does not happen mid-render.
 - **Validation beyond exit codes.** Workers check render logs for cancelled compilations, memory-budget warnings, and GPU driver errors, and confirm the expected frame count before reporting success.
 - **Any GPU vendor.** NVIDIA is preferred on Linux, but nodes render with whatever GPU they have. AMD is supported, though Unreal's AMD support on Linux is still being tested.
@@ -46,11 +47,11 @@ Sethlans started as a Blender render farm. It is becoming a farm for **both Blen
 2. **Data model and API:** renderer field, Unreal job settings, shared-project delivery, exact-build routing, farm and per-project console variables.
 3. **Animations:** shot-aware job packing, the audio job and muxing, multiple GPUs per node, and tiled stills.
 4. **Linux and macOS together:** engine and GPU detection on both, plus network-share resolution through the mount table.
-5. **Blender `.zip` project uploads.**
+5. **Project archives:** Blender `.zip` project uploads, and the manager packaging an Unreal project folder into a `.zip` on the right share.
 6. **Dashboard:** renderer picker, Unreal job forms, per-project console variables, worker capability display.
 7. **Documentation and helper scripts:** node setup, share mounting, warm-up.
 
-Later: Unreal workers in Docker, cost-based job balancing, splitting Unreal tiled stills across workers, and other ways to deliver Unreal projects (archives, source control).
+Later: Unreal workers in Docker, cost-based job balancing, splitting Unreal tiled stills across workers, Unreal versions other than 5.8, and other ways to deliver Unreal projects (live project directories, source control).
 
 ---
 
