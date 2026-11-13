@@ -43,6 +43,7 @@ from launcher.wizard_ipc import (  # noqa: E402
 _ALL_MARKERS = (
     MARKER_WIZARD_DONE,
     MARKER_WIZARD_REJECT,
+    # Legacy residue (no longer written; see launcher.wizard_ipc).
     MARKER_RUNTIME_FAILED,
     MARKER_LEGACY_SHUTDOWN,
 )

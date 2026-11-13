@@ -11,9 +11,9 @@ Two modes:
   port and respond 200 + ``{"boot_id": ..., "worker_id": ..., "version": ...}``
   to ``GET /api/health/``. Satisfies the wizard's FR-W14 probe so
   ``/runtime-ready/`` flips to ``ready``.
-* ``--mode=fail-immediately`` — exit non-zero immediately. The launcher's
-  port-bind watcher (FR-L7b) will time out and write a
-  ``.runtime_failed`` marker.
+* ``--mode=fail-immediately`` — exit non-zero immediately. The
+  launcher's normal-mode cold-boot health check (``_await_cold_boot``)
+  sees the process exit, fires ``on_startup_failed`` and returns 1.
 
 Self-signed cert is generated on the fly via ``cryptography`` (pinned in
 manager/requirements.txt and so available in the test environment).

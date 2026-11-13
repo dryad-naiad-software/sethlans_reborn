@@ -6,9 +6,12 @@
 
 Implements the launcher half of the wizard scaffold's marker contract:
 
-* ``write_marker`` (FR-IPC8 — ``.runtime_failed``) — the launcher's
-  only marker write in Spec 1; ``.wizard_done`` is written by the
-  wizard (FR-IPC1).
+* ``write_marker`` — schema-matched writer. The launcher has had no
+  production marker write since #203 removed the FR-IPC8
+  ``.runtime_failed`` write (the marker type itself was dropped in
+  #208); ``.wizard_done`` is written by the wizard (FR-IPC1). The
+  writer is kept as the launcher half of the shared schema and is what
+  the test suites use to fabricate markers.
 * ``read_marker`` (FR-IPC3) — read + validate ``.wizard_done`` (HMAC,
   type, schema_version, data_dir, freshness).
 
@@ -41,13 +44,14 @@ logger = logging.getLogger(__name__)
 
 MARKER_WIZARD_DONE = ".wizard_done"
 MARKER_WIZARD_REJECT = ".wizard_reject"
+# Residue from pre-#203 launchers (FR-IPC8, removed in #208). Nothing
+# writes or reads it any more; still swept per FR-L0a so an upgrade from
+# a crashed older run leaves no stray file behind.
 MARKER_RUNTIME_FAILED = ".runtime_failed"
 # v2.1-or-earlier residue still swept per FR-L0a even though no longer written.
 MARKER_LEGACY_SHUTDOWN = ".wizard_shutdown"
 
-_VALID_MARKER_TYPES = frozenset({
-    "wizard_done", "wizard_reject", "runtime_failed",
-})
+_VALID_MARKER_TYPES = frozenset({"wizard_done", "wizard_reject"})
 
 DEFAULT_MAX_AGE_SECONDS = 60
 _MARKER_MAX_BYTES = 4096
@@ -109,7 +113,7 @@ def _atomic_write_bytes(
     _restrict_perms(path, mode)
 
 
-# ---- Marker write (FR-IPC8 — .runtime_failed) -----------------------------
+# ---- Marker write ----------------------------------------------------------
 
 def write_marker(
     path: Path,

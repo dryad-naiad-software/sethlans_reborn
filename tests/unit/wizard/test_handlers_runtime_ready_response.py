@@ -4,7 +4,7 @@
 
 """Unit tests for ``runtime_ready`` handler — response-shape facets.
 
-Spec 1 / A4. Covers FR-W14 (booting/ready/failed status envelopes,
+Spec 1 / A4. Covers FR-W14 (booting/ready status envelopes,
 ack-on-first-ready, hardcoded URL per topology) plus the auth and
 query-string guards (FR-W14a / SEC-MED-12).
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from wizard.sethlans_wizard import auth_state, ipc, shutdown
+from wizard.sethlans_wizard import auth_state, shutdown
 from wizard.sethlans_wizard.handlers import runtime_ready
 from wizard.sethlans_wizard.handlers.topology import write_topology_atomic
 
@@ -89,32 +89,26 @@ class TestReady:
         assert body["url"] == expected_url
 
 
-class TestFailed:
+class TestLegacyRuntimeFailedMarkerIgnored:
 
-    def test_runtime_failed_marker_short_circuits_probe(self, tmp_path):
+    def test_stray_runtime_failed_file_does_not_short_circuit(self, tmp_path):
+        """#208: the ``.runtime_failed`` short-circuit was removed.
+
+        Nothing writes that marker since #203; a leftover file from an
+        older install must not suppress the real health probe.
+        """
         write_topology_atomic(tmp_path, "manager")
         wizard_dir = tmp_path / "wizard"
         wizard_dir.mkdir(exist_ok=True)
-        ipc.write_marker(
-            wizard_dir / ipc.MARKER_RUNTIME_FAILED,
-            "runtime_failed",
-            tmp_path,
-            IPC_SECRET,
-            payload={"reason": "exited 1"},
-        )
-        (wizard_dir / ".launcher_log_path").write_text(
-            "/var/log/sethlans/launcher.log",
-        )
+        (wizard_dir / ".runtime_failed").write_text("{}")
         probe_calls: list[str] = []
         h = make_handler(
-            tmp_path, lambda u: (probe_calls.append(u), None)[1],
+            tmp_path, lambda u: (probe_calls.append(u), ok_payload())[1],
         )
         status, _, body = call(h, auth_env())
         assert status.startswith("200")
-        assert body["status"] == "failed"
-        assert body["url"] is None
-        assert body["log_path"] == "/var/log/sethlans/launcher.log"
-        assert probe_calls == []  # short-circuit
+        assert body["status"] == "ready"
+        assert probe_calls == ["https://localhost:8080/api/health/"]
 
 
 class TestAuthGate:

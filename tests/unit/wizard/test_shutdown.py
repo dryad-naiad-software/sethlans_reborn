@@ -12,8 +12,6 @@ Exercises the FR-W17 polite-shutdown machinery:
   thread observes a valid HMAC marker, fires the on-reject callback.
 * (c) Same poller — 5-minute failsafe trip when no marker is ever
   written, fires the on-failsafe callback.
-* CONC-v23-MED-3 — ``.runtime_failed`` short-circuit fires after
-  :data:`RUNTIME_FAILED_MIN_DELAY` elapsed.
 """
 
 from __future__ import annotations
@@ -90,7 +88,6 @@ class TestRejectMarkerPolling:
             poll_interval=0.05,
             on_reject=on_reject,
             on_failsafe=lambda: None,
-            on_runtime_failed_short_circuit=lambda _p: None,
         )
         # Emulate the done handler signalling the marker write.
         shutdown.mark_done_written()
@@ -131,7 +128,6 @@ class TestRejectMarkerPolling:
             poll_interval=0.05,
             on_reject=lambda p: on_reject_calls.append(p),
             on_failsafe=lambda: on_failsafe_calls.append("failsafe"),
-            on_runtime_failed_short_circuit=lambda _p: None,
         )
         shutdown.mark_done_written()
         thread.join(timeout=2.0)
@@ -158,7 +154,6 @@ class TestFailsafeTimer:
             poll_interval=0.05,
             on_reject=lambda _p: None,
             on_failsafe=fired.set,
-            on_runtime_failed_short_circuit=lambda _p: None,
         )
         shutdown.mark_done_written()
         # Should fire ~0.2s in.
@@ -174,7 +169,6 @@ class TestFailsafeTimer:
             poll_interval=0.02,
             on_reject=lambda _p: None,
             on_failsafe=fired.set,
-            on_runtime_failed_short_circuit=lambda _p: None,
         )
         # Wait longer than the failsafe budget WITHOUT signalling done.
         time.sleep(0.3)
@@ -184,49 +178,6 @@ class TestFailsafeTimer:
         # Now signal — failsafe should fire promptly.
         shutdown.mark_done_written()
         assert fired.wait(timeout=2.0)
-        thread.join(timeout=1.0)
-
-
-# ---------------------------------------------------------------------
-# .runtime_failed short-circuit (CONC-v23-MED-3)
-# ---------------------------------------------------------------------
-
-class TestRuntimeFailedShortCircuit:
-
-    def test_short_circuit_fires_after_min_delay(self, tmp_path, monkeypatch):
-        # Drop the min-delay so the test runs quickly.
-        monkeypatch.setattr(
-            shutdown, "RUNTIME_FAILED_MIN_DELAY", 0.05,
-        )
-        fired = threading.Event()
-        captured: dict = {}
-
-        def on_failed(payload):
-            captured["payload"] = payload
-            fired.set()
-
-        wizard_dir = tmp_path / "wizard"
-        wizard_dir.mkdir(exist_ok=True)
-        # Pre-write the failed marker so the polling loop sees it on
-        # the first iteration AFTER the min-delay window.
-        ipc.write_marker(
-            wizard_dir / ipc.MARKER_RUNTIME_FAILED,
-            "runtime_failed", tmp_path, _IPC_SECRET,
-            payload={"reason": "exit 1"},
-        )
-
-        thread = shutdown.start_post_done_threads(
-            tmp_path, _IPC_SECRET,
-            failsafe_seconds=10.0,
-            poll_interval=0.02,
-            on_reject=lambda _p: None,
-            on_failsafe=lambda: None,
-            on_runtime_failed_short_circuit=on_failed,
-        )
-        shutdown.mark_done_written()
-
-        assert fired.wait(timeout=3.0), "short-circuit never fired"
-        assert captured["payload"]["type"] == "runtime_failed"
         thread.join(timeout=1.0)
 
 
@@ -242,7 +193,6 @@ class TestStartIsIdempotent:
             poll_interval=0.02,
             on_reject=lambda _p: None,
             on_failsafe=fired.set,
-            on_runtime_failed_short_circuit=lambda _p: None,
         )
         second = shutdown.start_post_done_threads(
             tmp_path, _IPC_SECRET,
@@ -250,7 +200,6 @@ class TestStartIsIdempotent:
             poll_interval=0.02,
             on_reject=lambda _p: None,
             on_failsafe=lambda: None,
-            on_runtime_failed_short_circuit=lambda _p: None,
         )
         assert first is not second, "second call must return a placeholder"
         # Drain the first thread cleanly.

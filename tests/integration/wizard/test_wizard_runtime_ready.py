@@ -6,15 +6,12 @@
 
 Covers Spec 1 / D1 scenario 7: with no runtime listening on
 ``localhost:8080`` (the manager probe URL), the endpoint reports
-``booting``; once an HMAC-signed ``.runtime_failed`` marker is
-present under ``<wizard_subdir>/``, the endpoint flips to ``failed``
-and surfaces a ``log_path`` for the operator. The ``ready`` path is
-deliberately deferred to D2 (E2E) — it requires a real runtime.
+``booting``. The ``ready`` path is deliberately deferred to D2 (E2E) —
+it requires a real runtime. (The former ``.runtime_failed`` → ``failed``
+scenario was removed with the marker in #208.)
 """
 
 from __future__ import annotations
-
-from wizard.sethlans_wizard import ipc
 
 from . import _http
 
@@ -68,39 +65,6 @@ def test_runtime_ready_reports_booting_when_no_runtime(wizard_process):
     assert parsed and parsed.get("status") == "booting", parsed
     # ``url`` MUST be None while booting (FR-W14).
     assert parsed.get("url") is None, parsed
-
-
-def test_runtime_ready_reports_failed_when_marker_present(wizard_process):
-    """A valid ``.runtime_failed`` marker short-circuits the probe.
-
-    We synthesise the marker via the same canonical writer the
-    launcher would use, so the wizard's HMAC + freshness validation
-    accepts it and the handler returns the ``failed`` envelope.
-    """
-    wp = wizard_process
-    session = _open_session_and_pick_topology(wp)
-
-    marker_path = wp.wizard_subdir / ipc.MARKER_RUNTIME_FAILED
-    ipc.write_marker(
-        marker_path,
-        marker_type="runtime_failed",
-        data_dir=wp.data_dir,
-        secret=wp.ipc_secret,
-        payload={"reason": "manager-tls-failed"},
-    )
-    assert marker_path.is_file()
-
-    status, _, parsed = _http.get_json(
-        _runtime_ready_url(wp),
-        headers={"X-Wizard-Session": session},
-        timeout=10.0,
-    )
-    assert status == 200, parsed
-    assert parsed and parsed.get("status") == "failed", parsed
-    # ``url`` is None for failed; ``log_path`` is always present (may
-    # be an empty string when A6 hasn't written .launcher_log_path).
-    assert parsed.get("url") is None, parsed
-    assert "log_path" in parsed, parsed
 
 
 def test_runtime_ready_requires_session(wizard_process):

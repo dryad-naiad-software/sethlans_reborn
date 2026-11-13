@@ -5,8 +5,7 @@
 """Unit tests for ``wizard/sethlans_wizard/ipc.py`` (Spec 1 / A2).
 
 Covers FR-IPC1 (.wizard_done write/read), FR-IPC4 (.wizard_reject
-freshness + data_dir bind), FR-IPC8 (.runtime_failed),
-SEC-MED-9 (data_dir signed field), SEC-MED-10 (validation enumeration),
+freshness + data_dir bind), SEC-MED-9 (data_dir signed field), SEC-MED-10 (validation enumeration),
 SEC-MED-11 (secret-file unlink-after-read), and atomic write.
 """
 
@@ -21,7 +20,6 @@ import pytest
 
 from wizard.sethlans_wizard import ipc as ipc_mod
 from wizard.sethlans_wizard.ipc import (
-    MARKER_RUNTIME_FAILED,
     MARKER_WIZARD_DONE,
     MARKER_WIZARD_REJECT,
     read_marker,
@@ -61,15 +59,13 @@ class TestWriteMarker:
         assert isinstance(body["hmac_sha256"], str)
         assert len(body["hmac_sha256"]) == 64  # hex SHA-256
 
-    def test_writes_runtime_failed_with_reason(self, tmp_path):
-        path = tmp_path / MARKER_RUNTIME_FAILED
-        write_marker(
-            path, "runtime_failed", tmp_path, _SECRET,
-            payload={"reason": "port-bind not observed within 30s"},
-        )
-        body = json.loads(path.read_text(encoding="utf-8"))
-        assert body["type"] == "runtime_failed"
-        assert body["reason"] == "port-bind not observed within 30s"
+    def test_runtime_failed_marker_type_rejected(self, tmp_path):
+        """#208: FR-IPC8 ``runtime_failed`` is no longer a marker type."""
+        with pytest.raises(ValueError, match="Unknown marker_type"):
+            write_marker(
+                tmp_path / ".runtime_failed", "runtime_failed",
+                tmp_path, _SECRET,
+            )
 
     def test_unknown_marker_type_raises(self, tmp_path):
         path = tmp_path / ".bogus"
@@ -118,7 +114,6 @@ def _write(tmp_path, marker_type=MARKER_WIZARD_DONE, payload=None):
         {
             MARKER_WIZARD_DONE: "wizard_done",
             MARKER_WIZARD_REJECT: "wizard_reject",
-            MARKER_RUNTIME_FAILED: "runtime_failed",
         }[marker_type],
         tmp_path,
         _SECRET,

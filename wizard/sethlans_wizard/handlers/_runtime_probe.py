@@ -5,9 +5,14 @@
 
 Split from :mod:`wizard.sethlans_wizard.handlers.runtime_ready` to keep
 each module under the 300-line limit. Owns the FR-W14 cache + lock
-plumbing and the ``.runtime_failed`` short-circuit; the public handler
-module composes these primitives with the FR-W17(a) close()-hook
-wrapper.
+plumbing; the public handler module composes these primitives with the
+FR-W17(a) close()-hook wrapper.
+
+Issue #208: the former FR-IPC8 ``.runtime_failed`` marker short-circuit
+(and the ``failed`` status it produced) was removed. Since #203 the
+launcher terminates the wizard during hand-off, before the runtime is
+spawned, and never writes that marker; runtime start-up failures surface
+through the launcher's splash (``on_startup_failed``) instead.
 
 Lock-coupling rule (CONC-v23-MED-1): the handoff-state lock from
 :func:`wizard.sethlans_wizard.auth_state.get_handoff_lock` MUST NOT
@@ -25,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from wizard.sethlans_wizard import auth_state, ipc
+from wizard.sethlans_wizard import auth_state
 from wizard.sethlans_wizard.handlers.topology import TOPOLOGY_FILENAME
 
 logger = logging.getLogger(__name__)
@@ -109,23 +114,8 @@ def ready(url: str) -> dict:
     return {"status": "ready", "url": url}
 
 
-def failed(log_path: str) -> dict:
-    return {"status": "failed", "url": None, "log_path": log_path}
-
-
-def _read_launcher_log_path(data_dir: Path) -> str:
-    """Return the launcher-log path (FR-W-FE6); empty string if missing."""
-    candidate = data_dir / "wizard" / ".launcher_log_path"
-    try:
-        raw = candidate.read_bytes()
-    except (FileNotFoundError, OSError):
-        return ""
-    return raw.decode("utf-8", errors="replace").strip()
-
-
 def execute_probe(
     data_dir: Path,
-    ipc_secret: bytes,
     probe_runtime_health: Callable[[str], Optional[dict]],
 ) -> dict:
     """Resolve probe URL, run the probe (with locks), return status.
@@ -144,22 +134,7 @@ def execute_probe(
     if cached is not None:
         return cached
 
-    # 2. Failed-marker short-circuit (no probe). Read outside the lock.
-    failed_marker_path = data_dir / "wizard" / ipc.MARKER_RUNTIME_FAILED
-    failed_payload = ipc.read_marker(
-        failed_marker_path,
-        ipc_secret,
-        expected_type="runtime_failed",
-        data_dir=data_dir,
-    )
-    if failed_payload is not None:
-        log_path = _read_launcher_log_path(data_dir)
-        result = failed(log_path)
-        with handoff_lock:
-            _publish_cache_locked(result)
-        return result
-
-    # 3. Slow path. Lock-coupling rule (CONC-v23-MED-1): handoff_lock
+    # 2. Slow path. Lock-coupling rule (CONC-v23-MED-1): handoff_lock
     # is RELEASED before in_flight_lock is acquired; once in_flight_lock
     # is held, handoff_lock may be acquired and released in short
     # critical sections — never the reverse.
@@ -194,7 +169,6 @@ __all__ = [
     "TOPOLOGY_PROBE_URL",
     "booting",
     "execute_probe",
-    "failed",
     "ready",
     "reset_state_for_tests",
 ]

@@ -4,19 +4,17 @@
 """``GET /api/wizard/runtime-ready/`` — runtime self-probe (FR-W14).
 
 Spec 1 / A4. Browser polls this; the wizard in turn probes the
-runtime's ``/api/health/`` and reports ``booting`` / ``ready`` /
-``failed``.
+runtime's ``/api/health/`` and reports ``booting`` / ``ready``.
 
 Hard rules:
 
 * Probe URL is hardcoded per topology (FR-W14a / SEC-MED-12). Probe
-  cache, failed-marker short-circuit, and lock plumbing live in
-  :mod:`._runtime_probe` (split for the 300-line cap).
+  cache and lock plumbing live in :mod:`._runtime_probe` (split for the
+  300-line cap).
 * Lock-coupling rule (CONC-v23-MED-1): handoff_lock MUST NOT be held
   when in_flight_lock is acquired. Once in_flight_lock is held,
   handoff_lock may be acquired and released in short critical sections.
   Never hold handoff_lock and then try to acquire in_flight_lock.
-* ``.runtime_failed`` marker short-circuits the probe (FR-IPC8).
 * Query-string ``?url=`` and other token-shaped keys → HTTP 400
   (SEC-MED-12 defense in depth).
 * FR-W17(a) ack-flag transition + 3-second grace-timer arming happen
@@ -125,14 +123,16 @@ def make_runtime_ready_handler(
     """
     if not isinstance(data_dir, Path):
         data_dir = Path(data_dir)
+    # ``ipc_secret`` is still validated so a mis-wired route fails fast,
+    # but the probe no longer reads any HMAC marker (the FR-IPC8
+    # ``.runtime_failed`` short-circuit was removed in #208).
     if not isinstance(ipc_secret, (bytes, bytearray)) or not ipc_secret:
         raise ValueError("ipc_secret must be non-empty bytes")
-    secret = bytes(ipc_secret)
     probe_fn = probe_runtime_health or probe.probe_runtime_health
     on_close = on_first_ready_close or _arm_grace_timer_on_close
 
     def handler(environ: dict, start_response: Callable) -> Iterable[bytes]:
-        return _handle(environ, start_response, data_dir, secret, probe_fn, on_close)
+        return _handle(environ, start_response, data_dir, probe_fn, on_close)
 
     return handler
 
@@ -141,7 +141,6 @@ def _handle(
     environ: dict,
     start_response: Callable,
     data_dir: Path,
-    ipc_secret: bytes,
     probe_fn: Callable[[str], Optional[dict]],
     on_first_ready_close: Callable[[], None],
 ) -> Iterable[bytes]:
@@ -173,7 +172,7 @@ def _handle(
             status=401,
         )
 
-    result = _runtime_probe.execute_probe(data_dir, ipc_secret, probe_fn)
+    result = _runtime_probe.execute_probe(data_dir, probe_fn)
     body_iter = _wsgi.send_json(start_response, result, status=200)
     if result.get("status") == "ready":
         # FR-W17(a) close()-hook wrapper. Ack flag + grace timer are

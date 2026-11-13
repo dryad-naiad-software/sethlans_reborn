@@ -10,11 +10,12 @@ Exercises the full launcher ↔ wizard ↔ runtime hand-off pipeline:
   + IPC HMAC secret via chmod-600 files in ``<data_dir>/wizard/``.
 * A test client drives the wizard's HTTP API (auth → topology → done).
 * The wizard writes the HMAC-signed ``.wizard_done`` marker.
-* The launcher reads the marker, validates it, spawns the runtime
-  (a mock HTTPS server bound on the FR-W14a-hardcoded probe port).
-* The wizard's ``/runtime-ready/`` endpoint flips from ``booting`` to
-  ``ready`` once the mock is up; or to ``failed`` when the runtime
-  exits early and the launcher writes ``.runtime_failed``.
+* The launcher reads the marker, validates it and hands off (apply
+  pipeline + wizard teardown), then falls through to normal mode
+  (issue #203), which spawns the runtime — a mock HTTPS server — and
+  health-checks it during cold boot.
+* A runtime that exits early fails cold boot: the launcher fires
+  ``on_startup_failed`` and exits 1.
 
 Tests are sequential (port 8080 / 8081 collisions otherwise) and skip
 gracefully when those ports are busy on the host.

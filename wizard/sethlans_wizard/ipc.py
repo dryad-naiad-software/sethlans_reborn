@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """HMAC-signed JSON file-marker IPC for the wizard.
 
-Implements FR-IPC1 (.wizard_done), FR-IPC4 (.wizard_reject), and
-FR-IPC8 (.runtime_failed) of the Spec 1 wizard scaffold. Note that
-``.wizard_shutdown`` was REMOVED in v2.2 — do NOT add it.
+Implements FR-IPC1 (.wizard_done) and FR-IPC4 (.wizard_reject) of the
+Spec 1 wizard scaffold. Note that ``.wizard_shutdown`` was REMOVED in
+v2.2 and FR-IPC8 ``.runtime_failed`` was removed in #208 (the launcher
+stopped writing it in #203) — do NOT re-add either.
 
 HMAC framing mirrors ``launcher/tray_ipc.py`` (NF-8): canonical JSON
 (sorted keys, no whitespace) of the payload minus the ``hmac_sha256``
@@ -40,15 +41,13 @@ logger = logging.getLogger(__name__)
 
 MARKER_WIZARD_DONE = ".wizard_done"
 MARKER_WIZARD_REJECT = ".wizard_reject"
-MARKER_RUNTIME_FAILED = ".runtime_failed"
 
 _VALID_MARKER_TYPES = frozenset({
     "wizard_done",
     "wizard_reject",
-    "runtime_failed",
 })
 
-# FR-IPC1 / FR-IPC4 / FR-IPC8 freshness window.
+# FR-IPC1 / FR-IPC4 freshness window.
 DEFAULT_MAX_AGE_SECONDS = 60
 
 # Defensive payload size cap; mirrors tray_ipc._MARKER_MAX_BYTES.
@@ -139,14 +138,14 @@ def write_marker(
 
     Args:
         path: Marker file to create (e.g. ``<data_dir>/wizard/.wizard_done``).
-        marker_type: One of ``wizard_done``, ``wizard_reject``,
-            ``runtime_failed`` (FR-IPC1 / FR-IPC4 / FR-IPC8).
+        marker_type: One of ``wizard_done`` / ``wizard_reject``
+            (FR-IPC1 / FR-IPC4).
         data_dir: The data directory to bind to the marker (SEC-MED-9).
             Will be canonicalised via ``Path.resolve(strict=False)``.
         secret: HMAC secret bytes (the IPC HMAC secret).
         payload: Optional extra fields to embed (e.g. ``topology``,
             ``wizard_port``, ``wizard_pid`` for ``wizard_done``;
-            ``reason`` for ``wizard_reject`` / ``runtime_failed``).
+            ``reason`` for ``wizard_reject``).
             ``type``, ``schema_version``, ``data_dir``,
             ``created_at_unix``, and ``hmac_sha256`` are populated by
             this function and MUST NOT appear in *payload*.

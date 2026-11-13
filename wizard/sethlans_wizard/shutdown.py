@@ -42,10 +42,11 @@ FAILSAFE_SECONDS = 300.0
 # FR-W17(b) — .wizard_reject polling cadence.
 REJECT_POLL_INTERVAL = 0.5
 
-# FR-W17(c) "at least 2 seconds elapsed since .wizard_done was written
-# before honouring a .runtime_failed short-circuit" — gives the browser
-# one full poll cycle to observe `failed` before the wizard exits.
-RUNTIME_FAILED_MIN_DELAY = 2.0
+# Issue #208: the former FR-W17(c) ``.runtime_failed`` short-circuit was
+# removed. Since #203 the launcher terminates the wizard during hand-off,
+# before the runtime is spawned, and never writes that marker; runtime
+# start-up failures surface through the launcher's splash
+# (``on_startup_failed``) instead.
 
 # Set True once .wizard_done has been written. The post-done threads
 # wait on this event; they MUST NOT start polling before it is set, or
@@ -152,16 +153,12 @@ def start_post_done_threads(
     poll_interval: float = REJECT_POLL_INTERVAL,
     on_reject: Optional[Callable[[dict], None]] = None,
     on_failsafe: Optional[Callable[[], None]] = None,
-    on_runtime_failed_short_circuit: Optional[Callable[[dict], None]] = None,
 ) -> threading.Thread:
     """Spawn the FR-W17 (b)/(c) polling thread. Idempotent.
 
     The thread blocks on :data:`done_written`, then polls
-    ``.wizard_reject`` (calls *on_reject*), tracks a monotonic
-    failsafe deadline (calls *on_failsafe*), and watches for a
-    ``.runtime_failed`` short-circuit once
-    :data:`RUNTIME_FAILED_MIN_DELAY` has elapsed (calls
-    *on_runtime_failed_short_circuit*, CONC-v23-MED-3).
+    ``.wizard_reject`` (calls *on_reject*) and tracks a monotonic
+    failsafe deadline (calls *on_failsafe*).
     """
     global _threads_started
     with _threads_started_lock:
@@ -177,11 +174,6 @@ def start_post_done_threads(
     failsafe_action = (
         on_failsafe if on_failsafe is not None else _default_failsafe_action
     )
-    short_circuit = (
-        on_runtime_failed_short_circuit
-        if on_runtime_failed_short_circuit is not None
-        else _default_runtime_failed_action
-    )
 
     secret = bytes(ipc_secret)
     canonical_dir = Path(data_dir)
@@ -190,7 +182,7 @@ def start_post_done_threads(
         try:
             _poll_loop(
                 canonical_dir, secret, failsafe_seconds, poll_interval,
-                reject_action, failsafe_action, short_circuit,
+                reject_action, failsafe_action,
             )
         except Exception:  # noqa: BLE001 — daemon must not crash unhandled
             logger.exception("FR-W17 post-done poller crashed; exiting")
@@ -209,7 +201,6 @@ def _poll_loop(
     poll_interval: float,
     reject_action: Callable[[dict], None],
     failsafe_action: Callable[[], None],
-    short_circuit: Callable[[dict], None],
 ) -> None:
     """The polling loop body, factored out so :func:`_run` stays small.
 
@@ -220,13 +211,11 @@ def _poll_loop(
     if _test_exit_signal.is_set():
         return
     deadline_monotonic = time.monotonic() + failsafe_seconds
-    done_at_monotonic = time.monotonic()
     logger.info(
         "FR-W17 post-done poller started; failsafe in %.0fs",
         failsafe_seconds,
     )
     reject_path = canonical_dir / "wizard" / ipc.MARKER_WIZARD_REJECT
-    failed_path = canonical_dir / "wizard" / ipc.MARKER_RUNTIME_FAILED
     while True:
         if _test_exit_signal.is_set():
             return
@@ -237,18 +226,6 @@ def _poll_loop(
             logger.info("FR-W17(b) .wizard_reject observed; exiting")
             reject_action(payload)
             return
-        elapsed = time.monotonic() - done_at_monotonic
-        if elapsed >= RUNTIME_FAILED_MIN_DELAY:
-            failed_payload = ipc.read_marker(
-                failed_path, secret, "runtime_failed", canonical_dir,
-            )
-            if failed_payload is not None:
-                logger.info(
-                    "FR-W17(c) .runtime_failed observed after %.1fs; "
-                    "short-circuiting failsafe", elapsed,
-                )
-                short_circuit(failed_payload)
-                return
         if time.monotonic() >= deadline_monotonic:
             logger.info("FR-W17(c) failsafe deadline reached; exiting")
             failsafe_action()
@@ -272,19 +249,10 @@ def _default_failsafe_action() -> None:
         request_exit(0)
 
 
-def _default_runtime_failed_action(_payload: dict) -> None:
-    """Default runtime-failed short-circuit: stop waitress, exit 0."""
-    try:
-        _shutdown_server()
-    finally:
-        request_exit(0)
-
-
 __all__ = [
     "FAILSAFE_SECONDS",
     "GRACE_TIMER_SECONDS",
     "REJECT_POLL_INTERVAL",
-    "RUNTIME_FAILED_MIN_DELAY",
     "done_written",
     "mark_done_written",
     "request_exit",

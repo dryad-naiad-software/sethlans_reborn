@@ -8,11 +8,11 @@ launcher's log path in two places:
 
 * The 60-second booting fallback message ("we've been booting for a while
   — open this file with your text editor to see what's going on").
-* The ``status: "failed"`` error surface (the runtime-ready handler
-  embeds ``log_path`` in its own response, but the redirecting page also
-  uses this endpoint at load time so it can show the path immediately if
-  ``fetch()`` to ``/api/wizard/runtime-ready/`` rejects before any poll
-  succeeds — see FE-v2.2-MED-1 post-failsafe recovery).
+* The post-failsafe recovery caption shown if ``fetch()`` to
+  ``/api/wizard/runtime-ready/`` rejects before any poll succeeds (see
+  FE-v2.2-MED-1). (The runtime-ready ``status: "failed"`` envelope that
+  also carried ``log_path`` was removed with ``.runtime_failed`` in
+  #208.)
 
 The launcher writes its log path to ``<data_dir>/wizard/.launcher_log_path``
 (per FR-W-FE6). If that file is missing — A6 may not yet have wired the
@@ -44,12 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 def _read_launcher_log_path(data_dir: Path) -> str:
-    """Return the launcher log path; empty string if missing/unreadable.
-
-    Mirrors :func:`wizard.sethlans_wizard.handlers.runtime_ready
-    ._read_launcher_log_path` so the redirecting page sees the same value
-    the runtime-ready handler embeds in its ``failed`` envelope.
-    """
+    """Return the launcher log path; empty string if missing/unreadable."""
     candidate = data_dir / "wizard" / ".launcher_log_path"
     try:
         raw = candidate.read_bytes()

@@ -6,7 +6,7 @@
 
 Verifies the launcher's marker write/read/validate logic round-trips
 with the wizard's ``wizard.sethlans_wizard.ipc`` module (same schema
-and HMAC framing per FR-IPC1 / FR-IPC8).
+and HMAC framing per FR-IPC1 / FR-IPC4).
 """
 
 import json
@@ -28,18 +28,25 @@ SECRET = b"a" * 32
 
 class TestWriteMarker:
 
-    def test_writes_runtime_failed_marker(self, tmp_path):
-        target = tmp_path / "wizard" / wizard_ipc.MARKER_RUNTIME_FAILED
+    def test_writes_wizard_reject_marker(self, tmp_path):
+        target = tmp_path / "wizard" / wizard_ipc.MARKER_WIZARD_REJECT
         wizard_ipc.write_marker(
-            target, "runtime_failed", tmp_path, SECRET,
-            payload={"reason": "port_bind_timeout"},
+            target, "wizard_reject", tmp_path, SECRET,
+            payload={"reason": "topology_mismatch"},
         )
         assert target.exists()
         body = json.loads(target.read_bytes())
-        assert body["type"] == "runtime_failed"
+        assert body["type"] == "wizard_reject"
         assert body["schema_version"] == 1
-        assert body["reason"] == "port_bind_timeout"
+        assert body["reason"] == "topology_mismatch"
         assert "hmac_sha256" in body
+
+    def test_rejects_removed_runtime_failed_type(self, tmp_path):
+        """#208: FR-IPC8 ``runtime_failed`` is no longer a marker type."""
+        with pytest.raises(ValueError, match="Unknown marker_type"):
+            wizard_ipc.write_marker(
+                tmp_path / "x", "runtime_failed", tmp_path, SECRET,
+            )
 
     def test_rejects_unknown_marker_type(self, tmp_path):
         with pytest.raises(ValueError, match="Unknown marker_type"):
@@ -50,13 +57,13 @@ class TestWriteMarker:
     def test_rejects_empty_secret(self, tmp_path):
         with pytest.raises(ValueError, match="non-empty bytes"):
             wizard_ipc.write_marker(
-                tmp_path / "x", "runtime_failed", tmp_path, b"",
+                tmp_path / "x", "wizard_reject", tmp_path, b"",
             )
 
     def test_rejects_reserved_field_in_payload(self, tmp_path):
         with pytest.raises(ValueError, match="reserved fields"):
             wizard_ipc.write_marker(
-                tmp_path / "x", "runtime_failed", tmp_path, SECRET,
+                tmp_path / "x", "wizard_reject", tmp_path, SECRET,
                 payload={"type": "evil"},
             )
 
@@ -100,7 +107,7 @@ class TestReadMarker:
             target, "wizard_done", tmp_path, SECRET,
         )
         result = wizard_ipc.read_marker(
-            target, SECRET, "runtime_failed", tmp_path,
+            target, SECRET, "wizard_reject", tmp_path,
         )
         assert result is None
 
@@ -147,16 +154,16 @@ class TestInteropWithWizardPackage:
     """Launcher write ↔ wizard read and wizard write ↔ launcher read."""
 
     def test_launcher_writes_wizard_reads(self, tmp_path):
-        target = tmp_path / "wizard" / wizard_ipc.MARKER_RUNTIME_FAILED
+        target = tmp_path / "wizard" / wizard_ipc.MARKER_WIZARD_REJECT
         wizard_ipc.write_marker(
-            target, "runtime_failed", tmp_path, SECRET,
-            payload={"reason": "port_bind_timeout"},
+            target, "wizard_reject", tmp_path, SECRET,
+            payload={"reason": "topology_mismatch"},
         )
         result = wizard_ipc_pkg.read_marker(
-            target, SECRET, "runtime_failed", tmp_path,
+            target, SECRET, "wizard_reject", tmp_path,
         )
         assert result is not None
-        assert result["reason"] == "port_bind_timeout"
+        assert result["reason"] == "topology_mismatch"
 
     def test_wizard_writes_launcher_reads(self, tmp_path):
         target = tmp_path / "wizard" / wizard_ipc.MARKER_WIZARD_DONE
