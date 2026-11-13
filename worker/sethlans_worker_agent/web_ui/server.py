@@ -26,9 +26,15 @@ logger = logging.getLogger(__name__)
 _server = None
 _server_thread = None
 # Set while stop_server() is tearing down the Waitress server so the
-# run-loop wrapper can distinguish expected EBADF races (platform
-# quirk on macOS/Linux during fd teardown) from real crashes.
+# run-loop wrapper can distinguish expected fd-teardown races from
+# real crashes.
 _shutting_down = False
+
+# errnos that ``select()`` raises when stop_server() closes a socket
+# the asyncore loop is still watching. macOS/Linux report EBADF (#120);
+# Windows reports WSAENOTSOCK, i.e. ``[WinError 10038]``, which Python
+# maps to ``errno.ENOTSOCK`` (#213). Only suppressed while shutting down.
+_SHUTDOWN_RACE_ERRNOS = frozenset({errno.EBADF, errno.ENOTSOCK})
 
 
 def start_server(cert_path, key_path):
@@ -101,24 +107,27 @@ def start_server(cert_path, key_path):
 
 
 def _run_server(server):
-    """Run the Waitress asyncore loop with an EBADF safety net.
+    """Run the Waitress asyncore loop with a shutdown-race safety net.
 
-    On macOS (and, less often, Linux) the asyncore loop can be
-    blocked in ``select()`` when ``stop_server`` tears down the
-    listening/trigger sockets. The next iteration of the loop may
-    observe an already-closed file descriptor and raise
-    ``OSError(EBADF)`` before the ``while map`` guard has a chance
-    to exit. We catch that specific race here when ``_shutting_down``
-    is set; any other error during normal operation is re-raised so
-    the pytest ``PytestUnhandledThreadExceptionWarning`` hook
-    surfaces genuine failures.
+    The asyncore loop can be blocked in ``select()`` when
+    ``stop_server`` tears down the listening/trigger sockets. The
+    next iteration of the loop may observe an already-closed socket
+    before the ``while map`` guard has a chance to exit. macOS (and,
+    less often, Linux) raise ``OSError(EBADF)`` (#120); Windows
+    raises ``OSError([WinError 10038])``, whose errno is
+    ``ENOTSOCK`` (#213). We catch only those errnos and only when
+    ``_shutting_down`` is set; any other error, or either errno
+    during normal operation, is re-raised so the pytest
+    ``PytestUnhandledThreadExceptionWarning`` hook surfaces genuine
+    failures.
     """
     try:
         server.run()
     except OSError as exc:
-        if _shutting_down and exc.errno == errno.EBADF:
+        if _shutting_down and exc.errno in _SHUTDOWN_RACE_ERRNOS:
             logger.debug(
-                "Suppressed expected EBADF during Web UI shutdown race."
+                "Suppressed expected %s during Web UI shutdown race.",
+                errno.errorcode.get(exc.errno, exc.errno),
             )
             return
         raise
@@ -160,7 +169,7 @@ def stop_server():
     waitress.server, plus a trigger-poke to unblock ``select()``):
 
       1. Set the ``_shutting_down`` flag so the run-loop wrapper
-         recognises the subsequent EBADF race as expected.
+         recognises the subsequent EBADF/ENOTSOCK race as expected.
       2. ``task_dispatcher.shutdown()`` — drain worker threads so
          no WSGI task is mid-flight when the listener goes away.
       3. ``pull_trigger()`` — write a byte to the trigger pipe to
