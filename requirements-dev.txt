@@ -17,5 +17,5 @@ watchdog==6.0.0
 # Playwright browser automation for the Phase 2 wizard frontend
 # integration tests (tests/integration/frontend/test_phase2_*.py).
 # Install browsers with: python -m playwright install chromium
-playwright==1.58.0
-pytest-playwright==0.7.2
+playwright==1.65.1
+pytest-playwright==0.10.0
