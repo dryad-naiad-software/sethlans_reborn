@@ -24,7 +24,6 @@ import time
 from pathlib import Path
 
 import pytest
-import requests
 
 from tests.e2e.helpers import admin_login
 from tests.e2e.process_manager import (
@@ -34,6 +33,7 @@ from tests.e2e.process_manager import (
     find_free_port,
     generate_secrets,
     kill_process_tree,
+    manager_session,
     setup_database,
     start_manager,
     wait_for_manager,
@@ -191,8 +191,7 @@ class TestFFmpegAcquisition:
         proc = start_manager(env, port)
         try:
             wait_for_manager(base_url, proc=proc)
-            session = requests.Session()
-            session.verify = False
+            session = manager_session(env)
             admin_login(
                 session, base_url, ADMIN_USERNAME, ADMIN_PASSWORD,
             )

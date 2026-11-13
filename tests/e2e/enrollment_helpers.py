@@ -24,8 +24,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import requests
-
 from tests.e2e.helpers import admin_login
 from tests.e2e.process_manager import (
     ADMIN_PASSWORD,
@@ -35,6 +33,8 @@ from tests.e2e.process_manager import (
     find_free_port,
     generate_secrets,
     kill_process_tree,
+    manager_cert_path,
+    manager_session,
     setup_database,
     start_manager,
     start_worker,
@@ -148,6 +148,9 @@ class EnrollmentHarness:
             self.test_secrets["secret_key"],
             self.port,
         )
+        # CA bundle for one-off unauthenticated requests (the admin
+        # ``session`` carries login cookies those tests must not send).
+        self.ca_bundle = str(manager_cert_path(self.manager_env))
         self.manager_proc = None
         self.worker_proc = None
         self.session = None
@@ -157,8 +160,7 @@ class EnrollmentHarness:
         setup_database(self.manager_env)
         self.manager_proc = start_manager(self.manager_env, self.port)
         wait_for_manager(self.base_url, proc=self.manager_proc)
-        self.session = requests.Session()
-        self.session.verify = False
+        self.session = manager_session(self.manager_env)
         admin_login(
             self.session, self.base_url, ADMIN_USERNAME, ADMIN_PASSWORD,
         )

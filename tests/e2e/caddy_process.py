@@ -25,7 +25,6 @@ import time
 from pathlib import Path
 
 import requests
-import urllib3
 
 from sethlans_manager.caddy_template import render_manager_caddyfile
 from tests.e2e.env_config import REPO_ROOT
@@ -33,9 +32,6 @@ from tests.e2e.log_capture import (
     open_log_files,
     peek_log_files,
 )
-
-# Silence the self-signed cert warning for the Caddy HTTPS probe.
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -161,9 +157,13 @@ def start_caddy(
 def wait_for_caddy(
     public_tls_port: int,
     proc: subprocess.Popen,
+    cert_path: Path,
     timeout: float = 30.0,
 ) -> None:
     """Poll Caddy's public TLS listener until it responds.
+
+    ``cert_path`` is the self-signed certificate Caddy serves; the probe
+    trusts it as its CA bundle so the handshake is fully verified.
 
     Raises:
         RuntimeError: Caddy exited before becoming ready.
@@ -171,6 +171,7 @@ def wait_for_caddy(
     """
     base_url = f"https://127.0.0.1:{public_tls_port}"
     deadline = time.monotonic() + timeout
+    last_error = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             stdout, stderr = peek_log_files(proc)
@@ -184,21 +185,21 @@ def wait_for_caddy(
             resp = requests.get(
                 f"{base_url}/api/auth/csrf/",
                 timeout=3,
-                verify=False,
+                verify=str(cert_path),
             )
             if resp.status_code == 200:
                 logger.info("Caddy is ready at %s", base_url)
                 return
-        except requests.ConnectionError:
-            pass
-        except requests.exceptions.RequestException:
-            pass
+        except requests.exceptions.RequestException as exc:
+            # Includes SSLError — keep it so a cert-verification
+            # failure is visible in the timeout message below.
+            last_error = exc
         time.sleep(0.5)
 
     stdout, stderr = peek_log_files(proc)
     raise TimeoutError(
         f"Caddy at {base_url} did not become ready within "
-        f"{timeout}s\n"
+        f"{timeout}s (last error: {last_error!r})\n"
         f"Process alive: {proc.poll() is None}, "
         f"returncode: {proc.returncode}\n"
         f"--- STDOUT (last 2000 chars) ---\n{stdout[-2000:]}\n"

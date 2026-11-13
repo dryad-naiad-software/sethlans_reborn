@@ -15,8 +15,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import requests
-
 from tests.e2e.helpers import (
     admin_login,
     poll_for_completion,
@@ -30,6 +28,7 @@ from tests.e2e.process_manager import (
     find_free_port,
     generate_secrets,
     kill_process_tree,
+    manager_session,
     setup_database,
     start_manager,
     start_worker,
@@ -88,8 +87,7 @@ class TestRobustness:
         cls.manager_proc = start_manager(cls.manager_env, cls.port)
         wait_for_manager(cls.base_url, proc=cls.manager_proc)
 
-        cls.session = requests.Session()
-        cls.session.verify = False
+        cls.session = manager_session(cls.manager_env)
         admin_login(
             cls.session, cls.base_url, ADMIN_USERNAME, ADMIN_PASSWORD,
         )

@@ -24,8 +24,6 @@ import logging
 import subprocess
 import sys
 
-import urllib3
-
 # Re-export env helpers so existing imports keep working.
 from tests.e2e.env_config import (  # noqa: F401
     REPO_ROOT,
@@ -40,10 +38,10 @@ from tests.e2e.env_config import (  # noqa: F401
     build_worker_env,
     generate_secrets,
 )
-
-# Suppress InsecureRequestWarning globally for E2E tests since the
-# manager serves a self-signed TLS certificate.
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from tests.e2e.tls_trust import (  # noqa: F401
+    manager_cert_path,
+    manager_session,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -144,7 +144,7 @@ class TestEnrollment:
                 "available_tools": {},
             },
             timeout=15,
-            verify=False,
+            verify=enrollment_harness.ca_bundle,
         )
         assert resp.status_code == 401, (
             f"Expected 401 for legacy X-Enrollment-Key header, "
@@ -182,7 +182,7 @@ class TestEnrollment:
                 "hostname": "rotation-probe-host",
                 "nonce": probe_nonce,
             },
-            timeout=15, verify=False,
+            timeout=15, verify=enrollment_harness.ca_bundle,
         )
         assert resp.status_code == 403, (
             f"Expected 403 for rotated-away key, got "

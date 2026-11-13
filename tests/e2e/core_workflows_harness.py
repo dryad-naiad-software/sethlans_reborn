@@ -1,0 +1,209 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+"""
+Class-scoped manager + worker harness for the core rendering E2E tests.
+
+Boots a manager (Waitress + Caddy) and a worker once per test class,
+creates a project, uploads the test assets, and dumps subprocess logs
+after each test for CI debugging. Split out of
+``test_core_workflows.py`` so that module holds only the tests and
+stays under the project's 300-line cap.
+
+The base class name deliberately does not start with ``Test`` so pytest
+does not collect it on its own.
+"""
+
+import logging
+import shutil
+import tempfile
+from pathlib import Path
+
+from tests.e2e.helpers import admin_login
+from tests.e2e.log_capture import peek_log_files
+from tests.e2e.process_manager import (
+    ADMIN_PASSWORD,
+    ADMIN_USERNAME,
+    REPO_ROOT,
+    build_manager_env,
+    build_worker_env,
+    find_free_port,
+    generate_secrets,
+    kill_process_tree,
+    manager_session,
+    setup_database,
+    start_manager,
+    start_worker,
+    wait_for_manager,
+    wait_for_worker,
+)
+
+logger = logging.getLogger(__name__)
+
+# Paths to test .blend files.
+TEST_SCENE = REPO_ROOT / "tests" / "assets" / "test_scene.blend"
+ANIMATION_BLEND = REPO_ROOT / "tests" / "assets" / "animation.blend"
+
+# Render settings for fast E2E tests.
+FAST_RENDER_SETTINGS = {
+    "cycles.samples": 4,
+    "render.resolution_x": 128,
+    "render.resolution_y": 128,
+    "render.resolution_percentage": 100,
+}
+
+
+class CoreWorkflowsHarness:
+    """Manager + worker lifecycle shared by the core workflow tests."""
+
+    @classmethod
+    def setup_class(cls):
+        """Start manager and worker, create project and upload assets."""
+        cls.manager_proc = None
+        cls.worker_proc = None
+        cls.manager_stdout = ""
+        cls.manager_stderr = ""
+        cls.worker_stdout = ""
+        cls.worker_stderr = ""
+
+        cls.port = find_free_port()
+        cls.base_url = f"https://127.0.0.1:{cls.port}"
+        cls.test_secrets = generate_secrets()
+
+        cls.temp_dir = Path(tempfile.mkdtemp(prefix="e2e_core_"))
+        cls.db_path = cls.temp_dir / "test_e2e_db.sqlite3"
+        cls.media_root = cls.temp_dir / "media"
+        cls.media_root.mkdir(parents=True, exist_ok=True)
+
+        cls.manager_env = build_manager_env(
+            cls.db_path, cls.media_root,
+            cls.test_secrets["enrollment_key"],
+            cls.test_secrets["secret_key"],
+            cls.port,
+        )
+        cls.worker_data_dir = cls.temp_dir / "worker_data"
+        cls.worker_env = build_worker_env(
+            cls.test_secrets["enrollment_key"],
+            "127.0.0.1", cls.port,
+            worker_data_dir=cls.worker_data_dir,
+        )
+
+        setup_database(cls.manager_env)
+        cls.manager_proc = start_manager(cls.manager_env, cls.port)
+        wait_for_manager(cls.base_url, proc=cls.manager_proc)
+
+        cls.session = manager_session(cls.manager_env)
+        admin_login(
+            cls.session, cls.base_url, ADMIN_USERNAME, ADMIN_PASSWORD,
+        )
+
+        cls.worker_proc = start_worker(cls.worker_env)
+        cls.worker_data = wait_for_worker(
+            cls.session, cls.base_url, timeout=180,
+        )
+
+        # Create project (uses default SupportedBlenderVersion from migration).
+        resp = cls.session.post(
+            f"{cls.base_url}/api/projects/",
+            json={"name": "E2E Test Project"},
+            timeout=30,
+        )
+        assert resp.status_code == 201, (
+            f"Project creation failed: {resp.status_code} {resp.text}"
+        )
+        cls.project_id = resp.json()["id"]
+
+        # Upload test scene asset.
+        cls.scene_asset_id = cls._upload_asset(
+            "test_scene.blend", TEST_SCENE,
+        )
+
+        # Upload animation asset if it exists.
+        cls.animation_asset_id = None
+        if ANIMATION_BLEND.exists():
+            cls.animation_asset_id = cls._upload_asset(
+                "animation.blend", ANIMATION_BLEND,
+            )
+
+    @classmethod
+    def _upload_asset(cls, name, file_path):
+        """Upload a .blend file and return its asset ID."""
+        with open(file_path, "rb") as f:
+            resp = cls.session.post(
+                f"{cls.base_url}/api/assets/",
+                data={"name": name, "project": cls.project_id},
+                files={"blend_file": (name, f, "application/octet-stream")},
+                timeout=60,
+            )
+        assert resp.status_code == 201, (
+            f"Asset upload failed: {resp.status_code} {resp.text}"
+        )
+        return resp.json()["id"]
+
+    @classmethod
+    def teardown_class(cls):
+        """Stop worker and manager, clean up temp files."""
+        if cls.worker_proc:
+            cls.worker_stdout, cls.worker_stderr = kill_process_tree(
+                cls.worker_proc,
+            )
+        if cls.manager_proc:
+            cls.manager_stdout, cls.manager_stderr = kill_process_tree(
+                cls.manager_proc,
+            )
+        try:
+            shutil.rmtree(cls.temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    def teardown_method(self, method):
+        """Dump worker and manager logs on test failure for CI debugging.
+
+        The poll() guard was removed: when a process has already exited
+        (exit code != None) we need the logs MORE urgently, not less,
+        because an unexpected exit is a crash signature. peek_log_files
+        reads files from disk, so it works whether the process is alive
+        or dead.
+        """
+        if self.worker_proc:
+            exit_code = self.worker_proc.poll()
+            if exit_code is not None:
+                logger.error(
+                    "WORKER process exited unexpectedly with code %s",
+                    exit_code,
+                )
+            stdout, stderr = peek_log_files(self.worker_proc)
+            if stdout:
+                logger.error(
+                    "--- WORKER STDOUT (first 8000 chars) ---\n%s",
+                    stdout[:8000],
+                )
+                if len(stdout) > 16000:
+                    logger.error(
+                        "--- WORKER STDOUT (last 8000 chars) ---\n%s",
+                        stdout[-8000:],
+                    )
+            if stderr:
+                logger.error(
+                    "--- WORKER STDERR (first 4000 chars) ---\n%s",
+                    stderr[:4000],
+                )
+                if len(stderr) > 8000:
+                    logger.error(
+                        "--- WORKER STDERR (last 4000 chars) ---\n%s",
+                        stderr[-4000:],
+                    )
+        if self.manager_proc:
+            exit_code = self.manager_proc.poll()
+            if exit_code is not None:
+                logger.error(
+                    "MANAGER process exited unexpectedly with code %s",
+                    exit_code,
+                )
+            stdout, stderr = peek_log_files(self.manager_proc)
+            if stderr:
+                logger.error(
+                    "--- MANAGER STDERR (last 4000 chars) ---\n%s",
+                    stderr[-4000:],
+                )

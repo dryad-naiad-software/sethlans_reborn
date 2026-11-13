@@ -167,12 +167,14 @@ def start_manager(env, port):
         kill_process_tree(proc)
         raise
     try:
-        wait_for_caddy(port, caddy_proc)
+        wait_for_caddy(port, caddy_proc, cert_path)
     except Exception:
         stop_caddy(caddy_proc)
         kill_process_tree(proc)
         raise
     proc._caddy_proc = caddy_proc
+    # Lets ``wait_for_manager`` verify TLS against the served cert.
+    proc._tls_cert_path = cert_path
 
     # Mark the manager's setup wizard as complete. After GH #126 the
     # worker's main loop refuses to claim jobs (or download Blender)
@@ -191,7 +193,7 @@ def start_manager(env, port):
     return proc
 
 
-def wait_for_manager(base_url, timeout=90, proc=None):
+def wait_for_manager(base_url, timeout=90, proc=None, ca_bundle=None):
     """Poll the manager until it responds to HTTPS requests.
 
     Args:
@@ -200,8 +202,18 @@ def wait_for_manager(base_url, timeout=90, proc=None):
         proc: The manager subprocess.Popen — if supplied, we check
               whether the process has crashed on each poll iteration
               and surface its stderr/stdout in the error message.
+        ca_bundle: Certificate to verify the manager's TLS against.
+              Defaults to the cert ``start_manager`` recorded on
+              ``proc``; one of the two is required.
     """
     import requests
+    if ca_bundle is None:
+        ca_bundle = getattr(proc, "_tls_cert_path", None)
+    if ca_bundle is None:
+        raise ValueError(
+            "wait_for_manager needs ca_bundle= or a proc returned by "
+            "start_manager so it can verify the manager's TLS cert."
+        )
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         # Fail fast if the manager process has exited.
@@ -216,7 +228,7 @@ def wait_for_manager(base_url, timeout=90, proc=None):
         try:
             resp = requests.get(
                 f"{base_url}/api/auth/csrf/", timeout=3,
-                verify=False,
+                verify=str(ca_bundle),
             )
             if resp.status_code == 200:
                 logger.info("Manager is ready at %s", base_url)
