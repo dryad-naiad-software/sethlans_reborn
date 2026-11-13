@@ -143,10 +143,20 @@ desktop.ini
 .idea/
 .vscode/
 
-# Claude Code
+# Claude Code / AI assistant local state (never publish)
 .claude/
 CLAUDE.md
+CLAUDE.local.md
+.claude.json
 .mcp.json
+
+# Local env files and key material (examples stay tracked)
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Development workflow (internal agent docs, brainstorming, specs)
 development/

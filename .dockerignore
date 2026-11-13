@@ -14,3 +14,23 @@ venv/
 node_modules/
 *.md
 !LICENSE
+
+# Claude Code / AI assistant state and private dev docs (any depth)
+**/.claude/
+**/CLAUDE*.md
+**/.claude.json
+**/.mcp.json
+**/development/
+**/temp/
+
+# Local runtime state and secrets (gitignored; never bake into images)
+**/*.sqlite3
+**/*.pem
+**/*.key
+manager/tls/
+manager/manager.ini
+manager/logs/
+manager/media/
+manager/caddy/
+worker/config.ini
+worker/.dev-data/
