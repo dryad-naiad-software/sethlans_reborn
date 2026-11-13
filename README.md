@@ -1,4 +1,4 @@
-# Sethlans Reborn - Distributed Blender Rendering System
+# Sethlans Reborn - Distributed Rendering for Blender and Unreal Engine
 
 [![Docker Tests](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/docker-test.yml)
 [![CI (Matrix)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml/badge.svg)](https://github.com/dryad-naiad-software/sethlans_reborn/actions/workflows/python-ci.yml)
@@ -10,11 +10,53 @@
 ![Angular](https://img.shields.io/badge/Angular-21-red)
 ![License](https://img.shields.io/badge/License-GPLv2+-blue)
 
-Sethlans Reborn is a distributed rendering system that accelerates Blender workflows by farming render jobs across a network of machines. A central Django manager orchestrates work while standalone Python worker agents handle the rendering. An installable launcher brings it all together on a single workstation with a first-run setup wizard, tray helper, and opinionated defaults — or you can deploy manager and workers independently across a network via Docker or native installers.
+Sethlans Reborn is a distributed rendering system that farms render jobs across a network of machines. It supports two renderers as equals: **Blender**, and **Unreal Engine** cinematic rendering through Movie Render Queue. A central Django manager orchestrates work while standalone Python worker agents handle the rendering. An installable launcher brings it all together on a single workstation with a first-run setup wizard, tray helper, and opinionated defaults — or you can deploy manager and workers independently across a network via Docker or native installers.
+
+> **Status: alpha.** Nothing has been released yet. The Blender pipeline is implemented and under active testing. Unreal Engine support is in design, with a proof of concept next. See [Project Direction](#project-direction-blender-and-unreal-engine).
+
+---
+
+## Project Direction: Blender and Unreal Engine
+
+Sethlans started as a Blender render farm. It is becoming a farm for **both Blender and Unreal Engine**, with neither treated as an add-on to the other. Both renderers share one job core: projects, the job lifecycle, claiming, heartbeats, output upload, thumbnails, animation tracking, and FFmpeg video assembly. What differs per renderer sits behind a renderer field on each project and job, per-renderer validated settings, and a per-renderer executor on the worker.
+
+### How the two renderers differ
+
+| | Blender | Unreal Engine |
+|---|---|---|
+| **Project delivery** | Upload a `.blend` file (implemented), or a `.zip` with the `.blend` and its linked assets (planned) | Render from the project directory on a shared network path (UNC); nothing is uploaded, since Unreal projects run to many gigabytes |
+| **Engine versions** | Workers download and cache any registered Blender version | Workers use a local Unreal install that must match the job's **exact** engine build (version and changelist) |
+| **Rendering** | Blender in background mode | `UnrealEditor-Cmd` running Movie Render Queue headless, one process per GPU |
+| **Animations** | One job per frame (optionally tiled) | Whole shots packed into jobs balanced by frame count; long shots are split and short ones grouped |
+| **Audio** | n/a | Rendered once by a separate audio job, then muxed into the assembled video |
+| **Tiled stills** | Tiles spread across workers, assembled with Pillow | Movie Render Queue high-resolution tiling on a single worker |
+| **Settings** | JSON overrides for any `bpy` property | The artist's Movie Render Queue preset, plus farm default console variables and per-project overrides |
+
+### Unreal Engine design points
+
+- **Local project cache.** Workers copy the shared project to fast local storage and render from that copy, never from the share itself. A worker that cannot reach a project's share does not claim its jobs.
+- **Automatic warm-up.** The first render of a project on a node runs a warm-up pass so shader and kernel compilation does not happen mid-render.
+- **Validation beyond exit codes.** Workers check render logs for cancelled compilations, memory-budget warnings, and GPU driver errors, and confirm the expected frame count before reporting success.
+- **Any GPU vendor.** NVIDIA is preferred on Linux, but nodes render with whatever GPU they have. AMD is supported, though Unreal's AMD support on Linux is still being tested.
+- **Per-shot timing records.** Render time per shot, node, GPU, and engine build is recorded so later versions can balance jobs by measured cost instead of frame count.
+
+### Rollout
+
+1. **Proof of concept on Windows:** a local Unreal install renders a single still from a shared project, end to end through the manager.
+2. **Data model and API:** renderer field, Unreal job settings, shared-project delivery, exact-build routing, farm and per-project console variables.
+3. **Animations:** shot-aware job packing, the audio job and muxing, multiple GPUs per node, and tiled stills.
+4. **Linux and macOS together:** engine and GPU detection on both, plus network-share resolution through the mount table.
+5. **Blender `.zip` project uploads.**
+6. **Dashboard:** renderer picker, Unreal job forms, per-project console variables, worker capability display.
+7. **Documentation and helper scripts:** node setup, share mounting, warm-up.
+
+Later: Unreal workers in Docker, cost-based job balancing, splitting Unreal tiled stills across workers, and other ways to deliver Unreal projects (archives, source control).
 
 ---
 
 ## Core Features
+
+The features below describe the Blender pipeline as implemented so far (alpha). The shared machinery (distribution, enrollment, scheduling, setup, tray, installers, dashboard) will serve Unreal Engine too.
 
 - **Distributed Rendering** — Deploy worker agents on any machine (Windows, macOS, Linux) to process render jobs in parallel across your network.
 - **Tiled Rendering** — Split high-resolution frames into a grid of tiles (2x2 up to 5x5) for parallel rendering, with automatic assembly of the final image.
@@ -28,7 +70,7 @@ Sethlans Reborn is a distributed rendering system that accelerates Blender workf
 - **First-Run Setup Wizard** — Browser-based setup wizard (topology selection, network/database config, admin user, FFmpeg/Blender download) via a launcher-managed lifecycle.
 - **Tray Helper** — System tray icon exposes manager/worker status, setup-token copy, dashboard/wizard quick-launch, and graceful restart/quit. Cross-platform (Windows, macOS, Linux) via Qt.
 - **Native Installers** — PyInstaller-based installers for Windows, macOS, and Linux bundle the launcher, manager, worker, and tray helper into a single app.
-- **Docker Deployment** — Production-ready Dockerfiles and compose files for containerized manager and worker deployments, with NVIDIA and ROCm GPU support.
+- **Docker Deployment** — Dockerfiles and compose files for containerized manager and worker deployments, with NVIDIA and ROCm GPU support.
 - **Angular Dashboard** — Angular 21 + Material UI frontend with project/job/worker/animation management, live status, and file upload.
 - **Project Management** — Organize jobs and assets into projects with pause/resume control over all associated work.
 - **RESTful API** — Full API built with Django REST Framework, with interactive Swagger documentation.
@@ -61,11 +103,11 @@ First-run orchestrator. Detects whether setup is complete, launches the manager 
 
 The central hub. Serves the REST API, the Angular dashboard, and the setup wizard; manages projects, assets, jobs, animations, tiled jobs, and worker enrollment; spawns child jobs for animations and tiled renders; assembles final output images from completed tiles; and generates video from animation frames.
 
-**Tech:** Django 5.2, Django REST Framework, django-filter, drf-spectacular, uvicorn (ASGI + TLS), Pillow, SQLite / PostgreSQL / MySQL, Angular 21 + Material UI
+**Tech:** Django 5.2, Django REST Framework, django-filter, drf-spectacular, Waitress (WSGI on loopback) behind Caddy (TLS on port 8080), Pillow, SQLite / PostgreSQL / MySQL, Angular 21 + Material UI
 
 ### Worker Agent (`worker/`)
 
-A standalone Python application that runs on each rendering machine. It enrolls with the manager via HMAC handshake, pins the manager's TLS certificate fingerprint, polls for available jobs, manages local Blender installations, executes renders via subprocess, and uploads results. Supports idle detection, artist-return yielding, and scheduled rendering windows.
+A standalone Python application that runs on each rendering machine. It enrolls with the manager via HMAC handshake, pins the manager's TLS certificate fingerprint, polls for available jobs, manages local Blender installations, executes renders via subprocess, and uploads results. Supports idle detection, artist-return yielding, and scheduled rendering windows. An Unreal Engine executor will sit beside the Blender one; the worker will pick an executor by the job's renderer.
 
 **Tech:** Python, Requests, psutil, cryptography
 
@@ -126,11 +168,11 @@ All endpoints are under `/api/`. Interactive Swagger documentation is available 
 
 ## Getting Started
 
-### Option A: Native Installer (recommended for end users)
+### Option A: Native Installer
 
-Download the installer for your platform from the [Releases](https://github.com/dryad-naiad-software/sethlans_reborn/releases) page. The installer bundles the launcher, manager, worker, and tray helper into a single app. On first run, a browser-based setup wizard walks you through topology selection (manager-only / worker-only / both), admin user creation, and Blender download.
+No installers have been released yet while the project is in alpha; build one yourself (see [Building Native Installers](#building-native-installers)). Releases will appear on the [Releases](https://github.com/dryad-naiad-software/sethlans_reborn/releases) page. The installer bundles the launcher, manager, worker, and tray helper into a single app. On first run, a browser-based setup wizard walks you through topology selection (manager-only / worker-only / both), admin user creation, and Blender download.
 
-### Option B: Docker (production / server deployment)
+### Option B: Docker (server deployment)
 
 See [Docker Deployment](#docker-deployment) below.
 
@@ -206,7 +248,7 @@ Worker configuration is stored in a JSON config file at the OS-appropriate per-u
 
 ## Docker Deployment
 
-Production Docker images are available for containerized deployments.
+Docker images are available for containerized deployments (alpha builds).
 
 ```bash
 cd deploy/docker
@@ -236,7 +278,9 @@ All containers run as non-root (uid 1000). Manager and CPU worker images support
 
 ---
 
-## Supported Render Configuration
+## Supported Render Configuration (Blender)
+
+Unreal Engine settings will be documented here once the renderer lands.
 
 | Setting | Options |
 |---|---|
@@ -318,7 +362,7 @@ manager/                                 Django manager (server)
     constants.py                         Enums: RenderEngine, RenderDevice, TilingConfiguration, etc.
     image_assembler.py                   Tile assembly logic (Pillow)
   frontend/                              Angular 21 SPA (Material UI)
-  run_manager.py                         Manager entry point (uvicorn + TLS)
+  run_manager.py                         Manager entry point (Waitress, fronted by Caddy)
   requirements.txt                       Manager runtime deps
 worker/                                  Worker agent (client)
   sethlans_worker_agent/                 Python package
