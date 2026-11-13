@@ -18,21 +18,20 @@ import json
 import logging
 from pathlib import Path
 
+# Canonical vocabulary + alias map live in :mod:`shared.topology` so the
+# launcher normalizes the wizard's spellings ("manager_worker",
+# "worker_only") exactly the way the tray does (issue #210).
+from shared.topology import (
+    TOPOLOGY_BOTH,
+    TOPOLOGY_MANAGER,
+    TOPOLOGY_WORKER,
+    normalize_topology,
+)
+
 logger = logging.getLogger(__name__)
 
-TOPOLOGY_MANAGER = "manager"
-TOPOLOGY_WORKER = "worker"
-TOPOLOGY_BOTH = "manager+worker"
-
-_VALID = {TOPOLOGY_MANAGER, TOPOLOGY_WORKER, TOPOLOGY_BOTH}
 _DEFAULT = TOPOLOGY_BOTH
 _MAX_BYTES = 1024
-
-# Some repos use the "manager_worker" spelling for filesystem-safety.
-# Accept it but normalize to the canonical "manager+worker".
-_LEGACY_ALIASES = {
-    "manager_worker": TOPOLOGY_BOTH,
-}
 
 
 def _load_raw(path: Path) -> str | None:
@@ -71,12 +70,19 @@ def read_topology(data_dir: Path) -> str:
         logger.warning("topology.json malformed: %s", exc)
         return _DEFAULT
     value = data.get("topology") if isinstance(data, dict) else None
-    if isinstance(value, str) and value in _LEGACY_ALIASES:
-        value = _LEGACY_ALIASES[value]
-    if value not in _VALID:
+    canonical = normalize_topology(value)
+    if canonical is None:
         logger.warning(
             "topology.json has unknown topology=%r; defaulting to %s",
             value, _DEFAULT,
         )
         return _DEFAULT
-    return value
+    return canonical
+
+
+__all__ = [
+    "TOPOLOGY_BOTH",
+    "TOPOLOGY_MANAGER",
+    "TOPOLOGY_WORKER",
+    "read_topology",
+]

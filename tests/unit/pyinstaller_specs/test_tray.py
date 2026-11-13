@@ -59,6 +59,23 @@ class TestBuildRequirementsTrayDeps:
         )
 
 
+class TestTraySpecBundlesSharedTopology:
+    """Issue #210: ``shared.tray.topology`` imports the canonical alias
+    map from ``shared.topology``; the tray spec lists its package
+    surface explicitly, so the new module must be listed too."""
+
+    def test_shared_topology_in_hiddenimports(
+        self, tray_spec_text: str,
+    ) -> None:
+        assert (
+            "'shared.topology'" in tray_spec_text
+            or '"shared.topology"' in tray_spec_text
+        ), (
+            "tray_helper.spec must declare 'shared.topology' as a hidden "
+            "import (issue #210)."
+        )
+
+
 class TestTraySpecHiddenImportsDeclared:
     """Sanity check: the spec actually declares the imports we just pinned."""
 

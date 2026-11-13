@@ -27,7 +27,10 @@ from launcher.health_probe import (
     HEALTH_TIMEOUT, QuitRequested, wait_for_health,
 )
 from launcher.restart_orchestrator import handle_restart_request
+from launcher.runtime_topology import fail_unknown_topology, resolve_runtime_topology
+from launcher.runtime_topology import read_topology_json as _read_topology
 from launcher.setup_helpers import remove_setup_section
+from shared.topology import has_manager, has_worker
 
 logger = logging.getLogger(__name__)
 
@@ -110,17 +113,6 @@ def _handle_restart(restart_target, state, data_dir, start_component):
         state["manager"] = new_proc
 
 
-def _read_topology(data_dir: Path) -> dict:
-    import json
-    f = data_dir / "topology.json"
-    if not f.exists():
-        return {}
-    try:
-        return json.loads(f.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
 def _quit_cold_boot(
     manager_proc: Optional[subprocess.Popen],
     worker_proc: Optional[subprocess.Popen],
@@ -153,13 +145,12 @@ def _await_cold_boot(
     terminates child(ren); on issue #163 ``QuitRequested`` (tray quit
     mid-probe), routes through the user-quit cleanup path (rc=0).
     """
-    is_manager_topo = topo in ("manager", "manager_worker", "manager+worker")
-    is_worker_topo = topo in ("worker", "manager_worker", "manager+worker")
-    has_manager = is_manager_topo and manager_proc is not None
-    has_worker = is_worker_topo and worker_proc is not None
+    # Issue #210: normalize so the wizard's "worker_only" probes 8081.
+    probe_manager = has_manager(topo) and manager_proc is not None
+    probe_worker = has_worker(topo) and worker_proc is not None
     deadline = time.monotonic() + HEALTH_TIMEOUT
 
-    if has_manager:
+    if probe_manager:
         remaining = deadline - time.monotonic()
         try:
             healthy = wait_for_health(
@@ -174,7 +165,7 @@ def _await_cold_boot(
                 _REASON_MANAGER_TIMEOUT,
                 manager_proc, worker_proc, on_startup_failed,
             )
-    if has_worker:
+    if probe_worker:
         remaining = deadline - time.monotonic()
         try:
             healthy = wait_for_health(
@@ -244,21 +235,24 @@ def run_normal_mode(
     # spawning Caddy or the manager (avoids a wasted spawn cycle).
     if supervision.get_quit_requested_event().is_set():
         return _quit_cold_boot(None, None, on_cold_boot_ready)
-    topology = _read_topology(data_dir)
-    topo = topology.get("topology", "manager_worker")
+    # Issue #210: canonical form ("worker_only" -> "worker"); fails
+    # closed (spawns nothing) on an unrecognized topology.
+    topo = resolve_runtime_topology(data_dir, _read_topology(data_dir))
+    if topo is None:
+        return fail_unknown_topology(on_startup_failed)
     manager_data = data_dir / "manager"
     remove_setup_section(manager_data)
 
     # Caddy terminates TLS in front of Waitress for manager-bearing
     # topologies. Worker-only installs skip it (scoped out per spec).
-    if topo in ("manager", "manager_worker", "manager+worker"):
+    if has_manager(topo):
         start_caddy_supervisor(manager_data)
 
     manager_proc = worker_proc = None
-    if topo in ("manager", "manager_worker", "manager+worker"):
+    if has_manager(topo):
         print("Starting Sethlans Manager...")
         manager_proc = start_component("manager")
-    if topo in ("worker", "manager_worker", "manager+worker"):
+    if has_worker(topo):
         print("Starting Sethlans Worker...")
         worker_proc = start_component("worker")
 
@@ -275,7 +269,7 @@ def run_normal_mode(
     # FR-BROWSER2 (issue #203): on a fresh install this fires a 2nd tab
     # (wizard already opened one); expected for v1 UX. Worker-only has
     # no manager browser to open.
-    if topo in ("manager", "manager_worker", "manager+worker"):
+    if has_manager(topo):
         open_browser(
             MANAGER_PORT, args.no_browser, args.print_url,
             DASHBOARD_PATH, None,

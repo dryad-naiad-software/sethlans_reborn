@@ -8,7 +8,10 @@ Post-issue-#203, ``hand_off_to_runtime`` is reduced to:
 
 1. Read topology.json (sanity check + log on mismatch).
 2. Run the apply pipeline (writes ``.setup_complete``).
-3. Terminate the wizard subprocess and rmtree its work dir.
+3. Terminate the wizard subprocess.
+4. For ``worker_only`` (no apply pipeline), record ``.setup_complete``
+   via :mod:`launcher.setup_sentinel` (issue #210).
+5. rmtree the wizard work dir.
 
 Runtime spawn, Caddy start, and the port-bind / health watch are now
 owned by :func:`launcher.orchestration.run_normal_mode`, which
@@ -28,7 +31,8 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
-from launcher import cascade, wizard_dir
+from launcher import cascade, setup_sentinel, wizard_dir
+from shared.topology import has_manager, has_worker, normalize_topology
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +72,11 @@ def spawn_runtime_for_topology(
     with callers expecting the previous tuple shape; normal mode reads
     its probe port from ``manager.ini`` instead.
     """
-    if topology in ("manager", "manager_worker", "manager+worker"):
+    if has_manager(topology):
         bootstrap_first_run(data_dir)
         proc = start_component("manager")
         return proc, 8080
-    if topology in ("worker", "worker_only"):
+    if has_worker(topology):
         proc = start_component("worker")
         return proc, None
     logger.error("Unknown topology %r in topology.json", topology)
@@ -131,6 +135,11 @@ def hand_off_to_runtime(
     if not topology:
         logger.error("topology.json missing or unreadable post-handoff")
         return wizard_failure_exit("topology_missing")
+    if normalize_topology(topology) is None:
+        # Issue #210: name the real cause instead of letting the
+        # main_dispatch guard blame a missing .setup_complete.
+        logger.error("topology.json names unknown topology %r", topology)
+        return wizard_failure_exit("unknown_topology")
 
     expected = payload.get("topology") if isinstance(payload, dict) else None
     if expected and expected != topology:
@@ -151,6 +160,18 @@ def hand_off_to_runtime(
     # working directory; FR-W17 usually beats us to it but this is the
     # safety net.  FR-W10 cleanup is idempotent against ours.
     terminate_wizard(wizard_proc)
+
+    # Issue #210: worker_only skips the apply pipeline, so nothing else
+    # records setup completion. Written only here: after the validated
+    # ``.wizard_done``, a successful (or skipped) apply and wizard
+    # teardown; a failed / cancelled run never reaches this point.
+    # ImportError = a frozen build missing the hidden import; fail the
+    # hand-off (wizard dir kept) rather than crash the launcher.
+    try:
+        setup_sentinel.record_setup_complete(data_dir, topology)
+    except (OSError, ImportError) as exc:
+        logger.error("could not write .setup_complete: %s", exc)
+        return wizard_failure_exit("setup_complete_write_failed")
 
     # FR-L13: best-effort delete <data_dir>/wizard/ after handoff.
     wizard_dir.cleanup_wizard_dir(data_dir)

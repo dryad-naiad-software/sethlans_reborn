@@ -26,6 +26,9 @@ Locks in the fixes for:
   (``sys._MEIPASS``) so ``shared.version.get_version()`` can read it
   at runtime. Without the spec datas wiring, the splash surfaces a
   stale hardcoded version.
+
+* Issue #210 — ``launcher.spec`` must bundle ``workers.services.sentinel``
+  so the frozen launcher can record ``.setup_complete`` for worker-only.
 """
 
 from __future__ import annotations
@@ -78,6 +81,24 @@ class TestLauncherSpecBundlesWorkersBroadcaster:
             "launcher.spec must declare 'workers.multicast_broadcaster' "
             "as a hidden import so the frozen launcher can import it "
             "for UDP discovery (issue #101)."
+        )
+
+    def test_setup_sentinel_in_hiddenimports(
+        self, launcher_spec_text: str,
+    ) -> None:
+        # Issue #210: ``launcher.setup_sentinel`` imports the manager's
+        # pure-stdlib ``workers.services.sentinel`` lazily (after a
+        # source-mode-only sys.path insert) to record ``.setup_complete``
+        # for worker-only installs. PyInstaller cannot see that import,
+        # so without the hidden import the frozen worker-only hand-off
+        # fails with ImportError and the wizard re-runs every launch.
+        assert (
+            "'workers.services.sentinel'" in launcher_spec_text
+            or '"workers.services.sentinel"' in launcher_spec_text
+        ), (
+            "launcher.spec must declare 'workers.services.sentinel' as a "
+            "hidden import so the frozen launcher can record "
+            ".setup_complete for worker-only installs (issue #210)."
         )
 
     def test_manager_dir_referenced_in_pathex(

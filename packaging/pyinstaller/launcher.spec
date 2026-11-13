@@ -41,6 +41,9 @@ from version_info import make_version_info  # noqa: E402
 hiddenimports = [
     'launcher.logging_setup',
     'workers.multicast_broadcaster',
+    # Pure-stdlib sentinel writer; launcher.setup_sentinel imports it
+    # lazily to record .setup_complete for worker_only (issue #210).
+    'workers.services.sentinel',
     # Dynamic import in launcher.caddy_launcher._load_manager_renderer;
     # PyInstaller's static analyzer can't see it (issue #100).
     'sethlans_manager.caddy_template',

@@ -14,7 +14,7 @@ Scenarios:
 1. Manager-only happy path — the mock manager runtime passes normal-mode
    cold boot; the driver exits 0 via the user-quit cascade.
 2. Worker-only happy path — same shape, ``worker_only`` topology, mock
-   bound on port 8081.
+   bound on port 8081; the launcher writes ``.setup_complete`` (#210).
 3. Runtime fails after hand-off — mock runtime exits non-zero
    immediately; normal-mode cold boot detects it, fires
    ``on_startup_failed`` and the launcher exits 1.
@@ -24,6 +24,7 @@ Scenarios:
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -163,17 +164,22 @@ def test_manager_handoff_falls_through_to_normal_mode(launcher_driver):
 
 # ---- Scenario 2: worker-only happy path -----------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
+@pytest.mark.skipif(
+    _HOSTED_MACOS,
     reason=(
-        "#210 — worker-only first run aborts after hand-off: nothing "
-        "writes .setup_complete when the apply pipeline is skipped, and "
-        "run_normal_mode does not recognize the 'worker_only' topology."
+        "#156 — hosted GitHub macOS runner is too slow for the 30s "
+        "normal-mode cold-boot HEALTH_TIMEOUT on the mock-runtime "
+        "cold-start path (same budget as the manager scenario)."
     ),
 )
 @pytest.mark.usefixtures("require_worker_port_free")
 def test_worker_only_handoff_spawns_worker(launcher_driver):
-    """Worker-only topology: normal mode spawns + health-checks the worker."""
+    """Worker-only topology: normal mode spawns + health-checks the worker.
+
+    Issue #210: the apply pipeline is skipped for ``worker_only``, so the
+    launcher itself records ``.setup_complete`` after the hand-off; normal
+    mode then normalizes ``worker_only`` and probes the worker on 8081.
+    """
     with launcher_driver(
         runtime_mode="health-ok",
         runtime_port=8081,
@@ -186,8 +192,17 @@ def test_worker_only_handoff_spawns_worker(launcher_driver):
         if rc != 0:
             _fail_with_driver_output(handle, f"driver exited with rc={rc}")
         events = read_events(handle.data_dir)
+        assert {"event": "hand_off", "rc": 0} in events, events
         assert _spawned(events) == ["wizard", "worker"], events
         assert {"event": "cold_boot_ready", "phase": "runtime"} in events, events
+        assert "startup_failed" not in _event_names(events), events
+        # Written by the launcher (the stubbed apply pipeline never runs
+        # for worker_only), so the next launch skips the wizard.
+        sentinel = json.loads(
+            (handle.data_dir / ".setup_complete").read_text(encoding="utf-8"),
+        )
+        assert sentinel["topology"] == "worker_only", sentinel
+        assert sentinel["completed_at"], sentinel
 
 
 # ---- Scenario 3: runtime fails after hand-off -----------------------------

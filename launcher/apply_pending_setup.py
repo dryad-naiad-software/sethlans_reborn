@@ -39,6 +39,7 @@ from typing import Optional
 
 from launcher.manager_exe_resolver import is_frozen as _is_frozen
 from launcher.manager_exe_resolver import manager_exe as _manager_exe
+from shared.topology import has_manager
 
 logger = logging.getLogger(__name__)
 
@@ -259,11 +260,17 @@ def run_apply_pipeline_if_needed(
     wizard writes ``pending_setup.json`` there and ``apply_pending_setup``
     writes ``.setup_complete`` next to it (issue #195).
 
+    Topology strings go through :func:`shared.topology.has_manager`, so
+    every alias (``manager_worker``, ``manager+worker``) is recognized
+    and ``worker_only`` skips (issue #210). On that skip nothing here
+    writes ``.setup_complete``; :func:`launcher.wizard_runtime.hand_off_to_runtime`
+    records it via :mod:`launcher.setup_sentinel`.
+
     Returns ``None`` on success / worker-only skip.  Returns an exit
     code (from ``failure_exit_cb``) when the pipeline fails — caller
     should propagate that as its own return value.
     """
-    if topology not in ("manager", "manager_worker", "manager+worker"):
+    if not has_manager(topology):
         return None
     ok, message = run_apply_pipeline(data_dir)
     if ok:

@@ -65,8 +65,10 @@ def _run_orchestration(
         # is idempotent (no-op if the file already exists).
         bootstrap_first_run(data_dir)
         # FR-LOOP2 defensive guard: the wizard returning 0 should have
-        # written ``.setup_complete`` via the apply pipeline; if not,
-        # abort rather than spawn manager + Caddy on a half-set-up box.
+        # written ``.setup_complete`` via the apply pipeline (manager
+        # topologies) or ``launcher.setup_sentinel`` (worker_only,
+        # issue #210); if not, abort rather than spawn on a half-set-up
+        # box.
         if not _is_setup_complete(data_dir):
             logger.error(
                 "wizard returned rc=0 but .setup_complete is missing; "

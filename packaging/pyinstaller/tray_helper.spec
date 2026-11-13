@@ -70,6 +70,7 @@ hiddenimports = [
     'shared.tray.notifications',
     'shared.tray.poller',
     'shared.tray.topology',
+    'shared.topology',
     'shared.frozen_paths',
     'launcher.logging_setup',
 ]
