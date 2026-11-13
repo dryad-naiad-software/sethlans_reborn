@@ -10,10 +10,15 @@ FROM python:3.14-slim-bookworm
 # Selects the pre-fetched Caddy binary from .tmp/caddy/linux-<arch>/.
 ARG TARGETARCH
 
+# libatomic1: the Node driver bundled with Playwright >= 1.65 links against
+# libatomic.so.1, which slim-bookworm lacks. It must be present before
+# `playwright install --with-deps` below, because that command has to start
+# the driver before it can install anything (#212).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
         procps \
+        libatomic1 \
         libdbus-1-3 \
         libegl1 \
         libfontconfig1 \
