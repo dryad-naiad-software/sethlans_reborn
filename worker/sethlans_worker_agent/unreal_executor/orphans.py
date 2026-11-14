@@ -56,7 +56,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Pattern, Tuple
 import psutil
 
 from sethlans_worker_agent.project_archive import fs_safe
-from sethlans_worker_agent.unreal_executor import zen_private
+from sethlans_worker_agent.unreal_executor import winpath, zen_private
 
 logger = logging.getLogger(__name__)
 
@@ -110,20 +110,27 @@ def read_ledgers(cache_dir) -> List[dict]:
 
 
 def _under(path: str, roots: Iterable[str]) -> bool:
-    folded = os.path.normcase(path)
+    """``path`` lies below one of ``roots`` (already ``winpath.normcase``-d)."""
+    folded = winpath.normcase(path)
     return any(folded.startswith((root.rstrip('\\/') + '\\', root.rstrip('\\/') + '/')) for root in roots)
 
 
 def cache_reference_pattern(cache_dir) -> Pattern:
-    """``CACHE_DIR`` as a whole path inside a normcase-d command line (Sec S2)."""
-    spellings = {os.path.normcase(str(cache_dir).rstrip('\\/')), zen_private.normalize_path(str(cache_dir))}
+    """``CACHE_DIR`` as a whole path inside a command line folded by ``fold_for(cache_dir)`` (Sec S2)."""
+    fold = fold_for(cache_dir)
+    spellings = {fold(str(cache_dir).rstrip('\\/')), zen_private.normalize_path(str(cache_dir))}
     alternatives = '|'.join(re.escape(text) for text in sorted(spellings) if text)
     return re.compile(r'(?:^|[\s"\'=])(?:' + alternatives + r')(?=[\\/"\'\s]|$)')
 
 
-def _references(proc, pattern: Pattern) -> bool:
+def fold_for(cache_dir) -> Callable[[str], str]:
+    """The case fold of ``CACHE_DIR``'s path flavour (``ntpath`` for a drive path on every platform)."""
+    return winpath.module_for(str(cache_dir)).normcase
+
+
+def _references(proc, pattern: Pattern, fold: Callable[[str], str]) -> bool:
     try:
-        return pattern.search(os.path.normcase(' '.join(proc.cmdline()))) is not None
+        return pattern.search(fold(' '.join(proc.cmdline()))) is not None
     except (psutil.Error, OSError):
         return False
 
@@ -147,7 +154,7 @@ def _ledger_match(entry: dict, process_factory: Callable, trusted_roots: List[st
         proc = process_factory(int(entry['pid']))
         if abs(proc.create_time() - float(entry['create_time'])) > CREATE_TIME_TOLERANCE:
             return None
-        if os.path.normcase(proc.exe() or '') != os.path.normcase(exe):
+        if winpath.normcase(proc.exe() or '') != winpath.normcase(exe):
             return None
         return proc if zen_private.owned_by_worker(proc, worker_sid) else None
     except (psutil.Error, OSError, KeyError, TypeError, ValueError):
@@ -159,8 +166,9 @@ class _Sweep:
     def __init__(self, cache_dir, engine_roots, worker_sid: Optional[str]):
         self.cache_dir = cache_dir
         self.pattern = cache_reference_pattern(cache_dir)
-        self.roots = [os.path.normcase(str(root)) for root in engine_roots]
-        self.trusted = self.roots + [os.path.normcase(str(cache_dir))]
+        self.fold = fold_for(cache_dir)
+        self.roots = [winpath.normcase(str(root)) for root in engine_roots]
+        self.trusted = self.roots + [winpath.normcase(str(cache_dir))]
         self.worker_sid = worker_sid
         self.targets: Dict[int, object] = {}
         self.errors = 0
@@ -185,7 +193,7 @@ class _Sweep:
             exe = proc.exe() or ''
         except (psutil.Error, OSError):
             return
-        if _under(exe, self.roots) and _references(proc, self.pattern):
+        if _under(exe, self.roots) and _references(proc, self.pattern, self.fold):
             self.targets[proc.pid] = proc
 
     def kill(self, targets: Dict[int, object]) -> Tuple[List[Tuple[int, str]], List]:

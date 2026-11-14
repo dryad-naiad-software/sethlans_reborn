@@ -20,12 +20,12 @@ This module does not import ``blender_yield.terminate_process_tree``
 (implementation boundary, FR-UE-11).
 """
 import logging
-import os
 import time
 from typing import Callable, Iterable, List, Tuple
 
 import psutil
 
+from sethlans_worker_agent.unreal_executor import winpath
 from sethlans_worker_agent.unreal_executor.job_object import JobObjectError
 from sethlans_worker_agent.unreal_executor.runner_types import EXIT_WAIT_SECONDS
 
@@ -48,7 +48,7 @@ def describe(procs: Iterable) -> Tuple[Survivor, ...]:
 
 def _excluded(proc, excluded_images: frozenset) -> bool:
     try:
-        return os.path.normcase(proc.exe() or '') in {os.path.normcase(path) for path in excluded_images}
+        return winpath.normcase(proc.exe() or '') in {winpath.normcase(path) for path in excluded_images}
     except (psutil.Error, OSError):
         return False
 

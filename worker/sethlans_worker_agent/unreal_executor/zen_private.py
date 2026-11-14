@@ -126,9 +126,9 @@ def normalize_path(path: str) -> str:
     text = _strip_quotes(str(path))
     if not text:
         return ''
-    text = os.path.normpath(text)
+    text = winpath.normpath(text)
     text = win32_proc.long_path_name(text)
-    text = os.path.normcase(os.path.normpath(text))
+    text = winpath.normcase(winpath.normpath(text))
     stripped = text.rstrip('\\/')
     return stripped if stripped and not stripped.endswith(':') else text
 
@@ -172,7 +172,7 @@ def is_farm_zenserver(proc, cache_dir, worker_sid: Optional[str] = None) -> bool
 
 def zenserver_images(engine_roots: Iterable, profile_dir=None) -> frozenset:
     """``normcase``-d exact image paths a farm zenserver runs from (hang-CPU exclusion)."""
-    images = {os.path.normcase(winpath.join(root, *ENGINE_ZEN_RELPATH)) for root in engine_roots}
+    images = {winpath.normcase(winpath.join(root, *ENGINE_ZEN_RELPATH)) for root in engine_roots}
     if profile_dir is not None:
-        images.add(os.path.normcase(winpath.join(profile_dir, *PROFILE_ZEN_RELPATH)))
+        images.add(winpath.normcase(winpath.join(profile_dir, *PROFILE_ZEN_RELPATH)))
     return frozenset(images)

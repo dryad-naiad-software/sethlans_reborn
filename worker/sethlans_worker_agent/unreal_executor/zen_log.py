@@ -36,6 +36,7 @@ every log, commandlet prep and editor warm-up included ("Setup common to
 all spikes"), so ``REQUIRED_PHASES`` covers every phase: the FR-UE-26
 exemption for prep and warm-up does not apply.
 """
+import ntpath
 import os
 import re
 from dataclasses import dataclass
@@ -82,7 +83,7 @@ class ZenLogResult:
 
 def _norm(path: str) -> str:
     text = path.strip().strip('"').strip("'").replace('/', '\\')
-    return os.path.normcase(os.path.normpath(text)) if text else ''
+    return ntpath.normcase(ntpath.normpath(text)) if text else ''  # UE log paths are Windows paths
 
 
 class _Scan:

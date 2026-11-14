@@ -127,9 +127,9 @@ def test_unreadable_owner_is_not_farm(tmp_path, monkeypatch):
 
 def test_zenserver_images_are_exact_paths():
     images = zen_private.zenserver_images([r'C:\Program Files\Epic Games\UE_5.8'], r'D:\uecache\ueprofile')
-    assert os.path.normcase(r'C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\zenserver.exe') in images
-    assert os.path.normcase(
-        r'D:\uecache\ueprofile\Profile\AppData\Local\UnrealEngine\Common\Zen\Install\zenserver.exe') in images
+    # Windows image paths compare case-insensitively on every platform (ntpath.normcase).
+    assert r'c:\program files\epic games\ue_5.8\engine\binaries\win64\zenserver.exe' in images
+    assert r'd:\uecache\ueprofile\profile\appdata\local\unrealengine\common\zen\install\zenserver.exe' in images
 
 
 def test_ensure_zen_dirs_creates_owned_dirs(tmp_path):

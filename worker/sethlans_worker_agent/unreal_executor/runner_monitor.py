@@ -31,6 +31,7 @@ from typing import Callable, Deque, Dict, Iterable, List, Optional, Tuple
 
 import psutil
 
+from sethlans_worker_agent.unreal_executor import winpath
 from sethlans_worker_agent.unreal_executor.log_tail import LogTail  # noqa: F401 - re-exported
 from sethlans_worker_agent.unreal_executor.runner_types import FLOOD_WINDOW_SECONDS, MB
 
@@ -42,7 +43,7 @@ MAX_LEDGER_BYTES = 4 * MB
 
 def _image(proc) -> str:
     try:
-        return os.path.normcase(proc.exe() or '')
+        return winpath.normcase(proc.exe() or '')
     except (psutil.Error, OSError):
         return ''
 
@@ -50,7 +51,7 @@ def _image(proc) -> str:
 class CpuTracker:
 
     def __init__(self, excluded_images: frozenset = frozenset()):
-        self._excluded = frozenset(os.path.normcase(path) for path in excluded_images)
+        self._excluded = frozenset(winpath.normcase(path) for path in excluded_images)
         self._last: Dict[Tuple[int, float], float] = {}
         self.total = 0.0
         self._history: Deque[Tuple[float, float]] = collections.deque()
