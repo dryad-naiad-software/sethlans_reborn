@@ -179,10 +179,13 @@ class Reachability:
 
     def _wait(self, future: Future, budget: Optional[ProbeBudget]) -> Optional[bool]:
         limit = self._timeout if budget is None else min(self._timeout, budget.remaining())
+        budget_capped = budget is not None and limit < self._timeout
         try:
             return bool(future.result(timeout=limit))
         except FutureTimeout:
-            return None if budget is not None and budget.remaining() <= 0 else False
+            # Pending when the poll budget, not the probe timeout, cut the wait short. Re-reading
+            # the budget here is unreliable: the wait can wake a timer tick early (#231).
+            return None if budget_capped else False
         except Exception:  # noqa: BLE001 - a failed probe is a negative result
             return False
 

@@ -197,3 +197,32 @@ def test_an_older_probe_never_overwrites_a_newer_result():
     assert reach._cached_host(key) is True
     reach._host_probe(key, HOST, started=600.0)
     assert reach._cached_host(key) is False
+
+
+class _EarlyWakeBudget(reachability.ProbeBudget):
+    """A budget that still shows a sliver left after the wait timed out (a timer tick early, #231)."""
+
+    def remaining(self) -> float:
+        return 0.02
+
+
+def test_budget_capped_timeout_is_pending_even_if_the_wait_wakes_early():
+    block = threading.Event()
+    fake = FakeStat({HOST: stat.S_IFDIR | 0o755}, block=block)
+    reach = reachability.Reachability(5.0, state_fn=lambda: REACHABLE, resolver=_resolver, stat_fn=fake)
+    try:
+        budget = _EarlyWakeBudget(0.02)
+        assert reach.check(ROOT, 'incoming/Demo.zip', 'file', pool='poll', budget=budget) is None
+    finally:
+        block.set()
+
+
+def test_full_probe_timeout_is_negative_even_with_a_budget():
+    block = threading.Event()
+    fake = FakeStat({HOST: stat.S_IFDIR | 0o755}, block=block)
+    reach = reachability.Reachability(0.05, state_fn=lambda: REACHABLE, resolver=_resolver, stat_fn=fake)
+    try:
+        assert reach.check(ROOT, 'incoming/Demo.zip', 'file', pool='poll',
+                           budget=reachability.ProbeBudget(10.0)) is False
+    finally:
+        block.set()
