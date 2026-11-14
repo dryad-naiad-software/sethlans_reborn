@@ -7,6 +7,13 @@ Per-job lifecycle helpers invoked after a claim succeeds.
 Split out of job_processor to keep that module under the 300-line
 ceiling. Contains the render-upload-report flow, YieldMonitor
 integration, and the _finalize_and_upload utility.
+
+The render runs through the job's executor (Unreal foundation FR-WX-4):
+``executors.get_executor(job_data.get('renderer') or 'BLENDER')``.
+Resource release follows ``job_resources``: renderer reservation before
+capacity slot, nothing while retained, plus an outermost safety net that
+repeats the releases only if the inner ``finally`` never ran, so it can
+never free slots of a later claim of the same job id.
 """
 import datetime
 import logging
@@ -14,8 +21,9 @@ import os
 import threading
 from typing import Any, Dict
 
-from sethlans_worker_agent import api_handler, blender_executor, config
+from sethlans_worker_agent import api_handler, config, executors, job_resources
 from sethlans_worker_agent.api_conflict import JobNoLongerAssigned
+from sethlans_worker_agent.executors import ExecutionContext, UnsupportedRendererError
 from sethlans_worker_agent.utils.render_time_parser import parse_render_time
 
 logger = logging.getLogger(__name__)
@@ -121,24 +129,62 @@ def _handle_yield_outcome(job_data, yield_monitor, grace_outcome):
 def process_claimed_job(job_data: Dict[str, Any]):
     """Render, upload, report status, and release the capacity slot.
 
-    Integrates YieldMonitor for idle detection yield handling.
+    Integrates YieldMonitor for idle detection yield handling. The
+    outermost ``finally`` is the resource safety net (FR-WX-4): it
+    releases only what the inner ``finally`` did not, and always removes
+    the id from ``_unfinished_job_ids`` last, after report and upload.
     """
     job_id = job_data.get('id')
     logger.info("Render thread started for job %s", job_id)
     try:
         _process_claimed_job_inner(job_data)
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Unhandled exception in render thread for job %s", job_id,
+        )
+        message = (
+            str(exc) if isinstance(exc, UnsupportedRendererError)
+            else "Worker render thread crashed unexpectedly."
         )
         try:
             api_handler.update_job_status(job_id, {
                 "status": "ERROR",
-                "error_message": "Worker render thread crashed unexpectedly.",
+                "error_message": message,
             })
         except Exception:
             logger.exception("Failed to report ERROR status for job %s",
                              job_id)
+    finally:
+        job_resources.release_after_job(job_data)
+
+
+def _execute_and_release(job_data, capacity, ctx: ExecutionContext):
+    """Run the job's executor; then release its resources (FR-WX-4).
+
+    The executor lookup is inside the ``try``, so an unsupported renderer
+    still releases the slot, the reservation and the ``_active_jobs``
+    entry. The Blender slot is released here, before the upload, as before.
+    ``_resources_released`` then tells the outermost safety net not to
+    release by this job id again: by then the id may belong to a new claim.
+    """
+    job_id = job_data.get('id')
+    try:
+        executor = executors.get_executor(
+            job_data.get('renderer') or executors.DEFAULT_RENDERER)
+        return executor.execute(job_data, ctx)
+    finally:
+        # Renderer reservation first, then the slot; neither if retained.
+        job_resources.release_reservations(
+            job_id, job_data.get('_renderer_reservation'), capacity)
+        job_data[job_resources.RESOURCES_RELEASED] = True
+        job_resources.forget_job(job_data, unfinished=False)
+
+
+def _render_time(result):
+    """Executor-measured time, else parsed from stdout (Blender)."""
+    if result.render_time_seconds is not None:
+        return result.render_time_seconds
+    return parse_render_time(result.stdout)
 
 
 def _process_claimed_job_inner(job_data: Dict[str, Any]):
@@ -170,41 +216,38 @@ def _process_claimed_job_inner(job_data: Dict[str, Any]):
         job_data, manual_stop, _shutdown_event,
     )
 
-    try:
-        (success, was_canceled, was_yielded, stdout, stderr,
-         blender_error_msg, final_output_path,
-         thumbnail_path, yield_monitor,
-         grace_outcome) = blender_executor.execute_blender_job(
-            job_data, assigned_gpu_index=assigned_gpu_index,
-            yield_monitor_factory=ym_factory,
-            manual_stop_event=manual_stop,
-            shutdown_event=_shutdown_event,
+    result = _execute_and_release(job_data, capacity, ExecutionContext(
+        assigned_gpu_index=assigned_gpu_index,
+        yield_monitor_factory=ym_factory,
+        manual_stop_event=manual_stop,
+        shutdown_event=_shutdown_event,
+    ))
+    if result.released:
+        logger.info(
+            f"Job {job_id} was handed back to the manager; "
+            f"not reporting a result."
         )
-    finally:
-        if capacity is not None:
-            capacity.release_slot(job_id)
-        with job_processor._active_jobs_lock:
-            job_processor._active_jobs.pop(job_id, None)
+        return
 
     # Handle yield outcome (FR-7, FR-9)
-    if was_yielded and yield_monitor is not None:
-        _handle_yield_outcome(job_data, yield_monitor, grace_outcome)
-        if grace_outcome == "aborted":
+    if result.was_yielded and result.yield_monitor is not None:
+        _handle_yield_outcome(job_data, result.yield_monitor, result.grace_outcome)
+        if result.grace_outcome == "aborted":
             return
         # grace_outcome == "finished": fall through to upload
 
     completed_at = datetime.datetime.now(
         datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
     payload = {
-        "completed_at": completed_at, "last_output": stdout,
-        "error_message": blender_error_msg,
+        "completed_at": completed_at, "last_output": result.stdout,
+        "error_message": result.error_message,
     }
-    render_time = parse_render_time(stdout)
+    render_time = _render_time(result)
     if render_time is not None:
         payload["render_time_seconds"] = render_time
     final_status = _finalize_and_upload(
-        success, was_canceled, job_id, final_output_path,
-        thumbnail_path=thumbnail_path,
+        result.success, result.was_canceled, job_id, result.output_path,
+        thumbnail_path=result.thumbnail_path,
     )
     if final_status is None:
         logger.info(

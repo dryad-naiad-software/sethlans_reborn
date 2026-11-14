@@ -16,6 +16,7 @@ import logging
 import threading
 from typing import Dict, List, Optional
 
+from sethlans_worker_agent.capacity import exclusive
 from sethlans_worker_agent.capacity.drift import (
     count_physical_gpus_now,
     set_drift_exit_code,
@@ -41,6 +42,8 @@ class WorkerCapacity:
         self._lock = threading.Lock()
         self._gpu_assignments: Dict[int, int] = {}  # gpu_index -> job_id
         self._cpu_slot_job_id: Optional[int] = None
+        # Job holding a whole-machine reservation (capacity/exclusive.py).
+        self._exclusive_job_id: Optional[int] = None
 
     @property
     def profile(self) -> CapacityProfile:
@@ -158,6 +161,18 @@ class WorkerCapacity:
                 gpu_indices=[],
             )
         return None
+
+    def reserve_exclusive(self, job_id: int) -> Optional[SlotReservation]:
+        """Reserve every slot for one job (Unreal, FR-WX-10); see exclusive.py."""
+        return exclusive.reserve_exclusive(self, job_id)
+
+    def has_no_reservations(self) -> bool:
+        """True when no slot holds any reservation (FR-WX-13)."""
+        return exclusive.has_no_reservations(self)
+
+    def has_exclusive_reservation(self) -> bool:
+        """True while a whole-machine reservation is held (FR-WX-14)."""
+        return exclusive.has_exclusive_reservation(self)
 
     def release_slot(self, job_id: int) -> None:
         """Release whatever slot job_id holds. Idempotent.

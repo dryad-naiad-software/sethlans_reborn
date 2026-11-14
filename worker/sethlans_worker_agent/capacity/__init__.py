@@ -22,6 +22,8 @@ Package layout:
     drift.py    -- count_physical_gpus_now and the module-level
                    _drift_detected_exit_code flag.
     slots.py    -- WorkerCapacity stateful slot tracker.
+    exclusive.py -- whole-machine (Unreal) reservation helpers used by
+                   WorkerCapacity.reserve_exclusive / has_no_reservations.
 """
 from sethlans_worker_agent.capacity.profile import (  # noqa: F401
     CapacityProfile,

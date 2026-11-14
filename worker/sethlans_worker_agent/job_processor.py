@@ -15,16 +15,19 @@ No code path may acquire a later lock while holding an earlier one.
 
 _active_jobs is for UI/status reporting ONLY. It MUST NOT back the
 polling gate (FR-6); use capacity_is_full() -> WorkerCapacity.is_full().
+
+Job choice and claiming live in job_selection / job_claim (Unreal
+foundation FR-WX-6/7); Unreal code is reached only via unreal_bridge.
 """
-import datetime
 import logging
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from sethlans_worker_agent import api_handler, config
 from sethlans_worker_agent import capacity as capacity_module
-from sethlans_worker_agent import system_monitor
+from sethlans_worker_agent import executors, job_claim, job_resources, job_selection
+from sethlans_worker_agent import system_monitor, unreal_bridge
 from sethlans_worker_agent.job_lifecycle import process_claimed_job
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
@@ -32,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 _active_jobs: Dict[int, Dict[str, Any]] = {}
 _active_jobs_lock = threading.Lock()
+# Claimed jobs not yet fully finished (report/upload/release done), for the
+# heartbeat's active_job_ids (FR-RT-17). Guarded by _active_jobs_lock; the
+# poll thread is the only adder. Read via get_unfinished_job_ids().
+_unfinished_job_ids: Set[int] = set()
 _pause_event = threading.Event()
 _recent_jobs = []
 _recent_jobs_lock = threading.Lock()
@@ -95,6 +102,9 @@ def maybe_assert_gpu_count_unchanged() -> None:
     global _last_drift_check_ts
     if _capacity is None:
         return
+    # FR-WX-14: never enumerate GPUs while an Unreal render owns the machine.
+    if not unreal_bridge.drift_check_allowed():
+        return
     now = time.monotonic()
     interval = max(1, config.HEARTBEAT_INTERVAL_SECONDS)
     if (now - _last_drift_check_ts) < interval:
@@ -139,14 +149,20 @@ def terminate_all_active_jobs_for_drift() -> None:
     blender_executor.execute_blender_job observes and terminates.
     Uses a bounded retry with exponential backoff to tolerate transient
     manager unavailability during shutdown.
+
+    Jobs whose renderer supports release (Unreal) are not PATCHed; the
+    shutdown event releases them to the manager instead (FR-WX-14).
     """
     with _active_jobs_lock:
-        active_ids = list(_active_jobs.keys())
-    for job_id in active_ids:
-        if _cancel_job_with_retry(job_id):
+        active = [(job_id, entry.get('renderer')) for job_id, entry in _active_jobs.items()]
+    releasable = [job_id for job_id, renderer in active if executors.supports_release(renderer)]
+    for job_id, _renderer in active:
+        if job_id not in releasable and _cancel_job_with_retry(job_id):
             logger.warning(
                 "Drift handler: marked job %s for cancellation.", job_id,
             )
+    if releasable:
+        job_resources.request_shutdown_for_release(releasable)
 
 
 def _build_poll_params(free_prefs):
@@ -160,6 +176,9 @@ def _build_poll_params(free_prefs):
         params['available_versions'] = ','.join(
             b['version'] for b in installed
         )
+    # Unreal only on a fully idle machine (FR-WX-13); {} when disabled.
+    node_idle = _capacity is not None and _capacity.has_no_reservations()
+    params.update(unreal_bridge.poll_params(node_idle=node_idle))
     return params
 
 
@@ -168,7 +187,8 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
 
     FR-10 slot reservation order: reserve BEFORE api_handler.claim_job,
     release in a try/finally with an explicit claimed flag so Exception
-    and BaseException both release the slot uniformly.
+    and BaseException both release the slot uniformly (job_claim).
+    The first eligible job in response order is claimed (job_selection).
     """
     if _capacity is None:
         logger.error("poll_and_claim_job called before init_capacity().")
@@ -184,45 +204,10 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
     if not available_jobs:
         return None
 
-    job_to_claim = available_jobs[0]
-    job_id = job_to_claim.get('id')
-    job_name = job_to_claim.get('name', 'Unnamed Job')
-    device_pref = job_to_claim.get('render_device')
-
-    reservation = _capacity.reserve_for_job(job_id, device_pref)
-    if reservation is None:
-        logger.info(
-            "No compatible slot for job '%s' (%s). Skipping claim.",
-            job_name, device_pref,
-        )
+    selection = job_selection.select_claimable_job(available_jobs, _capacity)
+    if selection is None:
         return None
-
-    logger.info(
-        f"Attempting to claim job '{job_name}' (ID: {job_id}) "
-        f"for device {reservation.device_used}."
-    )
-    claimed = False
-    try:
-        if api_handler.claim_job(job_id, worker_id):
-            claimed = True
-            logger.info(f"Successfully claimed job '{job_name}'!")
-            job_to_claim['_reservation'] = reservation
-            job_to_claim['assigned_gpu_index'] = reservation.primary_gpu_index
-            with _active_jobs_lock:
-                _active_jobs[job_id] = {
-                    'job_id': job_id, 'name': job_name,
-                    'render_engine': job_to_claim.get('render_engine', ''),
-                    'render_device': device_pref,
-                    'gpu_index': reservation.primary_gpu_index,
-                    'device_used': reservation.device_used,
-                    'start_time': datetime.datetime.now(
-                        datetime.timezone.utc).isoformat(),
-                }
-            return job_to_claim
-        return None
-    finally:
-        if not claimed:
-            _capacity.release_slot(job_id)
+    return job_claim.claim_selected(selection, _capacity, worker_id)
 
 
 def get_and_claim_job(worker_id):
@@ -231,11 +216,16 @@ def get_and_claim_job(worker_id):
     if job_data:
         job_id = job_data.get('id')
         logger.info(f"Dispatching job {job_id} to a new processing thread.")
-        job_thread = threading.Thread(
-            target=process_claimed_job, args=(job_data,),
-            name=f"job-{job_id}",
-        )
-        job_thread.start()
+        try:
+            job_thread = threading.Thread(
+                target=process_claimed_job, args=(job_data,),
+                name=f"job-{job_id}",
+            )
+            job_thread.start()
+        except Exception:
+            logger.exception("Could not start the thread for job %s.", job_id)
+            job_resources.release_after_dispatch_failure(job_data, _capacity)
+            return None
         return job_thread
     return None
 
@@ -255,6 +245,16 @@ def resume():
 def is_paused():
     """Return True if the worker is currently paused."""
     return _pause_event.is_set()
+
+
+def get_unfinished_job_ids():
+    """Sorted ids of claimed jobs not yet fully finished (FR-RT-17).
+
+    Read under ``_active_jobs_lock``. Feeds the heartbeat's
+    ``active_job_ids`` and ``job_selection``'s same-id guard.
+    """
+    with _active_jobs_lock:
+        return sorted(_unfinished_job_ids)
 
 
 def get_active_jobs_snapshot():
