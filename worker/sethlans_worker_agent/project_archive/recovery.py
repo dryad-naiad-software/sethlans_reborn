@@ -11,8 +11,9 @@ prepared (``unreal_executor.cache_dir``). In order:
 
 0. The process must hold the owner lock on ``CACHE_DIR`` (FR-WC-6);
    otherwise nothing is touched and Unreal stays disabled.
-1. The orphan sweep (FR-UE-23, supplied by the executor as ``sweep``)
-   runs before any deletion.
+1. The orphan sweep (FR-UE-23, supplied by the executor as a no-argument
+   ``sweep`` closure) runs before any deletion. If it raises, recovery
+   stops with ``SWEEP_REASON`` and nothing is deleted (fail closed).
 1a. **Untrusted content** (``prepared.content_trusted`` is False: no
    ``.acl-applied`` marker, or the ACL had to be re-applied): ``trash/``
    is made usable first. An existing ``trash/`` that is a real directory
@@ -55,6 +56,7 @@ from sethlans_worker_agent.unreal_executor import cache_dir
 logger = logging.getLogger(__name__)
 
 WORK_REASON = "could not clear Unreal working directories (orphaned process?)"
+SWEEP_REASON = "the Unreal orphan sweep failed"
 _KEEP_AT_ROOT = frozenset({owner_lock.LOCK_FILENAME, cache_dir.ACL_MARKER, 'trash'})
 
 
@@ -181,13 +183,16 @@ def _reconcile(layout: CacheLayout) -> List[Entry]:
         return []
 
 
-def _run_sweep(sweep: Optional[Callable[[], object]]) -> None:
+def _run_sweep(sweep: Optional[Callable[[], object]]) -> str:
+    """Step 1; '' when it ran, else the disable reason (fail closed: nothing is deleted after a failed sweep)."""
     if sweep is None:
-        return
+        return ''
     try:
         sweep()
-    except Exception:  # noqa: BLE001 - the sweep logs its own failures
+    except Exception as exc:  # noqa: BLE001 - any failure stops recovery
         logger.exception("Unreal orphan sweep failed.")
+        return f"{SWEEP_REASON} ({type(exc).__name__})"
+    return ''
 
 
 def _clean(layout: CacheLayout, prepared, keep_job_logs: int):
@@ -215,7 +220,9 @@ def recover(prepared: cache_dir.PreparedCacheDir, limits: CacheLimits, *, keep_j
     layout = CacheLayout(prepared.path)
     if not owner_lock.held_for_process(prepared.path):
         return RecoveryResult(None, prepared, owner_lock.OWNER_LOCK_REASON)
-    _run_sweep(sweep)
+    reason = _run_sweep(sweep)
+    if reason:
+        return RecoveryResult(None, prepared, reason)
     prepared, reason = _clean(layout, prepared, keep_job_logs)
     if reason:
         return RecoveryResult(None, prepared, reason)

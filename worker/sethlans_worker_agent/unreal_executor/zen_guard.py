@@ -30,7 +30,12 @@ case-insensitively, after stripping an ini array prefix (``+``, ``-``,
    whose value contains ``Path=``, ``EnvPathOverride=``,
    ``CommandLineOverride=`` or ``EditorOverrideSetting=``;
 3. ``GlobalLocalDDCPath``, ``GlobalSharedDDCPath`` or ``GlobalS3DDCPath``
-   in ``[/Script/UnrealEd.EditorSettings]``.
+   in ``[/Script/UnrealEd.EditorSettings]`` (registry-backed in 5.8; extras);
+4. ``LocalDerivedDataCache`` or ``SharedDerivedDataCache`` in
+   ``[/Script/UnrealEd.EditorSettings]`` with any value other than the
+   empty forms UE writes itself (``(Path="")``, ``(Path=)``, ``()``, empty;
+   whitespace and case ignored). Fail closed, no ``Path=`` parsing (review
+   D2, N1).
 
 The files are never rewritten (they are part of the pinned project). A
 hit is a content failure (job ERROR) with ``zen_ddc_guard=FAILED``.
@@ -48,12 +53,27 @@ _GRAPH_VALUE_MARKERS = ('path=', 'envpathoverride=', 'commandlineoverride=', 'ed
 _UE_LINE_BREAK = re.compile(r'\r\n|\r|\n')
 _FORBIDDEN_CHARS = re.compile('[\x00\x0b\x0c\x1c\x1d\x1e\x85  ]')
 
-# (kind, section, keys): 'zen' = section Zen or Zen.*; 'keys' = exact section; 'graph' = section suffix.
+# (kind, section, keys): 'zen' = section Zen or Zen.*; 'keys' = exact section, any value;
+# 'path_keys' = exact section, any value but UE's own empty forms; 'graph' = section suffix.
 ZEN_DDC_INI_RULES: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
     ('zen', 'zen', ()),
     ('graph', 'deriveddatabackendgraph', ()),
+    # Registry-backed in 5.8 (EditorSettings.h:69, 76); kept as extras.
     ('keys', '/script/unrealed.editorsettings', ('globallocalddcpath', 'globalsharedddcpath', 'globals3ddcpath')),
+    # Review D2/N1: the config keys that do redirect a DDC (EditorSettings.h:83, 90; BaseEngine.ini:2866,
+    # 2868) and outrank -LocalDataCachePath/-SharedDataCachePath (FileSystemCacheStore.cpp:3043-3057). UE
+    # itself writes LocalDerivedDataCache=(Path="") on every launch, so only UE's empty forms are allowed.
+    ('path_keys', '/script/unrealed.editorsettings', ('localderiveddatacache', 'sharedderiveddatacache')),
 )
+# The only values UE writes itself (iso3 farm profile). Anything else is refused: UE reads Path= with
+# FParse::Value (boundary and quote rules, CString.h:726-778), which a regex here would only approximate,
+# so decoys such as (XPath="",Path="\host\share") must not be parsed, only refused (review N1).
+UE_EMPTY_DDC_VALUES = frozenset({'(path="")', '(path=)', '()', ''})
+
+
+def _not_ue_empty(value: str) -> bool:
+    """True unless ``value`` (whitespace removed, case-folded) is one of ``UE_EMPTY_DDC_VALUES``."""
+    return ''.join(value.split()).casefold() not in UE_EMPTY_DDC_VALUES
 
 
 @dataclass(frozen=True)
@@ -101,6 +121,8 @@ def _refused(section: str, key: str, value: str) -> bool:
         if kind == 'zen' and (lowered == name or lowered.startswith(name + '.')):
             return True
         if kind == 'keys' and lowered == name and key in keys:
+            return True
+        if kind == 'path_keys' and lowered == name and key in keys and _not_ue_empty(value):
             return True
         if kind == 'graph' and lowered.endswith(name):
             folded = value.lower()

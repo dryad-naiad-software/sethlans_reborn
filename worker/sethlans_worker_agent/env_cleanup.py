@@ -13,11 +13,15 @@ module strips those variables so Blender runs with a clean environment.
 When NOT running in frozen mode (i.e., development), ``clean_env_for_blender``
 returns ``None`` so callers can pass ``env=None`` to ``Popen``, inheriting the
 parent environment as-is.
+
+``clean_env_for_unreal`` (Unreal foundation FR-UE-18) always scrubs, frozen
+or not; see its docstring.
 """
 
 import logging
 import os
 import platform
+import re
 import sys
 
 logger = logging.getLogger(__name__)
@@ -124,4 +128,55 @@ def clean_env_for_blender(blend_file_path: str = None) -> dict | None:
     if 'PATH' in env:
         env['PATH'] = _strip_internal_paths(env['PATH'])
 
+    return env
+
+
+# --- Unreal (Unreal foundation FR-UE-18) -----------------------------------
+
+# Python variables UE's embedded Python (and any child Python) honors.
+_UNREAL_PYTHON_KEYS = frozenset({
+    'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONUSERBASE', 'PYTHONNOUSERSITE',
+})
+# Every variable UE or its tools read by name starts with ``UE-`` or ``UE_``:
+# ``UE-CmdLineArgs`` (appended to the command line **after** -DPCVars,
+# LaunchEngineLoop.cpp:1815-1827), the Zen/DDC data paths and hosts
+# (``UE-ZenDataPath``, ``UE-ZenSubprocessDataPath``, ``UE-*DataCachePath``,
+# ``UE-ZenSharedDataCacheHost``, ``UE-CloudDataCacheHost``), ``UE_PYTHONPATH``,
+# ``UE_HORDE_*``, telemetry, profiler and dump paths. All are removed (Sec S1).
+_UNREAL_PREFIX_RE = re.compile(r'^UE[-_]', re.IGNORECASE)
+# FR-UE-27: the launch builder sets these; a mixed-case copy must never survive.
+UNREAL_ISOLATION_VARS = ('USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'HOMEDRIVE', 'HOMEPATH', 'TEMP', 'TMP')
+UNREAL_PARAMS_VAR = 'SETHLANS_UE_JOB_PARAMS'
+
+
+def _unreal_key_removed(key: str) -> bool:
+    upper = key.upper()
+    return (_should_remove_key(key) or upper in _UNREAL_PYTHON_KEYS or upper in _KEYS_TO_REMOVE
+            or _UNREAL_PREFIX_RE.match(key) is not None or upper.startswith(_SETHLANS_PREFIX)
+            or upper in UNREAL_ISOLATION_VARS)
+
+
+def clean_env_for_unreal(params_path=None, base_env=None) -> dict:
+    """Return a scrubbed environment for a UE launch, frozen or not (FR-UE-18).
+
+    Removes PyInstaller markers, the Python variables, **every** key that
+    starts with ``UE-`` or ``UE_`` (any case; includes ``UE-CmdLineArgs``,
+    ``UE_PYTHONPATH`` and every Zen/DDC override), every ``SETHLANS_*`` key
+    and the seven FR-UE-27 isolation variables in any spelling; strips
+    ``_internal`` entries from ``PATH`` and the library variables; then sets
+    ``SETHLANS_UE_JOB_PARAMS`` when ``params_path`` is given. The isolation
+    variables are added afterwards by the launch builder
+    (``user_state.isolation_env(P)``).
+    """
+    source = dict(os.environ if base_env is None else base_env)
+    env = {key: value for key, value in source.items() if not _unreal_key_removed(key)}
+    _strip_lib_path_vars(env)
+    for key in [k for k in env if k.upper() == 'PATH']:
+        cleaned = _strip_internal_paths(env[key])
+        if cleaned:
+            env[key] = cleaned
+        else:
+            del env[key]
+    if params_path is not None:
+        env[UNREAL_PARAMS_VAR] = str(params_path)
     return env

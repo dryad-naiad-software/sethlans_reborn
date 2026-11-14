@@ -22,8 +22,10 @@ FR-UE-11). When none applies, the share-check thread and the GPU memory
 sampler start (after one synchronous first sample). Engine detection
 runs at startup in any case (so the heartbeat shows the installs) and
 again every ``RESCAN_SECONDS``; each scan replaces an immutable tuple.
-Dynamic reasons: zero supported installs, and no GPU memory reading
-ever since the first sample (F6).
+Dynamic reasons: zero supported installs, no GPU memory reading
+ever since the first sample (F6), and a failed known-folder check
+(FR-UE-27, ``isolation_state``; refreshed with each engine scan once the
+farm profile is registered).
 
 Locks: ``_start_lock`` serializes startup (nothing else is taken while
 it is held except leaf locks of the helpers); ``_lock`` is a leaf lock
@@ -37,7 +39,7 @@ from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_unreal, unreal_share
 from sethlans_worker_agent.project_archive import owner_lock
-from sethlans_worker_agent.unreal_executor import cache_dir, detection, symlink_policy, vram
+from sethlans_worker_agent.unreal_executor import cache_dir, detection, isolation_state, symlink_policy, vram
 from sethlans_worker_agent.unreal_executor.vram_sampler import VramSampler
 
 logger = logging.getLogger(__name__)
@@ -145,11 +147,16 @@ def rescan(force: bool = False) -> Tuple[detection.EngineInstall, ...]:
         if not due or _scanning:
             return _installs
         _scanning = True
+    found = None
     try:
         found = tuple(detection.detect_engines(engine_paths=config_unreal.ENGINE_PATHS))
+        # FR-UE-27: a no-op until the farm profile is registered. rescan() is already rate-limited
+        # by _scanned_at, so the probe is forced here: one phase for both, and check_now()/register()
+        # moving checked_at cannot double the probe period (Conc R2-M1). The probe (a child process,
+        # at most 10 s) runs on whichever thread called rescan(): the heartbeat or the poll thread.
+        isolation_state.refresh(force=True)
     except Exception:  # noqa: BLE001 - detection must not break the heartbeat
-        logger.exception("Unreal engine detection failed.")
-        found = None
+        logger.exception("Unreal engine detection or the known-folder refresh failed.")
     with _lock:
         _scanning = False
         _scanned_at = _clock()
@@ -176,6 +183,9 @@ def status(current: Tuple[detection.EngineInstall, ...]) -> Tuple[bool, str]:
         return False, NO_INSTALL_REASON
     if current_sampler is not None and current_sampler.never_succeeded():
         return False, NO_VRAM_REASON
+    isolation_reason = isolation_state.reason()
+    if isolation_reason:
+        return False, isolation_reason
     return True, ''
 
 
@@ -208,4 +218,5 @@ def reset_for_tests() -> None:
     if old_sampler is not None:
         old_sampler.stop(timeout=5)
     unreal_share.reset_for_tests()
+    isolation_state.reset_for_tests()
     owner_lock.release_for_process()
