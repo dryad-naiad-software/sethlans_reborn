@@ -25,8 +25,9 @@ render logs never contain it). The file is therefore found by, in order:
 The chosen file must be a regular file (no reparse point), at most 256 MB,
 inside that directory; it is moved into ``j/<...>/logs/``. Any failure
 gives ``csv_local_used_peak_mb = None`` (the pilot still succeeds on the
-card term). ``GPUMem/LocalUsedMB`` is parsed row by row; a truncated last
-row is skipped; only finite values in ``[0, MAX_PEAK_MB]`` count. The folder
+card term). ``GPUMem/LocalUsedMB`` is parsed one physical line at a time; an
+over-limit row (UE 5.8's huge first ``EVENTS`` row, #232) or a truncated
+last row is skipped; only finite values in ``[0, MAX_PEAK_MB]`` count. The folder
 chain from ``P`` down is ``lstat``-checked (no link, all directories) before
 it is listed or read.
 """
@@ -47,6 +48,7 @@ from shared.unreal.vram_gate import MAX_PEAK_MB
 logger = logging.getLogger(__name__)
 
 MAX_CSV_BYTES = 256 * 1024 * 1024
+MAX_LINE_CHARS = 16 * 1024 * 1024  # a longer line is skipped without parsing
 COLUMN = 'GPUMem/LocalUsedMB'
 WRITING_LINE = re.compile(r'LogCsvProfiler: (?:\w+: )?Capture Ended\. Writing CSV to file : (.{1,1024})$')
 CSV_RELPATH = ('Profile', 'AppData', 'Local', 'UnrealEngine', '5.8', 'Saved', 'Profiling', 'CSV')
@@ -139,28 +141,44 @@ def _value(row, column) -> Optional[float]:
     return value if math.isfinite(value) and 0 <= value <= MAX_PEAK_MB else None
 
 
+def _row(line: str) -> Optional[list]:
+    """One physical line parsed as a CSV row, or None when it is over a limit or malformed."""
+    if len(line) > MAX_LINE_CHARS:
+        return None
+    try:
+        return next(csv.reader([line]), None)
+    except csv.Error:
+        return None
+
+
 def peak_local_used_mb(path) -> Optional[int]:
     """The largest finite ``GPUMem/LocalUsedMB`` in ``[0, MAX_PEAK_MB]``.
 
-    The module-wide ``csv.field_size_limit`` is left alone (review L6): a field
-    above the default 128 KiB raises ``csv.Error``, which ends the scan and
-    keeps the peak of the rows read so far (UE's metadata footer is the only
-    long row and comes last).
+    Rows are parsed one physical line at a time, so an over-limit row is
+    **skipped**, never the end of the scan (#232): UE 5.8 puts a ~447 KB
+    ``EVENTS`` field (the engine-init events) in the *first* data row, above
+    the default 128 KiB ``csv.field_size_limit``, which is left alone (review
+    L6). Lines above ``MAX_LINE_CHARS`` are skipped unparsed; the file itself
+    is bounded by ``MAX_CSV_BYTES`` before this runs. UE's rows hold no
+    embedded newlines (the events are ``;``-separated).
     """
     peak = None
+    skipped = 0
     with open(fs_safe.long_path(path), newline='', encoding='utf-8', errors='replace') as handle:
-        reader = csv.reader(handle)
-        try:
-            header = next(reader, None)
-            if not header or COLUMN not in header:
-                return None
-            column = header.index(COLUMN)
-            for row in reader:
-                value = _value(row, column) if len(row) >= len(header) - 2 else None
-                if value is not None and (peak is None or value > peak):
-                    peak = value
-        except csv.Error as exc:
-            logger.warning("Pilot CSV parsing stopped early: %s", exc)
+        header = _row(handle.readline(MAX_LINE_CHARS + 1).rstrip('\r\n'))
+        if not header or COLUMN not in header:
+            return None
+        column = header.index(COLUMN)
+        for line in handle:
+            row = _row(line.rstrip('\r\n'))
+            if row is None:
+                skipped += 1
+                continue
+            value = _value(row, column) if len(row) >= len(header) - 2 else None
+            if value is not None and (peak is None or value > peak):
+                peak = value
+    if skipped:
+        logger.info("Pilot CSV: skipped %d over-limit or malformed row(s).", skipped)
     return None if peak is None else int(round(peak))
 
 

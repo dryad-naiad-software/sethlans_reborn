@@ -55,12 +55,38 @@ class TestCsvHardening:
         _write(path, [f'x,{bad},1\n'])
         assert pilot_csv.peak_local_used_mb(path) is None
 
-    def test_an_oversized_field_ends_the_scan_but_keeps_the_rows_read(self, tmp_path):
+    def test_an_oversized_row_is_skipped_not_the_end_of_the_scan(self, tmp_path):
         before = csv.field_size_limit()
         path = tmp_path / 'a.csv'
         _write(path, ['x,7000,1\n', 'x,7500,' + 'y' * (before + 10) + '\n', 'x,9999,1\n'])
-        assert pilot_csv.peak_local_used_mb(path) == 7000
+        assert pilot_csv.peak_local_used_mb(path) == 9999
         assert csv.field_size_limit() == before  # the global limit is never changed
+
+    def test_ue58_capture_with_a_huge_first_events_row(self, tmp_path):
+        """#232: the layout of a real 5.8.4 ``-csvCaptureFrames`` capture (theta, 2026-11-14).
+
+        438 columns, ``EVENTS`` first, ``GPUMem/LocalUsedMB`` at index 401; the first data
+        row carries ~447 KB of engine-init events, above the 128 KiB csv field limit.
+        """
+        header = ['EVENTS'] + [f'Stat/Col{i}' for i in range(1, 438)]
+        header[401] = 'GPUMem/LocalUsedMB'
+        events = ';'.join(f'Region: EngineInit/LoadModule - Begin##{i * 0.001:.6f}' for i in range(9200))
+        assert 440_000 < len(events) < 460_000
+
+        def row(first, used):
+            cells = [first] + ['0'] * 437
+            cells[401] = used
+            return ','.join(cells) + '\n'
+        rows = [row(events, '8104.25'), row('', '9228.6'), row('Region: Shot - Begin##1.0', '9010'), 'x,1\n']
+        path = tmp_path / 'Profile(20261114_083508).csv'
+        path.write_text(','.join(header) + '\n' + ''.join(rows), encoding='utf-8')
+        assert pilot_csv.peak_local_used_mb(path) == 9229
+
+    def test_a_line_over_the_hard_cap_is_skipped_unparsed(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pilot_csv, 'MAX_LINE_CHARS', 50)
+        path = tmp_path / 'a.csv'
+        _write(path, ['x,' + '9' * 60 + ',1\n', 'x,4000,1\n'])
+        assert pilot_csv.peak_local_used_mb(path) == 4000
 
     def test_collect_survives_parse_errors(self, tmp_path, monkeypatch):
         profile = _profile(tmp_path)
