@@ -74,6 +74,28 @@ def _find_component_exe(
     return candidates[0] if candidates else None
 
 
+def _find_launcher_exe(
+    dist_root: pathlib.Path, exe_name: str,
+) -> pathlib.Path | None:
+    """Find the launcher executable for the #192 harness.
+
+    Flat layouts (``dist/`` or the Windows/Linux ``bin/``) carry the
+    launcher at ``<dist_root>/launcher/<exe_name>``. The macOS ``.app``
+    layout from ``packaging/macos/build_dmg.sh`` does not: components
+    live in ``Sethlans.app/Contents/Resources/bin/`` and the launcher is
+    ``Sethlans.app/Contents/MacOS/sethlans`` (renamed from
+    ``run_launcher`` at DMG staging). Issue #236.
+    """
+    flat = _find_component_exe(dist_root, "launcher", exe_name)
+    if flat is not None:
+        return flat
+    if dist_root.name == "bin" and dist_root.parent.name == "Resources":
+        app_launcher = dist_root.parent.parent / "MacOS" / "sethlans"
+        if app_launcher.is_file():
+            return app_launcher
+    return None
+
+
 def _build_harness_env(launcher_exe: pathlib.Path) -> dict[str, str]:
     """Return environment for the harness subprocess.
 
@@ -100,7 +122,9 @@ def check_manager_exe_resolver(bundle: pathlib.Path) -> bool:
 
     Locates ``dist/launcher/run_launcher[.exe]`` and
     ``dist/manager/run_manager[.exe]`` (siblings of the wizard
-    bundle). Spawns the Python harness from :func:`_harness_source`
+    bundle), or, for a wizard inside an installed macOS ``.app``,
+    ``Contents/MacOS/sethlans`` and ``Contents/Resources/bin/manager/
+    run_manager`` (see :func:`_find_launcher_exe`). Spawns the Python harness from :func:`_harness_source`
     that stubs ``sys.executable`` to the launcher binary and calls
     :func:`launcher.manager_exe_resolver.manager_exe`. The pre-#192
     code raised ``FileNotFoundError`` in this exact configuration
@@ -121,9 +145,7 @@ def check_manager_exe_resolver(bundle: pathlib.Path) -> bool:
     manager_exe_name = (
         "run_manager.exe" if sys.platform == "win32" else "run_manager"
     )
-    launcher_exe = _find_component_exe(
-        dist_root, "launcher", launcher_exe_name,
-    )
+    launcher_exe = _find_launcher_exe(dist_root, launcher_exe_name)
     manager_exe_path = _find_component_exe(
         dist_root, "manager", manager_exe_name,
     )

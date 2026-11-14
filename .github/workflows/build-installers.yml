@@ -343,57 +343,9 @@ jobs:
           fi
           echo "Caddy bundled: dist/launcher/_internal/caddy"
 
-      # --- Smoke Tests (FR-20) ---
-      - name: Smoke test — Launcher --version
-        run: dist/launcher/run_launcher --version
-
-      - name: Smoke test — Manager starts
-        run: |
-          export SETHLANS_TLS_DATA_DIR="$(mktemp -d)"
-          export SETHLANS_MANAGER_DATA_DIR="$(mktemp -d)"
-
-          dist/manager/run_manager &
-          MGR_PID=$!
-          trap 'kill $MGR_PID 2>/dev/null || true' EXIT
-
-          # Poll the Waitress loopback port until it binds (max 90s).
-          # /api/status/public/ is allowlisted in setup mode (see
-          # manager/sethlans_manager/middleware/setup_gate.py) and returns
-          # 200 with no admin/sentinel. Port 8088 is the internal loopback
-          # listener (waitress_config.DEFAULT_WAITRESS_INTERNAL_PORT);
-          # Caddy's TLS port 8080 is supervised by the launcher, not the
-          # manager, so this smoke test does not start TLS.
-          STATUS="000"
-          for i in $(seq 1 90); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' \
-              http://127.0.0.1:8088/api/status/public/ 2>/dev/null || echo "000")
-            if [ "$CODE" = "200" ]; then
-              STATUS="200"
-              break
-            fi
-            sleep 1
-          done
-
-          if [ "$STATUS" = "200" ]; then
-            echo "Manager smoke test passed (HTTP ${STATUS})"
-          else
-            echo "Manager smoke test failed (HTTP ${STATUS})"
-            exit 1
-          fi
-
-      # Wizard smoke test (AC-B4 + AC-B2 + NF-4 / DEVOPS-MED-11):
-      # delegated to ``tools/wizard_smoke.py`` so CI and local builds
-      # share the exact same checks (DEVOPS-MED-5, Phase F3). See the
-      # Windows job for the full breakdown of what the script verifies
-      # (AC-B2 via pathlib.rglob, NF-4 95 MB ceiling, AC-B4 port-file
-      # poll + GET / probe, DEVOPS-LOW-6 log dump on failure, in-script
-      # 60 s wall-clock guard). MUST run AFTER the manager smoke step
-      # (DEVOPS-v22-MED-3). step-level timeout-minutes: 1 is belt-and-
-      # braces in case the in-script watchdog ever fails to fire.
-      - name: Smoke test — Wizard starts
-        timeout-minutes: 1
-        run: |
-          python tools/wizard_smoke.py --bundle dist/wizard --port 8100
+      # macOS smoke tests (FR-20) run AFTER "Build DMG", against the
+      # bundle installed from the DMG — see "Install DMG for smoke
+      # tests" below (issue #236).
 
       # --- Code signing (conditional) ---
       - name: Import signing certificate
@@ -449,6 +401,102 @@ jobs:
         run: |
           chmod +x packaging/macos/build_dmg.sh
           packaging/macos/build_dmg.sh "${BUILD_VERSION}"
+
+      # --- Smoke Tests (FR-20) ---
+      # On macOS, shared/frozen_paths.get_install_root() deliberately
+      # accepts only the .app layouts that packaging/macos/build_dmg.sh
+      # produces: the launcher at Sethlans.app/Contents/MacOS/sethlans,
+      # every other component at
+      # Sethlans.app/Contents/Resources/bin/<component>/run_<component>.
+      # The raw PyInstaller output in dist/<component>/ matches neither,
+      # so the frozen manager refuses to start from there (issue #236).
+      # Install the app from the DMG the way a user does (mount, copy
+      # Sethlans.app out, run it) and smoke-test that copy, so the tests
+      # exercise the exact artifact we ship. Runs before notarization so
+      # a broken bundle fails before it is submitted to Apple.
+      - name: Install DMG for smoke tests
+        run: |
+          DMG_PATH="dist/sethlans-${BUILD_VERSION}-macos-arm64.dmg"
+          MOUNT_DIR="$(mktemp -d)"
+          INSTALL_DIR="${RUNNER_TEMP}/sethlans-smoke-install"
+          trap 'hdiutil detach "${MOUNT_DIR}" -force >/dev/null 2>&1 || true' EXIT
+
+          rm -rf "${INSTALL_DIR}"
+          mkdir -p "${INSTALL_DIR}"
+          hdiutil attach -nobrowse -noautoopen -readonly \
+            -mountpoint "${MOUNT_DIR}" "${DMG_PATH}"
+          # ditto keeps symlinks, xattrs and code signatures intact, the
+          # same way a Finder drag-install does.
+          ditto "${MOUNT_DIR}/Sethlans.app" "${INSTALL_DIR}/Sethlans.app"
+
+          SMOKE_APP="${INSTALL_DIR}/Sethlans.app"
+          SMOKE_BIN="${SMOKE_APP}/Contents/Resources/bin"
+          for exe in "${SMOKE_APP}/Contents/MacOS/sethlans" \
+                     "${SMOKE_BIN}/manager/run_manager" \
+                     "${SMOKE_BIN}/wizard/run_wizard"; do
+            if [ ! -x "${exe}" ]; then
+              echo "Installed bundle is missing ${exe}"
+              exit 1
+            fi
+          done
+          echo "SMOKE_APP=${SMOKE_APP}" >> "$GITHUB_ENV"
+          echo "SMOKE_BIN=${SMOKE_BIN}" >> "$GITHUB_ENV"
+
+      - name: Smoke test — Launcher --version
+        run: |
+          "${SMOKE_APP}/Contents/MacOS/sethlans" --version
+
+      - name: Smoke test — Manager starts
+        run: |
+          export SETHLANS_TLS_DATA_DIR="$(mktemp -d)"
+          export SETHLANS_MANAGER_DATA_DIR="$(mktemp -d)"
+
+          "${SMOKE_BIN}/manager/run_manager" &
+          MGR_PID=$!
+          trap 'kill $MGR_PID 2>/dev/null || true' EXIT
+
+          # Poll the Waitress loopback port until it binds (max 90s).
+          # /api/status/public/ is allowlisted in setup mode (see
+          # manager/sethlans_manager/middleware/setup_gate.py) and returns
+          # 200 with no admin/sentinel. Port 8088 is the internal loopback
+          # listener (waitress_config.DEFAULT_WAITRESS_INTERNAL_PORT);
+          # Caddy's TLS port 8080 is supervised by the launcher, not the
+          # manager, so this smoke test does not start TLS.
+          STATUS="000"
+          for i in $(seq 1 90); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+              http://127.0.0.1:8088/api/status/public/ 2>/dev/null || echo "000")
+            if [ "$CODE" = "200" ]; then
+              STATUS="200"
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$STATUS" = "200" ]; then
+            echo "Manager smoke test passed (HTTP ${STATUS})"
+          else
+            echo "Manager smoke test failed (HTTP ${STATUS})"
+            exit 1
+          fi
+
+      # Wizard smoke test (AC-B4 + AC-B2 + NF-4 / DEVOPS-MED-11):
+      # delegated to ``tools/wizard_smoke.py`` so CI and local builds
+      # share the exact same checks (DEVOPS-MED-5, Phase F3). See the
+      # Windows job for the full breakdown of what the script verifies
+      # (AC-B2 via pathlib.rglob, NF-4 95 MB ceiling, AC-B4 port-file
+      # poll + GET / probe, DEVOPS-LOW-6 log dump on failure, in-script
+      # 60 s wall-clock guard). MUST run AFTER the manager smoke step
+      # (DEVOPS-v22-MED-3). step-level timeout-minutes: 1 is belt-and-
+      # braces in case the in-script watchdog ever fails to fire.
+      # --bundle points into the installed .app so the sibling-manager
+      # checks (#191 --manage, #192 resolver) run against the shipped
+      # layout; the #192 harness finds the launcher at
+      # Contents/MacOS/sethlans.
+      - name: Smoke test — Wizard starts
+        timeout-minutes: 1
+        run: |
+          python tools/wizard_smoke.py --bundle "${SMOKE_BIN}/wizard" --port 8100
 
       - name: Notarize DMG
         if: >-
