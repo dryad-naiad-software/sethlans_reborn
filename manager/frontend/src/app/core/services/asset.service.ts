@@ -11,7 +11,8 @@ import { Project } from './project.service';
 export interface Asset {
   id: number;
   name: string;
-  blend_file: string;
+  /** Null for shared_project (Unreal) assets. */
+  blend_file: string | null;
   created_at: string;
   project: string;
   project_details: Project;

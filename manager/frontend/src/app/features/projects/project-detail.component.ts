@@ -37,8 +37,10 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
         <div>
           <h1>{{ project.name }}</h1>
           <p class="subtitle">
-            Blender {{ project.blender_version_details.series }}
-            ({{ project.blender_version_details.resolved_version }})
+            @if (project.blender_version_details) {
+              Blender {{ project.blender_version_details.series }}
+              ({{ project.blender_version_details.resolved_version }})
+            } @else { Unreal {{ project.engine_build }} }
             @if (asset) { &middot; {{ asset.name }} }
             &middot; Created {{ project.created_at | date:'mediumDate' }}
           </p>
@@ -68,8 +70,12 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
                   [disabled]="activeJobCount === 0">
             <mat-icon>cancel</mat-icon> Cancel All
           </button>
+          @if (project.renderer === 'UNREAL') {
+            <span class="hint" id="unreal-job-hint">Unreal jobs are submitted through the API in this version.</span>
+          }
           <button mat-raised-button color="primary" (click)="openCreateRender()"
-                  [disabled]="!asset">
+                  [disabled]="!asset || project.renderer === 'UNREAL'"
+                  [attr.aria-describedby]="project.renderer === 'UNREAL' ? 'unreal-job-hint' : null">
             <mat-icon>add</mat-icon> Create Job
           </button>
         </div>
@@ -96,6 +102,7 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
     }
     .jobs-header h2 { margin: 0; }
     .jobs-actions { display: flex; gap: 8px; }
+    .hint { align-self: center; color: rgba(0,0,0,0.6); font-size: 13px; }
   `],
 })
 export class ProjectDetailComponent implements OnInit, OnDestroy {
@@ -172,7 +179,7 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   }
 
   openCreateRender(prefill?: JobPrefillData): void {
-    if (!this.project || !this.asset) return;
+    if (!this.project || !this.asset || this.project.renderer === 'UNREAL') return;
     const data: JobCreateDialogData = {
       projectId: this.project.id, assetId: this.asset.id,
       ...(prefill ? { prefill } : {}),

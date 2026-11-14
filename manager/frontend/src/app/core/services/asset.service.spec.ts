@@ -13,6 +13,7 @@ const MOCK_ASSET: Asset = {
   created_at: '2025-06-01T00:00:00Z', project: 'abc-123-uuid',
   project_details: {
     id: 'abc-123-uuid', name: 'Test', blender_version: 1,
+    renderer: 'BLENDER', engine_build: '',
     blender_version_details: {
       id: 1, major: 4, minor: 2, series: '4.2',
       resolved_version: '4.2.1', is_default: true,

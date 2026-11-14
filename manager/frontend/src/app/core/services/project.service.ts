@@ -12,8 +12,13 @@ import { SupportedVersion } from './supported-version.service';
 export interface Project {
   id: string;
   name: string;
-  blender_version: number;
-  blender_version_details: SupportedVersion;
+  renderer: 'BLENDER' | 'UNREAL';
+  /** Null for Unreal projects. */
+  blender_version: number | null;
+  /** Null for Unreal projects (FR-MU-4: null details means Unreal). */
+  blender_version_details: SupportedVersion | null;
+  /** Unreal Engine build, e.g. '5.8.4-58902052'; '' for Blender projects. */
+  engine_build: string;
   created_at: string;
 }
 

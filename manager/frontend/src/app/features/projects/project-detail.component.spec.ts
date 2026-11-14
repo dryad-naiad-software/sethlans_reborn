@@ -23,6 +23,7 @@ const MOCK_VERSION = {
 const MOCK_PROJECT: Project = {
   id: 'abc-uuid-123', name: 'Detail Project', blender_version: 1,
   blender_version_details: MOCK_VERSION,
+  renderer: 'BLENDER', engine_build: '',
   created_at: '2025-06-01T00:00:00Z',
 };
 

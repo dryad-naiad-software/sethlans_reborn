@@ -20,9 +20,11 @@ const MOCK_VERSION = {
 const MOCK_PROJECTS: Project[] = [
   { id: 'uuid-1', name: 'Project A', blender_version: 1,
     blender_version_details: MOCK_VERSION,
+    renderer: 'BLENDER', engine_build: '',
     created_at: '2025-06-01T00:00:00Z' },
   { id: 'uuid-2', name: 'Project B', blender_version: 1,
     blender_version_details: MOCK_VERSION,
+    renderer: 'BLENDER', engine_build: '',
     created_at: '2025-06-02T00:00:00Z' },
 ];
 

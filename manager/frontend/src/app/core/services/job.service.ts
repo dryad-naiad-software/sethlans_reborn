@@ -33,7 +33,8 @@ export interface Job {
   started_at: string | null;
   completed_at: string | null;
   blender_version: number | null;
-  effective_blender_version: EffectiveBlenderVersion;
+  /** Null for Unreal jobs. */
+  effective_blender_version: EffectiveBlenderVersion | null;
   render_engine: string;
   render_device: string;
   cycles_feature_set: string;

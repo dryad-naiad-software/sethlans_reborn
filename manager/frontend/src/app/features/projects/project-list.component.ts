@@ -44,10 +44,12 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
           </td>
         </ng-container>
         <ng-container matColumnDef="blender_version">
-          <th mat-header-cell *matHeaderCellDef>Blender</th>
+          <th mat-header-cell *matHeaderCellDef>Renderer</th>
           <td mat-cell *matCellDef="let p">
-            {{ p.blender_version_details.series }}
-            ({{ p.blender_version_details.resolved_version }})
+            @if (p.blender_version_details) {
+              {{ p.blender_version_details.series }}
+              ({{ p.blender_version_details.resolved_version }})
+            } @else { Unreal {{ p.engine_build }} }
           </td>
         </ng-container>
         <ng-container matColumnDef="created_at">
