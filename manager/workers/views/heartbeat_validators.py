@@ -10,6 +10,8 @@ they have no Django ORM or HTTP coupling and are unit-tested in
 ``tests/unit/manager/test_heartbeat_helpers.py``.
 """
 
+import ipaddress
+import json
 import logging
 import re
 
@@ -21,6 +23,56 @@ from ..constants import WorkerStatus
 logger = logging.getLogger(__name__)
 
 WORKER_ACCEPTED_STATUSES = {WorkerStatus.IDLE, WorkerStatus.RENDERING}
+
+# ``Worker.os`` is ``CharField(max_length=100)``.
+MAX_OS_LENGTH = 100
+
+# Upper bound on the compact-JSON size of a self-reported
+# ``available_tools`` payload.  A real worker reports a handful of
+# Blender versions and GPU details (a few KB); anything above this is
+# ignored (stored as ``{}``) rather than written to the database.
+MAX_AVAILABLE_TOOLS_BYTES = 64 * 1024
+
+
+def _validate_ip_address(raw_value):
+    """Return *raw_value* if it is a valid IPv4/IPv6 address, else None."""
+    if not isinstance(raw_value, str) or not raw_value:
+        return None
+    try:
+        return str(ipaddress.ip_address(raw_value))
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid ip_address in heartbeat: %r", raw_value[:80],
+        )
+        return None
+
+
+def _sanitize_os(raw_value):
+    """Return the reported OS string truncated to the column width."""
+    if raw_value is None:
+        return ''
+    return str(raw_value)[:MAX_OS_LENGTH]
+
+
+def _validate_available_tools(raw_value):
+    """Return *raw_value* if it is a dict within the size cap, else ``{}``.
+
+    Non-dict payloads and payloads whose compact JSON encoding exceeds
+    ``MAX_AVAILABLE_TOOLS_BYTES`` are ignored and stored as ``{}`` (the
+    worker then advertises no tools until it sends a sane payload).
+    """
+    if not isinstance(raw_value, dict):
+        return {}
+    try:
+        size = len(json.dumps(raw_value, separators=(',', ':')))
+    except (TypeError, ValueError):
+        return {}
+    if size > MAX_AVAILABLE_TOOLS_BYTES:
+        logger.warning(
+            "Ignoring oversized available_tools payload (%d bytes).", size,
+        )
+        return {}
+    return raw_value
 
 
 def _validate_worker_status(raw_status):

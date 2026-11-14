@@ -61,14 +61,19 @@ def worker_with_token():
 
 @pytest.fixture
 def fresh_worker_client():
-    """Return (hostname, client) for a token-authed worker that has NOT
-    yet been registered (no Worker row).  Used to drive the
+    """Return (hostname, client) for a freshly enrolled worker that has
+    NOT yet sent its full registration.
+
+    Mirrors what ``POST /api/enroll/`` leaves behind: a User, a Token
+    and a bare Worker row (no ``os``/tools yet).  Used to drive the
     full-registration branch — the first heartbeat from a freshly
-    enrolled worker carries an ``os`` field and creates the Worker row.
+    enrolled worker carries an ``os`` field and fills the row in.  The
+    heartbeat never creates the row itself (issue #215).
     """
     user = User.objects.create_user(username='worker_freshreg')
     user.set_unusable_password()
     user.save()
+    Worker.objects.create(hostname='freshreg', user=user, is_active=True)
     token = Token.objects.create(user=user)
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
@@ -250,10 +255,11 @@ class TestManagerSetupCompleteOnFullRegistration:
         )
 
         assert resp.status_code == 200
-        # Sanity: the full-registration branch ran (Worker row was created
-        # and a token field is present in the response envelope).
-        assert Worker.objects.filter(hostname=hostname).exists()
-        assert 'token' in resp.data
+        # Sanity: the full-registration branch ran (the enrolled row now
+        # carries the reported OS).  The response never echoes a token
+        # (issue #215).
+        assert Worker.objects.get(hostname=hostname).os == 'Linux'
+        assert 'token' not in resp.data
         # The field under test:
         assert 'manager_setup_complete' in resp.data
         assert resp.data['manager_setup_complete'] is True

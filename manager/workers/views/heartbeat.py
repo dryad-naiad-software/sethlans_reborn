@@ -4,9 +4,14 @@
 """
 Worker heartbeat endpoint.
 
-Token-authenticated only.  All enrollment-key handling has been removed
-from this file — new workers must hit ``POST /api/enroll/`` first to
-obtain a token, then call this endpoint on subsequent heartbeats.
+Heartbeats need a worker token and are bound to the caller's own row;
+listing workers and the token actions are admin-only
+(``IsAdminNotWorker``, issue #220).  All enrollment-key handling has been
+removed from this file — new workers must hit ``POST /api/enroll/``
+first to obtain a token (enrollment creates the ``User``, ``Token`` and
+``Worker`` row), then call this endpoint on subsequent heartbeats.  A
+heartbeat only ever acts on the caller's own ``Worker`` row and never
+creates a worker, user or token (issue #215, see ``heartbeat_auth``).
 
 See ``enroll.py`` for the enrollment flow and
 ``development/specs/worker-enrollment.md`` for the full rationale.
@@ -14,8 +19,7 @@ See ``enroll.py`` for the enrollment flow and
 
 import logging
 
-from django.contrib.auth import get_user_model
-from django.db import models, transaction
+from django.db import models
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -25,15 +29,15 @@ from rest_framework.authentication import (
     TokenAuthentication,
 )
 from rest_framework.authtoken.models import Token
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..services.data_dir import get_manager_data_dir as _get_data_dir
 
 from ..models import SupportedBlenderVersion, Worker
+from ..permissions import HeartbeatViewSetPermission
 from ..serializers import WorkerSerializer
 from ..services.sentinel import is_setup_complete
-from ._helpers import get_or_create_worker_user
+from .heartbeat_auth import bind_heartbeat_caller
 from .heartbeat_schema import WorkerHeartbeatResponseSerializer
 # Validators are re-exported below so tests that import them from this
 # module (``from workers.views.heartbeat import _sanitize_cpu_name``)
@@ -42,6 +46,9 @@ from .heartbeat_validators import (  # noqa: F401
     WORKER_ACCEPTED_STATUSES,
     _extract_gpu_name,
     _sanitize_cpu_name,
+    _sanitize_os,
+    _validate_available_tools,
+    _validate_ip_address,
     _validate_ui_cert_fingerprint,
     _validate_ui_url,
     _validate_worker_status,
@@ -99,12 +106,17 @@ class WorkerHeartbeatViewSet(
 ):
     """Worker heartbeats and admin token management.
 
-    Token authentication is required for every action — the enrollment
-    key path has moved to ``POST /api/enroll/``.  See spec FR-19.
+    The enrollment key path has moved to ``POST /api/enroll/`` (spec
+    FR-19).  Access is decided per action.  ``create`` requires a
+    worker token and binds to the caller's own worker (issue #215, see
+    ``heartbeat_auth``); ``yield-event`` checks worker ownership in its
+    mixin; ``list`` and the admin token actions (revoke/regenerate/
+    force re-enroll) require ``IsAdminNotWorker`` (issue #220).
     """
 
     authentication_classes = [TokenAuthentication, SessionAuthentication]
-    permission_classes = [IsAuthenticated]
+    # ``list`` admin-only, other actions IsAuthenticated (issue #220).
+    permission_classes = [HeartbeatViewSetPermission]
 
     # Back-compat shim: existing unit tests
     # (``tests/unit/manager/test_heartbeat_helpers.py``) call
@@ -128,23 +140,23 @@ class WorkerHeartbeatViewSet(
         return Response(serializer.data)
 
     def create(self, request):
-        """Authenticated heartbeat — update or register an existing worker."""
+        """Worker heartbeat or full re-registration of the caller's own row.
+
+        Only token-authenticated worker users may call this; the
+        target ``Worker`` is the caller's own (issue #215).  See
+        ``heartbeat_auth.bind_heartbeat_caller``.
+        """
         return self._process_heartbeat(request)
 
     def _process_heartbeat(self, request):
-        """Validate hostname and dispatch to registration or heartbeat."""
-        hostname = request.data.get('hostname')
-        if not hostname:
-            return Response(
-                {"detail": "Hostname is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        """Bind the caller's worker and dispatch to registration or heartbeat."""
+        worker, error = bind_heartbeat_caller(request, self)
+        if error is not None:
+            return error
 
         handler = (self._handle_full_registration if 'os' in request.data
                    else self._handle_heartbeat)
-        result = handler(request, hostname)
-        if isinstance(result, Response):
-            return result
+        result = handler(request, worker)
         # Append required Blender versions to every heartbeat response
         result['required_blender_versions'] = list(
             SupportedBlenderVersion.objects.values(
@@ -159,62 +171,48 @@ class WorkerHeartbeatViewSet(
         result['manager_setup_complete'] = _is_setup_complete_cached()
         return Response(result, status=status.HTTP_200_OK)
 
-    def _handle_full_registration(self, request, hostname):
-        """Create or update Worker, User, and Token atomically."""
-        User = get_user_model()
-        ui_url = _validate_ui_url(request.data.get('ui_url'))
+    def _handle_full_registration(self, request, worker):
+        """Refresh the caller's own Worker row with full system info.
 
-        with transaction.atomic():
-            username = f'worker_{hostname}'
-            user = get_or_create_worker_user(User, username, hostname)
-            if user is None:
-                return Response(
-                    {"detail": "Could not create worker user after retries."},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-            token, _ = Token.objects.get_or_create(user=user)
-            raw_status = request.data.get('status', 'IDLE')
-            available_tools = request.data.get('available_tools', {})
-            worker, created = Worker.objects.update_or_create(
-                hostname=hostname,
-                defaults={
-                    'ip_address': request.data.get('ip_address'),
-                    'os': request.data.get('os'),
-                    'available_tools': available_tools,
-                    'last_seen': timezone.now(),
-                    'is_active': True,
-                    'ui_url': ui_url,
-                    'user': user,
-                    'cpu_name': _sanitize_cpu_name(
-                        request.data.get('cpu_name', ''),
-                    ),
-                    'gpu_name': _extract_gpu_name(
-                        available_tools,
-                    ),
-                    'status': _validate_worker_status(raw_status),
-                    'ui_cert_fingerprint': _validate_ui_cert_fingerprint(
-                        request.data.get('ui_cert_fingerprint', ''),
-                    ),
-                },
-            )
+        The row, its ``User`` and its ``Token`` were created by
+        enrollment; this branch never creates or re-links any of them
+        and never returns a token (the caller already holds its own).
+        """
+        first_registration = not worker.os
+        available_tools = _validate_available_tools(
+            request.data.get('available_tools', {}),
+        )
+        worker.ip_address = _validate_ip_address(
+            request.data.get('ip_address'),
+        )
+        worker.os = _sanitize_os(request.data.get('os'))
+        worker.available_tools = available_tools
+        worker.last_seen = timezone.now()
+        worker.is_active = True
+        worker.ui_url = _validate_ui_url(request.data.get('ui_url'))
+        worker.cpu_name = _sanitize_cpu_name(request.data.get('cpu_name', ''))
+        worker.gpu_name = _extract_gpu_name(available_tools)
+        worker.status = _validate_worker_status(
+            request.data.get('status', 'IDLE'),
+        )
+        worker.ui_cert_fingerprint = _validate_ui_cert_fingerprint(
+            request.data.get('ui_cert_fingerprint', ''),
+        )
+        worker.save(update_fields=[
+            'ip_address', 'os', 'available_tools', 'last_seen',
+            'is_active', 'ui_url', 'cpu_name', 'gpu_name', 'status',
+            'ui_cert_fingerprint',
+        ])
 
-        if created:
-            logger.info("Worker registration. Hostname: %s", hostname)
+        if first_registration:
+            logger.info("Worker registration. Hostname: %s", worker.hostname)
         else:
-            logger.debug("Worker re-registration. Hostname: %s", hostname)
-        data = WorkerSerializer(worker).data
-        data['token'] = token.key
-        return data
+            logger.debug("Worker re-registration. Hostname: %s", worker.hostname)
+        return WorkerSerializer(worker).data
 
-    def _handle_heartbeat(self, request, hostname):
-        """Update last_seen for an existing worker."""
-        try:
-            worker = Worker.objects.get(hostname=hostname)
-        except Worker.DoesNotExist:
-            return Response(
-                {"detail": "Worker not found. Re-register with full system info."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+    def _handle_heartbeat(self, request, worker):
+        """Update last_seen and reported state for the caller's worker."""
+        hostname = worker.hostname
         worker.last_seen = timezone.now()
         worker.is_active = True
         worker.ui_url = _validate_ui_url(
@@ -233,10 +231,10 @@ class WorkerHeartbeatViewSet(
             'cpu_name', 'status', 'ui_cert_fingerprint',
         ]
         if 'available_tools' in request.data:
-            worker.available_tools = request.data['available_tools']
-            worker.gpu_name = _extract_gpu_name(
+            worker.available_tools = _validate_available_tools(
                 request.data['available_tools'],
             )
+            worker.gpu_name = _extract_gpu_name(worker.available_tools)
             update_fields.extend(['available_tools', 'gpu_name'])
 
         schedule_data = request.data.get('schedule')

@@ -138,3 +138,63 @@ class TestSendAuthenticatedHeartbeat:
         )
         assert result is None
         assert api_auth.is_auth_failed() is True
+
+    def test_403_logs_manager_detail_and_returns_none(self, mocker):
+        """A 403 (e.g. hostname no longer matches the enrolled worker,
+        issue #215) surfaces the manager's re-enroll message, returns
+        None, and does not set the auth-failed flag.
+        """
+        mocker.patch(
+            'sethlans_worker_agent.config.MANAGER_API_URL',
+            'https://localhost:8080/api/'
+        )
+        mock_response = mocker.Mock(status_code=403)
+        mock_response.json.return_value = {
+            'detail': 'If this machine was renamed, re-enroll it.',
+        }
+        mock_retry = mocker.Mock(return_value=mock_response)
+        log_error = mocker.patch.object(api_auth.logger, 'error')
+        log_warning = mocker.patch.object(api_auth.logger, 'warning')
+
+        result = api_auth.send_authenticated_heartbeat(mock_retry, {})
+
+        assert result is None
+        assert api_auth.is_auth_failed() is False
+        assert mock_retry.call_count == 1
+        # Exactly one line: the manager's reason, not also the generic
+        # "Permission denied" warning from handle_auth_response().
+        assert log_error.call_count == 1
+        log_warning.assert_not_called()
+        logged = log_error.call_args.args[0] % log_error.call_args.args[1:]
+        assert 're-enroll' in logged
+
+    def test_403_detail_is_logged_with_repr(self, mocker):
+        """Control characters in the server's detail cannot forge log lines."""
+        mocker.patch(
+            'sethlans_worker_agent.config.MANAGER_API_URL',
+            'https://localhost:8080/api/'
+        )
+        mock_response = mocker.Mock(status_code=403)
+        mock_response.json.return_value = {'detail': 'bad\nFAKE LINE'}
+        mock_retry = mocker.Mock(return_value=mock_response)
+        log_error = mocker.patch.object(api_auth.logger, 'error')
+
+        api_auth.send_authenticated_heartbeat(mock_retry, {})
+
+        logged = log_error.call_args.args[0] % log_error.call_args.args[1:]
+        assert '\n' not in logged
+        assert "'bad\\nFAKE LINE'" in logged
+
+    def test_403_with_non_json_body_still_logs(self, mocker):
+        mocker.patch(
+            'sethlans_worker_agent.config.MANAGER_API_URL',
+            'https://localhost:8080/api/'
+        )
+        mock_response = mocker.Mock(status_code=403)
+        mock_response.json.side_effect = ValueError('not json')
+        mock_retry = mocker.Mock(return_value=mock_response)
+        log_error = mocker.patch.object(api_auth.logger, 'error')
+
+        assert api_auth.send_authenticated_heartbeat(mock_retry, {}) is None
+        logged = [c.args[0] % c.args[1:] for c in log_error.call_args_list]
+        assert any('no reason given' in m for m in logged)

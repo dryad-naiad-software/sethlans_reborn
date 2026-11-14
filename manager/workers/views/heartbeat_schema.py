@@ -43,30 +43,17 @@ class WorkerHeartbeatResponseSerializer(WorkerSerializer):
     """Documents the heartbeat response envelope for OpenAPI.
 
     Inherits every field on :class:`WorkerSerializer` and adds the
-    three fields injected by ``_process_heartbeat`` /
-    ``_handle_full_registration`` after the base ``WorkerSerializer``
-    payload is produced.
+    two fields injected by ``_process_heartbeat`` after the base
+    ``WorkerSerializer`` payload is produced.
 
     .. note::
 
-       ``token`` is only present on the **full registration** branch
-       (the first heartbeat from a freshly enrolled worker, when the
-       request body carries an ``os`` field).  Subsequent heartbeats
-       omit it.  drf-spectacular cannot model "conditionally present"
-       cleanly, so the field is marked ``required=False,
-       allow_null=True`` and the conditionality is described here.
+       The response never carries an API token, on either branch.  The
+       worker obtains its token from ``POST /api/enroll/`` and already
+       holds it when it calls this endpoint (issue #215 removed the
+       former ``token`` field from the full-registration response).
     """
 
-    token = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "DRF auth token key.  Present ONLY on the full-registration "
-            "response (first heartbeat after enrollment, when 'os' is "
-            "supplied in the request body).  Absent on subsequent "
-            "heartbeats."
-        ),
-    )
     required_blender_versions = serializers.ListField(
         child=_RequiredBlenderVersionItem,
         help_text=(
@@ -90,7 +77,6 @@ class WorkerHeartbeatResponseSerializer(WorkerSerializer):
         # WorkerSerializer.Meta.fields — that would alter the base
         # serializer's output for every other consumer.
         fields = list(WorkerSerializer.Meta.fields) + [
-            "token",
             "required_blender_versions",
             "manager_setup_complete",
         ]

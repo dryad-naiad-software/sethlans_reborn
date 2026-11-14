@@ -86,15 +86,18 @@ def worker_with_token():
 
 @pytest.fixture
 def fresh_worker_client():
-    """Token-authed client whose Worker row does not yet exist.
+    """Token-authed client for a freshly enrolled, not-yet-registered worker.
 
-    Drives the full-registration branch — the first heartbeat from a
-    freshly enrolled worker carries an ``os`` field and creates the
-    Worker row.
+    Mirrors what ``POST /api/enroll/`` leaves behind: a User, a Token
+    and a bare Worker row (no ``os``/tools yet).  Drives the
+    full-registration branch — the first heartbeat from a freshly
+    enrolled worker carries an ``os`` field and fills the row in.  The
+    heartbeat never creates the row itself (issue #215).
     """
     user = User.objects.create_user(username='worker_freshcache')
     user.set_unusable_password()
     user.save()
+    Worker.objects.create(hostname='freshcache', user=user, is_active=True)
     token = Token.objects.create(user=user)
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')

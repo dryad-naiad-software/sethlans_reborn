@@ -18,10 +18,11 @@ serializer's declared fields stay in sync:
 * Every required field on the serializer MUST appear in the runtime
   response (catches "documented a field, forgot to send it").
 
-The ``token`` field is the one documented exception: it is only
-present on the full-registration branch (when the request body
-includes an ``os`` field), so it is declared ``required=False`` on the
-serializer and the two paths are exercised separately.
+Both branches (plain heartbeat and full registration, when the request
+body includes an ``os`` field) are exercised separately.  Neither
+branch returns an API token: the former full-registration ``token``
+field was removed in issue #215 because the caller already holds its
+own token from enrollment.
 """
 
 from __future__ import annotations
@@ -69,15 +70,18 @@ def worker_with_token():
 
 @pytest.fixture
 def fresh_worker_client():
-    """Return (hostname, client) for a token-authed worker that has NOT
-    yet been registered (no Worker row).  Drives the full-registration
-    branch — the first heartbeat from a freshly enrolled worker carries
-    an ``os`` field and creates the Worker row plus a ``token`` field
-    on the response envelope.
+    """Return (hostname, client) for a freshly enrolled worker that has
+    NOT yet sent its full registration.
+
+    Mirrors what ``POST /api/enroll/`` leaves behind: a User, a Token
+    and a bare Worker row.  Drives the full-registration branch — the
+    first heartbeat from a freshly enrolled worker carries an ``os``
+    field and fills the row in.
     """
     user = User.objects.create_user(username='worker_schemafresh')
     user.set_unusable_password()
     user.save()
+    Worker.objects.create(hostname='schemafresh', user=user, is_active=True)
     token = Token.objects.create(user=user)
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
@@ -120,24 +124,18 @@ class TestHeartbeatResponseSerializerSmoke:
     """
 
     def test_serializer_declares_extra_response_fields(self):
-        """The three heartbeat-only fields MUST be on the serializer."""
+        """The two heartbeat-only fields MUST be on the serializer."""
         fields = WorkerHeartbeatResponseSerializer().fields
-        assert 'token' in fields
         assert 'required_blender_versions' in fields
         assert 'manager_setup_complete' in fields
 
-    def test_token_field_is_optional(self):
-        """``token`` is only present on full-registration responses, so
-        the serializer must mark it optional + nullable (otherwise
-        every plain-heartbeat response violates the documented schema).
-        """
-        token_field = WorkerHeartbeatResponseSerializer().fields['token']
-        assert token_field.required is False
-        assert token_field.allow_null is True
+    def test_serializer_does_not_document_a_token(self):
+        """The heartbeat response never carries an API token (#215)."""
+        assert 'token' not in WorkerHeartbeatResponseSerializer().fields
 
     def test_inherits_worker_serializer_fields(self):
         """The response envelope is the WorkerSerializer payload plus
-        the three injected keys — losing the inheritance would silently
+        the two injected keys — losing the inheritance would silently
         drop every Worker field from the documented schema.
         """
         from workers.serializers import WorkerSerializer
@@ -168,9 +166,7 @@ def _required_serializer_field_names() -> set[str]:
     """Fields marked required=True on WorkerHeartbeatResponseSerializer.
 
     Used to assert the runtime response carries every field the
-    documented schema promises clients will receive.  ``token`` is
-    excluded because it is intentionally optional (only emitted on the
-    full-registration branch).
+    documented schema promises clients will receive.
     """
     return {
         name
@@ -198,8 +194,7 @@ class TestHeartbeatResponseShapeMatchesSchema:
     ):
         """Plain-heartbeat path (no ``os`` payload).
 
-        ``token`` MUST NOT appear on this response — the serializer
-        marks it ``required=False`` precisely because of this branch.
+        ``token`` MUST NOT appear on this response.
         """
         worker, client = worker_with_token
         # Use a checkpoint sentinel so manager_setup_complete=False, but
@@ -227,7 +222,7 @@ class TestHeartbeatResponseShapeMatchesSchema:
         )
 
         # Key contract assertion #2 — all required documented fields
-        # are actually emitted (token excluded — see docstring).
+        # are actually emitted.
         required_documented = _required_serializer_field_names()
         missing_required = required_documented - actual_keys
         assert not missing_required, (
@@ -239,8 +234,7 @@ class TestHeartbeatResponseShapeMatchesSchema:
 
         # Branch-specific: token MUST be absent on the heartbeat path.
         assert 'token' not in actual_keys, (
-            "Plain-heartbeat response leaked a 'token' field — that "
-            "field is full-registration-only."
+            "Plain-heartbeat response leaked a 'token' field."
         )
 
     def test_full_registration_response_keys_match_serializer(
@@ -248,9 +242,9 @@ class TestHeartbeatResponseShapeMatchesSchema:
     ):
         """Full-registration path (payload includes ``os``).
 
-        ``token`` MUST appear on this response (it is the freshly
-        minted DRF auth token key the worker will use for subsequent
-        heartbeats).
+        ``token`` MUST NOT appear on this response: the worker already
+        holds its token from enrollment, and echoing it back served no
+        consumer (issue #215).
         """
         hostname, client = fresh_worker_client
         create_sentinel(patch_data_dir, 'manager', ['verified'])
@@ -268,7 +262,7 @@ class TestHeartbeatResponseShapeMatchesSchema:
 
         assert resp.status_code == 200
         # Sanity: the full-registration branch ran.
-        assert Worker.objects.filter(hostname=hostname).exists()
+        assert Worker.objects.get(hostname=hostname).os == 'Linux'
 
         actual_keys = set(resp.data.keys())
         documented_keys = _serializer_field_names()
@@ -291,9 +285,7 @@ class TestHeartbeatResponseShapeMatchesSchema:
             f"{sorted(missing_required)}."
         )
 
-        # Branch-specific: token MUST be present on full registration.
-        assert 'token' in actual_keys, (
-            "Full-registration response is missing 'token' — workers "
-            "rely on this to authenticate subsequent heartbeats."
+        # Branch-specific: no token on full registration either (#215).
+        assert 'token' not in actual_keys, (
+            "Full-registration response leaked a 'token' field."
         )
-        assert resp.data['token'], "'token' field present but empty/falsy."

@@ -211,15 +211,17 @@ class TestScheduleNonDictRejection:
 class TestScheduleInSerializerOutput:
     """Worker serializer output includes schedule_config."""
 
+    # The listing is admin-only (issue #220), so it is read with the
+    # admin client; a worker token gets 403 there.
     def test_schedule_config_in_worker_list(
-        self, worker_with_token,
+        self, worker_with_token, admin_client,
     ):
-        worker, client = worker_with_token
+        worker, _client = worker_with_token
         schedule = {'enabled': True, 'start': '22:00', 'end': '06:00'}
         worker.schedule_config = schedule
         worker.save(update_fields=['schedule_config'])
 
-        resp = client.get(HEARTBEAT_URL)
+        resp = admin_client.get(HEARTBEAT_URL)
         assert resp.status_code == 200
         worker_data = next(
             w for w in resp.data if w['id'] == worker.pk
@@ -227,10 +229,10 @@ class TestScheduleInSerializerOutput:
         assert worker_data['schedule_config'] == schedule
 
     def test_empty_schedule_in_serializer(
-        self, worker_with_token,
+        self, worker_with_token, admin_client,
     ):
-        worker, client = worker_with_token
-        resp = client.get(HEARTBEAT_URL)
+        worker, _client = worker_with_token
+        resp = admin_client.get(HEARTBEAT_URL)
         assert resp.status_code == 200
         worker_data = next(
             w for w in resp.data if w['id'] == worker.pk

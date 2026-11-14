@@ -88,6 +88,29 @@ def retain_failed_upload(job_id: int, output_file_path: str):
         )
 
 
+def _log_heartbeat_forbidden(response) -> None:
+    """Log the manager's reason for rejecting a heartbeat with 403.
+
+    The manager returns 403 when this worker's token does not belong to
+    a worker, or when the reported hostname no longer matches the
+    enrolled worker (e.g. the machine was renamed; issue #215).  The
+    ``detail`` text tells the operator to re-enroll, so surface it
+    instead of the generic "Permission denied" line.  The detail is
+    logged with ``%r`` so control characters from the server cannot
+    forge extra log lines.
+    """
+    try:
+        detail = response.json().get('detail', '')
+    except (ValueError, AttributeError):
+        detail = ''
+    if detail:
+        logger.error(
+            "Manager rejected heartbeat (403): %r", str(detail)[:500],
+        )
+    else:
+        logger.error("Manager rejected heartbeat (403): no reason given")
+
+
 def send_authenticated_heartbeat(
     retry_func, payload: Dict[str, Any]
 ) -> Optional[Dict]:
@@ -107,6 +130,11 @@ def send_authenticated_heartbeat(
             'post', heartbeat_url,
             json=payload, headers=get_auth_headers(), timeout=5
         )
+        if response.status_code == 403:
+            # Logged here with the manager's reason; skip the generic
+            # handle_auth_response() warning so a 403 logs once.
+            _log_heartbeat_forbidden(response)
+            return None
         if handle_auth_response(response):
             return None
         response.raise_for_status()
