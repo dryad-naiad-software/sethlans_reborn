@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+from django import forms
 from django.contrib import admin
+
+from .constants import AssetSourceType
 from .models import Worker, Job, Animation, Asset, SupportedBlenderVersion
 
 
@@ -31,9 +34,11 @@ class JobAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     date_hierarchy = 'submitted_at'
     ordering = ('-submitted_at',)
+    # ``renderer`` is derived from the project and ``engine_build`` is
+    # pinned at submission (spec FR-MR-3, FR-MU-3): never edited here.
     readonly_fields = (
         'submitted_at', 'started_at', 'completed_at',
-        'last_output', 'error_message',
+        'last_output', 'error_message', 'renderer', 'engine_build',
     )
 
 
@@ -50,8 +55,29 @@ class AnimationAdmin(admin.ModelAdmin):
     readonly_fields = ('submitted_at', 'completed_at')
 
 
+class AssetAdminForm(forms.ModelForm):
+    """Require a file for ``blend_file`` assets.
+
+    ``Asset.blend_file`` is ``blank=True`` (shared-project assets have no
+    file), so the model form alone would accept a ``.blend`` asset with
+    none.  The API enforces the same rule in ``AssetSerializer.get_fields``.
+    """
+
+    class Meta:
+        model = Asset
+        fields = '__all__'
+
+    def clean(self):
+        cleaned = super().clean()
+        source_type = cleaned.get('source_type', AssetSourceType.BLEND_FILE)
+        if source_type == AssetSourceType.BLEND_FILE and not cleaned.get('blend_file'):
+            self.add_error('blend_file', "A .blend file asset requires a file.")
+        return cleaned
+
+
 @admin.register(Asset)
 class AssetAdmin(admin.ModelAdmin):
+    form = AssetAdminForm
     list_display = ('name', 'blend_file', 'created_at')
     search_fields = ('name',)
     date_hierarchy = 'created_at'

@@ -16,9 +16,42 @@ from pathlib import Path
 from django.conf import settings
 from django.utils import timezone
 
+from .constants import AssetSourceType
 from .models import Project, Job, Animation, TiledJob, Asset
+from .renderers import UnsupportedRendererError, strategy_for_source_type
 
 logger = logging.getLogger(__name__)
+
+
+def _describe_asset(asset):
+    """Describe *asset* through its source type's strategy (FR-MR-12).
+
+    Chosen by ``source_type``, not ``asset.project.renderer``, so the loop
+    makes no extra query per asset.  An unknown value is described as a
+    ``.blend`` file, the field's default.
+    """
+    try:
+        strategy = strategy_for_source_type(asset.source_type)
+    except UnsupportedRendererError:
+        strategy = strategy_for_source_type(AssetSourceType.BLEND_FILE)
+    return strategy.describe_asset(asset)
+
+
+def _asset_lines(assets):
+    if not assets:
+        return ["No assets found for this project."]
+    return [f"- {asset.name} ({_describe_asset(asset)})" for asset in assets]
+
+
+def _job_lines(animations, tiled_jobs, standalone_jobs):
+    lines = []
+    for heading, rows in (
+        ('Animation', animations), ('Tiled Job', tiled_jobs), ('Job', standalone_jobs),
+    ):
+        for row in rows:
+            lines.append(f"\n[{heading}] {row.name}")
+            lines.append(f"  - Asset: {row.asset.name}")
+    return lines or ["No jobs found for this project."]
 
 
 def update_project_manifest(project_id: str):
@@ -64,36 +97,9 @@ def update_project_manifest(project_id: str):
         content.append(f"Generated: {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}")
         content.append("\n" + ("-" * 3) + " Assets " + ("-" * 3))
 
-        if not assets:
-            content.append("No assets found for this project.")
-        else:
-            for asset in assets:
-                file_name = Path(asset.blend_file.name).name
-                content.append(f"- {asset.name} (File: {file_name})")
-
+        content.extend(_asset_lines(assets))
         content.append("\n" + ("-" * 3) + " Render Jobs " + ("-" * 3))
-
-        job_found = False
-        if animations:
-            job_found = True
-            for anim in animations:
-                content.append(f"\n[Animation] {anim.name}")
-                content.append(f"  - Asset: {anim.asset.name}")
-
-        if tiled_jobs:
-            job_found = True
-            for tj in tiled_jobs:
-                content.append(f"\n[Tiled Job] {tj.name}")
-                content.append(f"  - Asset: {tj.asset.name}")
-
-        if standalone_jobs:
-            job_found = True
-            for job in standalone_jobs:
-                content.append(f"\n[Job] {job.name}")
-                content.append(f"  - Asset: {job.asset.name}")
-
-        if not job_found:
-            content.append("No jobs found for this project.")
+        content.extend(_job_lines(animations, tiled_jobs, standalone_jobs))
 
         # Write to file
         with open(manifest_path, 'w', encoding='utf-8') as f:

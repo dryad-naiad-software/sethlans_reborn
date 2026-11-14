@@ -8,7 +8,9 @@ from django.core.files.base import ContentFile
 from django.core.validators import MinLengthValidator
 from django.utils.text import slugify
 
-from .upload_paths import asset_upload_path, thumbnail_upload_path  # thumbnail path reserved for future use
+from ..constants import AssetSourceType, Renderer
+from .renderer_constraints import ASSET_SOURCE_FIELDS_CONSISTENT, PROJECT_RENDERER_FIELDS_CONSISTENT
+from .upload_paths import asset_upload_path
 
 
 class Project(models.Model):
@@ -21,11 +23,27 @@ class Project(models.Model):
         unique=True,
         validators=[MinLengthValidator(4)]
     )
+    renderer = models.CharField(
+        max_length=16, choices=Renderer.choices, default=Renderer.BLENDER,
+        help_text="The render application for every job in this project. Cannot change after creation.",
+    )
     blender_version = models.ForeignKey(
         'workers.SupportedBlenderVersion',
         on_delete=models.PROTECT,
+        null=True, blank=True,
         related_name='projects',
-        help_text="The Blender version series used for all jobs in this project.",
+        help_text="The Blender version series used for all jobs in this project (Blender projects only).",
+    )
+    engine_build = models.CharField(
+        max_length=32, blank=True, default='',
+        help_text="Exact Unreal Engine build, e.g. 5.8.4-58902052 (Unreal projects only).",
+    )
+    unreal_cvar_overrides = models.JSONField(
+        default=dict, blank=True,
+        help_text=(
+            "Per-project Unreal console variables (name -> value). Not pinned per job: "
+            "workers read them at claim time, so edits also affect jobs that are still queued."
+        ),
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -34,11 +52,13 @@ class Project(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [PROJECT_RENDERER_FIELDS_CONSISTENT]
 
 
 class Asset(models.Model):
     """
-    Represents a `.blend` file asset uploaded to the manager.
+    Represents the scene data of a project: an uploaded `.blend` file, or
+    (``source_type='shared_project'``) a project archive on the Sethlans share.
 
     Accepts:
       - a normal Django File/InMemoryUploadedFile,
@@ -50,9 +70,34 @@ class Asset(models.Model):
         unique=True,
         help_text="A unique name for the asset file.",
     )
+    source_type = models.CharField(
+        max_length=32, choices=AssetSourceType.choices, default=AssetSourceType.BLEND_FILE,
+        help_text="How the scene data reaches the workers. Cannot change after creation.",
+    )
     blend_file = models.FileField(
         upload_to=asset_upload_path,
-        help_text="The uploaded .blend file.",
+        blank=True,
+        help_text="The uploaded .blend file (required for blend_file assets).",
+    )
+    archive_path = models.CharField(
+        max_length=512, blank=True, default='',
+        help_text="Path of the project .zip relative to the Sethlans share root, '/'-separated.",
+    )
+    uproject_path = models.CharField(
+        max_length=260, blank=True, default='',
+        help_text="Relative path of the .uproject inside the archive.",
+    )
+    archive_sha256 = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text="Lowercase hex SHA-256 of the archive bytes (mandatory for shared_project assets).",
+    )
+    overlay_path = models.CharField(
+        max_length=512, blank=True, default='',
+        help_text="Optional overlay directory relative to the Sethlans share root.",
+    )
+    overlay_sha256 = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text="Overlay digest (mandatory whenever overlay_path is set).",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -61,6 +106,7 @@ class Asset(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [ASSET_SOURCE_FIELDS_CONSISTENT]
 
     def _ensure_blend_file_is_named_file(self):
         """
@@ -73,6 +119,11 @@ class Asset(models.Model):
         if isinstance(value, (bytes, bytearray)):
             filename = f"{slugify(self.name) or 'asset'}-{uuid.uuid4().hex[:8]}.blend"
             self.blend_file = ContentFile(bytes(value), name=filename)
+            return
+
+        # No file (shared-project assets): an empty FieldFile raises
+        # ValueError, not AttributeError, from ``hasattr(value, 'read')``.
+        if not value:
             return
 
         # Case 2: a file-like object with no `.name`

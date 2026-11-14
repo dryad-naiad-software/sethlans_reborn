@@ -17,12 +17,75 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
 from ..models import Job, JobStatus, Worker
+from ..renderers import UnsupportedRendererError, get_strategy
 from ..services.row_locks import lock_own_rows
 from ..services.worker_job_writes import JobWriteConflict
 from .job_output_upload import store_and_attach_output
 from .upload_helpers import validate_upload
 
 logger = logging.getLogger(__name__)
+
+# ``_claim_outcome`` result: the assignee re-claimed its own job.
+_RECLAIM = object()
+
+
+def _claim_outcome(job, worker):
+    """Decide a claim of the locked *job* by *worker*.
+
+    Returns:
+        ``None`` to claim the job, ``_RECLAIM`` for a repeated claim by
+        the assignee that changes nothing (lost acknowledgement: the
+        retried POST of a claim that already committed, FR-RT-4; only
+        renderers whose strategy allows it), or the 409 rejection (any
+        other value; the caller sends ``str()`` of it).
+    """
+    try:
+        strategy = get_strategy(job.renderer)
+    except UnsupportedRendererError:
+        return f"Unsupported renderer '{job.renderer}'."
+    if (strategy.idempotent_reclaim()
+            and job.status == JobStatus.RENDERING
+            and job.assigned_worker_id == worker.pk):
+        return _RECLAIM
+    # ``assigned_worker_id``: no lazy Worker SELECT while the row is locked.
+    if job.status != JobStatus.QUEUED or job.assigned_worker_id is not None:
+        return "Job is not available for claiming."
+    if job.is_paused:
+        return "Job is paused and cannot be claimed."
+    # Renderer compatibility (defense-in-depth; Blender: the worker must
+    # have the job's Blender version installed).
+    return strategy.claim_rejection(worker, job)
+
+
+def _claiming_worker(request):
+    """Return ``(worker, None)`` for the claim body, or ``(None, response)``.
+
+    The authenticated worker must match ``worker_id`` (no spoofing).
+    """
+    worker_id = request.data.get('worker_id')
+    if not worker_id:
+        return None, Response(
+            {"error": "Missing 'worker_id' in request body."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Prevent worker identity spoofing: the authenticated worker
+    # must match the worker_id in the request body.
+    if hasattr(request.user, 'worker_profile'):
+        if str(request.user.worker_profile.pk) != str(worker_id):
+            return None, Response(
+                {"detail": "Cannot claim jobs on behalf of "
+                 "another worker."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+    try:
+        return Worker.objects.get(pk=worker_id), None
+    except Worker.DoesNotExist:
+        return None, Response(
+            {"error": f"Worker with id '{worker_id}' not found."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class JobWorkerActionsMixin:
@@ -38,36 +101,20 @@ class JobWorkerActionsMixin:
 
         Expects a JSON body with `worker_id` (the Worker primary key).
 
+        The renderer strategy decides whether this worker may render the
+        job (``claim_rejection``) and whether a repeated claim by the
+        assignee is acknowledged (``idempotent_reclaim``; Blender: no).
+
         Returns:
             200 on success with updated job data.
             400 if worker_id is missing or invalid.
             404 if job not found.
-            409 if job is already claimed or not in QUEUED status.
+            409 if job is already claimed or not in QUEUED status, or the
+                renderer strategy rejects this worker.
         """
-        worker_id = request.data.get('worker_id')
-        if not worker_id:
-            return Response(
-                {"error": "Missing 'worker_id' in request body."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Prevent worker identity spoofing: the authenticated worker
-        # must match the worker_id in the request body.
-        if hasattr(request.user, 'worker_profile'):
-            if str(request.user.worker_profile.pk) != str(worker_id):
-                return Response(
-                    {"detail": "Cannot claim jobs on behalf of "
-                     "another worker."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-
-        try:
-            worker = Worker.objects.get(pk=worker_id)
-        except Worker.DoesNotExist:
-            return Response(
-                {"error": f"Worker with id '{worker_id}' not found."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        worker, error_response = _claiming_worker(request)
+        if error_response is not None:
+            return error_response
 
         try:
             with transaction.atomic():
@@ -77,38 +124,21 @@ class JobWorkerActionsMixin:
                     Job.objects,
                     'blender_version',
                     'asset__project__blender_version',
+                    'asset__project',
                 ).get(pk=pk)
-
-                if job.status != JobStatus.QUEUED or job.assigned_worker is not None:
+                outcome = _claim_outcome(job, worker)
+                # Fail closed: only ``None`` claims; anything other than
+                # ``_RECLAIM`` (whatever its type) is a rejection.
+                if outcome is None:
+                    job.status = JobStatus.RENDERING
+                    job.assigned_worker = worker
+                    job.started_at = timezone.now()
+                    job.save()
+                elif outcome is not _RECLAIM:
                     return Response(
-                        {"error": "Job is not available for claiming."},
+                        {"error": str(outcome)},
                         status=status.HTTP_409_CONFLICT,
                     )
-
-                if job.is_paused:
-                    return Response(
-                        {"error": "Job is paused and cannot be claimed."},
-                        status=status.HTTP_409_CONFLICT,
-                    )
-
-                # Version compatibility check (defense-in-depth)
-                effective = job.effective_blender_version
-                if effective and not worker.has_blender_version(
-                    effective.resolved_version,
-                ):
-                    return Response(
-                        {"error": (
-                            "Worker does not have required Blender "
-                            f"version {effective.resolved_version} "
-                            "installed."
-                        )},
-                        status=status.HTTP_409_CONFLICT,
-                    )
-
-                job.status = JobStatus.RENDERING
-                job.assigned_worker = worker
-                job.started_at = timezone.now()
-                job.save()
 
         except Job.DoesNotExist:
             return Response(
@@ -116,10 +146,16 @@ class JobWorkerActionsMixin:
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        logger.info(
-            f"Job '{job.name}' (ID: {job.pk}) claimed by worker "
-            f"'{worker.hostname}' (ID: {worker.pk})."
-        )
+        if outcome is _RECLAIM:
+            logger.info(
+                "Job '%s' (ID: %s) re-claimed by its assignee '%s'.",
+                job.name, job.pk, worker.hostname,
+            )
+        else:
+            logger.info(
+                f"Job '{job.name}' (ID: {job.pk}) claimed by worker "
+                f"'{worker.hostname}' (ID: {worker.pk})."
+            )
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

@@ -7,9 +7,10 @@ from django.db import models
 from django.utils import timezone
 from django.core.validators import MinLengthValidator
 from django.core.exceptions import ValidationError
-from ..constants import TilingConfiguration, RenderEngine, CyclesFeatureSet, RenderDevice
+from ..constants import RenderEngine, CyclesFeatureSet, RenderDevice, Renderer
 from .upload_paths import job_output_upload_path, tiled_job_output_upload_path, thumbnail_upload_path
 from .projects import Asset
+from .renderer_constraints import JOB_RENDERER_BUILD_CONSISTENT
 from .workers import Worker
 
 
@@ -20,12 +21,14 @@ class JobStatus(models.TextChoices):
     ERROR = 'ERROR', 'Error'
     CANCELED = 'CANCELED', 'Canceled'
 
+
 class TiledJobStatus(models.TextChoices):
     QUEUED = 'QUEUED', 'Queued'
     RENDERING = 'RENDERING', 'Rendering'
     ASSEMBLING = 'ASSEMBLING', 'Assembling'
     DONE = 'DONE', 'Done'
     ERROR = 'ERROR', 'Error'
+
 
 class TiledJob(models.Model):
     """
@@ -93,6 +96,7 @@ class TiledJob(models.Model):
             ),
         ]
 
+
 class Job(models.Model):
     """
     Represents a single, discrete render job.
@@ -104,6 +108,14 @@ class Job(models.Model):
     )
     asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='jobs')
     output_file_pattern = models.CharField(max_length=1024, help_text="Output file path pattern (e.g., //render/#.png)")
+    renderer = models.CharField(
+        max_length=16, choices=Renderer.choices, default=Renderer.BLENDER,
+        help_text="Derived from the asset's project at creation; read-only.",
+    )
+    engine_build = models.CharField(
+        max_length=32, blank=True, default='',
+        help_text="Unreal jobs: the effective engine build, pinned at submission. Create-only.",
+    )
     start_frame = models.IntegerField(default=1)
     end_frame = models.IntegerField(default=1)
     status = models.CharField(max_length=50, choices=JobStatus.choices, default=JobStatus.QUEUED)
@@ -123,16 +135,26 @@ class Job(models.Model):
         max_length=10, choices=RenderDevice.choices, default=RenderDevice.ANY,
         db_index=True,
     )
-    cycles_feature_set = models.CharField(max_length=50, choices=CyclesFeatureSet.choices, default=CyclesFeatureSet.SUPPORTED)
-    render_settings = models.JSONField(default=dict, blank=True,
-                                       help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}")
+    cycles_feature_set = models.CharField(
+        max_length=50, choices=CyclesFeatureSet.choices, default=CyclesFeatureSet.SUPPORTED,
+    )
+    render_settings = models.JSONField(
+        default=dict, blank=True,
+        help_text="Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920}",
+    )
     last_output = models.TextField(blank=True, default='')
     error_message = models.TextField(blank=True, default='')
     # Linked in animation.py via FK targets; using string models to avoid circular imports
-    animation = models.ForeignKey('workers.Animation', on_delete=models.CASCADE, null=True, blank=True, related_name='jobs')
+    animation = models.ForeignKey(
+        'workers.Animation', on_delete=models.CASCADE, null=True, blank=True, related_name='jobs',
+    )
     tiled_job = models.ForeignKey(TiledJob, on_delete=models.CASCADE, null=True, blank=True, related_name='jobs')
-    animation_frame = models.ForeignKey('workers.AnimationFrame', on_delete=models.CASCADE, null=True, blank=True, related_name='tile_jobs')
-    render_time_seconds = models.IntegerField(null=True, blank=True, help_text="The total time in seconds this job took to render.")
+    animation_frame = models.ForeignKey(
+        'workers.AnimationFrame', on_delete=models.CASCADE, null=True, blank=True, related_name='tile_jobs',
+    )
+    render_time_seconds = models.IntegerField(
+        null=True, blank=True, help_text="The total time in seconds this job took to render.",
+    )
     is_paused = models.BooleanField(
         default=False,
         help_text="If true, this job is skipped during worker polling.",
@@ -149,13 +171,35 @@ class Job(models.Model):
             "(stuck job detection)."
         ),
     )
-    output_file = models.FileField(upload_to=job_output_upload_path, null=True, blank=True, help_text="The final rendered output file uploaded by the worker.", max_length=512)
-    thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True, help_text="A preview thumbnail of the final render.", max_length=512)
+    output_file = models.FileField(
+        upload_to=job_output_upload_path, null=True, blank=True,
+        help_text="The final rendered output file uploaded by the worker.", max_length=512,
+    )
+    thumbnail = models.ImageField(
+        upload_to=thumbnail_upload_path, null=True, blank=True,
+        help_text="A preview thumbnail of the final render.", max_length=512,
+    )
 
     @property
     def effective_blender_version(self):
         """Return explicit override or inherit from project."""
         return self.blender_version or self.asset.project.blender_version
+
+    def save(self, *args, **kwargs):
+        """Derive ``renderer`` (and an empty ``engine_build``) from the project.
+
+        Defense in depth for ORM and Django admin creates (spec FR-MR-3):
+        the API derives the same values in the serializer.  Without
+        ``asset_id`` the save proceeds and the database raises
+        ``IntegrityError``, as before.  ``bulk_create`` bypasses this; the
+        tile and frame children it creates keep the ``BLENDER`` default.
+        """
+        if self._state.adding and self.asset_id:
+            project = self.asset.project
+            self.renderer = project.renderer
+            if not self.engine_build:
+                self.engine_build = project.engine_build
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} ({self.status})"
@@ -166,10 +210,17 @@ class Job(models.Model):
         verbose_name_plural = "Render Jobs"
         indexes = [
             models.Index(fields=['status', 'is_paused']),
+            # Not created on MySQL (no partial indexes; Django warns W037).
+            models.Index(
+                fields=['renderer', 'engine_build'],
+                condition=models.Q(status='QUEUED'),
+                name='job_queued_renderer_build_idx',
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=['asset', 'name'],
                 name='unique_job_name_per_asset'
             ),
+            JOB_RENDERER_BUILD_CONSISTENT,
         ]

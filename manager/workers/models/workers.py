@@ -51,6 +51,32 @@ class Worker(models.Model):
             "use for security-critical decisions."
         ),
     )
+    unreal_capabilities = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Self-reported Unreal Engine capabilities (installs, configured "
+            "Sethlans share, reachability). NOT verified by the manager -- "
+            "used for routing only."
+        ),
+    )
+    gpu_memory = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Self-reported per-GPU memory reading. NOT verified by the "
+            "manager -- for visibility and the routing note only."
+        ),
+    )
+    boot_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default='',
+        help_text=(
+            "Id of the worker process that last registered (boot-time "
+            "reconciliation). Not exposed through the API."
+        ),
+    )
 
     def has_blender_version(self, version_str):
         """Check if this worker has a specific Blender version installed."""

@@ -12,7 +12,10 @@ from ..constants import PILLOW_COMPATIBLE_FORMATS, RenderSettings
 from .projects import ProjectSerializer
 from .assets import AssetSerializer
 from .blender_versions import EffectiveBlenderVersionSerializer
-from .validation_utils import validate_render_settings, validate_output_pattern_extension
+from .job_renderer import JobRendererFieldsMixin, ensure_feature_supported
+# ``validate_output_pattern_extension`` is looked up here by the Blender
+# strategy at call time: tests patch it on this module (#217 races).
+from .validation_utils import validate_render_settings, validate_output_pattern_extension  # noqa: F401
 
 # Valid job status transitions: QUEUED->RENDERING->DONE/ERROR/CANCELED
 VALID_STATUS_TRANSITIONS = {
@@ -86,6 +89,9 @@ class TiledJobSerializer(serializers.ModelSerializer):
         """
         project = data.get('project')
         asset = data.get('asset')
+        ensure_feature_supported(
+            asset or getattr(self.instance, 'asset', None), 'tiled_job',
+        )
         if project and asset and asset.project != project:
             raise serializers.ValidationError(
                 "The selected Asset does not belong to the selected Project."
@@ -139,7 +145,7 @@ class TiledJobSerializer(serializers.ModelSerializer):
         return f"{completed} of {total} tiles complete"
 
 
-class JobSerializer(serializers.ModelSerializer):
+class JobSerializer(JobRendererFieldsMixin, serializers.ModelSerializer):
     """
     Serializer for the `Job` model.
 
@@ -159,13 +165,14 @@ class JobSerializer(serializers.ModelSerializer):
     )
     asset = AssetSerializer(read_only=True)
     asset_id = serializers.PrimaryKeyRelatedField(
-        queryset=Asset.objects.all(), source='asset', write_only=True
+        queryset=Asset.objects.select_related('project'), source='asset', write_only=True
     )
     blender_version = serializers.PrimaryKeyRelatedField(
         queryset=SupportedBlenderVersion.objects.all(),
         required=False, allow_null=True,
     )
-    effective_blender_version = EffectiveBlenderVersionSerializer(read_only=True)
+    # ``allow_null`` marks the schema only (null for Unreal jobs).
+    effective_blender_version = EffectiveBlenderVersionSerializer(read_only=True, allow_null=True)
 
     def validate_render_settings(self, value):
         """Validate render_settings field values."""
@@ -195,9 +202,8 @@ class JobSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        """Validate output_file_pattern extension matches selected format."""
-        validate_output_pattern_extension(data)
-        return data
+        """Renderer checks, then the strategy's rules (Blender: pattern extension)."""
+        return self.validate_for_renderer(data)
 
     class Meta:
         model = Job
@@ -207,6 +213,9 @@ class JobSerializer(serializers.ModelSerializer):
             'asset',
             'asset_id',
             'output_file_pattern',
+            'renderer',
+            'engine_build',
+            'routing_note',
             'start_frame',
             'end_frame',
             'status',
@@ -244,6 +253,8 @@ class JobSerializer(serializers.ModelSerializer):
             'animation_frame',
             'assigned_worker',
             'effective_blender_version',
+            'renderer',
+            'routing_note',
         ]
         extra_kwargs = {
             'status': {'required': False},

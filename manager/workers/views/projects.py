@@ -9,10 +9,9 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from ..models import Asset, Job, JobStatus, Project, SupportedBlenderVersion
+from ..models import Asset, Job, JobStatus, Project
 from ..parent_dispatch import dispatch_parents
 from ..permissions import IsAdmin
 from ..serializers import ProjectSerializer
@@ -34,18 +33,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
     API endpoint for creating, retrieving, and managing rendering projects.
 
     Projects serve as the top-level organizational entity for assets and jobs.
+    Create-time rules (for Blender: at least one supported version must
+    exist, and the default version is used when none is given) live in
+    the renderer strategy and run from ``ProjectSerializer.create``.
     """
     permission_classes = [IsAdmin]
     queryset = Project.objects.select_related('blender_version').order_by('-created_at')
     serializer_class = ProjectSerializer
-
-    def perform_create(self, serializer):
-        if SupportedBlenderVersion.objects.count() == 0:
-            raise ValidationError(
-                "At least one supported Blender version must be "
-                "configured before creating projects."
-            )
-        serializer.save()
 
     @action(detail=True, methods=['post'], url_path='cancel_all_jobs')
     def cancel_all_jobs(self, request, pk=None):

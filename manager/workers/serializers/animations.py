@@ -15,6 +15,7 @@ from ..constants import PILLOW_COMPATIBLE_FORMATS, RenderSettings
 from .projects import ProjectSerializer
 from .assets import AssetSerializer
 from .blender_versions import EffectiveBlenderVersionSerializer
+from .job_renderer import ensure_feature_supported
 from .validation_utils import validate_render_settings, validate_output_pattern_extension
 from .video_settings_validation import (
     validate_video_settings_create_guard,
@@ -114,6 +115,9 @@ class AnimationSerializer(serializers.ModelSerializer):
         """
         project = data.get('project')
         asset = data.get('asset')
+        ensure_feature_supported(
+            asset or getattr(self.instance, 'asset', None), 'animation',
+        )
         if project and asset and asset.project != project:
             raise serializers.ValidationError(
                 "The selected Asset does not belong to the selected Project."

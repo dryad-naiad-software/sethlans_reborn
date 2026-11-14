@@ -6,8 +6,11 @@ Serializer for the Asset model, handling file uploads.
 """
 
 from rest_framework import serializers
+
+from ..constants import AssetSourceType
 from ..models import Asset, Project
 from .projects import ProjectSerializer
+from .renderer_checks import check_immutable_and_consistent, resolve_source_strategy
 
 # 10 GB — asset-specific limit (separate from Django's global setting)
 MAX_BLEND_FILE_SIZE = 10 * 1024 * 1024 * 1024
@@ -20,6 +23,10 @@ BLEND_MAGIC_BYTES = b'BLENDER'
 GZIP_MAGIC_BYTES = b'\x1f\x8b'
 ZSTD_MAGIC_BYTES = b'\x28\xb5\x2f\xfd'
 
+# The path rules check leading/trailing spaces themselves (FR-MU-6/7/15),
+# so DRF must hand them the raw value.
+_UNTRIMMED = {'trim_whitespace': False}
+
 
 class AssetSerializer(serializers.ModelSerializer):
     """
@@ -30,11 +37,53 @@ class AssetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Asset
-        fields = ['id', 'name', 'blend_file', 'created_at', 'project', 'project_details']
+        fields = [
+            'id', 'name', 'source_type', 'blend_file',
+            'archive_path', 'uproject_path', 'archive_sha256',
+            'overlay_path', 'overlay_sha256',
+            'created_at', 'project', 'project_details',
+        ]
         read_only_fields = ['created_at', 'project_details']
         extra_kwargs = {
-            'project': {'write_only': True}
+            'project': {'write_only': True},
+            'archive_path': _UNTRIMMED,
+            'overlay_path': _UNTRIMMED,
+            'uproject_path': _UNTRIMMED,
         }
+
+    def _effective_source_type(self):
+        """``instance.source_type`` on update, else the request's value."""
+        if isinstance(self.instance, Asset):
+            return self.instance.source_type
+        initial = getattr(self, 'initial_data', None)
+        if hasattr(initial, 'get'):
+            return initial.get('source_type', AssetSourceType.BLEND_FILE)
+        return AssetSourceType.BLEND_FILE
+
+    def get_fields(self):
+        """Require ``blend_file`` exactly for ``blend_file`` assets (FR-MR-10).
+
+        ``Asset.blend_file`` is ``blank=True`` (shared-project assets have
+        none), which would make DRF build it ``required=False``.  Restoring
+        ``required`` here lets DRF's own field code produce today's errors
+        byte for byte: a missing key, ``blend_file=''`` and a PUT without a
+        file.  Schema generation has no ``initial_data`` and shows it required.
+        """
+        fields = super().get_fields()
+        fields['blend_file'].required = (
+            self._effective_source_type() == AssetSourceType.BLEND_FILE
+        )
+        return fields
+
+    def validate(self, attrs):
+        """Generic immutability checks, then the source type's strategy."""
+        check_immutable_and_consistent(self.instance, attrs)
+        source_type = (
+            self.instance.source_type if self.instance is not None
+            else attrs.get('source_type', AssetSourceType.BLEND_FILE)
+        )
+        strategy = resolve_source_strategy(source_type)
+        return strategy.validate_asset(attrs, self.instance)
 
     def validate_blend_file(self, value):
         """

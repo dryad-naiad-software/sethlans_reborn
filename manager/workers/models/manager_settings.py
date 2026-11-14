@@ -16,19 +16,52 @@ is self-contained — it does NOT import ``workers.enrollment_key`` so
 future refactors of that module do not break old migrations.
 """
 
+from django.core.exceptions import ValidationError
 from django.db import models
+
+
+def validate_canonical_unc_root(value):
+    """Accept ``''`` or a Sethlans share root in canonical UNC form.
+
+    Unreal foundation spec FR-MS-1.  The UNC rules (``shared.unreal.unc``)
+    arrive with the share endpoint in a later chunk; until then this
+    validator fails closed and accepts only the "not configured" value.
+    The migration references this function by import path, so the later
+    chunk replaces only its body.
+
+    Raises:
+        ValidationError: *value* is not ``''``.
+    """
+    if value == '':
+        return
+    raise ValidationError(
+        "Setting the Sethlans share is not supported by this manager version yet.",
+        code='sethlans_share_unsupported',
+    )
 
 
 class ManagerSettings(models.Model):
     """Singleton row holding runtime-mutable manager settings.
 
-    Always has ``pk=1``.  Never create additional rows.
+    Always has ``pk=1``.  Never create additional rows.  Every writer must
+    save with ``update_fields`` so a key rotation and a share change cannot
+    overwrite each other.
     """
 
     id = models.PositiveSmallIntegerField(primary_key=True, default=1)
     manager_id = models.CharField(max_length=36)
     enrollment_key = models.CharField(max_length=16)
     enrollment_key_updated_at = models.DateTimeField(auto_now=True)
+    sethlans_share = models.CharField(
+        max_length=1024,
+        blank=True,
+        default='',
+        validators=[validate_canonical_unc_root],
+        help_text=(
+            "The farm's Sethlans share root in canonical UNC form, or '' when "
+            "not configured. The manager's own value: never sent to workers."
+        ),
+    )
 
     class Meta:
         verbose_name = "Manager settings"

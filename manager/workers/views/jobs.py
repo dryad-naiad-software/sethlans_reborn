@@ -3,63 +3,31 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 import logging
-import re
 
-from django.db import models, transaction
+from django.db import transaction
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import (
-    OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view,
-)
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from ..constants import RenderDevice
 from ..models import Job, JobStatus, QueueSetting
 from ..permissions import IsAdmin, IsWorker
 from ..serializers import JobSerializer
 from .job_pause_actions import JobPauseActionsMixin
+from .job_poll_filters import (
+    LIST_PARAMETERS, apply_device_prefs_filter, apply_worker_poll_filters,
+)
 from .job_worker_actions import JobWorkerActionsMixin
 from .job_worker_update import JobWorkerUpdateMixin
 from .job_yield_actions import JobYieldActionsMixin
 
-VERSION_REGEX = re.compile(r'^\d+\.\d+\.\d+$')
-MAX_AVAILABLE_VERSIONS = 20
-
 logger = logging.getLogger(__name__)
 
 
-_LIST_PARAMETERS = [
-    OpenApiParameter(
-        name='device_prefs',
-        type=OpenApiTypes.STR,
-        location=OpenApiParameter.QUERY,
-        required=False,
-        description=(
-            "Comma-separated list of RenderDevice values (CPU, GPU, ANY) "
-            "to include. Used by workers to filter for jobs matching "
-            "their currently free slots. Empty or invalid values return "
-            "HTTP 400. Example: ``device_prefs=GPU,ANY``."
-        ),
-    ),
-    OpenApiParameter(
-        name='available_versions',
-        type=OpenApiTypes.STR,
-        location=OpenApiParameter.QUERY,
-        required=False,
-        description=(
-            "Comma-separated list of installed Blender versions "
-            "(e.g. ``4.5.8,4.4.3``) for worker-poll version filtering. "
-            "Matches at the series level (major.minor)."
-        ),
-    ),
-]
-
-
 @extend_schema_view(
-    list=extend_schema(tags=['Management UI'], parameters=_LIST_PARAMETERS),
+    list=extend_schema(tags=['Management UI'], parameters=LIST_PARAMETERS),
     retrieve=extend_schema(tags=['Management UI']),
     create=extend_schema(tags=['Management UI']),
     update=extend_schema(tags=['Management UI']),
@@ -89,7 +57,10 @@ class JobViewSet(
     queryset = Job.objects.all()
     serializer_class = JobSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'assigned_worker', 'animation', 'asset__project', 'tiled_job']
+    filterset_fields = [
+        'status', 'assigned_worker', 'animation', 'asset__project',
+        'tiled_job', 'renderer',
+    ]
     search_fields = ['name', 'asset__name', 'asset__project__name']
     ordering_fields = ['submitted_at', 'status', 'name']
 
@@ -108,8 +79,10 @@ class JobViewSet(
     def get_queryset(self):
         """
         Overrides the default queryset to allow filtering by a worker's
-        currently free device preferences, Blender version compatibility,
-        and to exclude paused jobs when workers poll.
+        currently free device preferences, renderer and version
+        compatibility, and to exclude paused jobs when workers poll.
+        A worker poll is ordered oldest first (FR-RT-15); other lists
+        keep ``Job.Meta.ordering`` (newest first).
         """
         queryset = super().get_queryset().select_related(
             'blender_version',
@@ -126,65 +99,11 @@ class JobViewSet(
             if QueueSetting.get_instance().queue_paused:
                 return queryset.none()
             queryset = queryset.filter(is_paused=False)
-            queryset = self._apply_version_filter(queryset)
-
-        queryset = self._apply_device_prefs_filter(queryset)
-        return queryset
-
-    def _apply_device_prefs_filter(self, queryset):
-        """Filter by device_prefs CSV query param (FR-9a, FR-9b).
-
-        Parses a comma-separated list of RenderDevice values and
-        restricts the queryset to jobs whose ``render_device`` is in the
-        requested set. Invalid values or an empty parsed list raise a
-        ValidationError (HTTP 400); the parameter being absent is a no-op.
-        """
-        param = self.request.query_params.get('device_prefs')
-        if param is None:
-            return queryset
-
-        raw = [v.strip().upper() for v in param.split(',') if v.strip()]
-        if not raw:
-            raise ValidationError(
-                "device_prefs must be a non-empty CSV of "
-                f"{sorted(RenderDevice.values)}."
+            queryset = apply_worker_poll_filters(
+                queryset, self.request.query_params,
             )
-        allowed = set(RenderDevice.values)
-        invalid = [v for v in raw if v not in allowed]
-        if invalid:
-            raise ValidationError(
-                f"Invalid device_prefs value(s): {invalid}. "
-                f"Allowed: {sorted(allowed)}."
-            )
-        logger.debug(
-            "Filtering jobs by device_prefs=%s.", raw,
-        )
-        return queryset.filter(render_device__in=raw)
 
-    def _apply_version_filter(self, queryset):
-        """Filter by available_versions query param (series-level matching)."""
-        param = self.request.query_params.get('available_versions')
-        if not param:
-            return queryset
-
-        versions = [v.strip() for v in param.split(',') if v.strip()]
-        if len(versions) > MAX_AVAILABLE_VERSIONS:
-            raise ValidationError(
-                f"Maximum {MAX_AVAILABLE_VERSIONS} versions allowed."
-            )
-        for v in versions:
-            if not VERSION_REGEX.match(v):
-                raise ValidationError(f"Invalid version format: {v}")
-
-        # Extract series from full versions for series-level matching
-        series_list = list({'.'.join(v.split('.')[:2]) for v in versions})
-        return queryset.filter(
-            models.Q(blender_version__series__in=series_list)
-            | models.Q(
-                blender_version__isnull=True,
-                asset__project__blender_version__series__in=series_list,
-            )
-        )
+        return apply_device_prefs_filter(queryset, self.request.query_params)
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):

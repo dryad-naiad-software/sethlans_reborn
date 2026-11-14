@@ -34,6 +34,60 @@ _last_stuck_check = 0.0  # module-level monotonic timestamp
 # contention is negligible.
 _last_stuck_check_lock = threading.Lock()
 
+_REAPER_MESSAGE = 'Auto-requeued: assigned worker went offline'
+
+
+def requeue_or_fail(job, requeue_message):
+    """Requeue *job*, or mark it ERROR once it exceeds the requeue limit.
+
+    Shared by the stuck-job reaper and the renderer requeue paths (spec
+    FR-RT-13).  Call on a row the caller locked inside its own
+    ``transaction.atomic()`` block, after re-checking it.
+
+    * ``auto_requeue_count`` is incremented.
+    * Above ``_MAX_AUTO_REQUEUE``: ERROR, ``completed_at`` set and the
+      ``"Max auto-requeue attempts exceeded (3)"`` message.
+    * Otherwise QUEUED, with ``assigned_worker``, ``started_at`` and
+      ``completed_at`` cleared and ``error_message = requeue_message``.
+      ``last_output`` is kept.
+
+    Returns:
+        The job's new status (``JobStatus.QUEUED`` or ``JobStatus.ERROR``).
+
+    Raises:
+        RuntimeError: called outside an atomic block (the row cannot be
+            locked there).
+    """
+    # The job's own connection: the row lock lives there, not on 'default'
+    # if the job was loaded through another alias.
+    using = getattr(job._state, 'db', None) or 'default'
+    if not transaction.get_connection(using=using).in_atomic_block:
+        raise RuntimeError("requeue_or_fail must run inside transaction.atomic()")
+    job.auto_requeue_count += 1
+    if job.auto_requeue_count > _MAX_AUTO_REQUEUE:
+        job.status = JobStatus.ERROR
+        job.completed_at = timezone.now()
+        job.error_message = (
+            f'Max auto-requeue attempts exceeded '
+            f'({_MAX_AUTO_REQUEUE})'
+        )
+        job.save(update_fields=[
+            'status', 'completed_at', 'error_message',
+            'auto_requeue_count',
+        ])
+    else:
+        job.status = JobStatus.QUEUED
+        job.assigned_worker = None
+        job.started_at = None
+        job.completed_at = None
+        job.error_message = requeue_message
+        job.save(update_fields=[
+            'status', 'assigned_worker', 'started_at',
+            'completed_at', 'error_message',
+            'auto_requeue_count',
+        ])
+    return job.status
+
 
 def requeue_stuck_jobs():
     """Requeue RENDERING jobs assigned to offline workers.
@@ -85,19 +139,7 @@ def requeue_stuck_jobs():
                     job.assigned_worker.hostname
                     if job.assigned_worker else 'unknown'
                 )
-                job.auto_requeue_count += 1
-
-                if job.auto_requeue_count > _MAX_AUTO_REQUEUE:
-                    job.status = JobStatus.ERROR
-                    job.completed_at = timezone.now()
-                    job.error_message = (
-                        f'Max auto-requeue attempts exceeded '
-                        f'({_MAX_AUTO_REQUEUE})'
-                    )
-                    job.save(update_fields=[
-                        'status', 'completed_at', 'error_message',
-                        'auto_requeue_count',
-                    ])
+                if requeue_or_fail(job, _REAPER_MESSAGE) == JobStatus.ERROR:
                     logger.info(
                         "Stuck job '%s' (ID: %s) exceeded max "
                         "auto-requeue (%d). Set to ERROR. "
@@ -106,18 +148,6 @@ def requeue_stuck_jobs():
                         _MAX_AUTO_REQUEUE, worker_hostname,
                     )
                 else:
-                    job.status = JobStatus.QUEUED
-                    job.assigned_worker = None
-                    job.started_at = None
-                    job.completed_at = None
-                    job.error_message = (
-                        'Auto-requeued: assigned worker went offline'
-                    )
-                    job.save(update_fields=[
-                        'status', 'assigned_worker', 'started_at',
-                        'completed_at', 'error_message',
-                        'auto_requeue_count',
-                    ])
                     logger.info(
                         "Auto-requeued stuck job '%s' (ID: %s) "
                         "from offline worker '%s' "

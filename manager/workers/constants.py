@@ -13,6 +13,22 @@ and ensuring consistency across the entire system.
 from django.db import models
 
 
+class Renderer(models.TextChoices):
+    """The render applications a project (and its jobs) can target."""
+    BLENDER = 'BLENDER', 'Blender'
+    UNREAL = 'UNREAL', 'Unreal Engine'
+
+
+class AssetSourceType(models.TextChoices):
+    """How an asset's scene data reaches the workers."""
+    BLEND_FILE = 'blend_file', 'Uploaded .blend file'
+    SHARED_PROJECT = 'shared_project', 'Project archive on a share'
+
+
+# Output formats Unreal jobs may request in phase 1 (spec D5: PNG only).
+UNREAL_OUTPUT_FORMATS = ('PNG',)
+
+
 class RenderEngine(models.TextChoices):
     """
     Defines the supported Blender render engines.
