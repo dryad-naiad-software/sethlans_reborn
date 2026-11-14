@@ -22,6 +22,18 @@ def _run_known_folder_probe_if_requested(argv) -> None:
         sys.exit(known_folder_probe.main())
 
 
+# Reserved first argument (issue #233): the Windows installer runs the
+# bundled worker with it to list the supported Unreal editors it should
+# add firewall rules for. Read-only; never starts the agent or reads config.
+LIST_UNREAL_EDITORS_ARG = '--list-unreal-editors'
+
+
+def _run_list_unreal_editors_if_requested(argv) -> None:
+    if len(argv) > 1 and argv[1] == LIST_UNREAL_EDITORS_ARG:
+        from sethlans_worker_agent import unreal_editor_list
+        sys.exit(unreal_editor_list.main(list(argv[2:])))
+
+
 # In frozen mode PyInstaller handles sys.path; only add the worker
 # directory and project root when running from source.
 if not getattr(sys, 'frozen', False):
@@ -35,5 +47,6 @@ if not getattr(sys, 'frozen', False):
 
 if __name__ == "__main__":
     _run_known_folder_probe_if_requested(sys.argv)
+    _run_list_unreal_editors_if_requested(sys.argv)
     from sethlans_worker_agent.agent import main
     main()

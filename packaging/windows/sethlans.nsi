@@ -9,6 +9,9 @@
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
 !include "nsDialogs.nsh"
+; Unreal Engine editor firewall rules (issue #233); defines
+; AddUnrealEditorFirewallRules and (un.)DeleteUnrealEditorFirewallRules.
+!include "unreal_firewall.nsh"
 
 ; --- Installer metadata ---
 !define PRODUCT_NAME "Sethlans"
@@ -116,6 +119,11 @@ Function .onInit
     nsExec::ExecToLog 'taskkill /F /IM run_launcher.exe'
     nsExec::ExecToLog 'taskkill /F /IM run_wizard.exe'
 
+    ; Remove the Unreal editor rules named in the prior install's record
+    ; file (issue #233) before its uninstaller deletes that file. Older
+    ; installs have no record file, which makes this a no-op.
+    Call DeleteUnrealEditorFirewallRules
+
     ; Run the previous uninstaller silently with _?=$INSTDIR so it blocks until done
     ; and does not self-delete. We then clean up the leftover uninstaller + bin dir.
     ExecWait '"$R0" /S _?=$INSTDIR'
@@ -216,6 +224,10 @@ Section "Sethlans Core" SEC_CORE
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Broadcast (UDP 8082)" dir=in action=allow protocol=UDP localport=8082 profile=private,public,domain program="$INSTDIR\bin\manager\run_manager.exe"'
   ; Wizard binds to a port in the 8100-8104 range during first-run setup (see FR-W15, DEVOPS-HIGH-5).
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Wizard (Setup)" dir=in action=allow protocol=TCP localport=8100-8104 profile=private,public,domain program="$INSTDIR\bin\wizard\run_wizard.exe"'
+
+  ; One rule per supported Unreal Engine editor on this machine (issue #233).
+  ; Engines installed later get theirs when the installer is re-run.
+  Call AddUnrealEditorFirewallRules
 SectionEnd
 
 ; --- Start Menu shortcuts ---
@@ -307,6 +319,9 @@ Section "Uninstall"
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Worker (TCP 8081)"'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Broadcast (UDP 8082)"'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Wizard (Setup)"'
+  ; Unreal editor rules listed in $INSTDIR's record file (issue #233);
+  ; also deletes the record file so RMDir "$INSTDIR" below can succeed.
+  Call un.DeleteUnrealEditorFirewallRules
 
   ; Remove files
   RMDir /r "$INSTDIR\bin"
