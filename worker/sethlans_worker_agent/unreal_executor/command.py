@@ -9,6 +9,8 @@ requirements 10 and 11).
 Every UE launch (prep, warm-up, render, pilot render) is built by **one**
 function, ``_finish``, which appends, in this order and exactly once::
 
+    -RenderOffscreen                           warm-up and render (headless; not the prep commandlet)
+    -UDPMESSAGING_TRANSPORT_ENABLE=0           every launch (no UdpMessaging listener, #233)
     [-csvCaptureFrames=5000000 -csvGpuStats]   pilot render only
     *zen_private.zen_flags(CACHE_DIR, ZEN_PORT)
     *user_state.isolation_args()               (-notraceserver)
@@ -46,6 +48,7 @@ from shared.unreal import validation
 PHASES = ('prep', 'warmup', 'render')
 DPCVARS = '-DPCVars='
 EXEC_PY = '-ExecCmds=py '
+HEADLESS = farm_defaults.HEADLESS_FLAGS[0]
 _ABS = re.compile(r'^[A-Za-z]:\\', re.ASCII)
 _CONTROL = re.compile(r'[\x00-\x1f\x7f"]')
 _WHITESPACE = re.compile(r'\s')
@@ -154,7 +157,28 @@ def _exactly_once(args: Sequence[str], value: str, prefix: Optional[str] = None)
     return found[0]
 
 
-def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool) -> None:
+def _check_headless(args: Sequence[str], phase: Optional[str], first_zen: int) -> None:
+    """Warm-up and render carry ``-RenderOffscreen`` exactly once, before the Zen tokens; the prep never does."""
+    if phase is None:
+        return
+    found = _positions(args, lambda t: t.lower() == HEADLESS.lower())
+    if phase in farm_defaults.HEADLESS_PHASES:
+        if len(found) != 1 or args[found[0]] != HEADLESS or not found[0] < first_zen:
+            raise CommandError(f"a {phase} launch must carry {HEADLESS} exactly once, before the Zen tokens")
+    elif found:
+        raise CommandError(f"a {phase} launch must not carry {HEADLESS}")
+
+
+def _check_network(args: Sequence[str], first_zen: int) -> None:
+    """Every launch carries the UdpMessaging switch exactly once, before the Zen tokens (#233)."""
+    for flag in farm_defaults.NETWORK_FLAGS:
+        name = flag.split('=', 1)[0].lower() + '='
+        found = _positions(args, lambda t: t.lower().startswith(name))
+        if len(found) != 1 or args[found[0]] != flag or not found[0] < first_zen:
+            raise CommandError(f"every launch must carry {flag} exactly once, before the Zen tokens")
+
+
+def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool, phase: Optional[str] = None) -> None:
     data, fs, shared, ini = zen_private.zen_flags(ctx.cache_dir, ctx.zen_port)
     zen = [_exactly_once(args, data, '-zendatapath='), _exactly_once(args, fs, '-localdatacachepath='),
            _exactly_once(args, shared, '-shareddatacachepath='), _exactly_once(args, ini, '-ini:engine:')]
@@ -171,10 +195,13 @@ def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool) ->
             raise CommandError("a pilot render carries exactly the CSV tokens, before the Zen tokens")
     elif csv:
         raise CommandError("only a pilot render may carry -csv tokens")
+    _check_headless(args, phase, min(zen))
+    _check_network(args, min(zen))
 
 
-def validate_args(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool = False) -> None:
-    """FR-UE-7 rules on a complete UE command line. Raises ``CommandError``."""
+def validate_args(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool = False,
+                  phase: Optional[str] = None) -> None:
+    """FR-UE-7 rules on a complete UE command line (``phase`` adds the headless rule). Raises ``CommandError``."""
     if len(args) < 3:
         raise CommandError("a UE command line needs the editor, the project and switches")
     for index, token in enumerate(args):
@@ -182,7 +209,7 @@ def validate_args(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool = 
     _require_abs(args[1], "the .uproject path")
     if not args[1].lower().endswith('.uproject'):
         raise CommandError("args[1] must be the .uproject path")
-    _check_order(args, ctx, pilot_launch)
+    _check_order(args, ctx, pilot_launch, phase)
 
 
 def _finish(ctx: LaunchContext, phase: str, head: Sequence[str], merged, params_path,
@@ -191,12 +218,15 @@ def _finish(ctx: LaunchContext, phase: str, head: Sequence[str], merged, params_
     if phase not in PHASES:
         raise CommandError(f"unknown phase {phase!r}")
     args = list(head)
+    if phase in farm_defaults.HEADLESS_PHASES:
+        args += list(farm_defaults.HEADLESS_FLAGS)
+    args += list(farm_defaults.NETWORK_FLAGS)
     if pilot_launch:
         args += list(pilot.PILOT_CSV_FLAGS)
     args += list(zen_private.zen_flags(ctx.cache_dir, ctx.zen_port))
     args += list(user_state.isolation_args())
     args.append(dpcvars_token(merged))
-    validate_args(args, ctx, pilot_launch)
+    validate_args(args, ctx, pilot_launch, phase)
     if params_path is not None:
         _require_abs(str(params_path), env_cleanup.UNREAL_PARAMS_VAR)
     env = env_cleanup.clean_env_for_unreal(None if params_path is None else str(params_path))

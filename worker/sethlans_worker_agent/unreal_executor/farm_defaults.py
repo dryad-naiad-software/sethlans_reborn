@@ -35,5 +35,19 @@ INI_INPUT_OVERRIDE = ("-ini:Input:[/Script/Engine.InputSettings]:bCaptureMouseOn
 RENDER_FLAGS = ("-windowed", "-resx=1280", "-resy=720", "-unattended", "-nosplash",
                 "-NoLoadingScreen", "-log", INI_INPUT_OVERRIDE)
 
-# Phase 4 (Linux); unused on Windows.
-HEADLESS_LINUX_FLAGS = ("-RenderOffscreen",)
+# Every UE launch that can open a window (the warm-up editor session and the
+# -game render, pilot included) runs headless on every platform, like Blender's
+# -b: on Windows -RenderOffscreen selects the null platform application
+# (WindowsPlatformApplicationMisc.cpp:173-176) and a swap-chain-less D3D12
+# viewport (WindowsD3D12Viewport.cpp:34), while Slate still draws every window
+# off screen (SlateApplication.cpp:1249, 1513). The prep commandlet creates no
+# Slate application at all (LaunchEngineLoop.cpp:3108) and does not take it.
+HEADLESS_FLAGS = ("-RenderOffscreen",)
+HEADLESS_PHASES = frozenset({"warmup", "render"})
+
+# Every UE launch: no UdpMessaging bridge (#233). The editor starts it by
+# default (UdpMessagingModule.cpp:323-327) on UDP 0.0.0.0:6666 + an ephemeral
+# port; -UDPMESSAGING_TRANSPORT_ENABLE=0 (:628) clears EnableTransport, so
+# RestartServices (:340-351) never calls InitializeBridge. (TraceLog's TCP
+# control listener on 0.0.0.0:1985 has no switch in 5.8.4; see the #233 notes.)
+NETWORK_FLAGS = ("-UDPMESSAGING_TRANSPORT_ENABLE=0",)

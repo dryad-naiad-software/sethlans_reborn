@@ -19,7 +19,9 @@ DPCVARS = ('-DPCVars=gc.TimeBetweenPurgingPendingKillObjects=4,Constraints.NewEv
            'r.RayTracing.ResidentGeometryMemoryPoolSizeInMB=2048,r.Streaming.PoolSize=9000')
 ZEN = [r'-ZenDataPath=D:\uecache\zen\data', r'-LocalDataCachePath=D:\uecache\zen\fs', '-SharedDataCachePath=None',
        '-ini:Engine:[Zen.AutoLaunch]:DesiredPort=8668,[Zen.AutoLaunch]:RemoteNetworkService=None']
-TAIL = ZEN + ['-notraceserver', DPCVARS]
+NET = '-UDPMESSAGING_TRANSPORT_ENABLE=0'
+TAIL = [NET] + ZEN + ['-notraceserver', DPCVARS]
+HEADLESS = '-RenderOffscreen'
 
 
 @pytest.fixture()
@@ -31,7 +33,7 @@ def test_render_golden(ctx):
     launch = command.build_render(ctx, UPROJECT, MAP, QUEUE, JOB + r'\logs\render.1.log', MERGED)
     expected = [EDITOR, UPROJECT, MAP, '-game', f'-MoviePipelineConfig={QUEUE}', '-windowed', '-resx=1280',
                 '-resy=720', '-unattended', '-nosplash', '-NoLoadingScreen', '-log', farm_defaults.INI_INPUT_OVERRIDE,
-                r'-abslog=D:\uecache\j\42-1a2b3c4d\logs\render.1.log'] + TAIL
+                r'-abslog=D:\uecache\j\42-1a2b3c4d\logs\render.1.log', HEADLESS] + TAIL
     assert list(launch.args) == expected
     assert launch.cwd == CACHE and launch.phase == 'render' and not launch.pilot
     assert 'SETHLANS_UE_JOB_PARAMS' not in launch.env
@@ -40,7 +42,7 @@ def test_render_golden(ctx):
 def test_pilot_render_carries_literal_csv_tokens_before_zen(ctx):
     launch = command.build_render(ctx, UPROJECT, MAP, QUEUE, JOB + r'\logs\render.1.log', MERGED, pilot_launch=True)
     args = list(launch.args)
-    assert args[-8:] == ['-csvCaptureFrames=5000000', '-csvGpuStats'] + TAIL
+    assert args[-10:] == [HEADLESS, NET, '-csvCaptureFrames=5000000', '-csvGpuStats'] + TAIL[1:]
 
 
 def test_prep_golden(ctx):
@@ -58,7 +60,8 @@ def test_warmup_golden(ctx):
                                   JOB + r'\logs\warmup.1.log', JOB + r'\params.json', MERGED)
     assert list(launch.args) == [EDITOR, UPROJECT, '-unattended', '-nosplash', '-log',
                                  r'-abslog=D:\uecache\j\42-1a2b3c4d\logs\warmup.1.log',
-                                 r'-ExecCmds=py D:\uecache\j\42-1a2b3c4d\scripts\sethlans_warm_up.py'] + TAIL
+                                 r'-ExecCmds=py D:\uecache\j\42-1a2b3c4d\scripts\sethlans_warm_up.py',
+                                 HEADLESS] + TAIL
 
 
 def test_every_launch_has_the_isolation_environment(ctx, monkeypatch):
@@ -163,3 +166,58 @@ def test_args0_with_spaces_is_the_only_whitespace_token(ctx):
 def test_isolation_args_and_profile(ctx):
     assert user_state.isolation_args() == ('-notraceserver',)
     assert ctx.profile == r'D:\uecache\ueprofile'
+
+
+def test_every_window_capable_launch_is_headless_and_the_prep_is_not(ctx):
+    """Headless like Blender's -b: the warm-up editor and the -game render never open a window."""
+    render = command.build_render(ctx, UPROJECT, MAP, QUEUE, JOB + r'\l.log', MERGED)
+    pilot_render = command.build_render(ctx, UPROJECT, MAP, QUEUE, JOB + r'\l.log', MERGED, pilot_launch=True)
+    warmup = command.build_warmup(ctx, UPROJECT, JOB + r'\s.py', JOB + r'\l.log', JOB + r'\p.json', MERGED)
+    prep = command.build_prep(ctx, UPROJECT, JOB + r'\s.py', JOB + r'\l.log', JOB + r'\p.json', MERGED)
+    for launch in (render, pilot_render, warmup):
+        args = list(launch.args)
+        assert args.count(HEADLESS) == 1 and args.index(HEADLESS) < args.index(ZEN[0])
+        assert args[-1] == DPCVARS
+    assert HEADLESS not in prep.args
+    assert farm_defaults.HEADLESS_FLAGS == (HEADLESS,)
+
+
+@pytest.mark.parametrize('phase,mutate', [
+    ('render', lambda a: a.remove(HEADLESS)),
+    ('render', lambda a: a.insert(3, HEADLESS)),                          # twice
+    ('render', lambda a: a.insert(a.index('-notraceserver'), a.pop(a.index(HEADLESS)))),  # after the Zen tokens
+    ('render', lambda a: a.__setitem__(a.index(HEADLESS), '-renderoffscreen')),           # other spelling
+    ('prep', lambda a: a.insert(3, HEADLESS)),
+])
+def test_validate_args_enforces_the_headless_rule(ctx, phase, mutate):
+    if phase == 'prep':
+        args = list(command.build_prep(ctx, UPROJECT, JOB + r'\s.py', JOB + r'\l.log', JOB + r'\p.json', MERGED).args)
+    else:
+        args = _render_args(ctx)
+    command.validate_args(args, ctx, phase=phase)
+    mutate(args)
+    with pytest.raises(CommandError):
+        command.validate_args(args, ctx, phase=phase)
+
+
+@pytest.mark.parametrize('mutate', [
+    lambda a: a.remove(NET),
+    lambda a: a.insert(3, NET),                                                  # twice
+    lambda a: a.__setitem__(a.index(NET), '-UDPMESSAGING_TRANSPORT_ENABLE=1'),
+    lambda a: a.insert(a.index('-notraceserver'), a.pop(a.index(NET))),          # after the Zen tokens
+])
+def test_validate_args_enforces_the_udp_messaging_switch(ctx, mutate):
+    """#233: no farm launch starts the UdpMessaging bridge (UDP 0.0.0.0:6666 + an ephemeral port)."""
+    args = _render_args(ctx)
+    command.validate_args(args, ctx, phase='render')
+    mutate(args)
+    with pytest.raises(CommandError):
+        command.validate_args(args, ctx, phase='render')
+
+
+def test_every_launch_disables_udp_messaging(ctx):
+    launches = (command.build_render(ctx, UPROJECT, MAP, QUEUE, JOB + r'\l.log', MERGED, pilot_launch=True),
+                command.build_warmup(ctx, UPROJECT, JOB + r'\s.py', JOB + r'\l.log', JOB + r'\p.json', MERGED),
+                command.build_prep(ctx, UPROJECT, JOB + r'\s.py', JOB + r'\l.log', JOB + r'\p.json', MERGED))
+    for launch in launches:
+        assert launch.args.count(NET) == 1 and farm_defaults.NETWORK_FLAGS == (NET,)

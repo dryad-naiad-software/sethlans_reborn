@@ -13,6 +13,11 @@ lines (the Zen override and launch lines, the D3D12 adapter, the MRQ
 completion lines, ``RequestExitWithStatus(0, 0``), the prep result, the
 warm-up marker line, and PNGs into ``j/<job>/output``.
 
+It fails like a crashed UE (a critical-error line, exit 3) when a warm-up or
+render launch lacks exactly one ``-RenderOffscreen`` or the prep commandlet
+carries one, or any launch lacks ``-UDPMESSAGING_TRANSPORT_ENABLE=0`` (#233),
+so every passing test also proves the launches are headless and quiet.
+
 Behavior switches come from a ``fake_ue.json`` next to the ``.uproject``
 (written by the test into the archive): ``cancel_first_render`` logs
 ``Compilation cancelled.`` on ``render.1``, ``prep_error`` makes the prep
@@ -62,6 +67,15 @@ def png(path):
 
 
 time.sleep(float(OPTS.get('phase_sleep', 0)))
+if '-run=pythonscript' not in args and args.count('-RenderOffscreen') != 1:
+    say('LogWindows: Error: === Critical error: === a window would open (no -RenderOffscreen)')
+    sys.exit(3)
+if args.count('-UDPMESSAGING_TRANSPORT_ENABLE=0') != 1:
+    say('LogWindows: Error: === Critical error: === UdpMessaging would listen on 0.0.0.0:6666')
+    sys.exit(3)
+if '-run=pythonscript' in args and '-RenderOffscreen' in args:
+    say('LogWindows: Error: === Critical error: === the prep commandlet got -RenderOffscreen')
+    sys.exit(3)
 say('LogZenServiceInstance: Found command line override ZenDataPath=' + zen)
 say("LogZenServiceInstance: Display: Launching executable 'C:\\zen\\zenserver.exe', working dir 'C:\\zen', "
     "data dir '" + zen + "', args '--port " + port + " --data-dir \"" + zen + "\"'")
