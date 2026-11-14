@@ -99,3 +99,30 @@ key_file =
 # timezone = local
 # When true and inside the window, skip idle detection checks.
 # overrides_idle_detection = false
+
+[unreal]
+# Unreal Engine 5.8 still rendering (phase 1, Windows only). Env vars:
+# SETHLANS_UNREAL_<KEY>. Changing a value needs a worker restart.
+# enabled = false
+# The Sethlans share root, a UNC directory (\\host\share[\dir]). Use a
+# DNS-resolvable fully qualified host name; the share should be writable by
+# farm admins only (its content is pinned by SHA-256, but anyone who can
+# write it before the admin fingerprints a file can run code on workers).
+# share =
+# Local cache for project archives, working copies, the farm-private Zen
+# DDC and the farm profile. A local NTFS path without spaces, ',' or ';'.
+# Default: <worker data dir>\unreal
+# cache_dir =
+# The farm-private zenserver's port (never 8558, an artist editor's port).
+# zen_port = 8668
+# Behavior change (per-user isolation): every farm Unreal launch runs with
+# USERPROFILE, LOCALAPPDATA, APPDATA, HOMEDRIVE/HOMEPATH and TEMP/TMP pointed
+# at <cache_dir>\ueprofile, like Blender's --factory-startup. An artist's
+# engine-wide User*.ini overrides, Editor Preferences and UBT's
+# BuildConfiguration.xml therefore do not apply to farm renders, and farm
+# renders never write the artist's Unreal settings. If Windows shell folders
+# are redirected (for example Documents in OneDrive), Unreal work is refused
+# on that machine; use a dedicated render account.
+# keep_job_logs = 10
+# warmup_hold_seconds = 240
+# render_timeout_seconds = 14400

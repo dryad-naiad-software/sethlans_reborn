@@ -117,3 +117,28 @@ def test_retained_reservation_keeps_token_and_slots(worker):
     mocks['poll'].reset_mock()
     assert job_processor.get_and_claim_job(worker_id=1) is None
     mocks['poll'].assert_not_called()
+
+
+def test_pilot_results_through_the_lifecycle(worker):
+    """Chunk 7b: a reported pilot is released (no PATCH, no upload); a rejected one PATCHes ERROR.
+
+    Both run the executor's post-report hook (output cleanup and pruning) after the report.
+    """
+    fake, mocks = worker
+    order = []
+    mocks['update'].side_effect = lambda *args: order.append('patch')
+    fake.result = make_result(success=True, released=True, stdout='[sethlans-unreal] kind=pilot',
+                              after_report=lambda: order.append('cleanup'))
+    _dispatch(mocks, unreal_job(35))
+    assert order == ['cleanup'] and fake.token_free()
+    mocks['upload'].assert_not_called()
+
+    order.clear()
+    fake.result = make_result(success=False, released=False, render_time_seconds=None,
+                              error_message='Pilot result rejected by the manager: peak_mb: too low',
+                              after_report=lambda: order.append('cleanup'))
+    _dispatch(mocks, unreal_job(36))
+    assert order == ['patch', 'cleanup']
+    payload = mocks['update'].call_args.args[1]
+    assert payload['status'] == 'ERROR' and payload['error_message'].startswith('Pilot result rejected')
+    assert job_processor.get_worker_capacity().has_no_reservations() and fake.token_free()

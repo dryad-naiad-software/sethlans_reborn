@@ -197,7 +197,6 @@ def _process_claimed_job_inner(job_data: Dict[str, Any]):
         _shutdown_event = threading.Event()
 
     job_id = job_data.get('id')
-    job_name = job_data.get('name', 'Unnamed Job')
     reservation = job_data.get('_reservation')
     assigned_gpu_index = (
         reservation.primary_gpu_index if reservation is not None
@@ -222,6 +221,27 @@ def _process_claimed_job_inner(job_data: Dict[str, Any]):
         manual_stop_event=manual_stop,
         shutdown_event=_shutdown_event,
     ))
+    try:
+        _report_result(job_data, result, job_processor)
+    finally:
+        _run_after_report(job_id, result)
+
+
+def _run_after_report(job_id, result):
+    """The executor's post-report hook (Unreal cleanup); never raises."""
+    hook = getattr(result, 'after_report', None)
+    if hook is None:
+        return
+    try:
+        hook()
+    except Exception:  # noqa: BLE001 - cleanup must not fail the job thread
+        logger.exception("Post-report cleanup failed for job %s", job_id)
+
+
+def _report_result(job_data, result, job_processor):
+    """Upload and report one result (unchanged Blender flow)."""
+    job_id = job_data.get('id')
+    job_name = job_data.get('name', 'Unnamed Job')
     if result.released:
         logger.info(
             f"Job {job_id} was handed back to the manager; "

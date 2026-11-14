@@ -75,6 +75,10 @@ class RenderResult:
     # abandoned it after reassignment): the lifecycle skips the status
     # report and the upload. Blender never sets it.
     released: bool = False
+    # Called by the lifecycle after the status report (or after a released
+    # result), never raising into it: Unreal's per-job output cleanup and
+    # job-dir pruning (chunk 7 integration requirements 3, 4). Blender: None.
+    after_report: Optional[Callable[[], None]] = None
 
 
 class RendererReservation:

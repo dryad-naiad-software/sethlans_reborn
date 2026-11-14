@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from sethlans_worker_agent import config_unreal, unreal_share
-from sethlans_worker_agent.unreal_executor import cache_dir, detection, runtime
+from sethlans_worker_agent.unreal_executor import cache_dir, detection, runtime, startup_recovery
 from sethlans_worker_agent.unreal_executor.vram import GpuMem, GpuMemoryReading
 
 BUILD_58 = '5.8.4-58902052'
@@ -67,7 +67,7 @@ def reachable(root='\\\\nas.lan\\sethlans', ok=True):
 
 def enable_unreal(monkeypatch, installs=(install(),), share='', share_state=None,
                   sampler=None, cache_reason='', lock_ok=True, symlink_eval=False,
-                  force_gpu_index=None):
+                  force_gpu_index=None, recovered=True):
     """Enable Unreal with fakes; returns a dict of call records."""
     calls = {'prepare': 0, 'lock': 0, 'threads': 0, 'detect': 0}
     monkeypatch.setattr(config_unreal, 'ENABLED', True)
@@ -99,6 +99,10 @@ def enable_unreal(monkeypatch, installs=(install(),), share='', share_state=None
     monkeypatch.setattr(runtime.owner_lock, 'acquire_for_process', lock)
     monkeypatch.setattr(runtime, '_start_threads', start_threads)
     monkeypatch.setattr(detection, 'detect_engines', detect)
+    # Chunk 7b: the startup recovery would touch the (fake) cache dir; mark it done (or not) instead.
+    monkeypatch.setattr(startup_recovery, 'run_once', lambda: None)
+    if recovered:
+        startup_recovery.mark_ready_for_tests()
     if share_state is not None:
         monkeypatch.setattr(unreal_share, 'state', lambda: share_state)
     return calls

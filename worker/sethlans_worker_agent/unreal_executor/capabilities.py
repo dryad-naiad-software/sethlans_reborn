@@ -19,7 +19,7 @@ read, so they are never torn. Share reachability does not affect
 from typing import List, Optional
 
 from sethlans_worker_agent import config_unreal, unreal_share
-from sethlans_worker_agent.unreal_executor import runtime, vram
+from sethlans_worker_agent.unreal_executor import runtime, startup_recovery, vram
 
 SCHEMA = 1
 DISABLED_BY_CONFIG_REASON = "disabled by config"
@@ -41,9 +41,14 @@ def _disabled_by_config() -> dict:
 
 
 def startup() -> None:
-    """Run the Unreal startup checks now (agent startup hook). No-op when disabled."""
+    """Run the Unreal startup checks, then the startup recovery (agent startup hook). No-op when disabled.
+
+    Recovery (FR-PA-18) runs here, once, before the first poll; until it has
+    succeeded ``poll_params`` never asks for Unreal jobs.
+    """
     if config_unreal.ENABLED:
         runtime.startup()
+        startup_recovery.run_once()
 
 
 def snapshot() -> dict:
@@ -86,7 +91,7 @@ def poll_params(node_idle: bool) -> dict:
     runtime.startup()
     current = runtime.installs()
     enabled, _reason = runtime.status(current)
-    if not enabled:
+    if not enabled or not startup_recovery.ready():  # chunk 7 req. 1: never before recover() succeeded
         return {}
     share = unreal_share.state()
     if share.root is None or not share.reachable:

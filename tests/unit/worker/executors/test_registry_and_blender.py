@@ -46,24 +46,31 @@ class TestRegistry:
             executors.get_executor(renderer)
         assert str(info.value) == f"Unsupported renderer '{renderer}' on this worker."
 
-    def test_unreal_executor_missing_raises_unsupported(self, caplog):
-        """Chunk 3 ships no unreal_executor.executor: the lookup fails cleanly."""
+    def test_real_unreal_executor_loads_once_without_threads(self):
+        """Chunk 7b: the real executor loads lazily; its __init__ starts no thread (chunk 3 L3)."""
+        before = {t.ident for t in threading.enumerate()}
+        executor = executors.get_executor('UNREAL')
+        assert type(executor).__module__ == UNREAL_MODULE
+        assert executor.renderer == 'UNREAL' and executor.capacity_mode == 'exclusive'
+        assert executors.get_executor('UNREAL') is executor
+        assert {t.ident for t in threading.enumerate()} <= before
+
+    def test_unreal_import_failure_raises_unsupported(self, monkeypatch, caplog):
         caplog.set_level('ERROR', logger='sethlans_worker_agent.executors')
+        monkeypatch.delitem(sys.modules, UNREAL_MODULE, raising=False)
+        fail_imports(monkeypatch, UNREAL_MODULE)
         for _ in range(3):
             with pytest.raises(UnsupportedRendererError) as info:
                 executors.get_executor('UNREAL')
             assert str(info.value) == "Unsupported renderer 'UNREAL' on this worker."
-        errors = [r for r in caplog.records if r.levelname == 'ERROR']
-        assert len(errors) == 1
-
-    def test_unreal_import_failure_raises_unsupported(self, monkeypatch):
-        fail_imports(monkeypatch, UNREAL_MODULE)
-        with pytest.raises(UnsupportedRendererError):
-            executors.get_executor('UNREAL')
+        assert len([r for r in caplog.records if r.levelname == 'ERROR']) == 1
 
     def test_failed_import_is_cached_not_retried(self, monkeypatch):
-        with pytest.raises(UnsupportedRendererError):
-            executors.get_executor('UNREAL')
+        monkeypatch.delitem(sys.modules, UNREAL_MODULE, raising=False)
+        with monkeypatch.context() as patch:
+            fail_imports(patch, UNREAL_MODULE)
+            with pytest.raises(UnsupportedRendererError):
+                executors.get_executor('UNREAL')
         assert executors._unreal_load_error is not None
         # Even if the module became importable, the cached failure stands
         # until restart: no second import attempt.
@@ -78,7 +85,8 @@ class TestRegistry:
         assert executors.get_executor('UNREAL') is fake_unreal
         assert executors.get_executor('UNREAL') is fake_unreal
 
-    def test_unreal_executor_not_imported_by_blender_paths(self):
+    def test_unreal_executor_not_imported_by_blender_paths(self, monkeypatch):
+        monkeypatch.delitem(sys.modules, UNREAL_MODULE, raising=False)
         executors.get_executor('BLENDER')
         assert UNREAL_MODULE not in sys.modules
 

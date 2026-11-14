@@ -15,6 +15,7 @@ import types
 
 import pytest
 
+import sethlans_worker_agent
 from sethlans_worker_agent import agent, job_processor
 
 from ._fakes import blender_job, install_capacity, unreal_job
@@ -156,6 +157,7 @@ class TestThreadStartFailure:
         fake_extras = types.ModuleType('sethlans_worker_agent.api_extras')
         fake_extras.release_job = mocker.Mock()
         monkeypatch.setitem(sys.modules, 'sethlans_worker_agent.api_extras', fake_extras)
+        monkeypatch.setattr(sethlans_worker_agent, 'api_extras', fake_extras, raising=False)  # chunk 7b: real module exists
         self._start_fails(mocker)
         assert job_processor.get_and_claim_job(worker_id=1) is None
         fake_extras.release_job.assert_called_once_with(4, 'dispatch_failed')
@@ -168,15 +170,17 @@ class TestThreadStartFailure:
         fake_extras = types.ModuleType('sethlans_worker_agent.api_extras')
         fake_extras.release_job = mocker.Mock()
         monkeypatch.setitem(sys.modules, 'sethlans_worker_agent.api_extras', fake_extras)
+        monkeypatch.setattr(sethlans_worker_agent, 'api_extras', fake_extras, raising=False)  # chunk 7b: real module exists
         self._start_fails(mocker)
         assert job_processor.get_and_claim_job(worker_id=1) is None
         fake_extras.release_job.assert_not_called()
         _assert_everything_free(cap, fake_unreal)
 
-    def test_missing_api_extras_is_logged_not_raised(self, mocker, fake_unreal):
+    def test_release_failure_is_logged_not_raised(self, mocker, fake_unreal):
         cap = install_capacity()
         _poll_returns(mocker, [unreal_job(6)])
         mocker.patch('sethlans_worker_agent.api_handler.claim_job', return_value=True)
+        mocker.patch('sethlans_worker_agent.api_extras.release_job', side_effect=RuntimeError('boom'))
         self._start_fails(mocker)
         assert job_processor.get_and_claim_job(worker_id=1) is None
         _assert_everything_free(cap, fake_unreal)

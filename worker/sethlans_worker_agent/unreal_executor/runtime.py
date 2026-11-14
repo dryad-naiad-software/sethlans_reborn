@@ -198,6 +198,12 @@ def disable_until_restart(reason: str) -> None:
     logger.error("Unreal rendering disabled until restart: %s", reason)
 
 
+def static_reason() -> str:
+    """The startup or ``disable_until_restart`` reason ('' while none applies)."""
+    with _lock:
+        return _static_reason if _started else 'Unreal startup has not run'
+
+
 def sampler() -> Optional[VramSampler]:
     with _lock:
         return _sampler
@@ -220,3 +226,6 @@ def reset_for_tests() -> None:
     unreal_share.reset_for_tests()
     isolation_state.reset_for_tests()
     owner_lock.release_for_process()
+    recovery_gate = sys.modules.get('sethlans_worker_agent.unreal_executor.startup_recovery')  # imports this one
+    if recovery_gate is not None:
+        recovery_gate.reset_for_tests()
