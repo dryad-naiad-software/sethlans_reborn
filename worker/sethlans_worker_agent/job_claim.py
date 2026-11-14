@@ -12,12 +12,20 @@ One ``try/finally`` with a ``claimed`` flag covers everything after
 selection. On every non-success exit (no compatible slot, shutdown in
 progress, ``claim_job`` False, any exception) it releases the renderer
 reservation, then the capacity slot if one was reserved.
+
+A refused claim (``claim_job`` False) is recorded in ``job_selection`` so
+the job is skipped for ``CLAIM_REFUSED_TTL_SECONDS`` (60 s) and the
+oldest-first walk is not stalled on a job this worker can never claim.
+``api_handler.claim_job`` returns False for a 409, any other non-200
+status, an authentication failure **and** a network error alike, so all
+of them start the skip: a job whose claim failed for a transient reason
+waits at most one TTL before it is tried again.
 """
 import datetime
 import logging
 from typing import Any, Dict, Optional
 
-from sethlans_worker_agent import api_handler
+from sethlans_worker_agent import api_handler, job_selection
 from sethlans_worker_agent.job_resources import ACTIVE_ENTRY, forget_job, release_reservations
 
 logger = logging.getLogger(__name__)
@@ -104,6 +112,8 @@ def claim_selected(selection, capacity, worker_id) -> Optional[Dict[str, Any]]:
                 raise
             claimed = True
             return job
+        # Refused (409 or other non-success): let the next walk move past it.
+        job_selection.record_claim_refused(job_id)
         return None
     finally:
         if not claimed:

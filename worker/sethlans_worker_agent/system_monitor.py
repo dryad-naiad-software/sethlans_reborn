@@ -19,6 +19,7 @@ import logging
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent import api_handler
+from sethlans_worker_agent import boot_id, unreal_bridge
 from sethlans_worker_agent import version_sync
 
 # Re-export hardware detection functions for backward compatibility
@@ -78,6 +79,33 @@ def _get_ui_url():
     return f"https://{ui_host}:{config.UI_PORT}"
 
 
+def _add_unreal_payload(payload):
+    """Add ``unreal_capabilities`` and, when available, ``gpu_memory`` (FR-WD-8).
+
+    Both come through the guarded bridge, which never raises.
+    ``gpu_memory`` is omitted while Unreal is disabled (NF-6) or no
+    reading exists.
+    """
+    payload['unreal_capabilities'] = unreal_bridge.snapshot()
+    gpu_memory = unreal_bridge.gpu_memory_payload()
+    if gpu_memory is not None:
+        payload['gpu_memory'] = gpu_memory
+
+
+def _add_active_job_ids(payload):
+    """Add ``active_job_ids`` (FR-RT-17): claimed jobs not yet finished.
+
+    Sent whether Unreal is enabled or not. On any failure the key is
+    omitted (the manager then reconciles nothing) rather than sending a
+    list that could look like "running nothing".
+    """
+    try:
+        from sethlans_worker_agent import job_processor  # circular at import time
+        payload['active_job_ids'] = sorted(job_processor.get_unfinished_job_ids())
+    except Exception:
+        logger.exception("Could not list unfinished jobs for the heartbeat.")
+
+
 def _process_heartbeat_versions(response_data, is_busy=False, active_jobs=None):
     """
     Process version requirements from a heartbeat response.
@@ -125,6 +153,8 @@ def register_with_manager():
     payload['ui_url'] = _get_ui_url()
     payload['ui_cert_fingerprint'] = _get_ui_cert_fingerprint()
     payload['status'] = 'IDLE'
+    payload['worker_boot_id'] = boot_id.BOOT_ID
+    _add_unreal_payload(payload)
 
     logger.info("Using existing API token for registration heartbeat.")
     response_data = api_handler.send_authenticated_heartbeat(payload)
@@ -188,6 +218,8 @@ def send_heartbeat(is_busy=False, active_jobs=None):
     schedule_cfg = config.get_schedule_config()
     if schedule_cfg:
         payload['schedule'] = schedule_cfg
+    _add_unreal_payload(payload)
+    _add_active_job_ids(payload)
 
     response_data = api_handler.send_authenticated_heartbeat(payload)
     if response_data:

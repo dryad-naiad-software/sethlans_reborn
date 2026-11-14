@@ -81,6 +81,20 @@ def gpu_memory_payload() -> Optional[dict]:
         return None
 
 
+def startup() -> None:
+    """Agent startup hook: run the Unreal startup checks once (FR-WD-6).
+
+    No-op when Unreal is disabled (NF-6). The first heartbeat or poll
+    would run them lazily otherwise; calling this before registration
+    makes the first ``unreal_capabilities`` complete.
+    """
+    try:
+        from sethlans_worker_agent.unreal_executor import capabilities
+        capabilities.startup()
+    except Exception as exc:
+        _log_failure_once('startup', exc)
+
+
 def drift_check_allowed() -> bool:
     """False while an exclusive (Unreal) reservation is held (FR-WX-14).
 

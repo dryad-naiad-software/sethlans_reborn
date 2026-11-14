@@ -106,6 +106,11 @@ def main(argv=None):
         _graceful_shutdown()
         return
 
+    # Unreal startup checks (owner lock, cache ACL, first engine detection);
+    # a no-op unless SETHLANS_UNREAL_ENABLED (NF-6). Guarded: never raises.
+    from sethlans_worker_agent import unreal_bridge
+    unreal_bridge.startup()
+
     worker_id = None
 
     while not _shutdown_event.is_set():
