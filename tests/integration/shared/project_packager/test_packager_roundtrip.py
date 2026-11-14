@@ -69,8 +69,21 @@ def test_a_name_the_worker_would_reject_is_refused_before_writing(tmp_path, name
     assert info.value.paths == (f'Content/{name}',)
 
 
+def _case_sensitive(directory) -> bool:
+    probe = directory / 'case-probe'
+    probe.write_bytes(b'')
+    try:
+        return not (directory / 'CASE-PROBE').exists()
+    finally:
+        probe.unlink()
+
+
 @pytest.mark.skipif(sys.platform == 'win32', reason="needs a case-sensitive filesystem")
 def test_a_case_collision_is_refused(tmp_path):
+    # macOS APFS is case-insensitive by default: the second file would just
+    # overwrite the first, so there is no collision to detect.
+    if not _case_sensitive(tmp_path):
+        pytest.skip("needs a case-sensitive filesystem")
     project = h.make_project(tmp_path, extra={'Content/hero.uasset': b'x', 'Content/HERO.uasset': b'y'})
     with pytest.raises(PackagerError, match='letter case'):
         scan(project)
