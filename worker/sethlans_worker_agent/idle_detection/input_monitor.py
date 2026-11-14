@@ -33,25 +33,19 @@ def _get_idle_seconds_windows() -> Optional[float]:
     """Windows: GetLastInputInfo + GetTickCount64."""
     try:
         import ctypes
-        import ctypes.wintypes
 
-        class LASTINPUTINFO(ctypes.Structure):
-            _fields_ = [
-                ("cbSize", ctypes.wintypes.UINT),
-                ("dwTime", ctypes.wintypes.DWORD),
-            ]
+        # Typed private DLL bindings (issue #234).
+        from sethlans_worker_agent.idle_detection import win32_api as api
 
-        lii = LASTINPUTINFO()
-        lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
-        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lii)):
+        lii = api.LASTINPUTINFO()
+        lii.cbSize = ctypes.sizeof(api.LASTINPUTINFO)
+        if not api.user32.GetLastInputInfo(ctypes.byref(lii)):
             logger.debug("GetLastInputInfo failed.")
             return None
 
         # Use GetTickCount64 (not GetTickCount) to avoid 49-day
         # DWORD wraparound (FR-1a).
-        tick64 = ctypes.windll.kernel32.GetTickCount64
-        tick64.restype = ctypes.c_uint64
-        current_tick = tick64()
+        current_tick = api.kernel32.GetTickCount64()
         elapsed_ms = current_tick - lii.dwTime
         return elapsed_ms / 1000.0
     except Exception as exc:
