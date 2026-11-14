@@ -133,6 +133,9 @@ class TestNonLocalCandidatesNeverTouchTheFilesystem:
     def test_launcher_entry_with_unc_location(self, tmp_path, monkeypatch):
         dat = tmp_path / 'LauncherInstalled.dat'
         dat.write_text(json.dumps({"InstallationList": [{"InstallLocation": r"\\evil\x"}]}))
+        # tmp_path is not a Windows fixed drive on Linux/macOS CI; this test
+        # is about the candidate list, not the .dat location check.
+        monkeypatch.setattr(detection, 'is_fixed_drive', lambda path: True)
         candidates = detection.WindowsLauncherLocator(str(dat)).candidates()
         assert candidates == [r'\\evil\x']
         assert not detection.is_local_drive_path(candidates[0])
