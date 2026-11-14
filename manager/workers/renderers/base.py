@@ -60,8 +60,13 @@ class RendererStrategy(ABC):
         """Complete validated job data just before the row is created."""
 
     @abstractmethod
-    def poll_q(self, params):
-        """Return the ``Q`` selecting this renderer's jobs for a worker poll."""
+    def poll_q(self, params, worker=None):
+        """Return the ``Q`` selecting this renderer's jobs for a worker poll.
+
+        ``worker`` is the polling caller's ``Worker`` row, or ``None`` for a
+        non-worker caller, so a strategy can leave out jobs its
+        ``claim_rejection`` would refuse for that worker (FR-MS-5).
+        """
 
     @abstractmethod
     def claim_rejection(self, worker, job):

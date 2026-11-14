@@ -19,25 +19,31 @@ future refactors of that module do not break old migrations.
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from shared.unreal.unc import validate_unc_dir
+
 
 def validate_canonical_unc_root(value):
     """Accept ``''`` or a Sethlans share root in canonical UNC form.
 
-    Unreal foundation spec FR-MS-1.  The UNC rules (``shared.unreal.unc``)
-    arrive with the share endpoint in a later chunk; until then this
-    validator fails closed and accepts only the "not configured" value.
-    The migration references this function by import path, so the later
-    chunk replaces only its body.
+    Unreal foundation spec FR-MS-1: the value must pass
+    ``shared.unreal.unc.validate_unc_dir`` **and** equal its ``.canonical``
+    form (lowercase host, single ``\\`` separators, no trailing ``\\``).
+    The migration references this function by import path.
 
     Raises:
-        ValidationError: *value* is not ``''``.
+        ValidationError: *value* is not ``''`` and not a canonical root.
     """
     if value == '':
         return
-    raise ValidationError(
-        "Setting the Sethlans share is not supported by this manager version yet.",
-        code='sethlans_share_unsupported',
-    )
+    try:
+        root = validate_unc_dir(value)
+    except ValueError as exc:
+        raise ValidationError(str(exc), code='sethlans_share_invalid') from None
+    if root.canonical != value:
+        raise ValidationError(
+            f"Store the Sethlans share in canonical form: {root.canonical!r}.",
+            code='sethlans_share_not_canonical',
+        )
 
 
 class ManagerSettings(models.Model):

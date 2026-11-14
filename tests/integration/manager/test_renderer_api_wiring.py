@@ -9,7 +9,7 @@ Job serializers (spec FR-MR-10/11, FR-MU-8/13/14; chunk 1).
 * the generic immutability checks (``renderer_checks.py``), which run
   before strategy dispatch;
 * the Blender strategy's rejection of Unreal-only keys;
-* the chunk-1 Unreal stub: every Unreal create is a 400, never a 500;
+* Unreal creates reach the Unreal strategy (a 201 or a 400, never a 500);
 * ``blend_file`` required-ness through ``AssetSerializer.get_fields()``.
 """
 
@@ -17,7 +17,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from workers.models import Asset, Job, Project
-from workers.renderers.unreal import NOT_SUPPORTED_MESSAGE
+from workers.renderers.unreal_validation import SHARE_UNSET_ASSET_MESSAGE
 
 PROJECTS_URL = '/api/projects/'
 ASSETS_URL = '/api/assets/'
@@ -188,16 +188,19 @@ class TestBlenderRejectsUnrealKeys:
 
 
 @pytest.mark.django_db
-class TestUnrealStubRejects:
-    """Chunk 1: no Unreal object can be created through the API."""
+class TestUnrealThroughStrategy:
+    """Unreal creates go through the Unreal strategy and never return 500.
+
+    The detailed rules are in ``test_unreal_projects_api.py``,
+    ``test_unreal_assets_api.py`` and ``test_unreal_jobs_api.py``.
+    """
 
     def test_unreal_project_create(self, admin_client):
         resp = admin_client.post(PROJECTS_URL, {
             'name': 'WiringUP', 'renderer': 'UNREAL', 'engine_build': BUILD,
         }, format='json')
-        assert resp.status_code == 400
-        assert resp.data == {'renderer': [NOT_SUPPORTED_MESSAGE]}
-        assert not Project.objects.filter(name='WiringUP').exists()
+        assert resp.status_code == 201, resp.data
+        assert (resp.data['renderer'], resp.data['blender_version']) == ('UNREAL', None)
 
     def test_unknown_renderer_is_a_choice_error(self, admin_client):
         resp = admin_client.post(PROJECTS_URL, {'name': 'WiringUX', 'renderer': 'MAYA'}, format='json')
@@ -209,15 +212,16 @@ class TestUnrealStubRejects:
             'name': 'WiringUA', 'project': str(unreal_project.pk), 'source_type': 'shared_project',
             'archive_path': 'incoming/x.zip', 'uproject_path': 'X/X.uproject', 'archive_sha256': 'd' * 64,
         }, format='multipart')
+        # No blend_file error: the share check (unset here) is what refuses it.
         assert resp.status_code == 400
-        assert resp.data == {'source_type': [NOT_SUPPORTED_MESSAGE]}
+        assert resp.data == {'archive_path': [SHARE_UNSET_ASSET_MESSAGE]}
 
     def test_job_on_unreal_asset(self, admin_client, unreal_asset):
         resp = admin_client.post(JOBS_URL, {
             'name': 'WiringUJ', 'asset_id': unreal_asset.pk, 'output_file_pattern': '//r/f.png',
         }, format='json')
         assert resp.status_code == 400
-        assert resp.data == {'asset_id': [NOT_SUPPORTED_MESSAGE]}
+        assert set(resp.data) == {'render_settings'}
 
     def test_untrimmed_path_fields(self):
         from workers.serializers import AssetSerializer

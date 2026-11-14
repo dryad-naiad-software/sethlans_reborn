@@ -5,8 +5,9 @@
 Integration tests: worker poll, claim and parent-job checks through the
 renderer strategies (spec FR-RT-1..4, FR-MR-4; chunk 1).
 
-Unreal rows are created through the ORM: chunk 1's Unreal strategy
-refuses every Unreal request through the API.
+Unreal rows are created through the ORM.  The Unreal routing rules
+themselves are covered by ``test_unreal_poll_routing.py`` and
+``test_unreal_claim.py`` (chunk 2).
 """
 
 from unittest.mock import patch
@@ -16,7 +17,7 @@ from django.utils.translation import gettext_lazy
 
 from workers.models import Asset, Job, JobStatus, Project, TiledJob
 from workers.renderers.blender import BlenderStrategy
-from workers.renderers.unreal import NOT_SUPPORTED_MESSAGE, UnrealStrategy
+from workers.renderers.unreal import UnrealStrategy
 
 JOBS_URL = '/api/jobs/'
 POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
@@ -58,7 +59,7 @@ class TestPollRenderers:
         resp = client.get(JOBS_URL, {**POLL, 'unreal_builds': 'not-a-build'})
         assert _names(resp) == ['RouteBlender']
 
-    def test_unreal_stub_returns_no_unreal_job(self, worker_with_token, mixed_jobs):
+    def test_no_unreal_job_while_the_share_is_unset(self, worker_with_token, mixed_jobs):
         _worker, client = worker_with_token
         resp = client.get(JOBS_URL, {**POLL, 'renderers': 'UNREAL', 'unreal_builds': BUILD})
         assert _names(resp) == []
@@ -91,12 +92,12 @@ class TestClaimThroughStrategy:
     def _claim(self, client, job, worker):
         return client.post(f'{JOBS_URL}{job.pk}/claim/', {'worker_id': worker.pk}, format='json')
 
-    def test_unreal_claim_rejected_by_stub(self, worker_with_token, mixed_jobs):
+    def test_unreal_claim_rejected_without_the_build(self, worker_with_token, mixed_jobs):
         worker, client = worker_with_token
         _blender, unreal = mixed_jobs
         resp = self._claim(client, unreal, worker)
         assert resp.status_code == 409
-        assert resp.data == {'error': NOT_SUPPORTED_MESSAGE}
+        assert resp.data == {'error': f"Worker does not report Unreal Engine build {BUILD}."}
         unreal.refresh_from_db()
         assert (unreal.status, unreal.assigned_worker_id) == (JobStatus.QUEUED, None)
 
@@ -111,16 +112,15 @@ class TestClaimThroughStrategy:
     def test_idempotent_reclaim_when_the_strategy_allows_it(
         self, worker_with_token, make_worker_client, mixed_jobs,
     ):
-        """The view honours ``idempotent_reclaim()`` (chunk 2 turns it on)."""
+        """The view honours ``idempotent_reclaim()`` (on for Unreal)."""
         worker, client = worker_with_token
         _blender, unreal = mixed_jobs
         Job.objects.filter(pk=unreal.pk).update(status=JobStatus.RENDERING, assigned_worker=worker)
         before = Job.objects.values().get(pk=unreal.pk)
 
-        with patch.object(UnrealStrategy, 'idempotent_reclaim', return_value=True):
-            resp = self._claim(client, unreal, worker)
-            other, other_client, _token = make_worker_client('route-other')
-            other_resp = self._claim(other_client, unreal, other)
+        resp = self._claim(client, unreal, worker)
+        other, other_client, _token = make_worker_client('route-other')
+        other_resp = self._claim(other_client, unreal, other)
 
         assert resp.status_code == 200, resp.data
         assert resp.data['status'] == 'RENDERING'
@@ -146,7 +146,8 @@ class TestClaimThroughStrategy:
         worker, client = worker_with_token
         _blender, unreal = mixed_jobs
         Job.objects.filter(pk=unreal.pk).update(status=JobStatus.RENDERING, assigned_worker=worker)
-        resp = self._claim(client, unreal, worker)
+        with patch.object(UnrealStrategy, 'idempotent_reclaim', return_value=False):
+            resp = self._claim(client, unreal, worker)
         assert resp.status_code == 409
         assert resp.data == {'error': "Job is not available for claiming."}
 

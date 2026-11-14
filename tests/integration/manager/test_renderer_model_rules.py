@@ -9,8 +9,8 @@ FR-MS-1, FR-MR-12, FR-RT-13; chunk 1).
 * the check constraints (and their readable ``validate_constraints``
   messages);
 * ``Asset.save()`` without a ``.blend`` file;
-* the ``ManagerSettings.sethlans_share`` validator (fails closed until the
-  share endpoint lands);
+* the ``ManagerSettings.sethlans_share`` validator (canonical UNC roots
+  only, FR-MS-1);
 * the shared ``requeue_or_fail`` helper;
 * the manifest line of a shared-project asset.
 """
@@ -135,14 +135,17 @@ class TestSethlansShareValidator:
     def test_empty_is_accepted(self):
         validate_canonical_unc_root('')
 
-    @pytest.mark.parametrize('value', [r'\\nas\sethlans', 'x', ' '])
-    def test_any_value_fails_closed_until_the_share_endpoint(self, value):
+    def test_canonical_root_is_accepted(self):
+        validate_canonical_unc_root(r'\\nas\sethlans')
+
+    @pytest.mark.parametrize('value', [r'\\NAS\sethlans', '\\\\nas\\sethlans\\', 'x', ' ', r'C:\share'])
+    def test_non_canonical_or_invalid_values_are_rejected(self, value):
         with pytest.raises(ValidationError):
             validate_canonical_unc_root(value)
 
     def test_full_clean_runs_the_validator(self, db):
         row = ManagerSettings.objects.get(pk=1)
-        row.sethlans_share = r'\\nas\sethlans'
+        row.sethlans_share = r'\\NAS\sethlans'
         with pytest.raises(ValidationError) as exc:
             row.full_clean()
         assert 'sethlans_share' in exc.value.message_dict

@@ -100,11 +100,14 @@ def _parse_renderers(params):
     return requested
 
 
-def apply_worker_poll_filters(queryset, params):
+def apply_worker_poll_filters(queryset, params, worker=None):
     """Restrict a worker poll to the requested renderers, oldest first.
 
     Each renderer's strategy contributes one ``Q`` (Blender: today's
-    ``available_versions`` series filter), OR-ed together.
+    ``available_versions`` series filter), OR-ed together.  ``worker`` is
+    the polling caller's ``Worker`` row, or ``None`` for a non-worker
+    caller; it lets a strategy leave out jobs its claim check would
+    refuse for that worker (FR-MS-5).
 
     Raises:
         rest_framework.exceptions.ValidationError: an invalid
@@ -114,7 +117,7 @@ def apply_worker_poll_filters(queryset, params):
     renderers = _parse_renderers(params)
     q = functools.reduce(
         operator.or_,
-        (get_strategy(r).poll_q(params) for r in sorted(renderers)),
+        (get_strategy(r).poll_q(params, worker) for r in sorted(renderers)),
     )
     return queryset.filter(q).order_by(*POLL_ORDERING)
 

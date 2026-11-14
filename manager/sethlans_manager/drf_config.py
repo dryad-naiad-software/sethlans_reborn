@@ -24,6 +24,10 @@ SPECTACULAR_SETTINGS = {
     ),
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'ENUM_NAME_OVERRIDES': {
+        # ``POST /api/jobs/{id}/release/`` body (Unreal foundation FR-RT-11).
+        'JobReleaseReasonEnum': 'workers.views.job_release_actions.RELEASE_REASONS',
+    },
     'SECURITY': [
         {'sessionAuth': []},
         {'tokenAuth': []},

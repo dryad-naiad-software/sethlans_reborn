@@ -5,7 +5,43 @@
 from django.conf import settings
 from django.db import models
 
+from shared.unreal.unc import shares_match
+
 from ..constants import WorkerStatus
+
+
+def reported_unreal_builds(caps) -> frozenset:
+    """Return the supported Unreal builds a capabilities dict reports (FR-RT-5).
+
+    Empty unless ``caps['enabled'] is True``; otherwise the ``build`` of
+    every ``installs`` entry whose ``supported is True``.  The claim check
+    and the routing note both use this, so their semantics cannot drift.
+    """
+    if not isinstance(caps, dict) or caps.get('enabled') is not True:
+        return frozenset()
+    installs = caps.get('installs')
+    if not isinstance(installs, list):
+        return frozenset()
+    return frozenset(
+        install['build'] for install in installs
+        if isinstance(install, dict) and install.get('supported') is True
+        and isinstance(install.get('build'), str)
+    )
+
+
+def reports_share_reachable(caps, share) -> bool:
+    """Return whether a worker reports the manager's share as reachable (FR-RT-5).
+
+    True only when ``caps`` is enabled, reports ``share_reachable is
+    True``, and its ``share`` (the share the **worker** is configured
+    with) equals the manager's ``share`` under ``shares_match``.
+    """
+    return (
+        isinstance(caps, dict)
+        and caps.get('enabled') is True
+        and caps.get('share_reachable') is True
+        and shares_match(caps.get('share', ''), share)
+    )
 
 
 class Worker(models.Model):
@@ -82,6 +118,10 @@ class Worker(models.Model):
         """Check if this worker has a specific Blender version installed."""
         blender_list = (self.available_tools or {}).get('blender', [])
         return version_str in blender_list
+
+    def has_unreal_build(self, build):
+        """Check if this worker reports a supported Unreal Engine ``build``."""
+        return build in reported_unreal_builds(self.unreal_capabilities)
 
     def __str__(self):
         return self.hostname

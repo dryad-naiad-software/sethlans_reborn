@@ -17,6 +17,7 @@ from .views import (
 )
 from .views.manager_defaults import manager_defaults_view
 from .views.manager_summary import manager_summary_view
+from .views.sethlans_share import SethlansShareView
 
 # Create a router instance
 router = DefaultRouter()
@@ -66,6 +67,8 @@ urlpatterns = [
         manager_summary_view,
         name='manager-summary',
     ),
+    # The manager's Sethlans share setting (Unreal FR-MS-2).
+    path('sethlans-share/', SethlansShareView.as_view(), name='sethlans-share'),
     # Include all router URLs at the root of /api/
     path('', include(router.urls)),
 ]

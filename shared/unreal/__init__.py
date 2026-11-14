@@ -5,7 +5,8 @@
 Pure-Python Unreal validators shared by the manager and the worker
 (Unreal foundation FR-MU-5).
 
-Nothing here touches the filesystem or the network. Import the
-submodules directly (``shared.unreal.builds``, ``shared.unreal.unc``);
-this package imports nothing.
+Import the submodules directly (``builds``, ``unc``, ``share_paths``,
+``validation``, ``vram_gate``, ``overlay_digest``); this package imports
+nothing. Only ``overlay_digest`` reads the filesystem (the overlay tree it
+is given); nothing here touches the network.
 """

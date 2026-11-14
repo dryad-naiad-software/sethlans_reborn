@@ -102,8 +102,11 @@ class BlenderStrategy(RendererStrategy):
     def prepare_job_create(self, validated, asset):
         return validated
 
-    def poll_q(self, params):
-        """Today's ``available_versions`` series filter, Blender jobs only."""
+    def poll_q(self, params, worker=None):
+        """Today's ``available_versions`` series filter, Blender jobs only.
+
+        ``worker`` is ignored, so Blender poll results are unchanged.
+        """
         q = Q(renderer=self.renderer)
         param = params.get('available_versions')
         if not param:

@@ -170,6 +170,12 @@ class WorkerStatus(models.TextChoices):
 # Workers reporting no heartbeat within this many seconds are considered OFFLINE.
 WORKER_STALENESS_SECONDS = 90
 
+# The worker agent's default heartbeat interval (``[worker] heartbeat_interval``).
+WORKER_HEARTBEAT_INTERVAL_SECONDS = 30
+# Live reconciliation (Unreal foundation FR-RT-17) leaves a RENDERING job
+# alone until it started more than two heartbeat intervals ago.
+UNREAL_LIVE_RECONCILE_GRACE_SECONDS = 2 * WORKER_HEARTBEAT_INTERVAL_SECONDS
+
 
 class VideoStatus(models.TextChoices):
     """

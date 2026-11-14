@@ -16,6 +16,7 @@ from ..models import Job, JobStatus, QueueSetting
 from ..permissions import IsAdmin, IsWorker
 from ..serializers import JobSerializer
 from .job_pause_actions import JobPauseActionsMixin
+from .job_release_actions import JobReleaseActionsMixin
 from .job_poll_filters import (
     LIST_PARAMETERS, apply_device_prefs_filter, apply_worker_poll_filters,
 )
@@ -42,6 +43,7 @@ logger = logging.getLogger(__name__)
     yield_requeue=extend_schema(tags=['Worker Agent']),
 )
 class JobViewSet(
+    JobReleaseActionsMixin,
     JobYieldActionsMixin,
     JobPauseActionsMixin,
     JobWorkerActionsMixin,
@@ -65,7 +67,7 @@ class JobViewSet(
     ordering_fields = ['submitted_at', 'status', 'name']
 
     def get_permissions(self):
-        if self.action in ('claim', 'upload_output', 'yield_requeue'):
+        if self.action in ('claim', 'upload_output', 'yield_requeue', 'release'):
             return [IsWorker()]
         elif self.action in ('list', 'retrieve'):
             return [(IsAdmin | IsWorker)()]
@@ -101,9 +103,22 @@ class JobViewSet(
             queryset = queryset.filter(is_paused=False)
             queryset = apply_worker_poll_filters(
                 queryset, self.request.query_params,
+                getattr(self.request.user, 'worker_profile', None),
             )
 
         return apply_device_prefs_filter(queryset, self.request.query_params)
+
+    def get_object(self):
+        """Load the job once per request (``partial_update`` reads it twice)."""
+        if getattr(self, '_object', None) is None:
+            self._object = super().get_object()
+        return self._object
+
+    def partial_update(self, request, *args, **kwargs):
+        """Refuse worker keys outside the renderer's allowlist first (FR-RT-14)."""
+        if IsWorker().has_permission(request, self):
+            self._enforce_worker_patch_allowlist(request, self.get_object())
+        return super().partial_update(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):

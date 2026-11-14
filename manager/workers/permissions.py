@@ -10,6 +10,7 @@ Custom permission classes for the Sethlans manager API.
 - IsAdminNotWorker: staff users that are not worker agents (issue #220).
 - HeartbeatViewSetPermission: viewset-level permission for the heartbeat
   viewset (``list`` admin-only, everything else authenticated).
+- IsAuthenticatedNonWorker: any authenticated caller except a worker agent.
 """
 
 from rest_framework.authtoken.models import Token
@@ -118,3 +119,19 @@ class HeartbeatViewSetPermission(BasePermission):
         if getattr(view, 'action', None) in self.ADMIN_ACTIONS:
             return IsAdminNotWorker().has_permission(request, view)
         return IsAuthenticated().has_permission(request, view)
+
+
+class IsAuthenticatedNonWorker(BasePermission):
+    """
+    Any authenticated caller that is not a worker agent (Unreal FR-MS-2).
+
+    Used for ``GET /api/sethlans-share/``: the share root is not secret on
+    the LAN-only farm, but workers never take a share path from the
+    manager, so a worker token gets 403.
+    """
+
+    def has_permission(self, request, view):
+        return (
+            bool(IsAuthenticated().has_permission(request, view))
+            and not is_worker_caller(request)
+        )

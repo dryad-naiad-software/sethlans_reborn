@@ -19,7 +19,7 @@ See ``enroll.py`` for the enrollment flow and
 
 import logging
 
-from django.db import models
+from django.db import DatabaseError, models
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -37,8 +37,15 @@ from ..models import SupportedBlenderVersion, Worker
 from ..permissions import HeartbeatViewSetPermission
 from ..serializers import WorkerSerializer
 from ..services.sentinel import is_setup_complete
+# Module import, attributes read at call time: ``worker_reconcile`` imports
+# ``views.stuck_jobs``, so a ``from`` import here would be an import cycle.
+from ..services import worker_reconcile
 from .heartbeat_auth import bind_heartbeat_caller
 from .heartbeat_schema import WorkerHeartbeatResponseSerializer
+from .heartbeat_unreal import (
+    _validate_active_job_ids, _validate_boot_id, apply_unreal_heartbeat,
+    apply_unreal_registration,
+)
 # Validators are re-exported below so tests that import them from this
 # module (``from workers.views.heartbeat import _sanitize_cpu_name``)
 # keep working after the split.
@@ -156,7 +163,15 @@ class WorkerHeartbeatViewSet(
 
         handler = (self._handle_full_registration if 'os' in request.data
                    else self._handle_heartbeat)
-        result = handler(request, worker)
+        try:
+            result = handler(request, worker)
+        except worker_reconcile.ReconcileError:
+            # The previous boot_id is restored: the worker's registration
+            # retry repeats the reconciliation (FR-RT-12).
+            return Response(
+                {"error": "Worker restart reconciliation failed; retry registration."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         # Append required Blender versions to every heartbeat response
         result['required_blender_versions'] = list(
             SupportedBlenderVersion.objects.values(
@@ -202,7 +217,10 @@ class WorkerHeartbeatViewSet(
             'ip_address', 'os', 'available_tools', 'last_seen',
             'is_active', 'ui_url', 'cpu_name', 'gpu_name', 'status',
             'ui_cert_fingerprint',
-        ])
+        ] + apply_unreal_registration(worker, request.data))
+        boot_id = _validate_boot_id(request.data.get('worker_boot_id'))
+        if boot_id is not None:
+            worker_reconcile.reconcile_worker_restart(worker, boot_id)
 
         if first_registration:
             logger.info("Worker registration. Hostname: %s", worker.hostname)
@@ -257,7 +275,15 @@ class WorkerHeartbeatViewSet(
                     hostname,
                 )
 
+        update_fields.extend(apply_unreal_heartbeat(worker, request.data))
         worker.save(update_fields=update_fields)
         logger.debug("Worker heartbeat. Hostname: %s", hostname)
         requeue_stuck_jobs()
+        active_ids = _validate_active_job_ids(request.data.get('active_job_ids'))
+        if active_ids is not None:
+            try:
+                worker_reconcile.reconcile_live(worker, active_ids, now=worker.last_seen)
+            except DatabaseError:
+                logger.warning("Live reconciliation for %s failed; retried next heartbeat.",
+                               hostname, exc_info=True)
         return WorkerSerializer(worker).data

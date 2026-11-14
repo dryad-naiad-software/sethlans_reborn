@@ -11,13 +11,12 @@ keep their ``submitted_at`` and so return to the front (accepted, D10g).
 """
 
 from datetime import datetime, timedelta, timezone as dt_timezone
-from unittest.mock import patch
 
 import pytest
-from django.db.models import Q
 
 from workers.models import Asset, Job, JobStatus, Project, TiledJob
-from workers.renderers.unreal import UnrealStrategy
+
+from .unreal_helpers import BUILD, SHARE, caps, set_share
 
 JOBS_URL = '/api/jobs/'
 POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
@@ -181,24 +180,23 @@ class TestRendererInterleaving:
     def test_renderers_interleave_strictly_by_submitted_at_then_id(
         self, worker_with_token, asset, unreal_asset,
     ):
-        """With Unreal routing in place, order ignores the renderer.
-
-        Chunk 1's Unreal strategy matches no job, so its ``poll_q`` is
-        replaced by the plain renderer filter to exercise the ordering.
-        """
-        _worker, client = worker_with_token
+        """With Unreal routing in place, order ignores the renderer."""
+        worker, client = worker_with_token
+        set_share(SHARE)
+        worker.unreal_capabilities = caps()
+        worker.save(update_fields=['unreal_capabilities'])
         self._jobs(asset, unreal_asset)
-        with patch.object(UnrealStrategy, 'poll_q', lambda self, params: Q(renderer='UNREAL')):
-            names = _names(_poll(client, renderers='BLENDER,UNREAL'))
+        names = _names(_poll(client, renderers='BLENDER,UNREAL', unreal_builds=BUILD))
         assert names == [
             'MixBlender1', 'MixUnreal2', 'MixBlender3',
             'MixUnreal4', 'MixUnreal4b', 'MixBlender4c',
         ]
 
-    def test_stub_unreal_poll_keeps_blender_order(self, worker_with_token, asset, unreal_asset):
+    def test_excluded_unreal_jobs_keep_blender_order(self, worker_with_token, asset, unreal_asset):
+        """Share unset: no Unreal job is offered and the Blender order holds."""
         _worker, client = worker_with_token
         self._jobs(asset, unreal_asset)
-        names = _names(_poll(client, renderers='BLENDER,UNREAL'))
+        names = _names(_poll(client, renderers='BLENDER,UNREAL', unreal_builds=BUILD))
         assert names == ['MixBlender1', 'MixBlender3', 'MixBlender4c']
 
     def test_job_meta_ordering_unchanged(self):
