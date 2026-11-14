@@ -1,0 +1,4181 @@
+{
+  "captures": {
+    "admin_job_list": {
+      "body": [
+        {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_1_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_1_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_1_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_1_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_1_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_1_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_0_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_0_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_0_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_0_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_0_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_0_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": "<animation:AnimMain>",
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 2,
+          "error_message": "",
+          "id": "<job:AnimMain_Frame_0002>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimMain_Frame_0002",
+          "output_file": null,
+          "output_file_pattern": "//render/anim/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.engine": "CYCLES"
+          },
+          "render_time_seconds": null,
+          "start_frame": 2,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": "<animation:AnimMain>",
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimMain_Frame_0001>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimMain_Frame_0001",
+          "output_file": null,
+          "output_file_pattern": "//render/anim/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.engine": "CYCLES"
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_1_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_1_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_1_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_1_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_1_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_1_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_0_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_0_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_0_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_0_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_0_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_0_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobPaused>",
+          "is_paused": true,
+          "last_output": "",
+          "name": "JobPaused",
+          "output_file": null,
+          "output_file_pattern": "//render/JobPaused/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneAlt>",
+            "name": "SceneAlt",
+            "project": "<project:ProjExplicit>",
+            "project_details": {
+              "blender_version": "<version:4.5>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.5>",
+                "is_default": false,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 5,
+                "resolved_version": "4.5.8",
+                "series": "4.5"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjExplicit>",
+              "name": "ProjExplicit"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.5.8",
+            "series": "4.5"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobDelta>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobDelta",
+          "output_file": null,
+          "output_file_pattern": "//render/JobDelta/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": "<version:4.5>",
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.5.8",
+            "series": "4.5"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobGamma>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobGamma",
+          "output_file": null,
+          "output_file_pattern": "//render/JobGamma/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobBeta>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobBeta",
+          "output_file": null,
+          "output_file_pattern": "//render/JobBeta/frame_####.png",
+          "render_device": "CPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": "<worker:invariance-host>",
+          "assigned_worker_hostname": "invariance-host",
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobAlpha>",
+          "is_paused": false,
+          "last_output": "Fra:1 Saved frame_0001.png",
+          "name": "JobAlpha",
+          "output_file": null,
+          "output_file_pattern": "//render/JobAlpha/frame_####.png",
+          "render_device": "GPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": 42,
+          "start_frame": 1,
+          "started_at": "<timestamp>",
+          "status": "DONE",
+          "status_display": "Done",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        }
+      ],
+      "status": 200
+    },
+    "animation_create": {
+      "body": {
+        "asset": {
+          "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+          "created_at": "<timestamp>",
+          "id": "<asset:SceneMain>",
+          "name": "SceneMain",
+          "project": "<project:ProjDefault>",
+          "project_details": {
+            "blender_version": "<version:4.2>",
+            "blender_version_details": {
+              "added_at": "<timestamp>",
+              "id": "<version:4.2>",
+              "is_default": true,
+              "last_patch_check": null,
+              "major": 4,
+              "minor": 2,
+              "resolved_version": "4.2.19",
+              "series": "4.2"
+            },
+            "created_at": "<timestamp>",
+            "id": "<project:ProjDefault>",
+            "name": "ProjDefault"
+          }
+        },
+        "blender_version": null,
+        "completed_at": null,
+        "completed_frames": 0,
+        "cycles_feature_set": "SUPPORTED",
+        "effective_blender_version": {
+          "resolved_version": "4.2.19",
+          "series": "4.2"
+        },
+        "end_frame": 2,
+        "error_message": "",
+        "frame_step": 1,
+        "frames": [],
+        "id": "<animation:AnimMain>",
+        "name": "AnimMain",
+        "output_file_pattern": "//render/anim/frame_####.png",
+        "progress": "0 of 2 frames complete",
+        "project": "<project:ProjDefault>",
+        "project_details": {
+          "blender_version": "<version:4.2>",
+          "blender_version_details": {
+            "added_at": "<timestamp>",
+            "id": "<version:4.2>",
+            "is_default": true,
+            "last_patch_check": null,
+            "major": 4,
+            "minor": 2,
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "created_at": "<timestamp>",
+          "id": "<project:ProjDefault>",
+          "name": "ProjDefault"
+        },
+        "render_device": "ANY",
+        "render_engine": "CYCLES",
+        "render_settings": {},
+        "start_frame": 1,
+        "status": "QUEUED",
+        "submitted_at": "<timestamp>",
+        "thumbnail": null,
+        "tiling_config": "NONE",
+        "total_frames": 2,
+        "total_render_time_seconds": 0,
+        "video_error": "",
+        "video_file": null,
+        "video_settings": null,
+        "video_status": null
+      },
+      "status": 201
+    },
+    "animation_create_tiled": {
+      "body": {
+        "asset": {
+          "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+          "created_at": "<timestamp>",
+          "id": "<asset:SceneMain>",
+          "name": "SceneMain",
+          "project": "<project:ProjDefault>",
+          "project_details": {
+            "blender_version": "<version:4.2>",
+            "blender_version_details": {
+              "added_at": "<timestamp>",
+              "id": "<version:4.2>",
+              "is_default": true,
+              "last_patch_check": null,
+              "major": 4,
+              "minor": 2,
+              "resolved_version": "4.2.19",
+              "series": "4.2"
+            },
+            "created_at": "<timestamp>",
+            "id": "<project:ProjDefault>",
+            "name": "ProjDefault"
+          }
+        },
+        "blender_version": null,
+        "completed_at": null,
+        "completed_frames": 0,
+        "cycles_feature_set": "SUPPORTED",
+        "effective_blender_version": {
+          "resolved_version": "4.2.19",
+          "series": "4.2"
+        },
+        "end_frame": 1,
+        "error_message": "",
+        "frame_step": 1,
+        "frames": [
+          {
+            "error_message": "",
+            "frame_number": 1,
+            "id": "<frame:AnimTiled#1>",
+            "output_file": null,
+            "render_time_seconds": 0,
+            "status": "PENDING",
+            "thumbnail": null
+          }
+        ],
+        "id": "<animation:AnimTiled>",
+        "name": "AnimTiled",
+        "output_file_pattern": "//render/tiled/frame_####.png",
+        "progress": "0 of 1 frames complete",
+        "project": "<project:ProjDefault>",
+        "project_details": {
+          "blender_version": "<version:4.2>",
+          "blender_version_details": {
+            "added_at": "<timestamp>",
+            "id": "<version:4.2>",
+            "is_default": true,
+            "last_patch_check": null,
+            "major": 4,
+            "minor": 2,
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "created_at": "<timestamp>",
+          "id": "<project:ProjDefault>",
+          "name": "ProjDefault"
+        },
+        "render_device": "ANY",
+        "render_engine": "CYCLES",
+        "render_settings": {
+          "render.resolution_x": 640,
+          "render.resolution_y": 480
+        },
+        "start_frame": 1,
+        "status": "QUEUED",
+        "submitted_at": "<timestamp>",
+        "thumbnail": null,
+        "tiling_config": "2x2",
+        "total_frames": 1,
+        "total_render_time_seconds": 0,
+        "video_error": "",
+        "video_file": null,
+        "video_settings": null,
+        "video_status": null
+      },
+      "status": 201
+    },
+    "asset_create_bad_extension": {
+      "body": {
+        "blend_file": [
+          "Only .blend files are accepted."
+        ]
+      },
+      "status": 400
+    },
+    "asset_create_bad_magic_bytes": {
+      "body": {
+        "blend_file": [
+          "File does not appear to be a valid .blend file."
+        ]
+      },
+      "status": 400
+    },
+    "asset_create_empty_blend_file": {
+      "body": {
+        "blend_file": [
+          "The submitted data was not a file. Check the encoding type on the form."
+        ]
+      },
+      "status": 400
+    },
+    "asset_create_valid": {
+      "body": {
+        "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+        "created_at": "<timestamp>",
+        "id": "<asset:SceneMain>",
+        "name": "SceneMain",
+        "project": "<project:ProjDefault>",
+        "project_details": {
+          "blender_version": "<version:4.2>",
+          "blender_version_details": {
+            "added_at": "<timestamp>",
+            "id": "<version:4.2>",
+            "is_default": true,
+            "last_patch_check": null,
+            "major": 4,
+            "minor": 2,
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "created_at": "<timestamp>",
+          "id": "<project:ProjDefault>",
+          "name": "ProjDefault"
+        }
+      },
+      "status": 201
+    },
+    "asset_create_valid_explicit_project": {
+      "body": {
+        "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+        "created_at": "<timestamp>",
+        "id": "<asset:SceneAlt>",
+        "name": "SceneAlt",
+        "project": "<project:ProjExplicit>",
+        "project_details": {
+          "blender_version": "<version:4.5>",
+          "blender_version_details": {
+            "added_at": "<timestamp>",
+            "id": "<version:4.5>",
+            "is_default": false,
+            "last_patch_check": null,
+            "major": 4,
+            "minor": 5,
+            "resolved_version": "4.5.8",
+            "series": "4.5"
+          },
+          "created_at": "<timestamp>",
+          "id": "<project:ProjExplicit>",
+          "name": "ProjExplicit"
+        }
+      },
+      "status": 201
+    },
+    "asset_create_without_blend_file_key": {
+      "body": {
+        "blend_file": [
+          "No file was submitted."
+        ]
+      },
+      "status": 400
+    },
+    "asset_put_without_file": {
+      "body": {
+        "blend_file": [
+          "No file was submitted."
+        ]
+      },
+      "status": 400
+    },
+    "claim_success": {
+      "body": {
+        "animation": null,
+        "animation_frame": null,
+        "asset": {
+          "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+          "created_at": "<timestamp>",
+          "id": "<asset:SceneMain>",
+          "name": "SceneMain",
+          "project": "<project:ProjDefault>",
+          "project_details": {
+            "blender_version": "<version:4.2>",
+            "blender_version_details": {
+              "added_at": "<timestamp>",
+              "id": "<version:4.2>",
+              "is_default": true,
+              "last_patch_check": null,
+              "major": 4,
+              "minor": 2,
+              "resolved_version": "4.2.19",
+              "series": "4.2"
+            },
+            "created_at": "<timestamp>",
+            "id": "<project:ProjDefault>",
+            "name": "ProjDefault"
+          }
+        },
+        "assigned_worker": "<worker:invariance-host>",
+        "assigned_worker_hostname": "invariance-host",
+        "blender_version": null,
+        "completed_at": null,
+        "cycles_feature_set": "SUPPORTED",
+        "effective_blender_version": {
+          "resolved_version": "4.2.19",
+          "series": "4.2"
+        },
+        "end_frame": 1,
+        "error_message": "",
+        "id": "<job:JobAlpha>",
+        "is_paused": false,
+        "last_output": "",
+        "name": "JobAlpha",
+        "output_file": null,
+        "output_file_pattern": "//render/JobAlpha/frame_####.png",
+        "render_device": "GPU",
+        "render_engine": "CYCLES",
+        "render_settings": {},
+        "render_time_seconds": null,
+        "start_frame": 1,
+        "started_at": "<timestamp>",
+        "status": "RENDERING",
+        "status_display": "Rendering",
+        "submitted_at": "<timestamp>",
+        "thumbnail": null,
+        "tiled_job": null
+      },
+      "status": 200
+    },
+    "claim_version_mismatch": {
+      "body": {
+        "error": "Worker does not have required Blender version 4.5.8 installed."
+      },
+      "status": 409
+    },
+    "heartbeat": {
+      "body": {
+        "available_tools": {
+          "blender": [
+            "4.2.19"
+          ]
+        },
+        "cpu_name": "Test CPU 8C",
+        "gpu_name": "",
+        "has_token": true,
+        "hostname": "invariance-host",
+        "id": "<worker:invariance-host>",
+        "ip_address": "10.0.0.7",
+        "is_active": true,
+        "last_heartbeat": "<timestamp>",
+        "last_seen": "<timestamp>",
+        "manager_setup_complete": false,
+        "os": "Linux",
+        "required_blender_versions": [
+          {
+            "series": "4.2",
+            "version": "4.2.19"
+          },
+          {
+            "series": "4.5",
+            "version": "4.5.8"
+          }
+        ],
+        "schedule_config": {
+          "days": [],
+          "enabled": false
+        },
+        "status": "IDLE",
+        "ui_cert_fingerprint": "",
+        "ui_url": "https://invariance-host.lan:7443"
+      },
+      "status": 200
+    },
+    "heartbeat_registration": {
+      "body": {
+        "available_tools": {
+          "blender": [
+            "4.2.19"
+          ]
+        },
+        "cpu_name": "Test CPU 8C",
+        "gpu_name": "",
+        "has_token": true,
+        "hostname": "invariance-host",
+        "id": "<worker:invariance-host>",
+        "ip_address": "10.0.0.7",
+        "is_active": true,
+        "last_heartbeat": "<timestamp>",
+        "last_seen": "<timestamp>",
+        "manager_setup_complete": false,
+        "os": "Linux",
+        "required_blender_versions": [
+          {
+            "series": "4.2",
+            "version": "4.2.19"
+          },
+          {
+            "series": "4.5",
+            "version": "4.5.8"
+          }
+        ],
+        "schedule_config": {},
+        "status": "IDLE",
+        "ui_cert_fingerprint": "",
+        "ui_url": "https://invariance-host.lan:7443"
+      },
+      "status": 200
+    },
+    "job_create": {
+      "body": {
+        "animation": null,
+        "animation_frame": null,
+        "asset": {
+          "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+          "created_at": "<timestamp>",
+          "id": "<asset:SceneMain>",
+          "name": "SceneMain",
+          "project": "<project:ProjDefault>",
+          "project_details": {
+            "blender_version": "<version:4.2>",
+            "blender_version_details": {
+              "added_at": "<timestamp>",
+              "id": "<version:4.2>",
+              "is_default": true,
+              "last_patch_check": null,
+              "major": 4,
+              "minor": 2,
+              "resolved_version": "4.2.19",
+              "series": "4.2"
+            },
+            "created_at": "<timestamp>",
+            "id": "<project:ProjDefault>",
+            "name": "ProjDefault"
+          }
+        },
+        "assigned_worker": null,
+        "blender_version": null,
+        "completed_at": null,
+        "cycles_feature_set": "SUPPORTED",
+        "effective_blender_version": {
+          "resolved_version": "4.2.19",
+          "series": "4.2"
+        },
+        "end_frame": 1,
+        "error_message": "",
+        "id": "<job:JobAlpha>",
+        "is_paused": false,
+        "last_output": "",
+        "name": "JobAlpha",
+        "output_file": null,
+        "output_file_pattern": "//render/JobAlpha/frame_####.png",
+        "render_device": "GPU",
+        "render_engine": "CYCLES",
+        "render_settings": {},
+        "render_time_seconds": null,
+        "start_frame": 1,
+        "started_at": null,
+        "status": "QUEUED",
+        "status_display": "Queued",
+        "submitted_at": "<timestamp>",
+        "thumbnail": null,
+        "tiled_job": null
+      },
+      "status": 201
+    },
+    "job_create_pattern_format_mismatch": {
+      "body": {
+        "non_field_errors": [
+          "Output file pattern extension '.jpg' does not match the selected format 'PNG' (expected '.png')."
+        ]
+      },
+      "status": 400
+    },
+    "poll_device_cpu_only": {
+      "body": {
+        "JobBeta": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobBeta>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobBeta",
+          "output_file": null,
+          "output_file_pattern": "//render/JobBeta/frame_####.png",
+          "render_device": "CPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        }
+      },
+      "compare": "set-by-name",
+      "status": 200
+    },
+    "poll_error_precedence": {
+      "body": [
+        "Invalid version format: not-a-version"
+      ],
+      "status": 400
+    },
+    "poll_invalid_version_format": {
+      "body": [
+        "Invalid version format: 4.2"
+      ],
+      "status": 400
+    },
+    "poll_too_many_versions": {
+      "body": [
+        "Maximum 20 versions allowed."
+      ],
+      "status": 400
+    },
+    "poll_with_available_versions": {
+      "body": {
+        "AnimMain_Frame_0001": {
+          "animation": "<animation:AnimMain>",
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimMain_Frame_0001>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimMain_Frame_0001",
+          "output_file": null,
+          "output_file_pattern": "//render/anim/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.engine": "CYCLES"
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimMain_Frame_0002": {
+          "animation": "<animation:AnimMain>",
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 2,
+          "error_message": "",
+          "id": "<job:AnimMain_Frame_0002>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimMain_Frame_0002",
+          "output_file": null,
+          "output_file_pattern": "//render/anim/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.engine": "CYCLES"
+          },
+          "render_time_seconds": null,
+          "start_frame": 2,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_0_0": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_0_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_0_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_0_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_0_1": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_0_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_0_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_0_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_1_0": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_1_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_1_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_1_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_1_1": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_1_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_1_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_1_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobAlpha": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobAlpha>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobAlpha",
+          "output_file": null,
+          "output_file_pattern": "//render/JobAlpha/frame_####.png",
+          "render_device": "GPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobBeta": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobBeta>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobBeta",
+          "output_file": null,
+          "output_file_pattern": "//render/JobBeta/frame_####.png",
+          "render_device": "CPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "TiledMain_Tile_0_0": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_0_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_0_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_0_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_0_1": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_0_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_0_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_0_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_1_0": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_1_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_1_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_1_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_1_1": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_1_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_1_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_1_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        }
+      },
+      "compare": "set-by-name",
+      "status": 200
+    },
+    "poll_without_available_versions": {
+      "body": {
+        "AnimMain_Frame_0001": {
+          "animation": "<animation:AnimMain>",
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimMain_Frame_0001>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimMain_Frame_0001",
+          "output_file": null,
+          "output_file_pattern": "//render/anim/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.engine": "CYCLES"
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimMain_Frame_0002": {
+          "animation": "<animation:AnimMain>",
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 2,
+          "error_message": "",
+          "id": "<job:AnimMain_Frame_0002>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimMain_Frame_0002",
+          "output_file": null,
+          "output_file_pattern": "//render/anim/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.engine": "CYCLES"
+          },
+          "render_time_seconds": null,
+          "start_frame": 2,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_0_0": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_0_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_0_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_0_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_0_1": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_0_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_0_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_0_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_1_0": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_1_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_1_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_1_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_1_1": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_1_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_1_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_1_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobAlpha": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobAlpha>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobAlpha",
+          "output_file": null,
+          "output_file_pattern": "//render/JobAlpha/frame_####.png",
+          "render_device": "GPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobBeta": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobBeta>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobBeta",
+          "output_file": null,
+          "output_file_pattern": "//render/JobBeta/frame_####.png",
+          "render_device": "CPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobDelta": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneAlt>",
+            "name": "SceneAlt",
+            "project": "<project:ProjExplicit>",
+            "project_details": {
+              "blender_version": "<version:4.5>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.5>",
+                "is_default": false,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 5,
+                "resolved_version": "4.5.8",
+                "series": "4.5"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjExplicit>",
+              "name": "ProjExplicit"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.5.8",
+            "series": "4.5"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobDelta>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobDelta",
+          "output_file": null,
+          "output_file_pattern": "//render/JobDelta/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobGamma": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": "<version:4.5>",
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.5.8",
+            "series": "4.5"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobGamma>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobGamma",
+          "output_file": null,
+          "output_file_pattern": "//render/JobGamma/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "TiledMain_Tile_0_0": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_0_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_0_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_0_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_0_1": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_0_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_0_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_0_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_1_0": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_1_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_1_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_1_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_1_1": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_1_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_1_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_1_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        }
+      },
+      "compare": "set-by-name",
+      "status": 200
+    },
+    "poll_worker_params": {
+      "body": {
+        "AnimMain_Frame_0001": {
+          "animation": "<animation:AnimMain>",
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimMain_Frame_0001>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimMain_Frame_0001",
+          "output_file": null,
+          "output_file_pattern": "//render/anim/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.engine": "CYCLES"
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimMain_Frame_0002": {
+          "animation": "<animation:AnimMain>",
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 2,
+          "error_message": "",
+          "id": "<job:AnimMain_Frame_0002>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimMain_Frame_0002",
+          "output_file": null,
+          "output_file_pattern": "//render/anim/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.engine": "CYCLES"
+          },
+          "render_time_seconds": null,
+          "start_frame": 2,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_0_0": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_0_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_0_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_0_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_0_1": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_0_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_0_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_0_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_1_0": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_1_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_1_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_1_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "AnimTiled_Frame_0001_Tile_1_1": {
+          "animation": "<animation:AnimTiled>",
+          "animation_frame": "<frame:AnimTiled#1>",
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:AnimTiled_Frame_0001_Tile_1_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "AnimTiled_Frame_0001_Tile_1_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_anim_frames/<frame:AnimTiled#1>/tile_1_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobAlpha": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobAlpha>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobAlpha",
+          "output_file": null,
+          "output_file_pattern": "//render/JobAlpha/frame_####.png",
+          "render_device": "GPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobBeta": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobBeta>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobBeta",
+          "output_file": null,
+          "output_file_pattern": "//render/JobBeta/frame_####.png",
+          "render_device": "CPU",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobDelta": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneAlt>",
+            "name": "SceneAlt",
+            "project": "<project:ProjExplicit>",
+            "project_details": {
+              "blender_version": "<version:4.5>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.5>",
+                "is_default": false,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 5,
+                "resolved_version": "4.5.8",
+                "series": "4.5"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjExplicit>",
+              "name": "ProjExplicit"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.5.8",
+            "series": "4.5"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobDelta>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobDelta",
+          "output_file": null,
+          "output_file_pattern": "//render/JobDelta/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "JobGamma": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": "<version:4.5>",
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.5.8",
+            "series": "4.5"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:JobGamma>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "JobGamma",
+          "output_file": null,
+          "output_file_pattern": "//render/JobGamma/frame_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {},
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": null
+        },
+        "TiledMain_Tile_0_0": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_0_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_0_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_0_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_0_1": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_0_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_0_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_0_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 0.5,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.0,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_1_0": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_1_0>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_1_0",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_1_0_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 0.5,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.0,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        },
+        "TiledMain_Tile_1_1": {
+          "animation": null,
+          "animation_frame": null,
+          "asset": {
+            "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+            "created_at": "<timestamp>",
+            "id": "<asset:SceneMain>",
+            "name": "SceneMain",
+            "project": "<project:ProjDefault>",
+            "project_details": {
+              "blender_version": "<version:4.2>",
+              "blender_version_details": {
+                "added_at": "<timestamp>",
+                "id": "<version:4.2>",
+                "is_default": true,
+                "last_patch_check": null,
+                "major": 4,
+                "minor": 2,
+                "resolved_version": "4.2.19",
+                "series": "4.2"
+              },
+              "created_at": "<timestamp>",
+              "id": "<project:ProjDefault>",
+              "name": "ProjDefault"
+            }
+          },
+          "assigned_worker": null,
+          "blender_version": null,
+          "completed_at": null,
+          "cycles_feature_set": "SUPPORTED",
+          "effective_blender_version": {
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "end_frame": 1,
+          "error_message": "",
+          "id": "<job:TiledMain_Tile_1_1>",
+          "is_paused": false,
+          "last_output": "",
+          "name": "TiledMain_Tile_1_1",
+          "output_file": null,
+          "output_file_pattern": "tiled_jobs/<tiledjob:TiledMain>/tile_1_1_####.png",
+          "render_device": "ANY",
+          "render_engine": "CYCLES",
+          "render_settings": {
+            "cycles.feature_set": "SUPPORTED",
+            "render.border_max_x": 1.0,
+            "render.border_max_y": 1.0,
+            "render.border_min_x": 0.5,
+            "render.border_min_y": 0.5,
+            "render.engine": "CYCLES",
+            "render.resolution_percentage": 100,
+            "render.resolution_x": 640,
+            "render.resolution_y": 480,
+            "render.use_border": true,
+            "render.use_crop_to_border": true
+          },
+          "render_time_seconds": null,
+          "start_frame": 1,
+          "started_at": null,
+          "status": "QUEUED",
+          "status_display": "Queued",
+          "submitted_at": "<timestamp>",
+          "thumbnail": null,
+          "tiled_job": "<tiledjob:TiledMain>"
+        }
+      },
+      "compare": "set-by-name",
+      "status": 200
+    },
+    "project_create_default_version": {
+      "body": {
+        "blender_version": "<version:4.2>",
+        "blender_version_details": {
+          "added_at": "<timestamp>",
+          "id": "<version:4.2>",
+          "is_default": true,
+          "last_patch_check": null,
+          "major": 4,
+          "minor": 2,
+          "resolved_version": "4.2.19",
+          "series": "4.2"
+        },
+        "created_at": "<timestamp>",
+        "id": "<project:ProjDefault>",
+        "name": "ProjDefault"
+      },
+      "status": 201
+    },
+    "project_create_null_version": {
+      "body": {
+        "blender_version": [
+          "This field may not be null."
+        ]
+      },
+      "status": 400
+    },
+    "project_create_with_version": {
+      "body": {
+        "blender_version": "<version:4.5>",
+        "blender_version_details": {
+          "added_at": "<timestamp>",
+          "id": "<version:4.5>",
+          "is_default": false,
+          "last_patch_check": null,
+          "major": 4,
+          "minor": 5,
+          "resolved_version": "4.5.8",
+          "series": "4.5"
+        },
+        "created_at": "<timestamp>",
+        "id": "<project:ProjExplicit>",
+        "name": "ProjExplicit"
+      },
+      "status": 201
+    },
+    "project_create_zero_versions": {
+      "body": [
+        "At least one supported Blender version must be configured before creating projects."
+      ],
+      "status": 400
+    },
+    "tiled_job_create": {
+      "body": {
+        "asset": {
+          "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+          "created_at": "<timestamp>",
+          "id": "<asset:SceneMain>",
+          "name": "SceneMain",
+          "project": "<project:ProjDefault>",
+          "project_details": {
+            "blender_version": "<version:4.2>",
+            "blender_version_details": {
+              "added_at": "<timestamp>",
+              "id": "<version:4.2>",
+              "is_default": true,
+              "last_patch_check": null,
+              "major": 4,
+              "minor": 2,
+              "resolved_version": "4.2.19",
+              "series": "4.2"
+            },
+            "created_at": "<timestamp>",
+            "id": "<project:ProjDefault>",
+            "name": "ProjDefault"
+          }
+        },
+        "blender_version": null,
+        "completed_at": null,
+        "completed_tiles": 0,
+        "cycles_feature_set": "SUPPORTED",
+        "effective_blender_version": {
+          "resolved_version": "4.2.19",
+          "series": "4.2"
+        },
+        "error_message": "",
+        "final_resolution_x": 640,
+        "final_resolution_y": 480,
+        "id": "<tiledjob:TiledMain>",
+        "name": "TiledMain",
+        "output_file": null,
+        "progress": "0 of 4 tiles complete",
+        "project": "<project:ProjDefault>",
+        "project_details": {
+          "blender_version": "<version:4.2>",
+          "blender_version_details": {
+            "added_at": "<timestamp>",
+            "id": "<version:4.2>",
+            "is_default": true,
+            "last_patch_check": null,
+            "major": 4,
+            "minor": 2,
+            "resolved_version": "4.2.19",
+            "series": "4.2"
+          },
+          "created_at": "<timestamp>",
+          "id": "<project:ProjDefault>",
+          "name": "ProjDefault"
+        },
+        "render_device": "ANY",
+        "render_engine": "CYCLES",
+        "render_settings": {},
+        "status": "QUEUED",
+        "submitted_at": "<timestamp>",
+        "thumbnail": null,
+        "tile_count_x": 2,
+        "tile_count_y": 2,
+        "total_render_time_seconds": 0,
+        "total_tiles": 4
+      },
+      "status": 201
+    },
+    "worker_status_patch": {
+      "body": {
+        "animation": null,
+        "animation_frame": null,
+        "asset": {
+          "blend_file": "http://testserver/media/assets/<hex8>/<hex8>.blend",
+          "created_at": "<timestamp>",
+          "id": "<asset:SceneMain>",
+          "name": "SceneMain",
+          "project": "<project:ProjDefault>",
+          "project_details": {
+            "blender_version": "<version:4.2>",
+            "blender_version_details": {
+              "added_at": "<timestamp>",
+              "id": "<version:4.2>",
+              "is_default": true,
+              "last_patch_check": null,
+              "major": 4,
+              "minor": 2,
+              "resolved_version": "4.2.19",
+              "series": "4.2"
+            },
+            "created_at": "<timestamp>",
+            "id": "<project:ProjDefault>",
+            "name": "ProjDefault"
+          }
+        },
+        "assigned_worker": "<worker:invariance-host>",
+        "assigned_worker_hostname": "invariance-host",
+        "blender_version": null,
+        "completed_at": null,
+        "cycles_feature_set": "SUPPORTED",
+        "effective_blender_version": {
+          "resolved_version": "4.2.19",
+          "series": "4.2"
+        },
+        "end_frame": 1,
+        "error_message": "",
+        "id": "<job:JobAlpha>",
+        "is_paused": false,
+        "last_output": "Fra:1 Saved frame_0001.png",
+        "name": "JobAlpha",
+        "output_file": null,
+        "output_file_pattern": "//render/JobAlpha/frame_####.png",
+        "render_device": "GPU",
+        "render_engine": "CYCLES",
+        "render_settings": {},
+        "render_time_seconds": 42,
+        "start_frame": 1,
+        "started_at": "<timestamp>",
+        "status": "DONE",
+        "status_display": "Done",
+        "submitted_at": "<timestamp>",
+        "thumbnail": null,
+        "tiled_job": null
+      },
+      "status": 200
+    }
+  },
+  "description": "Blender API snapshot (Unreal foundation FR-T-2). Written by test_renderer_blender_invariance.py; do not edit by hand.",
+  "documented_exceptions": [
+    {
+      "id": "worker-poll-order",
+      "metadata_only": true,
+      "pre_change_order": {
+        "poll_device_cpu_only": [
+          "JobBeta"
+        ],
+        "poll_with_available_versions": [
+          "AnimTiled_Frame_0001_Tile_1_1",
+          "AnimTiled_Frame_0001_Tile_1_0",
+          "AnimTiled_Frame_0001_Tile_0_1",
+          "AnimTiled_Frame_0001_Tile_0_0",
+          "AnimMain_Frame_0002",
+          "AnimMain_Frame_0001",
+          "TiledMain_Tile_1_1",
+          "TiledMain_Tile_1_0",
+          "TiledMain_Tile_0_1",
+          "TiledMain_Tile_0_0",
+          "JobBeta",
+          "JobAlpha"
+        ],
+        "poll_without_available_versions": [
+          "AnimTiled_Frame_0001_Tile_1_1",
+          "AnimTiled_Frame_0001_Tile_1_0",
+          "AnimTiled_Frame_0001_Tile_0_1",
+          "AnimTiled_Frame_0001_Tile_0_0",
+          "AnimMain_Frame_0002",
+          "AnimMain_Frame_0001",
+          "TiledMain_Tile_1_1",
+          "TiledMain_Tile_1_0",
+          "TiledMain_Tile_0_1",
+          "TiledMain_Tile_0_0",
+          "JobDelta",
+          "JobGamma",
+          "JobBeta",
+          "JobAlpha"
+        ],
+        "poll_worker_params": [
+          "AnimTiled_Frame_0001_Tile_1_1",
+          "AnimTiled_Frame_0001_Tile_1_0",
+          "AnimTiled_Frame_0001_Tile_0_1",
+          "AnimTiled_Frame_0001_Tile_0_0",
+          "AnimMain_Frame_0002",
+          "AnimMain_Frame_0001",
+          "TiledMain_Tile_1_1",
+          "TiledMain_Tile_1_0",
+          "TiledMain_Tile_0_1",
+          "TiledMain_Tile_0_0",
+          "JobDelta",
+          "JobGamma",
+          "JobBeta",
+          "JobAlpha"
+        ]
+      },
+      "requirement": "FR-RT-15 / D7",
+      "text": "Deliberate change, not a regression: worker polls return QUEUED jobs oldest first (submitted_at, then id) after FR-RT-15 / D7. Captures marked \"set-by-name\" are compared as sets keyed by job name. pre_change_order records the newest-first order of master before chunk 1; nothing asserts it. The new order is asserted by test_poll_fifo_order.py (FR-T-3)."
+    }
+  ]
+}
