@@ -112,6 +112,10 @@ class Animation(models.Model):
         blank=True, default='',
         help_text="Error message from failed video assembly.",
     )
+    error_message = models.TextField(
+        blank=True, default='',
+        help_text="Why the animation is in ERROR (failed frames).",
+    )
 
     def clean(self):
         if self.end_frame < self.start_frame:
@@ -213,6 +217,10 @@ class AnimationFrame(models.Model):
         upload_to=thumbnail_upload_path,
         null=True, blank=True, max_length=512,
         help_text="A preview thumbnail of this assembled frame.",
+    )
+    error_message = models.TextField(
+        blank=True, default='',
+        help_text="Why the frame is in ERROR (failed tiles or assembly failure).",
     )
 
     def __str__(self):

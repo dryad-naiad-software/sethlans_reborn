@@ -10,13 +10,13 @@ from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
-from rest_framework.decorators import action
-from rest_framework.response import Response
 
 from ..constants import FORMAT_EXTENSIONS, RenderEngine, RenderSettings
 from ..models import Job, JobStatus, TiledJob
+from ..parent_dispatch import dispatch_tiled_job
 from ..permissions import IsAdmin
 from ..serializers import TiledJobSerializer
+from .cascade_actions import CascadeChildActionsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
     unpause=extend_schema(tags=['Management UI']),
     requeue=extend_schema(tags=['Management UI']),
 )
-class TiledJobViewSet(viewsets.ModelViewSet):
+class TiledJobViewSet(CascadeChildActionsMixin, viewsets.ModelViewSet):
     """
     API endpoint for creating and managing Tiled Render jobs.
 
@@ -44,6 +44,10 @@ class TiledJobViewSet(viewsets.ModelViewSet):
     serializer_class = TiledJobSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'project']
+    cascade_child_field = 'tiled_job'
+
+    def cascade_dispatch(self, parent_pk):
+        dispatch_tiled_job(parent_pk)
 
     def get_queryset(self):
         return TiledJob.objects.annotate(
@@ -123,59 +127,3 @@ class TiledJobViewSet(viewsets.ModelViewSet):
 
         Job.objects.bulk_create(jobs_to_create)
         logger.info(f"Successfully spawned {len(jobs_to_create)} tile jobs for TiledJob ID {tiled_job.id}.")
-
-    @action(detail=True, methods=['post'])
-    def pause(self, request, pk=None):
-        """Cascade pause: pause all QUEUED child jobs."""
-        tiled_job = self.get_object()
-        with transaction.atomic():
-            count = Job.objects.filter(
-                tiled_job=tiled_job,
-                status=JobStatus.QUEUED,
-                is_paused=False,
-            ).update(is_paused=True)
-        logger.info(
-            f"Cascade paused {count} child jobs for "
-            f"TiledJob '{tiled_job.name}' (ID: {tiled_job.id})."
-        )
-        return Response({"paused": count})
-
-    @action(detail=True, methods=['post'])
-    def unpause(self, request, pk=None):
-        """Cascade unpause: unpause all paused QUEUED child jobs."""
-        tiled_job = self.get_object()
-        with transaction.atomic():
-            count = Job.objects.filter(
-                tiled_job=tiled_job,
-                status=JobStatus.QUEUED,
-                is_paused=True,
-            ).update(is_paused=False)
-        logger.info(
-            f"Cascade unpaused {count} child jobs for "
-            f"TiledJob '{tiled_job.name}' (ID: {tiled_job.id})."
-        )
-        return Response({"unpaused": count})
-
-    @action(detail=True, methods=['post'])
-    def requeue(self, request, pk=None):
-        """Cascade requeue: requeue all ERROR/CANCELED child jobs."""
-        tiled_job = self.get_object()
-        with transaction.atomic():
-            count = Job.objects.filter(
-                tiled_job=tiled_job,
-                status__in=[JobStatus.ERROR, JobStatus.CANCELED],
-            ).update(
-                status=JobStatus.QUEUED,
-                assigned_worker=None,
-                started_at=None,
-                completed_at=None,
-                error_message='',
-                last_output='',
-                auto_requeue_count=0,
-                is_paused=False,
-            )
-        logger.info(
-            f"Cascade requeued {count} child jobs for "
-            f"TiledJob '{tiled_job.name}' (ID: {tiled_job.id})."
-        )
-        return Response({"requeued": count})

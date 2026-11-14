@@ -62,13 +62,13 @@ class TiledJobSerializer(serializers.ModelSerializer):
             'render_engine', 'render_device', 'cycles_feature_set',
             'render_settings',
             'submitted_at', 'completed_at', 'total_render_time_seconds',
-            'output_file', 'thumbnail'
+            'output_file', 'thumbnail', 'error_message',
         ]
         read_only_fields = (
             'id', 'status', 'progress', 'total_tiles', 'completed_tiles',
             'submitted_at', 'completed_at', 'total_render_time_seconds',
             'asset', 'project_details', 'output_file', 'thumbnail',
-            'effective_blender_version',
+            'effective_blender_version', 'error_message',
         )
         extra_kwargs = {
             'project': {'write_only': True}

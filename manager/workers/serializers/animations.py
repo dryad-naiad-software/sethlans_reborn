@@ -29,7 +29,10 @@ class AnimationFrameSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = AnimationFrame
-        fields = ['id', 'frame_number', 'status', 'output_file', 'thumbnail', 'render_time_seconds']
+        fields = [
+            'id', 'frame_number', 'status', 'output_file', 'thumbnail',
+            'render_time_seconds', 'error_message',
+        ]
 
 
 class AnimationSerializer(serializers.ModelSerializer):
@@ -77,13 +80,14 @@ class AnimationSerializer(serializers.ModelSerializer):
             'submitted_at', 'completed_at',
             'total_render_time_seconds', 'thumbnail', 'frames',
             'video_settings', 'video_status', 'video_file', 'video_error',
+            'error_message',
         ]
         read_only_fields = (
             'status', 'progress', 'total_frames', 'completed_frames',
             'submitted_at', 'completed_at',
             'total_render_time_seconds', 'asset', 'project_details',
             'thumbnail', 'frames', 'effective_blender_version',
-            'video_status', 'video_file', 'video_error',
+            'video_status', 'video_file', 'video_error', 'error_message',
         )
         extra_kwargs = {
             'project': {'write_only': True}

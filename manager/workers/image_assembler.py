@@ -6,7 +6,14 @@ Utility functions for assembling tiled render outputs.
 
 This module contains the logic for stitching individual render tiles back together
 into a single, high-resolution image using the Pillow library. It is designed
-to be called by Django signals upon completion of all child render jobs.
+to be called (via ``transaction.on_commit``, see ``parent_dispatch``) once all
+child render jobs are DONE.
+
+Only stitching and writing the output file count as assembly: if they raise,
+the parent goes to ERROR with a reason (issue #219).  Saving the status, the
+``post_save`` parent refresh it fires, the thumbnail and the tile cleanup are
+outside that ``try`` so a failure there never turns a finished image into an
+assembly ERROR.
 """
 
 import logging
@@ -14,11 +21,13 @@ import re
 import io
 from django.utils import timezone
 from django.core.files.base import ContentFile
+from django.db import DatabaseError
 from django.db.models import Sum
 from PIL import Image
 from .models import Job, TiledJob, TiledJobStatus, JobStatus, AnimationFrame, AnimationFrameStatus
 from .constants import FORMAT_EXTENSIONS, PILLOW_FORMAT_NAMES, RenderSettings
 from .image_utils import generate_thumbnail
+from .parent_status_rules import assembly_failure_reason
 
 logger = logging.getLogger(__name__)
 TILE_COORD_REGEX = re.compile(r"_Tile_(\d+)_(\d+)$")
@@ -45,6 +54,94 @@ def _get_format_config(render_settings):
     return pillow_format, file_ext, image_mode, save_kwargs
 
 
+def _stitch_tiles(jobs, size, tile_counts, render_settings):
+    """Paste each tile job's output into one image.
+
+    Args:
+        jobs: DONE tile jobs (names end in ``_Tile_<y>_<x>``).
+        size: ``(width, height)`` of the final image.
+        tile_counts: ``(tile_count_x, tile_count_y)``.
+        render_settings: parent render settings (output format).
+
+    Returns:
+        ``(image_bytes, file_ext)``.
+    """
+    pillow_format, file_ext, image_mode, save_kwargs = _get_format_config(render_settings)
+    final_image = Image.new(image_mode, size)
+    tile_width = size[0] // tile_counts[0]
+    tile_height = size[1] // tile_counts[1]
+
+    for job in jobs:
+        match = TILE_COORD_REGEX.search(job.name)
+        if not match:
+            logger.warning(f"Could not parse tile coordinates from job name '{job.name}'. Skipping.")
+            continue
+        tile_y, tile_x = map(int, match.groups())
+        paste_xy = (tile_x * tile_width, (tile_counts[1] - 1 - tile_y) * tile_height)
+        with Image.open(job.output_file.path) as tile_image:
+            if image_mode == 'RGB':
+                tile_image = tile_image.convert('RGB')
+            final_image.paste(tile_image, paste_xy)
+
+    buffer = io.BytesIO()
+    final_image.save(buffer, format=pillow_format, **save_kwargs)
+    return buffer.getvalue(), file_ext
+
+
+def _save_status(obj, update_fields=None):
+    """Save *obj*; a failing ``post_save`` parent refresh is only logged.
+
+    ``save()`` writes the row first and then runs ``post_save`` (which, for
+    an AnimationFrame, refreshes the parent Animation).  If the error came
+    from that refresh, the row already holds the new status: log it and
+    carry on (the parent catches up on the next child change, or a cascade
+    requeue).  If the row itself was not written, re-raise.
+    """
+    try:
+        obj.save(update_fields=update_fields)
+    except DatabaseError:
+        if not type(obj).objects.filter(pk=obj.pk, status=obj.status).exists():
+            raise
+        logger.exception(
+            "%s saved as %s, but the post_save parent refresh failed.", obj, obj.status,
+        )
+
+
+def _thumbnail_and_cleanup(obj, completed_jobs, label):
+    """Generate the thumbnail and delete tile files; failures only logged."""
+    try:
+        if obj.output_file and not obj.thumbnail:
+            thumb_content = generate_thumbnail(obj.output_file)
+            if thumb_content:
+                obj.thumbnail.save(thumb_content.name, thumb_content, save=False)
+                _save_status(obj, ['thumbnail'])
+        logger.info(f"Successfully assembled and saved final image and thumbnail for {label}.")
+
+        logger.info(f"Cleaning up {completed_jobs.count()} tile files for {label}.")
+        job_ids_to_clear = []
+        for job in completed_jobs:
+            if job.output_file:
+                job_ids_to_clear.append(job.id)
+                job.output_file.delete(save=False)
+        if job_ids_to_clear:
+            Job.objects.filter(id__in=job_ids_to_clear).update(output_file=None)
+        logger.info(f"Cleanup complete for {label}.")
+    except Exception:
+        logger.exception(f"Thumbnail or tile cleanup failed for {label}; status unchanged.")
+
+
+def _frame_resolution(completed_jobs):
+    """Final frame resolution, read from a child tile job's settings."""
+    first_job = completed_jobs.first()
+    if not first_job or not first_job.render_settings:
+        raise ValueError("Cannot determine final resolution; first tile job has no render settings.")
+    resolution_x = first_job.render_settings.get(RenderSettings.RESOLUTION_X)
+    resolution_y = first_job.render_settings.get(RenderSettings.RESOLUTION_Y)
+    if not resolution_x or not resolution_y:
+        raise ValueError("Child job render settings are missing resolution data.")
+    return resolution_x, resolution_y
+
+
 def assemble_animation_frame_image(animation_frame_id):
     """
     Assembles completed tiles for a single animation frame and cleans up the tile files.
@@ -61,87 +158,32 @@ def assemble_animation_frame_image(animation_frame_id):
 
     logger.info(f"Starting image assembly for {frame}.")
     frame.status = AnimationFrameStatus.ASSEMBLING
-    frame.save(update_fields=['status'])
+    _save_status(frame, ['status'])
 
     completed_jobs = frame.tile_jobs.filter(status=JobStatus.DONE).order_by('name')
     animation = frame.animation
 
     try:
-        # Determine final resolution from a child job's settings
-        first_job = completed_jobs.first()
-        if not first_job or not first_job.render_settings:
-            raise ValueError("Cannot determine final resolution; first tile job has no render settings.")
-
-        final_resolution_x = first_job.render_settings.get(RenderSettings.RESOLUTION_X)
-        final_resolution_y = first_job.render_settings.get(RenderSettings.RESOLUTION_Y)
-
-        if not final_resolution_x or not final_resolution_y:
-            raise ValueError("Child job render settings are missing resolution data.")
-
-        # Read format from parent Animation's render_settings
-        pillow_format, file_ext, image_mode, save_kwargs = _get_format_config(
-            animation.render_settings
+        image_bytes, file_ext = _stitch_tiles(
+            completed_jobs, _frame_resolution(completed_jobs),
+            animation.get_tile_counts(), animation.render_settings,
         )
-        final_image = Image.new(image_mode, (final_resolution_x, final_resolution_y))
-
-        tile_count_x, tile_count_y = animation.get_tile_counts()
-        tile_pixel_width = final_resolution_x // tile_count_x
-        tile_pixel_height = final_resolution_y // tile_count_y
-
-        for job in completed_jobs:
-            match = TILE_COORD_REGEX.search(job.name)
-            if not match:
-                logger.warning(f"Could not parse tile coordinates from job name '{job.name}'. Skipping.")
-                continue
-
-            tile_y, tile_x = map(int, match.groups())
-            paste_x = tile_x * tile_pixel_width
-            paste_y = (tile_count_y - 1 - tile_y) * tile_pixel_height
-
-            with Image.open(job.output_file.path) as tile_image:
-                if image_mode == 'RGB':
-                    tile_image = tile_image.convert('RGB')
-                final_image.paste(tile_image, (paste_x, paste_y))
-
-        buffer = io.BytesIO()
-        final_image.save(buffer, format=pillow_format, **save_kwargs)
-        buffer.seek(0)
-
         file_name = f"anim_{animation.id}_frame_{frame.frame_number:04d}{file_ext}"
-        content_file = ContentFile(buffer.getvalue(), name=file_name)
-
-        frame.output_file.save(file_name, content_file, save=False)
-        frame.status = AnimationFrameStatus.DONE
-
-        time_aggregate = completed_jobs.aggregate(total=Sum('render_time_seconds'))
-        frame.render_time_seconds = time_aggregate['total'] or 0
-        frame.save()  # Save the model with the output file and status first
-
-        # Now, explicitly generate and save the thumbnail
-        if frame.output_file and not frame.thumbnail:
-            thumb_content = generate_thumbnail(frame.output_file)
-            if thumb_content:
-                frame.thumbnail.save(thumb_content.name, thumb_content, save=True)
-
-        logger.info(f"Successfully assembled and saved final image and thumbnail for {frame}.")
-
-        # --- CORRECTED: Clean up the individual tile files and database fields ---
-        logger.info(f"Cleaning up {completed_jobs.count()} tile files for {frame}.")
-        job_ids_to_clear = []
-        for job in completed_jobs:
-            if job.output_file:
-                job_ids_to_clear.append(job.id)
-                job.output_file.delete(save=False)
-
-        if job_ids_to_clear:
-            Job.objects.filter(id__in=job_ids_to_clear).update(output_file=None)
-
-        logger.info(f"Cleanup complete for {frame}.")
-
+        frame.output_file.save(file_name, ContentFile(image_bytes, name=file_name), save=False)
     except Exception as e:
         logger.critical(f"A critical error occurred during image assembly for {frame}: {e}", exc_info=True)
         frame.status = AnimationFrameStatus.ERROR
-        frame.save(update_fields=['status'])
+        frame.error_message = assembly_failure_reason('Frame', e)
+        # save() (not update()) so handle_animation_frame_completion runs
+        # and the parent Animation can move to ERROR (issue #219).
+        _save_status(frame, ['status', 'error_message'])
+        return
+
+    frame.status = AnimationFrameStatus.DONE
+    frame.error_message = ''
+    frame.render_time_seconds = completed_jobs.aggregate(total=Sum('render_time_seconds'))['total'] or 0
+    _save_status(frame)  # fires post_save -> parent Animation refresh
+    _thumbnail_and_cleanup(frame, completed_jobs, str(frame))
 
 
 def assemble_tiled_job_image(tiled_job_id):
@@ -160,70 +202,30 @@ def assemble_tiled_job_image(tiled_job_id):
 
     logger.info(f"Starting image assembly for TiledJob '{tiled_job.name}' (ID: {tiled_job.id}).")
     tiled_job.status = TiledJobStatus.ASSEMBLING
-    tiled_job.save(update_fields=['status'])
+    _save_status(tiled_job, ['status'])
 
     completed_jobs = tiled_job.jobs.filter(status=JobStatus.DONE).order_by('name')
 
     try:
-        # Read format from parent TiledJob's render_settings
-        pillow_format, file_ext, image_mode, save_kwargs = _get_format_config(
-            tiled_job.render_settings
+        image_bytes, file_ext = _stitch_tiles(
+            completed_jobs,
+            (tiled_job.final_resolution_x, tiled_job.final_resolution_y),
+            (tiled_job.tile_count_x, tiled_job.tile_count_y),
+            tiled_job.render_settings,
         )
-        final_image = Image.new(image_mode, (tiled_job.final_resolution_x, tiled_job.final_resolution_y))
-
-        tile_pixel_width = tiled_job.final_resolution_x // tiled_job.tile_count_x
-        tile_pixel_height = tiled_job.final_resolution_y // tiled_job.tile_count_y
-
-        for job in completed_jobs:
-            match = TILE_COORD_REGEX.search(job.name)
-            if not match:
-                logger.warning(f"Could not parse tile coordinates from job name '{job.name}'. Skipping.")
-                continue
-
-            tile_y, tile_x = map(int, match.groups())
-            paste_x = tile_x * tile_pixel_width
-            paste_y = (tiled_job.tile_count_y - 1 - tile_y) * tile_pixel_height
-
-            with Image.open(job.output_file.path) as tile_image:
-                if image_mode == 'RGB':
-                    tile_image = tile_image.convert('RGB')
-                final_image.paste(tile_image, (paste_x, paste_y))
-
-        buffer = io.BytesIO()
-        final_image.save(buffer, format=pillow_format, **save_kwargs)
-        buffer.seek(0)
-
         file_name = f"tiled_job_{str(tiled_job.id)[:8]}_final{file_ext}"
-        content_file = ContentFile(buffer.getvalue(), name=file_name)
-        tiled_job.output_file.save(file_name, content_file, save=False)
-
-        tiled_job.status = TiledJobStatus.DONE
-        tiled_job.completed_at = timezone.now()
-        tiled_job.save()  # Save model with output file first
-
-        # Now, explicitly generate and save the thumbnail
-        if tiled_job.output_file and not tiled_job.thumbnail:
-            thumb_content = generate_thumbnail(tiled_job.output_file)
-            if thumb_content:
-                tiled_job.thumbnail.save(thumb_content.name, thumb_content, save=True)
-
-        logger.info(f"Successfully assembled and saved final image and thumbnail for TiledJob ID {tiled_job.id}.")
-
-        # --- CORRECTED: Clean up the individual tile files and database fields ---
-        logger.info(f"Cleaning up {completed_jobs.count()} tile files for TiledJob {tiled_job.id}.")
-        job_ids_to_clear = []
-        for job in completed_jobs:
-            if job.output_file:
-                job_ids_to_clear.append(job.id)
-                job.output_file.delete(save=False)
-
-        if job_ids_to_clear:
-            Job.objects.filter(id__in=job_ids_to_clear).update(output_file=None)
-
-        logger.info(f"Cleanup complete for TiledJob {tiled_job.id}.")
-
+        tiled_job.output_file.save(file_name, ContentFile(image_bytes, name=file_name), save=False)
     except Exception as e:
         logger.critical(f"A critical error occurred during image assembly for TiledJob ID {tiled_job.id}: {e}",
                         exc_info=True)
         tiled_job.status = TiledJobStatus.ERROR
-        tiled_job.save(update_fields=['status'])
+        tiled_job.error_message = assembly_failure_reason('Tile', e)
+        tiled_job.completed_at = timezone.now()
+        _save_status(tiled_job, ['status', 'error_message', 'completed_at'])
+        return
+
+    tiled_job.status = TiledJobStatus.DONE
+    tiled_job.error_message = ''
+    tiled_job.completed_at = timezone.now()
+    _save_status(tiled_job)
+    _thumbnail_and_cleanup(tiled_job, completed_jobs, f"TiledJob {tiled_job.id}")

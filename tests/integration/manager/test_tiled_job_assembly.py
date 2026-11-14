@@ -135,8 +135,9 @@ class TestTiledJobAssembly:
     @patch('workers.image_assembler.assemble_tiled_job_image')
     def test_all_tiles_complete_triggers_assembly(
         self, mock_assemble, admin_client, project, asset,
+        django_capture_on_commit_callbacks,
     ):
-        """All tiles completing triggers assembly signal."""
+        """All tiles completing triggers assembly (deferred to commit, #219)."""
         admin_client.post(
             TILED_JOBS_URL,
             data={
@@ -154,10 +155,11 @@ class TestTiledJobAssembly:
         tile_jobs = Job.objects.filter(tiled_job=tiled_job)
 
         # Complete all tiles
-        for job in tile_jobs:
-            job.status = JobStatus.DONE
-            job.render_time_seconds = 5
-            job.save()
+        with django_capture_on_commit_callbacks(execute=True):
+            for job in tile_jobs:
+                job.status = JobStatus.DONE
+                job.render_time_seconds = 5
+                job.save()
 
         mock_assemble.assert_called_once_with(tiled_job.id)
 

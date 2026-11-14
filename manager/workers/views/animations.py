@@ -20,9 +20,11 @@ from rest_framework.response import Response
 
 from ..constants import FORMAT_EXTENSIONS, RenderEngine, RenderSettings, TilingConfiguration
 from ..models import Animation, AnimationFrame, Job, JobStatus
+from ..parent_dispatch import dispatch_animation
 from ..permissions import IsAdmin
 from ..serializers import AnimationSerializer
 from .animation_video_actions import AnimationVideoActionsMixin
+from .cascade_actions import CascadeChildActionsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,9 @@ MAX_DOWNLOADABLE_FRAMES = 1000
     unpause=extend_schema(tags=['Management UI']),
     requeue=extend_schema(tags=['Management UI']),
 )
-class AnimationViewSet(AnimationVideoActionsMixin, viewsets.ModelViewSet):
+class AnimationViewSet(
+    AnimationVideoActionsMixin, CascadeChildActionsMixin, viewsets.ModelViewSet,
+):
     """
     API endpoint for creating and managing multi-frame animation jobs.
 
@@ -52,6 +56,10 @@ class AnimationViewSet(AnimationVideoActionsMixin, viewsets.ModelViewSet):
     serializer_class = AnimationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'project']
+    cascade_child_field = 'animation'
+
+    def cascade_dispatch(self, parent_pk):
+        dispatch_animation(parent_pk)
 
     def get_queryset(self):
         return Animation.objects.annotate(
@@ -239,59 +247,3 @@ class AnimationViewSet(AnimationVideoActionsMixin, viewsets.ModelViewSet):
         response = FileResponse(tmp, content_type='application/zip')
         response['Content-Disposition'] = f'attachment; filename="{safe_name}.zip"'
         return response
-
-    @action(detail=True, methods=['post'])
-    def pause(self, request, pk=None):
-        """Cascade pause: pause all QUEUED child jobs."""
-        animation = self.get_object()
-        with transaction.atomic():
-            count = Job.objects.filter(
-                animation=animation,
-                status=JobStatus.QUEUED,
-                is_paused=False,
-            ).update(is_paused=True)
-        logger.info(
-            f"Cascade paused {count} child jobs for "
-            f"Animation '{animation.name}' (ID: {animation.id})."
-        )
-        return Response({"paused": count})
-
-    @action(detail=True, methods=['post'])
-    def unpause(self, request, pk=None):
-        """Cascade unpause: unpause all paused QUEUED child jobs."""
-        animation = self.get_object()
-        with transaction.atomic():
-            count = Job.objects.filter(
-                animation=animation,
-                status=JobStatus.QUEUED,
-                is_paused=True,
-            ).update(is_paused=False)
-        logger.info(
-            f"Cascade unpaused {count} child jobs for "
-            f"Animation '{animation.name}' (ID: {animation.id})."
-        )
-        return Response({"unpaused": count})
-
-    @action(detail=True, methods=['post'])
-    def requeue(self, request, pk=None):
-        """Cascade requeue: requeue all ERROR/CANCELED child jobs."""
-        animation = self.get_object()
-        with transaction.atomic():
-            count = Job.objects.filter(
-                animation=animation,
-                status__in=[JobStatus.ERROR, JobStatus.CANCELED],
-            ).update(
-                status=JobStatus.QUEUED,
-                assigned_worker=None,
-                started_at=None,
-                completed_at=None,
-                error_message='',
-                last_output='',
-                auto_requeue_count=0,
-                is_paused=False,
-            )
-        logger.info(
-            f"Cascade requeued {count} child jobs for "
-            f"Animation '{animation.name}' (ID: {animation.id})."
-        )
-        return Response({"requeued": count})

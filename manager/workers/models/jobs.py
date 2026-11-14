@@ -61,6 +61,10 @@ class TiledJob(models.Model):
                                    help_text="The final, assembled output image.", max_length=512)
     thumbnail = models.ImageField(upload_to=thumbnail_upload_path, null=True, blank=True,
                                   help_text="A preview thumbnail of the final assembled image.", max_length=512)
+    error_message = models.TextField(
+        blank=True, default='',
+        help_text="Why the tiled job is in ERROR (failed tiles or assembly failure).",
+    )
 
     @property
     def effective_blender_version(self):

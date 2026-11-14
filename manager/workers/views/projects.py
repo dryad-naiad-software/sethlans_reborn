@@ -5,7 +5,6 @@
 import logging
 
 from django.db import transaction
-from django.db.models import Count, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
@@ -13,8 +12,8 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from ..models import Animation, Job, JobStatus, Project, SupportedBlenderVersion, TiledJob
-from ..models.jobs import TiledJobStatus
+from ..models import Asset, Job, JobStatus, Project, SupportedBlenderVersion
+from ..parent_dispatch import dispatch_parents
 from ..permissions import IsAdmin
 from ..serializers import ProjectSerializer
 
@@ -54,8 +53,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         Cancel all QUEUED and RENDERING jobs for this project.
 
         Uses a single bulk update for efficiency and wraps the entire
-        operation in a transaction. After canceling jobs, updates parent
-        TiledJob and Animation objects whose children are all terminal.
+        operation in a transaction. After canceling jobs, refreshes the
+        parent TiledJob / AnimationFrame / Animation of each canceled job
+        with the shared parent-status rules (ERROR once all children are
+        terminal and one did not finish).
 
         Returns:
             {"canceled": <count>} with the number of jobs affected.
@@ -63,50 +64,34 @@ class ProjectViewSet(viewsets.ModelViewSet):
         project = self.get_object()
 
         with transaction.atomic():
-            # Bulk cancel all active jobs
+            # Bulk cancel all active jobs (the first statement is a write,
+            # so SQLite takes its write lock before anything is read).
+            canceled_at = timezone.now()
+            # ``asset_id__in`` (not ``asset__project``) keeps the status
+            # predicate on the UPDATE's own table.  A joined filter compiles
+            # to ``WHERE id IN (subquery with the status filter)``, and after
+            # a lock wait PostgreSQL rechecks only ``id IN (...)``: a DONE
+            # committed meanwhile would be overwritten with CANCELED.
             count = Job.objects.filter(
-                asset__project=project,
+                asset_id__in=Asset.objects.filter(project=project).values('pk'),
                 status__in=[JobStatus.QUEUED, JobStatus.RENDERING],
             ).update(
                 status=JobStatus.CANCELED,
-                completed_at=timezone.now(),
+                completed_at=canceled_at,
                 assigned_worker=None,
                 is_paused=False,
             )
-
             if count > 0:
-                # Update parent TiledJobs whose children are all terminal
-                terminal = [JobStatus.DONE, JobStatus.ERROR, JobStatus.CANCELED]
-                TiledJob.objects.filter(
-                    project=project,
-                ).exclude(
-                    status__in=[TiledJobStatus.DONE, TiledJobStatus.ERROR],
-                ).annotate(
-                    non_terminal=Count(
-                        'jobs', filter=~Q(jobs__status__in=terminal)
-                    ),
-                ).filter(
-                    non_terminal=0,
-                ).update(
-                    status=TiledJobStatus.ERROR,
-                    completed_at=timezone.now(),
-                )
-
-                # Update parent Animations whose children are all terminal
-                Animation.objects.filter(
-                    project=project,
-                ).exclude(
-                    status__in=[JobStatus.DONE, JobStatus.ERROR],
-                ).annotate(
-                    non_terminal=Count(
-                        'jobs', filter=~Q(jobs__status__in=terminal)
-                    ),
-                ).filter(
-                    non_terminal=0,
-                ).update(
-                    status=JobStatus.ERROR,
-                    completed_at=timezone.now(),
-                )
+                # Refresh only the parents of the jobs canceled here, with
+                # the shared rules (issue #219).  Child rows are already
+                # locked by the UPDATE, so lock order (child -> parent) holds.
+                dispatch_parents(Job.objects.filter(
+                    asset__project=project,
+                    status=JobStatus.CANCELED,
+                    completed_at=canceled_at,
+                ).values_list(
+                    'tiled_job_id', 'animation_id', 'animation_frame_id',
+                ).distinct())
 
         logger.info(
             f"Canceled {count} jobs for project '{project.name}' "
