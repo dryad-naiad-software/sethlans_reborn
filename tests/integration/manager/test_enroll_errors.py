@@ -87,7 +87,7 @@ class TestReplayedNonceDoesNotIncrementRateLimiter:
 class TestNonceConsumedOnTokenFailure:
     """FR-18 step 5 vs step 6: nonce recording precedes the atomic block.
 
-    If ``Token.objects.get_or_create`` blows up mid-request, the nonce
+    If issuing the token blows up mid-request, the nonce
     is still marked as seen — the worker MUST retry with a fresh nonce.
     """
 
@@ -102,9 +102,9 @@ class TestNonceConsumedOnTokenFailure:
         client = APIClient()
         nonce = fresh_nonce()
 
-        # Patch ``Token.objects.get_or_create`` to raise on the first call.
+        # Make token issuance raise on the first call.
         mocker.patch(
-            'workers.views.enroll.Token.objects.get_or_create',
+            'workers.services.worker_tokens.Token.objects.create',
             side_effect=RuntimeError('boom'),
         )
 
@@ -136,7 +136,7 @@ class TestNonceConsumedOnTokenFailure:
         client = APIClient()
 
         mocker.patch(
-            'workers.views.enroll.Token.objects.get_or_create',
+            'workers.services.worker_tokens.Token.objects.create',
             side_effect=RuntimeError('boom'),
         )
 

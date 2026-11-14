@@ -25,7 +25,6 @@ from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.authtoken.models import Token
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -45,6 +44,7 @@ from ..models import Worker
 from ..nonce_store import NonceStore
 from ..rate_limiter import InMemoryRateLimiter
 from ..serializers_enrollment import EnrollmentRequestSerializer
+from ..services.worker_tokens import issue_fresh_token
 from ._helpers import client_ip, get_or_create_worker_user
 
 logger = logging.getLogger(__name__)
@@ -123,7 +123,9 @@ def _validate_key(raw_key, ip):
 def _do_atomic_db_work(user_model, hostname):
     """Create/refresh ``Worker`` + ``User`` + ``Token`` under a transaction.
 
-    Returns the issued ``Token``.  Raises on any failure so the caller
+    Returns the issued ``Token``, which is always a new key: any token
+    the user already had is deleted in the same transaction (#221).
+    Raises on any failure so the caller
     can log and return 500.  ``Worker.ip_address``, ``Worker.os`` and
     ``Worker.available_tools`` are deliberately left NULL/empty — the
     first post-enrollment heartbeat fills them in.
@@ -155,8 +157,7 @@ def _do_atomic_db_work(user_model, hostname):
                 last_seen=timezone.now(),
             )
 
-        token, _ = Token.objects.get_or_create(user=user)
-        return token
+        return issue_fresh_token(user)
 
 
 @extend_schema(

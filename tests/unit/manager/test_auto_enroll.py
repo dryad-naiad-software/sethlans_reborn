@@ -12,6 +12,7 @@ Covers:
 """
 
 import pytest
+from rest_framework.authtoken.models import Token
 
 from sethlans_manager import runtime_state
 from workers.models import Worker
@@ -178,8 +179,14 @@ class TestOrmSideEffects:
         assert Worker.objects.filter(
             hostname=FAKE_HOSTNAME,
         ).count() == 1
-        # Token should be the same since user is reused
-        assert result1["api_token"] == result2["api_token"]
+        # The user is reused but the token is rotated (issue #221).
+        worker = Worker.objects.get(hostname=FAKE_HOSTNAME)
+        assert result1["api_token"] != result2["api_token"]
+        assert list(
+            Token.objects.filter(user=worker.user).values_list(
+                "key", flat=True,
+            ),
+        ) == [result2["api_token"]]
 
 
 # ---- manager_url construction ---------------------------------------------

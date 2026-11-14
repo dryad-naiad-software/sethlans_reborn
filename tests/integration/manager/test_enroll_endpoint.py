@@ -189,8 +189,11 @@ class TestEnrollWorkerRowCreated:
         )
         assert second.status_code == 200
         second_token = second.json()['payload']['api_token']
-        # Token is issued via ``get_or_create`` — the same row.
-        assert first_token == second_token
+        # Every enrollment rotates the token (issue #221): the first
+        # key is gone and only the second one remains.
+        assert first_token != second_token
+        assert not Token.objects.filter(key=first_token).exists()
+        assert Token.objects.filter(key=second_token).exists()
         # Only one Worker row exists.
         assert Worker.objects.filter(hostname='refresh-host').count() == 1
 

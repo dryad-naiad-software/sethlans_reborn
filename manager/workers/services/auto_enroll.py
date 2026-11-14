@@ -20,6 +20,7 @@ from rest_framework.authtoken.models import Token
 
 from sethlans_manager import runtime_state
 from workers.models import Worker
+from workers.services.worker_tokens import issue_fresh_token
 from workers.views._helpers import get_or_create_worker_user
 
 logger = logging.getLogger(__name__)
@@ -30,8 +31,15 @@ User = get_user_model()
 def auto_enroll_local_worker(hostname: str | None = None) -> dict:
     """Enroll the co-located worker without an HTTP round-trip.
 
-    Creates (or reuses) the Django user, ``Worker`` row, and DRF token,
-    then returns the envelope the worker agent needs to configure itself.
+    Creates (or reuses) the Django user and ``Worker`` row, issues a
+    fresh DRF token (any previous key of the user is deleted in the
+    same transaction, issue #221), then returns the envelope the worker
+    agent needs to configure itself.
+
+    Its only caller is the one-shot first-run ``apply_pending_setup``
+    step, which runs before the launcher starts the local worker and
+    writes this envelope's token into the worker's ``config.json``, so
+    rotating on every call cannot strand a running worker.
 
     Parameters
     ----------
@@ -86,7 +94,7 @@ def auto_enroll_local_worker(hostname: str | None = None) -> dict:
                 hostname=hostname, user=user, is_active=True,
             )
 
-        token, _ = Token.objects.get_or_create(user=user)
+        token = issue_fresh_token(user)
 
     # Build the manager URL using loopback — this is a local worker.
     ini_path = settings.BASE_DIR / "manager.ini"
