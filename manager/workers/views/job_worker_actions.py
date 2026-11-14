@@ -19,6 +19,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
 from ..models import Job, JobStatus, Worker
+from ..services.row_locks import lock_own_rows
 from .upload_helpers import sanitize_filename, validate_upload
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,10 @@ class JobWorkerActionsMixin:
 
         try:
             with transaction.atomic():
-                job = Job.objects.select_for_update().select_related(
+                # Lock only the job row: the joins are nullable, and
+                # PostgreSQL rejects FOR UPDATE on an outer join (#216).
+                job = lock_own_rows(
+                    Job.objects,
                     'blender_version',
                     'asset__project__blender_version',
                 ).get(pk=pk)

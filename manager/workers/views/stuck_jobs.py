@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from ..constants import WORKER_STALENESS_SECONDS
 from ..models import Job, JobStatus
+from ..services.row_locks import lock_own_rows
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,10 @@ def requeue_stuck_jobs():
         job_pk = job_snapshot.pk
         try:
             with transaction.atomic():
-                job = Job.objects.select_for_update().select_related(
-                    'assigned_worker',
+                # Lock only the job row: assigned_worker is nullable, and
+                # PostgreSQL rejects FOR UPDATE on an outer join (#216).
+                job = lock_own_rows(
+                    Job.objects, 'assigned_worker',
                 ).get(pk=job_pk)
 
                 # Re-check: job may have completed between filter and lock
