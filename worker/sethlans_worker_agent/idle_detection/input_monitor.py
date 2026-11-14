@@ -29,6 +29,16 @@ logger = logging.getLogger(__name__)
 _xlib_lock = threading.Lock()
 
 
+def _input_elapsed_ms(tick64: int, last_input_dword: int) -> int:
+    """Milliseconds since the last input (issue #235).
+
+    ``LASTINPUTINFO.dwTime`` is a 32-bit tick that wraps every ~49.7 days,
+    while ``GetTickCount64`` does not. Subtracting modulo 2**32 gives the
+    right elapsed time on either side of a wrap (input is never 49 days old).
+    """
+    return (tick64 - last_input_dword) & 0xFFFFFFFF
+
+
 def _get_idle_seconds_windows() -> Optional[float]:
     """Windows: GetLastInputInfo + GetTickCount64."""
     try:
@@ -46,8 +56,7 @@ def _get_idle_seconds_windows() -> Optional[float]:
         # Use GetTickCount64 (not GetTickCount) to avoid 49-day
         # DWORD wraparound (FR-1a).
         current_tick = api.kernel32.GetTickCount64()
-        elapsed_ms = current_tick - lii.dwTime
-        return elapsed_ms / 1000.0
+        return _input_elapsed_ms(current_tick, lii.dwTime) / 1000.0
     except Exception as exc:
         logger.debug("Windows idle detection unavailable: %s", exc)
         return None

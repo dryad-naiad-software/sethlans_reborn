@@ -57,6 +57,25 @@ class TestWindowsIdleDetection:
         assert result >= 0
 
 
+class TestWindowsElapsedWraparound:
+    """Issue #235: dwTime is a 32-bit tick; GetTickCount64 is not."""
+
+    @pytest.mark.parametrize('tick64, dw_time, expected', [
+        (5_000, 1_000, 4_000),                                  # first 49.7 days
+        (2 * 2**32 + 5_000, 1_000, 4_000),                      # after two wraps
+        (2**32 + 100, 2**32 - 200, 300),                        # input just before a wrap
+        (3 * 2**32 + 123, 123, 0),                              # input this millisecond
+    ])
+    def test_elapsed_is_taken_modulo_two_to_the_32(self, tick64, dw_time, expected):
+        from sethlans_worker_agent.idle_detection.input_monitor import _input_elapsed_ms
+        assert _input_elapsed_ms(tick64, dw_time) == expected
+
+    def test_windows_path_uses_the_wrap_safe_helper(self):
+        import inspect
+        from sethlans_worker_agent.idle_detection import input_monitor
+        assert '_input_elapsed_ms(' in inspect.getsource(input_monitor._get_idle_seconds_windows)
+
+
 class TestMacOSIdleDetection:
     """FR-1b: macOS CGEventSourceSecondsSinceLastEventType."""
 
