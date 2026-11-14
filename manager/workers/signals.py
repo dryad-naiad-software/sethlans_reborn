@@ -60,7 +60,8 @@ def handle_manifest_update(sender, instance, created, **kwargs):
 
     if project_id:
         logger.debug(f"Signal received from {sender.__name__} for project {project_id}. Updating manifest.")
-        transaction.on_commit(lambda pid=project_id: update_project_manifest(pid))
+        # robust (#225): a manifest error must not drop later callbacks.
+        transaction.on_commit(lambda pid=project_id: update_project_manifest(pid), robust=True)
     else:
         logger.warning(f"Could not determine project ID from saved {sender.__name__} instance. Manifest not updated.")
 

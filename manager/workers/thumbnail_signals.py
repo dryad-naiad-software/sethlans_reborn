@@ -87,7 +87,8 @@ def schedule_job_thumbnail(instance, generate_thumbnail, handler):
             thumb_content=thumb_content,
         )
 
-    transaction.on_commit(_run_after_commit)
+    # robust (#225): a thumbnail error must not drop later callbacks.
+    transaction.on_commit(_run_after_commit, robust=True)
 
 
 def schedule_animation_frame_thumbnail(
@@ -124,4 +125,5 @@ def schedule_animation_frame_thumbnail(
             thumb_content=thumb_content,
         )
 
-    transaction.on_commit(_run_after_commit)
+    # robust (#225): a thumbnail error must not drop later callbacks.
+    transaction.on_commit(_run_after_commit, robust=True)

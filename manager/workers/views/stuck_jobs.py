@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils import timezone
 
 from ..constants import WORKER_STALENESS_SECONDS
@@ -119,43 +119,62 @@ def requeue_stuck_jobs():
     for job_snapshot in stuck_jobs:
         job_pk = job_snapshot.pk
         try:
-            with transaction.atomic():
-                # Lock only the job row: assigned_worker is nullable, and
-                # PostgreSQL rejects FOR UPDATE on an outer join (#216).
-                job = lock_own_rows(
-                    Job.objects, 'assigned_worker',
-                ).get(pk=job_pk)
-
-                # Re-check: job may have completed between filter and lock
-                if job.status != JobStatus.RENDERING:
-                    continue
-
-                # Re-check: worker may have recovered
-                if (job.assigned_worker
-                        and job.assigned_worker.last_seen >= stale_threshold):
-                    continue
-
-                worker_hostname = (
-                    job.assigned_worker.hostname
-                    if job.assigned_worker else 'unknown'
-                )
-                if requeue_or_fail(job, _REAPER_MESSAGE) == JobStatus.ERROR:
-                    logger.info(
-                        "Stuck job '%s' (ID: %s) exceeded max "
-                        "auto-requeue (%d). Set to ERROR. "
-                        "Worker: '%s'.",
-                        job.name, job.pk,
-                        _MAX_AUTO_REQUEUE, worker_hostname,
-                    )
-                else:
-                    logger.info(
-                        "Auto-requeued stuck job '%s' (ID: %s) "
-                        "from offline worker '%s' "
-                        "(attempt %d/%d).",
-                        job.name, job.pk, worker_hostname,
-                        job.auto_requeue_count, _MAX_AUTO_REQUEUE,
-                    )
+            if _reap_one(job_pk, stale_threshold):
                 count += 1
         except Job.DoesNotExist:
             continue
+        except OperationalError:
+            # Issue #225: a lock error on one job must not abort the rest
+            # of the loop, nor fail the heartbeat that called it.  The
+            # job stays RENDERING and is retried on the next pass.
+            logger.warning(
+                "Stuck-job reaper: database error on job %s; "
+                "skipping it until the next pass.",
+                job_pk, exc_info=True,
+            )
     return count
+
+
+def _reap_one(job_pk, stale_threshold):
+    """Requeue or fail one stuck job in its own transaction.
+
+    Returns ``True`` when the job was requeued or marked ERROR, ``False``
+    when the re-checks under the lock show it is no longer stuck.
+    """
+    with transaction.atomic():
+        # Lock only the job row: assigned_worker is nullable, and
+        # PostgreSQL rejects FOR UPDATE on an outer join (#216).
+        job = lock_own_rows(
+            Job.objects, 'assigned_worker',
+        ).get(pk=job_pk)
+
+        # Re-check: job may have completed between filter and lock
+        if job.status != JobStatus.RENDERING:
+            return False
+
+        # Re-check: worker may have recovered
+        if (job.assigned_worker
+                and job.assigned_worker.last_seen >= stale_threshold):
+            return False
+
+        worker_hostname = (
+            job.assigned_worker.hostname
+            if job.assigned_worker else 'unknown'
+        )
+        if requeue_or_fail(job, _REAPER_MESSAGE) == JobStatus.ERROR:
+            logger.info(
+                "Stuck job '%s' (ID: %s) exceeded max "
+                "auto-requeue (%d). Set to ERROR. "
+                "Worker: '%s'.",
+                job.name, job.pk,
+                _MAX_AUTO_REQUEUE, worker_hostname,
+            )
+        else:
+            logger.info(
+                "Auto-requeued stuck job '%s' (ID: %s) "
+                "from offline worker '%s' "
+                "(attempt %d/%d).",
+                job.name, job.pk, worker_hostname,
+                job.auto_requeue_count, _MAX_AUTO_REQUEUE,
+            )
+        return True

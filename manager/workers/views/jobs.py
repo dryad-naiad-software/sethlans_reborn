@@ -115,9 +115,13 @@ class JobViewSet(
         return self._object
 
     def partial_update(self, request, *args, **kwargs):
-        """Refuse worker keys outside the renderer's allowlist first (FR-RT-14)."""
+        """Refuse worker keys outside the renderer's allowlist first (FR-RT-14).
+
+        Then a report on a job that is already finished gets 409 (#225).
+        """
         if IsWorker().has_permission(request, self):
             self._enforce_worker_patch_allowlist(request, self.get_object())
+            self._reject_report_on_terminal_job(request, self.get_object())
         return super().partial_update(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])

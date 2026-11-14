@@ -579,7 +579,7 @@ class TestTiledAnimationVideoTrigger:
         # immediately so we can observe the trigger path.
         mocker.patch(
             'workers.signals.transaction.on_commit',
-            side_effect=lambda fn: fn(),
+            side_effect=lambda fn, **_kw: fn(),
         )
 
         anim = Animation.objects.create(

@@ -65,6 +65,14 @@ _DEFAULT_PORTS = {
 _SQLITE_TIMEOUT_SECONDS = 30
 _SQLITE_BUSY_TIMEOUT_MS = _SQLITE_TIMEOUT_SECONDS * 1000
 
+# Issue #225: every ``transaction.atomic()`` on SQLite opens with
+# ``BEGIN IMMEDIATE`` (Django 5.1+ ``OPTIONS.transaction_mode``), so it
+# takes the write lock up front and waits on ``busy_timeout``.  A
+# deferred ``BEGIN`` that reads first and writes later fails at once with
+# SQLITE_BUSY_SNAPSHOT in WAL mode when another connection commits in
+# between, and ``busy_timeout`` does not cover that case.
+_SQLITE_TRANSACTION_MODE = "IMMEDIATE"
+
 # Phase 4: default CONN_MAX_AGE for external DBs (persistent connection
 # recycle interval).  60 s is Django's recommended starting point for
 # threaded servers and is safe against most firewall idle-kill rules.
@@ -181,6 +189,10 @@ def _build_sqlite(name: str, ini_path: Path) -> dict:
     passes to ``sqlite3.connect()``.  It is deliberately reconciled
     with the ``busy_timeout`` PRAGMA applied by
     ``register_connection_hooks()`` so the two do not fight.
+
+    ``OPTIONS.transaction_mode`` makes ``atomic()`` issue
+    ``BEGIN IMMEDIATE`` (issue #225).  The test database is derived
+    from this same dict, so the test suites run with it too.
     """
     db_name = name or os.getenv(
         "SETHLANS_DB_NAME",
@@ -190,7 +202,10 @@ def _build_sqlite(name: str, ini_path: Path) -> dict:
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": db_name,
-            "OPTIONS": {"timeout": _SQLITE_TIMEOUT_SECONDS},
+            "OPTIONS": {
+                "timeout": _SQLITE_TIMEOUT_SECONDS,
+                "transaction_mode": _SQLITE_TRANSACTION_MODE,
+            },
         },
     }
 

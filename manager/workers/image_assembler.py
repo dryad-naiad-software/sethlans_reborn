@@ -182,7 +182,9 @@ def assemble_animation_frame_image(animation_frame_id):
     frame.status = AnimationFrameStatus.DONE
     frame.error_message = ''
     frame.render_time_seconds = completed_jobs.aggregate(total=Sum('render_time_seconds'))['total'] or 0
-    _save_status(frame)  # fires post_save -> parent Animation refresh
+    # Explicit fields (#225): *frame* was read before the stitching, so a
+    # full-row save would overwrite edits made in the meantime.
+    _save_status(frame, ['status', 'error_message', 'render_time_seconds', 'output_file'])
     _thumbnail_and_cleanup(frame, completed_jobs, str(frame))
 
 
@@ -227,5 +229,6 @@ def assemble_tiled_job_image(tiled_job_id):
     tiled_job.status = TiledJobStatus.DONE
     tiled_job.error_message = ''
     tiled_job.completed_at = timezone.now()
-    _save_status(tiled_job)
+    # Explicit fields (#225): see assemble_animation_frame_image.
+    _save_status(tiled_job, ['status', 'error_message', 'completed_at', 'output_file'])
     _thumbnail_and_cleanup(tiled_job, completed_jobs, f"TiledJob {tiled_job.id}")

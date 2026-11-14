@@ -62,7 +62,8 @@ class AnimationVideoActionsMixin:
                     target=assemble_animation_video,
                     args=(aid,),
                     daemon=True,
-                ).start()
+                ).start(),
+                robust=True,  # #225: a failed start must not drop later callbacks
             )
 
         return Response({"status": "retry_started"})

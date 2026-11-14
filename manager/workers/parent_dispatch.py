@@ -15,7 +15,8 @@ tile files, so it must only run once the ASSEMBLING claim and the child
 writes that led to it are committed.  Under autocommit (no outer
 transaction) the callback runs immediately.  The callbacks are
 ``robust``: an assembly error is logged by Django instead of escaping
-into a caller whose write has already committed.
+into a caller whose write has already committed, and it does not drop
+the callbacks queued after it (the video thread start too, #225).
 """
 
 import logging
@@ -73,7 +74,8 @@ def _trigger_video_assembly(animation):
                     target=assemble_animation_video,
                     args=(aid,),
                     daemon=True,
-                ).start()
+                ).start(),
+                robust=True,
             )
 
 
