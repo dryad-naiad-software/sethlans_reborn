@@ -67,13 +67,16 @@ def test_expire_and_redirect_unit_navigates_to_token(page, wizard_process):
         "'wizard:sessionToken', 'sentinel-value'); }"
     )
 
-    # Dynamically import common.js and call expireAndRedirect.
-    page.evaluate(
-        """async () => {
-            const mod = await import('/static/js/common.js');
-            mod.expireAndRedirect('test-flash-message');
-        }"""
-    )
+    # Dynamically import common.js and call expireAndRedirect. The
+    # promise is not returned: the redirect destroys this execution
+    # context, which would race an awaited evaluate() (issue #223).
+    with page.expect_navigation(url=f"{wp.base_url}/token", timeout=5000):
+        page.evaluate(
+            """() => {
+                import('/static/js/common.js')
+                    .then((mod) => mod.expireAndRedirect('test-flash-message'));
+            }"""
+        )
 
     # Wait for navigation to /token to settle.
     page.wait_for_url(f"{wp.base_url}/token", timeout=5000)
@@ -217,12 +220,16 @@ def test_expire_and_redirect_from_each_page(page, wizard_process, path):
     page.goto(f"{wp.base_url}{path}")
     page.wait_for_load_state("domcontentloaded")
 
-    page.evaluate(
-        """async () => {
-            const mod = await import('/static/js/common.js');
-            mod.expireAndRedirect('expired');
-        }"""
-    )
+    # Fire the import and redirect without returning the promise: the
+    # redirect destroys this page's execution context, so an awaited
+    # evaluate() can race the navigation and raise (issue #223).
+    with page.expect_navigation(url=f"{wp.base_url}/token", timeout=5000):
+        page.evaluate(
+            """() => {
+                import('/static/js/common.js')
+                    .then((mod) => mod.expireAndRedirect('expired'));
+            }"""
+        )
     page.wait_for_url(f"{wp.base_url}/token", timeout=5000)
     assert page.url == f"{wp.base_url}/token"
 
