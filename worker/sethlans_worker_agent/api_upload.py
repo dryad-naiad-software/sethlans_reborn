@@ -55,29 +55,8 @@ def upload_render_output(job_id: int, output_file_path: str,
     upload_url = f"{config.MANAGER_API_URL}jobs/{job_id}/upload_output/"
     logger.info(f"Uploading render output to {upload_url}...")
 
-    thumb_file = None
     try:
-        f = open(output_file_path, 'rb')
-        files = {
-            'output_file': (
-                os.path.basename(output_file_path), f,
-                'application/octet-stream'
-            )
-        }
-        # Include thumbnail if available
-        if thumbnail_path and os.path.exists(thumbnail_path):
-            try:
-                thumb_file = open(thumbnail_path, 'rb')
-                files['thumbnail'] = (
-                    os.path.basename(thumbnail_path),
-                    thumb_file, 'image/png'
-                )
-            except IOError as e:
-                logger.warning(
-                    f"Could not open thumbnail file "
-                    f"{thumbnail_path}: {e}. "
-                    f"Uploading without thumbnail."
-                )
+        files = _build_upload_files(output_file_path, thumbnail_path)
         response = _retry_request(
             'post', upload_url,
             files=files, headers=get_auth_headers(), timeout=60
@@ -94,13 +73,44 @@ def upload_render_output(job_id: int, output_file_path: str,
             f"{output_file_path}"
         )
         return False
-    finally:
-        if thumb_file:
-            thumb_file.close()
+
+
+def _read_bytes(path: str) -> bytes:
+    with open(path, 'rb') as handle:
+        return handle.read()
+
+
+def _build_upload_files(output_file_path, thumbnail_path):
+    """
+    Build the multipart ``files`` dict with each file's bytes (issue #230).
+
+    ``_retry_request`` sends the same kwargs on every attempt. A file object
+    would be read to EOF by the first attempt, so a retry after a 5xx or a
+    timeout would send empty parts; bytes are sent whole every time.  This
+    costs no extra memory: requests reads a file object fully into memory
+    while it encodes a multipart body anyway.
+    """
+    files = {
+        'output_file': (
+            os.path.basename(output_file_path),
+            _read_bytes(output_file_path),
+            'application/octet-stream'
+        )
+    }
+    # Include thumbnail if available
+    if thumbnail_path and os.path.exists(thumbnail_path):
         try:
-            f.close()
-        except Exception:
-            pass
+            files['thumbnail'] = (
+                os.path.basename(thumbnail_path),
+                _read_bytes(thumbnail_path), 'image/png'
+            )
+        except OSError as e:
+            logger.warning(
+                f"Could not open thumbnail file "
+                f"{thumbnail_path}: {e}. "
+                f"Uploading without thumbnail."
+            )
+    return files
 
 
 def _accept_upload_response(response, job_id, output_file_path):
