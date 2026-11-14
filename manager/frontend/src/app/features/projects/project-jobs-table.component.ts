@@ -20,9 +20,10 @@ import { TiledJobService, TiledJob } from '../../core/services/tiled-job.service
 import { AnimationService, Animation } from '../../core/services/animation.service';
 import { ProjectJobActionsComponent } from './project-job-actions.component';
 import { JobResultDialogComponent, JobResultDialogData } from './job-result-dialog.component';
+import { JobErrorMessageComponent } from './job-error-message.component';
 import {
   JobTableRow, STATUS_ICONS, isTopLevelJob,
-  mapJobToRow, mapTiledJobToRow, mapAnimationToRow, progressPercent,
+  mapJobToRow, mapTiledJobToRow, mapAnimationToRow, progressPercent, groupFailedChildren,
 } from './project-jobs-table.util';
 import { JobPrefillData } from './job-create-form.types';
 
@@ -33,7 +34,7 @@ export { JobTableRow } from './project-jobs-table.util';
   standalone: true,
   imports: [
     DatePipe, MatTableModule, MatIconModule, MatProgressSpinnerModule, MatProgressBarModule,
-    ProjectJobActionsComponent,
+    ProjectJobActionsComponent, JobErrorMessageComponent,
   ],
   template: `
     @if (loading) {
@@ -41,7 +42,7 @@ export { JobTableRow } from './project-jobs-table.util';
     } @else if (rows.length === 0) {
       <p class="empty">No jobs yet. Click "Create Job" to get started.</p>
     } @else {
-      <table mat-table [dataSource]="rows" class="full-width">
+      <table mat-table [dataSource]="rows" [trackBy]="trackRow" class="full-width">
         <ng-container matColumnDef="thumbnail">
           <th mat-header-cell *matHeaderCellDef></th>
           <td mat-cell *matCellDef="let r">
@@ -70,6 +71,7 @@ export { JobTableRow } from './project-jobs-table.util';
           <td mat-cell *matCellDef="let r" [class]="'status-' + r.status">
             <mat-icon class="status-icon">{{ statusIcon(r.status) }}</mat-icon>
             {{ r.status }}
+            <app-job-error-message [message]="r.errorMessage" />
           </td>
         </ng-container>
         <ng-container matColumnDef="progress">
@@ -179,6 +181,9 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
 
   progressPercent(row: JobTableRow): number { return progressPercent(row); }
 
+  /** Keeps rows (and an expanded error) stable across polling refreshes. */
+  trackRow = (_: number, row: JobTableRow): string => `${row.type}:${row.id}`;
+
   openResult(row: JobTableRow): void {
     if (row.status !== 'DONE') return;
     const dialogData = this.buildDialogData(row);
@@ -222,10 +227,11 @@ export class ProjectJobsTableComponent implements OnChanges, OnDestroy {
         this.jobs = jobs;
         this.tiledJobs = tiled;
         this.animList = anims;
+        const failed = groupFailedChildren(jobs);
         this.rows = [
           ...jobs.filter(isTopLevelJob).map(mapJobToRow),
-          ...tiled.map(mapTiledJobToRow),
-          ...anims.map(mapAnimationToRow),
+          ...tiled.map(t => mapTiledJobToRow(t, failed.byTiledJob.get(t.id))),
+          ...anims.map(a => mapAnimationToRow(a, failed.byAnimation.get(a.id))),
         ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         this.activeJobCount.emit(
           this.rows.filter(r => r.status === 'QUEUED' || r.status === 'RENDERING').length,

@@ -16,7 +16,7 @@ function makeRow(overrides: Partial<JobTableRow> = {}): JobTableRow {
   return {
     id: 1, name: 'Test Job', type: 'single',
     status: 'QUEUED', is_paused: false,
-    completed: null, total: null, progressUnit: null,
+    completed: null, total: null, progressUnit: null, errorMessage: null,
     time: '--',
     createdAt: '2025-06-01T00:00:00Z',
     thumbnail: null, outputFile: null,

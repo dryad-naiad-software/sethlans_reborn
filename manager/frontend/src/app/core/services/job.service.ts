@@ -39,6 +39,7 @@ export interface Job {
   cycles_feature_set: string;
   render_settings: Record<string, unknown>;
   last_output: string;
+  /** Failure reason. Backed by a non-null TextField, so '' (never null) when there is none. */
   error_message: string;
   render_time_seconds: number | null;
   output_file: string | null;
