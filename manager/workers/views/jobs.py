@@ -13,7 +13,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from ..constants import RenderDevice
@@ -22,6 +22,7 @@ from ..permissions import IsAdmin, IsWorker
 from ..serializers import JobSerializer
 from .job_pause_actions import JobPauseActionsMixin
 from .job_worker_actions import JobWorkerActionsMixin
+from .job_worker_update import JobWorkerUpdateMixin
 from .job_yield_actions import JobYieldActionsMixin
 
 VERSION_REGEX = re.compile(r'^\d+\.\d+\.\d+$')
@@ -76,6 +77,7 @@ class JobViewSet(
     JobYieldActionsMixin,
     JobPauseActionsMixin,
     JobWorkerActionsMixin,
+    JobWorkerUpdateMixin,
     viewsets.ModelViewSet,
 ):
     """
@@ -102,19 +104,6 @@ class JobViewSet(
             return [IsAdmin()]
         else:
             return [IsAdmin()]
-
-    def _check_worker_owns_job(self, request, job):
-        """Verify that a worker-authenticated user owns this job."""
-        if hasattr(request.user, 'worker_profile'):
-            if request.user.worker_profile != job.assigned_worker:
-                raise PermissionDenied(
-                    "You do not have permission to modify this job."
-                )
-
-    def perform_update(self, serializer):
-        """Check worker ownership before allowing partial_update."""
-        self._check_worker_owns_job(self.request, serializer.instance)
-        serializer.save()
 
     def get_queryset(self):
         """

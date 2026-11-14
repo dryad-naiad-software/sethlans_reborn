@@ -14,6 +14,9 @@ import os
 import requests
 
 from sethlans_worker_agent import config
+from sethlans_worker_agent.api_conflict import (
+    JobNoLongerAssigned, is_job_conflict,
+)
 from sethlans_worker_agent.api_auth import (
     get_auth_headers,
     handle_auth_response,
@@ -34,6 +37,11 @@ def upload_render_output(job_id: int, output_file_path: str,
 
     Returns:
         True if the upload was successful, False otherwise.
+
+    Raises:
+        JobNoLongerAssigned: the manager answered 409 because the job was
+            canceled, requeued or reassigned meanwhile (issue #217).  The
+            output is not wanted any more and nothing is retained.
     """
     from sethlans_worker_agent.api_handler import _retry_request
 
@@ -74,17 +82,7 @@ def upload_render_output(job_id: int, output_file_path: str,
             'post', upload_url,
             files=files, headers=get_auth_headers(), timeout=60
         )
-        if response.status_code == 401:
-            handle_auth_response(response)
-            retain_failed_upload(job_id, output_file_path)
-            return False
-        if handle_auth_response(response):
-            return False
-        response.raise_for_status()
-        logger.info(
-            f"Successfully uploaded output file for job {job_id}."
-        )
-        return True
+        return _accept_upload_response(response, job_id, output_file_path)
     except requests.exceptions.RequestException as e:
         logger.error(
             f"Failed to upload output file for job {job_id}: {e}"
@@ -103,3 +101,20 @@ def upload_render_output(job_id: int, output_file_path: str,
             f.close()
         except Exception:
             pass
+
+
+def _accept_upload_response(response, job_id, output_file_path):
+    """Map the upload response to True/False, or raise on 409 (#217)."""
+    if response.status_code == 401:
+        handle_auth_response(response)
+        retain_failed_upload(job_id, output_file_path)
+        return False
+    if handle_auth_response(response):
+        return False
+    if is_job_conflict(response, job_id, "output upload"):
+        raise JobNoLongerAssigned(job_id)
+    response.raise_for_status()
+    logger.info(
+        f"Successfully uploaded output file for job {job_id}."
+    )
+    return True

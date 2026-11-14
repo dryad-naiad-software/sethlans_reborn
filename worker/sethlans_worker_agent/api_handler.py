@@ -22,6 +22,7 @@ import requests
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tls_adapter import get_session
+from sethlans_worker_agent.api_conflict import is_job_conflict
 from sethlans_worker_agent.api_auth import (
     get_auth_headers,
     handle_auth_response,
@@ -178,13 +179,12 @@ def update_job_status(job_id: int, payload: Dict[str, Any]):
             'patch', update_url,
             json=payload, headers=get_auth_headers(), timeout=5
         )
-        if handle_auth_response(response):
+        # 409: job canceled/requeued/reassigned meanwhile (#217); INFO only.
+        if (handle_auth_response(response)
+                or is_job_conflict(response, job_id, "status update")):
             return
         response.raise_for_status()
-        logger.debug(
-            f"Successfully sent status update for job {job_id}. "
-            f"Payload: {payload}"
-        )
+        logger.debug("Sent status update for job %s. Payload: %s", job_id, payload)
     except requests.exceptions.RequestException as e:
         logger.error(
             f"Failed to update job status for job {job_id}: {e}"

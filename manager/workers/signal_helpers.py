@@ -188,7 +188,24 @@ def _save_thumbnails_for_instances(
             _delete_existing_filefield(inst, field_name)
 
             # Pass a generic name; the `upload_to` function will generate
-            # the final descriptive path.
-            getattr(inst, field_name).save(
-                "thumb.png", ContentFile(data), save=True,
-            )
+            # the final descriptive path.  ``save=False``: store the file
+            # only, then write just this column (issue #217).
+            field_file = getattr(inst, field_name)
+            field_file.save("thumb.png", ContentFile(data), save=False)
+            _write_file_column(inst, field_name, field_file.name)
+
+
+def _write_file_column(inst, field_name, name):
+    """Point ``inst``'s row at the stored file without a full-row save.
+
+    ``inst`` was read before the (slow) thumbnail generation, so a full
+    ``save()`` would write back stale columns and undo a cancel or requeue
+    committed meanwhile (issue #217).  A queryset ``update()`` writes only
+    this column and fires no signal.  If the row was deleted meanwhile,
+    the just-stored file is removed instead of re-creating the row.
+    """
+    updated = type(inst)._default_manager.filter(pk=inst.pk).update(
+        **{field_name: name},
+    )
+    if not updated:
+        getattr(inst, field_name).storage.delete(name)

@@ -8,11 +8,9 @@ Extracted from jobs.py to keep file sizes under the 300-line limit.
 """
 
 import logging
-import time
 
-from django.db import OperationalError, transaction
+from django.db import transaction
 from django.utils import timezone
-from PIL import Image
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
@@ -20,60 +18,11 @@ from rest_framework.response import Response
 
 from ..models import Job, JobStatus, Worker
 from ..services.row_locks import lock_own_rows
-from .upload_helpers import sanitize_filename, validate_upload
+from ..services.worker_job_writes import JobWriteConflict
+from .job_output_upload import store_and_attach_output
+from .upload_helpers import validate_upload
 
 logger = logging.getLogger(__name__)
-
-# Maximum size for worker-provided thumbnails (1 MB)
-MAX_THUMBNAIL_SIZE = 1 * 1024 * 1024
-
-# Issue #118: brief retry on SQLite lock-upgrade failures that
-# ``busy_timeout`` cannot wait on (``SQLITE_LOCKED``).  Each retry doubles
-# the back-off starting at 50 ms; with 6 attempts the worst case is ~3.1 s
-# of retry before surfacing the error, well inside the 30 s HTTP window and
-# far below the 5 s e2e concurrency-test budget.
-_SAVE_RETRY_ATTEMPTS = 6
-_SAVE_RETRY_BASE_DELAY_S = 0.05
-
-
-def _save_output_with_lock_retry(job, safe_name, file_obj):
-    """Persist ``output_file`` with a short retry on SQLite lock errors.
-
-    SQLite (especially in shared-cache mode used by Django's test runner)
-    can raise ``OperationalError: database table is locked`` when a
-    concurrent connection holds a write lock on the same table — this
-    error is *not* covered by ``PRAGMA busy_timeout``, which only retries
-    ``SQLITE_BUSY``.  Production SQLite under WAL almost never hits this,
-    but when it does we'd rather pay a few milliseconds of back-off than
-    bubble a 500 to the worker.  Non-sqlite databases (Postgres / MySQL)
-    never see this error so the retry is effectively a no-op for them.
-    """
-    delay = _SAVE_RETRY_BASE_DELAY_S
-    last_exc = None
-    for attempt in range(_SAVE_RETRY_ATTEMPTS):
-        try:
-            job.output_file.save(safe_name, file_obj, save=True)
-            return
-        except OperationalError as exc:
-            msg = str(exc).lower()
-            if "locked" not in msg:
-                raise
-            last_exc = exc
-            logger.warning(
-                "upload_output for job %s hit a SQLite lock on attempt "
-                "%d/%d: %s. Retrying in %.3fs.",
-                job.pk, attempt + 1, _SAVE_RETRY_ATTEMPTS, exc, delay,
-            )
-            time.sleep(delay)
-            delay *= 2
-            # Rewind the upload so the next attempt re-reads from byte 0.
-            try:
-                file_obj.seek(0)
-            except Exception:
-                pass
-    # Exhausted retries — re-raise the last OperationalError so DRF maps
-    # it to a 500 rather than returning a partial 200.
-    raise last_exc
 
 
 class JobWorkerActionsMixin:
@@ -182,6 +131,14 @@ class JobWorkerActionsMixin:
         Expects a multipart/form-data request with a file field named ``output_file``
         and an optional ``thumbnail`` file field (PNG). Validates both files.
         Saving the output file triggers a post_save signal for thumbnail generation.
+
+        Issue #217: the files are stored first, then the job row is locked
+        and re-checked (still RENDERING, still assigned to this worker)
+        and only ``output_file``/``thumbnail`` are saved.  A job canceled
+        or requeued meanwhile gets 409, an unchanged row and no stored
+        files.  ``post_save`` defers server-side thumbnail generation to
+        ``transaction.on_commit`` (#118), and SQLite lock errors retry the
+        locked write (``run_with_lock_retry``).
         """
         job = self.get_object()
 
@@ -207,27 +164,18 @@ class JobWorkerActionsMixin:
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Process optional worker-provided thumbnail
-        thumb_file = request.data.get('thumbnail')
-        if thumb_file:
-            self._save_worker_thumbnail(job, thumb_file)
-
-        safe_name = sanitize_filename(file_obj.name)
-
-        # IMPORTANT: thumbnail.save(save=False) sets the field in memory only.
-        # output_file.save(save=True) persists the entire model instance,
-        # including the thumbnail field set above. This ordering is required
-        # so that both fields are written in a single save() call and the
-        # post_save signal sees the thumbnail as already present.
-        #
-        # Issue #118: the ``handle_job_completion`` ``post_save`` handler
-        # defers the thumbnail generate + inner ``thumbnail.save`` pair to
-        # ``transaction.on_commit``, shrinking the critical section to a
-        # single ``UPDATE workers_job``.  The save is wrapped by
-        # ``_save_job_with_lock_retry`` to handle the narrow
-        # ``SQLITE_LOCKED`` window that the ``busy_timeout`` PRAGMA does
-        # not cover (shared-cache / lock-upgrade races on SQLite).
-        _save_output_with_lock_retry(job, safe_name, file_obj)
+        try:
+            job = store_and_attach_output(
+                job, request.user.worker_profile, file_obj,
+                thumb_file=request.data.get('thumbnail'),
+            )
+        except JobWriteConflict as exc:
+            logger.warning(
+                "Rejected output upload for job %s: %s", pk, exc,
+            )
+            return Response(
+                {"error": str(exc)}, status=status.HTTP_409_CONFLICT,
+            )
 
         logger.info(
             f"Received output file for job ID {job.id}. "
@@ -235,46 +183,3 @@ class JobWorkerActionsMixin:
         )
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def _save_worker_thumbnail(self, job, thumb_file):
-        """
-        Validate and save a worker-provided thumbnail to the job.
-
-        If validation fails, logs a warning and skips the thumbnail
-        without failing the job.
-        """
-        try:
-            # Validate file size
-            if thumb_file.size > MAX_THUMBNAIL_SIZE:
-                logger.warning(
-                    "Worker-provided thumbnail for job %s failed "
-                    "validation: file size %d bytes exceeds 1MB limit. "
-                    "Saving output without thumbnail.",
-                    job.id, thumb_file.size,
-                )
-                return
-
-            # Validate it is a valid PNG image
-            thumb_file.seek(0)
-            try:
-                with Image.open(thumb_file) as img:
-                    img.verify()
-            except Exception:
-                logger.warning(
-                    "Worker-provided thumbnail for job %s failed "
-                    "validation: not a valid image file. "
-                    "Saving output without thumbnail.",
-                    job.id,
-                )
-                return
-            thumb_file.seek(0)
-
-            safe_name = sanitize_filename(thumb_file.name)
-            job.thumbnail.save(safe_name, thumb_file, save=False)
-
-        except Exception as e:
-            logger.warning(
-                "Worker-provided thumbnail for job %s failed "
-                "validation: %s. Saving output without thumbnail.",
-                job.id, e,
-            )
