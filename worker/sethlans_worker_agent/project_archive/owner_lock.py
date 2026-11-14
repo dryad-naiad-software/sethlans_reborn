@@ -104,6 +104,15 @@ def acquire_for_process(cache_dir) -> bool:
         return ok
 
 
+def held_for_process(cache_dir) -> bool:
+    """True when this process holds the owner lock on ``cache_dir`` (recovery step 0)."""
+    with _process_lock_guard:
+        lock = _process_lock
+    if lock is None or not lock.held:
+        return False
+    return os.path.normcase(os.path.abspath(lock.path.parent)) == os.path.normcase(os.path.abspath(cache_dir))
+
+
 def release_for_process() -> None:
     """Release the process-lifetime lock (tests; the OS releases it at exit)."""
     global _process_lock
