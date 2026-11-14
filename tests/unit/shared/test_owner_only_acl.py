@@ -28,6 +28,7 @@ def windows(monkeypatch):
     state = {'written': [], 'security': (True, USER, list(GOOD_ACES))}
     monkeypatch.setattr(acl, '_is_windows', lambda: True)
     monkeypatch.setattr(acl, '_win_token_user_sid', lambda: USER)
+    monkeypatch.setattr(acl, '_win_token_owner_sid', lambda: USER)  # a non-elevated token (#228)
     monkeypatch.setattr(acl, '_win_set_security', lambda path, sddl: state['written'].append((path, sddl)))
 
     def read(path):

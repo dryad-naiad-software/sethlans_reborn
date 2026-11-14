@@ -50,6 +50,10 @@ def _win_token_user_sid() -> str:
     return _win.token_user_sid()
 
 
+def _win_token_owner_sid() -> str:
+    return _win.token_owner_sid()
+
+
 def _win_create_dir(path: str, sddl: str) -> bool:
     return _win.create_dir(path, sddl)
 
@@ -106,11 +110,37 @@ def create_owner_only_dir(path) -> bool:
     return True
 
 
+def current_owner_sids() -> frozenset:
+    """SIDs that own objects this process creates (Windows only).
+
+    The token user, plus the token's default owner (``TokenOwner``). For a
+    process elevated as a member of Administrators the default owner is
+    ``BUILTIN\\Administrators`` (S-1-5-32-544), so a plain ``mkdir`` gets
+    that owner (GitHub #228). Such an owner is a privileged account that
+    could take ownership anyway.
+    """
+    if not _is_windows():
+        raise OSError("current_owner_sids is only available on Windows")
+    sids = {current_user_sid()}
+    try:
+        sids.add(_win_token_owner_sid())
+    except Exception:  # noqa: BLE001 - fall back to the user only (stricter)
+        pass
+    return frozenset(sids)
+
+
 def is_owned_by_current_user(path) -> bool:
-    """True when ``path``'s owner is the token user (POSIX: the effective uid)."""
+    """True when ``path``'s owner is this process (POSIX: the effective uid).
+
+    On Windows the owner must be the token user **or** the token's default
+    owner (``current_owner_sids``). This is the only owner comparison the
+    callers use; ``verify_owner_only`` stays exact (owner == token user),
+    and ``create_owner_only_dir`` / ``apply_owner_only`` set that owner
+    explicitly.
+    """
     try:
         if _is_windows():
-            return _win_read_security(os.fspath(path))[1] == current_user_sid()
+            return _win_read_security(os.fspath(path))[1] in current_owner_sids()
         return os.lstat(path).st_uid == os.geteuid()
     except (OSError, ValueError):
         return False

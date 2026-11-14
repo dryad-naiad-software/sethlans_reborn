@@ -11,6 +11,7 @@ import sys
 import pytest
 
 from sethlans_worker_agent.project_archive import fs_safe
+from shared import owner_only_acl
 
 from . import _helpers as h
 
@@ -141,4 +142,51 @@ def test_output_file_swapped_after_the_check_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(fs_safe, 'lstat', lambda p: real_lstat(output / 'other.png')
                         if str(p).endswith('out.png') else real_lstat(p))
     with pytest.raises(OSError, match='changed between'):
+        fs_safe.open_output_file(output / 'out.png', output)
+
+
+ADMINS = 'S-1-5-32-544'
+
+
+@pytest.fixture()
+def elevated_owner(monkeypatch):
+    """GitHub #228: simulate an elevated token, under which a plain mkdir is owned by Administrators."""
+    acl = owner_only_acl
+    real_read = acl._win_read_security
+    token = {'owner': ADMINS}
+
+    def read(path):
+        protected, owner, aces = real_read(path)
+        return protected, (ADMINS if owner == acl.current_user_sid() else owner), aces
+
+    monkeypatch.setattr(acl, '_win_read_security', read)
+    monkeypatch.setattr(acl, '_win_token_owner_sid', lambda: token['owner'])
+    return token
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows owners (#228)')
+def test_output_checks_with_an_elevated_token(tmp_path, profile, elevated_owner, monkeypatch):
+    output = tmp_path / 'j' / '42-abcdef01' / 'output'
+    output.mkdir(parents=True)
+    (output / 'out.png').write_bytes(b'png')
+    with fs_safe.open_output_file(output / 'out.png', output) as handle:
+        assert handle.read() == b'png'
+    os.link(profile / 'Documents' / 'thesis.docx', output / 'linked.png')
+    with pytest.raises(OSError, match='hard links'):
+        fs_safe.open_output_file(output / 'linked.png', output)
+    (output / 'other.png').write_bytes(b'two')
+    real_lstat = fs_safe.lstat
+    monkeypatch.setattr(fs_safe, 'lstat', lambda p: real_lstat(output / 'other.png')
+                        if str(p).endswith('out.png') else real_lstat(p))
+    with pytest.raises(OSError, match='changed between'):
+        fs_safe.open_output_file(output / 'out.png', output)
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows owners (#228)')
+def test_administrators_owner_is_refused_for_a_non_elevated_token(tmp_path, elevated_owner):
+    output = tmp_path / 'output'
+    output.mkdir()
+    (output / 'out.png').write_bytes(b'png')
+    elevated_owner['owner'] = owner_only_acl.current_user_sid()  # token default owner = the user
+    with pytest.raises(PermissionError, match='not owned'):
         fs_safe.open_output_file(output / 'out.png', output)

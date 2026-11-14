@@ -22,6 +22,7 @@ _CONTAINER_INHERIT_ACE = 0x2
 _REQUIRED_ACE_FLAGS = _OBJECT_INHERIT_ACE | _CONTAINER_INHERIT_ACE
 _TOKEN_QUERY = 0x0008
 _TOKEN_USER_CLASS = 1
+_TOKEN_OWNER_CLASS = 4
 _SDDL_REVISION_1 = 1
 _SID_OFFSET_IN_ACE = 8  # ACE_HEADER (4 bytes) + ACCESS_MASK (4 bytes)
 _ERROR_ALREADY_EXISTS = 183
@@ -85,7 +86,8 @@ def _sid_to_string(api, psid) -> str:
         api['kernel32'].LocalFree(out)
 
 
-def token_user_sid() -> str:
+def _token_sid(info_class: int) -> str:
+    """The SID in ``TOKEN_USER`` or ``TOKEN_OWNER``: both start with a ``PSID``."""
     api = _api()
     ctypes, wintypes = api['ctypes'], api['wintypes']
     advapi32, kernel32 = api['advapi32'], api['kernel32']
@@ -94,14 +96,24 @@ def token_user_sid() -> str:
         raise _last_error(api, 'OpenProcessToken')
     try:
         size = wintypes.DWORD(0)
-        advapi32.GetTokenInformation(token, _TOKEN_USER_CLASS, None, 0, ctypes.byref(size))
+        advapi32.GetTokenInformation(token, info_class, None, 0, ctypes.byref(size))
         buf = ctypes.create_string_buffer(max(size.value, 1))
-        if not advapi32.GetTokenInformation(token, _TOKEN_USER_CLASS, buf, size, ctypes.byref(size)):
+        if not advapi32.GetTokenInformation(token, info_class, buf, size, ctypes.byref(size)):
             raise _last_error(api, 'GetTokenInformation')
-        psid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]  # TOKEN_USER.User.Sid
+        psid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]  # TOKEN_USER.User.Sid / TOKEN_OWNER.Owner
         return _sid_to_string(api, psid)
     finally:
         kernel32.CloseHandle(token)
+
+
+def token_user_sid() -> str:
+    """SID of the process token's user."""
+    return _token_sid(_TOKEN_USER_CLASS)
+
+
+def token_owner_sid() -> str:
+    """The token's default owner for new objects (Administrators, S-1-5-32-544, when elevated)."""
+    return _token_sid(_TOKEN_OWNER_CLASS)
 
 
 def create_dir(path: str, sddl: str) -> bool:
