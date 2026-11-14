@@ -10,6 +10,7 @@ from .animations import AnimationFrameStatus, Animation, AnimationFrame
 from .queue_setting import QueueSetting
 from .manager_settings import ManagerSettings
 from .yield_events import WorkerYieldEvent
+from .unreal_measurement import UnrealMeasurement
 
 __all__ = [
     "SupportedBlenderVersion",
@@ -20,4 +21,5 @@ __all__ = [
     "QueueSetting",
     "ManagerSettings",
     "WorkerYieldEvent",
+    "UnrealMeasurement",
 ]

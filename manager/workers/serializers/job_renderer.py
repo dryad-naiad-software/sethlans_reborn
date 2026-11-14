@@ -12,6 +12,7 @@ bases that have ``_declared_fields``, so a plain mixin's
 
 from rest_framework import serializers
 
+from ..constants import UnrealKind
 from ..renderers import UnsupportedRendererError, get_strategy
 from .renderer_checks import check_immutable_and_consistent, resolve_strategy
 
@@ -38,7 +39,18 @@ def ensure_feature_supported(asset, feature):
 
 
 class JobRendererFieldsMixin(serializers.Serializer):
-    """Adds ``routing_note`` and renderer-dispatched validate/create."""
+    """Adds ``routing_note``, the measured-peak fields and renderer-dispatched validate/create."""
+
+    unreal_kind = serializers.ChoiceField(
+        choices=UnrealKind.choices, read_only=True,
+        help_text="'pilot' for a manager-created Unreal measurement render, else 'render'.",
+    )
+    unreal_measured_peak_mb = serializers.SerializerMethodField(
+        help_text=(
+            "Unreal normal jobs: the measured peak GPU memory (MB) of the job's "
+            "measurement key, or null while unmeasured. Null for Blender jobs and pilots."
+        ),
+    )
 
     routing_note = serializers.SerializerMethodField(
         help_text=(
@@ -55,6 +67,16 @@ class JobRendererFieldsMixin(serializers.Serializer):
             return None
         return strategy.routing_note(obj, self.context)
 
+    def get_unreal_measured_peak_mb(self, obj) -> int | None:
+        """The list annotation, else one query (single-object responses; FR-PM-5)."""
+        if obj.unreal_kind != UnrealKind.RENDER or not obj.unreal_target_sha256:
+            return None
+        if hasattr(obj, '_unreal_peak_mb'):
+            return obj._unreal_peak_mb
+        # Imported here: the service imports the renderer registry.
+        from ..services.unreal_pilot import cached_key_state
+        return cached_key_state(obj).peak_mb
+
     def validate_for_renderer(self, data):
         """Generic checks, then the strategy of the job's renderer.
 
@@ -70,6 +92,10 @@ class JobRendererFieldsMixin(serializers.Serializer):
         return resolve_strategy(renderer).validate_job(data, asset, self.instance)
 
     def create(self, validated_data):
+        """Insert the job with the project locked first, then the hook (FR-PM-10)."""
         asset = validated_data['asset']
         strategy = resolve_strategy(asset.project.renderer)
-        return super().create(strategy.prepare_job_create(validated_data, asset))
+        with strategy.locked_write(asset.project):
+            job = super().create(strategy.prepare_job_create(validated_data, asset))
+            strategy.after_job_create(job)
+        return job

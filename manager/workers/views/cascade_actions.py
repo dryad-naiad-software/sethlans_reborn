@@ -17,6 +17,7 @@ from django.db import transaction
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from ..constants import UnrealKind
 from ..models import Job, JobStatus
 
 logger = logging.getLogger(__name__)
@@ -73,9 +74,10 @@ class CascadeChildActionsMixin:
         """
         parent = self.get_object()
         with transaction.atomic():
+            # Pilots are never requeued: the measurement retry replaces them (FR-PM-9).
             count = self._children(parent).filter(
                 status__in=[JobStatus.ERROR, JobStatus.CANCELED],
-            ).update(
+            ).exclude(unreal_kind=UnrealKind.PILOT).update(
                 status=JobStatus.QUEUED,
                 assigned_worker=None,
                 started_at=None,

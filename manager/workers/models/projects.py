@@ -8,6 +8,8 @@ from django.core.files.base import ContentFile
 from django.core.validators import MinLengthValidator
 from django.utils.text import slugify
 
+from shared.unreal.validation import overrides_sha256
+
 from ..constants import AssetSourceType, Renderer
 from .renderer_constraints import ASSET_SOURCE_FIELDS_CONSISTENT, PROJECT_RENDERER_FIELDS_CONSISTENT
 from .upload_paths import asset_upload_path
@@ -45,10 +47,29 @@ class Project(models.Model):
             "workers read them at claim time, so edits also affect jobs that are still queued."
         ),
     )
+    unreal_overrides_sha256 = models.CharField(
+        max_length=64, blank=True, default='', db_default='', editable=False,
+        help_text="Unreal projects: hash of unreal_cvar_overrides (measurement key); '' for Blender.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        """Keep ``unreal_overrides_sha256`` in step with the overrides (FR-PM-1).
+
+        A save whose ``update_fields`` names ``unreal_cvar_overrides`` also
+        writes the hash.
+        """
+        self.unreal_overrides_sha256 = (
+            overrides_sha256(self.unreal_cvar_overrides)
+            if self.renderer == Renderer.UNREAL else ''
+        )
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None and 'unreal_cvar_overrides' in update_fields:
+            kwargs['update_fields'] = sorted(set(update_fields) | {'unreal_overrides_sha256'})
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ['-created_at']

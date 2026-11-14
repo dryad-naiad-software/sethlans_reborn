@@ -49,14 +49,15 @@ logger = logging.getLogger(__name__)
 _LOCK_SENTINEL = '__write_lock__'
 
 
-def take_write_lock(queryset):
+def take_write_lock(queryset, field='status'):
     """Run a zero-row UPDATE so SQLite takes its write lock now.
 
-    Matches no row on any backend (``status`` never equals the sentinel),
-    so it changes nothing; it only makes the current transaction a write
-    transaction from its first statement.
+    Matches no row on any backend (``field`` never equals the sentinel;
+    models without ``status``, such as ``Project``, name another text
+    column), so it changes nothing; it only makes the current transaction
+    a write transaction from its first statement.
     """
-    queryset.filter(status=_LOCK_SENTINEL).update(status=_LOCK_SENTINEL)
+    queryset.filter(**{field: _LOCK_SENTINEL}).update(**{field: _LOCK_SENTINEL})
 
 
 def lock_parent(model, pk):

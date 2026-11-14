@@ -216,6 +216,8 @@ class JobSerializer(JobRendererFieldsMixin, serializers.ModelSerializer):
             'renderer',
             'engine_build',
             'routing_note',
+            'unreal_kind',
+            'unreal_measured_peak_mb',
             'start_frame',
             'end_frame',
             'status',

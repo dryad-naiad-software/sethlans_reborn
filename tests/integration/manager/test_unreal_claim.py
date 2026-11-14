@@ -11,11 +11,14 @@ import pytest
 from workers.models import Job, JobStatus
 
 from .unreal_helpers import BUILD, SHARE, caps, set_share, unreal_asset
+from .unreal_pilot_helpers import measure_key
 
 
 @pytest.fixture
 def job(db):
-    return Job.objects.create(name='ClaimUnreal', asset=unreal_asset(), output_file_pattern='//r/u.png')
+    job = Job.objects.create(name='ClaimUnreal', asset=unreal_asset(), output_file_pattern='//r/u.png')
+    measure_key(job)  # chunk 2b: an unmeasured key is held (AC-46)
+    return job
 
 
 def _claim(client, job, worker):

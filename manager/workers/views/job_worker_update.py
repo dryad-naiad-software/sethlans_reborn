@@ -25,8 +25,9 @@ from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from ..models import JobStatus
+from ..renderers import get_strategy
 from ..services.worker_job_writes import (
-    WORKER_PATCH_FIELDS, JobWriteConflict, apply_admin_patch,
+    WORKER_PATCH_FIELDS, JobWriteConflict, PilotDoneRefused, apply_admin_patch,
     apply_worker_patch,
 )
 
@@ -87,7 +88,7 @@ class JobWorkerUpdateMixin:
         worker = getattr(self.request.user, 'worker_profile', None)
         try:
             if worker is None:
-                job = apply_admin_patch(job_pk, changes)
+                job = self._admin_patch(serializer.instance, changes)
             else:
                 self._check_worker_owns_job(self.request, serializer.instance)
                 disallowed = sorted(set(changes) - WORKER_PATCH_FIELDS)
@@ -99,4 +100,19 @@ class JobWorkerUpdateMixin:
                 job = apply_worker_patch(job_pk, worker, changes)
         except JobWriteConflict as exc:
             raise JobConflict({'error': str(exc)})
+        except PilotDoneRefused as exc:
+            raise ValidationError({'detail': str(exc)})
         serializer.instance = job
+
+    def _admin_patch(self, instance, changes):
+        """Lock the project first and run the update hook (FR-PM-10, trigger a').
+
+        The renderer was validated already (``serializer.validate``).
+        """
+        strategy = get_strategy(instance.renderer)
+        project = instance.asset.project
+        return apply_admin_patch(
+            instance.pk, changes,
+            before=lambda: strategy.lock_for_write(project),
+            after=lambda job: strategy.after_job_update(job, set(changes)),
+        )

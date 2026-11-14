@@ -20,6 +20,7 @@ Error contract:
 """
 
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 
 
 class UnsupportedRendererError(KeyError):
@@ -104,3 +105,47 @@ class RendererStrategy(ABC):
     @abstractmethod
     def supports_release(self):
         """Return whether ``POST /api/jobs/{id}/release/`` applies."""
+
+    # -- Measured-peak gate hooks (FR-MR-8, v4.3/v4.4; chunk 2b) ------------
+    # Concrete no-op defaults: a renderer without a measured-peak gate
+    # (Blender) takes no lock and creates nothing.  The view or serializer
+    # that writes opens ``transaction.atomic()``, calls ``lock_for_write``
+    # first, then writes, then the hook, all in that one block.  Hooks
+    # never raise a DRF exception.
+
+    def lock_for_write(self, project):
+        """Lock and re-read ``project`` before a write that can fire a hook.
+
+        Returns the locked row, or ``None`` when the renderer takes no lock.
+        """
+        return None
+
+    def locked_write(self, project):
+        """Context manager around a write that can fire a hook (FR-PM-10).
+
+        Renderers that lock open ``transaction.atomic()`` and run
+        ``lock_for_write`` first, yielding the locked row.  The default
+        opens no transaction and yields ``None``, so such a write (Blender:
+        a ``.blend`` upload) takes no new transaction or lock (FR-PM-8).
+        """
+        return nullcontext(None)
+
+    def after_job_create(self, job):
+        """Run after a job of this renderer was inserted (FR-PM-2 trigger a)."""
+        return None
+
+    def after_job_update(self, job, changed):
+        """Run after a job update; ``changed`` names the fields sent (trigger a')."""
+        return None
+
+    def after_asset_create(self, asset):
+        """Run after an asset of this renderer was inserted (trigger b)."""
+        return None
+
+    def after_project_update(self, project, changed):
+        """Run after a project update; ``changed`` names the fields sent (trigger c)."""
+        return None
+
+    def project_measurement(self, project, context):
+        """Return the project's ``unreal_measurement`` summary, or ``None`` (FR-PM-7)."""
+        return None

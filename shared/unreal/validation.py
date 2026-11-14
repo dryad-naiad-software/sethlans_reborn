@@ -11,6 +11,8 @@ anything reaches a UE command line or script. Every function raises
 Patterns are matched with ``re.fullmatch`` and ``re.ASCII``, so a trailing
 newline never passes (``$`` alone would allow one).
 """
+import hashlib
+import json
 import re
 
 OBJECT_PATH_RE = r'^/[A-Za-z0-9_]+(?:/[A-Za-z0-9_\-]+)+(?:\.[A-Za-z0-9_\-]+)?$'
@@ -32,6 +34,10 @@ UE_SWITCH_DENYLIST = frozenset({
     'script', 'executepythonscript', 'graphicsadapter', 'zendatapath',
     'localdatacachepath', 'shareddatacachepath', 'ddc', 'cvarsini',
     'logfilename', 'zenlogpath', 'zencfgpath',
+    # CSV profiler switches (v4.4, Sec R3-W7): the pilot passes the first
+    # two itself; the others could redirect the capture or run commands.
+    'csvcaptureframes', 'csvgpustats', 'csvexeccmds', 'csvfile',
+    'csvfilename', 'csvmetadata', 'csvcategories',
 })
 # Suffix rule: a ``FParse::Value`` match counts only when the preceding
 # character is not a letter or digit (``.`` and ``_`` are boundaries), so
@@ -144,3 +150,33 @@ def validate_sha256(value) -> str:
     if not _SHA256.fullmatch(digest):
         raise ValueError("SHA-256 must be 64 hex characters")
     return digest
+
+
+def _frozen_sha256(value) -> str:
+    """SHA-256 of the canonical JSON of ``value`` (sorted keys, compact, ASCII)."""
+    text = json.dumps(value, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(text.encode('ascii')).hexdigest()
+
+
+def overrides_sha256(overrides) -> str:
+    """Return the frozen canonical hash of a project's CVar overrides.
+
+    FROZEN: its output defines stored measurement keys (FR-PM-1), so
+    changing it orphans every measurement.  Pure and never raising: keys
+    are used as stored (``str(k)``), values as ``str(v)``; a non-dict
+    hashes as ``{}``.  It deliberately does not call ``validate_cvars``.
+    """
+    if not isinstance(overrides, dict):
+        overrides = {}
+    return _frozen_sha256({str(k): str(v) for k, v in overrides.items()})
+
+
+def target_sha256(engine_build, map_path, sequence, preset) -> str:
+    """Return the frozen hash of a measurement target (FR-PM-1, OQ-26).
+
+    The same frozen, pure, never-raising form as :func:`overrides_sha256`
+    over ``[engine_build, map, sequence, preset]`` (each ``str(x)``,
+    ``None`` as ``''``).
+    """
+    parts = [engine_build, map_path, sequence, preset]
+    return _frozen_sha256(['' if part is None else str(part) for part in parts])

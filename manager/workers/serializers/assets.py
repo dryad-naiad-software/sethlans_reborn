@@ -85,6 +85,16 @@ class AssetSerializer(serializers.ModelSerializer):
         strategy = resolve_source_strategy(source_type)
         return strategy.validate_asset(attrs, self.instance)
 
+    def create(self, validated_data):
+        """Insert the asset with the project locked first, then the hook (FR-PM-10)."""
+        source_type = validated_data.get('source_type', AssetSourceType.BLEND_FILE)
+        strategy = resolve_source_strategy(source_type)
+        # Blender: no transaction, so a .blend upload holds no lock (FR-PM-8).
+        with strategy.locked_write(validated_data['project']):
+            asset = super().create(validated_data)
+            strategy.after_asset_create(asset)
+        return asset
+
     def validate_blend_file(self, value):
         """
         Validate the uploaded .blend file:

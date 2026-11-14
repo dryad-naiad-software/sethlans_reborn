@@ -69,3 +69,9 @@ JOB_RENDERER_BUILD_CONSISTENT = models.CheckConstraint(
         "A Blender job has no engine build; an Unreal job needs one."
     ),
 )
+
+JOB_KIND_CONSISTENT = models.CheckConstraint(
+    condition=Q(unreal_kind='render') | Q(renderer=_UNREAL),
+    name='job_kind_consistent',
+    violation_error_message="Only an Unreal job can be a pilot job.",
+)

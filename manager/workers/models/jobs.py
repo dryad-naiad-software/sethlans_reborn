@@ -7,10 +7,12 @@ from django.db import models
 from django.utils import timezone
 from django.core.validators import MinLengthValidator
 from django.core.exceptions import ValidationError
-from ..constants import RenderEngine, CyclesFeatureSet, RenderDevice, Renderer
+from shared.unreal.validation import target_sha256
+
+from ..constants import RenderEngine, CyclesFeatureSet, RenderDevice, Renderer, UnrealKind
 from .upload_paths import job_output_upload_path, tiled_job_output_upload_path, thumbnail_upload_path
 from .projects import Asset
-from .renderer_constraints import JOB_RENDERER_BUILD_CONSISTENT
+from .renderer_constraints import JOB_KIND_CONSISTENT, JOB_RENDERER_BUILD_CONSISTENT
 from .workers import Worker
 
 
@@ -116,6 +118,14 @@ class Job(models.Model):
         max_length=32, blank=True, default='',
         help_text="Unreal jobs: the effective engine build, pinned at submission. Create-only.",
     )
+    unreal_kind = models.CharField(
+        max_length=8, choices=UnrealKind.choices, default=UnrealKind.RENDER,
+        help_text="Unreal jobs: 'pilot' for a manager-created measurement render; read-only.",
+    )
+    unreal_target_sha256 = models.CharField(
+        max_length=64, blank=True, default='', editable=False,
+        help_text="Unreal jobs: hash of (engine build, map, sequence, preset); '' for Blender.",
+    )
     start_frame = models.IntegerField(default=1)
     end_frame = models.IntegerField(default=1)
     status = models.CharField(max_length=50, choices=JobStatus.choices, default=JobStatus.QUEUED)
@@ -199,7 +209,24 @@ class Job(models.Model):
             self.renderer = project.renderer
             if not self.engine_build:
                 self.engine_build = project.engine_build
+        update_fields = kwargs.get('update_fields')
+        if self._state.adding or update_fields is None:
+            self.unreal_target_sha256 = self.compute_target_sha256()
+        elif {'render_settings', 'engine_build'} & set(update_fields):
+            self.unreal_target_sha256 = self.compute_target_sha256()
+            # A new list: the caller's sequence is left untouched.
+            kwargs['update_fields'] = sorted(set(update_fields) | {'unreal_target_sha256'})
         super().save(*args, **kwargs)
+
+    def compute_target_sha256(self):
+        """The measurement target hash of an Unreal job, ``''`` otherwise (FR-PM-1)."""
+        if self.renderer != Renderer.UNREAL:
+            return ''
+        settings = self.render_settings if isinstance(self.render_settings, dict) else {}
+        return target_sha256(
+            self.engine_build, settings.get('unreal.map'),
+            settings.get('unreal.sequence'), settings.get('unreal.preset'),
+        )
 
     def __str__(self):
         return f"{self.name} ({self.status})"
@@ -223,4 +250,5 @@ class Job(models.Model):
                 name='unique_job_name_per_asset'
             ),
             JOB_RENDERER_BUILD_CONSISTENT,
+            JOB_KIND_CONSISTENT,
         ]

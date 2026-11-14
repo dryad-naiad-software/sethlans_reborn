@@ -22,6 +22,7 @@ import re
 from shared.unreal.builds import parse_build
 from shared.unreal.unc import validate_unc_dir
 
+from ..strict_json import _int_in, _is_int
 from .heartbeat_validators import _sanitize_cpu_name
 
 logger = logging.getLogger(__name__)
@@ -43,15 +44,6 @@ MAX_JOB_ID = 2 ** 31 - 1
 _BOOT_ID = re.compile(r'[0-9a-f]{32}', re.ASCII)
 # Printable ASCII except the characters that matter in HTML and Markdown.
 _REASON_UNSAFE = re.compile(r'[^\x20-\x7e]|[<>`]')
-
-
-def _is_int(value):
-    """``int`` but not ``bool`` (``True`` is an ``int`` in Python)."""
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _int_in(value, low, high):
-    return _is_int(value) and low <= value <= high
 
 
 def _sanitize_reason(raw):

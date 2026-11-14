@@ -17,6 +17,7 @@ import pytest
 from workers.models import Asset, Job, JobStatus, Project, TiledJob
 
 from .unreal_helpers import BUILD, SHARE, caps, set_share
+from .unreal_pilot_helpers import measure_key
 
 JOBS_URL = '/api/jobs/'
 POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
@@ -171,7 +172,8 @@ class TestRendererInterleaving:
 
     def _jobs(self, asset, unreal_asset):
         _job(asset, 'MixBlender1', 1)
-        _job(unreal_asset, 'MixUnreal2', 2)
+        # chunk 2b: the Unreal jobs share one key, measured so they are offered (AC-46).
+        measure_key(_job(unreal_asset, 'MixUnreal2', 2))
         _job(asset, 'MixBlender3', 3)
         _job(unreal_asset, 'MixUnreal4', 4)
         _job(unreal_asset, 'MixUnreal4b', 4)

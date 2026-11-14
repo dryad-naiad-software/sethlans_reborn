@@ -14,7 +14,9 @@ from rest_framework.response import Response
 from ..models import Asset, Job, JobStatus, Project
 from ..parent_dispatch import dispatch_parents
 from ..permissions import IsAdmin
-from ..serializers import ProjectSerializer
+from ..renderers.unreal_project_measurement import project_annotations
+from ..serializers.unreal_measurement import ProjectDetailSerializer
+from .unreal_measurement import UnrealMeasurementActionsMixin
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
     destroy=extend_schema(tags=['Management UI']),
     cancel_all_jobs=extend_schema(tags=['Management UI']),
 )
-class ProjectViewSet(viewsets.ModelViewSet):
+class ProjectViewSet(UnrealMeasurementActionsMixin, viewsets.ModelViewSet):
     """
     API endpoint for creating, retrieving, and managing rendering projects.
 
@@ -39,7 +41,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
     """
     permission_classes = [IsAdmin]
     queryset = Project.objects.select_related('blender_version').order_by('-created_at')
-    serializer_class = ProjectSerializer
+    # Adds ``unreal_measurement``; nested ``project_details`` keep ProjectSerializer.
+    serializer_class = ProjectDetailSerializer
+
+    def get_queryset(self):
+        """The ``unreal_measurement`` summary as subqueries: a list adds no query (FR-PM-7)."""
+        return super().get_queryset().annotate(**project_annotations())
 
     @action(detail=True, methods=['post'], url_path='cancel_all_jobs')
     def cancel_all_jobs(self, request, pk=None):

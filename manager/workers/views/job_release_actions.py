@@ -27,11 +27,12 @@ from ..models import Job, JobStatus
 from ..parent_status import take_write_lock
 from ..renderers import UnsupportedRendererError, get_strategy
 from ..services.row_locks import lock_own_rows
+from .job_pilot_actions import refuse_pilot_done
 from .stuck_jobs import requeue_or_fail
 
 logger = logging.getLogger(__name__)
 
-RELEASE_REASONS = ('shutdown', 'dispatch_failed', 'share_unavailable')
+RELEASE_REASONS = ('shutdown', 'dispatch_failed', 'share_unavailable', 'local_conflict')
 NOT_RENDERING_HERE = "Job is not rendering on this worker."
 RELEASE_UNSUPPORTED = "Release is not supported for this renderer."
 
@@ -113,6 +114,8 @@ class JobReleaseActionsMixin:
             raise ValidationError({
                 'detail': f"Workers may not modify {', '.join(refused)} on {strategy.label} jobs.",
             })
+        # After the 403 and the allowlist 400, before validation (FR-RT-14).
+        refuse_pilot_done(job, request.data)
 
     @extend_schema(
         tags=['Worker Agent'],
@@ -126,8 +129,8 @@ class JobReleaseActionsMixin:
         Returns:
             200 ``{"status": "QUEUED" | "ERROR", "auto_requeue_count": n}``;
                 ERROR means the auto-requeue limit was exceeded.
-            400 for a ``reason`` other than shutdown, dispatch_failed or
-                share_unavailable.
+            400 for a ``reason`` other than shutdown, dispatch_failed,
+                share_unavailable or local_conflict.
             404 if the job does not exist.
             409 if the job is not RENDERING on this worker (checked first),
                 or its renderer does not support release.  A repeated

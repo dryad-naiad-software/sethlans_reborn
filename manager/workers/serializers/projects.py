@@ -67,3 +67,21 @@ class ProjectSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         strategy = resolve_strategy(validated_data.get('renderer', Renderer.BLENDER))
         return super().create(strategy.prepare_project_create(validated_data))
+
+    def update(self, instance, validated_data):
+        """Lock first, write only the sent fields, then the hook (FR-PM-10).
+
+        ``Project.save`` adds ``unreal_overrides_sha256`` when the overrides
+        are written.
+        """
+        strategy = resolve_strategy(instance.renderer)
+        with strategy.locked_write(instance) as locked:
+            target = locked or instance
+            for field, value in validated_data.items():
+                setattr(target, field, value)
+            if validated_data:
+                target.save(update_fields=sorted(validated_data))
+            else:
+                target.save()
+            strategy.after_project_update(target, set(validated_data))
+        return target

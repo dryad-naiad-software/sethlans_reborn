@@ -16,6 +16,11 @@ from django.utils import timezone
 from workers.models import Job, JobStatus, Worker
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS, SHARE, caps, gpu_memory, set_share, unreal_asset, unreal_project
+from .unreal_pilot_helpers import measure_key
+
+# chunk 2b: a measured normal job needs measured_need_mb(peak) (FR-RT-9 note 4);
+# 14,000 MB needs 16,100 MB, more than a 16 GB card's 15,161 MB budget.
+PEAK_MB = 14000
 
 URL = '/api/jobs/'
 NO_SHARE = "The Sethlans share is not configured."
@@ -40,8 +45,10 @@ def _worker(hostname, capabilities, memory=None, online=True):
 def job(db):
     project = unreal_project(unreal_cvar_overrides={'r.Streaming.PoolSize': '9000',
                                                     'r.RayTracing.ResidentGeometryMemoryPoolSizeInMB': '2048'})
-    return Job.objects.create(name='NoteJob', asset=unreal_asset(project), output_file_pattern='//r/f.png',
-                              render_settings=RENDER_SETTINGS, render_device='GPU')
+    job = Job.objects.create(name='NoteJob', asset=unreal_asset(project), output_file_pattern='//r/f.png',
+                             render_settings=RENDER_SETTINGS, render_device='GPU')
+    measure_key(job, peak_mb=PEAK_MB)
+    return job
 
 
 def _note(client, job):
@@ -74,7 +81,7 @@ class TestMessages:
         set_share(SHARE)
         _worker('note-16', caps(), gpu_memory(16303))
         _worker('note-mixed', caps(), gpu_memory(32607, 12282))
-        assert _note(admin_client, job) == _no_vram(20126)
+        assert _note(admin_client, job) == _no_vram(16100)
 
     def test_enough_memory_on_every_gpu(self, admin_client, job):
         set_share(SHARE)
@@ -89,8 +96,10 @@ class TestMessages:
         assert _note(admin_client, job) is None
 
     def test_default_pools_without_overrides(self, admin_client):
+        # chunk 2b: the pools still enter the need only for a pilot (OQ-28 (d)).
         set_share(SHARE)
-        job = Job.objects.create(name='NoteDefault', asset=unreal_asset(name='A2'), output_file_pattern='//r/f.png')
+        job = Job.objects.create(name='NoteDefault', asset=unreal_asset(name='A2'), output_file_pattern='//r/f.png',
+                                 unreal_kind='pilot')
         _worker('note-12', caps(), gpu_memory(12282))
         assert _note(admin_client, job) == _no_vram(12478)
 

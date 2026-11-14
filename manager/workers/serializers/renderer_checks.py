@@ -14,6 +14,7 @@ HTTP 400 (FR-MR-7).  Nothing here branches on a renderer value.
 
 from rest_framework import serializers
 
+from ..constants import PILOT_TARGET_FIELDS, UnrealKind
 from ..models import Asset, Job, Project
 from ..renderers import UnsupportedRendererError, get_strategy, strategy_for_source_type
 
@@ -60,11 +61,14 @@ def _asset_errors(instance, attrs):
         errors['source_type'] = ["Source type cannot be changed after creation."]
     project = attrs.get('project')
     if project is not None:
-        implied = resolve_source_strategy(instance.source_type).renderer
-        if project.renderer != implied:
+        strategy = resolve_source_strategy(instance.source_type)
+        if project.renderer != strategy.renderer:
             errors['project'] = [
                 "Cannot move an asset to a project of a different renderer."
             ]
+        elif project.pk != instance.project_id and strategy.supports('pilot_measurement'):
+            # A measurement belongs to one asset of one project (FR-MR-11).
+            errors['project'] = ["Cannot move an Unreal asset to another project."]
     changed = [f for f in DELIVERY_FIELDS if _changed(attrs, instance, f)]
     if changed and instance.jobs.exists():
         for field in changed:
@@ -72,7 +76,18 @@ def _asset_errors(instance, attrs):
     return errors
 
 
+def _pilot_errors(instance, attrs):
+    return {
+        field: [f"A pilot job's {field} cannot be changed."]
+        for field in PILOT_TARGET_FIELDS if _changed(attrs, instance, field)
+    }
+
+
 def _job_errors(instance, attrs):
+    if instance.unreal_kind == UnrealKind.PILOT:
+        errors = _pilot_errors(instance, attrs)
+        if errors:
+            return errors
     errors = {}
     if _changed(attrs, instance, 'engine_build'):
         errors['engine_build'] = ["Engine build cannot be changed after creation."]
@@ -81,6 +96,9 @@ def _job_errors(instance, attrs):
         errors['asset_id'] = [
             "Cannot move a job to an asset of a different renderer."
         ]
+    elif (asset is not None and asset.pk != instance.asset_id
+          and resolve_strategy(instance.renderer).supports('pilot_measurement')):
+        errors['asset_id'] = ["Cannot move an Unreal job to another asset."]
     return errors
 
 

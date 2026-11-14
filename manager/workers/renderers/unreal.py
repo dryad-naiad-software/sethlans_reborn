@@ -21,6 +21,10 @@ worker PATCHes to ``UNREAL_WORKER_PATCH_FIELDS``.  Tiled jobs and
 animations are not supported yet (FR-MR-4).
 """
 
+from contextlib import contextmanager
+
+from django.db import transaction
+
 from ..constants import AssetSourceType, Renderer
 from .base import RendererStrategy
 from .unreal_routing import unreal_claim_rejection, unreal_poll_q, unreal_routing_note
@@ -36,6 +40,9 @@ UNREAL_WORKER_PATCH_FIELDS = frozenset({
     'status', 'last_output', 'error_message', 'completed_at',
     'render_time_seconds',
 })
+
+
+_SUPPORTED_FEATURES = frozenset({'pilot_measurement'})
 
 
 class UnrealStrategy(RendererStrategy):
@@ -74,7 +81,7 @@ class UnrealStrategy(RendererStrategy):
         return f"Archive: {asset.archive_path} ({asset.uproject_path})"
 
     def supports(self, feature):
-        return False
+        return feature in _SUPPORTED_FEATURES
 
     def idempotent_reclaim(self):
         return True
@@ -87,3 +94,37 @@ class UnrealStrategy(RendererStrategy):
 
     def supports_release(self):
         return True
+
+    # -- Measured-peak gate (D2, FR-PM-2, FR-PM-7, FR-PM-10) ----------------
+    # The pilot service is imported at call time: it imports the registry.
+
+    def lock_for_write(self, project):
+        from ..services.unreal_pilot import lock_project
+        return lock_project(project)
+
+    @contextmanager
+    def locked_write(self, project):
+        with transaction.atomic():
+            yield self.lock_for_write(project)
+
+    def after_job_create(self, job):
+        from ..services.unreal_pilot import ensure_pilot_for_job
+        ensure_pilot_for_job(job, reason='job')
+
+    def after_job_update(self, job, changed):
+        if 'render_settings' in changed:
+            from ..services.unreal_pilot import ensure_pilot_for_job
+            ensure_pilot_for_job(job, reason='job_update')
+
+    def after_asset_create(self, asset):
+        from ..services.unreal_pilot import ensure_pilots_for_queued
+        ensure_pilots_for_queued(asset.project, reason='asset', asset=asset)
+
+    def after_project_update(self, project, changed):
+        if 'unreal_cvar_overrides' in changed:
+            from ..services.unreal_pilot import ensure_pilots_for_queued
+            ensure_pilots_for_queued(project, reason='cvars')
+
+    def project_measurement(self, project, context):
+        from .unreal_project_measurement import project_summary
+        return project_summary(project)

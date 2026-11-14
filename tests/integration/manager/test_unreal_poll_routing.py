@@ -11,6 +11,7 @@ import pytest
 from workers.models import Job
 
 from .unreal_helpers import BUILD, SHARE, caps, set_share, unreal_asset
+from .unreal_pilot_helpers import measure_key
 
 URL = '/api/jobs/'
 POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
@@ -21,6 +22,7 @@ UNREAL = {**POLL, 'renderers': 'BLENDER,UNREAL', 'unreal_builds': BUILD}
 def jobs(asset):
     blender = Job.objects.create(name='PollBlender', asset=asset, output_file_pattern='//r/b.png')
     unreal = Job.objects.create(name='PollUnreal', asset=unreal_asset(), output_file_pattern='//r/u.png')
+    measure_key(unreal)  # chunk 2b: an unmeasured key is held (AC-46)
     return blender, unreal
 
 

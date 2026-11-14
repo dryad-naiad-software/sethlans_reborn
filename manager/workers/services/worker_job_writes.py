@@ -35,6 +35,7 @@ import time
 
 from django.db import OperationalError, transaction
 
+from ..constants import UnrealKind
 from ..models import Job, JobStatus
 from ..serializers.jobs import VALID_STATUS_TRANSITIONS
 from .row_locks import lock_own_rows
@@ -64,6 +65,42 @@ _SAVE_RETRY_BASE_DELAY_S = 0.05
 
 class JobWriteConflict(Exception):
     """The locked job no longer accepts this write (HTTP 409)."""
+
+
+class PilotDoneRefused(Exception):
+    """A write would set a pilot job DONE outside ``pilot-result/`` (HTTP 400)."""
+
+
+def pilot_done_message(job):
+    """The one FR-RT-14 refusal text for setting a pilot DONE."""
+    return f"Pilot jobs complete through POST /api/jobs/{job.pk}/pilot-result/."
+
+
+def pilot_requeue_message(job):
+    """The FR-PM-9 refusal text for requeuing a pilot."""
+    return (
+        f"Use POST /api/projects/{job.asset.project_id}/unreal-measurement/retry/ "
+        "to measure again."
+    )
+
+
+def refuse_pilot_status(job, changes):
+    """Refuse a status a pilot may not be given by a PATCH or PUT (FR-RT-14, FR-PM-9).
+
+    Every caller and write path, checked on the locked row:
+
+    * DONE -- :class:`PilotDoneRefused` (400): a pilot becomes DONE only
+      through ``POST /api/jobs/{id}/pilot-result/``;
+    * QUEUED -- :class:`JobWriteConflict` (409): a failed or canceled pilot
+      is never revived (that would give its key a second pending pilot);
+      the measurement retry creates a new one.
+    """
+    if job.unreal_kind != UnrealKind.PILOT or 'status' not in changes:
+        return
+    if changes['status'] == JobStatus.DONE:
+        raise PilotDoneRefused(pilot_done_message(job))
+    if changes['status'] == JobStatus.QUEUED:
+        raise JobWriteConflict(pilot_requeue_message(job))
 
 
 def run_with_lock_retry(operation, job_pk):
@@ -132,8 +169,11 @@ def ensure_valid_transition(job, new_status):
         )
 
 
-def _locked_write(job_pk, apply):
+def _locked_write(job_pk, apply, before=None):
     """Lock the job, ``apply(job)``, commit; retry only uncommitted attempts.
+
+    ``before()``, when given, runs as the transaction's first statement,
+    before the job lock (the project lock of FR-PM-10: Project -> Job).
 
     ``apply`` re-checks the locked row (raising :class:`JobWriteConflict`)
     and saves it.  A sentinel registered as the first ``on_commit``
@@ -151,6 +191,8 @@ def _locked_write(job_pk, apply):
         try:
             with transaction.atomic():
                 transaction.on_commit(lambda: committed.append(True))
+                if before is not None:
+                    before()
                 job = lock_own_rows(Job.objects).get(pk=job_pk)
                 apply(job)
                 result.append(job)
@@ -195,6 +237,7 @@ def apply_worker_patch(job_pk, worker, changes):
 
     def _apply(job):
         ensure_worker_can_write(job, worker)
+        refuse_pilot_status(job, changes)
         if 'status' in changes:
             ensure_valid_transition(job, changes['status'])
         _set_and_save(job, changes)
@@ -202,22 +245,30 @@ def apply_worker_patch(job_pk, worker, changes):
     return _locked_write(job_pk, _apply)
 
 
-def apply_admin_patch(job_pk, changes):
+def apply_admin_patch(job_pk, changes, before=None, after=None):
     """Apply an admin's validated PATCH/PUT ``changes`` to the locked job.
 
     Only the sent fields are written, so a worker report or claim that
     committed after the admin's read survives.  A requested status change
     is re-validated against the locked row.
 
+    ``before()`` runs first in the transaction (the project lock) and
+    ``after(job)`` after the save (the renderer's update hook).
+
     Raises:
         JobWriteConflict: the status change is no longer valid.
+        PilotDoneRefused: the write would set a pilot DONE.
+        JobWriteConflict: also when the write would set a pilot QUEUED.
     """
     def _apply(job):
+        refuse_pilot_status(job, changes)
         if 'status' in changes:
             ensure_valid_transition(job, changes['status'])
         _set_and_save(job, changes)
+        if after is not None:
+            after(job)
 
-    return _locked_write(job_pk, _apply)
+    return _locked_write(job_pk, _apply, before=before)
 
 
 def attach_worker_output(job_pk, worker, output_name, thumbnail_name=None):

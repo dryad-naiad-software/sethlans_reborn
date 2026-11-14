@@ -14,8 +14,10 @@ from rest_framework.response import Response
 
 from ..models import Job, JobStatus, QueueSetting
 from ..permissions import IsAdmin, IsWorker
+from ..renderers.unreal_measured import job_annotations
 from ..serializers import JobSerializer
 from .job_pause_actions import JobPauseActionsMixin
+from .job_pilot_actions import JobPilotActionsMixin, pilot_requeue_refusal
 from .job_release_actions import JobReleaseActionsMixin
 from .job_poll_filters import (
     LIST_PARAMETERS, apply_device_prefs_filter, apply_worker_poll_filters,
@@ -43,6 +45,7 @@ logger = logging.getLogger(__name__)
     yield_requeue=extend_schema(tags=['Worker Agent']),
 )
 class JobViewSet(
+    JobPilotActionsMixin,
     JobReleaseActionsMixin,
     JobYieldActionsMixin,
     JobPauseActionsMixin,
@@ -67,7 +70,7 @@ class JobViewSet(
     ordering_fields = ['submitted_at', 'status', 'name']
 
     def get_permissions(self):
-        if self.action in ('claim', 'upload_output', 'yield_requeue', 'release'):
+        if self.action in ('claim', 'upload_output', 'yield_requeue', 'release', 'pilot_result'):
             return [IsWorker()]
         elif self.action in ('list', 'retrieve'):
             return [(IsAdmin | IsWorker)()]
@@ -90,6 +93,8 @@ class JobViewSet(
             'blender_version',
             'asset__project__blender_version',
         )
+        # Measured-peak fields and key state (FR-PM-5): subqueries, no query per row.
+        queryset = job_annotations(queryset)
 
         # A worker poll is identified by the presence of these specific query parameters.
         is_worker_poll = (
@@ -184,6 +189,9 @@ class JobViewSet(
         try:
             with transaction.atomic():
                 job = Job.objects.select_for_update().get(pk=pk)
+                refusal = pilot_requeue_refusal(job)
+                if refusal is not None:
+                    return Response({"error": refusal}, status=status.HTTP_409_CONFLICT)
 
                 allowed = VALID_STATUS_TRANSITIONS.get(job.status, [])
                 if JobStatus.QUEUED not in allowed:

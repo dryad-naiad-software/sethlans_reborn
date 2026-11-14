@@ -29,6 +29,18 @@ class AssetSourceType(models.TextChoices):
 UNREAL_OUTPUT_FORMATS = ('PNG',)
 
 
+class UnrealKind(models.TextChoices):
+    """A job's role in the Unreal measured-peak gate (spec FR-PM-1)."""
+    RENDER = 'render', 'Render'
+    PILOT = 'pilot', 'Pilot'
+
+
+# Job names reserved for manager-created pilot jobs (FR-PM-9).
+PILOT_NAME_PREFIX = 'sethlans-pilot-'
+# A pilot job's target fields: its measurement record describes what it renders (FR-PM-9).
+PILOT_TARGET_FIELDS = ('render_settings', 'start_frame', 'end_frame', 'asset', 'engine_build')
+
+
 class RenderEngine(models.TextChoices):
     """
     Defines the supported Blender render engines.

@@ -160,3 +160,22 @@ class BlenderStrategy(RendererStrategy):
 
     def supports_release(self):
         return False
+
+    # Measured-peak hooks: no-ops, so Blender writes take no new lock.
+    def lock_for_write(self, project):
+        return None
+
+    def after_job_create(self, job):
+        return None
+
+    def after_job_update(self, job, changed):
+        return None
+
+    def after_asset_create(self, asset):
+        return None
+
+    def after_project_update(self, project, changed):
+        return None
+
+    def project_measurement(self, project, context):
+        return None

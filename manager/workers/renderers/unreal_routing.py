@@ -22,12 +22,15 @@ from rest_framework.exceptions import ValidationError
 
 from shared.unreal.builds import is_supported
 from shared.unreal.unc import shares_match
-from shared.unreal.vram_gate import usable_mb, vram_need_mb
+from shared.unreal.vram_gate import caps_sum_mb, caps_within_budget, measured_need_mb, pilot_need_mb, usable_mb
 
-from ..constants import WORKER_STALENESS_SECONDS, Renderer
+from ..constants import WORKER_STALENESS_SECONDS, Renderer, UnrealKind
 from ..models import JobStatus, Worker
 from ..models.workers import reported_unreal_builds, reports_share_reachable
 from ..services.sethlans_share import configured_share
+from .unreal_measured import (
+    MEASURED, has_nvidia_reading, held_message, measured_claim_rejection, poll_measured_q,
+)
 
 MAX_POLL_BUILDS = 10
 SHARE_UNSET_MESSAGE = "The Sethlans share is not configured."
@@ -66,7 +69,9 @@ def unreal_poll_q(params, worker):
     worker caller, when its stored capabilities do not report that share
     reachable or report none of the requested builds; the build filter is
     narrowed to the builds the worker reports.  A non-worker caller
-    (``worker is None``) gets only the share-unset rule.
+    (``worker is None``) gets only the share-unset rule.  For every caller,
+    normal jobs of unmeasured keys and stale or superseded pilots are left
+    out; a worker without an ``nvidia-smi`` reading gets no pilots (D2).
     """
     builds = parse_poll_builds(params)
     share = configured_share()
@@ -79,7 +84,8 @@ def unreal_poll_q(params, worker):
         builds &= reported_unreal_builds(caps)
         if not builds:
             return _no_jobs()
-    return Q(renderer=Renderer.UNREAL, engine_build__in=sorted(builds))
+    include_pilots = worker is None or has_nvidia_reading(worker)
+    return Q(renderer=Renderer.UNREAL, engine_build__in=sorted(builds)) & poll_measured_q(include_pilots)
 
 
 def unreal_claim_rejection(worker, job):
@@ -94,7 +100,7 @@ def unreal_claim_rejection(worker, job):
         return SHARE_MISMATCH_MESSAGE
     if not reports_share_reachable(caps, share):
         return SHARE_UNREACHABLE_MESSAGE
-    return None
+    return measured_claim_rejection(worker, job)
 
 
 def _min_total_mb(gpu_memory):
@@ -131,14 +137,24 @@ def _online_unreal():
     return share, online_builds, reachable
 
 
-def _vram_note(job, totals):
+def _vram_need(job, peak):
+    """``(need, caps_sum)``: the pilot need, or the measured need plus the caps (FR-RT-9 note 4)."""
+    cvars = job.asset.project.unreal_cvar_overrides or {}
+    if job.unreal_kind == UnrealKind.PILOT:
+        return pilot_need_mb(cvars), None
+    return measured_need_mb(peak), caps_sum_mb(cvars)
+
+
+def _vram_note(job, totals, peak):
     try:
-        need = vram_need_mb(job.asset.project.unreal_cvar_overrides or {})
-    except (ValueError, AttributeError):
+        need, caps_sum = _vram_need(job, peak)
+    except (ValueError, TypeError, AttributeError):
         return None
     for total in totals:
         # A worker without gpu_memory (an older worker) is not counted against the job.
-        if total is None or need <= usable_mb(total, 0):
+        if total is None:
+            return None
+        if need <= usable_mb(total, 0) and (caps_sum is None or caps_within_budget(caps_sum, total)):
             return None
     return (
         f"No online worker with Unreal Engine build {job.engine_build} "
@@ -176,4 +192,17 @@ def unreal_routing_note(job, context):
             f"No online worker with Unreal Engine build {build} is configured "
             "with the manager's Sethlans share and reports it reachable."
         )
-    return _vram_note(job, reachable[build])
+    peak = None
+    if job.unreal_kind != UnrealKind.PILOT:
+        state, reason, peak = _key_state(job)
+        if state != MEASURED:
+            return held_message(state, reason, job.asset.project_id)
+    return _vram_note(job, reachable[build], peak)
+
+
+def _key_state(job):
+    """``(state, reason, peak)`` from the list annotations, else one query (FR-PM-5)."""
+    # Imported here: services import the renderer registry.
+    from ..services.unreal_pilot import cached_key_state
+    found = cached_key_state(job)
+    return found.state, found.reason, found.peak_mb

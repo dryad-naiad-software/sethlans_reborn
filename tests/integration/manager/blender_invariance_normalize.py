@@ -33,12 +33,17 @@ import re
 # (FR-MR-10; FR-RT-8 for the worker and heartbeat response).
 # TiledJob and Animation gain only the nested Job/Asset/Project keys.
 NEW_KEYS_BY_KIND = {
-    'project': frozenset({'renderer', 'engine_build', 'unreal_cvar_overrides'}),
+    'project': frozenset({
+        'renderer', 'engine_build', 'unreal_cvar_overrides', 'unreal_measurement',
+    }),
     'asset': frozenset({
         'source_type', 'archive_path', 'uproject_path', 'archive_sha256',
         'overlay_path', 'overlay_sha256',
     }),
-    'job': frozenset({'renderer', 'engine_build', 'routing_note'}),
+    'job': frozenset({
+        'renderer', 'engine_build', 'routing_note', 'unreal_kind',
+        'unreal_measured_peak_mb',
+    }),
     'worker': frozenset({'unreal_capabilities', 'gpu_memory'}),
 }
 NEW_KEY_NAMES = frozenset().union(*NEW_KEYS_BY_KIND.values())

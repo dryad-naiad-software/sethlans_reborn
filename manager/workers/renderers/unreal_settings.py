@@ -19,8 +19,8 @@ from shared.unreal.builds import is_supported
 from shared.unreal.validation import validate_object_path
 
 from ..constants import (
-    FORMAT_EXTENSIONS, UNREAL_OUTPUT_FORMATS, CyclesFeatureSet, RenderDevice,
-    RenderEngine,
+    FORMAT_EXTENSIONS, PILOT_NAME_PREFIX, UNREAL_OUTPUT_FORMATS, CyclesFeatureSet,
+    RenderDevice, RenderEngine,
 )
 
 MAP = 'unreal.map'
@@ -112,6 +112,15 @@ def _output_pattern_errors(attrs, instance, errors):
         ]
 
 
+def _reserved_name_errors(attrs, instance, errors):
+    """FR-PM-9: ``sethlans-pilot-`` names belong to manager-created pilots."""
+    name = attrs.get('name')
+    if not isinstance(name, str) or (instance is not None and name == instance.name):
+        return
+    if name.lower().startswith(PILOT_NAME_PREFIX):
+        errors['name'] = [f'Names starting with "{PILOT_NAME_PREFIX}" are reserved for pilot jobs.']
+
+
 def validate_unreal_job(attrs, instance):
     """Validate Unreal job ``attrs`` (``instance`` on update); return attrs.
 
@@ -123,6 +132,7 @@ def validate_unreal_job(attrs, instance):
     if creating or {'start_frame', 'end_frame'} & attrs.keys():
         _frame_errors(attrs, instance, errors)
     _not_applicable_errors(attrs, errors)
+    _reserved_name_errors(attrs, instance, errors)
     if attrs.get('engine_build'):
         check_engine_build(attrs['engine_build'], errors)
     if creating or 'render_settings' in attrs:
