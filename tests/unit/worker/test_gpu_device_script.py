@@ -15,8 +15,10 @@ import pytest
 from sethlans_worker_agent import gpu_device_script
 from sethlans_worker_agent.gpu_device_script import (
     GPU_CHECK_EXIT_CODE, GPU_CHECK_MARKER,
-    choose_backend, combined_selection, describe_blender_failure,
-    gpu_check_failure_message, isolated_selection,
+    choose_backend, combined_selection, isolated_selection,
+)
+from sethlans_worker_agent.blender_failure import (
+    describe_blender_failure, gpu_check_failure_message,
 )
 
 _RTX = {'index': 0, 'name': 'NVIDIA GeForce RTX 4080', 'type': 'OPTIX',
@@ -194,10 +196,11 @@ class TestGpuCheckFailureMessage:
         assert message.endswith(self.DETAIL)
         assert GPU_CHECK_MARKER not in message
 
-    def test_marker_after_a_prefix_is_found(self):
+    def test_marker_after_a_prefix_is_not_a_gpu_failure(self):
+        """The helper writes the marker at column 0; anything else may be forged."""
         stderr = f"Error: {GPU_CHECK_MARKER} {self.DETAIL}\n"
 
-        assert self.DETAIL in gpu_check_failure_message(87, stderr)
+        assert gpu_check_failure_message(87, stderr) is None
 
     def test_describe_uses_the_gpu_message(self):
         stderr = f"noise\n{GPU_CHECK_MARKER} {self.DETAIL}\n"
@@ -213,7 +216,7 @@ class TestGpuCheckFailureMessage:
             'Blender exited with code 87. Details: segfault'
         )
 
-    @pytest.mark.parametrize('code', [1, -11, 86, 88, 120])
+    @pytest.mark.parametrize('code', [1, -11, 88, 120])
     def test_other_failing_code_with_marker_is_gpu_check(self, code):
         """Interpreter shutdown can turn exit 87 into another code."""
         stderr = f"{GPU_CHECK_MARKER} {self.DETAIL}"

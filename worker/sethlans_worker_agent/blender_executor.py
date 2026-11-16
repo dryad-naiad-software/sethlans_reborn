@@ -19,7 +19,7 @@ from typing import Optional
 import psutil
 
 from sethlans_worker_agent import config, asset_manager, system_monitor, api_handler
-from sethlans_worker_agent import env_cleanup, gpu_device_script
+from sethlans_worker_agent import blender_failure, env_cleanup, gpu_device_script
 from sethlans_worker_agent.blender_yield import (
     terminate_process_tree, handle_yield,
 )
@@ -140,12 +140,12 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
             gpu_index_override=assigned_gpu_index,
             is_cpu_fallback=is_cpu_fallback_case
         )
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
+        with tempfile.NamedTemporaryFile('w', encoding='utf-8', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
             temp_script_path = f.name
             f.write(script_content)
             logger.debug(f"Generated override script at {temp_script_path}:\n{script_content}")
 
-        command.extend(["--python", temp_script_path])
+        command.extend(blender_failure.python_script_args(temp_script_path))  # stops on a failing script (#240)
     except Exception as e:
         error_msg = f"Failed to generate render settings script: {e}"
         logger.error(error_msg)
@@ -271,8 +271,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
                 final_output_path = resolved_output_pattern.replace(
                     "####", f"{start_frame:04d}")
         elif not error_message:
-            error_message = gpu_device_script.describe_blender_failure(final_return_code, stderr_output)
-            gpu_device_script.request_recheck_if_check_failed(final_return_code, stderr_output)  # #239
+            error_message = blender_failure.describe_blender_failure(final_return_code, stderr_output)
+            blender_failure.request_recheck_if_check_failed(final_return_code, stderr_output)  # #239
 
         if success and blender_format in EXR_HDR_FORMATS and start_frame == end_frame:
             from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail

@@ -13,9 +13,9 @@ keeping a version table, the script sets the engine by family: a small
 fixed helper tries the family's identifiers in a fixed order and keeps the
 first one this Blender accepts, catching only the assignment's "enum not
 found" ``TypeError``. When none is accepted it raises an error naming the
-requested engine and the identifiers tried. Until #240 makes a failing
-settings script stop the render, that error only shows in Blender's output
-and does not fail the job.
+requested engine and the identifiers tried; the failing settings script
+then stops Blender before the render and the job fails with that error
+(``--python-exit-code``, #240, blender_failure.py).
 
 Everything the worker decides by engine (GPU setup, yield handling,
 thumbnails, progress parsing) keeps using the product's name; only the

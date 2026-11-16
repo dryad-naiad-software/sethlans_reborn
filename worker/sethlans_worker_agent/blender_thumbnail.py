@@ -21,8 +21,8 @@ import threading
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent import env_cleanup
-from sethlans_worker_agent.gpu_device_script import (
-    describe_blender_failure, request_recheck_if_check_failed,
+from sethlans_worker_agent.blender_failure import (
+    describe_blender_failure, python_script_args, request_recheck_if_check_failed,
 )
 from sethlans_worker_agent.render_script import generate_render_config_script
 
@@ -138,7 +138,7 @@ def render_exr_hdr_thumbnail(
 
         os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.py', delete=False,
+            mode='w', encoding='utf-8', suffix='.py', delete=False,
             dir=config.WORKER_TEMP_DIR
         ) as f:
             temp_script_path = f.name
@@ -146,7 +146,7 @@ def render_exr_hdr_thumbnail(
 
         command = [
             blender_path, "--factory-startup", "-b",
-            blend_file_path, "--python", temp_script_path,
+            blend_file_path, *python_script_args(temp_script_path),
             "-o", thumb_output, "-F", "PNG",
             "-f", str(start_frame),
         ]
@@ -188,8 +188,9 @@ def render_exr_hdr_thumbnail(
         stderr_t.join(timeout=10)
 
         if return_code != 0:
-            # Best-effort: a failed GPU device check (#238) or any other
-            # error only drops the thumbnail, never the primary job.
+            # Best-effort: a failed GPU device check (#238), a failed
+            # settings script (#240) or any other error only drops the
+            # thumbnail, never the primary job.
             stderr_text = "".join(stderr_lines)
             reason = describe_blender_failure(return_code, stderr_text)
             # A failed device check may mean a stale card list (#239).

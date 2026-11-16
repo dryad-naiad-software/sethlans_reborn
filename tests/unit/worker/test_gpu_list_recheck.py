@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from sethlans_worker_agent import capacity as capacity_module
-from sethlans_worker_agent import gpu_device_script, job_processor
+from sethlans_worker_agent import blender_failure, job_processor
 from sethlans_worker_agent.capacity import CapacityProfile, WorkerCapacity
 from sethlans_worker_agent.capacity.gpu_list import describe_gpu_list_change, gpu_identity
 from sethlans_worker_agent.gpu_device_script import GPU_CHECK_EXIT_CODE, GPU_CHECK_MARKER
@@ -73,14 +73,15 @@ class TestRecheckRequest:
         (GPU_CHECK_EXIT_CODE, 'segfault\n', False),
         (1, 'Error: boom\n', False),
         (0, MARKER_STDERR, False),
+        (86, MARKER_STDERR, False),  # exit 86 is always a settings failure (#240)
     ])
     def test_only_a_failed_device_check_requests(self, code, stderr, expected):
-        assert gpu_device_script.request_recheck_if_check_failed(code, stderr) is expected
+        assert blender_failure.request_recheck_if_check_failed(code, stderr) is expected
         assert capacity_module.gpu_list_recheck_pending() is expected
 
     def test_request_from_another_thread_is_seen(self):
         t = threading.Thread(
-            target=gpu_device_script.request_recheck_if_check_failed,
+            target=blender_failure.request_recheck_if_check_failed,
             args=(GPU_CHECK_EXIT_CODE, MARKER_STDERR),
         )
         t.start()
@@ -117,7 +118,7 @@ def loop(mocker):
 def _tick(loop, now, request=False):
     loop.clock.now = now
     if request:
-        gpu_device_script.request_recheck_if_check_failed(GPU_CHECK_EXIT_CODE, MARKER_STDERR)
+        blender_failure.request_recheck_if_check_failed(GPU_CHECK_EXIT_CODE, MARKER_STDERR)
     job_processor.maybe_assert_gpu_list_unchanged()
     return loop.detect.call_count
 

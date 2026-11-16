@@ -212,14 +212,18 @@ def _append_user_setting(script_lines, key, value):
     settings no longer have it, while 4.x still does, and the manager sends
     it for every Cycles tile job and animation frame. It is applied only
     when the scene's Cycles settings have it. Every other key is assigned
-    directly, so an unknown setting still raises.
+    directly, so an unknown setting still raises, and the failing script
+    stops the render (``--python-exit-code``, #240).
+
+    Values are embedded with ``ascii()`` so the script is pure ASCII
+    whatever they contain (#240).
     """
     if key == 'render.engine' and is_known_engine(value):
         script_lines.append(f"    {engine_call('scene.render', value)}")
         return
     if key == FILE_FORMAT_KEY:
         script_lines.extend(media_type_lines(value))
-    py_value = repr(value)
+    py_value = ascii(value)
     if key != _FEATURE_SET_KEY:
         script_lines.append(f"    scene.{key} = {py_value}")
         return

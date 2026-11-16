@@ -28,7 +28,9 @@ A failure, including any unexpected error in that code, writes one
 ``GPU_CHECK_MARKER`` line to stderr and exits with ``GPU_CHECK_EXIT_CODE``
 before the render starts, so a GPU job never falls back to the CPU
 silently. Drift lines start with ``GPU_LIST_MISMATCH_MARKER`` and go to
-stderr, which ``blender_executor`` logs at WARNING.
+stderr, which ``blender_executor`` logs at WARNING. The job error messages
+built from the marker (and from a failed settings script, #240) live in
+``blender_failure.py``.
 
 Every value embedded in the script goes through ``ascii()``, so the
 script is pure ASCII whatever the device names contain.
@@ -51,9 +53,6 @@ GPU_CHECK_MARKER = 'SETHLANS_GPU_CHECK_FAILED:'
 # Prefix of each stderr line reporting card-list drift that does not
 # concern the job's own cards (the job still renders).
 GPU_LIST_MISMATCH_MARKER = 'SETHLANS_GPU_LIST_MISMATCH:'
-
-# Longest marker detail copied into a job's error message.
-_MAX_DETAIL_CHARS = 1000
 
 
 def choose_backend(detected_backends) -> Optional[str]:
@@ -179,53 +178,6 @@ def append_combined_gpu_script(script_lines, job_id, backend):
     backend, cards, job_cards = combined_selection(backend)
     logger.info(f"[Job {job_id}] Using all {len(job_cards)} {backend} GPU(s) (combined).")
     _append_selection(script_lines, backend, 'combined', cards, job_cards)
-
-
-def gpu_check_failure_message(return_code, stderr_text) -> Optional[str]:
-    """Return a job error message for a failed device check, else None.
-
-    Any non-zero exit with the marker line counts: interpreter shutdown
-    problems can turn GPU_CHECK_EXIT_CODE into another code. Without the
-    marker, every code (including GPU_CHECK_EXIT_CODE) is a plain failure.
-    """
-    if not return_code:
-        return None
-    for line in (stderr_text or '').splitlines():
-        pos = line.find(GPU_CHECK_MARKER)
-        if pos != -1:
-            detail = line[pos + len(GPU_CHECK_MARKER):].strip()
-            return (
-                "GPU device check failed: Blender did not enable the "
-                "requested GPU, so the render was stopped before it "
-                f"started. {detail[:_MAX_DETAIL_CHARS]}"
-            )
-    return None
-
-
-def describe_blender_failure(return_code, stderr_text) -> str:
-    """Return the job error message for a non-zero Blender exit."""
-    gpu_message = gpu_check_failure_message(return_code, stderr_text)
-    if gpu_message:
-        return gpu_message
-    details = (stderr_text or '').strip()[:500] or "No STDERR."
-    return f"Blender exited with code {return_code}. Details: {details}"
-
-
-def request_recheck_if_check_failed(return_code, stderr_text) -> bool:
-    """Ask for an immediate GPU list comparison after a failed device check.
-
-    Called from the job thread when Blender exits non-zero. If the exit was
-    the GPU device check (marker line present), the card list this worker
-    uses may be stale, so the agent loop is asked to compare it with a
-    fresh detection on its next iteration (#239). Only sets a
-    threading.Event; the detection itself runs in the agent loop thread.
-    Returns True when the request was made.
-    """
-    if gpu_check_failure_message(return_code, stderr_text) is None:
-        return False
-    from sethlans_worker_agent.capacity import recheck
-    recheck.request_gpu_list_recheck()
-    return True
 
 
 def log_gpu_assignment(job_id, gpu_index):
