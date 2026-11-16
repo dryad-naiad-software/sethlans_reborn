@@ -62,13 +62,19 @@ class TestValidateRenderSettings:
         assert result[RenderSettings.IMAGE_COLOR_DEPTH] == '16'
 
     def test_valid_color_depth_32(self):
-        result = self._validate({RenderSettings.IMAGE_COLOR_DEPTH: '32'})
+        # 32 alone would be checked against the default PNG (#243).
+        settings = {
+            RenderSettings.IMAGE_FILE_FORMAT: 'OPEN_EXR',
+            RenderSettings.IMAGE_COLOR_DEPTH: '32',
+        }
+        result = self._validate(settings)
         assert result[RenderSettings.IMAGE_COLOR_DEPTH] == '32'
 
     def test_invalid_color_depth_raises(self):
+        # '8' is valid for PNG since #243; '64' is valid for no format.
         from rest_framework.exceptions import ValidationError
         with pytest.raises(ValidationError, match="Color depth"):
-            self._validate({RenderSettings.IMAGE_COLOR_DEPTH: '8'})
+            self._validate({RenderSettings.IMAGE_COLOR_DEPTH: '64'})
 
     def test_none_settings_returns_none(self):
         assert self._validate(None) is None

@@ -127,7 +127,9 @@ class TestOtherKeysStayStrict:
         script = _run(mocker, monkeypatch, _tile_job_settings(), [make_scene()])
 
         lines = script.splitlines()
-        assert script.count('hasattr(') == 1
+        # The only other guard is the 5.x media type before the file format (#243).
+        assert script.count('hasattr(') == 2
+        assert script.count("hasattr(scene.render.image_settings, 'media_type')") == 1
         assert "    if hasattr(scene.cycles, 'feature_set'):" in lines
         assert "        scene.cycles.feature_set = 'SUPPORTED'" in lines
         assert '    scene.render.resolution_x = 800' in lines

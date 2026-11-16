@@ -13,6 +13,7 @@ from typing import Optional
 
 from sethlans_worker_agent import config, gpu_device_script, system_monitor
 from sethlans_worker_agent.engine_script import ENGINE_HELPER, ENGINE_IDENTIFIERS, engine_call, is_known_engine
+from sethlans_worker_agent.format_script import FILE_FORMAT_KEY, media_type_lines, order_settings
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,8 @@ def generate_render_config_script(
     if isinstance(render_settings, dict) and render_settings:
         script_lines.append("# Applying user-defined render settings")
         script_lines.append("for scene in bpy.data.scenes:")
-        for key, value in render_settings.items():
+        # Output-format keys in dependency order (#243, format_script.py).
+        for key, value in order_settings(render_settings):
             if not _SAFE_KEY_RE.match(key):
                 logger.warning(
                     f"[Job {job_id}] Skipping invalid render "
@@ -203,6 +205,9 @@ def _append_user_setting(script_lines, key, value):
     engine line at the top (#242); any other value is assigned directly and
     still raises when Blender rejects it.
 
+    ``render.image_settings.file_format`` is preceded by the Blender 5.x
+    media type switch it needs (#243, format_script.py).
+
     ``cycles.feature_set`` is a named exception (#241): Blender 5.x's Cycles
     settings no longer have it, while 4.x still does, and the manager sends
     it for every Cycles tile job and animation frame. It is applied only
@@ -212,6 +217,8 @@ def _append_user_setting(script_lines, key, value):
     if key == 'render.engine' and is_known_engine(value):
         script_lines.append(f"    {engine_call('scene.render', value)}")
         return
+    if key == FILE_FORMAT_KEY:
+        script_lines.extend(media_type_lines(value))
     py_value = repr(value)
     if key != _FEATURE_SET_KEY:
         script_lines.append(f"    scene.{key} = {py_value}")

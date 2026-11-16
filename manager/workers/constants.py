@@ -116,6 +116,27 @@ FORMAT_EXTENSIONS = {
     'TARGA': '.tga',
 }
 
+# The output format a job uses when its render_settings name none. Used by
+# the render_settings validation (serializers/validation_utils.py). The
+# serializers for jobs and animations, the tiled-job and animation views,
+# image_assembler.py, video_assembler.py and the worker's ``-F`` flag apply
+# the same default as a literal 'PNG' and must stay in step with this value.
+DEFAULT_OUTPUT_FORMAT = 'PNG'
+
+# The ``render.image_settings.color_depth`` values Blender accepts for each
+# OutputFormat (#243), as the strings its enum takes. Measured on official
+# Blender 4.1, 4.2, 4.5, 5.0 and 5.2 builds; identical on all of them.
+FORMAT_COLOR_DEPTHS = {
+    'PNG': ('8', '16'),
+    'JPEG': ('8',),
+    'OPEN_EXR': ('16', '32'),
+    'OPEN_EXR_MULTILAYER': ('16', '32'),
+    'TIFF': ('8', '16'),
+    'BMP': ('8',),
+    'HDR': ('32',),
+    'TARGA': ('8',),
+}
+
 # The subset of OutputFormat values that Pillow can read and write.
 PILLOW_COMPATIBLE_FORMATS = frozenset({
     'PNG', 'JPEG', 'TIFF', 'BMP', 'TARGA',

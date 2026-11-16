@@ -19,6 +19,7 @@ import types
 from types import SimpleNamespace
 
 from sethlans_worker_agent import gpu_device_script, render_script
+from tests.unit.worker._fake_image_settings import FakeImageSettings
 
 # Generic devices. The OPTIX id is the CUDA id plus "_OptiX", as in Blender.
 RTX_CUDA = ('CUDA', 'CUDA_NVIDIA GeForce RTX 4080_0000:01:00', 'NVIDIA GeForce RTX 4080')
@@ -153,12 +154,13 @@ class RenderStruct(StrictStruct):
         super().__setattr__(name, value)
 
 
-def make_scene(name='Scene', cycles_feature_set=False, engines=ENGINES_5_X):
+def make_scene(name='Scene', cycles_feature_set=False, engines=ENGINES_5_X, image_settings=None):
     """A scene with factory-default render settings.
 
     ``cycles_feature_set`` adds Cycles' ``feature_set`` (Blender 4.x has it,
     5.x does not, #241). ``engines`` is the set of ``render.engine``
-    identifiers this Blender accepts (default: 5.x).
+    identifiers this Blender accepts (default: 5.x). ``image_settings``
+    defaults to a 4.x-flavour ``FakeImageSettings`` (#243).
     """
     cycles = {'device': None, 'samples': None}
     if cycles_feature_set:
@@ -167,7 +169,7 @@ def make_scene(name='Scene', cycles_feature_set=False, engines=ENGINES_5_X):
         engines, engine=None, resolution_x=1920, resolution_y=1080,
         resolution_percentage=100, use_border=False, use_crop_to_border=False,
         border_min_x=0.0, border_max_x=1.0, border_min_y=0.0, border_max_y=1.0,
-        image_settings=StrictStruct('ImageFormatSettings', file_format='PNG', color_depth='8', quality=90),
+        image_settings=image_settings or FakeImageSettings(),
     )
     return StrictStruct(
         'Scene', name=name, render=render,
