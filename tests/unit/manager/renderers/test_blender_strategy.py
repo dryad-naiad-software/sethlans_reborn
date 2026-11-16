@@ -177,7 +177,7 @@ class TestFlagsAndDescriptions:
         assert not blender.supports('something_else')
         assert blender.idempotent_reclaim() is False
         assert blender.worker_patch_allowed_fields() is None
-        assert blender.requeue_on_worker_restart() is False
+        assert blender.requeue_on_worker_restart() is True  # #247
         assert blender.supports_release() is False
         assert blender.routing_note(MagicMock(), {}) is None
 

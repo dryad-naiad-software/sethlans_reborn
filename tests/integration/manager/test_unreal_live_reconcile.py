@@ -13,13 +13,23 @@ import pytest
 from django.db import DatabaseError
 from django.utils import timezone
 
-from workers.constants import UNREAL_LIVE_RECONCILE_GRACE_SECONDS
+from workers.constants import LIVE_RECONCILE_GRACE_SECONDS
 from workers.models import Job, JobStatus, Worker
 from workers.services import worker_reconcile
 
 from .unreal_helpers import unreal_asset
 
-OLD = timedelta(seconds=UNREAL_LIVE_RECONCILE_GRACE_SECONDS + 5)
+OLD = timedelta(seconds=LIVE_RECONCILE_GRACE_SECONDS + 5)
+# The registered process's boot id; live reconciliation runs only for
+# heartbeats that carry it (#247, test_blender_reconcile.py).
+BOOT = 'c' * 32
+
+
+@pytest.fixture(autouse=True)
+def _registered_boot_id(worker_with_token):
+    worker, _client = worker_with_token
+    Worker.objects.filter(pk=worker.pk).update(boot_id=BOOT)
+    worker.boot_id = BOOT
 
 
 def _rendering(asset, worker, name, age=OLD):
@@ -31,7 +41,8 @@ def _rendering(asset, worker, name, age=OLD):
 
 
 def _beat(client, hostname, **extra):
-    resp = client.post('/api/heartbeat/', {'hostname': hostname, **extra}, format='json')
+    body = {'hostname': hostname, 'worker_boot_id': BOOT, **extra}
+    resp = client.post('/api/heartbeat/', body, format='json')
     assert resp.status_code == 200, resp.data
     return resp
 
@@ -51,14 +62,14 @@ class TestLiveReconciliation:
         assert _status(job) == JobStatus.QUEUED
         assert job.error_message == "Auto-requeued: worker is not running this job"
 
-    def test_recent_listed_and_blender_jobs_are_kept(self, worker_with_token, asset):
+    def test_recent_and_listed_jobs_are_kept(self, worker_with_token):
+        # Blender jobs are reconciled too since #247 (test_blender_reconcile.py).
         worker, client = worker_with_token
         shared = unreal_asset()
         recent = _rendering(shared, worker, 'LiveRecent', age=timedelta(seconds=5))
         listed = _rendering(shared, worker, 'LiveListed')
-        blender = _rendering(asset, worker, 'LiveBlender')
         _beat(client, worker.hostname, active_job_ids=[listed.pk])
-        assert [_status(j) for j in (recent, listed, blender)] == [JobStatus.RENDERING] * 3
+        assert [_status(j) for j in (recent, listed)] == [JobStatus.RENDERING] * 2
 
     @pytest.mark.parametrize('extra', [
         {}, {'active_job_ids': 'x'}, {'active_job_ids': list(range(1, 258))},
@@ -113,7 +124,7 @@ class TestAnchorAndFailure:
         worker, _client = worker_with_token
         job = _rendering(unreal_asset(), worker, 'LiveAnchor', age=timedelta(seconds=200))
         job.refresh_from_db()
-        arrival = job.started_at + timedelta(seconds=UNREAL_LIVE_RECONCILE_GRACE_SECONDS - 10)
+        arrival = job.started_at + timedelta(seconds=LIVE_RECONCILE_GRACE_SECONDS - 10)
         assert worker_reconcile.reconcile_live(worker, [], now=arrival) == 0
         assert _status(job) == JobStatus.RENDERING
         assert worker_reconcile.reconcile_live(worker, []) == 1

@@ -19,16 +19,20 @@ CANCELED, DONE or ERROR (an admin cancel, or the reaper's max-requeue
 ERROR) gets the same 409 before the serializer runs.  The serializer
 would otherwise reject e.g. CANCELED -> CANCELED with a 400, which the
 worker logs at ERROR; it logs the 409 at INFO.
+
+Issue #247: a worker acting on a job that is not assigned to it (the old
+run of a requeued or reassigned job) also gets 409, before validation and
+again under the lock, instead of the former 403.
 """
 
 from rest_framework import status
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 
 from ..models import JobStatus
 from ..renderers import get_strategy
 from ..services.worker_job_writes import (
-    WORKER_PATCH_FIELDS, JobWriteConflict, PilotDoneRefused, apply_admin_patch,
-    apply_worker_patch,
+    NOT_ASSIGNED_MESSAGE, WORKER_PATCH_FIELDS, JobWriteConflict, PilotDoneRefused,
+    apply_admin_patch, apply_worker_patch,
 )
 
 
@@ -50,20 +54,25 @@ class JobWorkerUpdateMixin:
     """Mixin providing worker ownership checks and ``perform_update``."""
 
     def _check_worker_owns_job(self, request, job):
-        """Verify that a worker-authenticated user owns this job."""
-        if hasattr(request.user, 'worker_profile'):
-            if request.user.worker_profile != job.assigned_worker:
-                raise PermissionDenied(
-                    "You do not have permission to modify this job."
-                )
+        """Raise :class:`JobConflict` (409) if a worker caller does not own ``job``.
+
+        A job not assigned to the calling worker (requeued, reassigned, or
+        never its own) answers 409 with the message of the locked write
+        check, which the worker reads as "no longer assigned" (#247).  A
+        caller that is not a worker is not checked here: its permissions
+        decide (a non-admin user still gets 403 from them).
+        """
+        worker = getattr(request.user, 'worker_profile', None)
+        if worker is not None and job.assigned_worker_id != worker.pk:
+            raise JobConflict({'error': NOT_ASSIGNED_MESSAGE})
 
     def _reject_report_on_terminal_job(self, request, job):
         """Raise :class:`JobConflict` if the assignee reports on a finished job.
 
         Runs before validation, on the copy read for this request; the
         locked re-check in ``perform_update`` still covers a change
-        committed after that read.  Other workers fall through to the
-        ownership check (403).
+        committed after that read.  Other workers are refused by
+        ``_check_worker_owns_job`` (409), which runs first.
         """
         worker = getattr(request.user, 'worker_profile', None)
         if worker is None or job.assigned_worker_id != worker.pk:
@@ -77,7 +86,7 @@ class JobWorkerUpdateMixin:
         """Save an update under the row lock, writing only the sent fields.
 
         Raises:
-            PermissionDenied: the worker is not assigned to the job (403).
+            JobConflict: the worker is not assigned to the job (409).
             ValidationError: the worker sent a field it may not write (400).
             JobConflict: the job was canceled, requeued or reassigned since
                 it was read, or the status change is no longer valid (409).

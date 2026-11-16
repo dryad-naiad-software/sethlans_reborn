@@ -82,6 +82,7 @@ def _reset_job_processor_state():
     fixture handles the process-global dicts that survive across tests.
     """
     from sethlans_worker_agent import job_processor
+    from sethlans_worker_agent import blender_stop
     from sethlans_worker_agent import capacity as capacity_module
     with job_processor._active_jobs_lock:
         job_processor._active_jobs.clear()
@@ -92,6 +93,7 @@ def _reset_job_processor_state():
     job_processor._last_drift_check_ts = 0.0
     capacity_module.reset_gpu_list_recheck()
     capacity_module.reset_missing_executable_warning()
+    blender_stop.reset_for_tests()
     capacity_module.reset_drift_exit_code()
     yield
     # Post-test cleanup: the capacity instance may have been replaced
@@ -101,6 +103,7 @@ def _reset_job_processor_state():
     job_processor._last_drift_check_ts = 0.0
     capacity_module.reset_gpu_list_recheck()
     capacity_module.reset_missing_executable_warning()
+    blender_stop.reset_for_tests()
     capacity_module.reset_drift_exit_code()
     with job_processor._active_jobs_lock:
         job_processor._active_jobs.clear()

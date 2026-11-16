@@ -29,7 +29,7 @@ try:
 finally:
     sys.argv = _saved_argv
 
-from sethlans_worker_agent import hardware_detection  # noqa: E402
+from sethlans_worker_agent import blender_stop, hardware_detection  # noqa: E402
 from sethlans_worker_agent.capacity import (  # noqa: E402
     CapacityProfile,
     WorkerCapacity,
@@ -87,6 +87,7 @@ class TestAssertGpuListUnchanged:
 
         env.detect.assert_called_once()
         _assert_no_action(env)
+        assert blender_stop.shutdown_reason() == blender_stop.WORKER_SHUTDOWN
 
     @pytest.mark.parametrize('detected, expected', [
         ([(RTX['id'], 'OPTIX'), ('HIP_OTHER_0000:04:00', 'HIP')],
@@ -126,6 +127,8 @@ class TestAssertGpuListUnchanged:
 
         assert drift_module.get_drift_exit_code() == 1
         assert env.event.is_set() is True
+        # #246: the hand-back reason was recorded before the step that raised.
+        assert blender_stop.shutdown_reason() == blender_stop.WORKER_HARDWARE_CHANGED
 
     def test_capacity_module_never_calls_sys_exit(self, env):
         """Belt-and-suspenders guard: sys.exit would abort the test run."""

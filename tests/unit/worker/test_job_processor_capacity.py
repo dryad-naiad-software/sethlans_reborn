@@ -185,73 +185,49 @@ class TestMaybeAssertGpuListUnchanged:
 # --- terminate_all_active_jobs_for_drift ---
 
 class TestTerminateAllActiveJobsForDrift:
+    """#246: a hardware change stops the jobs locally and reports nothing."""
 
-    def test_no_active_jobs_is_noop(self, mocker):
-        spy = mocker.patch(
-            'sethlans_worker_agent.api_handler.update_job_status'
-        )
+    @pytest.fixture
+    def manager_calls(self, mocker):
+        """Every way the drift handler could tell the manager about a job."""
+        return [
+            mocker.patch('sethlans_worker_agent.api_handler.update_job_status'),
+            mocker.patch('sethlans_worker_agent.api_handler.post_yield_requeue'),
+            mocker.patch('sethlans_worker_agent.api_extras.release_job'),
+        ]
+
+    @pytest.fixture
+    def shutdown(self, mocker):
+        import threading
+        from sethlans_worker_agent import agent
+        event = threading.Event()
+        mocker.patch.object(agent, '_shutdown_event', event)
+        return event
+
+    def test_no_active_jobs_is_noop(self, manager_calls, shutdown):
         job_processor.terminate_all_active_jobs_for_drift()
-        spy.assert_not_called()
 
-    def test_cancels_each_active_job(self, mocker):
-        spy = mocker.patch(
-            'sethlans_worker_agent.api_handler.update_job_status'
-        )
+        assert all(not spy.called for spy in manager_calls)
+        assert not shutdown.is_set()
+
+    def test_blender_jobs_get_no_status_and_the_stop_signal(self, manager_calls, shutdown):
         with job_processor._active_jobs_lock:
-            job_processor._active_jobs[1] = {'job_id': 1}
-            job_processor._active_jobs[7] = {'job_id': 7}
-        job_processor.terminate_all_active_jobs_for_drift()
-        assert spy.call_count == 2
-        called_ids = sorted(call.args[0] for call in spy.call_args_list)
-        assert called_ids == [1, 7]
-        for call in spy.call_args_list:
-            assert call.args[1] == {'status': 'CANCELED'}
+            job_processor._active_jobs[1] = {'job_id': 1, 'renderer': 'BLENDER'}
+            job_processor._active_jobs[7] = {'job_id': 7}  # no renderer: Blender
 
-    def test_continues_on_cancel_error(self, mocker):
-        """Job 1 exhausts all retries and fails, job 2 succeeds on first try.
-        Drift handler must continue past the failed job without raising.
-        """
-        mocker.patch('sethlans_worker_agent.job_processor.time.sleep')
-        mocker.patch(
-            'sethlans_worker_agent.api_handler.update_job_status',
-            side_effect=[
-                RuntimeError('net'), RuntimeError('net'), RuntimeError('net'),
-                None,
-            ],
-        )
-        with job_processor._active_jobs_lock:
-            job_processor._active_jobs[1] = {'job_id': 1}
-            job_processor._active_jobs[2] = {'job_id': 2}
-        # Must not raise.
         job_processor.terminate_all_active_jobs_for_drift()
 
-    def test_cancel_retries_on_transient_failure(self, mocker):
-        """Issue #49: the drift cancel path retries with backoff."""
-        mocker.patch('sethlans_worker_agent.job_processor.time.sleep')
-        spy = mocker.patch(
-            'sethlans_worker_agent.api_handler.update_job_status',
-            side_effect=[RuntimeError('net'), None],
-        )
-        with job_processor._active_jobs_lock:
-            job_processor._active_jobs[42] = {'job_id': 42}
-        job_processor.terminate_all_active_jobs_for_drift()
-        # Called twice: first raised, second succeeded.
-        assert spy.call_count == 2
+        assert all(not spy.called for spy in manager_calls)  # no CANCELED, no other status
+        assert shutdown.is_set()
 
-    def test_cancel_exhausts_all_retries_then_gives_up(self, mocker):
-        """Issue #49: after 3 failed attempts the handler logs and
-        moves on. Must NOT raise or hang.
-        """
-        sleep_spy = mocker.patch(
-            'sethlans_worker_agent.job_processor.time.sleep'
-        )
-        mocker.patch(
-            'sethlans_worker_agent.api_handler.update_job_status',
-            side_effect=RuntimeError('persistent failure'),
-        )
+    def test_shutdown_event_failure_does_not_raise(self, manager_calls, mocker):
+        from sethlans_worker_agent import agent
+        broken = mocker.Mock()
+        broken.set.side_effect = RuntimeError('boom')
+        mocker.patch.object(agent, '_shutdown_event', broken)
         with job_processor._active_jobs_lock:
-            job_processor._active_jobs[99] = {'job_id': 99}
-        # Must not raise despite all attempts failing.
-        job_processor.terminate_all_active_jobs_for_drift()
-        # 3 attempts total; 2 sleeps between them (1s, 2s).
-        assert sleep_spy.call_count == 2
+            job_processor._active_jobs[1] = {'job_id': 1, 'renderer': 'BLENDER'}
+
+        job_processor.terminate_all_active_jobs_for_drift()  # must not raise
+
+        broken.set.assert_called_once()

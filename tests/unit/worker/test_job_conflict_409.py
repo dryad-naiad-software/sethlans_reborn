@@ -12,8 +12,8 @@ does not send the DONE report that would follow the upload.
 
 import pytest
 
-from sethlans_worker_agent import api_conflict, api_handler, api_upload, job_lifecycle
-from sethlans_worker_agent.api_conflict import JobNoLongerAssigned, is_job_conflict
+from sethlans_worker_agent import api_conflict, api_handler, api_upload, job_lifecycle, job_report
+from sethlans_worker_agent.api_conflict import NO_LONGER_ASSIGNED, JobNoLongerAssigned, is_job_conflict
 
 
 def _response(mocker, status_code, body=None):
@@ -85,7 +85,7 @@ class TestFinalizeOnConflict:
             side_effect=JobNoLongerAssigned(1),
         )
 
-        result = job_lifecycle._finalize_and_upload(
+        result, _message = job_report._finalize(
             True, False, 1, str(out_file), thumbnail_path=str(thumb),
         )
 
@@ -125,7 +125,7 @@ class TestStatusUpdateConflict:
         mocker.patch.object(api_handler, '_retry_request', return_value=resp)
         handler_logger = mocker.patch.object(api_handler, 'logger')
 
-        api_handler.update_job_status(4, {'status': 'DONE'})
+        assert api_handler.update_job_status(4, {'status': 'DONE'}) == NO_LONGER_ASSIGNED
 
         resp.raise_for_status.assert_not_called()
         handler_logger.error.assert_not_called()

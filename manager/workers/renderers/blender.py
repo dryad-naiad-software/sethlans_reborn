@@ -156,7 +156,10 @@ class BlenderStrategy(RendererStrategy):
         return None
 
     def requeue_on_worker_restart(self):
-        return False
+        # #247: a restarted worker runs none of its Blender jobs, and the
+        # worker lists every claimed Blender job in ``active_job_ids`` from
+        # the claim until its report and upload are done.
+        return True
 
     def supports_release(self):
         return False

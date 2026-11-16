@@ -109,7 +109,7 @@ class TestTileAssemblyThroughWorkerPatch:
 
         run_after(
             mocker, (JobViewSet, '_check_worker_owns_job'),
-            cancel_job(admin_client, tiles[1].pk),
+            cancel_job(admin_client, tiles[1].pk), once=True,
         )
         resp = _report_done(worker_client, tiles[1])
 

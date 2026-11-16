@@ -22,7 +22,7 @@ import requests
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.tls_adapter import get_session
-from sethlans_worker_agent.api_conflict import is_job_conflict
+from sethlans_worker_agent.api_conflict import NO_LONGER_ASSIGNED, is_job_conflict
 from sethlans_worker_agent.api_auth import (
     get_auth_headers,
     handle_auth_response,
@@ -172,23 +172,20 @@ def claim_job(job_id: int, worker_id: int) -> bool:
 
 
 def update_job_status(job_id: int, payload: Dict[str, Any]):
-    """Sends a PATCH request to update a job's status."""
+    """PATCH a job's status: True if applied, NO_LONGER_ASSIGNED on 409 (#217), else False."""
     update_url = f"{config.MANAGER_API_URL}jobs/{job_id}/"
     try:
-        response = _retry_request(
-            'patch', update_url,
-            json=payload, headers=get_auth_headers(), timeout=5
-        )
-        # 409: job canceled/requeued/reassigned meanwhile (#217); INFO only.
-        if (handle_auth_response(response)
-                or is_job_conflict(response, job_id, "status update")):
-            return
+        response = _retry_request('patch', update_url, json=payload, headers=get_auth_headers(), timeout=5)
+        if handle_auth_response(response):
+            return False
+        if is_job_conflict(response, job_id, "status update"):  # requeued/reassigned/canceled: INFO only
+            return NO_LONGER_ASSIGNED
         response.raise_for_status()
         logger.debug("Sent status update for job %s. Payload: %s", job_id, payload)
+        return True
     except requests.exceptions.RequestException as e:
-        logger.error(
-            f"Failed to update job status for job {job_id}: {e}"
-        )
+        logger.error(f"Failed to update job status for job {job_id}: {e}")
+    return False
 
 
 # upload_render_output lives in api_upload.py (extracted for file size

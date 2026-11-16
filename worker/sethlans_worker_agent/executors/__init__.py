@@ -35,9 +35,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RENDERER = 'BLENDER'
 
-# Renderers whose jobs the worker hands back to the manager (release/)
-# instead of PATCHing CANCELED or leaving them to the reaper: the drift
-# handler and the thread-start failure path use this (FR-WX-7, FR-WX-14).
+# Renderers whose jobs the worker hands back with release/ (the drift
+# handler and the thread-start failure path use this, FR-WX-7, FR-WX-14).
+# Blender jobs stopped by the worker are handed back with yield-requeue
+# instead (blender_hand_back.py).
 _RELEASABLE_RENDERERS = frozenset({'UNREAL'})
 
 _blender_executor = BlenderExecutor()

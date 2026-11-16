@@ -14,13 +14,13 @@ succeeds with no thumbnail.
 """
 import logging
 import os
-import platform
 import subprocess
 import tempfile
 import threading
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent import env_cleanup
+from sethlans_worker_agent.blender_stop import popen_group_kwargs, wait_or_stop
 from sethlans_worker_agent.blender_failure import (
     describe_blender_failure, python_script_args, request_recheck_if_check_failed,
 )
@@ -91,7 +91,7 @@ def _build_thumbnail_output_pattern(resolved_output_pattern):
 
 def render_exr_hdr_thumbnail(
     job_data, blender_path, blend_file_path,
-    start_frame, resolved_output_pattern, assigned_gpu_index
+    start_frame, resolved_output_pattern, assigned_gpu_index, stop_event=None
 ):
     """
     Execute a low-resolution PNG thumbnail render pass for EXR/HDR jobs.
@@ -106,6 +106,8 @@ def render_exr_hdr_thumbnail(
         start_frame: The frame number to render.
         resolved_output_pattern: The primary render output pattern.
         assigned_gpu_index: GPU index for device isolation, or None.
+        stop_event: The worker's shutdown event; when it is set during the
+            pass, the thumbnail's process tree is stopped (#247).
 
     Returns:
         Path to the rendered thumbnail PNG file, or None on failure.
@@ -126,6 +128,9 @@ def render_exr_hdr_thumbnail(
         resolved_output_pattern
     )
 
+    if stop_event is not None and stop_event.is_set():  # #247: no new Blender during shutdown
+        logger.info(f"[Job {job_id}] Worker is shutting down: skipping the thumbnail pass.")
+        return None
     temp_script_path = None
     try:
         # Generate config script with thumbnail settings, re-applying
@@ -163,12 +168,12 @@ def render_exr_hdr_thumbnail(
             "cwd": os.path.dirname(blend_file_path),
             "env": env_cleanup.clean_env_for_blender(blend_file_path),
         }
-        if platform.system() == "Windows":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        popen_kwargs.update(popen_group_kwargs())  # own process group/session (#247)
 
         process = subprocess.Popen(command, **popen_kwargs)
 
-        # Read output without cancellation polling (short render)
+        # Read output without manager polling (short render); a worker
+        # shutdown still stops it (#247).
         stdout_lines, stderr_lines = [], []
         stdout_t = threading.Thread(
             target=_drain_stream,
@@ -183,9 +188,14 @@ def render_exr_hdr_thumbnail(
         stdout_t.start()
         stderr_t.start()
 
-        return_code = process.wait()
+        return_code = wait_or_stop(process, stop_event, job_id)
         stdout_t.join(timeout=10)
         stderr_t.join(timeout=10)
+        if return_code is None:  # stopped: drop any partial thumbnail
+            partial = thumb_output.replace("####", f"{start_frame:04d}")
+            if os.path.isfile(partial):
+                os.remove(partial)
+            return None
 
         if return_code != 0:
             # Best-effort: a failed GPU device check (#238), a failed

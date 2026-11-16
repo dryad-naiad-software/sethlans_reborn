@@ -16,7 +16,7 @@ from sethlans_worker_agent.capacity import (
     CapacityProfile,
     WorkerCapacity,
 )
-from sethlans_worker_agent.job_lifecycle import _finalize_and_upload
+from sethlans_worker_agent.job_report import _finalize
 
 
 def _build_profile():
@@ -101,7 +101,12 @@ class TestRecentJobs:
             assert len(job_processor._recent_jobs) == 1
 
 
-# --- _finalize_and_upload (lifted from job_lifecycle) ---
+# --- _finalize: the status part ---
+
+def _finalize_and_upload(*args, **kwargs):
+    """Return only the status that _finalize decides."""
+    return _finalize(*args, **kwargs)[0]
+
 
 class TestFinalizeAndUpload:
 
@@ -128,10 +133,12 @@ class TestFinalizeAndUpload:
         assert not out_file.exists()
 
     def test_success_no_output_path(self):
+        """Multi-frame jobs have no single output path: DONE after a successful exit, as before."""
         result = _finalize_and_upload(True, False, 1, None)
         assert result == "DONE"
 
     def test_success_upload_fails(self, mocker, tmp_path):
+        """#249: a failed upload is an ERROR and the rendered file is kept."""
         mocker.patch(
             'sethlans_worker_agent.api_handler.upload_render_output',
             return_value=False
@@ -139,9 +146,21 @@ class TestFinalizeAndUpload:
         out_file = tmp_path / 'render.png'
         out_file.write_bytes(b'PNG')
 
-        result = _finalize_and_upload(True, False, 1, str(out_file))
-        # Even if upload fails, status returned is still DONE
-        assert result == "DONE"
+        assert _finalize(True, False, 1, str(out_file)) == (
+            "ERROR",
+            "The render finished but uploading its output failed; the file is kept in the "
+            "worker's output folder as render.png.",
+        )
+        assert out_file.exists()
+
+    def test_success_without_output_file(self, mocker, tmp_path):
+        """#249: Blender exited 0 but wrote nothing: ERROR, no upload attempted."""
+        upload = mocker.patch('sethlans_worker_agent.api_handler.upload_render_output')
+
+        assert _finalize(True, False, 1, str(tmp_path / 'render_0001.png')) == (
+            "ERROR", "Blender finished but produced no output file (render_0001.png).",
+        )
+        upload.assert_not_called()
 
     def test_success_with_thumbnail_cleanup(self, mocker, tmp_path):
         mocker.patch(

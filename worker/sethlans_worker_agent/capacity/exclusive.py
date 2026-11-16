@@ -88,3 +88,29 @@ def has_exclusive_reservation(capacity: 'WorkerCapacity') -> bool:
         if not held:
             capacity._exclusive_job_id = None
         return held
+
+
+def retained_owner(job_id: int) -> int:
+    """The owner key a retained slot is moved to: no job id can equal it."""
+    return -abs(int(job_id)) - 1
+
+
+def retain_slots(capacity: 'WorkerCapacity', job_id: int) -> None:
+    """Move every slot ``job_id`` holds to its retained owner key.
+
+    A retained reservation (a process that would not die, FR-UE-11) keeps
+    its slots until the worker restarts. Re-keyed, they can no longer be
+    freed by ``release_slot(job_id)`` when the manager requeues the job and
+    this worker claims it again: job ids are positive, the retained key is
+    negative.
+    """
+    owner = retained_owner(job_id)
+    with capacity._lock:
+        for key, holder in list(capacity._gpu_assignments.items()):
+            if holder == job_id:
+                capacity._gpu_assignments[key] = owner
+        if capacity._cpu_slot_job_id == job_id:
+            capacity._cpu_slot_job_id = owner
+        if capacity._exclusive_job_id == job_id:
+            capacity._exclusive_job_id = owner
+    logger.warning("Job %s: its slots stay held until the worker restarts (owner %s).", job_id, owner)

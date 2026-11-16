@@ -52,7 +52,7 @@ class TestCancelDuringWorkerPatch:
         job_id = create_claimed_job(
             admin_client, worker, worker_client, asset, 'PatchCancel',
         )
-        run_after(mocker, OWNERSHIP_HOOK, cancel_job(admin_client, job_id))
+        run_after(mocker, OWNERSHIP_HOOK, cancel_job(admin_client, job_id), once=True)
 
         resp = _patch(worker_client, job_id, payload)
 
@@ -186,7 +186,7 @@ class TestWorkerPatchNormalPath:
         assert job.start_frame != 7
         assert job.last_output == ''
 
-    def test_patch_from_unassigned_worker_is_still_403(
+    def test_patch_from_unassigned_worker_gets_409(
         self, admin_client, worker_with_token, make_worker_client, asset,
     ):
         worker, worker_client = worker_with_token
@@ -197,5 +197,8 @@ class TestWorkerPatchNormalPath:
 
         resp = _patch(other_client, job_id, DONE_REPORT)
 
-        assert resp.status_code == 403
+        # 409 "no longer assigned" since #247 (was 403).
+        assert (resp.status_code, resp.data) == (409, {
+            'error': "Job is no longer assigned to this worker; the update was not applied.",
+        })
         assert Job.objects.get(pk=job_id).status == JobStatus.RENDERING

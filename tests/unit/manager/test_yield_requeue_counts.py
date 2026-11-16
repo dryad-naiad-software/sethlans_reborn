@@ -58,6 +58,7 @@ def mock_job(mock_worker):
     job.name = "Tile-001"
     job.status = JobStatus.RENDERING
     job.assigned_worker = mock_worker
+    job.assigned_worker_id = mock_worker.pk  # the view compares ids (#247)
     job.yield_requeue_count = 0
     job.auto_requeue_count = 0
     job.started_at = "2025-01-01T00:00:00Z"

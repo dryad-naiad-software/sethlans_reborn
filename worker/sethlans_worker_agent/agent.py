@@ -93,6 +93,8 @@ def main(argv=None):
 
     signal.signal(signal.SIGINT, _shutdown_handler)
     signal.signal(signal.SIGTERM, _shutdown_handler)
+    if hasattr(signal, 'SIGHUP'):  # POSIX: the terminal or session went away
+        signal.signal(signal.SIGHUP, _shutdown_handler)
 
     logger.info("Sethlans Reborn Worker Agent Starting...")
 

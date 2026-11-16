@@ -26,6 +26,19 @@ from sethlans_worker_agent.tool_manager import tool_manager_instance
 logger = logging.getLogger(__name__)
 
 
+def _gpu_allocation_labels(raw):
+    """Return the GPU slot owners with string keys, ready for JSON.
+
+    A negative owner is a slot kept until restart for job ``-owner - 1``,
+    whose render process could not be stopped (capacity ``retain_slots``);
+    it is shown under that job's id instead of as a negative number.
+    """
+    return {
+        str(k): v if v >= 0 else f"{-v - 1} (held until restart)"
+        for k, v in raw.items()
+    }
+
+
 def get_status_snapshot():
     """
     Build a JSON-serializable snapshot of the worker's current state.
@@ -62,7 +75,7 @@ def get_status_snapshot():
     # --- GPU allocation (acquires WorkerCapacity._lock, then releases) ---
     gpu_allocation_raw = job_processor.get_gpu_assignment_snapshot()
     # Convert int keys to strings for JSON serialization
-    gpu_allocation = {str(k): v for k, v in gpu_allocation_raw.items()}
+    gpu_allocation = _gpu_allocation_labels(gpu_allocation_raw)
 
     # --- Active jobs (acquires _active_jobs_lock, then releases) ---
     active_jobs_raw = job_processor.get_active_jobs_snapshot()

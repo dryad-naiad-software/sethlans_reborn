@@ -119,6 +119,31 @@ def worker_with_token(db):
     return worker, client
 
 
+# The boot id of the process that registered ``worker_with_token`` in the
+# ``booted`` fixture (``BOOT_A`` in the reconciliation tests).
+BOOTED_BOOT_ID = 'a' * 32
+
+
+@pytest.fixture
+def booted(worker_with_token):
+    """``worker_with_token`` registered with boot id ``BOOTED_BOOT_ID``."""
+    worker, client = worker_with_token
+    Worker.objects.filter(pk=worker.pk).update(boot_id=BOOTED_BOOT_ID)
+    worker.refresh_from_db()
+    return worker, client
+
+
+@pytest.fixture(autouse=True)
+def _fresh_identity_warning_state(monkeypatch):
+    """Give every test an empty shared-identity warning record.
+
+    ``worker_reconcile`` rate-limits that warning per worker in module
+    state; without this a test could inherit another test's record.
+    """
+    from workers.services import worker_reconcile
+    monkeypatch.setattr(worker_reconcile, '_identity_warned_at', {})
+
+
 @pytest.fixture
 def make_worker_client(db):
     """Return a factory that builds a fresh token-authed Worker + APIClient.

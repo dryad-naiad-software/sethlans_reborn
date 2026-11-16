@@ -213,6 +213,7 @@ def send_heartbeat(is_busy=False, active_jobs=None):
     payload['ui_url'] = _get_ui_url()
     payload['ui_cert_fingerprint'] = _get_ui_cert_fingerprint()
     payload['status'] = 'RENDERING' if is_busy else 'IDLE'
+    payload['worker_boot_id'] = boot_id.BOOT_ID  # live reconciliation needs it (#247)
 
     # Include schedule config in heartbeat (FR-10a).
     schedule_cfg = config.get_schedule_config()

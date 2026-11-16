@@ -176,6 +176,10 @@ class WorkerCapacity:
         """True when no slot holds any reservation (FR-WX-13)."""
         return exclusive.has_no_reservations(self)
 
+    def retain_slots(self, job_id: int) -> None:
+        """Keep job_id's slots until restart, safe from a re-claim; see exclusive.py."""
+        exclusive.retain_slots(self, job_id)
+
     def has_exclusive_reservation(self) -> bool:
         """True while a whole-machine reservation is held (FR-WX-14)."""
         return exclusive.has_exclusive_reservation(self)
@@ -265,6 +269,8 @@ class WorkerCapacity:
         logger.critical(
             "GPU change detected: %s. Initiating graceful shutdown.", change,
         )
+        from sethlans_worker_agent import blender_stop
+        blender_stop.mark_hardware_change()  # first: the stop reason is right even if a step below raises
         try:
             # Imported lazily to avoid a circular import.
             from sethlans_worker_agent import job_processor

@@ -207,9 +207,10 @@ WORKER_STALENESS_SECONDS = 90
 
 # The worker agent's default heartbeat interval (``[worker] heartbeat_interval``).
 WORKER_HEARTBEAT_INTERVAL_SECONDS = 30
-# Live reconciliation (Unreal foundation FR-RT-17) leaves a RENDERING job
-# alone until it started more than two heartbeat intervals ago.
-UNREAL_LIVE_RECONCILE_GRACE_SECONDS = 2 * WORKER_HEARTBEAT_INTERVAL_SECONDS
+# Live reconciliation (Unreal foundation FR-RT-17; Blender too since #247)
+# leaves a RENDERING job alone until it started more than two heartbeat
+# intervals ago.
+LIVE_RECONCILE_GRACE_SECONDS = 2 * WORKER_HEARTBEAT_INTERVAL_SECONDS
 
 
 class VideoStatus(models.TextChoices):
@@ -256,7 +257,18 @@ VIDEO_COMPATIBLE_FORMATS = frozenset({'PNG', 'JPEG', 'TIFF', 'BMP', 'TARGA'})
 
 
 class YieldReason(models.TextChoices):
-    """Reasons a worker yielded a render job."""
+    """Reasons a worker yielded a render job.
+
+    The worker_* reasons (#246, #247) hand a job back on a deliberate stop
+    through yield-requeue. A yield does not count against the auto-requeue
+    limit, so ``worker_shutdown`` stays uncounted ("Interrupted:
+    worker_shutdown"): stopping a machine often must not fail a healthy
+    job. ``worker_hardware_changed`` is counted (shared
+    ``auto_requeue_count``, ERROR above the limit, "Auto-requeued: worker
+    hardware changed"): a scene that itself resets the GPU driver reads
+    as a lost card, and uncounted it would be handed back for ever.
+    Restart reconciliation stays the counted backstop for crashes.
+    """
     ARTIST_RETURN_GPU_CONTENTION = (
         'artist_return_gpu_contention', 'Artist Return (GPU Contention)')
     ARTIST_RETURN_APP_LAUNCH = (
@@ -270,6 +282,10 @@ class YieldReason(models.TextChoices):
         'manual_override', 'Manual Override')
     SCHEDULE_WINDOW_CLOSED = (
         'schedule_window_closed', 'Schedule Window Closed')
+    WORKER_SHUTDOWN = (
+        'worker_shutdown', 'Worker Shutdown')
+    WORKER_HARDWARE_CHANGED = (
+        'worker_hardware_changed', 'Worker Hardware Changed')
 
 
 class GraceOutcome(models.TextChoices):

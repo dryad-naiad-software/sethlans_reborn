@@ -279,11 +279,11 @@ class WorkerHeartbeatViewSet(
         worker.save(update_fields=update_fields)
         logger.debug("Worker heartbeat. Hostname: %s", hostname)
         requeue_stuck_jobs()
-        active_ids = _validate_active_job_ids(request.data.get('active_job_ids'))
-        if active_ids is not None:
-            try:
-                worker_reconcile.reconcile_live(worker, active_ids, now=worker.last_seen)
-            except DatabaseError:
-                logger.warning("Live reconciliation for %s failed; retried next heartbeat.",
-                               hostname, exc_info=True)
+        try:  # only for the process that registered last (#247)
+            worker_reconcile.reconcile_heartbeat(
+                worker, _validate_active_job_ids(request.data.get('active_job_ids')),
+                _validate_boot_id(request.data.get('worker_boot_id')), now=worker.last_seen)
+        except DatabaseError:
+            logger.warning("Live reconciliation for %s failed; retried next heartbeat.",
+                           hostname, exc_info=True)
         return WorkerSerializer(worker).data

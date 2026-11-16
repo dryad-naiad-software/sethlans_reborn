@@ -75,7 +75,7 @@ class TestDisabled:
         assert 'gpu_memory' not in registration and 'gpu_memory' not in heartbeat
         assert re.fullmatch(r'[0-9a-f]{32}', registration['worker_boot_id'])
         assert registration['worker_boot_id'] == boot_id.BOOT_ID
-        assert 'worker_boot_id' not in heartbeat
+        assert heartbeat['worker_boot_id'] == boot_id.BOOT_ID  # live reconciliation needs it (#247)
         assert heartbeat['active_job_ids'] == [3, 12]
         assert 'active_job_ids' not in registration
         assert heartbeat['available_tools'] == {}

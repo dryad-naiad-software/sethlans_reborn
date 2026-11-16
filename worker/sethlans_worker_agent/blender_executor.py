@@ -9,7 +9,6 @@ Script generation is in render_script.py; thumbnail passes in blender_thumbnail.
 import datetime
 import logging
 import os
-import platform
 import subprocess
 import tempfile
 import threading
@@ -18,16 +17,15 @@ from typing import Optional
 
 import psutil
 
-from sethlans_worker_agent import config, asset_manager, system_monitor, api_handler
-from sethlans_worker_agent import blender_failure, env_cleanup, gpu_device_script
-from sethlans_worker_agent.blender_yield import (
-    terminate_process_tree, handle_yield,
-)
+from sethlans_worker_agent import config, asset_manager, system_monitor
+from sethlans_worker_agent import blender_failure, blender_stop, env_cleanup, gpu_device_script
+from sethlans_worker_agent.blender_yield import handle_yield
 from sethlans_worker_agent.format_utils import get_format_and_extension, EXR_HDR_FORMATS
 from sethlans_worker_agent.render_script import generate_render_config_script
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
+_STOPPED_RESULT = (False, False, False, "", "", blender_stop.STOPPED_MESSAGE, None, None, None, None)
 
 # Thread-safe dict of last Blender stdout line per job ID.
 # Lock ordering: _output_lock is below the WorkerCapacity lock, the
@@ -98,7 +96,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
     temp_script_path = None
 
     os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
-
+    if blender_stop.stopped_before_start(shutdown_event, job_id, job_data):  # #247: before any download
+        return _STOPPED_RESULT
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
     if not local_blend_file_path:
         return (False, False, False, "", "",
@@ -109,15 +108,15 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
     if not blender_to_use:
         msg = f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job."
         return (False, False, False, "", "", msg, None, None, None, None)
+    if blender_stop.stopped_before_start(shutdown_event, job_id, job_data):  # #247: no new render
+        return _STOPPED_RESULT
     # Acquire a reference count on this version to prevent cleanup
     # from deleting it while the render is in progress.
     resolved_version = blender_version_req
     tool_manager_instance.acquire_version(resolved_version)
 
     logger.info(f"Using Blender executable: {blender_to_use}")
-    # Strip Blender's // prefix to avoid UNC path interpretation on Windows
-    clean_pattern = output_file_pattern.lstrip('/')
-    resolved_output_pattern = os.path.normpath(os.path.join(config.WORKER_OUTPUT_DIR, clean_pattern))
+    resolved_output_pattern = blender_stop.resolve_output_pattern(output_file_pattern)
     os.makedirs(os.path.dirname(resolved_output_pattern), exist_ok=True)
 
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
@@ -178,8 +177,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
             "cwd": os.path.dirname(local_blend_file_path),
             "env": env_cleanup.clean_env_for_blender(local_blend_file_path),
         }
-        if platform.system() == "Windows":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        popen_kwargs.update(blender_stop.popen_group_kwargs())  # own process group/session (#247)
 
         logger.info(f"[Job {job_id}] Blender subprocess starting...")
         process = subprocess.Popen(command, **popen_kwargs)
@@ -200,12 +198,13 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
         stderr_thread.start()
 
         while process.poll() is None:
-            # Cancellation check
+            if blender_stop.stop_on_shutdown(shutdown_event, process, job_id, job_data):  # #246, #247
+                break
+            # Manager check: canceled by the user, or no longer ours (#246)
             try:
-                if api_handler.get_job_status(job_id) == 'CANCELED':
-                    logger.warning(f"[Job {job_id}] Cancellation received.")
-                    terminate_process_tree(process.pid, job_id)
-                    was_canceled = True
+                verdict = blender_stop.check_manager(job_id, process, job_data)
+                if verdict is not None:
+                    was_canceled = verdict == blender_stop.CANCELED
                     break
             except psutil.NoSuchProcess:
                 if not psutil.pid_exists(process.pid):
@@ -225,7 +224,9 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
             t.join(timeout=10)
         logger.info(f"[Job {job_id}] Blender subprocess finished.")
 
-        final_return_code = process.wait()
+        final_return_code = blender_stop.wait_for_exit(process, job_id, job_data, killed=was_canceled or was_yielded)
+        if not (was_canceled or was_yielded):
+            blender_stop.mark_if_cut_short(shutdown_event, job_data, final_return_code, resolved_output_pattern)
         logger.info(f"Blender exit code: {final_return_code}")
 
     except Exception as e:
@@ -255,6 +256,8 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
 
         if was_canceled:
             error_message = "Job was canceled by user request."
+        elif job_data.get(blender_stop.STOPPED_KEY):  # never by exit code: may be 0 after a kill
+            error_message = blender_stop.STOPPED_MESSAGE
         elif was_yielded and grace_outcome == "finished":
             # Frame completed during grace period -- treat as success
             logger.info("Render completed during yield grace period.")
@@ -278,7 +281,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
             from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail
             thumbnail_path = render_exr_hdr_thumbnail(
                 job_data, blender_to_use, local_blend_file_path,
-                start_frame, resolved_output_pattern, assigned_gpu_index)
+                start_frame, resolved_output_pattern, assigned_gpu_index, stop_event=shutdown_event)
     finally:
         tool_manager_instance.release_version(resolved_version)
 

@@ -98,12 +98,16 @@ def reassign_job(job_id, other_worker):
     return _reassign
 
 
-def run_after(mocker, target, action):
+def run_after(mocker, target, action, once=False):
     """Patch ``target`` so ``action()`` runs right after each real call.
 
     ``target`` is an import path (``'pkg.module.func'``) or a
-    ``(class, 'method')`` pair.  Returns the mock.
+    ``(class, 'method')`` pair.  With ``once``, ``action()`` runs after
+    the first call only (a target the view calls more than once, such as
+    ``_check_worker_owns_job`` since #247).  Returns the mock.
     """
+    if once:
+        action = _first_call_only(action)
     if isinstance(target, tuple):
         owner, name = target
         original = getattr(owner, name)
@@ -125,6 +129,16 @@ def run_after(mocker, target, action):
         action()
         return result
     return mocker.patch(target, side_effect=_function)
+
+
+def _first_call_only(action):
+    done = []
+
+    def _once():
+        if not done:
+            done.append(True)
+            action()
+    return _once
 
 
 def stored_render_files(media_root):

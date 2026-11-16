@@ -14,7 +14,8 @@ from workers.models import Job, JobStatus
 from .unreal_helpers import RENDER_SETTINGS, unreal_asset
 
 URL = '/api/jobs/'
-FORBIDDEN = "You do not have permission to modify this job."
+# A worker acting on a job not assigned to it gets 409 since #247.
+NOT_ASSIGNED = {'error': "Job is no longer assigned to this worker; the update was not applied."}
 
 
 def _rendering(asset, worker, name='WriteJob'):
@@ -27,16 +28,16 @@ def _rendering(asset, worker, name='WriteJob'):
 @pytest.mark.django_db
 class TestOwnership:
 
-    def test_patch_and_upload_by_another_worker_are_403(self, worker_with_token, make_worker_client):
+    def test_patch_and_upload_by_another_worker_are_409(self, worker_with_token, make_worker_client):
         worker, _client = worker_with_token
         _other, other_client, _token = make_worker_client('writes-other')
         job = _rendering(unreal_asset(), worker)
         for body in ({'status': 'DONE'}, {'render_settings': {}}):
             resp = other_client.patch(f'{URL}{job.pk}/', body, format='json')
-            assert (resp.status_code, resp.data) == (403, {'detail': FORBIDDEN})
+            assert (resp.status_code, resp.data) == (409, NOT_ASSIGNED)
         png = SimpleUploadedFile('f.png', b'\x89PNG\r\n\x1a\n' + b'\x00' * 32, content_type='image/png')
         resp = other_client.post(f'{URL}{job.pk}/upload_output/', {'output_file': png}, format='multipart')
-        assert resp.status_code == 403
+        assert (resp.status_code, resp.data) == (409, NOT_ASSIGNED)
         assert Job.objects.get(pk=job.pk).status == JobStatus.RENDERING
 
 
@@ -90,10 +91,21 @@ class TestBlenderUnchanged:
         assert resp.status_code == 400
         assert resp.data == {'started_at': ["Workers cannot change this field."]}
 
-    def test_blender_non_owner_keeps_403(self, worker_with_token, make_worker_client, asset):
+    def test_blender_non_owner_gets_409(self, worker_with_token, make_worker_client, asset):
         worker, _client = worker_with_token
         _other, other_client, _token = make_worker_client('writes-blender-other')
         job = _rendering(asset, worker, 'BlenderOwner')
         Job.objects.filter(pk=job.pk).update(render_settings={})
         resp = other_client.patch(f'{URL}{job.pk}/', {'status': 'DONE'}, format='json')
-        assert (resp.status_code, resp.data) == (403, {'detail': FORBIDDEN})
+        assert (resp.status_code, resp.data) == (409, NOT_ASSIGNED)
+
+    def test_blender_non_owner_with_invalid_body_gets_409_not_400(
+            self, worker_with_token, make_worker_client, asset):
+        """Ownership is checked before validation (#247)."""
+        worker, _client = worker_with_token
+        _other, other_client, _token = make_worker_client('writes-blender-bogus')
+        job = _rendering(asset, worker, 'BlenderBogus')
+        Job.objects.filter(pk=job.pk).update(render_settings={})
+        resp = other_client.patch(f'{URL}{job.pk}/', {'status': 'BOGUS'}, format='json')
+        assert (resp.status_code, resp.data) == (409, NOT_ASSIGNED)
+        assert Job.objects.get(pk=job.pk).status == JobStatus.RENDERING

@@ -86,6 +86,8 @@ def _run_loop_iteration(worker_id):
     # GPU drift check (FR-22, FR-23, #239). Fires once per heartbeat
     # interval, and once right away after a failed GPU device check.
     job_processor.maybe_assert_gpu_list_unchanged()
+    if agent._shutdown_event.is_set():  # e.g. the check found a hardware change: claim nothing (#247)
+        return
 
     from sethlans_worker_agent.agent_setup import check_manager_setup_complete
     if not check_manager_setup_complete():  # issue #126: skip work until setup done

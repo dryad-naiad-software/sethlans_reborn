@@ -6,11 +6,12 @@ Blender adapter over ``blender_executor.execute_blender_job`` (FR-WX-2/3).
 
 ``execute_blender_job`` is looked up on the module at call time, so tests
 that patch ``sethlans_worker_agent.blender_executor.execute_blender_job``
-keep working. ``blender_executor.py`` itself is not modified.
+keep working. A render the executor stopped for a worker shutdown becomes
+``stopped`` (blender_stop.py, #246/#247).
 """
 from typing import Optional
 
-from sethlans_worker_agent import blender_executor
+from sethlans_worker_agent import blender_executor, blender_stop
 from sethlans_worker_agent.executors.base import (
     ExecutionContext,
     RendererReservation,
@@ -38,11 +39,16 @@ class BlenderExecutor:
             manual_stop_event=ctx.manual_stop_event,
             shutdown_event=ctx.shutdown_event,
         )
+        # The executor marks a stop only while the render still runs.
+        stop_reason = blender_stop.take_stop_reason(job_data)
+        stopped = stop_reason is not None
+        if stopped:
+            blender_stop.remove_partial_output(job_data)
         return RenderResult(
             success=success, was_canceled=was_canceled,
             was_yielded=was_yielded, stdout=stdout, stderr=stderr,
             error_message=error_message, output_path=output_path,
             thumbnail_path=thumbnail_path, yield_monitor=yield_monitor,
             grace_outcome=grace_outcome, render_time_seconds=None,
-            released=False,
+            released=False, stopped=stopped, stop_reason=stop_reason,
         )

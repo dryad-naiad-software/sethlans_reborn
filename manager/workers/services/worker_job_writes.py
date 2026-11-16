@@ -43,8 +43,8 @@ from .row_locks import lock_own_rows
 logger = logging.getLogger(__name__)
 
 # Fields a worker may change through ``PATCH /api/jobs/{id}/``.  These are
-# exactly what the worker agent sends (``job_lifecycle`` result report,
-# crash report, and the GPU-drift cancel in ``job_processor``).
+# exactly what the worker agent sends: its result report (``job_report``)
+# and the crash report of the job thread.
 WORKER_PATCH_FIELDS = frozenset({
     'status',
     'completed_at',
@@ -52,6 +52,9 @@ WORKER_PATCH_FIELDS = frozenset({
     'error_message',
     'render_time_seconds',
 })
+
+# The 409 text for a worker write on a job not assigned to it.
+NOT_ASSIGNED_MESSAGE = "Job is no longer assigned to this worker; the update was not applied."
 
 # Issue #118: brief retry on SQLite lock errors that ``busy_timeout``
 # cannot wait on (``SQLITE_LOCKED`` in shared-cache mode, and the
@@ -145,10 +148,7 @@ def ensure_worker_can_write(job, worker):
     assigned to this worker.
     """
     if job.assigned_worker_id != worker.pk:
-        raise JobWriteConflict(
-            "Job is no longer assigned to this worker; "
-            "the update was not applied."
-        )
+        raise JobWriteConflict(NOT_ASSIGNED_MESSAGE)
     if job.status != JobStatus.RENDERING:
         raise JobWriteConflict(
             f"Job is in '{job.status}' status, not RENDERING; "

@@ -6,7 +6,8 @@ Unreal keys of the worker heartbeat (Unreal foundation FR-RT-7, FR-RT-12,
 FR-RT-16, FR-RT-17).
 
 The request keys ``unreal_capabilities``, ``gpu_memory``,
-``active_job_ids`` and (registration only) ``worker_boot_id`` are
+``active_job_ids`` and ``worker_boot_id`` (registration: restart
+reconciliation; periodic heartbeat: gates live reconciliation, #247) are
 self-reported and untrusted: each is reduced to a fixed shape here before
 anything is stored or acted on.  They are applied only to the caller's
 own ``Worker`` row, which ``heartbeat_auth.bind_heartbeat_caller`` bound

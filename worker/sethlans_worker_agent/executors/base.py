@@ -75,6 +75,12 @@ class RenderResult:
     # abandoned it after reassignment): the lifecycle skips the status
     # report and the upload. Blender never sets it.
     released: bool = False
+    # The worker stopped the render (#246, #247): the lifecycle sends no
+    # status and no upload. ``stop_reason`` is ``worker_shutdown`` or
+    # ``worker_hardware_changed`` (the job is handed back with yield-requeue)
+    # or ``no_longer_assigned`` (nothing is sent). Blender only.
+    stopped: bool = False
+    stop_reason: Optional[str] = None
     # Called by the lifecycle after the status report (or after a released
     # result), never raising into it: Unreal's per-job output cleanup and
     # job-dir pruning (chunk 7 integration requirements 3, 4). Blender: None.
@@ -88,8 +94,9 @@ class RendererReservation:
     ``retain_until_restart()`` it is a no-op for the rest of the process:
     the lifecycle then keeps both this reservation and the capacity slots,
     so the machine takes no further work until the worker restarts
-    (FR-UE-11 survivors). Blender's reservation has no callback and is
-    never retained.
+    (FR-UE-11 survivors). Blender's reservation has no callback; it is
+    retained when a Blender process will not exit after the worker killed
+    it (blender_stop.wait_for_exit).
 
     Only the job thread that runs the job may call
     ``retain_until_restart()`` (from inside ``execute``). ``release()``

@@ -48,12 +48,14 @@ def _status(job):
 @pytest.mark.django_db
 class TestBootReconciliation:
 
-    def test_new_boot_id_requeues_unreal_only(self, worker_jobs):
+    def test_new_boot_id_requeues_unreal_and_blender(self, worker_jobs):
+        # Blender jobs are reconciled too since #247.
         worker, client, unreal, blender = worker_jobs
         resp = _register(client, worker.hostname, worker_boot_id=BOOT_B)
         assert resp.status_code == 200, resp.data
-        assert (_status(unreal), _status(blender)) == (JobStatus.QUEUED, JobStatus.RENDERING)
+        assert (_status(unreal), _status(blender)) == (JobStatus.QUEUED, JobStatus.QUEUED)
         assert unreal.error_message == "Auto-requeued: worker restarted during Unreal render"
+        assert blender.error_message == "Auto-requeued: worker restarted during Blender render"
         assert unreal.auto_requeue_count == 1
         assert Worker.objects.get(pk=worker.pk).boot_id == BOOT_B
         assert 'boot_id' not in resp.data
@@ -69,7 +71,8 @@ class TestBootReconciliation:
     def test_compare_and_swap_reconciles_once(self, worker_jobs):
         worker, _client, unreal, _blender = worker_jobs
         stale = Worker.objects.get(pk=worker.pk)
-        assert worker_reconcile.reconcile_worker_restart(Worker.objects.get(pk=worker.pk), BOOT_B) == 1
+        # Both jobs: the Unreal one and, since #247, the Blender one.
+        assert worker_reconcile.reconcile_worker_restart(Worker.objects.get(pk=worker.pk), BOOT_B) == 2
         Job.objects.filter(pk=unreal.pk).update(status=JobStatus.RENDERING, assigned_worker=worker)
         assert worker_reconcile.reconcile_worker_restart(stale, BOOT_B) == 0
         assert _status(unreal) == JobStatus.RENDERING
@@ -90,9 +93,11 @@ class TestBootReconciliation:
             JobStatus.RENDERING, other.pk, 0,
         )
 
-    def test_failure_restores_the_boot_id_and_returns_503(self, worker_jobs):
+    def test_listing_failure_restores_the_boot_id_and_returns_503(self, worker_jobs):
+        # A failing job no longer fails the registration (#247,
+        # test_blender_reconcile.py); only failing to list the jobs does.
         worker, client, unreal, _blender = worker_jobs
-        with patch.object(worker_reconcile, 'requeue_or_fail', side_effect=RuntimeError('boom')):
+        with patch.object(worker_reconcile, '_rendering_jobs', side_effect=RuntimeError('boom')):
             resp = _register(client, worker.hostname, worker_boot_id=BOOT_B)
         assert resp.status_code == 503
         assert Worker.objects.get(pk=worker.pk).boot_id == BOOT_A

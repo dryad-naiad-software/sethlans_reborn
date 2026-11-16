@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 HTTP_CONFLICT = 409
 
+# What ``api_handler.update_job_status`` returns for that 409.
+NO_LONGER_ASSIGNED = 'no_longer_assigned'
+
 
 class JobNoLongerAssigned(Exception):
     """The manager no longer accepts results for this job from us."""

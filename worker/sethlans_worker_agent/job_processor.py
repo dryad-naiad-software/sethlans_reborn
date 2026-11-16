@@ -121,54 +121,23 @@ def maybe_assert_gpu_list_unchanged() -> None:
     _last_drift_check_ts = now
 
 
-# Drift-cancel retry budget: 3 attempts with 1s, 2s, 4s backoff.
-_DRIFT_CANCEL_RETRIES = 3
-_DRIFT_CANCEL_BACKOFF_BASE = 1.0
-
-
-def _cancel_job_with_retry(job_id: int) -> bool:
-    """Retry update_job_status(CANCELED) with bounded backoff.
-
-    Returns True on success, False if all attempts failed.
-    """
-    for attempt in range(1, _DRIFT_CANCEL_RETRIES + 1):
-        try:
-            api_handler.update_job_status(job_id, {"status": "CANCELED"})
-            return True
-        except BaseException as exc:  # noqa: BLE001 - drift path must not raise
-            logger.warning(
-                "Drift handler: cancel attempt %d/%d for job %s failed: %s",
-                attempt, _DRIFT_CANCEL_RETRIES, job_id, exc,
-            )
-            if attempt < _DRIFT_CANCEL_RETRIES:
-                time.sleep(_DRIFT_CANCEL_BACKOFF_BASE * (2 ** (attempt - 1)))
-    logger.error(
-        "Drift handler: giving up on cancel for job %s after %d attempts.",
-        job_id, _DRIFT_CANCEL_RETRIES,
-    )
-    return False
-
-
 def terminate_all_active_jobs_for_drift() -> None:
-    """Mark every in-flight Blender subprocess for cancellation.
+    """Stop every in-flight job for a hardware change (#246).
 
-    Called by the drift handler. Flips each active job's status to
-    CANCELED on the manager; the job's own polling loop inside
-    blender_executor.execute_blender_job observes and terminates.
-    Uses a bounded retry with exponential backoff to tolerate transient
-    manager unavailability during shutdown.
-
-    Jobs whose renderer supports release (Unreal) are not PATCHed; the
-    shutdown event releases them to the manager instead (FR-WX-14).
+    Called by the drift handler; sends no status for any job. Blender jobs:
+    the shutdown event makes each executor stop its subprocess tree, and the
+    job thread hands the job back with ``yield-requeue`` (reason
+    ``worker_hardware_changed``); if that fails, the manager's restart
+    reconciliation or the stuck-job reaper requeues it (#247). Jobs whose
+    renderer supports release (Unreal) are released by their executor's
+    shutdown path (FR-WX-14).
     """
     with _active_jobs_lock:
         active = [(job_id, entry.get('renderer')) for job_id, entry in _active_jobs.items()]
     releasable = [job_id for job_id, renderer in active if executors.supports_release(renderer)]
-    for job_id, _renderer in active:
-        if job_id not in releasable and _cancel_job_with_retry(job_id):
-            logger.warning(
-                "Drift handler: marked job %s for cancellation.", job_id,
-            )
+    stopped = [job_id for job_id, _renderer in active if job_id not in releasable]
+    if stopped:
+        job_resources.request_shutdown_for_stop(stopped)
     if releasable:
         job_resources.request_shutdown_for_release(releasable)
 

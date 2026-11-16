@@ -45,6 +45,7 @@ def _reset_job_processor_state():
     drift exit-code flag from the capacity package.
     """
     from sethlans_worker_agent import job_processor
+    from sethlans_worker_agent import blender_stop
     from sethlans_worker_agent import capacity as capacity_module
     from sethlans_worker_agent.capacity import drift as drift_module
     with job_processor._active_jobs_lock:
@@ -56,12 +57,14 @@ def _reset_job_processor_state():
     job_processor._last_drift_check_ts = 0.0
     capacity_module.reset_gpu_list_recheck()
     capacity_module.reset_missing_executable_warning()
+    blender_stop.reset_for_tests()
     drift_module._drift_detected_exit_code = None
     yield
     job_processor._capacity = None
     job_processor._last_drift_check_ts = 0.0
     capacity_module.reset_gpu_list_recheck()
     capacity_module.reset_missing_executable_warning()
+    blender_stop.reset_for_tests()
     drift_module._drift_detected_exit_code = None
 
 

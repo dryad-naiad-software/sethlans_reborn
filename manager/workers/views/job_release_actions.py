@@ -20,7 +20,7 @@ from django.db import transaction
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from ..models import Job, JobStatus
@@ -88,25 +88,21 @@ class JobReleaseActionsMixin:
 
         Runs before validation, so a worker gets this message rather than a
         strategy field error.  Renderers whose ``worker_patch_allowed_fields()``
-        is ``None`` (Blender) are untouched.  For the others the existing
-        ownership check (403) runs first, so a non-owner learns nothing
-        about the job's renderer.
+        is ``None`` (Blender) are untouched.  The caller (``partial_update``)
+        runs the ownership check (409, ``_check_worker_owns_job``) first, so
+        a non-owner never reaches this and learns nothing about the job's
+        renderer.
 
         Raises:
-            PermissionDenied: the worker is not assigned to the job (403).
             ValidationError: a key outside the allowlist (400,
                 ``{"detail": "Workers may not modify <keys> on <label> jobs."}``).
         """
-        worker = getattr(request.user, 'worker_profile', None)
-        if worker is None:
+        if getattr(request.user, 'worker_profile', None) is None:
             return
         strategy = _strategy_or_none(job.renderer)
         allowed = strategy.worker_patch_allowed_fields() if strategy is not None else None
         if allowed is None:
             return
-        # ``assigned_worker_id``: no Worker query (the 403 of ``_check_worker_owns_job``).
-        if worker.pk != job.assigned_worker_id:
-            raise PermissionDenied("You do not have permission to modify this job.")
         if not isinstance(request.data, Mapping):
             raise ValidationError({'detail': "Expected an object."})
         refused = sorted(set(request.data.keys()) - allowed)
@@ -114,7 +110,7 @@ class JobReleaseActionsMixin:
             raise ValidationError({
                 'detail': f"Workers may not modify {', '.join(refused)} on {strategy.label} jobs.",
             })
-        # After the 403 and the allowlist 400, before validation (FR-RT-14).
+        # After the ownership 409 and the allowlist 400, before validation (FR-RT-14).
         refuse_pilot_done(job, request.data)
 
     @extend_schema(

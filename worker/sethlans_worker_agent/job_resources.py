@@ -13,7 +13,8 @@ thread-start failure path and the job lifecycle:
   held (Conc R2-L1).
 * **Retained.** When the renderer reservation is retained
   (``retain_until_restart``), neither it nor the slot is released; the
-  machine takes no further work until the worker restarts (Conc R2-M1).
+  slots are moved to an owner key no job id can equal, so a later claim of
+  the same job id cannot free them (Conc R2-M1).
 * **Claim-scoped.** Slots are released by job id, so a release must
   never outlive its claim. Two guarantees keep it so: ``job_selection``
   never claims an id that is still in ``_unfinished_job_ids`` (no two
@@ -48,6 +49,8 @@ def release_reservations(job_id, renderer_reservation, capacity,
                 "Job %s left processes behind; its renderer reservation and "
                 "capacity slots stay held until the worker restarts.", job_id,
             )
+        if capacity is not None:  # a later claim of the same id must not free them
+            capacity.retain_slots(job_id)
         return False
     if capacity is not None:
         capacity.release_slot(job_id)
@@ -122,6 +125,26 @@ def request_shutdown_for_release(job_ids) -> None:
         "Drift handler: jobs %s will be released through the shutdown path.",
         sorted(job_ids),
     )
+    _set_shutdown_event()
+
+
+def request_shutdown_for_stop(job_ids) -> None:
+    """Drift handler path for Blender jobs (#246).
+
+    Sets the agent's shutdown event (the drift handler has already recorded
+    the hardware change); each Blender executor stops its subprocess tree
+    and the job thread hands the job back with ``yield-requeue``, reason
+    ``worker_hardware_changed`` (blender_stop.py, blender_hand_back.py). If
+    that fails, the manager's reconciliation requeues it (#247). Never raises.
+    """
+    logger.warning(
+        "Drift handler: stopping Blender jobs %s; each is handed back to the "
+        "queue.", sorted(job_ids),
+    )
+    _set_shutdown_event()
+
+
+def _set_shutdown_event() -> None:
     try:
         from sethlans_worker_agent import agent
         agent._shutdown_event.set()

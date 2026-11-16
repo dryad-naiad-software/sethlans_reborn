@@ -7,7 +7,7 @@ FR-T-5 "GPU drift").
 """
 import threading
 
-from sethlans_worker_agent import agent, job_processor
+from sethlans_worker_agent import agent, job_processor, job_resources
 from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent import hardware_detection
 
@@ -82,25 +82,36 @@ class TestDriftSkippedDuringExclusiveHold:
 
 
 class TestDriftHandler:
+    """#246: Blender jobs are stopped through the shutdown event, not CANCELED."""
 
-    def test_blender_cancelled_unreal_only_shutdown(self, mocker):
+    def test_mixed_jobs_send_nothing_and_set_the_shutdown_event(self, mocker):
+        update = mocker.patch('sethlans_worker_agent.api_handler.update_job_status')
+        release = mocker.patch('sethlans_worker_agent.api_extras.release_job')
+        stop = threading.Event()
+        mocker.patch.object(agent, '_shutdown_event', stop)
+        stop_spy = mocker.spy(job_resources, 'request_shutdown_for_stop')
+        release_spy = mocker.spy(job_resources, 'request_shutdown_for_release')
+        with job_processor._active_jobs_lock:
+            job_processor._active_jobs[1] = {'job_id': 1, 'renderer': 'BLENDER'}
+            job_processor._active_jobs[2] = {'job_id': 2, 'renderer': 'UNREAL'}
+            job_processor._active_jobs[3] = {'job_id': 3}
+
+        job_processor.terminate_all_active_jobs_for_drift()
+
+        update.assert_not_called()
+        release.assert_not_called()  # Unreal releases from its own executor on shutdown
+        assert sorted(stop_spy.call_args.args[0]) == [1, 3]
+        assert release_spy.call_args.args[0] == [2]
+        assert stop.is_set()
+
+    def test_blender_only_sets_the_shutdown_event(self, mocker):
         update = mocker.patch('sethlans_worker_agent.api_handler.update_job_status')
         stop = threading.Event()
         mocker.patch.object(agent, '_shutdown_event', stop)
         with job_processor._active_jobs_lock:
             job_processor._active_jobs[1] = {'job_id': 1, 'renderer': 'BLENDER'}
-            job_processor._active_jobs[2] = {'job_id': 2, 'renderer': 'UNREAL'}
-            job_processor._active_jobs[3] = {'job_id': 3}
-        job_processor.terminate_all_active_jobs_for_drift()
-        assert sorted(c.args[0] for c in update.call_args_list) == [1, 3]
-        assert all(c.args[1] == {'status': 'CANCELED'} for c in update.call_args_list)
-        assert stop.is_set()
 
-    def test_blender_only_does_not_touch_shutdown(self, mocker):
-        mocker.patch('sethlans_worker_agent.api_handler.update_job_status')
-        stop = threading.Event()
-        mocker.patch.object(agent, '_shutdown_event', stop)
-        with job_processor._active_jobs_lock:
-            job_processor._active_jobs[1] = {'job_id': 1, 'renderer': 'BLENDER'}
         job_processor.terminate_all_active_jobs_for_drift()
-        assert not stop.is_set()
+
+        update.assert_not_called()
+        assert stop.is_set()
