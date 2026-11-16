@@ -16,6 +16,7 @@ import logging
 import pytest
 
 from sethlans_worker_agent import blender_executor
+from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail
 from sethlans_worker_agent.gpu_device_script import (
     GPU_CHECK_EXIT_CODE, GPU_CHECK_MARKER,
@@ -116,6 +117,8 @@ class TestExecutorGpuCheckFailure:
         assert error_message.endswith(_DETAIL)
         assert 'Blender exited with code' not in error_message
         assert GPU_CHECK_MARKER in result[4]  # raw stderr is still returned
+        # #239: the job thread asks for one immediate GPU list comparison.
+        assert capacity_module.gpu_list_recheck_pending() is True
 
     def test_generated_script_carries_the_device_check(self, mocker, executor_env):
         """The real generator runs: the script written for Blender has the check."""
@@ -143,6 +146,7 @@ class TestExecutorGpuCheckFailure:
         result = blender_executor.execute_blender_job(_gpu_job(), assigned_gpu_index=0)
 
         assert result[5] == 'Blender exited with code 1. Details: Error: boom'
+        assert capacity_module.gpu_list_recheck_pending() is False
 
 
 class TestExecutorScriptGenerationReleasesVersion:
@@ -202,4 +206,5 @@ class TestThumbnailGpuCheckFailure:
 
         assert result is None
         assert 'Thumbnail render failed: GPU device check failed:' in caplog.text
+        assert capacity_module.gpu_list_recheck_pending() is True
         assert _DETAIL in caplog.text

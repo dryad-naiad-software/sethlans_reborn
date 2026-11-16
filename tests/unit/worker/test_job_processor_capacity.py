@@ -7,7 +7,7 @@ Unit tests for the capacity-aware pieces of job_processor.
 Split from test_job_processor.py to keep each file under the 300-line
 Python limit. Covers init_capacity / get_worker_capacity,
 capacity_is_full, poll_and_claim_job slot release on failure,
-maybe_assert_gpu_count_unchanged cadence, and the
+maybe_assert_gpu_list_unchanged cadence, and the
 terminate_all_active_jobs_for_drift helper.
 """
 import pytest
@@ -126,14 +126,14 @@ class TestPollAndClaimJobSlotRelease:
         assert cap.gpu_assignments_snapshot() == {0: 101}
 
 
-# --- maybe_assert_gpu_count_unchanged cadence ---
+# --- maybe_assert_gpu_list_unchanged cadence ---
 
-class TestMaybeAssertGpuCountUnchanged:
+class TestMaybeAssertGpuListUnchanged:
 
     def test_no_op_before_init(self):
         job_processor._capacity = None
         # Should simply return without raising.
-        job_processor.maybe_assert_gpu_count_unchanged()
+        job_processor.maybe_assert_gpu_list_unchanged()
 
     def test_fires_once_per_heartbeat_interval(self, mocker):
         cap = WorkerCapacity(_build_profile())
@@ -141,7 +141,7 @@ class TestMaybeAssertGpuCountUnchanged:
         mocker.patch(
             'sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 30,
         )
-        spy = mocker.patch.object(cap, 'assert_gpu_count_unchanged')
+        spy = mocker.patch.object(cap, 'assert_gpu_list_unchanged')
         # Three clock reads: first fires, second skipped, third fires.
         monotonic = mocker.patch(
             'sethlans_worker_agent.job_processor.time.monotonic',
@@ -149,14 +149,14 @@ class TestMaybeAssertGpuCountUnchanged:
         )
         job_processor._last_drift_check_ts = 0.0
 
-        job_processor.maybe_assert_gpu_count_unchanged()  # 1000
-        job_processor.maybe_assert_gpu_count_unchanged()  # 1005 (skipped)
-        job_processor.maybe_assert_gpu_count_unchanged()  # 1031 (fires)
+        job_processor.maybe_assert_gpu_list_unchanged()  # 1000
+        job_processor.maybe_assert_gpu_list_unchanged()  # 1005 (skipped)
+        job_processor.maybe_assert_gpu_list_unchanged()  # 1031 (fires)
         assert spy.call_count == 2
         assert monotonic.call_count == 3
 
     def test_timestamp_not_updated_when_assert_raises(self, mocker):
-        """Issue #49: if assert_gpu_count_unchanged raises, the cadence
+        """Issue #49: if assert_gpu_list_unchanged raises, the cadence
         timestamp must NOT be advanced, so the next loop iteration will
         retry immediately rather than waiting a full heartbeat interval.
         """
@@ -166,7 +166,7 @@ class TestMaybeAssertGpuCountUnchanged:
             'sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 30,
         )
         mocker.patch.object(
-            cap, 'assert_gpu_count_unchanged',
+            cap, 'assert_gpu_list_unchanged',
             side_effect=RuntimeError('transient'),
         )
         mocker.patch(
@@ -176,7 +176,7 @@ class TestMaybeAssertGpuCountUnchanged:
         job_processor._last_drift_check_ts = 1000.0
 
         with pytest.raises(RuntimeError):
-            job_processor.maybe_assert_gpu_count_unchanged()
+            job_processor.maybe_assert_gpu_list_unchanged()
 
         # Timestamp must remain at its prior value.
         assert job_processor._last_drift_check_ts == 1000.0

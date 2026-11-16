@@ -8,52 +8,77 @@ FR-T-5 "GPU drift").
 import threading
 
 from sethlans_worker_agent import agent, job_processor
+from sethlans_worker_agent import capacity as capacity_module
+from sethlans_worker_agent import hardware_detection
 
 from ..executors._fakes import install_capacity
 
 
-def _drift_spawn_spy(mocker):
+def _drift_spawn_spy(mocker, monkeypatch, tmp_path):
     """Spy on the detect_gpus.py subprocess the drift check would run."""
-    mocker.patch(
-        'sethlans_worker_agent.hardware_detection._find_any_blender_executable',
-        return_value='/fake/blender',
-    )
+    exe = tmp_path / 'blender.exe'
+    exe.write_text('')
+    monkeypatch.setattr(hardware_detection, '_gpu_details_blender_exe', str(exe))
     return mocker.patch(
         'sethlans_worker_agent.capacity.drift.subprocess.run',
         side_effect=AssertionError('drift subprocess must not run'),
     )
 
 
+def _same_gpu_list(mocker):
+    """Detection finds the one card in use; return the detection spy."""
+    mocker.patch(
+        'sethlans_worker_agent.system_monitor.get_gpu_device_details',
+        return_value=[{'id': 'CUDA_GPU_0', 'type': 'CUDA', 'name': 'GPU 0'}],
+    )
+    return mocker.patch(
+        'sethlans_worker_agent.capacity.slots.detect_physical_gpus_now',
+        return_value=[('CUDA_GPU_0', 'CUDA')],
+    )
+
+
 class TestDriftSkippedDuringExclusiveHold:
 
-    def test_no_subprocess_while_held_then_runs_after_release(self, mocker):
+    def test_no_subprocess_while_held_then_runs_after_release(self, mocker, monkeypatch, tmp_path):
         cap = install_capacity(gpu_slot_count=1, cpu_slot_count=1)
         mocker.patch('sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 30)
         job_processor._last_drift_check_ts = 0.0
-        spawn = _drift_spawn_spy(mocker)
+        spawn = _drift_spawn_spy(mocker, monkeypatch, tmp_path)
         cap.reserve_exclusive(5)
 
-        job_processor.maybe_assert_gpu_count_unchanged()
+        job_processor.maybe_assert_gpu_list_unchanged()
         spawn.assert_not_called()
 
         cap.release_slot(5)
-        count = mocker.patch(
-            'sethlans_worker_agent.capacity.slots.count_physical_gpus_now',
-            return_value=1,
-        )
-        job_processor.maybe_assert_gpu_count_unchanged()
-        count.assert_called_once()
+        detect = _same_gpu_list(mocker)
+        job_processor.maybe_assert_gpu_list_unchanged()
+        detect.assert_called_once()
+
+    def test_recheck_request_waits_for_the_hold_to_end(self, mocker, monkeypatch, tmp_path):
+        """#239: a failed device check's re-check never runs under a hold."""
+        cap = install_capacity(gpu_slot_count=1, cpu_slot_count=1)
+        mocker.patch('sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 30)
+        mocker.patch('sethlans_worker_agent.job_processor.time.monotonic', return_value=1000.0)
+        job_processor._last_drift_check_ts = 1000.0  # interval not due
+        spawn = _drift_spawn_spy(mocker, monkeypatch, tmp_path)
+        cap.reserve_exclusive(5)
+        capacity_module.request_gpu_list_recheck()
+
+        job_processor.maybe_assert_gpu_list_unchanged()
+        spawn.assert_not_called()
+
+        cap.release_slot(5)
+        detect = _same_gpu_list(mocker)
+        job_processor.maybe_assert_gpu_list_unchanged()
+        detect.assert_called_once()
 
     def test_blender_reservation_does_not_skip_drift(self, mocker):
         cap = install_capacity(gpu_slot_count=1, cpu_slot_count=1)
         cap.reserve_for_job(6, 'GPU')
         job_processor._last_drift_check_ts = 0.0
-        count = mocker.patch(
-            'sethlans_worker_agent.capacity.slots.count_physical_gpus_now',
-            return_value=1,
-        )
-        job_processor.maybe_assert_gpu_count_unchanged()
-        count.assert_called_once()
+        detect = _same_gpu_list(mocker)
+        job_processor.maybe_assert_gpu_list_unchanged()
+        detect.assert_called_once()
 
 
 class TestDriftHandler:

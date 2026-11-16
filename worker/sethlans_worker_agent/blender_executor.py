@@ -272,6 +272,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
                     "####", f"{start_frame:04d}")
         elif not error_message:
             error_message = gpu_device_script.describe_blender_failure(final_return_code, stderr_output)
+            gpu_device_script.request_recheck_if_check_failed(final_return_code, stderr_output)  # #239
 
         if success and blender_format in EXR_HDR_FORMATS and start_frame == end_frame:
             from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail

@@ -18,8 +18,12 @@ from typing import Dict, List, Optional
 
 from sethlans_worker_agent.capacity import exclusive
 from sethlans_worker_agent.capacity.drift import (
-    count_physical_gpus_now,
+    detect_physical_gpus_now,
     set_drift_exit_code,
+)
+from sethlans_worker_agent.capacity.gpu_list import (
+    describe_gpu_list_change,
+    gpu_identity,
 )
 from sethlans_worker_agent.capacity.profile import (
     CapacityProfile,
@@ -220,41 +224,46 @@ class WorkerCapacity:
         with self._lock:
             return dict(self._gpu_assignments)
 
-    def assert_gpu_count_unchanged(self) -> None:
-        """Compare current uncached physical count against startup count.
+    def assert_gpu_list_unchanged(self) -> None:
+        """Compare a fresh, uncached GPU detection with the list in use (#239).
 
-        On mismatch, triggers the drift handler flow per FR-22a:
-        terminate active Blender subprocesses via the existing
-        cancellation path in blender_executor, set the exit-code flag,
-        and set agent._shutdown_event. sys.exit is NEVER called from
-        inside this module.
+        The list in use is the cached system_monitor.get_gpu_device_details()
+        that slots and render scripts work from. Any difference in the
+        ordered (device id, backend) pairs is a change: a card gone or new,
+        a backend or id changed, or the same cards in another order. On a
+        change, triggers the drift handler flow per FR-22a: terminate
+        active Blender subprocesses via the existing cancellation path in
+        blender_executor, set the exit-code flag, and set
+        agent._shutdown_event. sys.exit is NEVER called from this module.
 
         Skip conditions (no-op, do not trigger drift):
-          * ``startup_gpu_count == 0`` — CPU-only worker; the ~5-15s
-            detection subprocess is pure waste because the comparison
-            is always 0 == 0.
-          * ``count_physical_gpus_now()`` returned ``None`` — transient
+          * ``startup_gpu_count == 0`` -- no card was detected at startup
+            (no GPU or a failed startup detection), or ``gpu_slot_count ==
+            0`` -- the worker uses no card (FORCE_CPU_ONLY); the ~5-15s
+            detection subprocess is not run.
+          * ``detect_physical_gpus_now()`` returned ``None`` -- transient
             subprocess failure. Try again next interval.
         """
-        # CPU-only workers never drift.
-        if self._profile.startup_gpu_count == 0:
+        if self._profile.startup_gpu_count == 0 or self._profile.gpu_slot_count == 0:
             logger.debug(
-                "assert_gpu_count_unchanged: startup_gpu_count=0, "
-                "skipping drift check on CPU-only worker."
+                "assert_gpu_list_unchanged: no GPU at startup or no GPU "
+                "slot, skipping drift check."
             )
             return
 
-        current = count_physical_gpus_now()
+        current = detect_physical_gpus_now()
         if current is None:
             # Transient subprocess failure. Do NOT treat as drift.
             return
-        if current == self._profile.startup_gpu_count:
+        from sethlans_worker_agent import system_monitor
+        change = describe_gpu_list_change(
+            gpu_identity(system_monitor.get_gpu_device_details()), current,
+        )
+        if change is None:
             return
 
         logger.critical(
-            "GPU drift detected! Startup count: %d, current: %d. "
-            "Initiating graceful shutdown.",
-            self._profile.startup_gpu_count, current,
+            "GPU change detected: %s. Initiating graceful shutdown.", change,
         )
         try:
             # Imported lazily to avoid a circular import.

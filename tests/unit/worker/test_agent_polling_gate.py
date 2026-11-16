@@ -32,7 +32,7 @@ class TestPollingGate:
             'sethlans_worker_agent.system_monitor.send_heartbeat'
         )
         mocker.patch(
-            'sethlans_worker_agent.job_processor.maybe_assert_gpu_count_unchanged'
+            'sethlans_worker_agent.job_processor.maybe_assert_gpu_list_unchanged'
         )
         mocker.patch(
             'sethlans_worker_agent.version_sync.process_pending_downloads'

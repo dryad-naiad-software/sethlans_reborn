@@ -2,12 +2,21 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-GPU drift detection helpers.
+GPU drift (hardware change) detection helpers.
 
-Owns the uncached physical-GPU count helper for drift detection and
-the module-level exit-code flag set by the drift handler. The actual
-drift handler flow (terminate active jobs + set shutdown event) lives
-in WorkerCapacity.assert_gpu_count_unchanged() in slots.py.
+Owns:
+
+- ``detect_physical_gpus_now()``: an uncached detection that returns the
+  ordered (Blender device id, backend type) pair of every physical card,
+  for comparison with the list the worker uses (#239; see gpu_list.py);
+- the module-level exit-code flag set by the drift handler.
+
+When the comparison runs (periodically, and early after a failed GPU
+device check) is decided in recheck.py.
+
+The drift handler flow (compare, terminate active jobs, set the shutdown
+event) lives in WorkerCapacity.assert_gpu_list_unchanged() in slots.py;
+the cadence lives in job_processor.maybe_assert_gpu_list_unchanged().
 
 FR-22: sys.exit and os._exit are FORBIDDEN inside this module. The
 top-level epilogue in agent.main (or run_worker.py) reads the flag
@@ -17,7 +26,7 @@ import json
 import logging
 import os
 import subprocess
-from typing import Optional
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -43,35 +52,71 @@ def reset_drift_exit_code() -> None:
     _drift_detected_exit_code = None
 
 
-def count_physical_gpus_now() -> Optional[int]:
-    """Uncached physical-GPU count for drift detection.
+# Executable whose absence was last logged at WARNING, so a missing
+# Blender is reported once per occurrence, not on every interval. Read and
+# written only by the agent-loop thread (the drift check's only caller).
+# _NOT_WARNED (not None) means "nothing logged", so a missing record
+# (None) is reported too.
+_NOT_WARNED = object()
+_missing_exe_warned: object = _NOT_WARNED
 
-    Spawns a fresh Blender detection subprocess via detect_gpus.py and
-    returns the count of preferred physical devices. MUST NOT consult
-    or update hardware_detection module caches (_gpu_devices_cache,
-    _gpu_details_cache). Costs ~5-15 seconds per call; FR-23 governs
-    how often the drift check may invoke it.
+
+def reset_missing_executable_warning() -> None:
+    """Forget the last missing-executable warning. Test-only hook."""
+    global _missing_exe_warned
+    _missing_exe_warned = _NOT_WARNED
+
+
+def _startup_detection_executable() -> Optional[str]:
+    """Return the Blender that produced the cached GPU list, if it still exists.
+
+    The fresh list must come from the same Blender as the list in use: a
+    different version can report a card under another id or backend, which
+    would read as a false GPU change. None means "skip, try again later".
+    """
+    global _missing_exe_warned
+    from sethlans_worker_agent import hardware_detection
+    exe = hardware_detection._gpu_details_blender_exe
+    if exe and os.path.isfile(exe):
+        _missing_exe_warned = _NOT_WARNED
+        return exe
+    if exe != _missing_exe_warned:
+        _missing_exe_warned = exe
+        logger.warning(
+            "detect_physical_gpus_now: the Blender that produced the GPU list "
+            "in use (%s) is no longer available; skipping drift check until "
+            "it is.", ascii(exe),
+        )
+    else:
+        logger.debug("detect_physical_gpus_now: detection Blender still missing.")
+    return None
+
+
+def detect_physical_gpus_now() -> Optional[List[Tuple[object, object]]]:
+    """Uncached GPU list for drift detection.
+
+    Spawns a fresh Blender detection subprocess via detect_gpus.py, using
+    the same Blender executable that produced the cached list in use, and
+    returns one (Blender device id, backend type) pair per preferred
+    physical card, in the order ``_filter_preferred_gpus`` returns them.
+    MUST NOT consult or update hardware_detection module caches
+    (_gpu_devices_cache, _gpu_details_cache). Costs ~5-15 seconds per
+    call; FR-23 governs how often the drift check may invoke it.
 
     Return value semantics:
-      * ``int >= 0`` — successful detection, the integer is the real count.
-      * ``None`` — the detection subprocess failed (missing Blender,
+      * a list (possibly empty) — successful detection.
+      * ``None`` — the detection subprocess failed (that Blender missing,
         CalledProcessError, TimeoutExpired, or unparseable output).
         Callers MUST treat this as "skip this check, try again later"
-        and NOT as "zero GPUs detected." A subprocess hiccup must not
+        and NOT as "no GPUs detected." A subprocess hiccup must not
         trigger a false drift event.
     """
+    from sethlans_worker_agent.capacity.gpu_list import gpu_identity
     # Imported lazily to avoid a circular import at package load time.
-    from sethlans_worker_agent.hardware_detection import (
-        _filter_preferred_gpus,
-        _find_any_blender_executable,
-    )
+    from sethlans_worker_agent.hardware_detection import _filter_preferred_gpus
 
-    blender_exe = _find_any_blender_executable()
+    blender_exe = _startup_detection_executable()
     if not blender_exe:
-        logger.warning(
-            "count_physical_gpus_now: no Blender executable available; "
-            "skipping drift check."
-        )
         return None
 
     script_path = os.path.join(
@@ -90,7 +135,7 @@ def count_physical_gpus_now() -> Optional[int]:
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         logger.warning(
-            "count_physical_gpus_now: Blender detection subprocess "
+            "detect_physical_gpus_now: Blender detection subprocess "
             "failed (%s); skipping drift check.", exc,
         )
         return None
@@ -102,10 +147,10 @@ def count_physical_gpus_now() -> Optional[int]:
                 raw_devices = json.loads(stripped)
             except json.JSONDecodeError:
                 continue
-            return len(_filter_preferred_gpus(raw_devices))
+            return gpu_identity(_filter_preferred_gpus(raw_devices))
 
     logger.warning(
-        "count_physical_gpus_now: could not parse detect_gpus.py output; "
+        "detect_physical_gpus_now: could not parse detect_gpus.py output; "
         "skipping drift check."
     )
     return None

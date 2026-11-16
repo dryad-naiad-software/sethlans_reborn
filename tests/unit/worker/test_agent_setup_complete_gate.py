@@ -30,7 +30,7 @@ def _patch_iteration_common(mocker, active_jobs=None):
         return_value=active_jobs if active_jobs is not None else {},
     )
     mocker.patch(
-        'sethlans_worker_agent.job_processor.maybe_assert_gpu_count_unchanged'
+        'sethlans_worker_agent.job_processor.maybe_assert_gpu_list_unchanged'
     )
     # Short-circuit waits so tests return immediately.
     mocker.patch.object(agent_module._shutdown_event, 'wait')

@@ -211,6 +211,23 @@ def describe_blender_failure(return_code, stderr_text) -> str:
     return f"Blender exited with code {return_code}. Details: {details}"
 
 
+def request_recheck_if_check_failed(return_code, stderr_text) -> bool:
+    """Ask for an immediate GPU list comparison after a failed device check.
+
+    Called from the job thread when Blender exits non-zero. If the exit was
+    the GPU device check (marker line present), the card list this worker
+    uses may be stale, so the agent loop is asked to compare it with a
+    fresh detection on its next iteration (#239). Only sets a
+    threading.Event; the detection itself runs in the agent loop thread.
+    Returns True when the request was made.
+    """
+    if gpu_check_failure_message(return_code, stderr_text) is None:
+        return False
+    from sethlans_worker_agent.capacity import recheck
+    recheck.request_gpu_list_recheck()
+    return True
+
+
 def log_gpu_assignment(job_id, gpu_index):
     """Log which physical GPU a job is assigned to (None: no index)."""
     if gpu_index is None:

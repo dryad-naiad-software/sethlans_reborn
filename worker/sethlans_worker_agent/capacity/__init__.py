@@ -19,8 +19,13 @@ Documented order (enforced by convention and by test_capacity.py):
 Package layout:
     profile.py  -- CapacityProfile, compute_capacity_profile,
                    cpu_threads_for_blender, SlotReservation.
-    drift.py    -- count_physical_gpus_now and the module-level
-                   _drift_detected_exit_code flag.
+    drift.py    -- detect_physical_gpus_now (uncached GPU list from the
+                   Blender that produced the list in use) and the
+                   module-level _drift_detected_exit_code flag.
+    recheck.py  -- when the GPU list comparison runs: periodically, and
+                   early (with a floor) after a failed GPU device check.
+    gpu_list.py -- (device id, backend) identity of a GPU list and the
+                   description of how two lists differ (#239).
     slots.py    -- WorkerCapacity stateful slot tracker.
     exclusive.py -- whole-machine (Unreal) reservation helpers used by
                    WorkerCapacity.reserve_exclusive / has_no_reservations.
@@ -33,10 +38,19 @@ from sethlans_worker_agent.capacity.profile import (  # noqa: F401
     log_capacity_profile,
 )
 from sethlans_worker_agent.capacity.drift import (  # noqa: F401
-    count_physical_gpus_now,
+    detect_physical_gpus_now,
     get_drift_exit_code,
     reset_drift_exit_code,
+    reset_missing_executable_warning,
     set_drift_exit_code,
+)
+from sethlans_worker_agent.capacity.recheck import (  # noqa: F401
+    IMMEDIATE_RECHECK_FLOOR_SECONDS,
+    gpu_list_recheck_pending,
+    request_gpu_list_recheck,
+    reset_gpu_list_recheck,
+    run_gpu_list_check,
+    take_gpu_list_check_turn,
 )
 from sethlans_worker_agent.capacity.slots import WorkerCapacity  # noqa: F401
 

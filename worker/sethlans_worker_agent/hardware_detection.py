@@ -62,6 +62,7 @@ OS_INFO = f"{platform.system()} {platform.release()}"
 # --- Module-level caches ---
 _gpu_devices_cache = None
 _gpu_details_cache = None
+_gpu_details_blender_exe = None  # Blender that filled _gpu_details_cache (#239 drift check)
 _cpu_thread_count_cache = None
 
 
@@ -151,7 +152,7 @@ def get_gpu_device_details():
               about a detected GPU device (name, type, id, etc.). Returns an
               empty list on failure.
     """
-    global _gpu_details_cache
+    global _gpu_details_cache, _gpu_details_blender_exe
     if _gpu_details_cache is not None:
         return _gpu_details_cache
 
@@ -195,7 +196,7 @@ def get_gpu_device_details():
                     logger.info(
                         f"  - [Physical GPU {i}] Name: {name} | Preferred Backend: {backend} | Blender Device ID: {dev_id}")
 
-            _gpu_details_cache = preferred_devices
+            _gpu_details_cache, _gpu_details_blender_exe = preferred_devices, blender_exe
             return _gpu_details_cache
         else:
             logger.warning("Could not find a valid JSON line in detect_gpus.py output.")

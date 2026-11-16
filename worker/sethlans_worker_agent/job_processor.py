@@ -12,6 +12,8 @@ _reserve_next_available_gpu primitives have been removed.
 Lock ordering (enforced by convention + unit tests):
     WorkerCapacity._lock < _active_jobs_lock < _recent_jobs_lock
 No code path may acquire a later lock while holding an earlier one.
+The GPU re-check request (capacity.recheck, a threading.Event) is a leaf:
+its internal lock is never held while any of the above is taken.
 
 _active_jobs is for UI/status reporting ONLY. It MUST NOT back the
 polling gate (FR-6); use capacity_is_full() -> WorkerCapacity.is_full().
@@ -44,7 +46,8 @@ _recent_jobs = []
 _recent_jobs_lock = threading.Lock()
 
 _capacity: Optional[capacity_module.WorkerCapacity] = None
-# Drift check runs once per heartbeat interval (FR-23), not once per poll.
+# Drift check runs once per heartbeat interval (FR-23), not once per poll;
+# a failed GPU device check brings it forward (#239, capacity/recheck.py).
 _last_drift_check_ts: float = 0.0
 
 
@@ -91,13 +94,18 @@ def capacity_is_full() -> bool:
     return _capacity.is_full()
 
 
-def maybe_assert_gpu_count_unchanged() -> None:
-    """Run the GPU drift check at most once per heartbeat interval (FR-23).
+def maybe_assert_gpu_list_unchanged() -> None:
+    """Run the GPU list check once per heartbeat interval (FR-23, #239).
+
+    A failed GPU device check brings it forward, with a floor between
+    early runs (capacity/recheck.py). A pending request is looked at only
+    when the check may run, so the Unreal gate and a worker without GPU
+    slots defer or absorb it.
 
     The timestamp is updated AFTER a successful assert return. If the
     assert raises, the timestamp stays at its previous value so the
     next loop iteration retries immediately rather than waiting a full
-    interval.
+    interval, and the early request is put back.
     """
     global _last_drift_check_ts
     if _capacity is None:
@@ -106,10 +114,10 @@ def maybe_assert_gpu_count_unchanged() -> None:
     if not unreal_bridge.drift_check_allowed():
         return
     now = time.monotonic()
-    interval = max(1, config.HEARTBEAT_INTERVAL_SECONDS)
-    if (now - _last_drift_check_ts) < interval:
+    due = (now - _last_drift_check_ts) >= max(1, config.HEARTBEAT_INTERVAL_SECONDS)
+    if not capacity_module.take_gpu_list_check_turn(now, due):
         return
-    _capacity.assert_gpu_count_unchanged()
+    capacity_module.run_gpu_list_check(_capacity)
     _last_drift_check_ts = now
 
 
