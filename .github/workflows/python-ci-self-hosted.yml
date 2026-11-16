@@ -82,6 +82,11 @@ jobs:
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv,managed_tools,node_modules,migrations
       - name: Run Unit Tests
         run: pytest tests/unit
+      # The browser must match the installed Playwright version. This puts it
+      # in the runner account's own cache and installs nothing system-wide
+      # (no --with-deps); it is a no-op when the right build is already there.
+      - name: Install Playwright Chromium
+        run: python -m playwright install chromium
       - name: Run Integration Tests
         run: pytest tests/integration
       - name: Run End-to-End Tests
@@ -154,6 +159,11 @@ jobs:
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=venv,.venv,managed_tools,node_modules,migrations
       - name: Run Unit Tests
         run: pytest tests/unit
+      # The browser must match the installed Playwright version. This puts it
+      # in the runner account's own cache and installs nothing system-wide
+      # (no --with-deps); it is a no-op when the right build is already there.
+      - name: Install Playwright Chromium
+        run: python -m playwright install chromium
       - name: Run Integration Tests
         run: pytest tests/integration
       - name: Run End-to-End Tests
