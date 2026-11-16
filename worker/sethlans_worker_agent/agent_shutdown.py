@@ -48,7 +48,7 @@ def _prune_finished_threads():
 
 
 def _shutdown_handler(signum, frame):
-    """Signal handler for SIGINT/SIGTERM. Sets shutdown event."""
+    """Signal handler for SIGINT, SIGTERM and SIGHUP (unless ignored, e.g. nohup). Sets shutdown event."""
     sig_name = signal.Signals(signum).name
     logger.info(f"Received {sig_name}. Initiating graceful shutdown...")
     _shutdown_event.set()

@@ -93,7 +93,9 @@ def main(argv=None):
 
     signal.signal(signal.SIGINT, _shutdown_handler)
     signal.signal(signal.SIGTERM, _shutdown_handler)
-    if hasattr(signal, 'SIGHUP'):  # POSIX: the terminal or session went away
+    # POSIX: the terminal or session went away. Not when hangups are already
+    # ignored (nohup, or a supervisor that asks for it): keep running then (#254).
+    if hasattr(signal, 'SIGHUP') and signal.getsignal(signal.SIGHUP) is not signal.SIG_IGN:
         signal.signal(signal.SIGHUP, _shutdown_handler)
 
     logger.info("Sethlans Reborn Worker Agent Starting...")
