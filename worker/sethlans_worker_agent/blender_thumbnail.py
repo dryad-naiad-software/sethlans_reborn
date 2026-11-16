@@ -21,6 +21,7 @@ import threading
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent import env_cleanup
+from sethlans_worker_agent.gpu_device_script import describe_blender_failure
 from sethlans_worker_agent.render_script import generate_render_config_script
 
 logger = logging.getLogger(__name__)
@@ -185,10 +186,13 @@ def render_exr_hdr_thumbnail(
         stderr_t.join(timeout=10)
 
         if return_code != 0:
-            stderr_text = "".join(stderr_lines).strip()[:500]
+            # Best-effort: a failed GPU device check (#238) or any other
+            # error only drops the thumbnail, never the primary job.
+            reason = describe_blender_failure(
+                return_code, "".join(stderr_lines)
+            )
             logger.warning(
-                f"[Job {job_id}] Thumbnail render failed "
-                f"(exit code {return_code}): {stderr_text}"
+                f"[Job {job_id}] Thumbnail render failed: {reason}"
             )
             return None
 

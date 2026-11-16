@@ -11,7 +11,7 @@ import logging
 import re
 from typing import Optional
 
-from sethlans_worker_agent import config, system_monitor
+from sethlans_worker_agent import config, gpu_device_script, system_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +32,10 @@ def _resolve_target_gpu_index(gpu_index_override):
     """
     Determines the target GPU index from override or config.
 
-    Returns the resolved integer index, or None if no specific
-    GPU should be targeted (use all available GPUs).
+    The index counts physical cards: it is a position in
+    ``system_monitor.get_gpu_device_details()``. Returns the resolved
+    integer index, or None if no specific GPU should be targeted
+    (combined mode: every listed card through the preferred backend).
     """
     if gpu_index_override is not None:
         logger.info(
@@ -50,82 +52,43 @@ def _resolve_target_gpu_index(gpu_index_override):
         except (ValueError, TypeError):
             logger.error(
                 "Invalid SETHLANS_FORCE_GPU_INDEX: "
-                f"'{config.FORCE_GPU_INDEX}'. Using all GPUs."
+                f"'{config.FORCE_GPU_INDEX}'. Ignoring it."
             )
     return None
 
 
-def _append_gpu_isolation_script(script_lines, target_index):
-    """Appends Blender script lines to isolate a specific GPU by index."""
-    script_lines.append(f"target_gpu_index = {target_index}")
-    script_lines.append(
-        "non_cpu_devices = "
-        "[d for d in prefs.devices if d.type != 'CPU']"
-    )
-    # First, disable all devices to ensure a clean slate.
-    script_lines.append(
-        "for device in prefs.devices: device.use = False"
-    )
-    script_lines.append(
-        "if 0 <= target_gpu_index < len(non_cpu_devices):"
-    )
-    script_lines.append(
-        "    target_device = non_cpu_devices[target_gpu_index]"
-    )
-    script_lines.append(
-        "    print(f'Isolating GPU: {target_device.name}')"
-    )
-    # Then, enable only the target GPU.
-    script_lines.append("    target_device.use = True")
-    script_lines.append("else:")
-    script_lines.append(
-        "    print(f'WARNING: GPU index {target_gpu_index} "
-        "is out of valid range [0, {len(non_cpu_devices)-1}]."
-        " Using all GPUs.')"
-    )
-    script_lines.append(
-        "    for device in non_cpu_devices: device.use = True"
-    )
-
-
 def _append_cycles_gpu_config(script_lines, job_id,
                               detected_gpus, gpu_index_override):
-    """Appends Blender script lines for Cycles GPU rendering config."""
+    """Appends Blender script lines for Cycles GPU rendering config.
+
+    With a target index (split mode or FORCE_GPU_INDEX) exactly one
+    physical card is enabled, selected by its backend and Blender device
+    id. Without one (combined mode) every entry of the machine-wide
+    preferred backend that belongs to a card on the worker's list is
+    enabled. Every other entry is switched off, and the generated script
+    fails the job if Blender did not enable what was asked for (#238).
+
+    Raises:
+        ValueError: If the target index does not name a usable card.
+    """
     logger.info(
         f"[Job {job_id}] Configuring job for GPU rendering. "
         f"Available backends: {detected_gpus}"
     )
-    script_lines.append(
-        "prefs = bpy.context.preferences"
-        ".addons['cycles'].preferences"
-    )
-    backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
-    chosen_backend = next(
-        (b for b in backend_preference if b in detected_gpus), None
-    )
+    chosen_backend = gpu_device_script.choose_backend(detected_gpus)
 
     if chosen_backend:
-        script_lines.append(
-            f"prefs.compute_device_type = '{chosen_backend}'"
-        )
-        script_lines.append(
-            f"print(f'Using compute backend: {chosen_backend}')"
-        )
-        script_lines.append("prefs.get_devices()")
-
         target_index = _resolve_target_gpu_index(gpu_index_override)
         if target_index is not None:
-            _append_gpu_isolation_script(script_lines, target_index)
-        else:
-            # Default behavior: enable all detected GPUs
-            script_lines.append("for device in prefs.devices:")
-            script_lines.append(
-                "    if device.type != 'CPU': device.use = True"
+            gpu_device_script.append_isolated_gpu_script(
+                script_lines, job_id, target_index
             )
-
-        script_lines.append(
-            "bpy.context.scene.cycles.device = 'GPU'"
-        )
+        else:
+            gpu_device_script.append_combined_gpu_script(
+                script_lines, job_id, chosen_backend
+            )
+        # The emitted selection also sets cycles.device = 'GPU' inside its
+        # fail-closed guard.
     else:
         logger.warning(
             "GPU requested but no compatible backend was "
@@ -148,16 +111,22 @@ def generate_render_config_script(
     before rendering. It supports overriding the render engine, device,
     and other user-defined settings.
 
-    For GPU jobs, it can be configured to isolate a single, specific GPU
-    device by its index via `gpu_index_override` (split mode) or the
-    `SETHLANS_FORCE_GPU_INDEX` configuration setting.
+    For GPU jobs, it can isolate one physical card via
+    `gpu_index_override` (split mode) or the `SETHLANS_FORCE_GPU_INDEX`
+    configuration setting; the card is selected in Blender by its backend
+    and device id, not by position. Without an index every listed card
+    is used through the preferred backend. Either way the script verifies
+    Blender's device state and exits with
+    gpu_device_script.GPU_CHECK_EXIT_CODE before rendering if it is not
+    what was asked for (#238).
 
     Args:
         job_id (int): The ID of the job for logging purposes.
         render_engine (str): The render engine (e.g., 'CYCLES').
         render_device (str): The render device ('CPU', 'GPU', 'ANY').
         render_settings (dict): User-defined settings to override.
-        gpu_index_override (int, optional): A specific GPU device index.
+        gpu_index_override (int, optional): A physical GPU index (a
+            position in system_monitor.get_gpu_device_details()).
             Takes precedence over FORCE_GPU_INDEX. Defaults to None.
         is_cpu_fallback (bool): If True, forces CPU device config,
             overriding an 'ANY' preference. Defaults to False.
@@ -166,7 +135,8 @@ def generate_render_config_script(
         str: The complete Python script as a string.
 
     Raises:
-        ValueError: If render_engine is not in the allowlist.
+        ValueError: If render_engine is not in the allowlist, or a GPU
+            job's target index does not name a usable detected card.
     """
     if render_engine not in _VALID_ENGINES:
         logger.error(

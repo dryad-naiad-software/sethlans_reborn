@@ -89,9 +89,11 @@ class WorkerCapacity:
     def _reserve_gpu_locked(self, job_id: int) -> Optional[List[int]]:
         """Allocate GPU indices. Caller must already hold self._lock.
 
-        Returns a list of Blender-ordering GPU indices on success, or
-        None if no GPU slot is free. Combined mode returns an empty
-        list (signals "use all non-CPU devices" to render_script).
+        Returns a list of physical GPU indices (positions in
+        system_monitor.get_gpu_device_details()) on success, or None if
+        no GPU slot is free. Combined mode returns an empty list (signals
+        "use every listed card through the preferred backend" to
+        render_script).
         """
         profile = self._profile
         if profile.gpu_slot_count == 0:
@@ -111,8 +113,8 @@ class WorkerCapacity:
         if profile.gpu_mode == "combined":
             # Sentinel key 0 marks the combined slot as occupied. The
             # reservation's gpu_indices is an empty list, which signals
-            # render_script to enable all non-CPU devices via the default
-            # branch in _append_cycles_gpu_config.
+            # render_script to enable every listed card through the
+            # preferred backend and switch all other device entries off.
             self._gpu_assignments[0] = job_id
             return []
 

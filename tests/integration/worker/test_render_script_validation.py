@@ -6,8 +6,8 @@
 Integration tests for render script generation and validation.
 
 Verifies that generated scripts are syntactically valid Python,
-contain expected Blender API calls for each render engine, and
-correctly configure GPU device selection.
+and contain expected Blender API calls for each render engine. GPU
+device selection is covered in test_render_script_gpu_validation.py.
 """
 
 import pytest
@@ -37,25 +37,6 @@ def test_cycles_cpu_script_compiles(mocker):
         job_id=1,
         render_engine='CYCLES',
         render_device='CPU',
-        render_settings={},
-    )
-
-    code = _compile_script(script)
-    assert code is not None
-
-
-def test_cycles_gpu_script_compiles(mocker):
-    """Cycles GPU render script is syntactically valid Python."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=['CUDA'],
-    )
-
-    script = generate_render_config_script(
-        job_id=1,
-        render_engine='CYCLES',
-        render_device='GPU',
         render_settings={},
     )
 
@@ -145,25 +126,6 @@ def test_cycles_script_sets_engine(mocker):
     assert "bpy.context.scene.render.engine = 'CYCLES'" in script
 
 
-def test_cycles_gpu_configures_backend(mocker):
-    """Cycles GPU script sets compute_device_type."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=['OPTIX', 'CUDA'],
-    )
-
-    script = generate_render_config_script(
-        job_id=1,
-        render_engine='CYCLES',
-        render_device='GPU',
-        render_settings={},
-    )
-
-    assert "prefs.compute_device_type = 'OPTIX'" in script
-    assert "bpy.context.scene.cycles.device = 'GPU'" in script
-
-
 def test_cycles_cpu_sets_cpu_device(mocker):
     """Cycles CPU script sets device to CPU."""
     mocker.patch(
@@ -246,33 +208,7 @@ def test_invalid_setting_key_skipped(mocker):
     assert "__import__" not in script
 
 
-# -- GPU device selection script --
-
-def test_gpu_index_isolation_script(mocker):
-    """GPU split mode generates isolation script for specific index."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=['CUDA'],
-    )
-    mocker.patch(
-        'sethlans_worker_agent.render_script.config.FORCE_GPU_INDEX',
-        None,
-    )
-
-    script = generate_render_config_script(
-        job_id=1,
-        render_engine='CYCLES',
-        render_device='GPU',
-        render_settings={},
-        gpu_index_override=2,
-    )
-
-    code = _compile_script(script)
-    assert code is not None
-    assert "target_gpu_index = 2" in script
-    assert "target_device.use = True" in script
-
+# -- CPU fallback --
 
 def test_gpu_fallback_to_cpu(mocker):
     """CPU fallback flag forces CPU device config."""

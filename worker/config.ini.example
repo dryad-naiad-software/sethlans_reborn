@@ -38,7 +38,9 @@ cpu_threads = 0
 # GPU capacity mode. One of:
 #   split    - (default) N physical GPUs become N parallel GPU slots.
 #   combined - N physical GPUs become 1 slot; one Blender invocation
-#              uses every non-CPU device. Trades throughput for
+#              uses every detected GPU through the preferred compute
+#              backend (OptiX, then CUDA, HIP, Metal, oneAPI); cards that
+#              backend cannot drive are left out. Trades throughput for
 #              per-frame speed. Incompatible with SETHLANS_FORCE_GPU_INDEX.
 # Override via SETHLANS_GPU_MODE environment variable.
 gpu_mode = split

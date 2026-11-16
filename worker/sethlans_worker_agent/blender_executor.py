@@ -19,7 +19,7 @@ from typing import Optional
 import psutil
 
 from sethlans_worker_agent import config, asset_manager, system_monitor, api_handler
-from sethlans_worker_agent import env_cleanup
+from sethlans_worker_agent import env_cleanup, gpu_device_script
 from sethlans_worker_agent.blender_yield import (
     terminate_process_tree, handle_yield,
 )
@@ -81,12 +81,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
             gpu_idx = int(config.FORCE_GPU_INDEX)
         except (ValueError, TypeError):
             pass
-    if gpu_idx is not None:
-        gpus = system_monitor.get_gpu_device_details()
-        if 0 <= gpu_idx < len(gpus):
-            logger.info(f"[Job {job_id}] Assigning to [Physical GPU {gpu_idx}] {gpus[gpu_idx].get('name', 'N/A')}.")
-        else:
-            logger.warning(f"[Job {job_id}] GPU index {gpu_idx} out of range. Using all available GPUs.")
+    gpu_device_script.log_gpu_assignment(job_id, gpu_idx)
 
     output_file_pattern = job_data.get('output_file_pattern')
     start_frame = job_data.get('start_frame', 1)
@@ -154,6 +149,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
     except Exception as e:
         error_msg = f"Failed to generate render settings script: {e}"
         logger.error(error_msg)
+        tool_manager_instance.release_version(resolved_version)
         if temp_script_path and os.path.exists(temp_script_path):
             os.remove(temp_script_path)
         return (False, False, False, "", "", error_msg,
@@ -275,11 +271,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
                 final_output_path = resolved_output_pattern.replace(
                     "####", f"{start_frame:04d}")
         elif not error_message:
-            error_details = stderr_output.strip()[:500] or "No STDERR."
-            error_message = (
-                f"Blender exited with code {final_return_code}. "
-                f"Details: {error_details}"
-            )
+            error_message = gpu_device_script.describe_blender_failure(final_return_code, stderr_output)
 
         if success and blender_format in EXR_HDR_FORMATS and start_frame == end_frame:
             from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail

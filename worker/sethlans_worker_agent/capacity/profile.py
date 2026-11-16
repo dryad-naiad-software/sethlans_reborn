@@ -38,8 +38,9 @@ class SlotReservation:
     """Handle returned by reserve_for_job.
 
     Contains everything the caller needs to drive blender_executor and
-    to release on failure. The gpu_indices list uses Blender's
-    non-CPU device ordering (FR-20a).
+    to release on failure. The gpu_indices list counts physical cards:
+    each index is a position in system_monitor.get_gpu_device_details()
+    (one record per card), not in Blender's per-backend device list.
     """
     job_id: int
     device_used: str  # "GPU" or "CPU"
@@ -49,10 +50,11 @@ class SlotReservation:
     def primary_gpu_index(self) -> Optional[int]:
         """Return the first GPU index, or None for CPU / combined mode.
 
-        For split mode this is the single index to isolate via
-        render_script._append_gpu_isolation_script. For combined mode
-        this is None, which signals render_script._append_cycles_gpu_config
-        to enable all non-CPU devices via its default branch.
+        For split mode this is the single physical card to isolate; the
+        render script enables only that card's entry, matched by backend
+        and Blender device id (gpu_device_script). For combined mode this
+        is None, which makes render_script enable every listed card
+        through the preferred backend and switch all other entries off.
         """
         if len(self.gpu_indices) == 1:
             return self.gpu_indices[0]

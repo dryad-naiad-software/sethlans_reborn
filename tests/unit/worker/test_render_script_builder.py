@@ -16,6 +16,25 @@ from sethlans_worker_agent.render_script import (
     _SAFE_KEY_RE,
 )
 
+# One record per physical card, as system_monitor.get_gpu_device_details()
+# returns them: the card's preferred backend and Blender's id for it.
+_RTX_OPTIX = {'index': 0, 'name': 'NVIDIA GeForce RTX 4080', 'type': 'OPTIX',
+              'id': 'CUDA_NVIDIA GeForce RTX 4080_0000:01:00_OptiX'}
+_GTX_CUDA = {'index': 1, 'name': 'NVIDIA GeForce GTX 1080', 'type': 'CUDA',
+             'id': 'CUDA_NVIDIA GeForce GTX 1080_0000:02:00'}
+
+
+def _mock_cards(mocker, cards):
+    """Patch both detection calls to describe the given physical cards."""
+    mocker.patch(
+        'sethlans_worker_agent.system_monitor.detect_gpu_devices',
+        return_value=sorted({c['type'] for c in cards})
+    )
+    mocker.patch(
+        'sethlans_worker_agent.system_monitor.get_gpu_device_details',
+        return_value=cards
+    )
+
 
 class TestResolveTargetGpuIndex:
 
@@ -62,37 +81,31 @@ class TestGenerateRenderConfigScript:
         assert "cycles.device = 'CPU'" in script
 
     def test_cycles_gpu_with_optix(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.detect_gpu_devices',
-            return_value=['OPTIX', 'CUDA']
-        )
+        _mock_cards(mocker, [_RTX_OPTIX, _GTX_CUDA])
         mocker.patch(
             'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
         script = generate_render_config_script(
             1, 'CYCLES', 'GPU', {}
         )
-        assert "compute_device_type = 'OPTIX'" in script
+        # Combined mode: the preferred backend, only its cards enabled.
+        assert "'OPTIX', 'combined'," in script
+        assert f"({_RTX_OPTIX['id']!r}, 'OPTIX')," in script
+        assert f"({_GTX_CUDA['id']!r}, 'CUDA')," not in script
         assert "cycles.device = 'GPU'" in script
 
     def test_cycles_gpu_cuda_fallback(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.detect_gpu_devices',
-            return_value=['CUDA']
-        )
+        _mock_cards(mocker, [_GTX_CUDA])
         mocker.patch(
             'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
         script = generate_render_config_script(
             1, 'CYCLES', 'GPU', {}
         )
-        assert "compute_device_type = 'CUDA'" in script
+        assert "'CUDA', 'combined'," in script
 
     def test_cycles_any_with_gpu_available(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.detect_gpu_devices',
-            return_value=['CUDA']
-        )
+        _mock_cards(mocker, [_GTX_CUDA])
         mocker.patch(
             'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
@@ -129,10 +142,7 @@ class TestGenerateRenderConfigScript:
         assert "cycles.device = 'CPU'" in script
 
     def test_gpu_isolation_with_index(self, mocker):
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.detect_gpu_devices',
-            return_value=['CUDA']
-        )
+        _mock_cards(mocker, [_RTX_OPTIX, _GTX_CUDA])
         mocker.patch(
             'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
@@ -140,7 +150,23 @@ class TestGenerateRenderConfigScript:
             1, 'CYCLES', 'GPU', {},
             gpu_index_override=1
         )
-        assert "target_gpu_index = 1" in script
+        # Index 1 is the second physical card: its own backend (CUDA,
+        # not the machine-wide OPTIX) and its device id are used.
+        assert "'CUDA', 'isolated'," in script
+        assert f"({_GTX_CUDA['id']!r}, 'CUDA')," in script
+        assert f"({_RTX_OPTIX['id']!r}, 'OPTIX')," not in script
+        assert "non_cpu_devices" not in script
+
+    def test_gpu_isolation_out_of_range_raises(self, mocker):
+        _mock_cards(mocker, [_RTX_OPTIX])
+        mocker.patch(
+            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
+        )
+        with pytest.raises(ValueError, match="out of range"):
+            generate_render_config_script(
+                1, 'CYCLES', 'GPU', {},
+                gpu_index_override=1
+            )
 
     def test_eevee_engine_no_cycles_config(self, mocker):
         mocker.patch(

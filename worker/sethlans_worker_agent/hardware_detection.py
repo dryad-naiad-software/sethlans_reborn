@@ -21,6 +21,7 @@ import psutil
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.cpu_detection import get_cpu_name  # noqa: F401
+from sethlans_worker_agent.gpu_select_helper import KNOWN_BACKENDS
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
@@ -108,8 +109,7 @@ def _filter_preferred_gpus(devices):
 
         # Fallback for non-NVIDIA cards (e.g., AMD, Intel) or if the above logic somehow fails
         if not best_option:
-            backend_preference = ['OPTIX', 'CUDA', 'HIP', 'METAL', 'ONEAPI']
-            for backend in backend_preference:
+            for backend in KNOWN_BACKENDS:
                 if backend in available_backends:
                     best_option = next((d for d in device_options if d['type'] == backend), None)
                     if best_option:
