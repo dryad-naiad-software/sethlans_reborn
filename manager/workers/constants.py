@@ -45,8 +45,10 @@ class RenderEngine(models.TextChoices):
     """
     Defines the supported Blender render engines.
 
-    The choice values are the exact string Blender's Python API expects
-    when setting the render engine (e.g., `bpy.context.scene.render.engine = 'CYCLES'`).
+    The choice values are the product's own engine names, stored with every
+    job. They are not always the identifier Blender accepts: the worker
+    translates them for the job's Blender version when it sets
+    `scene.render.engine` (worker `engine_script.py`, #242).
     """
     CYCLES = 'CYCLES', 'Cycles'
     EEVEE = 'BLENDER_EEVEE_NEXT', 'Eevee'

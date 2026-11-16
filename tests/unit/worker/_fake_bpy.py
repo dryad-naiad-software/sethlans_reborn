@@ -132,17 +132,39 @@ class StrictStruct:
         self._fields[name] = value
 
 
-def make_scene(name='Scene', cycles_feature_set=False):
+# render.engine identifiers each Blender line accepts (official builds, #242).
+ENGINES_4_1 = frozenset({'CYCLES', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'})
+ENGINES_4_2_TO_4_5 = frozenset({'CYCLES', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'})
+ENGINES_5_X = frozenset({'CYCLES', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'})
+
+
+class RenderStruct(StrictStruct):
+    """``RenderSettings`` whose ``engine`` accepts only some identifiers."""
+
+    def __init__(self, accepted_engines, **fields):
+        object.__setattr__(self, '_accepted_engines', frozenset(accepted_engines))
+        super().__init__('RenderSettings', **fields)
+
+    def __setattr__(self, name, value):
+        if name == 'engine' and value not in self._accepted_engines:
+            raise TypeError(
+                f'bpy_struct: item.attr = val: enum "{value}" not found in '
+                f'{tuple(sorted(self._accepted_engines))}')
+        super().__setattr__(name, value)
+
+
+def make_scene(name='Scene', cycles_feature_set=False, engines=ENGINES_5_X):
     """A scene with factory-default render settings.
 
     ``cycles_feature_set`` adds Cycles' ``feature_set`` (Blender 4.x has it,
-    5.x does not, #241).
+    5.x does not, #241). ``engines`` is the set of ``render.engine``
+    identifiers this Blender accepts (default: 5.x).
     """
     cycles = {'device': None, 'samples': None}
     if cycles_feature_set:
         cycles['feature_set'] = 'SUPPORTED'
-    render = StrictStruct(
-        'RenderSettings', engine=None, resolution_x=1920, resolution_y=1080,
+    render = RenderStruct(
+        engines, engine=None, resolution_x=1920, resolution_y=1080,
         resolution_percentage=100, use_border=False, use_crop_to_border=False,
         border_min_x=0.0, border_max_x=1.0, border_min_y=0.0, border_max_y=1.0,
         image_settings=StrictStruct('ImageFormatSettings', file_format='PNG', color_depth='8', quality=90),

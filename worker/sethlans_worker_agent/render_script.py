@@ -12,16 +12,16 @@ import re
 from typing import Optional
 
 from sethlans_worker_agent import config, gpu_device_script, system_monitor
+from sethlans_worker_agent.engine_script import ENGINE_HELPER, ENGINE_IDENTIFIERS, engine_call, is_known_engine
 
 logger = logging.getLogger(__name__)
 
-# Allowlist of valid Blender render engines. This must match the values
-# accepted by bpy.context.scene.render.engine. Sourced from the
-# RenderEngine enum in workers/constants.py, plus the legacy EEVEE name
-# for backward compatibility with Blender < 4.0.
-_VALID_ENGINES = {
-    'CYCLES', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'WORKBENCH',
-}
+# Allowlist of engine names a job may carry: the product's RenderEngine
+# values in workers/constants.py (CYCLES, BLENDER_EEVEE_NEXT, WORKBENCH)
+# plus Blender's own BLENDER_EEVEE and BLENDER_WORKBENCH. The script sets
+# whichever identifier of the engine's family the job's Blender accepts
+# (engine_script.py, #242).
+_VALID_ENGINES = frozenset(ENGINE_IDENTIFIERS)
 
 # Pattern for safe render setting keys: must be a valid Python
 # attribute path (e.g. "render.resolution_x", "cycles.samples").
@@ -152,12 +152,10 @@ def generate_render_config_script(
             f"Must be one of {sorted(_VALID_ENGINES)}"
         )
 
-    script_lines = ["import bpy"]
+    script_lines = ["import bpy", ENGINE_HELPER]
 
     # Set the render engine FIRST to ensure the context is correct.
-    script_lines.append(
-        f"bpy.context.scene.render.engine = '{render_engine}'"
-    )
+    script_lines.append(engine_call("bpy.context.scene.render", render_engine))
 
     # Only configure Cycles-specific device settings for Cycles.
     if render_engine == 'CYCLES':
@@ -200,12 +198,20 @@ def generate_render_config_script(
 def _append_user_setting(script_lines, key, value):
     """Append the line(s) that apply one user setting inside the scene loop.
 
+    ``render.engine`` with a known engine name (the manager adds it to every
+    tile job and animation frame) goes through the engine helper, like the
+    engine line at the top (#242); any other value is assigned directly and
+    still raises when Blender rejects it.
+
     ``cycles.feature_set`` is a named exception (#241): Blender 5.x's Cycles
     settings no longer have it, while 4.x still does, and the manager sends
     it for every Cycles tile job and animation frame. It is applied only
     when the scene's Cycles settings have it. Every other key is assigned
     directly, so an unknown setting still raises.
     """
+    if key == 'render.engine' and is_known_engine(value):
+        script_lines.append(f"    {engine_call('scene.render', value)}")
+        return
     py_value = repr(value)
     if key != _FEATURE_SET_KEY:
         script_lines.append(f"    scene.{key} = {py_value}")

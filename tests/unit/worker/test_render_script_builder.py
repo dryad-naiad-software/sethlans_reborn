@@ -77,7 +77,7 @@ class TestGenerateRenderConfigScript:
             1, 'CYCLES', 'CPU', {}
         )
         assert "import bpy" in script
-        assert "render.engine = 'CYCLES'" in script
+        assert "_sethlans_set_engine(bpy.context.scene.render, 'CYCLES', ('CYCLES',))" in script
         assert "cycles.device = 'CPU'" in script
 
     def test_cycles_gpu_with_optix(self, mocker):
@@ -175,7 +175,8 @@ class TestGenerateRenderConfigScript:
         script = generate_render_config_script(
             1, 'BLENDER_EEVEE_NEXT', 'GPU', {}
         )
-        assert "render.engine = 'BLENDER_EEVEE_NEXT'" in script
+        assert ("_sethlans_set_engine(bpy.context.scene.render, 'BLENDER_EEVEE_NEXT', "
+                "('BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT'))") in script
         # EEVEE should not configure Cycles device settings
         assert 'cycles.device' not in script
 
@@ -186,7 +187,8 @@ class TestGenerateRenderConfigScript:
         script = generate_render_config_script(
             1, 'WORKBENCH', 'CPU', {}
         )
-        assert "render.engine = 'WORKBENCH'" in script
+        assert ("_sethlans_set_engine(bpy.context.scene.render, 'WORKBENCH', "
+                "('BLENDER_WORKBENCH',))") in script
 
     def test_invalid_engine_raises_valueerror(self, mocker):
         mocker.patch(

@@ -123,7 +123,7 @@ def test_cycles_script_sets_engine(mocker):
     )
 
     assert "import bpy" in script
-    assert "bpy.context.scene.render.engine = 'CYCLES'" in script
+    assert "_sethlans_set_engine(bpy.context.scene.render, 'CYCLES', ('CYCLES',))" in script
 
 
 def test_cycles_cpu_sets_cpu_device(mocker):
