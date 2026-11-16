@@ -90,6 +90,11 @@ class TestRememberedExecutable:
 
 
 class TestRememberedExecutableMissing:
+    """The remembered Blender is gone and no other Blender is installed: skip."""
+
+    @pytest.fixture(autouse=True)
+    def _no_other_blender(self, mocker):
+        mocker.patch('sethlans_worker_agent.capacity.drift._choose_fallback_blender', return_value=None)
 
     def test_missing_blender_skips_without_drift(self, mocker, monkeypatch, tmp_path):
         monkeypatch.setattr(hardware_detection, '_gpu_details_blender_exe', str(tmp_path / 'gone.exe'))
@@ -118,7 +123,7 @@ class TestRememberedExecutableMissing:
 
         with caplog.at_level(logging.DEBUG, logger=drift_module.__name__):
             for _ in range(3):
-                assert drift_module._startup_detection_executable() is None
+                assert drift_module._detection_executable() is None
 
         assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
 
@@ -130,7 +135,7 @@ class TestRememberedExecutableMissing:
         def warnings_after(calls):
             with caplog.at_level(logging.DEBUG, logger=logger_name):
                 for _ in range(calls):
-                    result = drift_module._startup_detection_executable()
+                    result = drift_module._detection_executable()
                     assert result == (str(exe) if exe.exists() else None)
             found = [r for r in caplog.records if r.levelno == logging.WARNING]
             caplog.clear()

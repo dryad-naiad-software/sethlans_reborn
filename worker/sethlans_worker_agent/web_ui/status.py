@@ -92,7 +92,7 @@ def get_status_snapshot():
         )
         active_jobs.append(entry)
 
-    # --- Hardware info (cached, no lock needed) ---
+    # --- Hardware info (cached; before the first fill this can wait for the GPU detection) ---
     gpu_details = get_gpu_device_details()
     gpu_list = []
     for gpu in gpu_details:

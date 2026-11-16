@@ -15,6 +15,8 @@ held across an API call or a Blender subprocess invocation.
 
 Documented order (enforced by convention and by test_capacity.py):
     WorkerCapacity._lock < _active_jobs_lock < _recent_jobs_lock
+hardware_detection._gpu_details_lock is taken with no worker lock held
+and nests only tool_manager._download_lock (a leaf).
 
 Package layout:
     profile.py  -- CapacityProfile, compute_capacity_profile,

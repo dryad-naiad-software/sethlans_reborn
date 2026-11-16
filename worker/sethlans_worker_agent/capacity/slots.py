@@ -18,6 +18,8 @@ from typing import Dict, List, Optional
 
 from sethlans_worker_agent.capacity import exclusive
 from sethlans_worker_agent.capacity.drift import (
+    DETECTION_FAILED,
+    adopt_detection_executable,
     detect_physical_gpus_now,
     set_drift_exit_code,
 )
@@ -228,11 +230,13 @@ class WorkerCapacity:
         with self._lock:
             return dict(self._gpu_assignments)
 
-    def assert_gpu_list_unchanged(self) -> None:
+    def assert_gpu_list_unchanged(self) -> Optional[str]:
         """Compare a fresh, uncached GPU detection with the list in use (#239).
 
         The list in use is the cached system_monitor.get_gpu_device_details()
-        that slots and render scripts work from. Any difference in the
+        that slots and render scripts work from; the detection runs with the
+        Blender that produced it, or a fallback when that one was removed,
+        adopted when its list matches (drift.py, #253). Any difference in the
         ordered (device id, backend) pairs is a change: a card gone or new,
         a backend or id changed, or the same cards in another order. On a
         change, triggers the drift handler flow per FR-22a: terminate
@@ -246,25 +250,26 @@ class WorkerCapacity:
             0`` -- the worker uses no card (FORCE_CPU_ONLY); the ~5-15s
             detection subprocess is not run.
           * ``detect_physical_gpus_now()`` returned ``None`` -- transient
-            subprocess failure. Try again next interval.
+            failure: returns ``DETECTION_FAILED`` ("try again later").
         """
         if self._profile.startup_gpu_count == 0 or self._profile.gpu_slot_count == 0:
             logger.debug(
                 "assert_gpu_list_unchanged: no GPU at startup or no GPU "
                 "slot, skipping drift check."
             )
-            return
+            return None
 
         current = detect_physical_gpus_now()
         if current is None:
-            # Transient subprocess failure. Do NOT treat as drift.
-            return
+            # Transient failure. Do NOT treat as drift; a request stays pending.
+            return DETECTION_FAILED
         from sethlans_worker_agent import system_monitor
         change = describe_gpu_list_change(
             gpu_identity(system_monitor.get_gpu_device_details()), current,
         )
         if change is None:
-            return
+            adopt_detection_executable()  # a replacement detection Blender agreed (#253)
+            return None
 
         logger.critical(
             "GPU change detected: %s. Initiating graceful shutdown.", change,

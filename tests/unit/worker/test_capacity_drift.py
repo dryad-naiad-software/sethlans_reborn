@@ -189,10 +189,13 @@ def fake_blender(mocker, monkeypatch, tmp_path):
 
 class TestDetectPhysicalGpusNow:
 
-    def test_returns_none_when_no_detection_blender_is_known(self, monkeypatch):
-        """No remembered Blender is a skip signal, not 'no GPUs'."""
+    def test_returns_none_when_no_detection_blender_is_known(self, monkeypatch, mocker):
+        """No remembered Blender and none installed is a skip signal, not 'no GPUs'."""
         monkeypatch.setattr(hardware_detection, '_gpu_details_blender_exe', None)
+        mocker.patch('sethlans_worker_agent.capacity.drift._choose_fallback_blender', return_value=None)
+        run = mocker.patch('sethlans_worker_agent.capacity.drift.subprocess.run')
         assert drift_module.detect_physical_gpus_now() is None
+        run.assert_not_called()
 
     def test_returns_preferred_card_pairs_in_order(self, fake_blender, mocker):
         raw = [

@@ -171,6 +171,43 @@ class TestImmediateRecheck:
         assert _tick(loop, 1002.0) == 1
 
 
+class TestFailedDetection:
+    """A detection that failed ("try again later") does not use up a request (#253)."""
+
+    def test_request_stays_pending_and_the_floor_still_applies(self, loop, mocker):
+        mocker.patch('sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 3600)
+        floor = capacity_module.IMMEDIATE_RECHECK_FLOOR_SECONDS
+        loop.detect.return_value = None
+
+        assert _tick(loop, 1001.0, request=True) == 1
+        assert capacity_module.gpu_list_recheck_pending() is True  # put back
+        for now in (1002.0, 1100.0, 1001.0 + floor - 1):
+            assert _tick(loop, now) == 1  # no retry inside the floor
+        assert _tick(loop, 1001.0 + floor) == 2  # the floor expired: retried
+        assert capacity_module.gpu_list_recheck_pending() is True
+
+        loop.detect.return_value = [('CUDA_GPU_0', 'CUDA')]
+        assert _tick(loop, 1001.0 + 2 * floor) == 3
+        assert capacity_module.gpu_list_recheck_pending() is False
+
+    def test_periodic_run_that_answered_a_request_puts_it_back(self, loop):
+        assert _tick(loop, 1001.0, request=True) == 1
+        assert _tick(loop, 1002.0, request=True) == 1  # inside the floor: pending
+        loop.detect.return_value = None
+
+        assert _tick(loop, 1031.0) == 2  # periodic run answers it, detection fails
+        assert capacity_module.gpu_list_recheck_pending() is True
+        assert _tick(loop, 1032.0) == 2  # still inside the floor of the 1001 run
+
+    def test_periodic_failure_without_a_request_creates_none(self, loop):
+        loop.detect.return_value = None
+
+        assert _tick(loop, 1030.0) == 1
+        assert capacity_module.gpu_list_recheck_pending() is False
+        assert _tick(loop, 1031.0) == 1
+        assert job_processor._last_drift_check_ts == 1030.0
+
+
 class TestWorkersThatSkipTheComparison:
 
     @pytest.mark.parametrize('gpu_slots, startup_gpus', [(0, 0), (0, 2)],

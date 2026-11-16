@@ -12,6 +12,8 @@ _reserve_next_available_gpu primitives have been removed.
 Lock ordering (enforced by convention + unit tests):
     WorkerCapacity._lock < _active_jobs_lock < _recent_jobs_lock
 No code path may acquire a later lock while holding an earlier one.
+hardware_detection._gpu_details_lock is taken with no worker lock held
+and nests only tool_manager._download_lock (a leaf).
 The GPU re-check request (capacity.recheck, a threading.Event) is a leaf:
 its internal lock is never held while any of the above is taken.
 

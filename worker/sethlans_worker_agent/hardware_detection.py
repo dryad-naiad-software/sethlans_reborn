@@ -15,6 +15,7 @@ import os
 import platform
 import socket
 import subprocess
+import threading
 from collections import defaultdict
 
 import psutil
@@ -40,8 +41,6 @@ def _resolve_ip_address(hostname, timeout_seconds=5.0):
     ``127.0.0.1`` if the lookup does not finish in time. The daemon
     thread is abandoned on timeout; it does not prevent process exit.
     """
-    import threading
-
     result = {"value": None}
 
     def _lookup():
@@ -63,6 +62,7 @@ OS_INFO = f"{platform.system()} {platform.release()}"
 _gpu_devices_cache = None
 _gpu_details_cache = None
 _gpu_details_blender_exe = None  # Blender that filled _gpu_details_cache (#239 drift check)
+_gpu_details_lock = threading.Lock()  # first fill of the two above, and later executable changes (#253)
 _cpu_thread_count_cache = None
 
 
@@ -138,75 +138,75 @@ def _find_any_blender_executable():
 
 
 def get_gpu_device_details():
-    """
-    Executes the detect_gpus.py script to get detailed info about each GPU.
+    """Run detect_gpus.py once and return the physical GPUs (cached; [] on failure).
 
-    This function runs a headless Blender instance to execute the script,
-    captures its standard output, and robustly parses it to find the JSON
-    array containing the GPU device information. The result is cached. It also
-    logs a summary of the detected physical GPUs and their preferred backends
-    upon successful detection.
-
-    Returns:
-        list: A list of dictionaries, where each dictionary contains details
-              about a detected GPU device (name, type, id, etc.). Returns an
-              empty list on failure.
+    Each record has the card's ``name``, preferred backend ``type``, Blender
+    device ``id`` and ``index``. The first fill is serialized under
+    ``_gpu_details_lock``: a second caller (the agent loop and the web UI
+    status thread can both get here first) waits for the running detection
+    instead of starting its own, so the list and the Blender that produced
+    it always come from one detection and a filled cache is never replaced.
+    Without an installed Blender nothing is cached and the next call retries.
+    The lock is held only here and in ``capacity.drift`` when it adopts a new
+    detection executable, never with a worker lock held; while it is held only
+    ``tool_manager._download_lock`` (a leaf, in ``scan_for_local_blenders``) is taken.
     """
-    global _gpu_details_cache, _gpu_details_blender_exe
     if _gpu_details_cache is not None:
         return _gpu_details_cache
+    with _gpu_details_lock:
+        if _gpu_details_cache is None:
+            _fill_gpu_details_cache()
+        return _gpu_details_cache if _gpu_details_cache is not None else []
 
+
+def _fill_gpu_details_cache():
+    """Detect the GPUs and cache the list with its Blender; caller holds the lock."""
+    global _gpu_details_cache, _gpu_details_blender_exe
     blender_exe = _find_any_blender_executable()
     if not blender_exe:
         logger.info("Cannot detect GPUs yet: no Blender executable available.")
-        return []  # Don't cache — retry after Blender is downloaded
+        return  # Don't cache: retry after Blender is downloaded
 
     script_path = os.path.join(os.path.dirname(__file__), 'utils', 'detect_gpus.py')
     command = [blender_exe, '--background', '--factory-startup', '--python', script_path]
-
     try:
         from sethlans_worker_agent import env_cleanup
-        result = subprocess.run(
-            command, capture_output=True, text=True, check=True, timeout=90,
+        result = subprocess.run(  # Blender's Python writes UTF-8 whatever the locale
+            command, capture_output=True, text=True, encoding='utf-8', errors='replace', check=True, timeout=90,
             env=env_cleanup.clean_env_for_blender(),
         )
-
         logger.debug(f"detect_gpus.py stdout:\n{result.stdout}")
         logger.debug(f"detect_gpus.py stderr:\n{result.stderr}")
-
-        json_line = None
-        for line in result.stdout.strip().splitlines():
-            if line.strip().startswith('[') and line.strip().endswith(']'):
-                json_line = line
-                break
-
-        if json_line:
-            raw_devices = json.loads(json_line)
-            preferred_devices = _filter_preferred_gpus(raw_devices)
-            logger.info(
-                "Detected %d logical devices, filtered to %d preferred.",
-                len(raw_devices), len(preferred_devices))
-
-            if preferred_devices:
-                logger.info(f"Physical GPU detection complete. Found {len(preferred_devices)} physical GPUs.")
-                for i, device in enumerate(preferred_devices):
-                    name = device.get('name', 'N/A')
-                    backend = device.get('type', 'N/A')
-                    dev_id = device.get('id', 'N/A')
-                    logger.info(
-                        f"  - [Physical GPU {i}] Name: {name} | Preferred Backend: {backend} | Blender Device ID: {dev_id}")
-
-            _gpu_details_cache, _gpu_details_blender_exe = preferred_devices, blender_exe
-            return _gpu_details_cache
-        else:
+        json_line = next((line for line in result.stdout.strip().splitlines()
+                          if line.strip().startswith('[') and line.strip().endswith(']')), None)
+        if not json_line:
             logger.warning("Could not find a valid JSON line in detect_gpus.py output.")
             _gpu_details_cache = []
-            return []
-
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
-        logger.error(f"Failed to execute or parse detect_gpus.py script: {e}")
+            return
+        raw_devices = json.loads(json_line)
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
+        # Cached as "no GPUs" so callers queued on the lock do not repeat the detection.
+        logger.error("Failed to execute or parse detect_gpus.py (%s); the worker will run without GPUs "
+                     "until it is restarted.", e, exc_info=True)
         _gpu_details_cache = []
-        return _gpu_details_cache
+        return
+    try:
+        preferred_devices = _filter_preferred_gpus(raw_devices)
+    except (KeyError, TypeError, AttributeError) as e:  # a malformed device record; cached as above
+        logger.error("detect_gpus.py returned an unusable device list (%s); the worker will run without GPUs "
+                     "until it is restarted.", e, exc_info=True)
+        _gpu_details_cache = []
+        return
+
+    logger.info("Detected %d logical devices, filtered to %d preferred.", len(raw_devices), len(preferred_devices))
+    if preferred_devices:
+        logger.info(f"Physical GPU detection complete. Found {len(preferred_devices)} physical GPUs.")
+    for i, device in enumerate(preferred_devices):
+        logger.info(f"  - [Physical GPU {i}] Name: {device.get('name', 'N/A')} | Preferred Backend: "
+                    f"{device.get('type', 'N/A')} | Blender Device ID: {device.get('id', 'N/A')}")
+    # Executable first: a reader on the unlocked fast path never sees a list without it.
+    _gpu_details_blender_exe = blender_exe
+    _gpu_details_cache = preferred_devices
 
 
 def detect_gpu_devices():
