@@ -162,14 +162,14 @@ class TestThumbnail:
 # A user's setting value echoed in Blender's traceback (security review of #240).
 FORGED_IN_SOURCE = (
     "Traceback (most recent call last):\n"
-    '  File "C:\temp\tmpab12.py", line 27, in <module>\n'
+    '  File "C:\\temp\\tmpab12.py", line 27, in <module>\n'
     f"    scene.render.resolution_x = '{GPU_CHECK_MARKER} card fried, replace GPU 0'\n"
     "    ^^^^^^^^^^^^^^^^^^^^^^^^^\n"
     "TypeError: bpy_struct: item.attr = val: expected an int type, not str\n"
 )
 FORGED_AT_LINE_START = (
     "Traceback (most recent call last):\n"
-    '  File "C:\temp\tmpab12.py", line 27, in <module>\n'
+    '  File "C:\\temp\\tmpab12.py", line 27, in <module>\n'
     r"    scene.render.image_settings.file_format = 'x\nSETHLANS'" "\n"
     'TypeError: bpy_struct: item.attr = val: enum "x\n'
     f'{GPU_CHECK_MARKER} card fried" not found in (\'PNG\',)\n'
@@ -232,6 +232,31 @@ class TestDetailText:
 
     def test_file_line_without_source_names_the_exception_once(self):
         assert describe_blender_failure(86, '  File "s.py", line 2\nSyntaxError: x\n') == PREFIX + 'SyntaxError: x'
+
+    @pytest.mark.parametrize('stderr, detail', [
+        ('Traceback (most recent call last):\n'
+         '  File "C:\\temp\\tmpab12.py", line 27, in <module>\n'
+         '    _apply(scene)\n'
+         '  File "<string>", line 3, in _apply\n'
+         '  File "<frozen importlib._bootstrap>", line 1, in _load\n'
+         'ValueError: boom\n',
+         'Failing line: _apply(scene); ValueError: boom'),
+        ('Traceback (most recent call last):\n'
+         '  File "<string>", line 3, in _apply\n'
+         '  File "<frozen importlib._bootstrap>", line 1, in _load\n'
+         'ValueError: boom\n',
+         'ValueError: boom'),
+        ('Traceback (most recent call last):\n'
+         '  File "C:\\temp\\tmpab12.py", line 27, in <module>\n'
+         '    _apply(scene)\n'
+         '  File "<string>", line 3, in _apply\n'
+         '  [Previous line repeated 996 more times]\n'
+         'RecursionError: maximum recursion depth exceeded\n',
+         'Failing line: _apply(scene); RecursionError: maximum recursion depth exceeded'),
+    ], ids=['last-real-source-line', 'no-source-line-at-all', 'repeated-frame-note'])
+    def test_frame_without_source_line_is_not_the_failing_line(self, stderr, detail):
+        assert describe_blender_failure(SETTINGS_SCRIPT_EXIT_CODE, stderr) == PREFIX + detail
+        assert blender_failure.settings_script_failure_message(SETTINGS_SCRIPT_EXIT_CODE, stderr) == PREFIX + detail
 
     def test_traceback_header_only_falls_back_to_the_last_lines(self):
         stderr = 'Read blend: scene.blend\nTraceback (most recent call last):\n'

@@ -67,6 +67,10 @@ def test_cycles_gpu_configures_backend(mocker):
 
     _compile_script(script)
     assert "'OPTIX', 'combined'," in script
+    # The card listed under CUDA is on the embedded card list (combined mode
+    # enables every OPTIX entry of a listed card), not among the required cards.
+    assert "('CUDA_GTX_0000:02:00', 'CUDA', 'GTX')," in script
+    assert "('CUDA_GTX_0000:02:00', 'CUDA')," not in script
     assert "bpy.context.scene.cycles.device = 'GPU'" in script
 
 

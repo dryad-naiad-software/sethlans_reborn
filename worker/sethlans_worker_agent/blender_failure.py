@@ -84,6 +84,13 @@ def _last_lines(lines) -> str:
     return '; '.join(ln.strip() for ln in lines if ln.strip())[-500:] or 'No STDERR.'
 
 
+def _is_source_line(line) -> bool:
+    """An indented traceback source line (not a ``File`` line or a repeat note)."""
+    text = line.strip()
+    return (line[:1].isspace() and bool(text) and not text.startswith('File "')
+            and not text.startswith('[Previous line repeated'))
+
+
 def _traceback_tail(stderr_text) -> str:
     """Return the failing source line and the exception from the last traceback.
 
@@ -91,9 +98,11 @@ def _traceback_tail(stderr_text) -> str:
     script: ``File "...", line 27`` / the indented source line / a caret line /
     ``AttributeError: ...``. A script that cannot be compiled prints the
     ``File`` line, the source line and ``SyntaxError: ...`` without the
-    ``Traceback`` header. The source line counts only when it is indented,
-    and is cut to ``_MAX_SOURCE_CHARS`` so the exception always fits. Falls
-    back to the last lines of stderr.
+    ``Traceback`` header. The source line counts only when it is indented
+    and is not itself a ``File "..."`` line (a frame without a source line)
+    or a ``[Previous line repeated ...]`` note, and is cut to
+    ``_MAX_SOURCE_CHARS`` so the exception always fits. Falls back to the
+    last lines of stderr.
     """
     lines = [ln.rstrip() for ln in (stderr_text or '').splitlines()]
     start = max((i for i, ln in enumerate(lines) if ln.strip() == _TRACEBACK_HEAD), default=None)
@@ -105,7 +114,7 @@ def _traceback_tail(stderr_text) -> str:
     code = ''
     for i, ln in enumerate(block[:-1]):
         nxt = block[i + 1]
-        if ln.lstrip().startswith('File "') and nxt[:1].isspace() and nxt.strip():
+        if ln.lstrip().startswith('File "') and _is_source_line(nxt):
             code = nxt.strip()
     exception = next((ln for ln in block[1:] if ln and not ln[0].isspace()), '').strip()
     if not code and not exception:

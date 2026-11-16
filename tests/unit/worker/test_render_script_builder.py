@@ -92,6 +92,8 @@ class TestGenerateRenderConfigScript:
         assert "'OPTIX', 'combined'," in script
         assert f"({_RTX_OPTIX['id']!r}, 'OPTIX')," in script
         assert f"({_GTX_CUDA['id']!r}, 'CUDA')," not in script
+        # ...but the CUDA card is on the embedded card list, so OptiX can use it.
+        assert f"({_GTX_CUDA['id']!r}, 'CUDA', {_GTX_CUDA['name']!r})," in script
         assert "cycles.device = 'GPU'" in script
 
     def test_cycles_gpu_cuda_fallback(self, mocker):

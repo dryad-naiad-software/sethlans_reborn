@@ -38,7 +38,9 @@ def _sethlans_gpu_check_exit(text):
     except BaseException:
         pass
     try:
-        sys.stderr.write(f'{_SETHLANS_GPU_CHECK_MARKER} {text}\n')
+        # Leading newline: the marker must start a line even if native code
+        # has just written part of one (empty lines are ignored downstream).
+        sys.stderr.write(f'\n{_SETHLANS_GPU_CHECK_MARKER} {text}\n')
         sys.stderr.flush()
     except BaseException:
         pass

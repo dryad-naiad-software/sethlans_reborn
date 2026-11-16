@@ -14,7 +14,8 @@ import sys
 
 import pytest
 
-from sethlans_worker_agent import gpu_device_script
+from sethlans_worker_agent import blender_failure, gpu_device_script
+from sethlans_worker_agent import capacity as capacity_module
 from tests.unit.worker._fake_bpy import (
     BLENDER_MIXED, CPU, IGPU_HIP, RTX_CUDA, RTX_OPTIX,
     FakePrefs, card, check_failures, generate_script, install_fake_bpy,
@@ -28,6 +29,8 @@ WORKER_MIXED = [card(0, RTX_OPTIX), card(1, IGPU_HIP)]
 HOSTILE_ID = 'CUDA_x\')\nINJECTED = "id"\n#\\"""\'\'\'_OptiX'
 HOSTILE_NAME = 'Evil "GPU" \'card\' \\\nINJECTED = "name"\n#\'\'\''
 HOSTILE_OPTIX = ('OPTIX', HOSTILE_ID, HOSTILE_NAME)
+GPU_CHECK_PREFIX = ('GPU device check failed: Blender did not enable the requested GPU, '
+                    'so the render was stopped before it started. ')
 
 
 def _expect_check_failure(mocker, monkeypatch, capsys, specs, gpu_index, **kwargs):
@@ -118,6 +121,56 @@ class TestJobCardNotUsable:
         )
 
         assert '0 Blender device entries match' in line
+
+
+class _NoisyPrefs(FakePrefs):
+    """Native code writes part of a line to stderr while Blender lists the devices."""
+
+    PARTIAL = 'CUDA driver: probing devices without a newline'
+
+    def get_devices(self):
+        sys.stderr.write(self.PARTIAL)
+        super().get_devices()
+
+
+class TestMarkerStartsALine:
+    """The failure line is recognised after a partial line on stderr."""
+
+    def _failed_stderr(self, mocker, monkeypatch, capsys, prefs):
+        install_fake_bpy(monkeypatch, prefs)
+        script = generate_script(mocker, WORKER_MIXED, 0)
+        with pytest.raises(SystemExit) as excinfo:
+            run_script(script)
+        assert excinfo.value.code == gpu_device_script.GPU_CHECK_EXIT_CODE
+        return capsys.readouterr().err
+
+    def _assert_recognised(self, stderr):
+        lines = check_failures(stderr)
+        assert len(lines) == 1
+        detail = lines[0][len(gpu_device_script.GPU_CHECK_MARKER):].strip()
+        message = blender_failure.gpu_check_failure_message(gpu_device_script.GPU_CHECK_EXIT_CODE, stderr)
+        assert message == GPU_CHECK_PREFIX + detail
+        assert blender_failure.describe_blender_failure(gpu_device_script.GPU_CHECK_EXIT_CODE, stderr) == message
+        assert blender_failure.request_recheck_if_check_failed(gpu_device_script.GPU_CHECK_EXIT_CODE, stderr) is True
+        assert capacity_module.gpu_list_recheck_pending() is True
+        return detail
+
+    def test_partial_line_before_the_marker(self, mocker, monkeypatch, capsys):
+        stderr = self._failed_stderr(mocker, monkeypatch, capsys, _NoisyPrefs([RTX_CUDA, CPU, IGPU_HIP]))
+
+        assert stderr.startswith(_NoisyPrefs.PARTIAL + '\n')
+        detail = self._assert_recognised(stderr)
+        assert detail.startswith('0 Blender device entries match')
+        assert _NoisyPrefs.PARTIAL not in detail
+
+    def test_nothing_before_the_marker(self, mocker, monkeypatch, capsys):
+        stderr = self._failed_stderr(mocker, monkeypatch, capsys, FakePrefs([RTX_CUDA, CPU, IGPU_HIP]))
+
+        detail = self._assert_recognised(stderr)
+        assert detail.startswith('0 Blender device entries match')
+        # The only extra output is the empty line before the marker; the
+        # message (compared exactly above) ignores it.
+        assert stderr.splitlines() == ['', check_failures(stderr)[0]]
 
 
 class TestHostileStrings:

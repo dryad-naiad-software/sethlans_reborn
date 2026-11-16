@@ -95,18 +95,10 @@ def _filter_preferred_gpus(devices):
         if not device_options:
             continue
 
-        best_option = None
         device_name = device_options[0].get('name', '').upper()
         available_backends = {d['type'] for d in device_options}
-
-        # --- Implement user-specified preference logic ---
-        if 'NVIDIA' in device_name:
-            if 'RTX' in device_name and 'OPTIX' in available_backends:
-                best_option = next((d for d in device_options if d['type'] == 'OPTIX'), None)
-
-            # Fallback for non-RTX cards or if OptiX isn't available
-            if not best_option and 'CUDA' in available_backends:
-                best_option = next((d for d in device_options if d['type'] == 'CUDA'), None)
+        best_option = (_nvidia_choice(device_name, device_options, available_backends)
+                       if 'NVIDIA' in device_name else None)
 
         # Fallback for non-NVIDIA cards (e.g., AMD, Intel) or if the above logic somehow fails
         if not best_option:
@@ -121,6 +113,18 @@ def _filter_preferred_gpus(devices):
 
     # Sort by the Blender device index to maintain a stable order
     return sorted(preferred_devices, key=lambda d: d['index'])
+
+
+def _nvidia_choice(device_name, device_options, available_backends):
+    """OptiX for an RTX card that offers it, else CUDA when offered, else None."""
+    if 'RTX' in device_name and 'OPTIX' in available_backends:
+        choice = next((d for d in device_options if d['type'] == 'OPTIX'), None)
+        if choice:
+            return choice
+    # Non-RTX cards, or OptiX not available
+    if 'CUDA' in available_backends:
+        return next((d for d in device_options if d['type'] == 'CUDA'), None)
+    return None
 
 
 def _find_any_blender_executable():
