@@ -5,10 +5,12 @@
 """
 A minimal fake ``bpy`` for executing generated render scripts in tests.
 
-Only the attributes the GPU selection code touches exist: the Cycles add-on
-preferences (``compute_device_type``, ``get_devices()``, ``devices``), the
-active scene's ``render.engine`` and ``cycles.device``, and
-``bpy.data.scenes``. Device specs are ``(type, id, name)`` tuples, in the
+Only the attributes the generated scripts touch exist: the Cycles add-on
+preferences (``compute_device_type``, ``get_devices()``, ``devices``) and
+``bpy.data.scenes``, whose scenes (``StrictStruct``) carry the render,
+image and Cycles settings the worker and manager send, with factory
+defaults; any other scene attribute raises ``AttributeError`` as in
+Blender. Device specs are ``(type, id, name)`` tuples, in the
 order Blender lists them (one entry per backend, so one RTX card appears
 as a CUDA entry and an OPTIX entry).
 """
@@ -103,19 +105,69 @@ def card(index, spec):
     return {'index': index, 'name': name, 'type': dev_type, 'id': dev_id}
 
 
-def install_fake_bpy(monkeypatch, prefs):
-    """Put a fake ``bpy`` module holding ``prefs`` into ``sys.modules``."""
-    scene = SimpleNamespace(
-        render=SimpleNamespace(engine=None),
-        cycles=SimpleNamespace(device=None, samples=None),
+class StrictStruct:
+    """Like a ``bpy_struct``: only known attributes can be read or set.
+
+    Reading or assigning any other attribute raises ``AttributeError`` with
+    Blender's wording, so a generated line for a missing property fails here
+    as it does in Blender.
+    """
+
+    def __init__(self, type_name, **fields):
+        object.__setattr__(self, '_type_name', type_name)
+        object.__setattr__(self, '_fields', dict(fields))
+
+    def _missing(self, name):
+        return AttributeError(f"'{self._type_name}' object has no attribute '{name}'")
+
+    def __getattr__(self, name):
+        fields = object.__getattribute__(self, '_fields')
+        if name in fields:
+            return fields[name]
+        raise self._missing(name)
+
+    def __setattr__(self, name, value):
+        if name not in self._fields:
+            raise self._missing(name)
+        self._fields[name] = value
+
+
+def make_scene(name='Scene', cycles_feature_set=False):
+    """A scene with factory-default render settings.
+
+    ``cycles_feature_set`` adds Cycles' ``feature_set`` (Blender 4.x has it,
+    5.x does not, #241).
+    """
+    cycles = {'device': None, 'samples': None}
+    if cycles_feature_set:
+        cycles['feature_set'] = 'SUPPORTED'
+    render = StrictStruct(
+        'RenderSettings', engine=None, resolution_x=1920, resolution_y=1080,
+        resolution_percentage=100, use_border=False, use_crop_to_border=False,
+        border_min_x=0.0, border_max_x=1.0, border_min_y=0.0, border_max_y=1.0,
+        image_settings=StrictStruct('ImageFormatSettings', file_format='PNG', color_depth='8', quality=90),
     )
+    return StrictStruct(
+        'Scene', name=name, render=render,
+        cycles=StrictStruct('CyclesRenderSettings', **cycles),
+    )
+
+
+def install_fake_bpy(monkeypatch, prefs, scenes=None):
+    """Put a fake ``bpy`` module holding ``prefs`` into ``sys.modules``.
+
+    ``scenes`` (default: one ``make_scene()``) become ``bpy.data.scenes``;
+    the first is the context scene.
+    """
+    scenes = list(scenes) if scenes else [make_scene()]
+    scene = scenes[0]
     cycles_addon = SimpleNamespace(preferences=prefs)
     bpy = types.ModuleType('bpy')
     bpy.context = SimpleNamespace(
         preferences=SimpleNamespace(addons={'cycles': cycles_addon}),
         scene=scene,
     )
-    bpy.data = SimpleNamespace(scenes=[scene])
+    bpy.data = SimpleNamespace(scenes=scenes)
     monkeypatch.setitem(sys.modules, 'bpy', bpy)
     return bpy
 

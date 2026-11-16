@@ -27,6 +27,10 @@ _VALID_ENGINES = {
 # attribute path (e.g. "render.resolution_x", "cycles.samples").
 _SAFE_KEY_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_.]*$')
 
+# Removed from Cycles in Blender 5.x but still sent by the manager (#241);
+# see _append_user_setting.
+_FEATURE_SET_KEY = 'cycles.feature_set'
+
 
 def _resolve_target_gpu_index(gpu_index_override):
     """
@@ -188,7 +192,28 @@ def generate_render_config_script(
                     f"setting key: {key!r}"
                 )
                 continue
-            py_value = repr(value)
-            script_lines.append(f"    scene.{key} = {py_value}")
+            _append_user_setting(script_lines, key, value)
 
     return "\n".join(script_lines)
+
+
+def _append_user_setting(script_lines, key, value):
+    """Append the line(s) that apply one user setting inside the scene loop.
+
+    ``cycles.feature_set`` is a named exception (#241): Blender 5.x's Cycles
+    settings no longer have it, while 4.x still does, and the manager sends
+    it for every Cycles tile job and animation frame. It is applied only
+    when the scene's Cycles settings have it. Every other key is assigned
+    directly, so an unknown setting still raises.
+    """
+    py_value = repr(value)
+    if key != _FEATURE_SET_KEY:
+        script_lines.append(f"    scene.{key} = {py_value}")
+        return
+    script_lines.append("    if hasattr(scene.cycles, 'feature_set'):")
+    script_lines.append(f"        scene.cycles.feature_set = {py_value}")
+    script_lines.append("    else:")
+    script_lines.append(
+        "        print(f'Skipping cycles.feature_set for scene {scene.name!a}: "
+        "this Blender version has no such setting.')"
+    )
