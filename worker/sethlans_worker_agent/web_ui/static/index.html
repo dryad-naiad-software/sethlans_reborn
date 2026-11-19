@@ -1,4 +1,6 @@
 <!DOCTYPE html>
+<!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -52,6 +54,16 @@
   .cfg-status { font-size: 0.75rem; margin-left: 0.5rem; }
   .cfg-status.ok { color: var(--ok); }
   .cfg-status.err { color: var(--err); }
+  .gc-msg { font-size: 0.85rem; margin: 0.5rem 0; line-height: 1.4; }
+  .gc-select { padding: 0.2rem 0.4rem; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 0.85rem; }
+  .gc-select:focus { outline: 1px solid var(--ok); }
+  .gc-list { border: none; margin-top: 0.5rem; }
+  .gc-list legend { color: var(--ok); font-size: 0.85rem; font-weight: bold; margin-bottom: 0.25rem; }
+  .gc-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; padding: 0.25rem 0; font-size: 0.85rem; cursor: pointer; }
+  .gc-opt input { accent-color: var(--ok); }
+  .gc-note { flex-basis: 100%; padding-left: 1.4rem; font-size: 0.75rem; opacity: 0.7; }
+  .gc-warnings { list-style: none; }
+  .gc-actions { margin-top: 0.75rem; }
 </style>
 </head>
 <body>
@@ -107,9 +119,32 @@
     <table>
       <tr><th>Polling Interval</th><td><input type="number" class="cfg-input" id="cfg-poll" min="1" max="3600" onchange="updateConfig('POLLING_INTERVAL',this.value,this)"> s<span class="cfg-status" id="cfg-poll-status"></span></td></tr>
       <tr><th>Heartbeat Interval</th><td><input type="number" class="cfg-input" id="cfg-hb" min="1" max="3600" onchange="updateConfig('HEARTBEAT_INTERVAL',this.value,this)"> s<span class="cfg-status" id="cfg-hb-status"></span></td></tr>
-      <tr><th>Compute Method</th><td id="cfg-compute-method">-</td></tr>
-      <tr><th>GPU Mode</th><td id="cfg-gpu-mode">-</td></tr>
     </table>
+  </div>
+  <div class="card">
+    <h2>Graphics Cards</h2>
+    <p class="gc-msg empty" id="gc-loading">Loading graphics cards...</p>
+    <div id="gc-form" style="display:none">
+      <p class="gc-msg" id="gc-env" style="display:none">The graphics card choice is set by environment variables on this worker.</p>
+      <p class="gc-msg status-warn" id="gc-probe-failed" style="display:none">The operating system could not list the graphics cards; the cards below come from Blender.</p>
+      <p class="gc-msg empty" id="gc-none" style="display:none">No graphics card was found on this machine.</p>
+      <table>
+        <tr><th><label for="gc-method">Compute Method</label></th><td>
+          <select class="gc-select" id="gc-method">
+            <option value="cpu">CPU</option>
+            <option value="gpu">GPU</option>
+            <option value="cpu_gpu">CPU and GPU</option>
+          </select></td></tr>
+      </table>
+      <p class="gc-msg empty" id="gc-checking" style="display:none">Checking which cards Blender can use...</p>
+      <fieldset class="gc-list" id="gc-list" style="display:none"><legend>Graphics cards to use</legend><div id="gc-items"></div>
+        <p class="gc-note" id="gc-help" style="padding-left:0;margin-top:0.25rem">Unreal renders on a ticked card. Blender uses the ticked cards only when the method includes GPU.</p></fieldset>
+      <label class="gc-opt" id="gc-combine-row" style="display:none"><input type="checkbox" id="gc-combine"> Combine GPUs</label>
+      <ul class="gc-warnings" id="gc-warnings"></ul>
+      <div class="gc-actions" id="gc-actions"><button class="btn btn-ok" id="gc-save" disabled onclick="saveCards()">Save</button></div>
+    </div>
+    <p class="gc-msg" id="gc-result" role="status"></p>
+    <button class="btn btn-secondary" id="gc-retry" style="display:none" onclick="loadCards(false)">Retry</button>
   </div>
   <div class="card">
     <h2>Blender Tools</h2>
@@ -211,10 +246,6 @@
     var hbEl = document.getElementById('cfg-hb');
     if (pollEl && document.activeElement !== pollEl) pollEl.value = cfg.polling_interval;
     if (hbEl && document.activeElement !== hbEl) hbEl.value = cfg.heartbeat_interval;
-    var methodEl = document.getElementById('cfg-compute-method');
-    var gpuModeEl = document.getElementById('cfg-gpu-mode');
-    if (methodEl) methodEl.textContent = cfg.compute_method || '-';
-    if (gpuModeEl) gpuModeEl.textContent = cfg.gpu_mode || '-';
 
     var toolsDiv = document.getElementById('tools-list');
     clearChildren(toolsDiv);
@@ -378,6 +409,129 @@
     }).catch(function(err) { alert('Shutdown failed: ' + err.message); });
   }
   window.shutdownWorker = shutdownWorker;
+
+  // --- Graphics cards (every server text goes in with textContent) ---
+  var CARDS_POLL_MS = 2000;
+  var cards = { data: null, shown: [], ticked: {}, timer: null };
+
+  function byId(id) { return document.getElementById(id); }
+  function show(id, on) { byId(id).style.display = on ? '' : 'none'; }
+  function hasGpu(method) { return method === 'gpu' || method === 'cpu_gpu'; }
+  function cardLabel(c) { return c.pci ? c.name + ' (PCI ' + c.pci + ')' : c.name; }
+  function tickedCards() { return cards.data.cards.filter(function(c) { return cards.ticked[c.address]; }); }
+  function setResult(text, cls) { var el = byId('gc-result'); el.textContent = text || ''; el.className = 'gc-msg' + (cls ? ' ' + cls : ''); }
+
+  // One-family rule: two or more ticked cards with a Blender family, all the same family.
+  function oneFamily(list) {
+    var fams = list.map(function(c) { return c.family; }).filter(function(f) { return f; });
+    return fams.length >= 2 && fams.every(function(f) { return f === fams[0]; });
+  }
+
+  // keep: a re-poll while Blender checks its devices; the person's choices stay as they are.
+  function loadCards(keep) {
+    clearTimeout(cards.timer);
+    show('gc-retry', false);
+    fetch('/api/cards/')
+      .then(function(r) { return r.json().catch(function() { return null; }).then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(r) {
+        if (!r.ok || !r.data || !r.data.cards) throw new Error((r.data && r.data.error) || 'The graphics cards could not be loaded.');
+        applyCards(r.data, keep);
+        if (r.data.blender_check === 'running') cards.timer = setTimeout(function() { loadCards(true); }, CARDS_POLL_MS);
+      })
+      .catch(function(err) {
+        if (keep) { cards.timer = setTimeout(function() { loadCards(true); }, CARDS_POLL_MS); return; }
+        show('gc-loading', false);
+        setResult(err.message, 'status-err');
+        show('gc-retry', true);
+      });
+  }
+  window.loadCards = loadCards;
+
+  function applyCards(d, keep) {
+    var method = keep ? byId('gc-method').value : d.method;
+    var combine = keep ? byId('gc-combine').checked : d.gpu_mode === 'combined';
+    if (!keep) { cards.ticked = {}; d.cards.forEach(function(c) { if (c.ticked) cards.ticked[c.address] = true; }); }
+    cards.data = d;
+    cards.shown = d.cards.map(function(c) { return c.address; });
+    Object.keys(cards.ticked).forEach(function(a) { if (cards.shown.indexOf(a) < 0) delete cards.ticked[a]; });
+    byId('gc-method').value = method;
+    byId('gc-combine').checked = combine;
+    renderCards();
+    show('gc-loading', false); show('gc-form', true);
+  }
+
+  function renderCards() {
+    var d = cards.data, locked = d.env_override, gpuOk = d.cards.length > 0;
+    var sel = byId('gc-method');
+    Array.prototype.forEach.call(sel.options, function(o) { o.disabled = o.value !== 'cpu' && !gpuOk; });
+    if (!gpuOk) sel.value = 'cpu';
+    sel.disabled = locked;
+    byId('gc-combine').disabled = locked;
+    show('gc-env', locked);
+    show('gc-actions', !locked);
+    show('gc-probe-failed', d.os_probe_failed);
+    show('gc-none', d.cards.length === 0);
+    show('gc-checking', d.blender_check === 'running');
+    var items = byId('gc-items');
+    clearChildren(items);
+    d.cards.forEach(function(c) {
+      var row = createEl('label', null, 'gc-opt');
+      var box = document.createElement('input');
+      box.type = 'checkbox'; box.checked = !!cards.ticked[c.address]; box.disabled = locked;
+      box.addEventListener('change', function() {
+        if (box.checked) cards.ticked[c.address] = true; else delete cards.ticked[c.address];
+        refreshCards();
+      });
+      row.appendChild(box);
+      row.appendChild(createEl('span', cardLabel(c)));
+      if (c.note) row.appendChild(createEl('span', c.note, 'gc-note'));
+      items.appendChild(row);
+    });
+    var warns = byId('gc-warnings');
+    clearChildren(warns);
+    (d.warnings || []).forEach(function(w) { warns.appendChild(createEl('li', w.text, 'gc-msg status-warn')); });
+    refreshCards();
+  }
+
+  function refreshCards() {
+    var d = cards.data, gpu = hasGpu(byId('gc-method').value), ticked = tickedCards();
+    show('gc-list', d.cards.length > 0);
+    var family = gpu && oneFamily(ticked);
+    if (!family) byId('gc-combine').checked = false;
+    show('gc-combine-row', family);
+    byId('gc-save').disabled = d.env_override || (gpu && ticked.length === 0);
+  }
+
+  function saveCards() {
+    var d = cards.data;
+    if (!d || d.env_override) return;
+    var password = getPassword();
+    if (!password) return;
+    var method = byId('gc-method').value;
+    var ticked = tickedCards().map(function(c) { return c.address; });
+    var body = {
+      method: method, gpu_mode: hasGpu(method) && ticked.length >= 2 && byId('gc-combine').checked ? 'combined' : 'split',
+      cards: ticked, shown: cards.shown, revision: d.revision
+    };
+    setResult('');
+    byId('gc-save').disabled = true;
+    fetch('/api/control/cards', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + password, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function(r) {
+      return r.json().catch(function() { return {}; }).then(function(data) {
+        if (r.ok) { setResult(data.message || 'Saved.', 'status-ok'); loadCards(false); return; }
+        if (r.status === 401) { sessionStorage.removeItem('workerUIPassword'); setResult('Wrong password. Try again.', 'status-err'); }
+        else { setResult(data.error || 'The graphics card choice could not be saved.', 'status-err'); }
+        refreshCards();
+      });
+    }).catch(function(err) { setResult(err.message, 'status-err'); refreshCards(); });
+  }
+  window.saveCards = saveCards;
+
+  byId('gc-method').addEventListener('change', refreshCards);
+  loadCards(false);
 
   pollStatus();
   setInterval(pollStatus, POLL_MS);

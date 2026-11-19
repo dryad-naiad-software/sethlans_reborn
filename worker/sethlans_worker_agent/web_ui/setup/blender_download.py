@@ -17,6 +17,7 @@ import platform
 import stat
 from pathlib import Path
 
+from sethlans_worker_agent.web_ui.setup import blender_devices
 from sethlans_worker_agent.web_ui.setup.download_progress import (
     get_task, update_task,
 )
@@ -92,6 +93,7 @@ def _resolve_download_spec(task_id, tm, version, cancel):
     exe = tm.get_blender_executable_path(full_version)
     if exe:
         append_wizard_checkpoint("blender_installed")
+        blender_devices.start_device_check()
         update_task(task_id, status="complete", percent=100)
         return None
 
@@ -171,6 +173,7 @@ def _run_download_pipeline(
         os.chmod(exe_path, st.st_mode | stat.S_IEXEC)
 
     append_wizard_checkpoint("blender_installed")
+    blender_devices.start_device_check()
     update_task(task_id, status="complete", percent=100)
     logger.info(
         "Blender %s downloaded and installed (task %s).",

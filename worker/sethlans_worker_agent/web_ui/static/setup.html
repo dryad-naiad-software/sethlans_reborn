@@ -1,6 +1,6 @@
+<!DOCTYPE html>
 <!-- SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC -->
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
-<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -71,6 +71,16 @@
   .topology-card .icon { font-size: 2rem; margin-bottom: 0.5rem; }
   .topology-card p { font-size: 0.85rem; color: var(--muted); line-height: 1.4; }
   .manual-entry { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--accent); }
+  select { width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--bg); color: var(--text); font-size: 0.9rem; margin-bottom: 0.75rem; }
+  select:focus { outline: 1px solid var(--ok); border-color: var(--ok); }
+  fieldset { border: none; margin-bottom: 0.5rem; }
+  legend { font-size: 0.85rem; margin-bottom: 0.3rem; }
+  .card-opt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; padding: 0.35rem 0; font-size: 0.9rem; cursor: pointer; margin: 0; }
+  .card-opt input { accent-color: var(--ok); }
+  .card-note { flex-basis: 100%; padding-left: 1.5rem; font-size: 0.8rem; color: var(--text); opacity: 0.7; }
+  .warn-msg { color: var(--warn); font-size: 0.85rem; margin-bottom: 0.75rem; line-height: 1.4; }
+  .info-msg { color: var(--text); opacity: 0.8; font-size: 0.85rem; margin-bottom: 0.75rem; line-height: 1.4; }
+  .warn-list { list-style: none; }
 </style>
 </head>
 <body>
@@ -179,6 +189,35 @@
     </div>
   </div>
 
+  <div class="step" id="step-cards">
+    <div class="card">
+      <h2>Graphics Cards</h2>
+      <p class="subtitle">Choose how this worker renders and which graphics cards it may use.</p>
+      <div id="cards-loading" class="loading-row"><span class="spinner"></span> Listing graphics cards...</div>
+      <div id="cards-form" style="display:none">
+        <p class="info-msg" id="cards-env" style="display:none">The graphics card choice is set by environment variables on this worker.</p>
+        <p class="warn-msg" id="cards-probe-failed" style="display:none">The operating system could not list the graphics cards; the cards below come from Blender.</p>
+        <p class="info-msg" id="cards-none" style="display:none">No graphics card was found on this machine.</p>
+        <label for="cards-method">Compute method</label>
+        <select id="cards-method">
+          <option value="cpu">CPU</option>
+          <option value="gpu">GPU</option>
+          <option value="cpu_gpu">CPU and GPU</option>
+        </select>
+        <div id="cards-checking" class="loading-row" style="display:none"><span class="spinner"></span> Checking which cards Blender can use...</div>
+        <fieldset id="cards-list" style="display:none"><legend>Graphics cards to use</legend><div id="cards-items"></div>
+          <p class="card-note" id="cards-help" style="padding-left:0;margin-top:0.25rem">Unreal renders on a ticked card. Blender uses the ticked cards only when the method includes GPU.</p></fieldset>
+        <label class="card-opt" id="cards-combine-row" style="display:none"><input type="checkbox" id="cards-combine"> Combine GPUs</label>
+        <ul class="warn-list" id="cards-warnings"></ul>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="btn-cards-retry" style="display:none" onclick="wizard.loadCards(false)">Retry</button>
+        <button class="btn btn-primary" id="btn-cards-next" disabled onclick="wizard.saveCards()">Next</button>
+      </div>
+      <div class="error-msg" id="err-cards" role="alert"></div>
+    </div>
+  </div>
+
   <div class="step" id="step-verify">
     <div class="card">
       <h2>Verification</h2>
@@ -207,8 +246,9 @@
 (function() {
   'use strict';
 
-  var STEPS = ['welcome','topology','discover','enroll','password','blender','verify','done'];
+  var STEPS = ['welcome','topology','discover','enroll','password','blender','cards','verify','done'];
   var POLL_INTERVAL = 1500;
+  var CARDS_POLL = 2000;
 
   var wizard = {
     current: 'welcome',
@@ -256,11 +296,12 @@
       if (!r.ok || !r.data) return;
       if (r.data.complete) { showStep('done'); return; }
       var cp = r.data.checkpoints || [];
-      if (cp.indexOf('blender') >= 0) { showStep('verify'); wizard.runVerify(); }
-      else if (cp.indexOf('password') >= 0) { showStep('blender'); }
+      if (cp.indexOf('cards_chosen') >= 0) { showStep('verify'); wizard.runVerify(); }
+      else if (cp.indexOf('blender_installed') >= 0) { wizard.showCards(); }
+      else if (cp.indexOf('password_set') >= 0) { showStep('blender'); }
       else if (cp.indexOf('enrolled') >= 0) { showStep('password'); }
       else if (cp.indexOf('manager_selected') >= 0) { showStep('enroll'); }
-      else if (cp.indexOf('topology') >= 0) { showStep('discover'); wizard.startDiscover(); }
+      else if (cp.indexOf('topology_chosen') >= 0) { showStep('discover'); wizard.startDiscover(); }
     } catch (e) { /* start from beginning */ }
   }
 
@@ -386,7 +427,7 @@
     $('blender-bar').style.width = '0%';
 
     var r = await api('POST', '/api/setup/blender/start-download/', {});
-    if (r.ok && r.data && r.data.status === 'already_installed') { showStep('verify'); wizard.runVerify(); return; }
+    if (r.ok && r.data && r.data.status === 'already_installed') { wizard.showCards(); return; }
     if (r.ok && r.data) { wizard.taskId = r.data.task_id; wizard.pollBlender(); }
     else { showBlenderError((r.data && r.data.error) || 'Failed to start download'); }
   };
@@ -406,7 +447,7 @@
         } else if (d.status === 'complete') {
           $('blender-pct').textContent = '100%';
           $('blender-bar').style.width = '100%';
-          setTimeout(function() { showStep('verify'); wizard.runVerify(); }, 600);
+          setTimeout(function() { wizard.showCards(); }, 600);
         } else if (d.status === 'failed') {
           showBlenderError(d.error || 'Download failed');
         } else if (d.status === 'no_active_task') {
@@ -425,8 +466,7 @@
 
   wizard.skipBlender = function() {
     clearTimeout(wizard.pollTimer);
-    showStep('verify');
-    wizard.runVerify();
+    wizard.showCards();
   };
 
   function showBlenderError(msg) {
@@ -434,6 +474,131 @@
     $('blender-error').style.display = 'block';
     setError('err-blender', msg);
   }
+
+  // --- Graphics cards (every server text goes in with textContent) ---
+  var cards = { data: null, shown: [], ticked: {}, timer: null };
+
+  function show(id, on) { $(id).style.display = on ? '' : 'none'; }
+  function hasGpu(method) { return method === 'gpu' || method === 'cpu_gpu'; }
+  function cardLabel(c) { return c.pci ? c.name + ' (PCI ' + c.pci + ')' : c.name; }
+  function tickedCards() { return cards.data.cards.filter(function(c) { return cards.ticked[c.address]; }); }
+
+  // One-family rule: two or more ticked cards with a Blender family, all the same family.
+  function oneFamily(list) {
+    var fams = list.map(function(c) { return c.family; }).filter(function(f) { return f; });
+    return fams.length >= 2 && fams.every(function(f) { return f === fams[0]; });
+  }
+
+  wizard.showCards = function() { showStep('cards'); wizard.loadCards(false); };
+
+  // keep: a re-poll while Blender checks its devices; the person's choices stay as they are.
+  wizard.loadCards = async function(keep) {
+    clearTimeout(cards.timer);
+    if (!keep) { show('cards-loading', true); show('cards-form', false); show('btn-cards-retry', false); setError('err-cards', ''); }
+    var r;
+    try { r = await api('GET', '/api/setup/worker/cards/'); } catch (e) { r = { ok: false, data: null }; }
+    if (wizard.current !== 'cards') return;
+    if (!r.ok || !r.data) {
+      if (keep) { cards.timer = setTimeout(function() { wizard.loadCards(true); }, CARDS_POLL); return; }
+      show('cards-loading', false);
+      setError('err-cards', (r.data && r.data.error) || 'The graphics cards could not be loaded.');
+      show('btn-cards-retry', true);
+      return;
+    }
+    applyCards(r.data, keep);
+    if (r.data.blender_check === 'running') cards.timer = setTimeout(function() { wizard.loadCards(true); }, CARDS_POLL);
+  };
+
+  function applyCards(d, keep) {
+    var method = keep ? $('cards-method').value : d.method;
+    var combine = keep ? $('cards-combine').checked : d.gpu_mode === 'combined';
+    if (!keep) { cards.ticked = {}; d.cards.forEach(function(c) { if (c.ticked) cards.ticked[c.address] = true; }); }
+    cards.data = d;
+    cards.shown = d.cards.map(function(c) { return c.address; });
+    Object.keys(cards.ticked).forEach(function(a) { if (cards.shown.indexOf(a) < 0) delete cards.ticked[a]; });
+    $('cards-method').value = method;
+    $('cards-combine').checked = combine;
+    renderCards();
+    show('cards-loading', false); show('cards-form', true);
+  }
+
+  function renderCards() {
+    var d = cards.data, locked = d.env_override, gpuOk = d.cards.length > 0;
+    var sel = $('cards-method');
+    Array.prototype.forEach.call(sel.options, function(o) { o.disabled = o.value !== 'cpu' && !gpuOk; });
+    if (!gpuOk) sel.value = 'cpu';
+    sel.disabled = locked;
+    $('cards-combine').disabled = locked;
+    show('cards-env', locked);
+    show('cards-probe-failed', d.os_probe_failed);
+    show('cards-none', d.cards.length === 0);
+    show('cards-checking', d.blender_check === 'running');
+    var items = $('cards-items');
+    items.textContent = '';
+    d.cards.forEach(function(c) {
+      var row = document.createElement('label');
+      row.className = 'card-opt';
+      var box = document.createElement('input');
+      box.type = 'checkbox'; box.checked = !!cards.ticked[c.address]; box.disabled = locked;
+      box.addEventListener('change', function() {
+        if (box.checked) cards.ticked[c.address] = true; else delete cards.ticked[c.address];
+        refreshCards();
+      });
+      var name = document.createElement('span');
+      name.textContent = cardLabel(c);
+      row.appendChild(box); row.appendChild(name);
+      if (c.note) { var note = document.createElement('span'); note.className = 'card-note'; note.textContent = c.note; row.appendChild(note); }
+      items.appendChild(row);
+    });
+    var warns = $('cards-warnings');
+    warns.textContent = '';
+    (d.warnings || []).forEach(function(w) { var li = document.createElement('li'); li.className = 'warn-msg'; li.textContent = w.text; warns.appendChild(li); });
+    refreshCards();
+  }
+
+  function refreshCards() {
+    var d = cards.data, gpu = hasGpu($('cards-method').value), ticked = tickedCards();
+    show('cards-list', d.cards.length > 0);
+    var family = gpu && oneFamily(ticked);
+    if (!family) $('cards-combine').checked = false;
+    show('cards-combine-row', family);
+    $('btn-cards-next').disabled = !d.env_override && gpu && ticked.length === 0;
+  }
+
+  function leaveCards() { clearTimeout(cards.timer); showStep('verify'); wizard.runVerify(); }
+
+  wizard.saveCards = async function() {
+    var d = cards.data;
+    if (!d) return;
+    if (d.env_override) { leaveCards(); return; }
+    setError('err-cards', '');
+    var method = $('cards-method').value;
+    var ticked = tickedCards().map(function(c) { return c.address; });
+    var body = {
+      method: method, gpu_mode: hasGpu(method) && ticked.length >= 2 && $('cards-combine').checked ? 'combined' : 'split',
+      cards: ticked, shown: cards.shown, revision: d.revision
+    };
+    $('btn-cards-next').disabled = true;
+    var r;
+    try { r = await api('POST', '/api/setup/worker/cards/', body); } catch (e) { r = { ok: false, status: 0, data: null }; }
+    if (r.ok) { leaveCards(); return; }
+    setError('err-cards', (r.data && r.data.error) || 'The graphics card choice could not be saved.');
+    if (r.status === 409) {
+      // Env override (show it; Next goes on) or a changed revision (show the saved choice): reload, keep the text.
+      // Same revision means the setup lock was busy: keep the person's choices for a retry.
+      var g = null;
+      try { g = await api('GET', '/api/setup/worker/cards/'); } catch (e) { /* keep the page as it is */ }
+      if (wizard.current !== 'cards') return;
+      if (g && g.ok && g.data && (g.data.env_override || g.data.revision !== d.revision)) {
+        applyCards(g.data, false);
+        if (g.data.blender_check === 'running') cards.timer = setTimeout(function() { wizard.loadCards(true); }, CARDS_POLL);
+        return;
+      }
+    }
+    refreshCards();
+  };
+
+  $('cards-method').addEventListener('change', refreshCards);
 
   // --- Verify ---
   wizard.runVerify = async function() {

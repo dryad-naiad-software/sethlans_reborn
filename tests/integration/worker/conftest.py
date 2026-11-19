@@ -146,6 +146,21 @@ def _isolated_compute_section(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_setup_blender_device_check(monkeypatch):
+    """No real Blender device check from the wizard's Blender step; no cached card probe.
+
+    Same as the unit-suite fixture.
+    """
+    from sethlans_worker_agent.web_ui import cards_cache
+    from sethlans_worker_agent.web_ui.setup import blender_devices
+    monkeypatch.setattr(blender_devices, 'start_device_check', lambda: None)
+    monkeypatch.setattr(blender_devices, '_failed', False)
+    cards_cache.reset_for_tests()
+    yield
+    cards_cache.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _reset_web_ui_auth():
     """Reset the web_ui auth module's cached state between tests."""
     from sethlans_worker_agent.web_ui import auth

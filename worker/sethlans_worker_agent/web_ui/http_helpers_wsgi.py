@@ -35,17 +35,21 @@ logger = logging.getLogger(__name__)
 MAX_REQUEST_BODY = 4096
 
 
-# Status line mapping for the few codes this module emits.  Kept
-# tiny on purpose -- add entries as new callers need them.
+# Status line mapping for every code the worker web UI sends.  Add an
+# entry whenever a caller starts sending a new code; a unit test scans
+# ``web_ui/`` and fails when a sent code has no entry here (#265).
 _STATUS_LINES = {
     200: '200 OK',
     400: '400 Bad Request',
+    401: '401 Unauthorized',
     403: '403 Forbidden',
     404: '404 Not Found',
+    405: '405 Method Not Allowed',
     409: '409 Conflict',
     413: '413 Request Entity Too Large',
     429: '429 Too Many Requests',
     502: '502 Bad Gateway',
+    503: '503 Service Unavailable',
 }
 
 

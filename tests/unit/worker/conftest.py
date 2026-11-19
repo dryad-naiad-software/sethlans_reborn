@@ -102,6 +102,24 @@ def _isolated_compute_section(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_setup_blender_device_check(monkeypatch):
+    """The wizard's Blender step starts no real Blender device check in tests.
+
+    ``blender_devices.start_device_check`` would run the first installed
+    Blender on a background thread. Tests of the check call
+    ``blender_devices._start()`` with the detection patched. Also forgets the
+    settings page's cached card probe.
+    """
+    from sethlans_worker_agent.web_ui import cards_cache
+    from sethlans_worker_agent.web_ui.setup import blender_devices
+    monkeypatch.setattr(blender_devices, 'start_device_check', lambda: None)
+    monkeypatch.setattr(blender_devices, '_failed', False)
+    cards_cache.reset_for_tests()
+    yield
+    cards_cache.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _reset_setup_gate_state():
     """Reset the setup gate module-level state between tests."""
     from sethlans_worker_agent.web_ui.setup import gate

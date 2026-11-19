@@ -12,7 +12,9 @@ Routes:
   GET  /api/status     -- legacy dashboard snapshot (DEPRECATED -- new
                          probe consumers MUST use /api/health/; full
                          removal deferred to Spec 4 of the wizard work)
-  POST /api/control/*  -- authenticated control endpoints
+  GET  /api/cards/     -- anonymous graphics card list (runtime/handlers_cards)
+  POST /api/control/*  -- authenticated control endpoints (cards/* in
+                         runtime/handlers_cards)
   *    /api/setup/*    -- setup wizard routes (gated by setup sentinel)
   *    /setup{,/}      -- setup wizard HTML
 
@@ -115,6 +117,9 @@ def _handle_get(
     if path == '/api/status':
         snapshot = get_status_snapshot()
         return send_json_wsgi(start_response, snapshot)
+    if path in ('/api/cards/', '/api/cards'):
+        from sethlans_worker_agent.web_ui.runtime.handlers_cards import handle_cards_get
+        return handle_cards_get(environ, start_response)
     return send_json_wsgi(start_response, {'error': 'Not Found'}, 404)
 
 
@@ -157,6 +162,9 @@ def _handle_control(
         return _handle_set_password(start_response, body_bytes)
     if action == 'update':
         return _handle_config_update(start_response, body_bytes)
+    if action == 'cards' or action.startswith('cards/'):
+        from sethlans_worker_agent.web_ui.runtime.handlers_cards import handle_cards_control
+        return handle_cards_control(action, start_response, body_bytes)
     return send_json_wsgi(start_response, {'error': 'Not Found'}, 404)
 
 

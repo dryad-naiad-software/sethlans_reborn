@@ -7,13 +7,19 @@ Unit tests for ``web_ui/http_helpers_wsgi.py``.
 
 Covers the 4 KB ``MAX_REQUEST_BODY`` cap (both ``CONTENT_LENGTH``
 short-circuit and read-beyond-cap detection), happy-path JSON
-parsing, and error paths.
+parsing, error paths, and that every status code the web UI sends has
+a proper reason phrase in ``_STATUS_LINES`` (#265).
 """
 
 import io
 import json
+import re
+import tokenize
+from pathlib import Path
 
+import sethlans_worker_agent.web_ui as web_ui_pkg
 from sethlans_worker_agent.web_ui.http_helpers_wsgi import (
+    _STATUS_LINES,
     MAX_REQUEST_BODY,
     parse_json_body_wsgi,
     read_body_wsgi,
@@ -25,6 +31,8 @@ from tests.unit.worker._wsgi_helpers import (
     StartResponseCapture,
     environ as _environ,
 )
+
+_WEB_UI_DIR = Path(web_ui_pkg.__file__).resolve().parent
 
 
 # -------------------------------------------------------------------
@@ -155,6 +163,75 @@ class TestSendJsonWsgi:
         sr = StartResponseCapture()
         list(send_json_wsgi(sr, {'error': 'gone'}, 404))
         assert sr.status == '404 Not Found'
+
+    def test_401_status_line(self):
+        """#265: 401 used to fall back to ``401 Status``."""
+        sr = StartResponseCapture()
+        list(send_json_wsgi(sr, {'error': 'Unauthorized'}, 401))
+        assert sr.status == '401 Unauthorized'
+
+    def test_503_status_line(self):
+        """#265: 503 used to fall back to ``503 Status``."""
+        sr = StartResponseCapture()
+        list(send_json_wsgi(sr, {'error': 'shutting down'}, 503))
+        assert sr.status == '503 Service Unavailable'
+
+
+# -------------------------------------------------------------------
+# _STATUS_LINES coverage of every code the web UI sends (#265)
+# -------------------------------------------------------------------
+
+# Integer literals that look like 2xx, 4xx or 5xx status codes.  3xx is
+# left out: the web UI never redirects, and ``channel_timeout=300`` in
+# ``server.py`` would otherwise read as a status code.
+_STATUS_LIKE = re.compile(r'^[245]\d\d$')
+
+
+def _status_codes_in_web_ui():
+    """Return ``{code: [where, ...]}`` for status-like literals in web_ui.
+
+    Tokenizes each module so comments and docstrings (issue numbers,
+    prose such as "returns 503") are ignored; only real integer
+    literals in code count.
+    """
+    found = {}
+    for path in sorted(_WEB_UI_DIR.rglob('*.py')):
+        source = path.read_text(encoding='utf-8')
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        for tok in tokens:
+            if tok.type == tokenize.NUMBER and _STATUS_LIKE.match(tok.string):
+                where = f'{path.relative_to(_WEB_UI_DIR)}:{tok.start[0]}'
+                found.setdefault(int(tok.string), []).append(where)
+    return found
+
+
+class TestStatusLines:
+    def test_every_entry_matches_its_code(self):
+        for code, line in _STATUS_LINES.items():
+            assert line.startswith(f'{code} ')
+            assert line != f'{code} Status'
+
+    def test_scan_finds_known_codes(self):
+        """Guard against the scan silently finding nothing."""
+        found = _status_codes_in_web_ui()
+        assert {200, 400, 401, 404, 503} <= set(found)
+
+    def test_every_sent_code_has_a_reason_phrase(self):
+        """Every status-like integer literal under ``web_ui/`` has a ``_STATUS_LINES`` entry.
+
+        Any integer literal that looks like a 2xx, 4xx or 5xx code counts, so a
+        harmless literal such as ``timeout=500`` would need to be written
+        differently (for example ``5 * 100``) or excluded from the scan.
+        """
+        found = _status_codes_in_web_ui()
+        missing = {
+            code: where for code, where in found.items()
+            if code not in _STATUS_LINES
+        }
+        assert not missing, (
+            'Status codes sent by web_ui/ with no entry in '
+            f'http_helpers_wsgi._STATUS_LINES: {missing}'
+        )
 
 
 # -------------------------------------------------------------------

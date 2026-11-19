@@ -30,6 +30,7 @@ from typing import Callable, Iterable
 from sethlans_worker_agent.web_ui.http_helpers_wsgi import (
     send_json_wsgi, parse_json_body_wsgi,
 )
+from sethlans_worker_agent.web_ui.setup import blender_devices
 from sethlans_worker_agent.web_ui.setup.download_progress import (
     create_tagged_task,
     find_active_task,
@@ -109,6 +110,7 @@ def handle_start_blender_download(
             )
             if exe:
                 append_wizard_checkpoint("blender_installed")
+                blender_devices.start_device_check()
                 return send_json_wsgi(start_response, {
                     "status": "already_installed",
                     "version": full_version,

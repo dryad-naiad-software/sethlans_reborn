@@ -1,0 +1,195 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""
+What the worker's two graphics card pages share (FR-CW-2, FR-CW-4, FR-CW-5).
+
+- ``probe_now()``: a fresh OS probe joined with the *cached* Blender device
+  list. It never starts Blender.
+- ``view(probe, section)``: the JSON answer of both card GETs. It is display
+  data only; it raises no alert, stops no job and requests no rebuild (S1).
+- ``parse_body(body)``: the FR-CW-5 shape checks of a save request; a failure
+  raises ``ValueError`` with one plain sentence.
+- ``save(fields, probe, source)``: saves through ``choice.save_choice`` and
+  maps every refusal to an HTTP status and a plain sentence.
+
+Card addresses travel over HTTP as the text ``normalize_pci`` accepts
+(``0000:23:00.0``, the ``address`` of each card in the GET answer) or, on
+macOS, as ``apple-gpu``. This module holds no lock and keeps no state.
+"""
+import json
+import logging
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+from sethlans_worker_agent import config_compute
+from sethlans_worker_agent.cards import choice, inventory, os_probe, store
+from sethlans_worker_agent.cards.identity import APPLE_GPU_KEY, KEY_PREFIX, card_key, key_address
+from sethlans_worker_agent.cards.in_use import FAMILIES
+from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
+
+logger = logging.getLogger(__name__)
+
+NOTE_NOT_CHECKED = 'Blender not checked yet'
+ENV_OVERRIDE_TEXT = "The graphics card choice is set by environment variables on this worker."
+STALE_TEXT = "The card choice was changed meanwhile (on this page or from the manager). Reload the page."
+HELD_TEXT = "Dismiss the alert for {name} first."
+NOT_SAVED_TEXT = "The card choice could not be saved; see the worker log."
+MAX_ADDRESS_TEXT = 32
+
+# The fields of a save request. The manager-changes switch joins them with the
+# switch itself (a later chunk); until then a request naming it is refused.
+_FIELDS = ('method', 'gpu_mode', 'cards', 'shown', 'revision')
+
+
+@dataclass(frozen=True)
+class Probe:
+    """One fresh inventory and the Blender list it was joined with."""
+    inventory: inventory.Inventory
+    blender_cards: object  # None (not checked), inventory.BLENDER_CHECK_FAILED, or the cached list
+
+
+def probe_now() -> Probe:
+    """A fresh OS probe joined with the cached Blender list (never starts Blender)."""
+    from sethlans_worker_agent.cards.startup_log import cached_blender_list
+    blender_cards, version = cached_blender_list()
+    return Probe(inventory.build(os_probe.probe(), blender_cards, version), blender_cards)
+
+
+def address_of(key: str) -> str:
+    """The text a page sends for a card: the PCI address without ``pci:``, or ``apple-gpu``."""
+    return key[len(KEY_PREFIX):] if key.startswith(KEY_PREFIX) else key
+
+
+def short_address(key: str) -> Optional[str]:
+    """``bus:device.function`` for the card label, or ``None`` for a card without a PCI address."""
+    address = key_address(key)
+    return f'{address[1]:02x}:{address[2]:02x}.{address[3]:x}' if address is not None else None
+
+
+def blender_check_state(blender_cards, checking: bool = False, check_failed: bool = False) -> str:
+    """``done``, ``failed``, ``running`` or ``not_checked`` for the cached Blender device list.
+
+    ``checking`` and ``check_failed`` describe the wizard's own device check
+    (``setup.blender_devices``); they count only while nothing is cached.
+    """
+    if blender_cards is None:
+        if checking:
+            return 'running'
+        return 'failed' if check_failed else 'not_checked'
+    return 'failed' if blender_cards is inventory.BLENDER_CHECK_FAILED else 'done'
+
+
+def _uncached_note(check_failed: bool) -> str:
+    return inventory.NOTE_BLENDER_FAILED if check_failed else NOTE_NOT_CHECKED
+
+
+def _card_view(card: inventory.Card, ticked, uncached_note: Optional[str]) -> dict:
+    backend = card.blender[1] if card.blender is not None else None
+    note = uncached_note if uncached_note and card.note == inventory.NOTE_NO_BLENDER else card.note
+    return {
+        'key': card.key, 'address': address_of(card.key), 'pci': short_address(card.key),
+        'name': card.name, 'vendor_id': card.vendor_id, 'device_id': card.device_id,
+        'backend': backend, 'family': FAMILIES.get(backend, backend) if backend else None,
+        'note': note, 'ticked': card.key in ticked,
+        'screen': card.screen, 'primary_screen': card.primary_screen,
+    }
+
+
+def view(probe: Probe, section: config_compute.ComputeSection, checking: bool = False,
+         check_failed: bool = False) -> dict:
+    """The GET answer: the saved choice, the fresh cards and the warnings (display only)."""
+    ticked = set(section.ticked_keys)
+    uncached = _uncached_note(check_failed and not checking) if probe.blender_cards is None else None
+    return {
+        'method': section.method,
+        'gpu_mode': section.gpu_mode,
+        'ticked': list(section.ticked_keys),
+        'revision': section.revision,
+        'env_override': section.env_override,
+        'os_probe_failed': probe.inventory.os_probe_failed,
+        'blender_version': probe.inventory.blender_version,
+        'blender_check': blender_check_state(probe.blender_cards, checking, check_failed),
+        'cards': [_card_view(card, ticked, uncached) for card in probe.inventory.cards],
+        'warnings': [],  # {"code", "text"} entries; the warning rules come with the card checks
+    }
+
+
+def _choice_text(data: dict, name: str, allowed, sentence: str) -> str:
+    value = data[name]
+    if not isinstance(value, str) or value not in allowed:
+        raise ValueError(sentence)
+    return value
+
+
+def _key_of(text) -> Optional[str]:
+    if not isinstance(text, str) or len(text) > MAX_ADDRESS_TEXT:
+        return None
+    return APPLE_GPU_KEY if text == APPLE_GPU_KEY else card_key(text)
+
+
+def _keys(data: dict, name: str) -> Tuple[str, ...]:
+    value = data[name]
+    if not isinstance(value, list) or len(value) > config_compute.MAX_ENTRIES:
+        raise ValueError(f"The {name} list must be a list of at most {config_compute.MAX_ENTRIES} PCI addresses.")
+    keys = tuple(_key_of(text) for text in value)
+    if None in keys:
+        raise ValueError(f"Each entry in the {name} list must be a PCI address such as 0000:01:00.0.")
+    if len(set(keys)) != len(keys):
+        raise ValueError(f"The {name} list names a graphics card more than once.")
+    return keys
+
+
+def _revision(data: dict) -> int:
+    value = data['revision']
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= config_compute.MAX_REVISION:
+        raise ValueError(f"The revision must be a whole number from 0 to {config_compute.MAX_REVISION}.")
+    return value
+
+
+def parse_body(body: bytes) -> dict:
+    """The fields of a save request (FR-CW-5); ``ValueError`` with one plain sentence when it is not valid."""
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError, RecursionError):  # RecursionError: deeply nested arrays or objects
+        data = None
+    if not isinstance(data, dict):
+        raise ValueError("The request body must be a JSON object.")
+    if set(data) - set(_FIELDS):
+        raise ValueError("The request has a field this page does not accept.")
+    if set(_FIELDS) - set(data):
+        raise ValueError("The request must give method, gpu_mode, cards, shown and revision.")
+    fields = {
+        'method': _choice_text(data, 'method', config_compute.METHODS,
+                               "The compute method must be cpu, gpu or cpu_gpu."),
+        'gpu_mode': _choice_text(data, 'gpu_mode', config_compute.GPU_MODES,
+                                 "The GPU mode must be split or combined."),
+        'cards': _keys(data, 'cards'),
+        'shown': _keys(data, 'shown'),
+        'revision': _revision(data),
+    }
+    if not set(fields['cards']) <= set(fields['shown']):
+        raise ValueError("Every ticked graphics card must also be in the shown list.")
+    return fields
+
+
+def save(fields: dict, probe: Probe, source: str) -> Tuple[int, dict]:
+    """Save through ``choice.save_choice``; ``(HTTP status, JSON body)``."""
+    try:
+        revision = choice.save_choice(fields['method'], fields['gpu_mode'], fields['cards'], fields['shown'],
+                                      fields['revision'], probe.inventory)
+    except store.EnvOverride:
+        return 409, {'error': ENV_OVERRIDE_TEXT}
+    except store.StaleRevision:
+        return 409, {'error': STALE_TEXT}
+    except store.CardHeld as held:
+        return 400, {'error': HELD_TEXT.format(name=held.name)}
+    except ValueError as refused:
+        return 400, {'error': str(refused)}
+    except (ConfigLockTimeoutError, OSError):
+        logger.error("The graphics card choice from the %s could not be saved.", source, exc_info=True)
+        return 503, {'error': NOT_SAVED_TEXT}
+    mode = fields['gpu_mode'] if len(fields['cards']) >= 2 else 'split'  # as store.save keeps it
+    logger.info("Graphics card choice saved from the %s: method %s, GPU mode %s, cards %s; revision %d.",
+                source, fields['method'], mode, ', '.join(fields['cards']) or 'none', revision)
+    return 200, {'status': 'ok', 'revision': revision}

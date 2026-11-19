@@ -35,6 +35,10 @@ from sethlans_worker_agent.web_ui.setup.handlers_blender import (
     handle_blender_progress,
     handle_cancel_blender,
 )
+from sethlans_worker_agent.web_ui.setup.handlers_cards import (
+    handle_get_cards,
+    handle_post_cards,
+)
 from sethlans_worker_agent.web_ui.setup.handlers_verify import (
     handle_verify,
 )
@@ -53,6 +57,7 @@ _GET_ROUTES = {
     '/api/setup/status/': handle_setup_status,
     '/api/setup/discover/': handle_discover,
     '/api/setup/blender/progress/': handle_blender_progress,
+    '/api/setup/worker/cards/': handle_get_cards,
 }
 
 # ---- POST route table ----
@@ -63,6 +68,7 @@ _POST_ROUTES = {
     '/api/setup/worker-password/': handle_set_worker_password,
     '/api/setup/blender/start-download/': handle_start_blender_download,
     '/api/setup/blender/cancel/': handle_cancel_blender,
+    '/api/setup/worker/cards/': handle_post_cards,
     '/api/setup/verify/': handle_verify,
 }
 
