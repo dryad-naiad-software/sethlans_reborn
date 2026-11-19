@@ -32,6 +32,12 @@ IGPU_HIP = ('HIP', 'HIP_AMD Radeon(TM) Graphics_0000:0c:00', 'AMD Radeon(TM) Gra
 # The issue's Blender list and the worker's matching per-card list.
 BLENDER_MIXED = [RTX_CUDA, CPU, RTX_OPTIX, IGPU_HIP]
 
+# Apple silicon: a Metal id carries no PCI address (D9). Intel oneAPI:
+# ONEAPI_<platform>_<name>_<SYCL ext_intel_pci_address>, with a function digit.
+METAL_GPU = ('METAL', 'METAL_Apple M2 Max', 'Apple M2 Max')
+ARC_ONEAPI = ('ONEAPI', 'ONEAPI_Intel(R) Level-Zero_Intel(R) Arc(TM) A770 Graphics_0000:03:00.0',
+              'Intel(R) Arc(TM) A770 Graphics')
+
 
 class FakeDevice:
     """One entry of ``prefs.devices``. Blender enables new devices by default."""
@@ -244,6 +250,17 @@ def render(mocker, monkeypatch, cards, specs, gpu_index, **prefs_kwargs):
     prefs = FakePrefs(specs, **prefs_kwargs)
     bpy = install_fake_bpy(monkeypatch, prefs)
     run_script(generate_script(mocker, cards, gpu_index))
+    return prefs, bpy
+
+
+def render_reservation(monkeypatch, reservation, specs):
+    """Run the GPU render script for ``reservation`` against a Blender listing ``specs``.
+
+    Returns ``(prefs, bpy)``. A failed device check propagates SystemExit.
+    """
+    prefs = FakePrefs(specs)
+    bpy = install_fake_bpy(monkeypatch, prefs)
+    run_script(render_script.generate_render_config_script(238, 'CYCLES', 'GPU', {}, reservation=reservation))
     return prefs, bpy
 
 

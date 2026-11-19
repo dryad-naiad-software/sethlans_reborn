@@ -15,7 +15,7 @@ import logging
 
 import pytest
 
-from sethlans_worker_agent import blender_executor
+from sethlans_worker_agent import blender_executor, blender_failure
 from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail
 from sethlans_worker_agent.capacity.profile import SlotReservation
@@ -107,7 +107,8 @@ class TestExecutorGpuCheckFailure:
         assert success is False
         assert output_path is None
         assert error_message.startswith('GPU device check failed:')
-        assert error_message.endswith(_DETAIL)
+        # The OPTIX entry is missing, so the job error ends with the OptiX hint.
+        assert error_message.endswith(f'{_DETAIL} {blender_failure.OPTIX_HINT}')
         assert 'Blender exited with code' not in error_message
         assert GPU_CHECK_MARKER in result[4]  # raw stderr is still returned
         # #239: the job thread asks for one immediate GPU list comparison.

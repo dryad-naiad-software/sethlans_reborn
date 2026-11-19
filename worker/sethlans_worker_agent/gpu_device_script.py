@@ -16,11 +16,14 @@ embeds the cards in use, the cards this job must find, and the ids of the
 detected cards that are not in use (``ignored``, FR-CB-2), and in Blender
 (``gpu_select_helper.SELECT_HELPER``):
 
-- matches every job card to exactly one device entry by ``id`` AND
-  ``type``, failing the job if one is missing;
+- matches every job card to exactly one device entry by backend and PCI
+  address (FR-CB-4, B2), not by the full id, so another Blender version's
+  name for the card still finds it; a Metal card is the only ``METAL``
+  entry (D9, B3); no entry, or two, fails the job;
 - isolated mode (one job card): switches exactly that entry on; combined
-  mode: switches on every entry of the chosen backend that belongs to a
-  card in use; every other entry, and every ignored card, is switched off;
+  mode: every card in use must have exactly one entry of the chosen
+  backend, and those are switched on; every other entry, and every entry
+  at an ignored card's address, is switched off;
 - re-reads ``prefs.devices`` (and asks ``has_active_device()`` when the
   Blender build has it) to verify the result before rendering;
 - reports, without failing, list drift that does not concern this job;

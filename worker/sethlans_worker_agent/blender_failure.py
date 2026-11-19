@@ -40,6 +40,11 @@ _MAX_DETAIL_CHARS = 1000
 _MAX_SOURCE_CHARS = 200
 _TRACEBACK_HEAD = 'Traceback (most recent call last):'
 
+# Added to the job error when no OptiX entry matched a job card (FR-CB-4).
+OPTIX_MISSING_DETAIL = '0 Blender device entries match OPTIX '
+OPTIX_HINT = ("Blender does not offer OptiX for this card; check the graphics driver, "
+              "or that this Blender version supports the card.")
+
 
 def python_script_args(script_path) -> List[str]:
     """Return the Blender arguments that run ``script_path`` and stop on its failure."""
@@ -73,11 +78,13 @@ def gpu_check_failure_message(return_code, stderr_text) -> Optional[str]:
     detail = _gpu_check_detail(return_code, stderr_text)
     if detail is None:
         return None
-    return (
+    message = (
         "GPU device check failed: Blender did not enable the "
         "requested GPU, so the render was stopped before it "
         f"started. {_printable(detail, _MAX_DETAIL_CHARS)}"
     )
+    # After the cut, so the hint is never lost to a long detail.
+    return f"{message} {OPTIX_HINT}" if detail.lstrip().startswith(OPTIX_MISSING_DETAIL) else message
 
 
 def _last_lines(lines) -> str:

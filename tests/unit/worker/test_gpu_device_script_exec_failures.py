@@ -149,7 +149,8 @@ class TestMarkerStartsALine:
         assert len(lines) == 1
         detail = lines[0][len(gpu_device_script.GPU_CHECK_MARKER):].strip()
         message = blender_failure.gpu_check_failure_message(gpu_device_script.GPU_CHECK_EXIT_CODE, stderr)
-        assert message == GPU_CHECK_PREFIX + detail
+        # Both cases miss the job card's OptiX entry, so the job error ends with the OptiX hint.
+        assert message == GPU_CHECK_PREFIX + detail + ' ' + blender_failure.OPTIX_HINT
         assert blender_failure.describe_blender_failure(gpu_device_script.GPU_CHECK_EXIT_CODE, stderr) == message
         assert blender_failure.request_recheck_if_check_failed(gpu_device_script.GPU_CHECK_EXIT_CODE, stderr) is True
         assert capacity_module.gpu_list_recheck_pending() is True

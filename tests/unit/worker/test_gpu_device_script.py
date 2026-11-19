@@ -133,7 +133,8 @@ class TestAppendSelectionGuards:
 
 class TestGpuCheckFailureMessage:
 
-    DETAIL = "0 Blender device entries match OPTIX 'x'; wanted [OPTIX 'x']; Blender offers []"
+    # HIP, not OPTIX: a missing OptiX entry adds a hint (test_blender_failure_optix_hint).
+    DETAIL = "0 Blender device entries match HIP 'x'; wanted [HIP 'x']; Blender offers []"
 
     def test_marker_among_other_lines(self):
         stderr = (
