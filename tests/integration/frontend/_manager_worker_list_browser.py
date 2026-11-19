@@ -34,6 +34,7 @@ import pytest
 import waitress
 from django.contrib.auth.models import User
 from django.core.handlers.wsgi import WSGIHandler
+from playwright.sync_api import sync_playwright
 from rest_framework.authtoken.models import Token
 from waitress import wasyncore
 
@@ -117,6 +118,26 @@ def served_manager(settings, tmp_path):
             yield f'http://127.0.0.1:{server.effective_port}'
         finally:
             _stop(server, thread)
+
+
+@contextlib.contextmanager
+def own_chromium():
+    """A Playwright and headless Chromium of the caller's own, stopped on exit (issue #277).
+
+    Playwright's sync API keeps an asyncio loop running in the main thread
+    while it is started, and Django refuses ORM calls there. pytest-playwright's
+    ``page`` starts it once per session and stops it only at the end, and a
+    test that also uses the database is sorted with the database tests, so
+    the loop would outlive it and break every later database test. A module
+    of database browser tests starts its own here, from a module-scoped
+    fixture, so the loop ends with the module.
+    """
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            yield browser
+        finally:
+            browser.close()
 
 
 def watch_page(page):
