@@ -159,6 +159,17 @@ class TestRobustness:
         )
         return resp.json()["id"]
 
+    def _set_queue_paused(self, paused):
+        """Pause or resume the manager's global job queue."""
+        action = "pause" if paused else "resume"
+        resp = self.session.post(
+            f"{self.base_url}/api/queue-settings/{action}/", timeout=30,
+        )
+        assert resp.status_code == 200, (
+            f"Queue {action} failed: {resp.status_code} {resp.text}"
+        )
+        assert resp.json()["queue_paused"] is paused
+
     def test_queue_draining(self):
         """Submit multiple jobs and verify all complete serially."""
         job_ids = []
@@ -182,34 +193,25 @@ class TestRobustness:
 
     def test_paused_job_exclusion(self):
         """A paused job should not be claimed by the worker."""
-        # Submit a job, then pause it before the worker claims it.
-        resp = self.session.post(
-            f"{self.base_url}/api/jobs/",
-            json={
-                "name": "Paused Job",
-                "asset_id": self.asset_id,
-                "output_file_pattern": "renders/paused_####.png",
-                "start_frame": 1,
-                "end_frame": 1,
-                "render_engine": "CYCLES",
-                "render_device": "CPU",
-                "render_settings": FAST_RENDER_SETTINGS,
-            },
-            timeout=30,
-        )
-        assert resp.status_code == 201
-        paused_job_id = resp.json()["id"]
+        # The job is created QUEUED and can only be paused by a second
+        # request, so the live worker could claim it in between (#267).
+        # While the global queue is paused, worker polls return nothing:
+        # create and pause the job then, and resume the queue after.
+        self._set_queue_paused(True)
+        try:
+            paused_job_id = self._submit_job("paused")
+            resp = self.session.post(
+                f"{self.base_url}/api/jobs/{paused_job_id}/pause/",
+                timeout=30,
+            )
+            assert resp.status_code == 200, (
+                f"Pause failed: {resp.status_code} {resp.text}"
+            )
+        finally:
+            self._set_queue_paused(False)
 
-        # Pause the job immediately.
-        resp = self.session.post(
-            f"{self.base_url}/api/jobs/{paused_job_id}/pause/",
-            timeout=30,
-        )
-        assert resp.status_code == 200, (
-            f"Pause failed: {resp.status_code} {resp.text}"
-        )
-
-        # Wait and verify the job stays QUEUED (not claimed).
+        # With the queue running again, the job itself is paused:
+        # wait and verify the job stays QUEUED (not claimed).
         time.sleep(15)
         resp = self.session.get(
             f"{self.base_url}/api/jobs/{paused_job_id}/", timeout=30,
@@ -220,6 +222,7 @@ class TestRobustness:
             f"got: {resp.json()['status']}"
         )
         assert resp.json()["is_paused"] is True
+        assert resp.json()["assigned_worker"] is None
 
         # Unpause and verify the job gets picked up.
         resp = self.session.post(
