@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { CardState, CardStatus } from '../../core/services/worker-cards.model';
+import { CardEntry, CardState, CardStatus } from '../../core/services/worker-cards.model';
 import {
   actionErrorText, addressLabel, alertCount, cardName, gpuColumnText, hasCardStatus,
-  noticeText, oneFamily, shortAddress, stateLabel, stateTone, validTime,
+  noticeText, oneFamily, screenLabels, shortAddress, stateLabel, stateTone, validTime,
 } from './worker-cards.util';
 import { makeAlert, makeCard, makeStatus } from './worker-cards.fixtures';
 
@@ -66,6 +66,32 @@ describe('worker-cards.util', () => {
         .toBe('New card found: RX 7800 XT');
       expect(noticeText({ kind: 'card_gone', key: 'pci:0000:02:00.0' }))
         .toBe('Card no longer present: PCI 02:00.0');
+    });
+  });
+
+  describe('screenLabels', () => {
+    it('marks a card that drives the main screen', () => {
+      expect(screenLabels({ screen: true, primary_screen: true })).toEqual(['Drives a screen', 'Main screen']);
+    });
+
+    it('marks a card that drives another screen', () => {
+      expect(screenLabels({ screen: true, primary_screen: false })).toEqual(['Drives a screen']);
+    });
+
+    it('marks a screen with an unknown main screen (Linux)', () => {
+      expect(screenLabels({ screen: true, primary_screen: null })).toEqual(['Drives a screen']);
+    });
+
+    it('says unknown for null, absent and odd values', () => {
+      expect(screenLabels({ screen: null, primary_screen: null })).toEqual(['Screen: unknown']);
+      expect(screenLabels({ screen: null, primary_screen: true })).toEqual(['Screen: unknown']);
+      expect(screenLabels({})).toEqual(['Screen: unknown']);
+      expect(screenLabels({ screen: 'yes' } as unknown as CardEntry)).toEqual(['Screen: unknown']);
+    });
+
+    it('shows nothing for a card without a screen', () => {
+      expect(screenLabels({ screen: false, primary_screen: false })).toEqual([]);
+      expect(screenLabels({ screen: false, primary_screen: true })).toEqual([]);
     });
   });
 

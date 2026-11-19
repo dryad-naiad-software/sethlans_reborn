@@ -4,8 +4,8 @@
 """
 What the worker's two graphics card pages share (FR-CW-2, FR-CW-4, FR-CW-5).
 
-- ``probe_now()``: a fresh OS probe joined with the *cached* Blender device
-  list. It never starts Blender.
+- ``probe_now()``: a fresh OS probe and screen read (``cards.screens``)
+  joined with the *cached* Blender device list. It never starts Blender.
 - ``view(probe, section)``: the JSON answer of both card GETs, with each
   card's state, the open alerts, the notices, the problem text and the
   warnings (``cards.matching``, ``cards.warnings``). It is display data only;
@@ -26,7 +26,7 @@ from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_compute, unreal_switch
 from sethlans_worker_agent.capacity import rebuild
-from sethlans_worker_agent.cards import choice, inventory, matching, os_probe, store
+from sethlans_worker_agent.cards import choice, inventory, matching, os_probe, screens, store
 from sethlans_worker_agent.cards import warnings as card_warnings
 from sethlans_worker_agent.cards.identity import APPLE_GPU_KEY, KEY_PREFIX, card_key, clean_name, key_address
 from sethlans_worker_agent.cards.in_use import FAMILIES
@@ -56,10 +56,10 @@ class Probe:
 
 
 def probe_now() -> Probe:
-    """A fresh OS probe joined with the cached Blender list (never starts Blender)."""
+    """A fresh OS probe and screen read joined with the cached Blender list (never starts Blender)."""
     from sethlans_worker_agent.cards.startup_log import cached_blender_list
     blender_cards, version = cached_blender_list()
-    return Probe(inventory.build(os_probe.probe(), blender_cards, version), blender_cards)
+    return Probe(screens.marked(inventory.build(os_probe.probe(), blender_cards, version)), blender_cards)
 
 
 def address_of(key: str) -> str:

@@ -69,6 +69,7 @@
   .gc-fixed { cursor: default; }
   .gc-state, .gc-tag { font-size: 0.75rem; font-weight: bold; }
   .gc-tag { opacity: 0.7; }
+  .gc-screen { font-size: 0.7rem; padding: 0 0.35rem; border: 1px solid currentColor; border-radius: 3px; opacity: 0.7; }
   .gc-bad, .gc-amber { border-left: 3px solid var(--err); padding-left: 0.4rem; }
   .gc-amber { border-left-color: var(--warn); }
   .gc-bad .gc-state { color: var(--err); }
@@ -460,6 +461,12 @@
   function hasGpu(method) { return method === 'gpu' || method === 'cpu_gpu'; }
   function cardLabel(c) { return c.pci ? c.name + ' (PCI ' + c.pci + ')' : c.name; }
   function tickedCards() { return cards.data.cards.filter(function(c) { return cards.ticked[c.address]; }); }
+  // Screen marks (FR-CS-4): shown only; they never change a tick or an enabled state.
+  function screenMarks(c) {
+    if (c.screen === null) return ['screen: unknown'];
+    if (c.screen !== true) return [];
+    return c.primary_screen === true ? ['drives a screen', 'main screen'] : ['drives a screen'];
+  }
   function setMsg(id, text, cls) { var el = byId(id); el.textContent = text || ''; el.className = 'gc-msg' + (cls ? ' ' + cls : ''); }
   function setResult(text, cls) { setMsg('gc-result', text, cls); }
   function setUnrealResult(text, cls) { setMsg('gc-unreal-result', text, cls); }
@@ -556,7 +563,7 @@
   // Redrawn only when something in it changed, so the slow poll does not take the keyboard focus away.
   function renderRows(d, locked) {
     var sig = JSON.stringify([locked, Object.keys(cards.ticked).sort(), d.cards.map(function(c) {
-      return [c.address, c.name, c.pci, c.note, c.family, c.state];
+      return [c.address, c.name, c.pci, c.note, c.family, c.state, c.screen, c.primary_screen];
     })]);
     if (sig === cards.sig.rows) return;
     cards.sig.rows = sig;
@@ -575,6 +582,7 @@
       row.appendChild(box);
       row.appendChild(createEl('span', cardLabel(c)));
       if (STATE_TEXT[c.state]) row.appendChild(createEl('span', STATE_TEXT[c.state], 'gc-state'));
+      screenMarks(c).forEach(function(t) { row.appendChild(createEl('span', t, 'gc-screen')); });
       if (c.note) row.appendChild(createEl('span', c.note, 'gc-note'));
       items.appendChild(row);
       if (focusAt === c.address) box.focus();

@@ -24,7 +24,7 @@ import contextlib
 import json
 
 from sethlans_worker_agent import config_compute, config_unreal, unreal_switch
-from sethlans_worker_agent.cards import in_use, os_probe, startup_log
+from sethlans_worker_agent.cards import in_use, os_probe, screens, startup_log
 from sethlans_worker_agent.cards.os_probe import OsCard
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.web_ui import auth, cards_cache, server
@@ -61,6 +61,36 @@ def key_of(index):
 
 def address_of(index):
     return key_of(index)[len('pci:'):]
+
+
+# Screen marks (FR-CS-4): {card index: (screen, primary_screen)} and the marks each row shows.
+SCREEN_MARKS = {HIP_1: (True, True), HIP_2: (True, None), CUDA_1: (None, None),
+                NO_FAMILY: (False, False), XSS_CARD: (False, None)}
+SHOWN_MARKS = {HIP_1: ['drives a screen', 'main screen'], HIP_2: ['drives a screen'], CUDA_1: ['screen: unknown'],
+               NO_FAMILY: [], XSS_CARD: []}
+
+
+def set_screen_marks(monkeypatch, marks=None):
+    """Fake the platform screen read (the top-level conftest makes every mark unknown)."""
+    found = {key_of(index): pair for index, pair in (SCREEN_MARKS if marks is None else marks).items()}
+    monkeypatch.setattr(screens, '_platform_marks', lambda platform_name, inventory: dict(found))
+
+
+def screen_warning(index, main):
+    """The ``ticked_drives_screen`` text for card ``index`` (FR-CS-3)."""
+    what = 'the main screen' if main else 'a screen'
+    return f'{CARDS[index][1]} (PCI {address_of(index)[5:]}) is ticked and drives {what}; rendering can slow it.'
+
+
+def row_marks(page, items_id, mark_class, index):
+    """The screen mark texts shown on card row ``index`` of ``#items_id``."""
+    return page.locator(f'#{items_id} label').nth(index).locator(f'.{mark_class}').all_inner_texts()
+
+
+def boxes_state(page, items_id):
+    """``(checked, enabled)`` of every card checkbox in ``#items_id``."""
+    return page.eval_on_selector_all(f'#{items_id} input[type=checkbox]',
+                                     'els => els.map(e => [e.checked, !e.disabled])')
 
 
 def _os_cards(cards):

@@ -47,7 +47,7 @@ class Card:
     revision_id: Optional[int] = None         # PCI revision; recorded, not used for any decision yet
     blender: Optional[Tuple[str, str]] = None  # (Blender id, backend) or None
     note: str = ''
-    screen: Optional[bool] = None             # screen marks: filled by a later chunk (FR-CS)
+    screen: Optional[bool] = None             # screen marks (FR-CS): cards.screens.marked, macOS from the probe
     primary_screen: Optional[bool] = None
 
 
@@ -173,16 +173,18 @@ def _macos(os_cards, blender_cards, blender_version) -> Inventory:
                  len(os_cards))
         return Inventory(blender_version=blender_version)
     gpu = os_cards[0]
+    marks = {'screen': gpu.display, 'primary_screen': gpu.display}  # FR-CS-1: from this probe's output
     if blender_cards is None or blender_cards is BLENDER_CHECK_FAILED:
         note = NOTE_NO_BLENDER if blender_cards is None else NOTE_BLENDER_FAILED
-        return Inventory(cards=(Card(key=APPLE_GPU_KEY, name=gpu.name, note=note),), blender_version=blender_version)
+        return Inventory(cards=(Card(key=APPLE_GPU_KEY, name=gpu.name, note=note, **marks),),
+                         blender_version=blender_version)
     metal = [device for device in _blender_devices(blender_cards) if device[1] == METAL]
     if len(metal) != 1:
         log_once(logger, logging.WARNING, "Blender lists %d Metal devices; a card is offered only when there is "
                  "exactly one.", len(metal))
         return Inventory(blender_version=blender_version)
     device_id, backend, name = metal[0]
-    card = Card(key=APPLE_GPU_KEY, name=gpu.name or name, blender=(device_id, backend))
+    card = Card(key=APPLE_GPU_KEY, name=gpu.name or name, blender=(device_id, backend), **marks)
     return Inventory(cards=(card,), blender_version=blender_version)
 
 

@@ -23,6 +23,11 @@ The card checks at start, periodically and for a rebuild (FR-CK-1, FR-CK-3, FR-C
   created, Blender is never started) with the known Blender list: the same
   alerts, the stop of the Unreal job whose card is lost, changed or held
   (C-24 m), and a rebuild request that waits for the hold to end.
+
+Every check also reads the screen marks (``cards.screens.marked``: DXGI
+outputs or DRM connector files, no device created, so also during an Unreal
+hold) and logs a new ``ticked_drives_screen`` warning once (FR-CS-2, FR-CS-3).
+Marks change no state, slot or tick.
 - ``rebuild_profile(capacity)``: the profile a pending rebuild swaps in.
 
 The Blender list a check uses without detecting, and the one a rebuild uses,
@@ -42,7 +47,7 @@ from sethlans_worker_agent.capacity import card_blender, rebuild
 from sethlans_worker_agent.capacity.card_profile import log_problem, profile_for, selection_of
 from sethlans_worker_agent.capacity.card_stops import raise_alerts, stop_jobs
 from sethlans_worker_agent.capacity.drift import DETECTION_FAILED, adopt_detection_executable, detect_physical_gpus_now
-from sethlans_worker_agent.cards import in_use, inventory, matching, os_probe, store
+from sethlans_worker_agent.cards import in_use, inventory, matching, os_probe, screens, store
 from sethlans_worker_agent.cards import warnings as card_warnings
 
 logger = logging.getLogger(__name__)
@@ -78,7 +83,7 @@ def _evaluate_known(section, capacity=None):
     Returns ``(selection, inventory)``.
     """
     blender_cards, version = card_blender.known()
-    inv = inventory.build(_probe(), blender_cards, version)
+    inv = screens.marked(inventory.build(_probe(), blender_cards, version))
     result = matching.evaluate(section, inv, profile_keys=capacity.profile.card_keys if capacity else ())
     try:
         raise_alerts(result)
@@ -86,6 +91,7 @@ def _evaluate_known(section, capacity=None):
         if capacity is not None and not inv.os_probe_failed:
             stop_jobs(capacity, result.states)
     card_warnings.remember(inv, result)
+    card_warnings.log_screen_warnings(inv, result)
     return selection_of(result, blender_cards), inv
 
 
@@ -147,7 +153,7 @@ def check(capacity) -> Optional[str]:
         return DETECTION_FAILED
     blender_cards, version, is_fresh = (*card_blender.known(), False) if fresh is _SKIP else \
         card_blender.from_detection(fresh, os_cards, profile)
-    inv = inventory.build(os_cards, blender_cards, version)
+    inv = screens.marked(inventory.build(os_cards, blender_cards, version))
     result = matching.evaluate(section, inv, blender_fresh=is_fresh, profile_keys=profile.card_keys)
     try:
         raise_alerts(result)
@@ -155,6 +161,7 @@ def check(capacity) -> Optional[str]:
         stop_jobs(capacity, result.states)
         _request_if_differs(capacity, result.section, result.blender_cards, result.problem)
     card_warnings.remember(inv, result)
+    card_warnings.log_screen_warnings(inv, result)
     log_problem(result.problem)
     if is_fresh and _profile_offered(inv, profile):
         adopt_detection_executable()  # a replacement detection Blender agreed (#253)

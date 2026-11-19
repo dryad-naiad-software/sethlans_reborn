@@ -5,7 +5,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { WorkerCardsComponent } from './worker-cards.component';
 import { WorkerService, Worker } from '../../core/services/worker.service';
-import { CardStatus } from '../../core/services/worker-cards.model';
+import { CardEntry, CardStatus } from '../../core/services/worker-cards.model';
 import {
   HOSTILE_TEXT, HOSTILE_URL, makeAlert, makeCard, makeStatus, makeWorker,
 } from './worker-cards.fixtures';
@@ -54,6 +54,45 @@ describe('WorkerCardsComponent', () => {
     expect(rows[1].querySelector('.card-state')!.textContent).toContain('Not ticked');
     expect(rows[2].querySelector('.card-state')!.textContent).toContain('Missing');
     expect(rows[2].querySelector('.card-state')!.classList).toContain('tone-bad');
+  });
+
+  it('shows the screen marks of each card (FR-CS-4)', () => {
+    const { screen, primary_screen, ...absent } = makeCard({ key: 'pci:0000:05:00.0' });
+    const el = render(makeWorker({ card_status: makeStatus({ cards: [
+      makeCard({ screen: true, primary_screen: true }),
+      makeCard({ key: 'pci:0000:02:00.0', screen: true, primary_screen: false }),
+      makeCard({ key: 'pci:0000:03:00.0', screen: true, primary_screen: null }),
+      makeCard({ key: 'pci:0000:04:00.0', screen: null, primary_screen: null }),
+      absent as CardEntry,
+      makeCard({ key: 'pci:0000:06:00.0', screen: false, primary_screen: false }),
+    ] }) }));
+    expect(screen).toBeNull();
+    expect(primary_screen).toBeNull();
+    const marks = Array.from(el.querySelectorAll('tr.card .card-screen')).map(td =>
+      Array.from(td.querySelectorAll('.screen-mark')).map(s => s.textContent!.trim()));
+    expect(marks).toEqual([
+      ['Drives a screen', 'Main screen'], ['Drives a screen'], ['Drives a screen'],
+      ['Screen: unknown'], ['Screen: unknown'], [],
+    ]);
+    const cells = el.querySelectorAll('tr.card .card-screen');
+    expect(cells[0].textContent!.trim()).toBe('Drives a screen, Main screen');
+    expect(cells[1].textContent!.trim()).toBe('Drives a screen');
+    expect(cells[5].textContent!.trim()).toBe('');
+  });
+
+  it('shows the screen warning from the worker once and adds none of its own', () => {
+    const text = 'NVIDIA GeForce RTX 5090 (PCI 01:00.0) is ticked and drives the main screen; rendering can slow it.';
+    const el = render(makeWorker({ card_status: makeStatus({
+      cards: [makeCard({ screen: true, primary_screen: true })],
+      warnings: [{ code: 'ticked_drives_screen', key: 'pci:0000:01:00.0', text }],
+    }) }));
+    const warnings = el.querySelectorAll('.warning');
+    expect(warnings.length).toBe(1);
+    expect(warnings[0].textContent).toContain(text);
+    expect(el.textContent!.split('is ticked and drives').length - 1).toBe(1);
+    expect(render(makeWorker({ card_status: makeStatus({
+      cards: [makeCard({ screen: true, primary_screen: true })],
+    }) })).querySelector('.warning')).toBeNull();
   });
 
   it('shows the problem, warnings, notices and the rebuild wait', () => {

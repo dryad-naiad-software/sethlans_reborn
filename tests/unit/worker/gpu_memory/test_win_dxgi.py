@@ -4,7 +4,7 @@
 """
 Unit tests for the pure parts of ``gpu_memory.win_dxgi``.
 
-No DXGI call is made: the vtable lookup (``_method``), the adapter read
+No DXGI call is made: the vtable lookup (``com_method``), the adapter read
 (``_read_desc``) and ``_release`` are replaced with fakes, so these tests run
 on every OS. They cover the order and index rules of FR-CI-2: the index is the
 raw loop index counting every adapter, ``EnumAdapterByGpuPreference`` with
@@ -13,6 +13,8 @@ when it does not.
 """
 import ctypes
 from types import SimpleNamespace
+
+import pytest
 
 from sethlans_worker_agent.gpu_memory import win_dxgi
 
@@ -107,7 +109,7 @@ class TestNextAdapter:
                 return 0
             return call
 
-        mocker.patch.object(win_dxgi, '_method', side_effect=method)
+        mocker.patch.object(win_dxgi, 'com_method', side_effect=method)
         return calls
 
     def test_factory6_uses_enum_by_gpu_preference_high_performance(self, mocker):
@@ -159,7 +161,7 @@ class TestEnumerate:
                 return qi_hr
             return query
 
-        mocker.patch.object(win_dxgi, '_method', side_effect=method)
+        mocker.patch.object(win_dxgi, 'com_method', side_effect=method)
         walk = mocker.patch.object(win_dxgi, '_walk', return_value=('listed',))
         released = []
         mocker.patch.object(win_dxgi, '_release', side_effect=lambda api, obj: released.append(obj.value))
@@ -212,4 +214,61 @@ class TestEnumerateAdapters:
         enumerate_ = mocker.patch.object(win_dxgi, '_enumerate', return_value=listed)
 
         assert win_dxgi.enumerate_adapters() == listed
-        enumerate_.assert_called_once_with('api')
+        enumerate_.assert_called_once_with('api', None)
+
+    def test_visit_is_passed_to_the_walk(self, mocker):
+        mocker.patch.object(win_dxgi, 'sys', SimpleNamespace(platform='win32'))
+        mocker.patch.object(win_dxgi, '_get_api', return_value='api')
+        enumerate_ = mocker.patch.object(win_dxgi, '_enumerate', return_value=())
+
+        def visit(adapter):
+            return None
+
+        win_dxgi.enumerate_adapters(visit=visit)
+
+        enumerate_.assert_called_once_with('api', visit)
+
+
+class TestVisit:
+    """``_walk`` with a ``visit``: called per adapter before its release, result paired with the description."""
+
+    def test_visit_sees_each_adapter_before_release_and_pairs_the_result(self, mocker):
+        fake = _FakeWalk(mocker, [0, 0])
+        seen = []
+
+        def visit(adapter):
+            seen.append((isinstance(adapter, ctypes.c_void_p), fake.released))
+            return f'marks {len(seen)}'
+
+        found = win_dxgi._walk(object(), 'factory', 'factory6', visit)
+
+        assert [(desc.index, extra) for desc, extra in found] == [(0, 'marks 1'), (1, 'marks 2')]
+        assert seen == [(True, 0), (True, 1)]   # each adapter is still held while visited
+        assert fake.released == 2
+
+    def test_visit_is_not_called_for_an_adapter_without_description(self, mocker):
+        _FakeWalk(mocker, [0], descs=[None])
+        visit = mocker.Mock()
+
+        assert win_dxgi._walk(object(), 'factory', None, visit) is None
+        visit.assert_not_called()
+
+    def test_adapter_is_released_when_visit_raises(self, mocker):
+        fake = _FakeWalk(mocker, [0])
+
+        def visit(adapter):
+            raise ctypes.ArgumentError('bad call')
+
+        with pytest.raises(ctypes.ArgumentError):
+            win_dxgi._walk(object(), 'factory', None, visit)
+        assert fake.released == 1
+
+    def test_enumerate_passes_visit_to_the_walk(self, mocker):
+        walk = mocker.patch.object(win_dxgi, '_walk', return_value=())
+        mocker.patch.object(win_dxgi, 'com_method', side_effect=lambda *a: (lambda *b: -1))
+        mocker.patch.object(win_dxgi, '_release')
+        api = SimpleNamespace(create_factory1=lambda iid, out: 0, query_interface='QI')
+
+        win_dxgi._enumerate(api, 'VISIT')
+
+        assert walk.call_args.args[3] == 'VISIT'

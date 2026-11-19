@@ -83,6 +83,7 @@
   .warn-list { list-style: none; }
   .card-state { font-size: 0.8rem; font-weight: 600; color: var(--warn); }
   .card-state.bad { color: var(--err); }
+  .card-screen { font-size: 0.75rem; padding: 0 0.35rem; border: 1px solid currentColor; border-radius: 3px; opacity: 0.7; }
 </style>
 </head>
 <body>
@@ -488,6 +489,12 @@
   function hasGpu(method) { return method === 'gpu' || method === 'cpu_gpu'; }
   function cardLabel(c) { return c.pci ? c.name + ' (PCI ' + c.pci + ')' : c.name; }
   function tickedCards() { return cards.data.cards.filter(function(c) { return cards.ticked[c.address]; }); }
+  // Screen marks (FR-CS-4): shown only; they never change a tick or an enabled state.
+  function screenMarks(c) {
+    if (c.screen === null) return ['screen: unknown'];
+    if (c.screen !== true) return [];
+    return c.primary_screen === true ? ['drives a screen', 'main screen'] : ['drives a screen'];
+  }
 
   // One-family rule: two or more ticked cards with a Blender family, all the same family.
   function oneFamily(list) {
@@ -559,6 +566,9 @@
         state.textContent = CARD_STATE[c.state];
         row.appendChild(state);
       }
+      screenMarks(c).forEach(function(t) {
+        var mark = document.createElement('span'); mark.className = 'card-screen'; mark.textContent = t; row.appendChild(mark);
+      });
       if (c.note) { var note = document.createElement('span'); note.className = 'card-note'; note.textContent = c.note; row.appendChild(note); }
       items.appendChild(row);
     });

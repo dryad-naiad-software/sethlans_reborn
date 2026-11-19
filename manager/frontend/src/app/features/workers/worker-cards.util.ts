@@ -95,6 +95,13 @@ export function stateTone(state: CardState): CardTone {
   return lookup<CardTone>(STATE_TONES, state, 'plain');
 }
 
+/** FR-CS-4 screen marks: `false` shows none; `null`, absent or any other value is unknown. */
+export function screenLabels(card: Pick<CardEntry, 'screen' | 'primary_screen'>): string[] {
+  if (card.screen === false) return [];
+  if (card.screen !== true) return ['Screen: unknown'];
+  return card.primary_screen === true ? ['Drives a screen', 'Main screen'] : ['Drives a screen'];
+}
+
 export function alertLabel(kind: CardAlertKind): string {
   return lookup(ALERT_LABELS, kind, 'Card alert');
 }

@@ -16,7 +16,7 @@ declared with ``argtypes``/``restype``; COM calls through ``WINFUNCTYPE``
 prototypes bound to vtable slots; ``Release`` on every interface obtained, in
 ``finally``. No ``CoInitialize`` (``CreateDXGIFactory1`` is not a COM
 activation). Any failure other than ``DXGI_ERROR_NOT_FOUND`` ending the list
-makes the whole call return ``None``; it never raises.
+makes the whole call return ``None``; it never raises unless a ``visit`` does.
 
 Nothing here runs at import, so the module imports on every platform.
 """
@@ -109,14 +109,14 @@ def _get_api() -> _Api:
         return _api
 
 
-def _method(prototype, obj: ctypes.c_void_p, slot: int):
+def com_method(prototype, obj: ctypes.c_void_p, slot: int):
     vtable = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
     return prototype(vtable[slot])
 
 
 def _release(api: _Api, obj: Optional[ctypes.c_void_p]) -> None:
     if obj is not None and obj.value:
-        _method(api.release, obj, SLOT_RELEASE)(obj)
+        com_method(api.release, obj, SLOT_RELEASE)(obj)
 
 
 def _failed(hr: int) -> bool:
@@ -125,7 +125,7 @@ def _failed(hr: int) -> bool:
 
 def _read_desc(api: _Api, adapter: ctypes.c_void_p, index: int) -> Optional[AdapterDesc]:
     desc = DXGI_ADAPTER_DESC1()
-    if _failed(_method(api.get_desc1, adapter, SLOT_GET_DESC1)(adapter, ctypes.byref(desc))):
+    if _failed(com_method(api.get_desc1, adapter, SLOT_GET_DESC1)(adapter, ctypes.byref(desc))):
         return None
     luid = (int(desc.AdapterLuid.HighPart), int(desc.AdapterLuid.LowPart))
     return AdapterDesc(index, desc.Description, int(desc.VendorId), int(desc.DeviceId),
@@ -134,13 +134,13 @@ def _read_desc(api: _Api, adapter: ctypes.c_void_p, index: int) -> Optional[Adap
 
 def _next_adapter(api, factory, factory6, index, adapter) -> int:
     if factory6 is not None:
-        call = _method(api.enum_by_preference, factory6, SLOT_ENUM_BY_GPU_PREFERENCE)
+        call = com_method(api.enum_by_preference, factory6, SLOT_ENUM_BY_GPU_PREFERENCE)
         return call(factory6, index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
                     ctypes.byref(IID_IDXGIAdapter1), ctypes.byref(adapter))
-    return _method(api.enum_adapters1, factory, SLOT_ENUM_ADAPTERS1)(factory, index, ctypes.byref(adapter))
+    return com_method(api.enum_adapters1, factory, SLOT_ENUM_ADAPTERS1)(factory, index, ctypes.byref(adapter))
 
 
-def _walk(api: _Api, factory, factory6) -> Optional[Tuple[AdapterDesc, ...]]:
+def _walk(api: _Api, factory, factory6, visit=None) -> Optional[tuple]:
     found = []
     for index in range(MAX_ADAPTERS):
         adapter = ctypes.c_void_p()
@@ -152,16 +152,22 @@ def _walk(api: _Api, factory, factory6) -> Optional[Tuple[AdapterDesc, ...]]:
                 logger.debug("DXGI adapter %d could not be listed (0x%08X).", index, hr & 0xFFFFFFFF)
                 return None
             desc = _read_desc(api, adapter, index)
+            extra = visit(adapter) if visit is not None and desc is not None else None
         finally:
             _release(api, adapter)
         if desc is None:
             logger.debug("DXGI adapter %d gave no description.", index)
             return None
-        found.append(desc)
+        found.append(desc if visit is None else (desc, extra))
     return tuple(found)
 
 
-def _enumerate(api: _Api) -> Optional[Tuple[AdapterDesc, ...]]:
+def release(obj: Optional[ctypes.c_void_p]) -> None:
+    """``IUnknown::Release`` on ``obj`` when it holds a pointer (for objects a ``visit`` obtains)."""
+    _release(_get_api(), obj)
+
+
+def _enumerate(api: _Api, visit=None) -> Optional[tuple]:
     factory = ctypes.c_void_p()
     hr = api.create_factory1(ctypes.byref(IID_IDXGIFactory1), ctypes.byref(factory))
     if _failed(hr):
@@ -169,23 +175,26 @@ def _enumerate(api: _Api) -> Optional[Tuple[AdapterDesc, ...]]:
         return None
     factory6 = ctypes.c_void_p()
     try:
-        query = _method(api.query_interface, factory, SLOT_QUERY_INTERFACE)
+        query = com_method(api.query_interface, factory, SLOT_QUERY_INTERFACE)
         if _failed(query(factory, ctypes.byref(IID_IDXGIFactory6), ctypes.byref(factory6))):
             logger.debug("IDXGIFactory6 is not available; listing adapters with EnumAdapters1.")
             factory6 = ctypes.c_void_p()
-        return _walk(api, factory, factory6 if factory6.value else None)
+        return _walk(api, factory, factory6 if factory6.value else None, visit)
     finally:
         _release(api, factory6)
         _release(api, factory)
 
 
-def enumerate_adapters() -> Optional[Tuple[AdapterDesc, ...]]:
-    """Every DXGI adapter in Unreal's ``-graphicsadapter`` order, or ``None`` on any failure."""
+def enumerate_adapters(visit=None) -> Optional[tuple]:
+    """Every DXGI adapter in Unreal's ``-graphicsadapter`` order, or ``None`` on any failure.
+
+    ``visit(adapter pointer)``, if given, runs before each release; entries become ``(desc, visit result)``.
+    """
     if sys.platform != 'win32':
         return None
     try:
         api = _get_api()
-        return _enumerate(api)
+        return _enumerate(api, visit)
     except (OSError, AttributeError, TypeError, ValueError, ctypes.ArgumentError) as exc:  # missing DLL/export
         logger.debug("DXGI adapter list unavailable: %s", exc)
         return None

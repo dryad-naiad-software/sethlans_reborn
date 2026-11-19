@@ -30,7 +30,7 @@ DISPLAY_BASE_CLASS = 0x03
 VENDOR_NAMES = {0x10DE: 'NVIDIA', 0x1002: 'AMD', 0x8086: 'Intel'}
 
 
-def _read_text(path: str) -> Optional[str]:
+def read_text(path: str) -> Optional[str]:
     try:
         with open(path, 'rb') as handle:
             data = handle.read(READ_CAP)
@@ -40,7 +40,7 @@ def _read_text(path: str) -> Optional[str]:
 
 
 def _read_hex(path: str) -> Optional[int]:
-    text = _read_text(path)
+    text = read_text(path)
     if not text:
         return None
     try:
@@ -50,7 +50,7 @@ def _read_hex(path: str) -> Optional[int]:
 
 
 def _display_name(device_dir: str, vendor_id: int, device_id: int) -> str:
-    product = clean_name(_read_text(os.path.join(device_dir, 'product_name')) or '')
+    product = clean_name(read_text(os.path.join(device_dir, 'product_name')) or '')
     if product:
         return product
     return f'{VENDOR_NAMES.get(vendor_id, "PCI")} GPU {vendor_id:04x}:{device_id:04x}'

@@ -4,7 +4,7 @@
 """
 Unit tests for ``cards.os_probe_linux`` (FR-CI-3) without a filesystem.
 
-The module's ``os`` and ``_read_text`` are replaced by an in-memory fake
+The module's ``os`` and ``read_text`` are replaced by an in-memory fake
 sysfs, so the parsing rules run on every OS, including Windows where a
 basename such as ``0000:01:00.0`` cannot be created. The real-tree tests are
 in ``test_os_probe_linux_sysfs.py``.
@@ -54,7 +54,7 @@ class _FakeSysfs:
         fake_os = SimpleNamespace(listdir=self.listdir, path=SimpleNamespace(
             join=posixpath.join, basename=posixpath.basename, realpath=self.realpath))
         mocker.patch.object(os_probe_linux, 'os', fake_os)
-        mocker.patch.object(os_probe_linux, '_read_text', side_effect=self.read_text)
+        mocker.patch.object(os_probe_linux, 'read_text', side_effect=self.read_text)
 
 
 @pytest.fixture
@@ -182,28 +182,28 @@ class TestProbeParsing:
 
 
 class TestReaders:
-    """``_read_text`` and ``_read_hex`` with ordinary file names (these work on NTFS too)."""
+    """``read_text`` and ``_read_hex`` with ordinary file names (these work on NTFS too)."""
 
     def test_read_text_strips(self, tmp_path):
         path = tmp_path / 'vendor'
         path.write_bytes(b'0x10de\n')
 
-        assert os_probe_linux._read_text(str(path)) == '0x10de'
+        assert os_probe_linux.read_text(str(path)) == '0x10de'
 
     def test_read_text_is_capped_at_4_kib(self, tmp_path):
         path = tmp_path / 'product_name'
         path.write_bytes(b'a' * 4096 + b'TAIL')
 
-        assert os_probe_linux._read_text(str(path)) == 'a' * 4096
+        assert os_probe_linux.read_text(str(path)) == 'a' * 4096
 
     def test_read_text_replaces_invalid_utf8(self, tmp_path):
         path = tmp_path / 'product_name'
         path.write_bytes(b'Radeon \xff')
 
-        assert os_probe_linux._read_text(str(path)) == 'Radeon �'
+        assert os_probe_linux.read_text(str(path)) == 'Radeon �'
 
     def test_read_text_of_a_missing_file_is_none(self, tmp_path):
-        assert os_probe_linux._read_text(str(tmp_path / 'missing')) is None
+        assert os_probe_linux.read_text(str(tmp_path / 'missing')) is None
 
     @pytest.mark.parametrize('content, expected', [
         (b'0x030000\n', 0x030000), (b'10de', 0x10DE), (b'', None), (b'  \n', None), (b'0xZZ', None),

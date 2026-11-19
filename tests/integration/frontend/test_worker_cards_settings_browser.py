@@ -184,6 +184,24 @@ def test_settings_lost_ticked_card_is_listed_but_never_sent(page, worker_ui):
     assert errors == []
 
 
+def test_settings_shows_screen_marks_and_one_warning_per_ticked_screen_card(page, worker_ui, monkeypatch):
+    """FR-CS-4 / FR-CS-3: marks next to each card; the ticked-card warning is listed once; no tick changes."""
+    base_url, data_dir = worker_ui
+    ui.set_screen_marks(monkeypatch)
+    ui.seed_choice(data_dir, [ui.record_of(HIP_1), ui.record_of(HIP_2)])
+    errors = _open_settings(page, base_url, ui.PASSWORD)
+    for index, shown in ui.SHOWN_MARKS.items():
+        assert ui.row_marks(page, 'gc-items', 'gc-screen', index) == shown
+    warnings = page.locator('#gc-warnings li').all_inner_texts()
+    for index, main in ((HIP_1, True), (HIP_2, False)):
+        text = ui.screen_warning(index, main)
+        assert warnings.count(text) == 1
+        assert text not in page.inner_text('#gc-items')
+    ticked = [i in (HIP_1, HIP_2) for i in range(len(ui.CARDS))]
+    assert ui.boxes_state(page, 'gc-items') == [[t, True] for t in ticked]
+    assert errors == []
+
+
 def test_settings_says_when_the_new_card_list_waits(page, worker_ui, monkeypatch):
     base_url, _data_dir = worker_ui
     monkeypatch.setattr(rebuild, 'rebuild_waiting', lambda: True)

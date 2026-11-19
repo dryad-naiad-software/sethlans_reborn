@@ -11,7 +11,8 @@ import {
 } from '../../core/services/worker-cards.model';
 import { WorkerCardAlertsComponent } from './worker-card-alerts.component';
 import {
-  addressLabel, alertsOf, cardName, cardsOf, hasCardStatus, noticeText, stateLabel, stateTone,
+  addressLabel, alertsOf, cardName, cardsOf, hasCardStatus, noticeText, screenLabels, stateLabel,
+  stateTone,
 } from './worker-cards.util';
 
 /**
@@ -49,7 +50,7 @@ import {
           <table class="cards">
             <thead>
               <tr>
-                <th>Card</th><th>Address</th><th>Ticked</th><th>State</th><th>Note</th>
+                <th>Card</th><th>Address</th><th>Ticked</th><th>State</th><th>Screen</th><th>Note</th>
               </tr>
             </thead>
             <tbody>
@@ -60,6 +61,11 @@ import {
                   <td class="card-ticked">{{ card.ticked ? 'Yes' : 'No' }}</td>
                   <td class="card-state" [class]="'tone-' + tone(card)">
                     {{ state(card) }}
+                  </td>
+                  <td class="card-screen">
+                    @for (label of screen(card); track label) {
+                      <span class="screen-mark">{{ label }}</span>@if (!$last) {<span class="sep">, </span>}
+                    }
                   </td>
                   <td class="card-note">{{ card.note }}</td>
                 </tr>
@@ -99,6 +105,8 @@ import {
     .tone-bad { color: #b71c1c; }
     .tone-amber { color: #8a5300; }
     .card-note { color: #555; }
+    .screen-mark { margin-right: 8px; white-space: nowrap; }
+    .sep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     .no-status, .no-cards { color: #666; }
   `],
 })
@@ -125,6 +133,8 @@ export class WorkerCardsComponent {
   state(card: CardEntry): string { return stateLabel(card.state); }
 
   tone(card: CardEntry): string { return stateTone(card.state); }
+
+  screen(card: CardEntry): string[] { return screenLabels(card); }
 
   noticeLine(notice: CardNotice): string { return noticeText(notice); }
 }
