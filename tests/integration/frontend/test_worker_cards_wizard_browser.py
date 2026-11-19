@@ -207,3 +207,22 @@ def test_os_probe_failed_offers_blender_cards_and_keeps_saved_gpu(page, worker_u
     assert (compute['method'], compute['revision']) == ('gpu', 3)
     assert ui.ticked_keys(compute) == [ui.key_of(HIP_1)]
     assert errors == []
+
+
+def test_wizard_shows_problem_and_non_ok_states_and_ignores_missing(page, worker_ui):
+    """Chunk 4: a resumed wizard on a machine with a held and a missing card (no alerts or Dismiss here)."""
+    base_url, data_dir = worker_ui
+    lost = {'key': 'pci:0000:51:00.0', 'vendor_id': 0x1002, 'device_id': 0x73bf, 'revision_id': None,
+            'name': 'AMD Radeon RX 6800'}
+    ui.seed_choice(data_dir, [ui.record_of(HIP_1), lost],
+                   [ui.alert_record(ui.key_of(HIP_1), ui.CARDS[HIP_1][1], kind='card_changed')])
+    errors = _open_cards_step(page, base_url)
+    rows = page.locator('#cards-items label')
+    assert 'held until its alert is dismissed' in rows.nth(HIP_1).inner_text()
+    assert rows.nth(HIP_1).locator('.card-state.bad').count() == 1
+    assert rows.nth(HIP_2).locator('.card-state').count() == 0  # unticked: no label
+    assert page.locator('#cards-items input[type=checkbox]').count() == len(ui.CARDS)
+    assert 'AMD Radeon RX 6800' not in page.inner_text('#cards-form')
+    assert page.inner_text('#cards-problem').startswith('None of the ticked graphics cards can be used')
+    assert page.locator('#step-cards button', has_text='Dismiss').count() == 0
+    assert errors == []

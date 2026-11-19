@@ -11,16 +11,17 @@ import logging
 
 import pytest
 
-from sethlans_worker_agent import config_compute
-from sethlans_worker_agent.cards import in_use
+from sethlans_worker_agent import config_compute, config_store
+from sethlans_worker_agent.capacity import card_check
+from sethlans_worker_agent.cards import in_use, os_probe
 from sethlans_worker_agent.cards import inventory as inventory_module
 from sethlans_worker_agent.cards.in_use import (
     COMBINE_PROBLEM_TEXT, NO_TICK_TEXT, NONE_USABLE_TEXT, CardInUse, blender_cards_in_use, one_family,
-    problem_message, select,
+    problem_message,
 )
 from tests.unit.worker._card_choice import (
     IGPU_ID, KEY_IGPU, KEY_RTX_A, KEY_XT_03, KEY_XT_23, RTX_A_ID, XT_03_ID, XT_23_ID, card, detected_ids, igpu,
-    inv, rtx_a, section, xt_03, xt_23,
+    inv, rtx_a, section, select, xt_03, xt_23,
 )
 from tests.unit.worker.cards._card_ids import blender, os_card
 
@@ -120,6 +121,7 @@ class TestBlenderCardsInUse:
 
 
 class TestSelect:
+    """The selection on the worker's path (``matching.evaluate`` + ``card_profile.selection_of``)."""
 
     def test_ignored_are_the_detected_ids_not_in_use(self):
         cards = inv(rtx_a(), xt_03(), xt_23())
@@ -191,7 +193,8 @@ class TestEnvRecords:
         assert in_use.env_records((KEY_XT_03,), inv(xt_03()))[0]['device_id'] == 0x744C
 
 
-class TestResolve:
+class TestStartSelection:
+    """The cards in use as the start check picks them (``capacity.card_check.start_check``, FR-CK-1)."""
 
     @pytest.fixture
     def machine(self, mocker):
@@ -200,25 +203,26 @@ class TestResolve:
                         os_card(KEY_XT_23, 'AMD Radeon RX 7900 XT', 0x1002, 0x744C, revision_id=0xCC))}
         state['blender'] = [blender(XT_03_ID, 'HIP', 'AMD Radeon RX 7900 XT'),
                             blender(XT_23_ID, 'HIP', 'AMD Radeon RX 7900 XT')]
-        probe = mocker.patch.object(in_use.os_probe, 'probe', side_effect=lambda: state['os'])
+        probe = mocker.patch.object(os_probe, 'probe', side_effect=lambda: state['os'])
         mocker.patch('sethlans_worker_agent.cards.startup_log.cached_blender_list',
                      side_effect=lambda: (state['blender'], '4.5.0'))
         real_build = inventory_module.build
-        mocker.patch.object(in_use.inventory_module, 'build',
+        mocker.patch.object(inventory_module, 'build',
                             side_effect=lambda o, b, v: real_build(o, b, v, platform_name='linux'))
+        mocker.patch.object(config_store, 'set_many')  # alerts the check raises are not written anywhere
         state['probe'] = probe
         return state
 
     def test_method_cpu_probes_nothing(self, machine):
-        assert in_use.resolve(config_compute.parse({'method': 'cpu'}, {})) == in_use.Selection()
+        assert card_check.start_check(config_compute.parse({'method': 'cpu'}, {})) == in_use.Selection()
         machine['probe'].assert_not_called()
 
     def test_env_cards_take_their_model_from_the_first_inventory(self, machine):
         sect = config_compute.parse({}, {config_compute.ENV_METHOD: 'gpu', config_compute.ENV_CARDS: '0000:23:00.0'})
 
-        first = in_use.resolve(sect)
+        first = card_check.start_check(sect)
         machine['os'] = (os_card(KEY_XT_23, 'AMD Radeon RX 7900 XTX', 0x1002, 0x744C, revision_id=0xC8),)
-        second = in_use.resolve(sect)
+        second = card_check.start_check(sect)
 
         assert [c.key for c in first.cards] == [KEY_XT_23]
         assert first.ignored == (XT_03_ID,)
@@ -231,11 +235,11 @@ class TestResolve:
         full = machine['os']
 
         machine['os'] = None  # the OS probe failed: cards from Blender, no ids
-        fallback = in_use.resolve(sect)
+        fallback = card_check.start_check(sect)
         machine['os'] = full
-        first_full = in_use.resolve(sect)
+        first_full = card_check.start_check(sect)
         machine['os'] = (os_card(KEY_XT_23, 'AMD Radeon RX 7900 XTX', 0x1002, 0x744C, revision_id=0xC8),)
-        swapped = in_use.resolve(sect)
+        swapped = card_check.start_check(sect)
 
         assert [c.key for c in fallback.cards] == [KEY_XT_23]
         assert [c.key for c in first_full.cards] == [KEY_XT_23]
@@ -248,6 +252,6 @@ class TestResolve:
         sect = config_compute.parse({}, {config_compute.ENV_METHOD: 'gpu', config_compute.ENV_GPU_MODE: 'combined',
                                          config_compute.ENV_CARDS: '0000:03:00.0,0000:41:00.0'})
 
-        result = in_use.resolve(sect)
+        result = card_check.start_check(sect)
 
         assert (result.cards, result.problem) == ((), COMBINE_PROBLEM_TEXT)

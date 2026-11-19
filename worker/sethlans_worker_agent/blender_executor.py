@@ -62,6 +62,11 @@ def execute_blender_job(job_data, reservation=None,  # noqa: C901
             input (FR-CB-1); None renders on the CPU.
         yield_monitor_factory: Optional callable(blender_pid) that creates
             and starts a YieldMonitor. Called after the subprocess launches.
+        shutdown_event: The worker's shutdown event. The job's own stop
+            event (``blender_stop.register_card_stop``) is checked with it
+            at every stop point: before the download, before the render,
+            during it, in the yield abort check, after it and in the
+            thumbnail pass.
 
     Returns (success, was_canceled, was_yielded, stdout, stderr,
              error_msg, output_path, thumbnail_path, yield_monitor,
@@ -91,6 +96,7 @@ def execute_blender_job(job_data, reservation=None,  # noqa: C901
     temp_script_path = None
 
     os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)
+    shutdown_event = blender_stop.job_stop(shutdown_event, job_data)  # also this job's own stop (FR-CL-5)
     if blender_stop.stopped_before_start(shutdown_event, job_id, job_data):  # #247: before any download
         return _STOPPED_RESULT
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))

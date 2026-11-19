@@ -7,13 +7,14 @@ Builders for the card-choice tests (chunk 2: saved choice and slots).
 ``inv(...)`` makes an inventory from ``card(...)`` entries, ``section(...)``
 the effective ``compute`` section that ticks some of them (records as
 ``store.save`` writes them), and ``capacity_for(...)`` the capacity the
-worker builds from both, through ``in_use.select`` as ``init_capacity`` does.
+worker builds from both, through ``matching.evaluate`` and
+``card_profile.selection_of`` as ``init_capacity`` does (``select``).
 
 Module name starts with an underscore so pytest does not collect it.
 """
 from sethlans_worker_agent import config_compute
-from sethlans_worker_agent.capacity import WorkerCapacity, compute_capacity_profile
-from sethlans_worker_agent.cards import in_use
+from sethlans_worker_agent.capacity import WorkerCapacity, card_profile, compute_capacity_profile
+from sethlans_worker_agent.cards import in_use, matching
 from sethlans_worker_agent.cards.inventory import Card, Inventory
 
 NVIDIA, AMD = 0x10DE, 0x1002
@@ -76,9 +77,19 @@ def detected_ids(inventory):
     return tuple(item.blender[0] for item in inventory.cards if item.blender)
 
 
+def select(sect, inventory, detected=()):
+    """The cards in use, the ignored Blender ids and the problem, on the worker's path.
+
+    ``matching.evaluate`` and ``card_profile.selection_of``, as the start
+    check and the rebuild use them; ``detected`` are the Blender ids of the
+    detection cache.
+    """
+    return card_profile.selection_of(matching.evaluate(sect, inventory), [{'id': device} for device in detected])
+
+
 def capacity_for(sect, inventory, cpu_cores=16):
     """The ``WorkerCapacity`` built from ``sect`` and ``inventory`` as ``init_capacity`` builds it."""
-    selection = in_use.select(sect, inventory, detected_ids(inventory))
+    selection = select(sect, inventory, detected_ids(inventory))
     profile = compute_capacity_profile(
         method=sect.method, gpu_mode=sect.gpu_mode, cards=selection.cards, cpu_cores=cpu_cores,
         cpu_threads_config=0, ignored=selection.ignored, problem=selection.problem)

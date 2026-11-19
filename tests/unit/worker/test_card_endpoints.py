@@ -12,6 +12,7 @@ no real ``config.json`` is touched.
 import pytest
 
 from sethlans_worker_agent import config_compute, config_store
+from sethlans_worker_agent.capacity import rebuild
 from sethlans_worker_agent.cards import inventory
 from sethlans_worker_agent.web_ui import cards_view
 from sethlans_worker_agent.web_ui.setup import gate, lock
@@ -37,7 +38,8 @@ class TestSetup:
         status, answer = _call(SETUP_PATH)
         assert status == 200
         assert answer['revision'] == 0 and answer['method'] == 'cpu' and answer['ticked'] == []
-        assert answer['warnings'] == [] and answer['env_override'] is False
+        assert [w['code'] for w in answer['warnings']] == ['engine_not_tied']  # method CPU, cards present (D22)
+        assert answer['env_override'] is False and answer['config_read_failed'] is False
         assert [c['address'] for c in answer['cards']] == ['0000:03:00.0', '0000:23:00.0']
         assert answer['cards'][1]['pci'] == '23:00.0' and answer['cards'][1]['family'] == 'HIP'
 
@@ -112,7 +114,10 @@ class TestRuntime:
 
     def test_post_saves(self, saved, probes):
         status, answer = _call('/api/control/cards', 'POST', _body(), self.auth)
-        assert status == 200 and answer['revision'] == 1 and 'restarts' in answer['message']
+        assert status == 200 and answer['revision'] == 1
+        assert answer['message'] == ("Saved. The new graphics card choice is in use once running GPU jobs on "
+                                     "removed cards finish.")
+        assert rebuild.pending() is True  # live rebuild (FR-CM-6, FR-CL-4)
 
     def test_env_override_is_409(self, saved, probes, monkeypatch):
         monkeypatch.setenv(config_compute.ENV_METHOD, 'cpu')

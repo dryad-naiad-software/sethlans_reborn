@@ -5,8 +5,8 @@
 Stopping a Blender render the worker should no longer run (#246, #247).
 
 The executor loop stops the process tree when the worker shuts down (reason
-``worker_shutdown``, or ``worker_hardware_changed`` after the drift handler
-marked the hardware change) and when the manager's job record shows the job
+``worker_shutdown``), when the job's own card stop is requested (reason
+``worker_hardware_changed``, FR-CL-5) and when the manager's job record shows the job
 is no longer this worker's. A failed poll never stops a render; a user
 cancel still ends as before. The thumbnail pass stops on shutdown too.
 """
@@ -47,16 +47,19 @@ def loop(mocker, executor_env):
 
 class TestShutdown:
 
-    @pytest.mark.parametrize('hardware, reason', [
+    @pytest.mark.parametrize('card_stop, reason', [
         (False, blender_stop.WORKER_SHUTDOWN), (True, blender_stop.WORKER_HARDWARE_CHANGED),
-    ])
-    def test_shutdown_stops_the_tree_with_its_reason(self, loop, executor_env, tmp_path, hardware, reason):
+    ], ids=['worker-shutdown', 'own-card-stop'])
+    def test_stop_ends_the_tree_with_its_reason(self, loop, executor_env, tmp_path, card_stop, reason):
+        """A worker shutdown, or the job's own card stop (FR-CL-5) with the shutdown event left alone."""
         proc, terminate, assignment = loop
-        if hardware:
-            blender_stop.mark_hardware_change()
         shutdown = threading.Event()
-        shutdown.set()
         job = _cpu_job()
+        if card_stop:
+            blender_stop.register_card_stop(job)
+            assert blender_stop.request_card_stop(job['id']) is True
+        else:
+            shutdown.set()
 
         result = blender_executor.execute_blender_job(job, shutdown_event=shutdown)
 
@@ -64,6 +67,7 @@ class TestShutdown:
         assignment.assert_not_called()  # stopped before asking the manager anything
         assert result[0] is False and result[1] is False and result[6] is None
         assert job[blender_stop.STOPPED_KEY] == reason
+        assert shutdown.is_set() is not card_stop
         executor_env['release'].assert_called_once_with('4.1.1')  # version reference released
         assert list((tmp_path / 'temp').glob('*.py')) == []  # temp script removed
 

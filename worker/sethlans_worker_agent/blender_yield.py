@@ -64,7 +64,9 @@ def should_abort(manual_stop_event, job_id, shutdown_event):
     Checks:
     1. manual_stop_event.is_set() -- user triggered stop
     2. get_job_status(job_id) == 'CANCELED' -- manager canceled the job
-    3. shutdown_event.is_set() -- worker is shutting down
+    3. shutdown_event.is_set() -- worker is shutting down, or (when the
+       executor passed ``blender_stop.JobStop``) the job's own card stop
+       was requested (FR-CL-5)
     """
     if manual_stop_event is not None and manual_stop_event.is_set():
         return True

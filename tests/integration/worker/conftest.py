@@ -84,6 +84,7 @@ def _reset_job_processor_state():
     from sethlans_worker_agent import job_processor
     from sethlans_worker_agent import blender_stop
     from sethlans_worker_agent import capacity as capacity_module
+    from sethlans_worker_agent.capacity import card_check, rebuild
     with job_processor._active_jobs_lock:
         job_processor._active_jobs.clear()
     with job_processor._recent_jobs_lock:
@@ -94,7 +95,8 @@ def _reset_job_processor_state():
     capacity_module.reset_gpu_list_recheck()
     capacity_module.reset_missing_executable_warning()
     blender_stop.reset_for_tests()
-    capacity_module.reset_drift_exit_code()
+    rebuild.reset_for_tests()
+    card_check.reset_for_tests()
     yield
     # Post-test cleanup: the capacity instance may have been replaced
     # during the test, but we always tear it down so the next test
@@ -104,7 +106,8 @@ def _reset_job_processor_state():
     capacity_module.reset_gpu_list_recheck()
     capacity_module.reset_missing_executable_warning()
     blender_stop.reset_for_tests()
-    capacity_module.reset_drift_exit_code()
+    rebuild.reset_for_tests()
+    card_check.reset_for_tests()
     with job_processor._active_jobs_lock:
         job_processor._active_jobs.clear()
     with job_processor._recent_jobs_lock:
@@ -132,17 +135,24 @@ def _isolated_compute_section(monkeypatch):
 
     Same as the unit-suite fixture: ``config_compute.load`` would otherwise
     read this machine's real ``config.json``. Tests that need GPU slots
-    use ``_capacity_harness.install_fake_capacity``.
+    use ``_capacity_harness.install_fake_capacity``. Also forgets the
+    alerts the store kept in memory, and marks the Eevee/Workbench card
+    condition as known (not holding), so no job start probes the real cards.
     """
     from sethlans_worker_agent import config_compute
-    from sethlans_worker_agent.cards import in_use
+    from sethlans_worker_agent.cards import in_use, store
+    from sethlans_worker_agent.cards import warnings as card_warnings
     for name in (config_compute.ENV_METHOD, config_compute.ENV_GPU_MODE,
                  config_compute.ENV_CARDS, config_compute.ENV_ALLOW):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(config_compute, '_read_raw', lambda: None)
     in_use.reset_env_records_for_tests()
+    store.reset_memory_for_tests()
+    card_warnings.reset_for_tests(False)
     yield
     in_use.reset_env_records_for_tests()
+    store.reset_memory_for_tests()
+    card_warnings.reset_for_tests(False)
 
 
 @pytest.fixture(autouse=True)

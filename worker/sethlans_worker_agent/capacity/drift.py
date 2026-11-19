@@ -2,30 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-GPU drift (hardware change) detection helpers.
+Uncached Blender GPU detection for the periodic card check.
 
-Owns:
+``detect_physical_gpus_now()`` returns the ordered (Blender device id,
+backend type) pair of every physical card (#239; see gpu_list.py). It runs
+with the Blender that produced the cached list. When the version sync has
+removed it, another installed Blender is used (newest first, the same series
+first); when that one still offers every card of the profile it is adopted
+as the detection Blender (``adopt_detection_executable``, #253).
 
-- ``detect_physical_gpus_now()``: an uncached detection that returns the
-  ordered (Blender device id, backend type) pair of every physical card,
-  for comparison with the list the worker uses (#239; see gpu_list.py).
-  It runs with the Blender that produced that list. When the version sync
-  has removed it, another installed Blender is used (newest first, the same
-  series first); if its list matches the list in use it is adopted as the
-  detection Blender (``adopt_detection_executable``), otherwise the change
-  is handled as a hardware change (#253);
-- the module-level exit-code flag set by the drift handler.
-
-When the comparison runs (periodically, and early after a failed GPU
-device check) is decided in recheck.py.
-
-The drift handler flow (compare, terminate active jobs, set the shutdown
-event) lives in WorkerCapacity.assert_gpu_list_unchanged() in slots.py;
-the cadence lives in job_processor.maybe_assert_gpu_list_unchanged().
-
-FR-22: sys.exit and os._exit are FORBIDDEN inside this module. The
-top-level epilogue in agent.main (or run_worker.py) reads the flag
-and calls sys.exit after the graceful shutdown path runs.
+When the check runs (periodically, and early after a failed GPU device
+check) is decided in recheck.py; what it does with the result (card states,
+alerts, per-job stops, rebuild) in card_check.py. A hardware change no
+longer ends the worker process (FR-CL-6).
 """
 import json
 import logging
@@ -37,31 +26,9 @@ from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Set by the drift handler. Read by the agent.main epilogue to decide
-# the process exit code. NEVER call sys.exit from inside this module.
-_drift_detected_exit_code: Optional[int] = None
-
-
-def get_drift_exit_code() -> Optional[int]:
-    """Return the drift exit code (None if no drift has been detected)."""
-    return _drift_detected_exit_code
-
-
-def set_drift_exit_code(code: int) -> None:
-    """Set the drift exit code. Called by the drift handler."""
-    global _drift_detected_exit_code
-    _drift_detected_exit_code = code
-
-
-def reset_drift_exit_code() -> None:
-    """Reset the drift exit code. Test-only hook."""
-    global _drift_detected_exit_code
-    _drift_detected_exit_code = None
-
-
-# What ``WorkerCapacity.assert_gpu_list_unchanged`` returns when the fresh
-# detection failed ("try again later"): a re-check request it answered stays
-# pending (recheck.run_gpu_list_check).
+# What ``WorkerCapacity.assert_gpu_list_unchanged`` returns when the OS probe
+# or the fresh detection failed ("try again later"): a re-check request it
+# answered stays pending (recheck.run_gpu_list_check).
 DETECTION_FAILED = 'detection_failed'
 
 # Per missing remembered executable, what was logged once: the switch to a
@@ -127,6 +94,7 @@ def _detection_executable() -> Optional[str]:
     versions), a fallback is chosen (``_choose_fallback_blender``); if its
     list matches the list in use, ``adopt_detection_executable`` makes it the
     remembered one (#253). Without a usable Blender: None, "try again later".
+    Read and written by the agent-loop thread only (the check's only caller).
     """
     global _missing_exe_warned, _fallback_logged, _fallback_exe
     from sethlans_worker_agent import hardware_detection
@@ -148,6 +116,11 @@ def _detection_executable() -> Optional[str]:
                        "with (the one that produced the list in use was %s); skipping drift check.", ascii(exe))
         _missing_exe_warned = exe
     return None
+
+
+def fallback_detection_executable() -> Optional[str]:
+    """The other installed Blender the last detection ran with (the remembered one is gone), or None."""
+    return _fallback_exe
 
 
 def adopt_detection_executable() -> None:

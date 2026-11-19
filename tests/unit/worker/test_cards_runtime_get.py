@@ -18,7 +18,8 @@ import types
 
 import pytest
 
-from sethlans_worker_agent import capacity, config_compute, config_store
+from sethlans_worker_agent import blender_stop, config_compute, config_store
+from sethlans_worker_agent.capacity import rebuild
 from sethlans_worker_agent.cards import choice, in_use, store
 from sethlans_worker_agent.web_ui import cards_cache, cards_view
 from tests.unit.worker._card_choice import KEY_RTX_A, KEY_XT_23, inv, rtx_a, xt_03, xt_23
@@ -79,8 +80,8 @@ class TestReadOnly:
 
         def recorder(name):
             return lambda *args, **kwargs: calls.append(name)
-        for module, name in ((store, 'add_alert'), (store, 'request_card_stop'), (choice, '_request_rebuild'),
-                             (capacity, 'request_rebuild'), (config_store, 'set_many'), (config_store, 'save')):
+        for module, name in ((store, 'add_alert'), (blender_stop, 'request_card_stop'), (choice, '_request_rebuild'),
+                             (rebuild, 'request_rebuild'), (config_store, 'set_many'), (config_store, 'save')):
             monkeypatch.setattr(module, name, recorder(f'{module.__name__}.{name}'), raising=False)
         return calls
 

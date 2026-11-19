@@ -11,6 +11,9 @@ Exports:
   * ``SYSTEM_CONFIG_PATH``     — Linux system-wide path constant.
   * ``load``                   — merged dict from system + per-user.
   * ``save``                   — full-dict atomic write (rarely used).
+  * ``load_strict``            — as ``load``, but raises ``ConfigReadError``
+                                 when the per-user file exists and cannot
+                                 be read or parsed (instead of ``{}``).
   * ``get(dotted_key, default)`` — lock-free nested read.
   * ``set(dotted_key, value)``   — thread-safe AND cross-process-safe
                                    load -> mutate -> save cycle.
@@ -21,6 +24,7 @@ Exports:
 dotted key is logged.
 """
 
+import json
 import logging
 import threading
 from typing import Any, Tuple
@@ -44,10 +48,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ConfigLockTimeoutError",
+    "ConfigReadError",
     "SYSTEM_CONFIG_PATH",
     "get",
     "get_data_dir",
     "load",
+    "load_strict",
     "save",
     "set",
     "set_many",
@@ -57,11 +63,35 @@ __all__ = [
 _config_lock = threading.Lock()
 
 
+class ConfigReadError(OSError):
+    """The per-user config file exists but could not be read or parsed."""
+
+
 def load() -> dict:
     """Return the merged config dict (per-user overlays system-wide)."""
     system_cfg = load_system_config()
     user_cfg = read_json_file(user_config_path())
     return deep_merge(system_cfg, user_cfg)
+
+
+def load_strict() -> dict:
+    """As ``load``, but a per-user file that cannot be read or parsed raises ``ConfigReadError``.
+
+    A missing file is not an error (a new worker has none). A lock-free
+    reader can meet a file that is being replaced; callers that must not act
+    on defaults then skip their pass or refuse their write.
+    """
+    path = user_config_path()
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            user_cfg = json.load(fh)
+    except FileNotFoundError:
+        user_cfg = {}
+    except (OSError, ValueError, RecursionError) as error:  # ValueError: JSONDecodeError, UnicodeDecodeError
+        raise ConfigReadError(f"could not read {path.name}: {error}") from error
+    if not isinstance(user_cfg, dict):
+        raise ConfigReadError(f"{path.name} does not hold a JSON object")
+    return deep_merge(load_system_config(), user_cfg)
 
 
 def save(config_dict: dict) -> None:

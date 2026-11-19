@@ -64,6 +64,18 @@
   .gc-note { flex-basis: 100%; padding-left: 1.4rem; font-size: 0.75rem; opacity: 0.7; }
   .gc-warnings { list-style: none; }
   .gc-actions { margin-top: 0.75rem; }
+  .gc-fixed { cursor: default; }
+  .gc-state, .gc-tag { font-size: 0.75rem; font-weight: bold; }
+  .gc-tag { opacity: 0.7; }
+  .gc-bad, .gc-amber { border-left: 3px solid var(--err); padding-left: 0.4rem; }
+  .gc-amber { border-left-color: var(--warn); }
+  .gc-bad .gc-state { color: var(--err); }
+  .gc-amber .gc-state { color: var(--warn); }
+  .gc-alerts { border: 1px solid var(--err); background: rgba(231, 76, 60, 0.15); border-radius: 4px; padding: 0.5rem; margin: 0.5rem 0; font-size: 0.85rem; }
+  .gc-alerts h3 { color: var(--err); font-size: 0.85rem; margin-bottom: 0.25rem; }
+  .gc-alerts ul { list-style: none; }
+  .gc-alerts li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; padding: 0.25rem 0; }
+  .gc-time { font-size: 0.75rem; opacity: 0.7; }
 </style>
 </head>
 <body>
@@ -128,6 +140,11 @@
       <p class="gc-msg" id="gc-env" style="display:none">The graphics card choice is set by environment variables on this worker.</p>
       <p class="gc-msg status-warn" id="gc-probe-failed" style="display:none">The operating system could not list the graphics cards; the cards below come from Blender.</p>
       <p class="gc-msg empty" id="gc-none" style="display:none">No graphics card was found on this machine.</p>
+      <p class="gc-msg status-err" id="gc-read-failed" style="display:none"></p>
+      <section class="gc-alerts" id="gc-alerts" style="display:none" aria-labelledby="gc-alerts-title">
+        <h3 id="gc-alerts-title">Open alerts</h3><ul id="gc-alert-list"></ul></section>
+      <p class="gc-msg status-warn" id="gc-problem" style="display:none"></p>
+      <p class="gc-msg status-warn" id="gc-rebuild" style="display:none">Waiting for running GPU jobs to finish before using the new card list.</p>
       <table>
         <tr><th><label for="gc-method">Compute Method</label></th><td>
           <select class="gc-select" id="gc-method">
@@ -137,10 +154,12 @@
           </select></td></tr>
       </table>
       <p class="gc-msg empty" id="gc-checking" style="display:none">Checking which cards Blender can use...</p>
-      <fieldset class="gc-list" id="gc-list" style="display:none"><legend>Graphics cards to use</legend><div id="gc-items"></div>
+      <fieldset class="gc-list" id="gc-list" style="display:none"><legend>Graphics cards to use</legend><div id="gc-items"></div><div id="gc-missing"></div>
         <p class="gc-note" id="gc-help" style="padding-left:0;margin-top:0.25rem">Unreal renders on a ticked card. Blender uses the ticked cards only when the method includes GPU.</p></fieldset>
       <label class="gc-opt" id="gc-combine-row" style="display:none"><input type="checkbox" id="gc-combine"> Combine GPUs</label>
       <ul class="gc-warnings" id="gc-warnings"></ul>
+      <div id="gc-notices" style="display:none"><ul class="gc-warnings" id="gc-notice-list"></ul>
+        <p class="gc-note" style="padding-left:0">These notes go away when you save the card choice.</p></div>
       <div class="gc-actions" id="gc-actions"><button class="btn btn-ok" id="gc-save" disabled onclick="saveCards()">Save</button></div>
     </div>
     <p class="gc-msg" id="gc-result" role="status"></p>
@@ -411,15 +430,24 @@
   window.shutdownWorker = shutdownWorker;
 
   // --- Graphics cards (every server text goes in with textContent) ---
-  var CARDS_POLL_MS = 2000;
-  var cards = { data: null, shown: [], ticked: {}, timer: null };
+  var CARDS_POLL_MS = 2000, CARDS_SLOW_MS = 15000;
+  var STATE_TEXT = { lost: 'missing', changed: 'a different card is in this slot', held: 'held until its alert is dismissed',
+    blender_lost: 'Blender no longer offers it (Unreal may still use it)', unknown: 'cannot be checked right now' };
+  var STATE_CLASS = { lost: 'gc-bad', changed: 'gc-bad', held: 'gc-bad', blender_lost: 'gc-amber' };
+  var NOTICE_TEXT = { card_new: 'New card found: ', card_gone: 'Card no longer present: ' };
+  // dirty: the person changed the form since the saved choice was loaded; busy: a save or dismissal is in
+  // flight; full: a full load is in flight; seq: only the newest GET is applied; sig: what is drawn now.
+  var cards = { data: null, shown: [], ticked: {}, timer: null, dirty: false, busy: false, full: false, seq: 0, sig: {} };
 
   function byId(id) { return document.getElementById(id); }
   function show(id, on) { byId(id).style.display = on ? '' : 'none'; }
+  function setLine(id, text) { setText(id, text); show(id, !!text); }
   function hasGpu(method) { return method === 'gpu' || method === 'cpu_gpu'; }
   function cardLabel(c) { return c.pci ? c.name + ' (PCI ' + c.pci + ')' : c.name; }
   function tickedCards() { return cards.data.cards.filter(function(c) { return cards.ticked[c.address]; }); }
   function setResult(text, cls) { var el = byId('gc-result'); el.textContent = text || ''; el.className = 'gc-msg' + (cls ? ' ' + cls : ''); }
+  function localTime(iso) { var t = new Date(iso); return isNaN(t.getTime()) ? String(iso || '') : t.toLocaleString(); }
+  function changed() { cards.dirty = true; refreshCards(); }
 
   // One-family rule: two or more ticked cards with a Blender family, all the same family.
   function oneFamily(list) {
@@ -427,19 +455,29 @@
     return fams.length >= 2 && fams.every(function(f) { return f === fams[0]; });
   }
 
-  // keep: a re-poll while Blender checks its devices; the person's choices stay as they are.
+  // keep: a refresh (Blender still checking, the slow poll, after a dismissal); the person's form stays as it is.
   function loadCards(keep) {
     clearTimeout(cards.timer);
+    if (keep && (cards.busy || cards.full)) { cards.timer = setTimeout(function() { loadCards(true); }, CARDS_POLL_MS); return; }
     show('gc-retry', false);
+    var seq = ++cards.seq;
+    if (!keep) cards.full = true;
     fetch('/api/cards/')
       .then(function(r) { return r.json().catch(function() { return null; }).then(function(d) { return { ok: r.ok, data: d }; }); })
       .then(function(r) {
+        if (seq !== cards.seq) return;
+        cards.full = false;
         if (!r.ok || !r.data || !r.data.cards) throw new Error((r.data && r.data.error) || 'The graphics cards could not be loaded.');
         applyCards(r.data, keep);
         if (r.data.blender_check === 'running') cards.timer = setTimeout(function() { loadCards(true); }, CARDS_POLL_MS);
       })
       .catch(function(err) {
-        if (keep) { cards.timer = setTimeout(function() { loadCards(true); }, CARDS_POLL_MS); return; }
+        if (seq !== cards.seq) return;
+        cards.full = false;
+        if (keep) {
+          if (cards.data && cards.data.blender_check === 'running') cards.timer = setTimeout(function() { loadCards(true); }, CARDS_POLL_MS);
+          return;
+        }
         show('gc-loading', false);
         setResult(err.message, 'status-err');
         show('gc-retry', true);
@@ -448,90 +486,176 @@
   window.loadCards = loadCards;
 
   function applyCards(d, keep) {
-    var method = keep ? byId('gc-method').value : d.method;
-    var combine = keep ? byId('gc-combine').checked : d.gpu_mode === 'combined';
-    if (!keep) { cards.ticked = {}; d.cards.forEach(function(c) { if (c.ticked) cards.ticked[c.address] = true; }); }
+    var old = cards.data;
+    if (keep && old && d.config_read_failed) return;  // keep the last good answer on the page
+    // A refresh replaces only the read-only parts; the form and the revision it is based on stay,
+    // unless the person changed nothing and the saved choice moved on (then the new one is shown).
+    if (keep && old && !old.config_read_failed && (cards.dirty || d.revision === old.revision)) {
+      d = Object.assign({}, d, { method: old.method, gpu_mode: old.gpu_mode, revision: old.revision, env_override: old.env_override });
+    } else {
+      cards.ticked = {}; cards.dirty = false;
+      d.cards.forEach(function(c) { if (c.ticked) cards.ticked[c.address] = true; });
+      byId('gc-method').value = d.method || '';
+      byId('gc-combine').checked = d.gpu_mode === 'combined';
+    }
     cards.data = d;
     cards.shown = d.cards.map(function(c) { return c.address; });
     Object.keys(cards.ticked).forEach(function(a) { if (cards.shown.indexOf(a) < 0) delete cards.ticked[a]; });
-    byId('gc-method').value = method;
-    byId('gc-combine').checked = combine;
     renderCards();
     show('gc-loading', false); show('gc-form', true);
   }
 
   function renderCards() {
-    var d = cards.data, locked = d.env_override, gpuOk = d.cards.length > 0;
+    var d = cards.data, failed = d.config_read_failed, locked = d.env_override || failed, gpuOk = d.cards.length > 0;
     var sel = byId('gc-method');
     Array.prototype.forEach.call(sel.options, function(o) { o.disabled = o.value !== 'cpu' && !gpuOk; });
-    if (!gpuOk) sel.value = 'cpu';
+    if (!gpuOk && !failed) sel.value = 'cpu';
     sel.disabled = locked;
     byId('gc-combine').disabled = locked;
-    show('gc-env', locked);
+    show('gc-env', d.env_override);
+    setLine('gc-read-failed', failed ? d.error || 'The saved card choice could not be read.' : '');
     show('gc-actions', !locked);
     show('gc-probe-failed', d.os_probe_failed);
-    show('gc-none', d.cards.length === 0);
+    show('gc-none', !gpuOk);
     show('gc-checking', d.blender_check === 'running');
-    var items = byId('gc-items');
+    setLine('gc-problem', d.problem);
+    show('gc-rebuild', !!d.rebuild_waiting);
+    renderRows(d, locked);
+    renderMissing(d.missing || []);
+    renderAlerts(d.alerts || []);
+    renderList('gc-warnings', (d.warnings || []).map(function(w) { return w.text; }), 'gc-msg status-warn');
+    renderList('gc-notice-list', (d.notices || []).map(function(n) { return (NOTICE_TEXT[n.kind] || '') + n.name; }), 'gc-msg');
+    show('gc-notices', (d.notices || []).length > 0);
+    refreshCards();
+  }
+
+  function renderList(id, texts, cls) {
+    var el = byId(id);
+    clearChildren(el);
+    texts.forEach(function(t) { el.appendChild(createEl('li', t, cls)); });
+  }
+
+  // Redrawn only when something in it changed, so the slow poll does not take the keyboard focus away.
+  function renderRows(d, locked) {
+    var sig = JSON.stringify([locked, Object.keys(cards.ticked).sort(), d.cards.map(function(c) {
+      return [c.address, c.name, c.pci, c.note, c.family, c.state];
+    })]);
+    if (sig === cards.sig.rows) return;
+    cards.sig.rows = sig;
+    var items = byId('gc-items'), focused = document.activeElement;
+    var focusAt = focused && items.contains(focused) ? focused.getAttribute('data-address') : null;
     clearChildren(items);
     d.cards.forEach(function(c) {
-      var row = createEl('label', null, 'gc-opt');
+      var row = createEl('label', null, 'gc-opt' + (STATE_CLASS[c.state] ? ' ' + STATE_CLASS[c.state] : ''));
       var box = document.createElement('input');
       box.type = 'checkbox'; box.checked = !!cards.ticked[c.address]; box.disabled = locked;
+      box.setAttribute('data-address', c.address);
       box.addEventListener('change', function() {
         if (box.checked) cards.ticked[c.address] = true; else delete cards.ticked[c.address];
-        refreshCards();
+        changed();
       });
       row.appendChild(box);
       row.appendChild(createEl('span', cardLabel(c)));
+      if (STATE_TEXT[c.state]) row.appendChild(createEl('span', STATE_TEXT[c.state], 'gc-state'));
       if (c.note) row.appendChild(createEl('span', c.note, 'gc-note'));
       items.appendChild(row);
+      if (focusAt === c.address) box.focus();
     });
-    var warns = byId('gc-warnings');
-    clearChildren(warns);
-    (d.warnings || []).forEach(function(w) { warns.appendChild(createEl('li', w.text, 'gc-msg status-warn')); });
-    refreshCards();
+  }
+
+  // Ticked cards that are not on the machine now: shown, never sent (a save keeps only cards it can see).
+  function renderMissing(list) {
+    var box = byId('gc-missing');
+    clearChildren(box);
+    list.forEach(function(m) {
+      var row = createEl('div', null, 'gc-opt gc-fixed' + (STATE_CLASS[m.state] ? ' ' + STATE_CLASS[m.state] : ''));
+      row.appendChild(createEl('span', 'Ticked', 'gc-tag'));
+      row.appendChild(createEl('span', cardLabel(m)));
+      row.appendChild(createEl('span', STATE_TEXT[m.state] || STATE_TEXT.lost, 'gc-state'));
+      row.appendChild(createEl('span', 'Not on this machine now; saving removes it from the ticked cards.', 'gc-note'));
+      box.appendChild(row);
+    });
+  }
+
+  function renderAlerts(list) {
+    show('gc-alerts', list.length > 0);
+    var sig = JSON.stringify(list.map(function(a) { return a.id; }));
+    if (sig === cards.sig.alerts) return;
+    cards.sig.alerts = sig;
+    var ul = byId('gc-alert-list');
+    clearChildren(ul);
+    list.forEach(function(a) {
+      var li = createEl('li');
+      li.appendChild(createEl('strong', a.name));
+      li.appendChild(createEl('span', a.detail));
+      li.appendChild(createEl('span', 'raised ' + localTime(a.raised_at), 'gc-time'));
+      var btn = createEl('button', 'Dismiss', 'btn btn-secondary');
+      btn.type = 'button'; btn.disabled = cards.busy;
+      btn.setAttribute('aria-label', 'Dismiss the alert for ' + a.name);
+      btn.addEventListener('click', function() { dismissAlert(a.id); });
+      li.appendChild(btn);
+      ul.appendChild(li);
+    });
   }
 
   function refreshCards() {
     var d = cards.data, gpu = hasGpu(byId('gc-method').value), ticked = tickedCards();
-    show('gc-list', d.cards.length > 0);
+    show('gc-list', d.cards.length > 0 || (d.missing || []).length > 0);
     var family = gpu && oneFamily(ticked);
     if (!family) byId('gc-combine').checked = false;
     show('gc-combine-row', family);
-    byId('gc-save').disabled = d.env_override || (gpu && ticked.length === 0);
+    byId('gc-save').disabled = cards.busy || d.env_override || d.config_read_failed || (gpu && ticked.length === 0);
+  }
+
+  function setBusy(on) {
+    cards.busy = on;
+    Array.prototype.forEach.call(byId('gc-alert-list').querySelectorAll('button'), function(b) { b.disabled = on; });
+    refreshCards();
+  }
+
+  // POST to /api/control/<path>; done(ok) after the result line is set. A 401 forgets the stored password.
+  function postCards(path, body, failText, done) {
+    var password = getPassword();
+    if (!password) return;
+    setResult('');
+    setBusy(true);
+    fetch('/api/control/' + path, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + password, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function(r) {
+      return r.json().catch(function() { return {}; }).then(function(data) {
+        setBusy(false);
+        if (r.ok) { setResult(data.message || 'Done.', 'status-ok'); done(true); return; }
+        if (r.status === 401) { sessionStorage.removeItem('workerUIPassword'); setResult('Wrong password. Try again.', 'status-err'); return; }
+        setResult(data.error || failText, 'status-err');
+        done(false);
+      });
+    }).catch(function(err) { setBusy(false); setResult(err.message, 'status-err'); });
+  }
+
+  function dismissAlert(id) {
+    if (cards.busy) return;
+    postCards('cards/dismiss', { alert_id: id }, 'The alert could not be dismissed.', function() { loadCards(true); });
   }
 
   function saveCards() {
     var d = cards.data;
-    if (!d || d.env_override) return;
-    var password = getPassword();
-    if (!password) return;
+    if (!d || d.env_override || d.config_read_failed || cards.busy) return;
     var method = byId('gc-method').value;
     var ticked = tickedCards().map(function(c) { return c.address; });
     var body = {
       method: method, gpu_mode: hasGpu(method) && ticked.length >= 2 && byId('gc-combine').checked ? 'combined' : 'split',
       cards: ticked, shown: cards.shown, revision: d.revision
     };
-    setResult('');
-    byId('gc-save').disabled = true;
-    fetch('/api/control/cards', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + password, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }).then(function(r) {
-      return r.json().catch(function() { return {}; }).then(function(data) {
-        if (r.ok) { setResult(data.message || 'Saved.', 'status-ok'); loadCards(false); return; }
-        if (r.status === 401) { sessionStorage.removeItem('workerUIPassword'); setResult('Wrong password. Try again.', 'status-err'); }
-        else { setResult(data.error || 'The graphics card choice could not be saved.', 'status-err'); }
-        refreshCards();
-      });
-    }).catch(function(err) { setResult(err.message, 'status-err'); refreshCards(); });
+    postCards('cards', body, 'The graphics card choice could not be saved.', function(ok) { if (ok) loadCards(false); });
   }
   window.saveCards = saveCards;
 
-  byId('gc-method').addEventListener('change', refreshCards);
+  byId('gc-method').addEventListener('change', changed);
+  byId('gc-combine').addEventListener('change', function() { cards.dirty = true; });
   loadCards(false);
+  setInterval(function() { if (cards.data) loadCards(true); }, CARDS_SLOW_MS);
 
   pollStatus();
   setInterval(pollStatus, POLL_MS);

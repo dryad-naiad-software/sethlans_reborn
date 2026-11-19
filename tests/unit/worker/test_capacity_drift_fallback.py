@@ -6,72 +6,75 @@ The periodic GPU check keeps running when its detection Blender is removed (#253
 
 The version sync removes old Blender versions, including the one that
 produced the GPU list in use. The check then detects with another installed
-Blender: the same list adopts it as the detection Blender, a different list
-is a hardware change. A detection that cannot run or whose output cannot be
-read is "try again later" (``drift.DETECTION_FAILED``), never an exception
-out of the agent loop's check.
+Blender: when it still offers every card in use it is adopted as the
+detection Blender; when it does not, the card it no longer offers is held
+from Blender (``card_lost_blender``) and nothing is adopted. A detection that
+cannot run or whose output cannot be read is "try again later"
+(``drift.DETECTION_FAILED``), never an exception out of the agent loop's check.
 """
 import json
 import logging
 import subprocess
-import sys
-import threading
 from types import SimpleNamespace
 
 import pytest
 
-_saved_argv = sys.argv
-sys.argv = ['agent-test-runner']
-try:
-    from sethlans_worker_agent import agent as agent_module  # noqa: E402
-finally:
-    sys.argv = _saved_argv
-
-from sethlans_worker_agent import hardware_detection, job_processor  # noqa: E402
-from sethlans_worker_agent.capacity import (  # noqa: E402
+from sethlans_worker_agent import agent_shutdown, hardware_detection, job_processor
+from sethlans_worker_agent.capacity import (
     CapacityProfile,
     WorkerCapacity,
+    card_blender,
+    card_check,
     drift as drift_module,
+    rebuild,
 )
-from tests.unit.worker.executors._fakes import fake_cards  # noqa: E402
+from sethlans_worker_agent.cards import os_probe
+from tests.unit.worker._card_check_env import CardEnv
+from tests.unit.worker.executors._fakes import fake_cards
 
 DRIFT = drift_module.__name__
-HIP = {'index': 0, 'name': 'AMD Radeon', 'type': 'HIP', 'id': 'HIP_A'}
-OTHER_HIP = {'index': 0, 'name': 'AMD Radeon', 'type': 'HIP', 'id': 'HIP_B'}
+CARD = fake_cards(1)[0]
+HIP = {'index': 0, 'name': CARD.name, 'type': CARD.backend, 'id': CARD.blender_id}
+OTHER_HIP = {'index': 0, 'name': 'Other', 'type': CARD.backend, 'id': 'CUDA_Other_0000:09:00'}
 
 
 def _capacity(gpu_slot_count=1, startup_gpu_count=1):
     return WorkerCapacity(CapacityProfile(
         gpu_slot_count=gpu_slot_count, cpu_slot_count=1, cpu_thread_ceiling=15,
-        cpu_threads_effective=15, cards=fake_cards(startup_gpu_count), gpu_mode='split',
+        cpu_threads_effective=15, cards=fake_cards(startup_gpu_count), gpu_mode='split', method='cpu_gpu',
     ))
 
 
 @pytest.fixture
-def env(mocker, monkeypatch, tmp_path):
+def machine(monkeypatch):
+    """One ticked card in use; the real uncached detection (its subprocess is mocked by each fixture)."""
+    fake = CardEnv(monkeypatch, count=1)
+    monkeypatch.setattr(card_check, 'detect_physical_gpus_now', drift_module.detect_physical_gpus_now)
+    return fake
+
+
+@pytest.fixture
+def env(mocker, monkeypatch, tmp_path, machine):
     """The list in use came from a Blender that is gone; another one is installed."""
-    gone, other = tmp_path / 'blender-old.exe', tmp_path / 'blender-new.exe'
+    gone = tmp_path / 'blender-4.2.3-windows-x64' / 'blender.exe'
+    other = tmp_path / 'blender-5.0.1-windows-x64' / 'blender.exe'
+    other.parent.mkdir()
     other.write_text('')
     monkeypatch.setattr(hardware_detection, '_gpu_details_blender_exe', str(gone))
     find = mocker.patch(
         'sethlans_worker_agent.capacity.drift._choose_fallback_blender', return_value=str(other),
     )
-    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[HIP])
     run = mocker.patch(
         'sethlans_worker_agent.capacity.drift.subprocess.run',
         return_value=mocker.MagicMock(stdout=json.dumps([HIP]) + '\n'),
     )
-    terminate = mocker.patch('sethlans_worker_agent.job_processor.terminate_all_active_jobs_for_drift')
-    event = threading.Event()
-    mocker.patch.object(agent_module, '_shutdown_event', event)
-    return SimpleNamespace(gone=str(gone), other=str(other), find=find, run=run,
-                           terminate=terminate, event=event, cap=_capacity())
+    return SimpleNamespace(gone=str(gone), other=str(other), find=find, run=run, machine=machine, cap=_capacity())
 
 
 def _assert_no_action(env):
-    env.terminate.assert_not_called()
-    assert drift_module.get_drift_exit_code() is None
-    assert env.event.is_set() is False
+    assert env.machine.alerts() == []
+    assert rebuild.pending() is False
+    assert agent_shutdown._shutdown_event.is_set() is False
 
 
 def _messages(caplog, level, text):
@@ -107,18 +110,32 @@ class TestRememberedBlenderRemoved:
         assert _messages(caplog, logging.INFO, 'from now on') == []
         _assert_no_action(env)
 
-    def test_different_list_is_a_hardware_change_and_nothing_is_adopted(self, env, mocker, caplog):
+    def test_list_without_the_card_is_not_trusted_and_adopts_nothing(self, env, mocker, caplog):
+        """Another Blender version may name devices differently: no blender_lost, one WARNING, list kept."""
         env.run.return_value = mocker.MagicMock(stdout=json.dumps([OTHER_HIP]) + '\n')
 
-        with caplog.at_level(logging.DEBUG, logger=DRIFT):
-            assert env.cap.assert_gpu_list_unchanged() is None
+        with caplog.at_level(logging.DEBUG):
+            for _ in range(2):
+                assert env.cap.assert_gpu_list_unchanged() is None
 
         assert env.run.call_args.args[0][0] == env.other
-        env.terminate.assert_called_once()
-        assert drift_module.get_drift_exit_code() == 1
-        assert env.event.is_set() is True
+        assert env.machine.alerts() == [] and rebuild.pending() is False
+        assert card_blender.known()[0] == env.machine.blender_records()  # the startup list, not the fallback's
+        warnings = _messages(caplog, logging.WARNING, 'does not offer')
+        assert warnings == [f"Blender 5.0.1 does not offer 'GPU 0' ({CARD.key}); the device list in use is kept."]
+        assert agent_shutdown._shutdown_event.is_set() is False  # no exit (FR-CL-6)
         assert hardware_detection._gpu_details_blender_exe == env.gone
         assert _messages(caplog, logging.INFO, 'from now on') == []
+
+    def test_fallback_offering_every_card_is_trusted_with_its_version(self, env):
+        assert drift_module.detect_physical_gpus_now() == [(CARD.blender_id, CARD.backend)]
+        os_cards = os_probe.probe()
+
+        records, version, trusted = card_blender.from_detection(
+            [(CARD.blender_id, CARD.backend)], os_cards, env.cap.profile)
+
+        assert (records, version, trusted) == ([{'id': CARD.blender_id, 'type': CARD.backend}], '5.0.1', True)
+        assert card_blender.known() == (records, '4.5.1')  # trusted: the list a later rebuild uses
 
     def test_no_blender_installed_tries_again_later(self, env, caplog):
         env.find.return_value = None
@@ -150,16 +167,17 @@ MALFORMED_IDS = ['not-a-dict', 'no-type', 'no-index', 'id-not-a-string']
 
 
 @pytest.fixture
-def remembered(mocker, monkeypatch, tmp_path):
+def remembered(mocker, monkeypatch, tmp_path, machine):
     """The Blender that produced the list in use is installed; returns the run mock."""
     exe = tmp_path / 'blender.exe'
     exe.write_text('')
     monkeypatch.setattr(hardware_detection, '_gpu_details_blender_exe', str(exe))
-    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[HIP])
-    terminate = mocker.patch('sethlans_worker_agent.job_processor.terminate_all_active_jobs_for_drift')
-    mocker.patch.object(agent_module, '_shutdown_event', threading.Event())
     return SimpleNamespace(run=mocker.patch('sethlans_worker_agent.capacity.drift.subprocess.run'),
-                           terminate=terminate)
+                           machine=machine)
+
+
+def _no_action(remembered):
+    return remembered.machine.alerts() == [] and rebuild.pending() is False
 
 
 class TestDetectionThatCannotRun:
@@ -175,8 +193,7 @@ class TestDetectionThatCannotRun:
 
         assert _capacity().assert_gpu_list_unchanged() == drift_module.DETECTION_FAILED
 
-        remembered.terminate.assert_not_called()
-        assert drift_module.get_drift_exit_code() is None
+        assert _no_action(remembered)
 
     @pytest.mark.parametrize('error', DETECTION_ERRORS, ids=DETECTION_ERROR_IDS)
     def test_agent_loop_check_does_not_raise(self, remembered, mocker, error):
@@ -189,8 +206,7 @@ class TestDetectionThatCannotRun:
         job_processor.maybe_assert_gpu_list_unchanged()
 
         remembered.run.assert_called_once()
-        remembered.terminate.assert_not_called()
-        assert drift_module.get_drift_exit_code() is None
+        assert _no_action(remembered)
         assert job_processor._last_drift_check_ts == 1030.0
 
     @pytest.mark.parametrize('stdout', MALFORMED_OUTPUTS, ids=MALFORMED_IDS)
@@ -199,12 +215,12 @@ class TestDetectionThatCannotRun:
 
         assert drift_module.detect_physical_gpus_now() is None
         assert _capacity().assert_gpu_list_unchanged() == drift_module.DETECTION_FAILED
-        remembered.terminate.assert_not_called()
+        assert _no_action(remembered)
 
     def test_output_is_decoded_as_utf8_with_replacement(self, remembered, mocker):
         remembered.run.return_value = mocker.MagicMock(stdout=json.dumps([HIP]) + '\n')
 
-        assert drift_module.detect_physical_gpus_now() == [('HIP_A', 'HIP')]
+        assert drift_module.detect_physical_gpus_now() == [(CARD.blender_id, CARD.backend)]
 
         kwargs = remembered.run.call_args.kwargs
         assert (kwargs['text'], kwargs['encoding'], kwargs['errors']) == (True, 'utf-8', 'replace')
@@ -212,25 +228,26 @@ class TestDetectionThatCannotRun:
 
 class TestComparisonOutcome:
 
-    def test_detection_failed_value(self, mocker):
-        mocker.patch('sethlans_worker_agent.capacity.slots.detect_physical_gpus_now', return_value=None)
+    def test_detection_failed_value(self, monkeypatch):
+        fake = CardEnv(monkeypatch, count=1)
+        fake.fresh = None
         assert _capacity().assert_gpu_list_unchanged() == drift_module.DETECTION_FAILED
 
-    def test_unchanged_list_returns_none(self, mocker):
-        mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[HIP])
-        mocker.patch('sethlans_worker_agent.capacity.slots.detect_physical_gpus_now',
-                     return_value=[('HIP_A', 'HIP')])
+    def test_unchanged_list_returns_none(self, monkeypatch):
+        CardEnv(monkeypatch, count=1)
         assert _capacity().assert_gpu_list_unchanged() is None
+        assert rebuild.pending() is False
 
-    @pytest.mark.parametrize('gpu_slots, startup_gpus', [(0, 0), (1, 0), (0, 2)],
-                             ids=['no-gpu', 'no-gpu-at-startup', 'force-cpu-only'])
-    def test_skipped_by_rule_returns_none_without_detecting(self, mocker, gpu_slots, startup_gpus):
-        detect = mocker.patch('sethlans_worker_agent.capacity.slots.detect_physical_gpus_now')
-        cap = _capacity(gpu_slot_count=gpu_slots, startup_gpu_count=startup_gpus)
+    @pytest.mark.parametrize('method, ticked, detections', [
+        ('cpu', (0, 1), 0), ('gpu', (), 0), ('gpu', (0, 1), 1), ('cpu_gpu', (1,), 1),
+    ], ids=['method-cpu', 'nothing-ticked', 'gpu-ticked', 'cpu-gpu-ticked'])
+    def test_empty_profile_detects_only_when_ticks_include_gpu(self, monkeypatch, method, ticked, detections):
+        """With no Blender card in use the detection runs when the method includes GPU and a card is ticked."""
+        fake = CardEnv(monkeypatch, count=2, method=method, ticked=ticked)
 
-        assert cap.assert_gpu_list_unchanged() is None
+        assert _capacity(gpu_slot_count=0, startup_gpu_count=0).assert_gpu_list_unchanged() is None
 
-        detect.assert_not_called()
+        assert fake.detections == detections and fake.alerts() == []
 
 
 def test_subprocess_error_family_still_tries_again_later(remembered):

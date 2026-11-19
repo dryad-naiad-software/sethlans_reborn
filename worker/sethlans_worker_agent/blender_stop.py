@@ -4,8 +4,7 @@
 """
 Stopping a Blender render the worker should no longer run (#246, #247).
 
-**Worker shutdown.** When the worker shuts down (an ordinary stop, or the
-hardware-change exit of the drift handler), every running Blender
+**Worker shutdown.** When the worker shuts down, every running Blender
 subprocess is stopped at once, and no new one is started. There is no grace
 period: the existing yield grace already aborts on shutdown, and a repeated
 frame is better than a result uploaded half-way through the exit. The job
@@ -34,50 +33,38 @@ reaches only the worker, which then stops Blender itself and records why.
 If Blender still ends during a shutdown without a usable result, the job is
 marked stopped afterwards (``mark_if_cut_short``) and handed back.
 
-Signals: the agent's shutdown event and ``mark_hardware_change()`` (set by
-the drift handler before anything else) are ``threading.Event`` objects
-whose locks are leaves; job threads read them. The stop reason travels in
-the job's own dict from the executor to the Blender adapter.
+**Per-job stop (FR-CL-5).** A job whose card can no longer be used is
+stopped through its own stop event (``blender_job_stop``, re-exported
+here), joined with the shutdown event, so every check below sees it.
+
+Signals: the shutdown event and the per-job events are ``threading.Event``
+objects whose locks are leaves; job threads read them. The stop reason
+travels in the job's own dict from the executor to the Blender adapter.
 """
 import logging
 import os
 import platform
 import subprocess
-import threading
 from typing import Optional
 
 import psutil
 
 from sethlans_worker_agent import config
+from sethlans_worker_agent.blender_job_stop import (  # noqa: F401 - re-exported (FR-CL-5)
+    CARD_STOP_KEY, WORKER_HARDWARE_CHANGED, WORKER_SHUTDOWN, JobStop, forget_card_stop, job_stop,
+    register_card_stop, request_card_stop, reset_for_tests, stop_reason,
+)
 from sethlans_worker_agent.blender_yield import terminate_process_tree
 
 logger = logging.getLogger(__name__)
 
 STOPPED_KEY = '_stopped_by_worker'
 STARTED_AT_KEY = '_blender_started_at'
-WORKER_SHUTDOWN = 'worker_shutdown'
-WORKER_HARDWARE_CHANGED = 'worker_hardware_changed'
 NOT_ASSIGNED = 'no_longer_assigned'
 CANCELED = 'canceled'
 STOP_WAIT_SECONDS = 10
 STOPPED_MESSAGE = "Stopped by the worker."
-
-_hardware_changed = threading.Event()
-
-
-def mark_hardware_change() -> None:
-    """Record that the coming shutdown is the hardware-change exit (#246)."""
-    _hardware_changed.set()
-
-
-def reset_for_tests() -> None:
-    """Forget a recorded hardware change. Test-only hook."""
-    _hardware_changed.clear()
-
-
-def shutdown_reason() -> str:
-    """The hand-back reason for a stop caused by the worker shutting down."""
-    return WORKER_HARDWARE_CHANGED if _hardware_changed.is_set() else WORKER_SHUTDOWN
+_reason = stop_reason
 
 
 def resolve_output_pattern(output_file_pattern) -> str:
@@ -111,9 +98,10 @@ def mark_if_cut_short(shutdown_event, job_data, return_code, resolved_output_pat
     if return_code == 0 and (start != end or os.path.isfile(
             resolved_output_pattern.replace('####', f"{start:04d}"))):
         return
-    logger.warning("Job %s ended during the worker shutdown without a usable result; handing it back.",
-                   job_data.get('id'))
-    job_data[STOPPED_KEY] = shutdown_reason()
+    reason = _reason(shutdown_event)
+    logger.warning("Job %s ended during a stop (%s) without a usable result; handing it back.",
+                   job_data.get('id'), reason)
+    job_data[STOPPED_KEY] = reason
 
 
 def _stop(process, job_id, job_data, reason) -> None:
@@ -130,20 +118,21 @@ def _stop(process, job_id, job_data, reason) -> None:
 
 
 def stopped_before_start(shutdown_event, job_id, job_data) -> bool:
-    """True (and the job marked) if the worker is shutting down before Blender starts."""
+    """True (and the job marked) if the worker shuts down, or the job was stopped, before Blender starts."""
     if shutdown_event is None or not shutdown_event.is_set():
         return False
-    logger.warning("[Job %s] Worker is shutting down: not starting Blender.", job_id)
-    job_data[STOPPED_KEY] = shutdown_reason()
+    reason = _reason(shutdown_event)
+    logger.warning("[Job %s] Stopping (%s): not starting Blender.", job_id, reason)
+    job_data[STOPPED_KEY] = reason
     return True
 
 
 def stop_on_shutdown(shutdown_event, process, job_id, job_data) -> bool:
-    """Stop a running render if the worker is shutting down; return whether it did."""
+    """Stop a running render if the worker shuts down or the job was stopped; return whether it did."""
     if shutdown_event is None or not shutdown_event.is_set() or process.poll() is not None:
         return False
-    reason = shutdown_reason()
-    logger.warning("[Job %s] Worker is shutting down (%s): stopping the Blender render.", job_id, reason)
+    reason = _reason(shutdown_event)
+    logger.warning("[Job %s] Stopping (%s): stopping the Blender render.", job_id, reason)
     _stop(process, job_id, job_data, reason)
     return True
 
@@ -238,7 +227,7 @@ def wait_or_stop(process, stop_event, job_id, poll_seconds: float = 1.0) -> Opti
             return process.wait(timeout=poll_seconds)
         except subprocess.TimeoutExpired:
             if stop_event is not None and stop_event.is_set():
-                logger.warning("[Job %s] Worker is shutting down: stopping the thumbnail pass.", job_id)
+                logger.warning("[Job %s] Stopping (%s): stopping the thumbnail pass.", job_id, _reason(stop_event))
                 try:
                     terminate_process_tree(process.pid, job_id)
                 except psutil.Error as exc:

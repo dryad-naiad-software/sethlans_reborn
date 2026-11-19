@@ -11,11 +11,9 @@ signal handler, and the graceful-shutdown sequence. Split out of
 
 import logging
 import signal
-import sys
 import threading
 import time
 
-from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent.web_ui import stop_server
 
 logger = logging.getLogger(__name__)
@@ -80,7 +78,7 @@ def _wait_for_active_threads():
 
 # --- Graceful Shutdown ---
 def _graceful_shutdown():
-    """Run the graceful shutdown sequence (server + threads + drift)."""
+    """Run the graceful shutdown sequence (server + threads); a card change never ends the worker (FR-CL-6)."""
     logger.info("Shutdown event set. Stopping polling loop.")
     # Phase 5b: stop Caddy first so new requests stop flowing, then
     # drain Waitress.
@@ -89,10 +87,3 @@ def _graceful_shutdown():
     stop_server()
     _wait_for_active_threads()
     logger.info("Sethlans Reborn Worker Agent shut down cleanly.")
-
-    drift_code = capacity_module.get_drift_exit_code()
-    if drift_code is not None:
-        logger.critical(
-            "Exiting with code %d due to GPU drift detection.", drift_code,
-        )
-        sys.exit(drift_code)

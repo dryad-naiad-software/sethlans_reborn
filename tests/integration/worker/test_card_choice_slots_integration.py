@@ -58,7 +58,7 @@ class TestCardChoiceSlotsIntegration:
         profile = capacity.profile
         assert (profile.gpu_slot_count, profile.cpu_slot_count) == (0, 1)
         assert profile.cards == () and profile.problem == ''
-        probe.assert_not_called()  # method cpu: no card is probed (B6)
+        probe.assert_called_once_with()  # the ticked cards are still checked (Unreal uses them, C-23)
 
         assert _poll_once(poll, [blender_job(1, 'GPU')]) is None
         assert _prefs_sent(poll) == {'CPU', 'ANY'}
@@ -68,6 +68,13 @@ class TestCardChoiceSlotsIntegration:
         claimed = _poll_once(poll, [blender_job(2, 'ANY')])
         assert claimed['_reservation'].device_used == 'CPU'
         assert claimed['_reservation'].card_keys == ()
+
+    def test_cpu_method_without_ticks_probes_nothing(self, mocker, manager):
+        """B6: method cpu and no ticked card, nothing to check."""
+        capacity, probe = install_card_choice(mocker, method='cpu', ticked=())
+
+        assert (capacity.profile.gpu_slot_count, capacity.profile.cpu_slot_count) == (0, 1)
+        probe.assert_not_called()
 
     def test_gpu_method_split_has_one_slot_per_ticked_card_and_no_cpu(self, mocker, manager):
         poll, claim = manager

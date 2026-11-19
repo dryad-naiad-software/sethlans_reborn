@@ -11,6 +11,7 @@ import logging
 import re
 
 from sethlans_worker_agent import gpu_device_script
+from sethlans_worker_agent.cards import warnings as card_warnings
 from sethlans_worker_agent.cards.in_use import NONE_USABLE_TEXT
 from sethlans_worker_agent.engine_script import ENGINE_HELPER, ENGINE_IDENTIFIERS, engine_call, is_known_engine
 from sethlans_worker_agent.format_script import FILE_FORMAT_KEY, media_type_lines, order_settings
@@ -108,6 +109,8 @@ def generate_render_config_script(job_id, render_engine, render_device, render_s
             script_lines.append(
                 "bpy.context.scene.cycles.device = 'CPU'"
             )
+    else:  # Eevee and Workbench ignore the Cycles device choice (#251): warn, never refuse (FR-CB-5)
+        card_warnings.log_engine_warning(job_id, render_engine)
 
     # --- User Overrides ---
     if isinstance(render_settings, dict) and render_settings:

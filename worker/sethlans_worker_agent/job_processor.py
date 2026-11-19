@@ -30,9 +30,9 @@ from typing import Any, Dict, Optional, Set
 
 from sethlans_worker_agent import api_handler, config
 from sethlans_worker_agent import capacity as capacity_module
-from sethlans_worker_agent import executors, job_claim, job_resources, job_selection
+from sethlans_worker_agent import job_claim, job_resources, job_selection
 from sethlans_worker_agent import system_monitor, unreal_bridge
-from sethlans_worker_agent.cards import in_use as cards_in_use
+from sethlans_worker_agent.capacity import card_check, card_profile, rebuild
 from sethlans_worker_agent.cards import startup_log as cards_startup_log
 from sethlans_worker_agent.cards import store as cards_store
 from sethlans_worker_agent.job_lifecycle import process_claimed_job
@@ -57,28 +57,24 @@ _last_drift_check_ts: float = 0.0
 
 
 def init_capacity() -> capacity_module.WorkerCapacity:
-    """Build the module-global WorkerCapacity from the saved card choice (FR-CL-2).
+    """Build the module-global WorkerCapacity from the saved card choice (FR-CL-2, FR-CK-1).
 
-    The Blender detection fills its cache first; the cards in use are the
-    ticked cards found again in a fresh OS probe joined with that list
-    (cards.in_use). With method ``cpu`` no card is probed or used.
+    The Blender detection fills its cache first; the start check then
+    finds the ticked cards in a fresh OS probe joined with that list and
+    raises the alerts for those it cannot use (capacity/card_check.py).
+    With method ``cpu`` no card is probed or used. The generation read
+    before the section is recorded, so a rebuild requested meanwhile stays
+    pending (FR-CL-4).
     """
     global _capacity
     system_monitor.get_gpu_device_details()
     cards_startup_log.log_once_at_start()  # log the OS/Blender card list once
+    generation = rebuild.generation()
     section = cards_store.snapshot()
-    selection = cards_in_use.resolve(section)
-    profile = capacity_module.compute_capacity_profile(
-        method=section.method,
-        gpu_mode=section.gpu_mode,
-        cards=selection.cards,
-        cpu_cores=system_monitor.get_cpu_thread_count(),
-        cpu_threads_config=config.CPU_THREADS,
-        ignored=selection.ignored,
-        problem=selection.problem,
-    )
-    capacity_module.log_capacity_profile(profile)
+    profile = card_profile.profile_for(section, card_check.start_check(section))
+    card_profile.log_profile(profile)
     _capacity = capacity_module.WorkerCapacity(profile)
+    rebuild.mark_built(generation)
     return _capacity
 
 
@@ -95,21 +91,23 @@ def capacity_is_full() -> bool:
 
 
 def maybe_assert_gpu_list_unchanged() -> None:
-    """Run the GPU list check once per heartbeat interval (FR-23, #239).
+    """A pending slot rebuild on every call; the card check once per heartbeat interval (FR-23, FR-CK-1).
 
-    A failed GPU device check brings it forward, with a floor between
-    early runs (capacity/recheck.py). A pending request is looked at only
-    when the check may run, so the Unreal gate and a worker without GPU
-    slots defer or absorb it.
+    The rebuild step (capacity/rebuild.py, FR-CL-4) runs before the rate
+    limit and does nothing unless a rebuild is pending; its OS probe never
+    starts Blender. A failed GPU device check brings the card check forward,
+    with a floor between early runs (capacity/recheck.py). A pending request
+    is looked at only when the check may run, so the Unreal gate defers it.
 
-    The timestamp is updated AFTER a successful assert return. If the
-    assert raises, the timestamp stays at its previous value so the
-    next loop iteration retries immediately rather than waiting a full
-    interval, and the early request is put back.
+    The timestamp is updated AFTER a successful check. If it raises, the
+    timestamp stays at its previous value so the next loop iteration
+    retries immediately rather than waiting a full interval, and the early
+    request is put back.
     """
     global _last_drift_check_ts
     if _capacity is None:
         return
+    rebuild.step(_capacity)
     # FR-WX-14: never enumerate GPUs while an Unreal render owns the machine.
     if not unreal_bridge.drift_check_allowed():
         return
@@ -119,27 +117,6 @@ def maybe_assert_gpu_list_unchanged() -> None:
         return
     capacity_module.run_gpu_list_check(_capacity)
     _last_drift_check_ts = now
-
-
-def terminate_all_active_jobs_for_drift() -> None:
-    """Stop every in-flight job for a hardware change (#246).
-
-    Called by the drift handler; sends no status for any job. Blender jobs:
-    the shutdown event makes each executor stop its subprocess tree, and the
-    job thread hands the job back with ``yield-requeue`` (reason
-    ``worker_hardware_changed``); if that fails, the manager's restart
-    reconciliation or the stuck-job reaper requeues it (#247). Jobs whose
-    renderer supports release (Unreal) are released by their executor's
-    shutdown path (FR-WX-14).
-    """
-    with _active_jobs_lock:
-        active = [(job_id, entry.get('renderer')) for job_id, entry in _active_jobs.items()]
-    releasable = [job_id for job_id, renderer in active if executors.supports_release(renderer)]
-    stopped = [job_id for job_id, _renderer in active if job_id not in releasable]
-    if stopped:
-        job_resources.request_shutdown_for_stop(stopped)
-    if releasable:
-        job_resources.request_shutdown_for_release(releasable)
 
 
 def _build_poll_params(free_prefs):

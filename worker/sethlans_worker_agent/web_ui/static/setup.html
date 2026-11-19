@@ -81,6 +81,8 @@
   .warn-msg { color: var(--warn); font-size: 0.85rem; margin-bottom: 0.75rem; line-height: 1.4; }
   .info-msg { color: var(--text); opacity: 0.8; font-size: 0.85rem; margin-bottom: 0.75rem; line-height: 1.4; }
   .warn-list { list-style: none; }
+  .card-state { font-size: 0.8rem; font-weight: 600; color: var(--warn); }
+  .card-state.bad { color: var(--err); }
 </style>
 </head>
 <body>
@@ -209,6 +211,7 @@
           <p class="card-note" id="cards-help" style="padding-left:0;margin-top:0.25rem">Unreal renders on a ticked card. Blender uses the ticked cards only when the method includes GPU.</p></fieldset>
         <label class="card-opt" id="cards-combine-row" style="display:none"><input type="checkbox" id="cards-combine"> Combine GPUs</label>
         <ul class="warn-list" id="cards-warnings"></ul>
+        <p class="warn-msg" id="cards-problem" style="display:none"></p>
       </div>
       <div class="btn-row">
         <button class="btn btn-secondary" id="btn-cards-retry" style="display:none" onclick="wizard.loadCards(false)">Retry</button>
@@ -477,6 +480,9 @@
 
   // --- Graphics cards (every server text goes in with textContent) ---
   var cards = { data: null, shown: [], ticked: {}, timer: null };
+  // Labels for the states that are not ok (FR-CK-2); a ticked card is ok or unticked otherwise.
+  var CARD_STATE = { changed: 'a different card is in this slot', held: 'held until its alert is dismissed',
+    blender_lost: 'Blender no longer offers it (Unreal may still use it)', unknown: 'cannot be checked right now' };
 
   function show(id, on) { $(id).style.display = on ? '' : 'none'; }
   function hasGpu(method) { return method === 'gpu' || method === 'cpu_gpu'; }
@@ -547,12 +553,20 @@
       var name = document.createElement('span');
       name.textContent = cardLabel(c);
       row.appendChild(box); row.appendChild(name);
+      if (CARD_STATE[c.state]) {
+        var state = document.createElement('span');
+        state.className = 'card-state' + (c.state === 'changed' || c.state === 'held' ? ' bad' : '');
+        state.textContent = CARD_STATE[c.state];
+        row.appendChild(state);
+      }
       if (c.note) { var note = document.createElement('span'); note.className = 'card-note'; note.textContent = c.note; row.appendChild(note); }
       items.appendChild(row);
     });
     var warns = $('cards-warnings');
     warns.textContent = '';
     (d.warnings || []).forEach(function(w) { var li = document.createElement('li'); li.className = 'warn-msg'; li.textContent = w.text; warns.appendChild(li); });
+    $('cards-problem').textContent = d.problem || '';
+    show('cards-problem', !!d.problem);
     refreshCards();
   }
 

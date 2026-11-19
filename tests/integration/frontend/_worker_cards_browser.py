@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Plumbing for the worker graphics card page browser tests (card selection, chunk 3).
+Plumbing for the worker graphics card page browser tests (card selection, chunks 3 and 4).
 
 The worker's real WSGI app is served by the real Waitress bring-up of the
 worker ``/api/health/`` integration tests (``_health_fixtures._bring_up_wsgi``),
@@ -157,3 +157,22 @@ def record_posts(page, path):
 def card_box(page, items_id, index):
     """The checkbox of card ``index`` in the list ``#items_id``."""
     return page.locator(f'#{items_id} input[type=checkbox]').nth(index)
+
+
+def record_of(index):
+    """The record ``cards.store`` saves for card ``index`` (``in_use.record_of``)."""
+    key, name, vendor, device, _backend = CARDS[index]
+    return {'key': key, 'vendor_id': vendor, 'device_id': device, 'revision_id': None, 'name': name}
+
+
+def alert_record(key, name, *, alert_id='0123456789abcdef0123456789abcdef', kind='card_lost',
+                 detail='missing from the card list', raised_at='2026-11-19T08:00:00+00:00'):
+    """An open alert as ``cards.store.add_alert`` saves it (FR-CK-5)."""
+    return {'id': alert_id, 'kind': kind, 'key': key, 'name': name, 'detail': detail, 'raised_at': raised_at}
+
+
+def seed_choice(data_dir, records=(), alerts=(), *, method='gpu', revision=1):
+    """Write ``config.json`` with a saved card choice: ``records`` ticked, every fake card known."""
+    pages.seed(data_dir, {'method': method, 'gpu_mode': 'split', 'cards': list(records),
+                          'known': [key for key, *_rest in CARDS], 'revision': revision,
+                          'alerts': list(alerts)})

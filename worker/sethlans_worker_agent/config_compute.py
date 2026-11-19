@@ -4,18 +4,18 @@
 """
 The worker's compute choice: the ``compute`` section of ``config.json`` (FR-CC-1, FR-CC-2).
 
-``load()`` reads the section and applies the overrides ``SETHLANS_COMPUTE_METHOD``,
-``_GPU_MODE``, ``_CARDS`` (comma-separated PCI addresses) and ``_ALLOW_MANAGER_CHANGES``,
-each replacing its own key; ``env_override`` is true when any of the first three
-is set. The default method is ``cpu``, as in the original Sethlans. An invalid
-value (file or environment) is logged at ERROR once, naming the key, and the
-worker runs with ``method = cpu``, never a GPU guess; an invalid switch means
-``false``. Only ``cards.store`` writes the section; reads take no lock.
+``load()`` reads the section and applies the overrides ``SETHLANS_COMPUTE_METHOD``, ``_GPU_MODE``, ``_CARDS``
+(comma-separated PCI addresses) and ``_ALLOW_MANAGER_CHANGES``, each replacing its own key; ``env_override`` is
+true when any of the first three is set. The default method is ``cpu``, as in the original Sethlans. An invalid
+value (file or environment) is logged at ERROR once, naming the key, and the worker runs with ``method = cpu``,
+never a GPU guess; an invalid switch means ``false``. Only ``cards.store`` writes the section; reads take no lock.
+An unreadable ``config.json`` (C-20) gives defaults marked ``read_failed`` (checks and GETs skip their pass);
+``load(strict=True)`` raises ``config_store.ConfigReadError`` instead (the writers).
 """
+import dataclasses
 import logging
 import os
 import re
-from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_store
@@ -24,11 +24,9 @@ from sethlans_worker_agent.cards.os_probe import log_once
 
 logger = logging.getLogger(__name__)
 
-METHODS = ('cpu', 'gpu', 'cpu_gpu')
-GPU_MODES = ('split', 'combined')
+METHODS, GPU_MODES = ('cpu', 'gpu', 'cpu_gpu'), ('split', 'combined')
 ALERT_KINDS = ('card_lost', 'card_changed', 'card_lost_blender', 'adapter_mismatch')
-MAX_ENTRIES = 16
-MAX_REVISION = 2 ** 31 - 1
+MAX_ENTRIES, MAX_REVISION = 16, 2 ** 31 - 1
 ENV_METHOD = 'SETHLANS_COMPUTE_METHOD'
 ENV_GPU_MODE = 'SETHLANS_COMPUTE_GPU_MODE'
 ENV_CARDS = 'SETHLANS_COMPUTE_CARDS'
@@ -37,7 +35,7 @@ _ALERT_ID = re.compile(r'[0-9a-f]{32}')
 _ALLOW_KEY = 'compute.allow_manager_changes'
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class ComputeSection:
     """The effective choice; ``cards`` are saved records, from SETHLANS_COMPUTE_CARDS keys only."""
     method: str = 'cpu'
@@ -52,6 +50,7 @@ class ComputeSection:
     env_cards: bool = False
     allow_from_env: bool = False
     invalid: Tuple[str, ...] = ()
+    read_failed: bool = False  # config.json could not be read: these are defaults (C-20)
 
     @property
     def ticked_keys(self) -> Tuple[str, ...]:
@@ -83,8 +82,7 @@ def _list_of(raw, name, check, invalid) -> tuple:
     return tuple(value)
 
 
-def _choice(value, allowed, name, invalid):
-    """``value`` when it is one of ``allowed``, else the first and ``name`` noted as invalid."""
+def _choice(value, allowed, name, invalid):  # value when allowed, else the first, with ``name`` noted invalid
     if value in allowed:
         return value
     invalid.append(name)
@@ -147,10 +145,16 @@ def parse(raw, environ) -> ComputeSection:
 
 
 def _read_raw():
-    """The saved ``compute`` section as stored (any type), or ``None``."""
-    return config_store.load().get('compute')
+    """The saved ``compute`` section as stored (any type), or ``None``; ``ConfigReadError`` when unreadable."""
+    return config_store.load_strict().get('compute')
 
 
-def load() -> ComputeSection:
-    """The effective compute section, read afresh (no lock)."""
-    return parse(_read_raw(), os.environ)
+def load(strict: bool = False) -> ComputeSection:
+    """The effective section, read afresh (no lock); unreadable: defaults with ``read_failed``, or raise if ``strict``."""
+    try:
+        return parse(_read_raw(), os.environ)
+    except config_store.ConfigReadError as error:
+        if strict:
+            raise
+        logger.warning("The graphics card settings could not be read (%s); this pass uses no saved choice.", error)
+        return dataclasses.replace(parse(None, os.environ), read_failed=True)

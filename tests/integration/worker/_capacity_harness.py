@@ -55,7 +55,7 @@ def install_fake_capacity(
         return_value=cpu_cores,
     )
     mocker.patch.object(config_compute, '_read_raw', return_value={'method': method, 'gpu_mode': gpu_mode})
-    mocker.patch.object(job_processor.cards_in_use, 'resolve', return_value=Selection(cards=cards))
+    mocker.patch.object(job_processor.card_check, 'start_check', return_value=Selection(cards=cards))
     mocker.patch.object(config, 'CPU_THREADS', cpu_threads)
 
     capacity = job_processor.init_capacity()

@@ -6,9 +6,9 @@ Unit tests for the capacity-aware pieces of job_processor.
 
 Split from test_job_processor.py to keep each file under the 300-line
 Python limit. Covers init_capacity / get_worker_capacity,
-capacity_is_full, poll_and_claim_job slot release on failure,
-maybe_assert_gpu_list_unchanged cadence, and the
-terminate_all_active_jobs_for_drift helper.
+capacity_is_full, poll_and_claim_job slot release on failure and the
+maybe_assert_gpu_list_unchanged cadence (with the rebuild step before it).
+The drift-only termination helper is gone (FR-CL-6; test_capacity_drift.py).
 """
 import pytest
 
@@ -162,53 +162,20 @@ class TestMaybeAssertGpuListUnchanged:
         # Timestamp must remain at its prior value.
         assert job_processor._last_drift_check_ts == 1000.0
 
+    def test_rebuild_step_runs_on_every_call_before_the_rate_limit(self, mocker):
+        """FR-CL-4: also when the check is not due and when the Unreal gate defers it."""
+        cap = WorkerCapacity(_build_profile())
+        job_processor._capacity = cap
+        step = mocker.patch('sethlans_worker_agent.capacity.rebuild.step')
+        check = mocker.patch.object(cap, 'assert_gpu_list_unchanged')
+        mocker.patch('sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 30)
+        mocker.patch('sethlans_worker_agent.job_processor.time.monotonic', return_value=1005.0)
+        job_processor._last_drift_check_ts = 1000.0
+        gate = mocker.patch('sethlans_worker_agent.unreal_bridge.drift_check_allowed', return_value=True)
 
-# --- terminate_all_active_jobs_for_drift ---
+        job_processor.maybe_assert_gpu_list_unchanged()  # not due
+        gate.return_value = False
+        job_processor.maybe_assert_gpu_list_unchanged()  # Unreal render
 
-class TestTerminateAllActiveJobsForDrift:
-    """#246: a hardware change stops the jobs locally and reports nothing."""
-
-    @pytest.fixture
-    def manager_calls(self, mocker):
-        """Every way the drift handler could tell the manager about a job."""
-        return [
-            mocker.patch('sethlans_worker_agent.api_handler.update_job_status'),
-            mocker.patch('sethlans_worker_agent.api_handler.post_yield_requeue'),
-            mocker.patch('sethlans_worker_agent.api_extras.release_job'),
-        ]
-
-    @pytest.fixture
-    def shutdown(self, mocker):
-        import threading
-        from sethlans_worker_agent import agent
-        event = threading.Event()
-        mocker.patch.object(agent, '_shutdown_event', event)
-        return event
-
-    def test_no_active_jobs_is_noop(self, manager_calls, shutdown):
-        job_processor.terminate_all_active_jobs_for_drift()
-
-        assert all(not spy.called for spy in manager_calls)
-        assert not shutdown.is_set()
-
-    def test_blender_jobs_get_no_status_and_the_stop_signal(self, manager_calls, shutdown):
-        with job_processor._active_jobs_lock:
-            job_processor._active_jobs[1] = {'job_id': 1, 'renderer': 'BLENDER'}
-            job_processor._active_jobs[7] = {'job_id': 7}  # no renderer: Blender
-
-        job_processor.terminate_all_active_jobs_for_drift()
-
-        assert all(not spy.called for spy in manager_calls)  # no CANCELED, no other status
-        assert shutdown.is_set()
-
-    def test_shutdown_event_failure_does_not_raise(self, manager_calls, mocker):
-        from sethlans_worker_agent import agent
-        broken = mocker.Mock()
-        broken.set.side_effect = RuntimeError('boom')
-        mocker.patch.object(agent, '_shutdown_event', broken)
-        with job_processor._active_jobs_lock:
-            job_processor._active_jobs[1] = {'job_id': 1, 'renderer': 'BLENDER'}
-
-        job_processor.terminate_all_active_jobs_for_drift()  # must not raise
-
-        broken.set.assert_called_once()
+        assert [c.args for c in step.call_args_list] == [(cap,), (cap,)]
+        check.assert_not_called()

@@ -94,7 +94,7 @@ class TestCardFields:
         assert entry == {
             'key': KEY_XT_23, 'address': '0000:23:00.0', 'pci': '23:00.0', 'name': 'AMD Radeon RX 7900 XT',
             'vendor_id': AMD, 'device_id': 0x744C, 'backend': 'HIP', 'family': 'HIP', 'note': '',
-            'ticked': False, 'screen': None, 'primary_screen': None,
+            'ticked': False, 'state': 'unticked', 'screen': None, 'primary_screen': None,
         }
 
     def test_apple_gpu_has_no_pci_label(self):
@@ -125,8 +125,50 @@ class TestSavedChoice:
         answer = _view([], cards=(xt_23(),), sect=saved)
         assert (answer['method'], answer['gpu_mode'], answer['revision']) == ('cpu_gpu', 'combined', 12)
         assert answer['env_override'] is False and answer['blender_version'] is None
-        assert isinstance(answer['warnings'], list) and answer['warnings'] == []
+        assert [w['code'] for w in answer['warnings']] == ['engine_not_tied']  # no card in use (D22)
 
     def test_env_override_is_reported(self):
         saved = config_compute.parse(None, {config_compute.ENV_METHOD: 'gpu'})
         assert _view([], cards=(), sect=saved)['env_override'] is True
+
+
+class TestStates:
+    """Chunk 4: states, alerts, notices, problem and warnings, for display only (FR-CW-3, FR-CW-4, S1)."""
+
+    ALERT = {'id': 'a' * 32, 'kind': 'card_changed', 'key': KEY_XT_23, 'name': 'AMD Radeon RX 7900 XT',
+             'detail': 'was RX 7900 XT, now RX 7800 XT', 'raised_at': '2026-11-19T08:00:00+00:00'}
+
+    def test_states_missing_card_alerts_notices_and_problem(self):
+        saved = section('gpu', 'split', [KEY_RTX_A, KEY_XT_23], inv(rtx_a(), xt_23()), alerts=[self.ALERT])
+        answer = _view([], cards=(xt_03(), xt_23()), sect=saved)
+
+        assert [(c['key'], c['state']) for c in answer['cards']] == [('pci:0000:03:00.0', 'unticked'),
+                                                                     (KEY_XT_23, 'held')]
+        assert answer['missing'] == [{'key': KEY_RTX_A, 'address': '0000:01:00.0', 'pci': '01:00.0',
+                                      'name': 'NVIDIA GeForce RTX 4080', 'state': 'lost'}]
+        assert answer['alerts'] == [self.ALERT]
+        assert answer['notices'] == [{'kind': 'card_new', 'key': 'pci:0000:03:00.0', 'name': 'AMD Radeon RX 7900 XT'},
+                                     {'kind': 'card_new', 'key': KEY_XT_23, 'name': 'AMD Radeon RX 7900 XT'}]
+        assert answer['problem'].startswith('None of the ticked graphics cards can be used')
+        assert answer['config_read_failed'] is False
+
+    def test_ok_card_in_use_gives_no_warning(self):
+        saved = section('gpu', 'split', [KEY_XT_23], inv(xt_23()))
+        answer = _view([], cards=(xt_23(),), sect=saved)
+        assert (answer['cards'][0]['state'], answer['warnings'], answer['problem']) == ('ok', [], '')
+
+    def test_get_raises_no_alert_and_writes_nothing(self, mocker):
+        add_alert = mocker.patch('sethlans_worker_agent.cards.store.add_alert')
+        set_many = mocker.patch('sethlans_worker_agent.config_store.set_many')
+        saved = section('gpu', 'split', [KEY_RTX_A], inv(rtx_a()))
+        assert _view([], cards=(xt_23(),), sect=saved)['missing'][0]['state'] == 'lost'
+        add_alert.assert_not_called()
+        set_many.assert_not_called()
+
+    def test_failed_read_reports_it_instead_of_defaults(self):
+        failed = config_compute.ComputeSection(read_failed=True)
+        answer = _view([], cards=(xt_23(),), sect=failed)
+        assert answer['config_read_failed'] is True and answer['error'] == cards_view.READ_FAILED_TEXT
+        assert (answer['method'], answer['gpu_mode'], answer['revision'], answer['ticked']) == (None, None, None, [])
+        assert (answer['alerts'], answer['notices'], answer['warnings'], answer['missing']) == ([], [], [], [])
+        assert answer['cards'][0]['state'] is None and answer['cards'][0]['ticked'] is False

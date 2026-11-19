@@ -4,27 +4,39 @@
 """
 Settings page graphics card endpoints (FR-CW-4).
 
-GET  /api/cards/          -- anonymous, like ``/api/status``; display data only
-POST /api/control/cards   -- save the card choice (Bearer password, shutdown
-                             guard and body cap are applied by ``wsgi_app``)
+GET  /api/cards/                -- anonymous, like ``/api/status``; display data only
+POST /api/control/cards         -- save the card choice
+POST /api/control/cards/dismiss -- dismiss one open alert: ``{"alert_id": "<32 hex>"}``
+
+The POSTs get the Bearer password check, the shutdown guard and the body
+cap from ``wsgi_app``, which hands every ``cards`` action to
+``handle_cards_control``.
 
 **The GET is read-only (S1):** it never raises an alert, stops a job or
 requests a slot rebuild. Its card list comes from the shared probe cache
-(``web_ui.cards_cache``: at most 5 s old, one probe at a time). The POST
+(``web_ui.cards_cache``: at most 5 s old, one probe at a time). The save
 validates the body (FR-CW-5), runs a fresh probe through the same cache
 (which refreshes it) and saves through ``cards.choice.save_choice`` after the
-probe lock is released.
+probe lock is released; the dismissal goes through ``choice.dismiss_alerts``.
+Both request a live slot rebuild (FR-CL-4).
 """
+import json
 import logging
+import re
 from typing import Callable, Iterable
 
-from sethlans_worker_agent.cards import store
+from sethlans_worker_agent.cards import choice, store
+from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 from sethlans_worker_agent.web_ui import cards_cache, cards_view
 from sethlans_worker_agent.web_ui.http_helpers_wsgi import send_json_wsgi
 
 logger = logging.getLogger(__name__)
 
-SAVED_TEXT = "Saved. The new graphics card choice takes effect when the worker restarts."
+SAVED_TEXT = "Saved. The new graphics card choice is in use once running GPU jobs on removed cards finish."
+DISMISSED_TEXT = "Dismissed. A card that is still missing or changed is alerted again at the next check."
+UNKNOWN_ALERT_TEXT = "No open alert has this id. Reload the page."
+NOT_DISMISSED_TEXT = "The alert could not be dismissed; see the worker log."
+_ALERT_ID = re.compile(r'[0-9a-f]{32}')
 
 
 def handle_cards_get(environ: dict, start_response: Callable) -> Iterable[bytes]:
@@ -34,8 +46,14 @@ def handle_cards_get(environ: dict, start_response: Callable) -> Iterable[bytes]
 
 def handle_cards_control(action: str, start_response: Callable, body: bytes) -> Iterable[bytes]:
     """Dispatch ``POST /api/control/cards[/...]``; ``body`` is already within the size cap."""
-    if action != 'cards':
-        return send_json_wsgi(start_response, {'error': 'Not Found'}, 404)
+    if action == 'cards':
+        return _save(start_response, body)
+    if action == 'cards/dismiss':
+        return _dismiss(start_response, body)
+    return send_json_wsgi(start_response, {'error': 'Not Found'}, 404)
+
+
+def _save(start_response: Callable, body: bytes) -> Iterable[bytes]:
     try:
         fields = cards_view.parse_body(body)
     except ValueError as invalid:
@@ -44,3 +62,35 @@ def handle_cards_control(action: str, start_response: Callable, body: bytes) -> 
     if status == 200:
         answer['message'] = SAVED_TEXT
     return send_json_wsgi(start_response, answer, status)
+
+
+def parse_dismiss_body(body: bytes) -> str:
+    """The alert id of a dismiss request (FR-CW-5); ``ValueError`` with one plain sentence."""
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        data = None
+    if not isinstance(data, dict):
+        raise ValueError("The request body must be a JSON object.")
+    if set(data) != {'alert_id'}:
+        raise ValueError("The request must give alert_id and nothing else.")
+    alert_id = data['alert_id']
+    if not isinstance(alert_id, str) or _ALERT_ID.fullmatch(alert_id) is None:
+        raise ValueError("The alert id must be 32 lower-case hexadecimal characters.")
+    return alert_id
+
+
+def _dismiss(start_response: Callable, body: bytes) -> Iterable[bytes]:
+    """400 for an invalid body, 404 for an id that names no open alert, 503 when the file cannot be written."""
+    try:
+        alert_id = parse_dismiss_body(body)
+    except ValueError as invalid:
+        return send_json_wsgi(start_response, {'error': str(invalid)}, 400)
+    try:
+        removed = choice.dismiss_alerts([alert_id], 'settings page')
+    except (ConfigLockTimeoutError, OSError):
+        logger.error("The graphics card alert %s could not be dismissed.", alert_id, exc_info=True)
+        return send_json_wsgi(start_response, {'error': NOT_DISMISSED_TEXT}, 503)
+    if not removed:
+        return send_json_wsgi(start_response, {'error': UNKNOWN_ALERT_TEXT}, 404)
+    return send_json_wsgi(start_response, {'status': 'ok', 'message': DISMISSED_TEXT})

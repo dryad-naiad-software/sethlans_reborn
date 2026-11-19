@@ -80,9 +80,10 @@ def release_after_job(job_data: Dict[str, Any]) -> None:
     Repeats the releases only if the inner ``finally`` never ran (an
     exception before the lifecycle's inner ``try``), then pops this
     claim's ``_active_jobs`` entry and removes the id from
-    ``_unfinished_job_ids`` (FR-RT-17). Never raises.
+    ``_unfinished_job_ids`` (FR-RT-17), and the job's per-job stop entry
+    (FR-CL-5). Never raises.
     """
-    from sethlans_worker_agent import job_processor
+    from sethlans_worker_agent import blender_stop, job_processor
     job_id = job_data.get('id')
     try:
         if not job_data.get(RESOURCES_RELEASED):
@@ -94,6 +95,7 @@ def release_after_job(job_data: Dict[str, Any]) -> None:
         logger.exception("Safety-net release failed for job %s", job_id)
     finally:
         forget_job(job_data, unfinished=True)
+        blender_stop.forget_card_stop(job_data)
 
 
 def release_after_dispatch_failure(job_data: Dict[str, Any],
@@ -105,51 +107,14 @@ def release_after_dispatch_failure(job_data: Dict[str, Any],
     supports release (Unreal) is handed back to the manager with reason
     ``dispatch_failed``; Blender jobs keep today's manager-side state.
     """
-    from sethlans_worker_agent import executors
+    from sethlans_worker_agent import blender_stop, executors
     job_id = job_data.get('id')
     release_reservations(job_id, job_data.get('_renderer_reservation'), capacity)
     job_data[RESOURCES_RELEASED] = True
     forget_job(job_data, unfinished=True)
+    blender_stop.forget_card_stop(job_data)
     if executors.supports_release(job_data.get('renderer')):
         _release_on_manager(job_id, 'dispatch_failed')
-
-
-def request_shutdown_for_release(job_ids) -> None:
-    """Drift handler path for releasable (Unreal) jobs (FR-WX-14).
-
-    Sets the agent's shutdown event without PATCHing CANCELED, so each
-    executor's shutdown path hands its job back to the manager (D4).
-    Never raises.
-    """
-    logger.warning(
-        "Drift handler: jobs %s will be released through the shutdown path.",
-        sorted(job_ids),
-    )
-    _set_shutdown_event()
-
-
-def request_shutdown_for_stop(job_ids) -> None:
-    """Drift handler path for Blender jobs (#246).
-
-    Sets the agent's shutdown event (the drift handler has already recorded
-    the hardware change); each Blender executor stops its subprocess tree
-    and the job thread hands the job back with ``yield-requeue``, reason
-    ``worker_hardware_changed`` (blender_stop.py, blender_hand_back.py). If
-    that fails, the manager's reconciliation requeues it (#247). Never raises.
-    """
-    logger.warning(
-        "Drift handler: stopping Blender jobs %s; each is handed back to the "
-        "queue.", sorted(job_ids),
-    )
-    _set_shutdown_event()
-
-
-def _set_shutdown_event() -> None:
-    try:
-        from sethlans_worker_agent import agent
-        agent._shutdown_event.set()
-    except (Exception, SystemExit) as exc:  # noqa: BLE001 - drift must proceed
-        logger.error("Could not set the shutdown event for drift: %s", exc)
 
 
 def _release_on_manager(job_id, reason: str) -> None:

@@ -6,7 +6,7 @@ Slots from the saved card choice (FR-CL-2, FR-CL-3, AC-4) and CPU or GPU from
 the reservation (FR-CB-1, FR-CB-3, AC-43).
 
 The capacity is built as ``init_capacity`` builds it: a section ticking some
-inventory cards, ``in_use.select``, ``compute_capacity_profile``.
+inventory cards, ``matching.evaluate`` + ``card_profile.selection_of``, ``compute_capacity_profile``.
 """
 import dataclasses
 

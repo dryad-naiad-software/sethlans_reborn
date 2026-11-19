@@ -9,22 +9,14 @@ and the CPU slot flag. All slot mutations take a single internal lock;
 the lock is acquired and released entirely within each public method and
 is never held across an API call or subprocess invocation (lock ordering
 rule). A GPU reservation copies its cards from the profile under the lock.
+The profile is replaced only by a rebuild (rebuild.py, FR-CL-4), under the
+lock; while one is pending no GPU slot is free.
 """
 import logging
 import threading
 from typing import Dict, Optional, Tuple
 
-from sethlans_worker_agent.capacity import exclusive
-from sethlans_worker_agent.capacity.drift import (
-    DETECTION_FAILED,
-    adopt_detection_executable,
-    detect_physical_gpus_now,
-    set_drift_exit_code,
-)
-from sethlans_worker_agent.capacity.gpu_list import (
-    describe_gpu_list_change,
-    gpu_identity,
-)
+from sethlans_worker_agent.capacity import exclusive, rebuild
 from sethlans_worker_agent.capacity.profile import (
     CapacityProfile,
     SlotReservation,
@@ -36,9 +28,8 @@ logger = logging.getLogger(__name__)
 class WorkerCapacity:
     """Stateful slot tracker.
 
-    Constructed once at worker startup from a CapacityProfile. The
-    profile is immutable; only the slot assignment maps change at
-    runtime.
+    Constructed at worker startup from a CapacityProfile. The profile
+    itself is immutable; a rebuild swaps in another one (rebuild.py).
     """
 
     def __init__(self, profile: CapacityProfile):
@@ -58,9 +49,13 @@ class WorkerCapacity:
         return self._profile.total
 
     def _gpu_free_locked(self) -> bool:
-        """True when a GPU slot is free; counts only held keys of cards in the profile (FR-CL-3)."""
+        """True when a GPU slot is free; counts only held keys of cards in the profile (FR-CL-3).
+
+        Never while a rebuild is pending (FR-CL-4); ``rebuild._lock`` is
+        taken inside this lock, which the lock order allows.
+        """
         profile = self._profile
-        if profile.gpu_slot_count == 0:
+        if profile.gpu_slot_count == 0 or rebuild.pending():
             return False
         held = [key for key in profile.card_keys if key in self._gpu_assignments]
         if profile.gpu_mode == "combined":
@@ -194,61 +189,15 @@ class WorkerCapacity:
             return dict(self._gpu_assignments)
 
     def assert_gpu_list_unchanged(self) -> Optional[str]:
-        """Compare a fresh, uncached GPU detection with the list in use (#239).
+        """The periodic card check (FR-CK-1, FR-CK-3); ``DETECTION_FAILED`` = try again later. See card_check.py."""
+        from sethlans_worker_agent.capacity import card_check  # imports the cards package
+        return card_check.check(self)
 
-        The list in use is the cached system_monitor.get_gpu_device_details()
-        that slots and render scripts work from; the detection runs with the
-        Blender that produced it, or a fallback when that one was removed,
-        adopted when its list matches (drift.py, #253). Any difference in the
-        ordered (device id, backend) pairs is a change: a card gone or new,
-        a backend or id changed, or the same cards in another order. On a
-        change, triggers the drift handler flow per FR-22a: terminate
-        active Blender subprocesses via the existing cancellation path in
-        blender_executor, set the exit-code flag, and set
-        agent._shutdown_event. sys.exit is NEVER called from this module.
+    def jobs_on_unusable_cards(self, states) -> list:
+        """Job ids on cards not usable for their renderer (FR-CK-3); see card_check.py."""
+        from sethlans_worker_agent.capacity import card_check
+        return card_check.jobs_on_unusable_cards(self, states)
 
-        Skip conditions (no-op, do not trigger drift):
-          * the profile has no Blender card in use (method CPU, no card
-            ticked or none usable); the ~5-15s detection subprocess is not run.
-          * ``detect_physical_gpus_now()`` returned ``None`` -- transient
-            failure: returns ``DETECTION_FAILED`` ("try again later").
-        """
-        if not self._profile.cards or self._profile.gpu_slot_count == 0:
-            logger.debug("assert_gpu_list_unchanged: no Blender card in use, skipping drift check.")
-            return None
-
-        current = detect_physical_gpus_now()
-        if current is None:
-            # Transient failure. Do NOT treat as drift; a request stays pending.
-            return DETECTION_FAILED
-        from sethlans_worker_agent import system_monitor
-        change = describe_gpu_list_change(
-            gpu_identity(system_monitor.get_gpu_device_details()), current,
-        )
-        if change is None:
-            adopt_detection_executable()  # a replacement detection Blender agreed (#253)
-            return None
-
-        logger.critical(
-            "GPU change detected: %s. Initiating graceful shutdown.", change,
-        )
-        from sethlans_worker_agent import blender_stop
-        blender_stop.mark_hardware_change()  # first: the stop reason is right even if a step below raises
-        try:
-            # Imported lazily to avoid a circular import.
-            from sethlans_worker_agent import job_processor
-            job_processor.terminate_all_active_jobs_for_drift()
-        except BaseException as exc:  # noqa: BLE001 - shutdown must proceed
-            logger.error(
-                "Error during drift-triggered termination: %s", exc,
-            )
-        finally:
-            set_drift_exit_code(1)
-            try:
-                from sethlans_worker_agent import agent as agent_module
-                agent_module._shutdown_event.set()
-            except BaseException as exc:  # noqa: BLE001
-                logger.error(
-                    "Could not set shutdown event during drift handler: %s",
-                    exc,
-                )
+    def try_rebuild(self, profile: CapacityProfile, generation: int) -> str:
+        """Swap in ``profile`` unless a running job blocks it (FR-CL-4); see rebuild.py."""
+        return rebuild.try_rebuild(self, profile, generation)

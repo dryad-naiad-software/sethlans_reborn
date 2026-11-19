@@ -20,7 +20,7 @@ import threading
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent import env_cleanup
-from sethlans_worker_agent.blender_stop import popen_group_kwargs, wait_or_stop
+from sethlans_worker_agent.blender_stop import job_stop, popen_group_kwargs, wait_or_stop
 from sethlans_worker_agent.blender_failure import (
     describe_blender_failure, python_script_args, request_recheck_if_check_failed,
 )
@@ -107,8 +107,9 @@ def render_exr_hdr_thumbnail(
         resolved_output_pattern: The primary render output pattern.
         reservation: The job's capacity.SlotReservation, or None. Its
             ``device_used`` and cards decide the device, as for the render.
-        stop_event: The worker's shutdown event; when it is set during the
-            pass, the thumbnail's process tree is stopped (#247).
+        stop_event: The worker's shutdown event (or already joined with
+            the job's own stop event, ``blender_stop.job_stop``); when either
+            is set during the pass, its process tree is stopped (#247, FR-CL-5).
 
     Returns:
         Path to the rendered thumbnail PNG file, or None on failure.
@@ -129,8 +130,9 @@ def render_exr_hdr_thumbnail(
         resolved_output_pattern
     )
 
-    if stop_event is not None and stop_event.is_set():  # #247: no new Blender during shutdown
-        logger.info(f"[Job {job_id}] Worker is shutting down: skipping the thumbnail pass.")
+    stop_event = job_stop(stop_event, job_data)  # the job's own stop too (FR-CL-5)
+    if stop_event is not None and stop_event.is_set():  # #247: no new Blender during a stop
+        logger.info(f"[Job {job_id}] Stopping: skipping the thumbnail pass.")
         return None
     temp_script_path = None
     try:

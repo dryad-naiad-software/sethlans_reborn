@@ -27,12 +27,14 @@ finally:
     sys.argv = _saved_argv
 
 from sethlans_worker_agent import config, hardware_detection  # noqa: E402
-from sethlans_worker_agent.capacity import CapacityProfile, WorkerCapacity, drift as drift_module  # noqa: E402
+from sethlans_worker_agent.capacity import (  # noqa: E402
+    CapacityProfile, WorkerCapacity, card_check, drift as drift_module, rebuild,
+)
 from sethlans_worker_agent.tool_manager import tool_manager_instance  # noqa: E402
+from tests.unit.worker._card_check_env import CardEnv  # noqa: E402
 from tests.unit.worker.executors._fakes import fake_cards  # noqa: E402
 
 DRIFT = drift_module.__name__
-HIP = {'index': 0, 'name': 'AMD Radeon', 'type': 'HIP', 'id': 'HIP_A'}
 
 
 @pytest.fixture
@@ -163,14 +165,16 @@ class TestOnceOnlyLogging:
         assert drift_module._fallback_exe is None
 
 
-def test_series_preference_follows_the_adopted_blender(installed, gone, mocker):
+def test_series_preference_follows_the_adopted_blender(installed, gone, mocker, monkeypatch):
     """4.2.3 gone: 5.0.1 (newest) is adopted; later 5.0.2 is preferred to 5.1.0 and 4.2.9."""
-    mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[HIP])
+    machine = CardEnv(monkeypatch, count=1)
+    monkeypatch.setattr(card_check, 'detect_physical_gpus_now', drift_module.detect_physical_gpus_now)
     run = mocker.patch('sethlans_worker_agent.capacity.drift.subprocess.run',
-                       return_value=mocker.MagicMock(stdout=json.dumps([HIP]) + '\n'))
+                       return_value=mocker.MagicMock(stdout=json.dumps(machine.blender_records()) + '\n'))
     mocker.patch.object(agent_module, '_shutdown_event', threading.Event())
     cap = WorkerCapacity(CapacityProfile(gpu_slot_count=1, cpu_slot_count=1, cpu_thread_ceiling=15,
-                                         cpu_threads_effective=15, cards=fake_cards(1), gpu_mode='split'))
+                                         cpu_threads_effective=15, cards=fake_cards(1), gpu_mode='split',
+                                         method='cpu_gpu'))
     first = installed('5.0.1')
     installed('4.5.16')
 
@@ -188,4 +192,4 @@ def test_series_preference_follows_the_adopted_blender(installed, gone, mocker):
 
     assert run.call_args.args[0][0] == installed.paths['5.0.2']
     assert hardware_detection._gpu_details_blender_exe == installed.paths['5.0.2']
-    assert drift_module.get_drift_exit_code() is None
+    assert machine.alerts() == [] and rebuild.pending() is False

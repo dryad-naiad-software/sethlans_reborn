@@ -83,10 +83,11 @@ def _run_loop_iteration(worker_id):
     # Heartbeats run regardless of pause state.
     system_monitor.send_heartbeat(is_busy=is_busy, active_jobs=active_jobs)
 
-    # GPU drift check (FR-22, FR-23, #239). Fires once per heartbeat
-    # interval, and once right away after a failed GPU device check.
+    # Pending slot rebuild, then the card check (FR-CL-4, FR-CK-1, #239): the
+    # check fires once per heartbeat interval, and right away after a failed
+    # GPU device check. A lost card stops only the jobs on it (FR-CL-5).
     job_processor.maybe_assert_gpu_list_unchanged()
-    if agent._shutdown_event.is_set():  # e.g. the check found a hardware change: claim nothing (#247)
+    if agent._shutdown_event.is_set():  # a shutdown arrived meanwhile: claim nothing (#247)
         return
 
     from sethlans_worker_agent.agent_setup import check_manager_setup_complete

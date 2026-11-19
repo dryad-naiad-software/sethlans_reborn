@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-GPU list comparison and the immediate re-check after a failed GPU device
-check (#239).
+GPU list identity and the immediate re-check after a failed GPU device
+check (#239). What the check does with the list is in test_capacity_drift.py.
 
 A render whose GPU device check failed (#238) asks, through a
 threading.Event, for one GPU list comparison on the next agent-loop
@@ -17,8 +17,9 @@ import pytest
 from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent import blender_failure, job_processor
 from sethlans_worker_agent.capacity import CapacityProfile, WorkerCapacity
-from sethlans_worker_agent.capacity.gpu_list import describe_gpu_list_change, gpu_identity
+from sethlans_worker_agent.capacity.gpu_list import gpu_identity
 from sethlans_worker_agent.gpu_device_script import GPU_CHECK_EXIT_CODE, GPU_CHECK_MARKER
+from tests.unit.worker._card_check_env import CardEnv
 from tests.unit.worker.executors._fakes import fake_cards
 
 MARKER_STDERR = f"{GPU_CHECK_MARKER} 0 Blender device entries match OPTIX 'x'\n"
@@ -33,28 +34,6 @@ class TestGpuIdentity:
     def test_empty_and_none(self):
         assert gpu_identity([]) == []
         assert gpu_identity(None) == []
-
-
-class TestDescribeGpuListChange:
-
-    def test_equal_lists_give_none(self):
-        assert describe_gpu_list_change([('a', 'HIP')], [('a', 'HIP')]) is None
-        assert describe_gpu_list_change([], []) is None
-
-    def test_gone_and_new_in_the_same_interval(self):
-        change = describe_gpu_list_change([('a', 'HIP'), ('b', 'HIP')], [('a', 'HIP'), ('c', 'HIP')])
-        assert "cards gone: [HIP 'b']" in change
-        assert "cards new: [HIP 'c']" in change
-        assert 'order changed' not in change
-
-    def test_optix_and_cuda_entries_are_the_same_card(self):
-        change = describe_gpu_list_change([('X_OptiX', 'OPTIX')], [('X', 'CUDA')])
-        assert change.startswith("backend or id changed: [OPTIX 'X_OptiX' -> CUDA 'X']")
-        assert 'gone' not in change and 'new' not in change
-
-    def test_reorder_is_named(self):
-        change = describe_gpu_list_change([('a', 'HIP'), ('b', 'CUDA')], [('b', 'CUDA'), ('a', 'HIP')])
-        assert change.startswith('order changed')
 
 
 class TestRecheckRequest:
@@ -93,22 +72,20 @@ class TestRecheckRequest:
 def _capacity(gpu_slot_count=1, startup_gpu_count=1):
     return WorkerCapacity(CapacityProfile(
         gpu_slot_count=gpu_slot_count, cpu_slot_count=1, cpu_thread_ceiling=15,
-        cpu_threads_effective=15, cards=fake_cards(startup_gpu_count), gpu_mode='split',
+        cpu_threads_effective=15, cards=fake_cards(startup_gpu_count), gpu_mode='split', method='cpu_gpu',
     ))
 
 
+SAME = [(fake_cards(1)[0].blender_id, 'CUDA')]
+
+
 @pytest.fixture
-def loop(mocker):
-    """A one-GPU worker that just compared; real comparison, counted detections."""
+def loop(mocker, monkeypatch):
+    """A one-GPU worker that just compared; real card check, counted detections."""
     job_processor._capacity = _capacity()
-    mocker.patch(
-        'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-        return_value=[{'id': 'CUDA_GPU_0', 'type': 'CUDA', 'name': 'GPU 0'}],
-    )
-    detect = mocker.patch(
-        'sethlans_worker_agent.capacity.slots.detect_physical_gpus_now',
-        return_value=[('CUDA_GPU_0', 'CUDA')],
-    )
+    CardEnv(monkeypatch, count=1)
+    detect = mocker.patch('sethlans_worker_agent.capacity.card_check.detect_physical_gpus_now',
+                          return_value=list(SAME))
     interval = mocker.patch('sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 30)
     clock = SimpleNamespace(now=1000.0)
     mocker.patch('sethlans_worker_agent.job_processor.time.monotonic', side_effect=lambda: clock.now)
@@ -187,7 +164,7 @@ class TestFailedDetection:
         assert _tick(loop, 1001.0 + floor) == 2  # the floor expired: retried
         assert capacity_module.gpu_list_recheck_pending() is True
 
-        loop.detect.return_value = [('CUDA_GPU_0', 'CUDA')]
+        loop.detect.return_value = list(SAME)
         assert _tick(loop, 1001.0 + 2 * floor) == 3
         assert capacity_module.gpu_list_recheck_pending() is False
 
@@ -213,7 +190,9 @@ class TestWorkersThatSkipTheComparison:
 
     @pytest.mark.parametrize('gpu_slots, startup_gpus', [(0, 0), (0, 2)],
                              ids=['no-gpu', 'gpu-slots-zero'])
-    def test_never_detects_and_absorbs_requests(self, loop, gpu_slots, startup_gpus):
+    def test_never_detects_and_absorbs_requests(self, loop, monkeypatch, gpu_slots, startup_gpus):
+        CardEnv(monkeypatch, count=1, ticked=())  # nothing ticked: no card can come into use
+        loop.mocker.patch('sethlans_worker_agent.capacity.card_check.detect_physical_gpus_now', loop.detect)
         job_processor._capacity = _capacity(gpu_slot_count=gpu_slots, startup_gpu_count=startup_gpus)
 
         assert _tick(loop, 1001.0, request=True) == 0

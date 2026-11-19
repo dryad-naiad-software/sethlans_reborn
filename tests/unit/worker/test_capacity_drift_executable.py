@@ -27,8 +27,11 @@ from sethlans_worker_agent import hardware_detection  # noqa: E402
 from sethlans_worker_agent.capacity import (  # noqa: E402
     CapacityProfile,
     WorkerCapacity,
+    card_check,
     drift as drift_module,
+    rebuild,
 )
+from tests.unit.worker._card_check_env import CardEnv  # noqa: E402
 from tests.unit.worker.executors._fakes import fake_cards  # noqa: E402
 
 RAW = [{'index': 0, 'name': 'AMD Radeon', 'type': 'HIP', 'id': 'HIP_A'}]
@@ -97,26 +100,22 @@ class TestRememberedExecutableMissing:
     def _no_other_blender(self, mocker):
         mocker.patch('sethlans_worker_agent.capacity.drift._choose_fallback_blender', return_value=None)
 
-    def test_missing_blender_skips_without_drift(self, mocker, monkeypatch, tmp_path):
+    def test_missing_blender_skips_without_any_change(self, mocker, monkeypatch, tmp_path):
+        machine = CardEnv(monkeypatch, count=1)
+        monkeypatch.setattr(card_check, 'detect_physical_gpus_now', drift_module.detect_physical_gpus_now)
         monkeypatch.setattr(hardware_detection, '_gpu_details_blender_exe', str(tmp_path / 'gone.exe'))
-        mocker.patch(
-            'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-            return_value=[dict(RAW[0])],
-        )
         run = mocker.patch('sethlans_worker_agent.capacity.drift.subprocess.run')
-        terminate = mocker.patch('sethlans_worker_agent.job_processor.terminate_all_active_jobs_for_drift')
         event = threading.Event()
         mocker.patch.object(agent_module, '_shutdown_event', event)
         cap = WorkerCapacity(CapacityProfile(
             gpu_slot_count=1, cpu_slot_count=1, cpu_thread_ceiling=15,
-            cpu_threads_effective=15, cards=fake_cards(1), gpu_mode='split',
+            cpu_threads_effective=15, cards=fake_cards(1), gpu_mode='split', method='cpu_gpu',
         ))
 
-        cap.assert_gpu_list_unchanged()
+        assert cap.assert_gpu_list_unchanged() == drift_module.DETECTION_FAILED
 
         run.assert_not_called()
-        terminate.assert_not_called()
-        assert drift_module.get_drift_exit_code() is None
+        assert machine.alerts() == [] and rebuild.pending() is False
         assert event.is_set() is False
 
     def test_no_recorded_blender_warns_once(self, monkeypatch, caplog):

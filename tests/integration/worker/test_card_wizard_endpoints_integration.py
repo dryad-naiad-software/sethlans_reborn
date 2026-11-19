@@ -46,7 +46,11 @@ class TestCardWizardGetIntegration:
         assert status == '200 OK'
         assert (answer['method'], answer['gpu_mode'], answer['ticked'], answer['revision']) == ('cpu', 'split', [], 0)
         assert answer['env_override'] is False and answer['blender_check'] == 'done'
-        assert answer['blender_version'] == '4.5.1' and answer['warnings'] == []
+        assert answer['blender_version'] == '4.5.1' and answer['config_read_failed'] is False
+        assert [w['code'] for w in answer['warnings']] == ['engine_not_tied']  # method CPU with cards (D22)
+        assert all(card['state'] == 'unticked' for card in answer['cards'])
+        assert (answer['alerts'], answer['missing'], answer['problem']) == ([], [], '')
+        assert [n['kind'] for n in answer['notices']] == ['card_new'] * 3  # nothing was shown and saved yet
         assert [card['address'] for card in answer['cards']] == [ADDRESS_A, ADDRESS_B, ADDRESS_C]
         first = answer['cards'][0]
         assert (first['name'], first['pci'], first['backend'], first['family']) == ('Card A', '01:00.0', 'CUDA', 'CUDA')

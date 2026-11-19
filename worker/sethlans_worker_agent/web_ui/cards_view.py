@@ -6,8 +6,10 @@ What the worker's two graphics card pages share (FR-CW-2, FR-CW-4, FR-CW-5).
 
 - ``probe_now()``: a fresh OS probe joined with the *cached* Blender device
   list. It never starts Blender.
-- ``view(probe, section)``: the JSON answer of both card GETs. It is display
-  data only; it raises no alert, stops no job and requests no rebuild (S1).
+- ``view(probe, section)``: the JSON answer of both card GETs, with each
+  card's state, the open alerts, the notices, the problem text and the
+  warnings (``cards.matching``, ``cards.warnings``). It is display data only;
+  it raises no alert, stops no job and requests no rebuild (S1).
 - ``parse_body(body)``: the FR-CW-5 shape checks of a save request; a failure
   raises ``ValueError`` with one plain sentence.
 - ``save(fields, probe, source)``: saves through ``choice.save_choice`` and
@@ -23,19 +25,23 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_compute
-from sethlans_worker_agent.cards import choice, inventory, os_probe, store
-from sethlans_worker_agent.cards.identity import APPLE_GPU_KEY, KEY_PREFIX, card_key, key_address
+from sethlans_worker_agent.capacity import rebuild
+from sethlans_worker_agent.cards import choice, inventory, matching, os_probe, store
+from sethlans_worker_agent.cards import warnings as card_warnings
+from sethlans_worker_agent.cards.identity import APPLE_GPU_KEY, KEY_PREFIX, card_key, clean_name, key_address
 from sethlans_worker_agent.cards.in_use import FAMILIES
 from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 
 logger = logging.getLogger(__name__)
 
+READ_FAILED_TEXT = "The worker's settings file could not be read just now. Reload the page."
 NOTE_NOT_CHECKED = 'Blender not checked yet'
 ENV_OVERRIDE_TEXT = "The graphics card choice is set by environment variables on this worker."
 STALE_TEXT = "The card choice was changed meanwhile (on this page or from the manager). Reload the page."
 HELD_TEXT = "Dismiss the alert for {name} first."
 NOT_SAVED_TEXT = "The card choice could not be saved; see the worker log."
 MAX_ADDRESS_TEXT = 32
+MAX_RAISED_AT = 40  # an ISO 8601 UTC time is 25 characters
 
 # The fields of a save request. The manager-changes switch joins them with the
 # switch itself (a later chunk); until then a request naming it is refused.
@@ -84,35 +90,83 @@ def _uncached_note(check_failed: bool) -> str:
     return inventory.NOTE_BLENDER_FAILED if check_failed else NOTE_NOT_CHECKED
 
 
-def _card_view(card: inventory.Card, ticked, uncached_note: Optional[str]) -> dict:
+def _card_view(card: inventory.Card, ticked, uncached_note: Optional[str], state: Optional[str]) -> dict:
     backend = card.blender[1] if card.blender is not None else None
     note = uncached_note if uncached_note and card.note == inventory.NOTE_NO_BLENDER else card.note
     return {
         'key': card.key, 'address': address_of(card.key), 'pci': short_address(card.key),
         'name': card.name, 'vendor_id': card.vendor_id, 'device_id': card.device_id,
         'backend': backend, 'family': FAMILIES.get(backend, backend) if backend else None,
-        'note': note, 'ticked': card.key in ticked,
+        'note': note, 'ticked': card.key in ticked, 'state': state,
         'screen': card.screen, 'primary_screen': card.primary_screen,
+    }
+
+
+def _missing_view(record: dict, state: Optional[str]) -> dict:
+    """A ticked card the fresh inventory does not list (``lost``, or ``unknown`` after a failed OS probe)."""
+    key = record['key']
+    return {'key': key, 'address': address_of(key), 'pci': short_address(key),
+            'name': clean_name(str(record.get('name') or '')) or key, 'state': state}
+
+
+def _alert_view(alert: dict) -> dict:
+    """An open alert for the pages; ``name``, ``detail`` and ``raised_at`` are normalised (a hand-edited file)."""
+    raised_at = alert.get('raised_at')
+    return {
+        'id': alert.get('id'), 'kind': alert.get('kind'), 'key': alert.get('key'),
+        'name': clean_name(str(alert.get('name') or '')) or alert.get('key'),
+        'detail': store.printable_detail(alert.get('detail')),
+        'raised_at': raised_at if isinstance(raised_at, str) and len(raised_at) <= MAX_RAISED_AT else None,
+    }
+
+
+def _checked(probe: Probe, section: config_compute.ComputeSection) -> dict:
+    """States, alerts, notices, problem and warnings for the answer; all empty when the read failed."""
+    if section.read_failed:
+        return {'states': {}, 'missing': [], 'alerts': [], 'notices': [], 'problem': '', 'warnings': []}
+    result = matching.evaluate(section, probe.inventory)  # display only: nothing is raised, stopped or rebuilt
+    present = {card.key for card in probe.inventory.cards}
+    return {
+        'states': result.states,
+        'missing': [_missing_view(record, result.states.get(record['key']))
+                    for record in result.section.cards if record['key'] not in present],
+        'alerts': [_alert_view(alert) for alert in section.alerts],
+        'notices': [dict(notice) for notice in result.notices],
+        'problem': result.problem,
+        'warnings': card_warnings.build(probe.inventory, result),
     }
 
 
 def view(probe: Probe, section: config_compute.ComputeSection, checking: bool = False,
          check_failed: bool = False) -> dict:
-    """The GET answer: the saved choice, the fresh cards and the warnings (display only)."""
-    ticked = set(section.ticked_keys)
+    """The GET answer: the saved choice, the fresh cards, their states and the warnings (display only, S1).
+
+    When ``config.json`` could not be read (C-20) the answer says so with
+    ``config_read_failed: true`` and ``error``, and gives no saved choice
+    (``method``, ``gpu_mode`` and ``revision`` are ``null``) instead of defaults.
+    """
+    failed = section.read_failed
+    ticked = set() if failed else set(section.ticked_keys)
     uncached = _uncached_note(check_failed and not checking) if probe.blender_cards is None else None
-    return {
-        'method': section.method,
-        'gpu_mode': section.gpu_mode,
-        'ticked': list(section.ticked_keys),
-        'revision': section.revision,
+    checked = _checked(probe, section)
+    answer = {
+        'config_read_failed': failed,
+        'method': None if failed else section.method,
+        'gpu_mode': None if failed else section.gpu_mode,
+        'ticked': [] if failed else list(section.ticked_keys),
+        'revision': None if failed else section.revision,
         'env_override': section.env_override,
         'os_probe_failed': probe.inventory.os_probe_failed,
         'blender_version': probe.inventory.blender_version,
         'blender_check': blender_check_state(probe.blender_cards, checking, check_failed),
-        'cards': [_card_view(card, ticked, uncached) for card in probe.inventory.cards],
-        'warnings': [],  # {"code", "text"} entries; the warning rules come with the card checks
+        'cards': [_card_view(card, ticked, uncached, checked['states'].get(card.key))
+                  for card in probe.inventory.cards],
+        'rebuild_waiting': rebuild.rebuild_waiting(),  # a new card list waits for running GPU jobs (FR-CW-3)
     }
+    answer.update((name, checked[name]) for name in ('missing', 'alerts', 'notices', 'problem', 'warnings'))
+    if failed:
+        answer['error'] = READ_FAILED_TEXT
+    return answer
 
 
 def _choice_text(data: dict, name: str, allowed, sentence: str) -> str:

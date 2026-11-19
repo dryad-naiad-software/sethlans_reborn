@@ -25,7 +25,7 @@ import datetime
 import logging
 from typing import Any, Dict, Optional
 
-from sethlans_worker_agent import api_handler, job_selection
+from sethlans_worker_agent import api_handler, blender_stop, job_selection
 from sethlans_worker_agent.job_resources import ACTIVE_ENTRY, forget_job, release_reservations
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,8 @@ def _record_claim(job: Dict[str, Any], selection, slot) -> None:
     with job_processor._active_jobs_lock:
         job_processor._active_jobs[job_id] = entry
         job_processor._unfinished_job_ids.add(job_id)
+    if entry['renderer'] == 'BLENDER':  # its own stop event, removed in release_after_job (FR-CL-5)
+        blender_stop.register_card_stop(job)
 
 
 def claim_selected(selection, capacity, worker_id) -> Optional[Dict[str, Any]]:
