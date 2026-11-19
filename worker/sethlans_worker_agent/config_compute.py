@@ -43,6 +43,7 @@ class ComputeSection:
     revision: int = 0
     allow_manager_changes: bool = True
     last_request: Optional[dict] = None
+    recent_request_ids: Tuple[str, ...] = ()  # the last 8 manager request ids evaluated (D16); not validated beyond
     alerts: Tuple[dict, ...] = ()
     env_override: bool = False
     env_cards: bool = False
@@ -95,13 +96,15 @@ def _from_file(raw: dict, invalid: list) -> dict:
     if len({record['key'] for record in cards}) != len(cards):
         invalid.append('compute.cards')
         cards = tuple({record['key']: record for record in cards}.values())
-    allow = raw.get('allow_manager_changes', True)
+    allow, recent = raw.get('allow_manager_changes', True), raw.get('recent_request_ids')
     if not isinstance(allow, bool):
         invalid.append(_ALLOW_KEY)
+    recent = tuple(item for item in recent if isinstance(item, str))[-8:] if isinstance(recent, list) else ()
     return {'method': _choice(raw.get('method', 'cpu'), METHODS, 'compute.method', invalid),
             'gpu_mode': _choice(raw.get('gpu_mode', 'split'), GPU_MODES, 'compute.gpu_mode', invalid),
             'cards': cards, 'known': _list_of(raw, 'known', is_card_key, invalid),
             'revision': revision, 'allow_manager_changes': allow is True, 'last_request': last_request,
+            'recent_request_ids': recent,
             'alerts': distinct_alerts(_list_of(raw, 'alerts', valid_alert, invalid), logger)}
 
 

@@ -26,7 +26,7 @@ from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_compute, unreal_switch
 from sethlans_worker_agent.capacity import rebuild
-from sethlans_worker_agent.cards import choice, inventory, matching, os_probe, screens, store
+from sethlans_worker_agent.cards import choice, inventory, matching, os_probe, screens, store, store_requests
 from sethlans_worker_agent.cards import warnings as card_warnings
 from sethlans_worker_agent.cards.identity import APPLE_GPU_KEY, KEY_PREFIX, card_key, clean_name, key_address
 from sethlans_worker_agent.cards.in_use import FAMILIES
@@ -43,9 +43,9 @@ NOT_SAVED_TEXT = "The card choice could not be saved; see the worker log."
 MAX_ADDRESS_TEXT = 32
 MAX_RAISED_AT = 40  # an ISO 8601 UTC time is 25 characters
 
-# The fields of a save request. The manager-changes switch joins them with the
-# switch itself (a later chunk); until then a request naming it is refused.
+# The fields of a save request; the wizard's may also give the manager-changes switch (FR-CW-2).
 _FIELDS = ('method', 'gpu_mode', 'cards', 'shown', 'revision')
+SWITCH_FIELD = 'allow_manager_changes'
 
 
 @dataclass(frozen=True)
@@ -165,6 +165,7 @@ def view(probe: Probe, section: config_compute.ComputeSection, checking: bool = 
         'rebuild_waiting': rebuild.rebuild_waiting(),  # a new card list waits for running GPU jobs (FR-CW-3)
     }
     answer.update(unreal_switch.state())  # the Unreal switch (O14): unreal_enabled, _env, _restart_needed
+    answer.update(store_requests.view_fields(section))  # the manager-changes switch and last_request (FR-CW-3)
     answer.update((name, checked[name]) for name in ('missing', 'alerts', 'notices', 'problem', 'warnings'))
     if failed:
         answer['error'] = READ_FAILED_TEXT
@@ -203,16 +204,21 @@ def _revision(data: dict) -> int:
     return value
 
 
-def parse_body(body: bytes) -> dict:
-    """The fields of a save request (FR-CW-5); ``ValueError`` with one plain sentence when it is not valid."""
+def parse_body(body: bytes, with_switch: bool = False) -> dict:
+    """The fields of a save request (FR-CW-5); ``ValueError`` with one plain sentence when it is not valid.
+
+    With ``with_switch`` (the wizard) the optional ``allow_manager_changes`` (a JSON boolean) is accepted too.
+    """
     try:
         data = json.loads(body)
     except (ValueError, UnicodeDecodeError, RecursionError):  # RecursionError: deeply nested arrays or objects
         data = None
     if not isinstance(data, dict):
         raise ValueError("The request body must be a JSON object.")
-    if set(data) - set(_FIELDS):
+    if set(data) - set(_FIELDS) - ({SWITCH_FIELD} if with_switch else set()):
         raise ValueError("The request has a field this page does not accept.")
+    if SWITCH_FIELD in data and not isinstance(data[SWITCH_FIELD], bool):
+        raise ValueError("The allow_manager_changes switch must be true or false.")
     if set(_FIELDS) - set(data):
         raise ValueError("The request must give method, gpu_mode, cards, shown and revision.")
     fields = {
@@ -226,6 +232,8 @@ def parse_body(body: bytes) -> dict:
     }
     if not set(fields['cards']) <= set(fields['shown']):
         raise ValueError("Every ticked graphics card must also be in the shown list.")
+    if SWITCH_FIELD in data:
+        fields[SWITCH_FIELD] = data[SWITCH_FIELD]
     return fields
 
 

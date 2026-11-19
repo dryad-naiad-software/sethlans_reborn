@@ -123,7 +123,8 @@ def test_wizard_save_writes_config_json_and_moves_to_verify(page, worker_ui):
     page.wait_for_selector('#check-list', state='visible')  # the real verify ran
     assert posts[0][0] == {'method': 'gpu', 'gpu_mode': 'combined',
                            'cards': [ui.address_of(HIP_1), ui.address_of(HIP_2)],
-                           'shown': [ui.address_of(i) for i in range(len(ui.CARDS))], 'revision': 0}
+                           'shown': [ui.address_of(i) for i in range(len(ui.CARDS))], 'revision': 0,
+                           'allow_manager_changes': True}
     compute = ui.compute_section(data_dir)
     assert (compute['method'], compute['gpu_mode'], compute['revision']) == ('gpu', 'combined', 1)
     assert ui.ticked_keys(compute) == [ui.key_of(HIP_1), ui.key_of(HIP_2)]

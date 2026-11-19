@@ -151,17 +151,18 @@ def _no_setup_blender_device_check(monkeypatch):
 def _no_card_probe_in_heartbeats(monkeypatch):
     """Registration and heartbeats build their ``cards`` report from an empty probe.
 
-    ``cards.payload`` would otherwise run the real OS probe. The payload
-    tests put back the real seam, taken at their import. Also
-    forgets that a malformed manager dismissal was warned about.
+    ``cards.payload`` would otherwise run the real OS probe; the payload tests put back the real seam, taken
+    at their import. Also forgets the manager-answer warnings and the request outcome kept in memory.
     """
-    from sethlans_worker_agent.cards import choice, payload
+    from sethlans_worker_agent.cards import choice, payload, remote
     from sethlans_worker_agent.cards.inventory import Inventory
     from sethlans_worker_agent.web_ui import cards_view
     monkeypatch.setattr(payload, '_probe_for_report', lambda: cards_view.Probe(Inventory(), None))
     choice.reset_for_tests()
+    remote.reset_for_tests()
     yield
     choice.reset_for_tests()
+    remote.reset_for_tests()
 
 
 @pytest.fixture(autouse=True)

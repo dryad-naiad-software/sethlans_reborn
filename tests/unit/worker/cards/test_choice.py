@@ -40,7 +40,7 @@ class TestSaveChoice:
         assert [event[0] for event in calls] == ['save', 'rebuild']
         _name, args, kwargs = calls[0]
         assert args == ('gpu', 'split', ['pci:0000:03:00.0'], ['pci:0000:03:00.0'], inventory, 7)
-        assert kwargs == {'last_request': request}
+        assert kwargs == {'last_request': request, 'manager_request': False}
 
     def test_rebuild_is_requested_after_the_real_save_released_its_lock(self, mocker):
         events = []

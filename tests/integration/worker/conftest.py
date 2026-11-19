@@ -176,13 +176,15 @@ def _no_card_probe_in_heartbeats(monkeypatch):
 
     Same as the unit-suite fixture.
     """
-    from sethlans_worker_agent.cards import choice, payload
+    from sethlans_worker_agent.cards import choice, payload, remote
     from sethlans_worker_agent.cards.inventory import Inventory
     from sethlans_worker_agent.web_ui import cards_view
     monkeypatch.setattr(payload, '_probe_for_report', lambda: cards_view.Probe(Inventory(), None))
     choice.reset_for_tests()
+    remote.reset_for_tests()
     yield
     choice.reset_for_tests()
+    remote.reset_for_tests()
 
 
 @pytest.fixture(autouse=True)

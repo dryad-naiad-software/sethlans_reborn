@@ -15,6 +15,11 @@ the process and the error is raised. Every read (``snapshot`` and each writer,
 through ``_load``) merges the memory in, so ``save`` sees such an alert as
 holding; the next successful write puts the memory in the file and empties it.
 ``snapshot`` takes no ``_section_lock``: it copies the memory first.
+
+Manager requests (FR-CM-7, D16): an outcome whose write failed is kept in
+memory (``remember_request``, read by ``cards.store_requests``); a later write of
+``last_request`` empties it inside the same critical section. The refusal rules
+and exception classes live in ``cards.store_rules``.
 """
 import dataclasses
 import logging
@@ -24,11 +29,15 @@ from datetime import datetime, timezone
 from typing import Iterable, List, Optional
 
 from sethlans_worker_agent import config_compute, config_store
+from sethlans_worker_agent.cards import store_rules
 from sethlans_worker_agent.cards.alert_records import ALERT_KINDS
 from sethlans_worker_agent.cards.identity import clean_name, is_card_key, key_sort_value
 from sethlans_worker_agent.cards.in_use import COMBINE_TEXT, one_family, record_of
-from sethlans_worker_agent.cards.matching import BLENDER_HOLDING_KINDS
+from sethlans_worker_agent.cards.store_rules import CardHeld, EnvOverride, ManagerChangesOff, StaleRevision
 from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
+
+__all__ = ['CardHeld', 'EnvOverride', 'ManagerChangesOff', 'StaleRevision', 'add_alert', 'remove_alerts', 'save',
+           'snapshot', 'printable_detail', 'request_pairs', 'remember_request', 'remembered_request']
 
 logger = logging.getLogger(__name__)
 
@@ -40,26 +49,9 @@ _memory_lock = threading.Lock()   # leaf; guards _memory_alerts
 _memory_alerts: List[dict] = []   # alerts whose write failed; mutated only under _section_lock
 
 
-class EnvOverride(Exception):
-    """The choice is set by ``SETHLANS_COMPUTE_*`` environment variables."""
-
-
-class StaleRevision(Exception):
-    """The save was based on another revision than the saved one."""
-
-    def __init__(self, current: int, base: int):
-        super().__init__(f'the saved revision is {current}, the change was based on {base}')
-        self.current = current
-        self.base = base
-
-
-class CardHeld(Exception):
-    """A newly ticked card is named by an alert that holds it (D19)."""
-
-    def __init__(self, key: str, name: str):
-        super().__init__(f'{name} has an open alert; dismiss it first')
-        self.key = key
-        self.name = name
+MAX_REQUEST_IDS = 8
+_memory_request: Optional[dict] = None  # a request outcome whose write failed; under _memory_lock
+_memory_request_ids: List[str] = []     # ids evaluated whose write failed; under _memory_lock
 
 
 def _merged(memory: List[dict], section):
@@ -87,12 +79,42 @@ def snapshot() -> config_compute.ComputeSection:
 
 
 def _write(pairs: list, section) -> None:
-    """One ``set_many``; caller holds ``_section_lock``. Alerts in memory go into the same write."""
+    """One ``set_many``; caller holds ``_section_lock``. Alerts in memory go into the same write.
+
+    A write holding ``compute.last_request`` (built by ``request_pairs``) also empties the request memory.
+    """
     if _memory_copy() and not any(dotted == 'compute.alerts' for dotted, _value in pairs):
         pairs = pairs + [('compute.alerts', [dict(alert) for alert in section.alerts])]
     config_store.set_many(pairs)
+    global _memory_request
     with _memory_lock:
         _memory_alerts.clear()  # every alert in memory was merged into ``section`` and is now in the file
+        if any(dotted == 'compute.last_request' for dotted, _value in pairs):
+            _memory_request = None
+            _memory_request_ids.clear()  # merged into the write by request_pairs
+
+
+def request_pairs(section, record: dict) -> list:
+    """``last_request`` and the last 8 evaluated ids (file, memory, this one) for one write (D16, FR-CM-7)."""
+    with _memory_lock:
+        ids = [item for item in list(section.recent_request_ids) + _memory_request_ids if item != record['id']]
+    return [('compute.last_request', dict(record)),
+            ('compute.recent_request_ids', (list(dict.fromkeys(ids)) + [record['id']])[-MAX_REQUEST_IDS:])]
+
+
+def remember_request(record: dict) -> None:
+    """Keep an outcome whose write failed for the process (FR-CM-7); caller holds ``_section_lock``."""
+    global _memory_request
+    with _memory_lock:
+        _memory_request = dict(record)
+        _memory_request_ids[:] = [item for item in _memory_request_ids if item != record['id']][-(MAX_REQUEST_IDS - 1):]
+        _memory_request_ids.append(record['id'])
+
+
+def remembered_request():
+    """``(outcome kept in memory or None, ids kept in memory)``."""
+    with _memory_lock:
+        return (dict(_memory_request) if _memory_request is not None else None), list(_memory_request_ids)
 
 
 def printable_detail(detail) -> str:
@@ -170,61 +192,26 @@ def remove_alerts(ids: Iterable[str]) -> List[dict]:
     return removed
 
 
-def _distinct(keys: Iterable[str]) -> List[str]:
-    return list(dict.fromkeys(keys))
-
-
-def _newly_ticked(card, saved_cards) -> bool:
-    """True unless a saved record has the same key, ``vendor_id`` and ``device_id``."""
-    return not any(record.get('key') == card.key and record.get('vendor_id') == card.vendor_id
-                   and record.get('device_id') == card.device_id for record in saved_cards)
-
-
-def _check_held(ticked, by_key, section) -> None:
-    held = {alert['key'] for alert in section.alerts if alert.get('kind') in BLENDER_HOLDING_KINDS}
-    for key in ticked:
-        card = by_key.get(key)
-        if card is not None and key in held and _newly_ticked(card, section.cards):
-            raise CardHeld(key, card.name)
-
-
-def _check_values(method, gpu_mode, ticked, shown, by_key) -> None:
-    if method not in config_compute.METHODS:
-        raise ValueError("The compute method must be CPU, GPU, or CPU and GPU.")
-    if gpu_mode not in config_compute.GPU_MODES:
-        raise ValueError("The GPU mode must be split or combined.")
-    if len(ticked) > config_compute.MAX_ENTRIES or len(shown) > config_compute.MAX_ENTRIES:
-        raise ValueError(f"At most {config_compute.MAX_ENTRIES} graphics cards can be listed.")
-    for key in ticked:
-        if key not in by_key:
-            raise ValueError(f"The graphics card {key} is not on this machine.")
-        if key not in shown:
-            raise ValueError(f"The graphics card {key} was ticked but not shown.")
-    if method in ('gpu', 'cpu_gpu') and not ticked:
-        raise ValueError("GPU rendering needs at least one ticked graphics card.")
-
-
 def save(method: str, gpu_mode: str, ticked_keys, shown_keys, inventory, base_revision: int,
-         last_request: Optional[dict] = None) -> int:
+         last_request: Optional[dict] = None, manager_request: bool = False) -> int:
     """Save the card choice in one write and return the new revision (FR-CC-4).
 
     Refuses, writing nothing: ``ConfigReadError``, ``EnvOverride``,
+    ``ManagerChangesOff`` (``manager_request`` and the switch is not on, FR-CM-1),
     ``StaleRevision``, ``CardHeld`` (alerts in memory count, C-21), then
     ``ValueError`` (ticked key not in ``inventory`` or not shown, GPU with no
     tick, Combine GPUs against the one-family rule). ``combined`` with fewer
-    than two ticked cards is saved as ``split``.
+    than two ticked cards is saved as ``split``. ``last_request`` goes into the
+    same write with the recent request ids (``request_pairs``).
     """
-    ticked = _distinct(ticked_keys)
-    shown = _distinct(shown_keys)
+    ticked = store_rules.distinct(ticked_keys)
+    shown = store_rules.distinct(shown_keys)
     by_key = {card.key: card for card in inventory.cards}
     with _section_lock:
         section = _load(strict=True)
-        if section.env_override:
-            raise EnvOverride("the graphics card choice is set by environment variables on this worker")
-        if base_revision != section.revision:
-            raise StaleRevision(section.revision, base_revision)
-        _check_held(ticked, by_key, section)
-        _check_values(method, gpu_mode, ticked, shown, by_key)
+        store_rules.check_source(section, base_revision, manager_request)
+        store_rules.check_held(ticked, by_key, section)
+        store_rules.check_values(method, gpu_mode, ticked, shown, by_key)
         mode = gpu_mode if len(ticked) >= 2 else 'split'
         if mode == 'combined' and not one_family(by_key[key].blender[1] if by_key[key].blender else None
                                                  for key in ticked):
@@ -239,12 +226,15 @@ def save(method: str, gpu_mode: str, ticked_keys, shown_keys, inventory, base_re
             ('compute.revision', revision),
         ]
         if last_request is not None:
-            pairs.append(('compute.last_request', last_request))
+            pairs += request_pairs(section, last_request)
         _write(pairs, section)
     return revision
 
 
 def reset_memory_for_tests() -> None:
-    """Forget the alerts kept in memory. Test-only hook."""
+    """Forget the alerts and the request outcome kept in memory. Test-only hook."""
+    global _memory_request
     with _memory_lock:
         _memory_alerts.clear()
+        _memory_request = None
+        _memory_request_ids.clear()

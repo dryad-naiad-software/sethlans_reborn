@@ -31,7 +31,7 @@ import logging
 from typing import List, Optional
 
 from sethlans_worker_agent import config
-from sethlans_worker_agent.cards import store
+from sethlans_worker_agent.cards import store, store_requests
 from sethlans_worker_agent.cards.alert_records import ALERT_KINDS
 from sethlans_worker_agent.cards.identity import is_card_key, key_sort_value
 from sethlans_worker_agent.cards.os_probe import log_once
@@ -137,7 +137,7 @@ def shape(answer: dict, section, os_probe_failed: bool) -> dict:
         'alerts': alerts_of(answer),
         'notices': notices_of(answer),
         'warnings': warnings_of(answer, os_probe_failed),
-        'request_outcome': None,  # chunk 10 (FR-CM-7)
+        'request_outcome': store_requests.outcome_for_report(section),  # FR-CM-7, without requested_by/_at
     }
 
 

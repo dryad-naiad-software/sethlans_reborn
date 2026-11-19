@@ -71,7 +71,7 @@ class TestSetup:
     @pytest.mark.parametrize('change', [
         {'revision': True}, {'revision': -1}, {'method': 'GPU'}, {'cards': ['pci:0000:23:00.0']},
         {'cards': ['0000:23:00.0', '0000:23:00.0'], 'shown': ['0000:23:00.0']}, {'shown': ['0000:03:00.0']},
-        {'allow_manager_changes': True}, {'cards': [(0, 0x23, 0)]},
+        {'allow_manager_changes': 'yes'}, {'allow_manager_changes': 1}, {'other': True}, {'cards': [(0, 0x23, 0)]},
     ])
     def test_invalid_body_is_400_and_saves_nothing(self, saved, probes, change):
         status, answer = _call(SETUP_PATH, 'POST', _body(**change))

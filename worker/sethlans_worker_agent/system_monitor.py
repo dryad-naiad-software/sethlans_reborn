@@ -23,6 +23,7 @@ from sethlans_worker_agent import boot_id, unreal_bridge
 from sethlans_worker_agent import version_sync
 from sethlans_worker_agent.cards import choice as card_choice
 from sethlans_worker_agent.cards import payload as card_payload
+from sethlans_worker_agent.cards import remote as card_remote
 
 # Re-export hardware detection functions for backward compatibility
 from sethlans_worker_agent.hardware_detection import (  # noqa: F401
@@ -236,6 +237,7 @@ def send_heartbeat(is_busy=False, active_jobs=None):
         )
         _versions_ready = ready
         _update_manager_setup_complete(response_data)
+        card_remote.handle_response(response_data)  # FR-CM-3: heartbeat answers only; never raises
 
 
 def _update_manager_setup_complete(response_data):

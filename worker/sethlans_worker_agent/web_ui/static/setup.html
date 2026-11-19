@@ -213,6 +213,10 @@
         <label class="card-opt" id="cards-combine-row" style="display:none"><input type="checkbox" id="cards-combine"> Combine GPUs</label>
         <ul class="warn-list" id="cards-warnings"></ul>
         <p class="warn-msg" id="cards-problem" style="display:none"></p>
+        <label class="card-opt" for="cards-allow"><input type="checkbox" id="cards-allow" checked
+          aria-describedby="cards-allow-help cards-allow-env"> Let the manager change this choice</label>
+        <p class="card-note" id="cards-allow-help" style="padding-left:0">Alerts can still be dismissed from the manager.</p>
+        <p class="info-msg" id="cards-allow-env" style="display:none">This switch is set by an environment variable on this worker.</p>
       </div>
       <div class="btn-row">
         <button class="btn btn-secondary" id="btn-cards-retry" style="display:none" onclick="wizard.loadCards(false)">Retry</button>
@@ -526,6 +530,8 @@
     var method = keep ? $('cards-method').value : d.method;
     var combine = keep ? $('cards-combine').checked : d.gpu_mode === 'combined';
     if (!keep) { cards.ticked = {}; d.cards.forEach(function(c) { if (c.ticked) cards.ticked[c.address] = true; }); }
+    // The manager-changes switch (D18): the saved value, on when it is unknown; a re-poll keeps the person's choice.
+    if (!keep || d.allow_manager_changes_env === true) $('cards-allow').checked = d.allow_manager_changes !== false;
     cards.data = d;
     cards.shown = d.cards.map(function(c) { return c.address; });
     Object.keys(cards.ticked).forEach(function(a) { if (cards.shown.indexOf(a) < 0) delete cards.ticked[a]; });
@@ -543,6 +549,9 @@
     sel.disabled = locked;
     $('cards-combine').disabled = locked;
     show('cards-env', locked);
+    // Read-only under its environment variable, and while the choice itself is (Next then sends nothing).
+    $('cards-allow').disabled = locked || d.allow_manager_changes_env === true;
+    show('cards-allow-env', d.allow_manager_changes_env === true);
     show('cards-probe-failed', d.os_probe_failed);
     show('cards-none', d.cards.length === 0);
     show('cards-checking', d.blender_check === 'running');
@@ -602,11 +611,14 @@
       method: method, gpu_mode: hasGpu(method) && ticked.length >= 2 && $('cards-combine').checked ? 'combined' : 'split',
       cards: ticked, shown: cards.shown, revision: d.revision
     };
+    if (d.allow_manager_changes_env !== true) body.allow_manager_changes = $('cards-allow').checked;
     $('btn-cards-next').disabled = true;
     var r;
     try { r = await api('POST', '/api/setup/worker/cards/', body); } catch (e) { r = { ok: false, status: 0, data: null }; }
     if (r.ok) { leaveCards(); return; }
     setError('err-cards', (r.data && r.data.error) || 'The graphics card choice could not be saved.');
+    // 503 with a revision: the choice was saved but the switch was not; Next tries both again on that revision.
+    if (r.status === 503 && r.data && typeof r.data.revision === 'number') d.revision = r.data.revision;
     if (r.status === 409) {
       // Env override (show it; Next goes on) or a changed revision (show the saved choice): reload, keep the text.
       // Same revision means the setup lock was busy: keep the person's choices for a retry.

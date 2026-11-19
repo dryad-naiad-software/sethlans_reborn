@@ -180,6 +180,18 @@
         aria-label="Save the Unreal switch" onclick="saveUnreal()">Save</button></div>
       <p class="gc-msg" id="gc-unreal-result" role="status"></p>
     </div>
+    <!-- The manager-changes switch (D18): saved on its own, separate from the card choice and the Unreal switch. -->
+    <div class="gc-unreal" id="gc-mgr" style="display:none">
+      <label class="gc-opt" for="gc-mgr-on"><span class="toggle"><input type="checkbox" role="switch" id="gc-mgr-on"
+        aria-describedby="gc-mgr-help gc-mgr-env"><span class="slider"></span></span>
+        <span>Let the manager change this choice</span></label>
+      <p class="gc-note" id="gc-mgr-help" style="padding-left:0">Alerts can still be dismissed from the manager.</p>
+      <p class="gc-note" id="gc-mgr-env" style="display:none;padding-left:0">This switch is set by an environment variable on this worker.</p>
+      <div class="gc-actions" id="gc-mgr-actions"><button class="btn btn-ok" id="gc-mgr-save" disabled
+        aria-label="Save the manager changes switch" onclick="saveMgr()">Save</button></div>
+      <p class="gc-msg" id="gc-mgr-result" role="status"></p>
+      <p class="gc-msg" id="gc-mgr-last" style="display:none"></p>
+    </div>
   </div>
   <div class="card">
     <h2>Blender Tools</h2>
@@ -527,6 +539,7 @@
     Object.keys(cards.ticked).forEach(function(a) { if (cards.shown.indexOf(a) < 0) delete cards.ticked[a]; });
     renderCards();
     applyUnreal(d);
+    applyMgr(d);
     show('gc-loading', false); show('gc-form', true);
   }
 
@@ -638,6 +651,7 @@
     Array.prototype.forEach.call(byId('gc-alert-list').querySelectorAll('button'), function(b) { b.disabled = on; });
     refreshCards();
     refreshUnreal();
+    refreshMgr();
   }
 
   // POST to /api/control/<path>; done(ok, answer) after the result line (out, default gc-result) is set.
@@ -708,9 +722,53 @@
   }
   window.saveUnreal = saveUnreal;
 
+  // --- The manager-changes switch (D18): saved on its own; a refresh never overwrites a change not yet saved. ---
+  var mgrSaved = null;  // the saved value from the last answer; null while config.json cannot be read
+  function setMgrResult(text, cls) { setMsg('gc-mgr-result', text, cls); }
+
+  // "Last change from the manager: applied | refused: <reason>[, requested by user id=<pk>][ at <local time>]"
+  function lastRequestText(q) {
+    if (!q) return '';
+    var reason = String(q.reason || '').replace(/\.$/, '');  // a sentence's full stop would read ".," below
+    var text = 'Last change from the manager: ' + (q.result === 'refused' ? 'refused' + (reason ? ': ' + reason : '') : q.result);
+    if (q.requested_by) text += ', requested by ' + q.requested_by;
+    if (q.requested_at) text += ' at ' + localTime(q.requested_at);
+    return text;
+  }
+
+  function applyMgr(d) {
+    if (!('allow_manager_changes' in d)) return;
+    var box = byId('gc-mgr-on'), env = d.allow_manager_changes_env === true, v = d.allow_manager_changes;
+    if (typeof v === 'boolean') {
+      if (env || mgrSaved === null || box.checked === mgrSaved) box.checked = v;
+      mgrSaved = v;
+    } else {
+      mgrSaved = null;
+    }
+    box.disabled = env || mgrSaved === null;
+    show('gc-mgr-env', env);
+    show('gc-mgr-actions', !env && mgrSaved !== null);
+    var last = lastRequestText(d.last_request);
+    if (byId('gc-mgr-last').textContent !== last) setLine('gc-mgr-last', last);
+    show('gc-mgr', true);
+    refreshMgr();
+  }
+
+  function refreshMgr() {
+    byId('gc-mgr-save').disabled = cards.busy || mgrSaved === null || byId('gc-mgr-on').checked === mgrSaved;
+  }
+
+  function saveMgr() {
+    if (cards.busy || mgrSaved === null || byId('gc-mgr-on').disabled) return;
+    postCards('cards/manager-changes', { allow: byId('gc-mgr-on').checked }, 'The switch could not be saved.',
+      function(ok, data) { if (ok) applyMgr(data); else loadCards(true); }, setMgrResult);
+  }
+  window.saveMgr = saveMgr;
+
   byId('gc-method').addEventListener('change', changed);
   byId('gc-combine').addEventListener('change', function() { cards.dirty = true; });
   byId('gc-unreal-on').addEventListener('change', refreshUnreal);
+  byId('gc-mgr-on').addEventListener('change', refreshMgr);
   loadCards(false);
   setInterval(function() { if (cards.data) loadCards(true); }, CARDS_SLOW_MS);
 

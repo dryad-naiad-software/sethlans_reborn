@@ -9,6 +9,8 @@ POST /api/control/cards         -- save the card choice
 POST /api/control/cards/dismiss -- dismiss one open alert: ``{"alert_id": "<32 hex>"}``
 POST /api/control/cards/unreal  -- the Unreal switch (O14): ``{"enabled": true | false}``; saved for
                                    the next start; 409 when ``SETHLANS_UNREAL_ENABLED`` sets it
+POST /api/control/cards/manager-changes -- the manager-changes switch (FR-CM-1): ``{"allow": true | false}``;
+                                   409 when ``SETHLANS_COMPUTE_ALLOW_MANAGER_CHANGES`` sets it
 
 The POSTs get the Bearer password check, the shutdown guard and the body
 cap from ``wsgi_app``, which hands every ``cards`` action to
@@ -28,7 +30,7 @@ import re
 from typing import Callable, Iterable
 
 from sethlans_worker_agent import unreal_switch
-from sethlans_worker_agent.cards import choice, store
+from sethlans_worker_agent.cards import choice, store, store_requests
 from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 from sethlans_worker_agent.web_ui import cards_cache, cards_view
 from sethlans_worker_agent.web_ui.http_helpers_wsgi import send_json_wsgi
@@ -42,6 +44,9 @@ NOT_DISMISSED_TEXT = "The alert could not be dismissed; see the worker log."
 UNREAL_SAVED_TEXT = "Saved. The Unreal switch takes effect at the next worker start."
 UNREAL_ENV_TEXT = "This switch is set by an environment variable on this worker."
 UNREAL_NOT_SAVED_TEXT = "The Unreal switch could not be saved; see the worker log."
+SWITCH_SAVED_TEXT = "Saved. The manager's next graphics card change follows this switch."
+SWITCH_ENV_TEXT = "This switch is set by an environment variable on this worker."
+SWITCH_NOT_SAVED_TEXT = "The switch could not be saved; see the worker log."
 _ALERT_ID = re.compile(r'[0-9a-f]{32}')
 
 
@@ -58,18 +63,43 @@ def handle_cards_control(action: str, start_response: Callable, body: bytes) -> 
         return _dismiss(start_response, body)
     if action == 'cards/unreal':
         return _unreal_switch(start_response, body)
+    if action == 'cards/manager-changes':
+        return _manager_switch(start_response, body)
     return send_json_wsgi(start_response, {'error': 'Not Found'}, 404)
 
 
-def parse_unreal_body(body: bytes) -> bool:
-    """``{"enabled": true | false}`` and nothing else; ``ValueError`` with one plain sentence."""
+def parse_switch_body(body: bytes, name: str) -> bool:
+    """``{"<name>": true | false}`` and nothing else; ``ValueError`` with one plain sentence."""
     try:
         data = json.loads(body)
     except (ValueError, UnicodeDecodeError, RecursionError):
         data = None
-    if not isinstance(data, dict) or set(data) != {'enabled'} or not isinstance(data['enabled'], bool):
-        raise ValueError("The request must be a JSON object with enabled set to true or false.")
-    return data['enabled']
+    if not isinstance(data, dict) or set(data) != {name} or not isinstance(data[name], bool):
+        raise ValueError(f"The request must be a JSON object with {name} set to true or false.")
+    return data[name]
+
+
+def parse_unreal_body(body: bytes) -> bool:
+    """``{"enabled": true | false}`` and nothing else; ``ValueError`` with one plain sentence."""
+    return parse_switch_body(body, 'enabled')
+
+
+def _manager_switch(start_response: Callable, body: bytes) -> Iterable[bytes]:
+    """FR-CW-4: the manager-changes switch, ``{"allow": true | false}``; 409 under its environment variable."""
+    try:
+        allow = parse_switch_body(body, 'allow')
+    except ValueError as invalid:
+        return send_json_wsgi(start_response, {'error': str(invalid)}, 400)
+    try:
+        store_requests.set_allow_manager_changes(allow, 'settings page')
+    except store_requests.SwitchEnvOverride:
+        return send_json_wsgi(start_response, {'error': SWITCH_ENV_TEXT}, 409)
+    except (ConfigLockTimeoutError, OSError):
+        logger.error("The manager-changes switch could not be saved.", exc_info=True)
+        return send_json_wsgi(start_response, {'error': SWITCH_NOT_SAVED_TEXT}, 503)
+    answer = {'status': 'ok', 'message': SWITCH_SAVED_TEXT}
+    answer.update(store_requests.view_fields(store.snapshot()))
+    return send_json_wsgi(start_response, answer)
 
 
 def _unreal_switch(start_response: Callable, body: bytes) -> Iterable[bytes]:

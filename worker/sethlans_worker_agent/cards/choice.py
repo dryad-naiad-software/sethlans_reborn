@@ -39,10 +39,10 @@ def _request_rebuild() -> None:
 
 
 def save_choice(method: str, gpu_mode: str, ticked_keys, shown_keys, base_revision: int, inventory,
-                last_request: Optional[dict] = None) -> int:
+                last_request: Optional[dict] = None, manager_request: bool = False) -> int:
     """Save the choice (``store.save`` rules and errors) and return the new revision."""
     revision = store.save(method, gpu_mode, ticked_keys, shown_keys, inventory, base_revision,
-                          last_request=last_request)
+                          last_request=last_request, manager_request=manager_request)
     _request_rebuild()
     return revision
 

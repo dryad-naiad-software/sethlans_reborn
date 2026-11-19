@@ -127,8 +127,10 @@ class TestCardWizardPostIntegration:
 
 _INVALID = [
     pytest.param(None, b'{not json', 'The request body must be a JSON object.', id='not-json'),
-    pytest.param({'allow_manager_changes': True}, None, 'The request has a field this page does not accept.',
-                 id='unknown-field'),
+    pytest.param({'allow_manager_changes': True, 'other': 1}, None,
+                 'The request has a field this page does not accept.', id='unknown-field'),
+    pytest.param({'allow_manager_changes': 'true'}, None, 'The allow_manager_changes switch must be true or false.',
+                 id='switch-not-bool'),
     pytest.param({'revision': True}, None, 'The revision must be a whole number from 0 to 2147483647.',
                  id='bool-revision'),
     pytest.param({'shown': [ADDRESS_A]}, None, 'Every ticked graphics card must also be in the shown list.',
