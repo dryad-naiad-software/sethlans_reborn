@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from shared.file_acls import tighten_acls_windows
+from shared.file_acls import SECRET_WRITE_FLAGS, tighten_acls_windows
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +89,7 @@ def _write_atomic_locked(path: Path, payload: dict) -> None:
     body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(
-        str(tmp),
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        0o600,
-    )
+    fd = os.open(str(tmp), SECRET_WRITE_FLAGS, 0o600)
     try:
         os.write(fd, body)
         os.fsync(fd)

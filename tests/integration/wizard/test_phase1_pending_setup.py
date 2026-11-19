@@ -6,15 +6,15 @@
 
 Covers the integration-test agent's deferred items 1 and 2:
 
-* **Real fsync ordering on POSIX** — the unit suite verified the
-  ordering contract via mocked ``os.{open,write,fsync,close,replace}``.
-  Here we drive the real wizard subprocess against a tmp filesystem,
-  call ``subprocess.run(['sync'])`` after the WSGI write returns,
-  re-read the file from disk, and assert byte-identity. The
-  parent-directory ``os.fsync`` is implicitly exercised by the
-  handler; we cannot inspect it from outside the process so we trust
-  the unit-level proof and rely on the integration round-trip to
-  confirm the contract holds end-to-end.
+* **Real fsync round-trip** — the unit suite verified the ordering
+  contract via mocked ``os.{open,write,fsync,close,replace}``. Here we
+  drive the real wizard subprocess against a tmp filesystem, fsync the
+  written file (and, on POSIX, its directory) ourselves after the WSGI
+  write returns, re-read it from a fresh handle, and assert
+  byte-identity. Only the file under test is flushed, never the whole
+  machine (issue #273). That the product code itself fsyncs the file
+  and its directory is proved in-process with a pass-through
+  ``os.fsync`` spy in ``test_phase1_pending_setup_fsync.py``.
 * **End-to-end WSGI pending_setup write** — POST the wizard through
   the auth → topology → admin-user → worker-password → pending-setup
   pipeline against a real subprocess, assert ``pending_setup.json``
@@ -30,9 +30,9 @@ manager-side parts-check derives the binary path on boot.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import stat
-import subprocess
 import time
 from pathlib import Path
 
@@ -144,30 +144,46 @@ def test_pending_setup_chmod_600_on_posix(wizard_process):
     assert not (mode & stat.S_IRWXO), oct(mode)
 
 
-@pytest.mark.skipif(platform.system() == "Windows", reason="POSIX only — sync(1) is not on Windows")
+def _fsync_path(path: Path) -> None:
+    """``os.fsync`` one file or directory (Windows needs a writable handle)."""
+    flags = os.O_RDWR if platform.system() == "Windows" else os.O_RDONLY
+    fd = os.open(str(path), flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def test_pending_setup_survives_real_fsync(wizard_process):
-    """Real ``sync(1)`` round-trip: bytes-identical after a forced flush.
+    """Bytes are identical after a real fsync of the file and its directory.
 
     The wizard's atomic-write contract is: temp + fsync(file) +
-    os.replace + fsync(parent dir). We can't cheaply observe the
-    parent-dir fsync from outside the wizard process, but we can
-    confirm the bytes survive a global ``sync(1)`` call (which forces
-    every dirty page to disk) and re-read identically. If the write
-    were buffered in page cache without an fsync, the bytes would
-    still be visible to a same-process read but ``sync`` is a useful
-    end-to-end smoke check that the file is real and durable.
+    os.replace + fsync(parent dir). After the WSGI write returns we
+    fsync ``pending_setup.json`` (and its directory on POSIX; Windows
+    cannot open a directory for fsync) and re-read it from a fresh
+    handle. The bytes must match, parse as a complete schema-v1
+    payload, and no temp file may be left behind. Issue #273: this
+    flushes only the file under test, not every dirty buffer on the
+    machine as ``sync(1)`` did.
     """
     target = _drive_wizard_to_pending_setup(wizard_process, topology="manager")
-    before = target.read_bytes()
+    with target.open("rb") as fh:
+        before = fh.read()
 
-    # subprocess.run with shell=False, list args, 5s timeout.
-    subprocess.run(["sync"], shell=False, check=False, timeout=5)
+    _fsync_path(target)
+    if platform.system() != "Windows":
+        _fsync_path(target.parent)
 
-    after = target.read_bytes()
+    with target.open("rb") as fh:
+        after = fh.read()
     assert before == after, (
-        "pending_setup.json bytes diverged after sync(1) — "
+        "pending_setup.json bytes diverged after fsync — "
         "atomic-write contract may be broken"
     )
+    payload = json.loads(after.decode("utf-8"))
+    assert payload["schema_version"] == 1, payload
+    assert payload["admin_user"]["username"] == "alice", payload
+    assert not target.with_name(target.name + ".tmp").exists()
 
 
 def test_pending_setup_idempotent_under_repeated_post(wizard_process):

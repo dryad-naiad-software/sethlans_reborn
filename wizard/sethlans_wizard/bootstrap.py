@@ -21,6 +21,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Tuple
 
+from shared.file_acls import SECRET_WRITE_FLAGS
 from wizard.sethlans_wizard import ipc, server, shutdown
 
 logger = logging.getLogger("wizard.bootstrap")
@@ -120,9 +121,7 @@ def write_port_file(subdir: Path, port: int) -> None:
     tmp = target.with_suffix(target.suffix + ".tmp")
     data = f"{port}\n".encode("ascii")
     try:
-        fd = os.open(
-            str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600,
-        )
+        fd = os.open(str(tmp), SECRET_WRITE_FLAGS, 0o600)
         try:
             os.write(fd, data)
             os.fsync(fd)

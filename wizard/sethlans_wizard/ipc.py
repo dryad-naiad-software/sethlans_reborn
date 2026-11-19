@@ -35,7 +35,7 @@ from typing import Optional
 # equivalent filesystem objects; reuse per FR-IPC6 / NF-8 ("reuse the
 # canonical JSON + hmac.new(..., hashlib.sha256) pattern from
 # launcher/tray_ipc.py").
-from shared.file_acls import tighten_acls_windows
+from shared.file_acls import SECRET_WRITE_FLAGS, tighten_acls_windows
 
 logger = logging.getLogger(__name__)
 
@@ -109,11 +109,7 @@ def _atomic_write_bytes(path: Path, data: bytes, mode: int = 0o600) -> None:
     """Atomic temp-file-plus-``os.replace`` write, then tighten perms."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(
-        str(tmp),
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        mode,
-    )
+    fd = os.open(str(tmp), SECRET_WRITE_FLAGS, mode)
     try:
         os.write(fd, data)
         os.fsync(fd)

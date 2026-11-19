@@ -27,7 +27,7 @@ import os
 import platform
 from pathlib import Path
 
-from shared.file_acls import tighten_acls_windows
+from shared.file_acls import SECRET_WRITE_FLAGS, tighten_acls_windows
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +95,7 @@ def sweep_stale_markers(data_dir: Path) -> None:
 def _atomic_write_bytes(path: Path, data: bytes, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(
-        str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode,
-    )
+    fd = os.open(str(tmp), SECRET_WRITE_FLAGS, mode)
     try:
         os.write(fd, data)
         try:

@@ -26,7 +26,7 @@ import threading
 from pathlib import Path
 from typing import Mapping
 
-from shared.file_acls import tighten_acls_windows
+from shared.file_acls import SECRET_WRITE_FLAGS, tighten_acls_windows
 
 logger = logging.getLogger(__name__)
 
@@ -113,11 +113,7 @@ def _atomic_write(target: Path, body: bytes) -> None:
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
-    fd = os.open(
-        str(tmp),
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        0o600,
-    )
+    fd = os.open(str(tmp), SECRET_WRITE_FLAGS, 0o600)
     try:
         os.write(fd, body)
         os.fsync(fd)

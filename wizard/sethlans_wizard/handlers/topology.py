@@ -41,7 +41,7 @@ import time
 from pathlib import Path
 from typing import Callable, Iterable
 
-from shared.file_acls import tighten_acls_windows
+from shared.file_acls import SECRET_WRITE_FLAGS, tighten_acls_windows
 from wizard.sethlans_wizard import progress
 from wizard.sethlans_wizard.checkpoints import TOPOLOGY_CHOSEN
 from wizard.sethlans_wizard.handlers import _wsgi
@@ -102,11 +102,7 @@ def write_topology_atomic(data_dir: Path, topology: str) -> Path:
     }
     body = json.dumps(payload).encode("utf-8")
     tmp = target.with_suffix(target.suffix + ".tmp")
-    fd = os.open(
-        str(tmp),
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-        0o600,
-    )
+    fd = os.open(str(tmp), SECRET_WRITE_FLAGS, 0o600)
     try:
         os.write(fd, body)
         os.fsync(fd)

@@ -71,5 +71,21 @@ class TestReExport:
         assert tray_ipc.tighten_acls_windows is file_acls.tighten_acls_windows
 
 
+class TestSecretWriteFlags:
+    """The shared write flags create, truncate and never translate."""
+
+    def test_create_truncate_write_only(self):
+        import os
+        for flag in (os.O_WRONLY, os.O_CREAT, os.O_TRUNC):
+            assert file_acls.SECRET_WRITE_FLAGS & flag == flag
+
+    def test_binary_where_the_platform_has_it(self):
+        import os
+        binary = getattr(os, "O_BINARY", 0)
+        if sys.platform == "win32":
+            assert binary
+        assert file_acls.SECRET_WRITE_FLAGS & binary == binary
+
+
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-v"]))
