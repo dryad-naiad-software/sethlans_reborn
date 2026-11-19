@@ -4,24 +4,30 @@
 
 import { Component, inject, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Subscription } from 'rxjs';
 import { WorkerService, Worker } from '../../core/services/worker.service';
+import { DismissCardAlertResponse } from '../../core/services/worker-cards.model';
+import { WorkerCardsComponent } from './worker-cards.component';
+import { alertCount, gpuColumnText } from './worker-cards.util';
 
-interface WorkerRow extends Worker {
-  sanitizedUiUrl: SafeUrl | null;
+export interface WorkerRow extends Worker {
+  /** `ui_url` when it is an http(s) URL, else `null`. */
+  uiUrl: string | null;
+  alertCount: number;
+  gpuText: string;
 }
 
 @Component({
   selector: 'app-worker-list',
   standalone: true,
   imports: [
-    CommonModule, MatTableModule, MatButtonModule,
-    MatIconModule, MatProgressSpinnerModule,
+    CommonModule, MatTableModule, MatButtonModule, MatIconModule,
+    MatChipsModule, MatProgressSpinnerModule, WorkerCardsComponent,
   ],
   template: `
     <h1>Workers</h1>
@@ -29,7 +35,18 @@ interface WorkerRow extends Worker {
     @if (loading) {
       <mat-spinner diameter="40" />
     } @else {
-      <table mat-table [dataSource]="workers" class="full-width">
+      <table mat-table [dataSource]="workers" [trackBy]="trackById"
+             multiTemplateDataRows class="full-width">
+        <ng-container matColumnDef="expand">
+          <th mat-header-cell *matHeaderCellDef><span class="cdk-visually-hidden">Cards</span></th>
+          <td mat-cell *matCellDef="let w">
+            <button mat-icon-button type="button" class="expand-toggle" (click)="toggle(w.id)"
+                    [attr.aria-expanded]="expandedIds.has(w.id)" [attr.aria-controls]="'worker-cards-' + w.id"
+                    [attr.aria-label]="(expandedIds.has(w.id) ? 'Hide' : 'Show') + ' graphics cards of ' + w.hostname">
+              <mat-icon>{{ expandedIds.has(w.id) ? 'expand_less' : 'expand_more' }}</mat-icon>
+            </button>
+          </td>
+        </ng-container>
         <ng-container matColumnDef="hostname">
           <th mat-header-cell *matHeaderCellDef>Hostname</th>
           <td mat-cell *matCellDef="let w">{{ w.hostname }}</td>
@@ -48,16 +65,22 @@ interface WorkerRow extends Worker {
         </ng-container>
         <ng-container matColumnDef="gpu_name">
           <th mat-header-cell *matHeaderCellDef>GPU</th>
-          <td mat-cell *matCellDef="let w">{{ w.gpu_name }}</td>
+          <td mat-cell *matCellDef="let w">
+            <span class="gpu-text">{{ w.gpuText }}</span>
+            @if (w.alertCount > 0) {
+              <mat-chip-set class="card-alert-chips">
+                <mat-chip class="card-alert-chip">Card alert ({{ w.alertCount }})</mat-chip>
+              </mat-chip-set>
+            }
+          </td>
         </ng-container>
         <ng-container matColumnDef="ui_url">
           <th mat-header-cell *matHeaderCellDef>Worker UI</th>
           <td mat-cell *matCellDef="let w">
-            @if (w.sanitizedUiUrl) {
-              <a [href]="w.sanitizedUiUrl" target="_blank" rel="noopener">
-                <button mat-icon-button>
-                  <mat-icon>open_in_new</mat-icon>
-                </button>
+            @if (w.uiUrl) {
+              <a mat-icon-button [href]="w.uiUrl" target="_blank" rel="noopener noreferrer"
+                 [attr.aria-label]="'Open the worker page of ' + w.hostname">
+                <mat-icon>open_in_new</mat-icon>
               </a>
             } @else {
               <span class="no-ui">N/A</span>
@@ -68,35 +91,60 @@ interface WorkerRow extends Worker {
           <th mat-header-cell *matHeaderCellDef>Last Heartbeat</th>
           <td mat-cell *matCellDef="let w">{{ w.last_heartbeat | date:'medium' }}</td>
         </ng-container>
+        <ng-container matColumnDef="cards">
+          <td mat-cell *matCellDef="let w" class="cards-cell" [id]="'worker-cards-' + w.id"
+              [attr.colspan]="displayedColumns.length">
+            @if (expandedIds.has(w.id)) {
+              <app-worker-cards [worker]="w" [uiUrl]="w.uiUrl"
+                                (cardsUpdated)="applyCardUpdate(w.id, $event)" />
+            }
+          </td>
+        </ng-container>
         <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-        <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        <tr mat-row *matRowDef="let w; columns: displayedColumns" class="worker-row"
+            [class.card-alert-row]="w.alertCount > 0"></tr>
+        <tr mat-row *matRowDef="let w; columns: detailColumns" class="cards-row"
+            [class.collapsed]="!expandedIds.has(w.id)"></tr>
       </table>
     }
   `,
   styles: [`
     .full-width { width: 100%; }
     .no-ui { color: #999; }
+    .card-alert-row > td:first-child { box-shadow: inset 4px 0 0 #c62828; }
+    .card-alert-chips { display: inline-block; margin-left: 8px; vertical-align: middle; }
+    .card-alert-chip {
+      --mat-chip-elevated-container-color: #c62828;
+      --mat-chip-label-text-color: #fff;
+      --mat-chip-outline-color: #c62828;
+    }
+    .cards-row.collapsed { height: 0; }
+    .cards-row.collapsed > .cards-cell { padding-top: 0; padding-bottom: 0; }
+    .worker-row > td { border-bottom-width: 0; }
   `],
 })
 export class WorkerListComponent implements OnInit, OnDestroy {
   private readonly workerService = inject(WorkerService);
-  private readonly sanitizer = inject(DomSanitizer);
   private sub?: Subscription;
 
   workers: WorkerRow[] = [];
   loading = true;
+  /** Ids of the expanded workers; kept across polls (R1). */
+  readonly expandedIds = new Set<number>();
   displayedColumns = [
-    'hostname', 'ip_address', 'status', 'cpu_name',
+    'expand', 'hostname', 'ip_address', 'status', 'cpu_name',
     'gpu_name', 'ui_url', 'last_heartbeat',
   ];
+  readonly detailColumns = ['cards'];
+
+  /** Rows are matched by worker id, so a poll's new objects keep the row views and their children. */
+  readonly trackById = (_index: number, row: WorkerRow): number => row.id;
 
   ngOnInit(): void {
     this.sub = this.workerService.pollList().subscribe({
       next: (workers) => {
-        this.workers = workers.map(w => ({
-          ...w,
-          sanitizedUiUrl: this.sanitizeUrl(w.ui_url),
-        }));
+        this.workers = workers.map(w => toRow(w));
+        this.pruneExpanded();
         this.loading = false;
       },
       error: () => { this.loading = false; },
@@ -105,20 +153,49 @@ export class WorkerListComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void { this.sub?.unsubscribe(); }
 
-  /**
-   * Sanitizes worker UI URL, only allowing http:// and https:// schemes.
-   * Returns null for invalid or disallowed URLs.
-   */
-  private sanitizeUrl(url: string | null): SafeUrl | null {
-    if (!url) return null;
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-        return this.sanitizer.bypassSecurityTrustUrl(url);
-      }
-      return null;
-    } catch {
-      return null;
+  toggle(id: number): void {
+    if (this.expandedIds.has(id)) {
+      this.expandedIds.delete(id);
+    } else {
+      this.expandedIds.add(id);
     }
+  }
+
+  /** Applies a card action's answer to its row at once, without waiting for the next poll. */
+  applyCardUpdate(id: number, body: DismissCardAlertResponse): void {
+    this.workers = this.workers.map(w => w.id === id
+      ? toRow({
+        ...w,
+        card_status: body.card_status,
+        card_alert_dismissals: body.card_alert_dismissals,
+      })
+      : w);
+  }
+
+  private pruneExpanded(): void {
+    const ids = new Set(this.workers.map(w => w.id));
+    for (const id of [...this.expandedIds]) {
+      if (!ids.has(id)) this.expandedIds.delete(id);
+    }
+  }
+}
+
+function toRow(w: Worker): WorkerRow {
+  return {
+    ...w,
+    uiUrl: httpUrl(w.ui_url),
+    alertCount: alertCount(w.card_status),
+    gpuText: gpuColumnText(w.card_status, w.gpu_name),
+  };
+}
+
+/** The URL when it parses with an http: or https: scheme, else `null`. */
+function httpUrl(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
   }
 }
