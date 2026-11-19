@@ -69,6 +69,20 @@ def _reset_job_processor_state():
 
 
 @pytest.fixture(autouse=True)
+def _quiet_card_startup_log(monkeypatch):
+    """Mark the card startup log as done, so no test probes the real cards.
+
+    ``job_processor.init_capacity`` logs the card list once per process,
+    which runs the real OS probe (DXGI on Windows, sysfs on Linux,
+    ``system_profiler`` on macOS). The card tests re-arm it with
+    ``startup_log.reset_for_tests()``.
+    """
+    from sethlans_worker_agent.cards import startup_log
+    monkeypatch.setattr(startup_log, '_done', True)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_setup_gate_state():
     """Reset the setup gate module-level state between tests."""
     from sethlans_worker_agent.web_ui.setup import gate

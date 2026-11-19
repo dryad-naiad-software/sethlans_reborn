@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""
+Windows card probe (FR-CI-2).
+
+DXGI lists the adapters in the order Unreal indexes ``-graphicsadapter`` by
+(``gpu_memory.win_dxgi``); D3DKMT gives each adapter's PCI address by LUID
+(``gpu_memory.win_adapter_info``). The DXGI index of a card is the raw index
+in that list, counting every adapter. An adapter is a card only when it is
+not flagged software, has dedicated memory, and its address gives a card key;
+so the software adapter and a virtual display adapter (no PCI address) are not
+cards. Two adapters with the same key are both dropped, with one ERROR line.
+
+The LUID is used inside this call only and compared as integers; it is never
+kept, saved or sent (it changes on reboot).
+"""
+import logging
+from typing import Optional, Tuple
+
+from sethlans_worker_agent.cards.identity import card_key, clean_name
+from sethlans_worker_agent.cards.os_probe import OsCard, log_once
+
+logger = logging.getLogger(__name__)
+
+MIB = 1024 * 1024
+
+
+def _card(adapter, pci_address) -> Optional[OsCard]:
+    from sethlans_worker_agent.gpu_memory.win_dxgi import DXGI_ADAPTER_FLAG_SOFTWARE
+    if adapter.flags & DXGI_ADAPTER_FLAG_SOFTWARE or adapter.dedicated_bytes <= 0:
+        return None
+    key = card_key(pci_address(adapter.luid))
+    if key is None:
+        return None
+    return OsCard(key=key, name=clean_name(adapter.name), vendor_id=adapter.vendor_id,
+                  device_id=adapter.device_id, dxgi_index=adapter.index,
+                  dedicated_mib=adapter.dedicated_bytes // MIB, revision_id=adapter.revision)
+
+
+def _drop_duplicates(cards) -> Tuple[OsCard, ...]:
+    counts = {}
+    for card in cards:
+        counts[card.key] = counts.get(card.key, 0) + 1
+    for key, count in counts.items():
+        if count > 1:
+            log_once(logger, logging.ERROR, "%d graphics adapters report the PCI address %s; none of them is used.",
+                     count, key)
+    return tuple(card for card in cards if counts[card.key] == 1)
+
+
+def probe() -> Optional[Tuple[OsCard, ...]]:
+    """The cards DXGI and D3DKMT report, in DXGI order; ``None`` when either is unavailable."""
+    from sethlans_worker_agent.gpu_memory import win_adapter_info, win_dxgi
+    adapters = win_dxgi.enumerate_adapters()
+    if adapters is None:
+        logger.debug("The DXGI adapter list is unavailable.")
+        return None
+    if not win_adapter_info.available():
+        logger.debug("PCI addresses of the adapters cannot be read (D3DKMT unavailable).")
+        return None
+    cards = [card for card in (_card(adapter, win_adapter_info.pci_address) for adapter in adapters) if card]
+    return _drop_duplicates(cards)

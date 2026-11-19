@@ -113,6 +113,20 @@ def _reset_job_processor_state():
 
 
 @pytest.fixture(autouse=True)
+def _quiet_card_startup_log(monkeypatch):
+    """Mark the card startup log as done, so no test probes the real cards.
+
+    ``job_processor.init_capacity`` logs the card list once per process,
+    which runs the real OS probe (DXGI on Windows, sysfs on Linux,
+    ``system_profiler`` on macOS). Same mechanism as the unit-suite
+    fixture; ``monkeypatch`` restores the flag after each test.
+    """
+    from sethlans_worker_agent.cards import startup_log
+    monkeypatch.setattr(startup_log, '_done', True)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_web_ui_auth():
     """Reset the web_ui auth module's cached state between tests."""
     from sethlans_worker_agent.web_ui import auth

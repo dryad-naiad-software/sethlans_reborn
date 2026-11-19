@@ -32,6 +32,7 @@ from sethlans_worker_agent import api_handler, config
 from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent import executors, job_claim, job_resources, job_selection
 from sethlans_worker_agent import system_monitor, unreal_bridge
+from sethlans_worker_agent.cards import startup_log as cards_startup_log
 from sethlans_worker_agent.job_lifecycle import process_claimed_job
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
@@ -57,6 +58,7 @@ def init_capacity() -> capacity_module.WorkerCapacity:
     """Build the module-global WorkerCapacity from current hardware."""
     global _capacity
     gpus = system_monitor.get_gpu_device_details()
+    cards_startup_log.log_once_at_start()  # log the OS/Blender card list once; information only
     cpu_cores = system_monitor.get_cpu_thread_count()
     force_gpu_index: Optional[int] = None
     if config.FORCE_GPU_INDEX is not None:
