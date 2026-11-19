@@ -17,12 +17,15 @@ output file, or an upload that failed after its retries, is reported ERROR
 with a message saying so in the final status report; after a failed upload
 the rendered file is kept on the worker. Multi-frame jobs have no single
 output path and keep the earlier behaviour (DONE after a successful exit).
+
+The status report's ``last_output`` and ``error_message`` are bounded by
+``report_limits`` (#260): the manager rejects larger request bodies.
 """
 import datetime
 import logging
 import os
 
-from sethlans_worker_agent import api_handler, blender_hand_back
+from sethlans_worker_agent import api_handler, blender_hand_back, report_limits
 from sethlans_worker_agent.api_conflict import NO_LONGER_ASSIGNED, JobNoLongerAssigned
 from sethlans_worker_agent.utils.render_time_parser import parse_render_time
 
@@ -132,11 +135,11 @@ def report_result(job_data, result, job_processor):
 
     completed_at = datetime.datetime.now(
         datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
-    payload = {
-        "completed_at": completed_at, "last_output": result.stdout,
-        "error_message": result.error_message,
+    payload = {  # bounded to fit the manager's request body limit (#260); the log keeps it all
+        "completed_at": completed_at, "last_output": report_limits.bounded_tail(result.stdout),
+        "error_message": report_limits.bounded_head(result.error_message),
     }
-    render_time = _render_time(result)
+    render_time = _render_time(result)  # parsed from the full stdout
     if render_time is not None:
         payload["render_time_seconds"] = render_time
     final_status, output_error = _finalize(

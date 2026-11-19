@@ -43,6 +43,7 @@ from pathlib import Path
 
 import waitress
 
+from sethlans_manager.waitress_body_limits import limit_request_bodies
 from sethlans_manager.waitress_config import get_waitress_tuning
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,11 @@ def launch(
         **proxy_kwargs,
         **tuning,
     )
+    # Per-path body limits (issue #260): the public listener keeps the
+    # tuning's limit for upload paths only; the internal listener
+    # serves no upload path, so every path there gets the small limit.
+    limit_request_bodies(public_server, allow_uploads=True)
+    limit_request_bodies(internal_server, allow_uploads=False)
     _servers.extend([public_server, internal_server])
 
     public_thread = threading.Thread(

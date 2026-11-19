@@ -22,13 +22,17 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from sethlans_manager.body_limits import UPLOAD_BODY_LIMIT
+
 logger = logging.getLogger(__name__)
 
 # --- Spec-fixed defaults (Phase 5) ---------------------------------------
 DEFAULT_THREADS = 16
 DEFAULT_CHANNEL_TIMEOUT = 300
 DEFAULT_CONNECTION_LIMIT = 1000
-DEFAULT_MAX_REQUEST_BODY_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB
+# Ceiling for upload paths only; every other path gets the small limit
+# (``waitress_body_limits``, issue #260).
+DEFAULT_MAX_REQUEST_BODY_SIZE = UPLOAD_BODY_LIMIT  # 10 GiB + 2 MiB
 
 # Public-origin Waitress listener (Caddy's public vhost proxies here).
 DEFAULT_WAITRESS_PUBLIC_PORT = 8090

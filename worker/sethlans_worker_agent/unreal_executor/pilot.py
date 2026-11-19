@@ -34,6 +34,7 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
+from sethlans_worker_agent import report_limits
 from sethlans_worker_agent.unreal_executor.log_tail import iter_log_lines
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
 from shared.unreal import vram_gate
@@ -43,6 +44,7 @@ PILOT_CSV_FLAGS = (f"-csvCaptureFrames={PILOT_CSV_CAPTURE_FRAMES}", "-csvGpuStat
 PILOT_BASELINE_DROP_MB = 512
 PILOT_MAX_SAMPLE_GAP_S = 10.0
 MIN_PLAUSIBLE_PEAK_MB = vram_gate.MIN_PLAUSIBLE_PEAK_MB
+PILOT_SUMMARY_MAX_BYTES = 32 * 1024  # JSON size; also the manager's UTF-8 limit on ``summary`` (#260)
 
 FOUND_ADAPTER = re.compile(r'LogD3D12RHI: Found D3D12 adapter (\d+): (.{1,200}?) \(VendorId: ')
 CHOSEN_ADAPTER = re.compile(r'LogD3D12RHI: Chosen D3D12 Adapter Id = (\d+)')
@@ -154,7 +156,13 @@ def gpu_of(reading, index: int):
 
 def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, render_s: float,
                 frames: int, engine_build: str, overrides_sha256: str, summary: str) -> dict:
-    """The FR-PM-4 ``pilot-result/`` body (strict schema; ``per_shot`` is left empty)."""
+    """The FR-PM-4 ``pilot-result/`` body (strict schema; ``per_shot`` is left empty).
+
+    ``summary`` is tail-bounded to ``PILOT_SUMMARY_MAX_BYTES`` of JSON (#260): 32 KiB of UTF-8 can
+    triple as JSON escapes, and the manager rejects request bodies over 128 KiB. A string's UTF-8 size
+    is at most its JSON size minus the quotes, so the bounded summary also passes the manager's own
+    32 KiB UTF-8 check on ``summary``.
+    """
     return {
         'peak_mb': metrics.peak_mb, 'peak_source': metrics.peak_source,
         'card_delta_peak_mb': metrics.card_delta_peak_mb, 'baseline_used_mb': metrics.baseline_used_mb,
@@ -165,7 +173,7 @@ def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, r
         'seconds_per_frame': round(render_s / frames, 2) if frames else 0.0, 'per_shot': [],
         'gpu': {'index': gpu.index, 'name': gpu.name, 'total_mb': gpu.total_mb},
         'engine_build': engine_build, 'csv_local_used_peak_mb': metrics.csv_local_used_peak_mb,
-        'overrides_sha256': overrides_sha256, 'summary': summary,
+        'overrides_sha256': overrides_sha256, 'summary': report_limits.bounded_tail(summary, PILOT_SUMMARY_MAX_BYTES),
     }
 
 

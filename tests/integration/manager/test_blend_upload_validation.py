@@ -151,14 +151,17 @@ class TestBlendFileSizeValidation:
 
 
 class TestUploadCeilingAlignment:
-    """Drift guard for GitHub #99.
+    """Drift guard for GitHub #99 and #260.
 
-    Waitress closes the TCP connection when the body exceeds its
-    ``max_request_body_size``; Django rejects before the view runs
-    when the body exceeds ``DATA_UPLOAD_MAX_MEMORY_SIZE``. If either
-    floor drops below the serializer's ``MAX_BLEND_FILE_SIZE``, a
-    legitimate asset upload fails silently at a layer the user can't
-    see. Pin the ordering so the serializer is always the active cap.
+    Waitress answers 413 when the body exceeds its
+    ``max_request_body_size``, and Caddy and Waitress give the asset
+    path the upload limit of ``body_limits``. If either drops below the
+    serializer's ``MAX_BLEND_FILE_SIZE``, a legitimate asset upload
+    fails at a layer the user can't see. Pin the ordering so the
+    serializer is always the active cap.
+
+    ``DATA_UPLOAD_MAX_MEMORY_SIZE`` is the small limit since #260; it
+    does not count multipart file data, which the last test pins.
     """
 
     def test_waitress_ceiling_covers_serializer_ceiling(self):
@@ -168,10 +171,17 @@ class TestUploadCeilingAlignment:
         from workers.serializers.assets import MAX_BLEND_FILE_SIZE
         assert DEFAULT_MAX_REQUEST_BODY_SIZE >= MAX_BLEND_FILE_SIZE
 
-    def test_django_ceiling_covers_serializer_ceiling(self):
-        from django.conf import settings as django_settings
+    def test_asset_path_limit_covers_serializer_ceiling(self):
+        from sethlans_manager.body_limits import body_limit_for_path
         from workers.serializers.assets import MAX_BLEND_FILE_SIZE
-        assert (
-            django_settings.DATA_UPLOAD_MAX_MEMORY_SIZE
-            >= MAX_BLEND_FILE_SIZE
-        )
+        assert body_limit_for_path(ASSETS_URL) >= MAX_BLEND_FILE_SIZE
+
+    @pytest.mark.django_db
+    def test_file_larger_than_django_data_limit_accepted(
+        self, admin_client, project,
+    ):
+        from django.conf import settings as django_settings
+        size = django_settings.DATA_UPLOAD_MAX_MEMORY_SIZE * 2
+        content = b'BLENDER' + b'\x00' * (size - 7)
+        resp = _upload(admin_client, project, 'big.blend', content)
+        assert resp.status_code == 201, resp.data

@@ -79,6 +79,63 @@ def test_report_body_matches_the_manager_schema():
     assert pilot.gpu_of(reading(), 3) is None
 
 
+MANAGER_BODY_LIMIT = 128 * 1024  # SMALL_BODY_LIMIT on the manager
+MAX_PER_SHOT = 256  # the manager's pilot-result/ schema rejects 257 entries
+MANAGER_SUMMARY_LIMIT = 32 * 1024  # the manager's UTF-8 limit on pilot-result/ summary
+
+
+def _pilot_body(summary):
+    return pilot.report_body(pilot.measure(runs(), 8102), pilot.gpu_of(reading(), 0), prep_s=1, warmup_s=1,
+                             render_s=1, frames=1, engine_build='5.8.4-58902052', overrides_sha256='c' * 64,
+                             summary=summary)
+
+
+def test_trimmed_pilot_summary_passes_the_manager_utf8_limit():
+    """3-byte characters near the 32 KiB cap, JSON just over 64 KiB: the marker must not push it past 32 KiB."""
+    from sethlans_worker_agent import report_limits
+    text = '\n'.join(['[sethlans-unreal] k=' + '漢' * 1000] * 11)
+    assert report_limits.json_size(text) > 64 * 1024 and 32 * 1024 - 1024 < len(text.encode('utf-8')) < 34 * 1024
+
+    sent = _pilot_body(text)['summary']
+
+    assert sent.startswith(report_limits.OMITTED_HEAD_MARKER)
+    assert text.endswith(sent[len(report_limits.OMITTED_HEAD_MARKER):])
+    assert len(sent.encode('utf-8')) <= MANAGER_SUMMARY_LIMIT
+
+
+def test_worst_case_pilot_body_fits_the_manager_limit():
+    """A full 32 KiB summary of U+0080-U+07FF characters (2 UTF-8 bytes, 6 as a JSON escape) (#260)."""
+    import json
+
+    import requests
+
+    from sethlans_worker_agent import report_limits
+    from sethlans_worker_agent.unreal_executor.summary import MAX_BYTES, MAX_VALUE, Summary
+    summary = Summary()
+    for i in range(64):
+        summary.set(f'key_{i}', ('\u0080' if i % 2 else '߿') * MAX_VALUE)
+    text = summary.text()
+    assert len(text.encode('utf-8')) > MAX_BYTES - 2 * MAX_VALUE - 64  # filled to the summary's cap
+    assert report_limits.json_size(text) > 85 * 1024  # unbounded, it would nearly fill the limit alone
+
+    body = pilot.report_body(pilot.measure(runs(), 8102), pilot.gpu_of(reading(), 0), prep_s=1e9, warmup_s=1e9,
+                             render_s=1e9, frames=2 ** 31 - 1, engine_build='5.8.4-58902052' * 4,
+                             overrides_sha256='c' * 64, summary=text)
+    body['per_shot'] = [{'frame': 2 ** 31 - 1, 'render_s': 1.7976931348623157e308}] * MAX_PER_SHOT
+
+    assert body['summary'].startswith(report_limits.OMITTED_HEAD_MARKER) and text.endswith(
+        body['summary'][len(report_limits.OMITTED_HEAD_MARKER):])
+    assert report_limits.json_size(body['summary']) <= pilot.PILOT_SUMMARY_MAX_BYTES
+    assert len(body['summary'].encode('utf-8')) <= MANAGER_SUMMARY_LIMIT
+    assert len(json.dumps(body)) < MANAGER_BODY_LIMIT
+    sent = requests.Request('POST', 'https://manager.invalid/api/jobs/4/pilot-result/', json=body).prepare().body
+    assert len(sent) < MANAGER_BODY_LIMIT
+
+
+def test_short_pilot_summary_is_unchanged():
+    assert _pilot_body('[sethlans-unreal] pilot_frames=1')['summary'] == '[sethlans-unreal] pilot_frames=1'
+
+
 class TestCsv:
 
     def _csv(self, path, rows):

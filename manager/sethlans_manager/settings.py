@@ -275,8 +275,16 @@ from .drf_config import REST_FRAMEWORK, SPECTACULAR_SETTINGS  # noqa: E402, F401
 # Delete old thumbnail files before saving new ones
 WORKERS_DELETE_OLD_THUMBNAILS = True
 
-# --- Upload Size Limits ---
-# Maximum size for request body — covers multipart file uploads
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB
-# Maximum size for a single uploaded file
+# --- Request Body Limits (issue #260) ---
+# Caddy and the Waitress listeners enforce the per-path limits before
+# Django runs (``sethlans_manager.body_limits``). This is the last line:
+# Django counts only non-file data against it (``request.body``, form
+# fields; multipart file parts are excluded), so uploads are unaffected.
+# It does NOT cap DRF JSON: DRF's JSONParser reads the request stream,
+# not ``request.body``, so JSON bodies are capped by Caddy and Waitress.
+from .body_limits import SMALL_BODY_LIMIT  # noqa: E402
+DATA_UPLOAD_MAX_MEMORY_SIZE = SMALL_BODY_LIMIT  # 128 KiB
+# Size above which an uploaded file is streamed to a temporary file
+# instead of held in memory; ``upload_helpers.MAX_UPLOAD_SIZE`` also
+# reads it as the output-file cap.
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB

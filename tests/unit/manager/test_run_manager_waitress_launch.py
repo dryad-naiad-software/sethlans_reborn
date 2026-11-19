@@ -18,10 +18,20 @@ Python file ceiling. Exercises:
 
 from __future__ import annotations
 
+import pytest
+
 from sethlans_manager import waitress_launcher
 
 
 class TestLaunchDualListeners:
+
+    @pytest.fixture(autouse=True)
+    def _limit_bodies(self, mocker):
+        """The fake servers are mocks; the real hook's self-test would
+        refuse them (it is covered in test_waitress_body_limits)."""
+        self.limit_bodies = mocker.patch.object(
+            waitress_launcher, "limit_request_bodies",
+        )
 
     def setup_method(self):
         waitress_launcher._servers.clear()
@@ -174,3 +184,37 @@ class TestLaunchDualListeners:
         srv_b.close.assert_called_once()
         for t in fake_threads:
             t.join.assert_called_once()
+
+    def test_listeners_get_per_path_body_limits(self, mocker, tmp_path):
+        """Issue #260: the public listener limits non-upload paths; the
+        internal listener limits every path."""
+        srv_a = mocker.MagicMock(name="public")
+        srv_b = mocker.MagicMock(name="internal")
+        mocker.patch.object(
+            waitress_launcher.waitress, "create_server",
+            side_effect=[srv_a, srv_b],
+        )
+        mocker.patch.object(
+            waitress_launcher, "get_waitress_tuning", return_value={},
+        )
+        mocker.patch(
+            "sethlans_manager.wsgi.application", new=object(),
+        )
+        mocker.patch.object(
+            waitress_launcher.threading, "Thread",
+            side_effect=lambda **kwargs: mocker.MagicMock(),
+        )
+        mocker.patch.object(
+            waitress_launcher, "_install_signal_handlers",
+        )
+        waitress_launcher._shutdown_event.set()
+
+        waitress_launcher.launch(
+            public_port=8090,
+            internal_port=8088,
+            ini_path=tmp_path / "manager.ini",
+        )
+        assert self.limit_bodies.call_args_list == [
+            mocker.call(srv_a, allow_uploads=True),
+            mocker.call(srv_b, allow_uploads=False),
+        ]

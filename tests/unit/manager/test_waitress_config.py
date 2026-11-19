@@ -56,7 +56,8 @@ class TestGetWaitressTuningDefaults:
             raising=False,
         )
         tuning = wc.get_waitress_tuning(tmp_path / "missing.ini")
-        assert tuning["max_request_body_size"] == 10 * 1024 * 1024 * 1024
+        # 10 GiB file cap + 2 MiB multipart headroom (issue #260).
+        assert tuning["max_request_body_size"] == 10 * 1024 * 1024 * 1024 + 2 * 1024 * 1024
 
 
 class TestGetWaitressTuningIniOverrides:

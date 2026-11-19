@@ -19,6 +19,8 @@
 #   - /api/status/public/* returns 404 on the public vhost
 #     (tray-helper endpoint is loopback-only)
 #   - reverse_proxy transport pinned to HTTP/1.1
+#   - request_body limits per route (issue #260; kept equal to
+#     caddy_template.body_limit_directives() by a unit test)
 
 {
     admin off
@@ -43,6 +45,21 @@
     }
     respond @loopback_only 404
 
+    # Request body limits (issue #260): upload paths keep the
+    # large limit, every other path gets the small one.
+    @upload_body {
+        path /api/assets/* /api/jobs/*/upload_output/ /admin/workers/asset/add/ /admin/workers/asset/*/change/
+    }
+    @small_body {
+        not path /api/assets/* /api/jobs/*/upload_output/ /admin/workers/asset/add/ /admin/workers/asset/*/change/
+    }
+    request_body @upload_body {
+        max_size 10739515392
+    }
+    request_body @small_body {
+        max_size 131072
+    }
+
     reverse_proxy 127.0.0.1:{$SETHLANS_MANAGER_WAITRESS_PUBLIC_PORT} {
         transport http {
             versions 1.1
@@ -54,6 +71,9 @@
 # /api/status/public/. Proxies to the internal-origin Waitress
 # listener (urls_loopback URLconf).
 http://127.0.0.1:{$SETHLANS_MANAGER_CADDY_LOOPBACK_PORT} {
+    request_body {
+        max_size 131072
+    }
     reverse_proxy 127.0.0.1:{$SETHLANS_MANAGER_WAITRESS_LOOPBACK_PORT} {
         transport http {
             versions 1.1

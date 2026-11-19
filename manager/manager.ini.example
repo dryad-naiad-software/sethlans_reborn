@@ -74,11 +74,11 @@ port = 8080
 # heartbeat-polling bursts without tarpitting.
 # Default: 1000
 # waitress_connection_limit = 1000
-# Max accepted request body size in bytes. Matches the Django
-# DATA_UPLOAD_MAX_MEMORY_SIZE floor (10 GB) — covers multipart
-# .blend asset uploads.
-# Default: 10737418240 (10 GB)
-# waitress_max_request_body_size = 10737418240
+# Max accepted request body size in bytes on the upload paths
+# (.blend asset uploads, worker render output). Every other path is
+# limited to 128 KiB regardless of this value (issue #260).
+# Default: 10739515392 (10 GiB file + 2 MiB multipart headroom)
+# waitress_max_request_body_size = 10739515392
 
 [tls]
 # Path to PEM-encoded certificate file.
