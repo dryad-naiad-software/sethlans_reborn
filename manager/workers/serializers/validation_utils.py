@@ -6,6 +6,7 @@ Shared render_settings validation logic used by multiple serializers.
 """
 
 import os
+import re
 
 from rest_framework import serializers
 
@@ -13,9 +14,20 @@ from ..constants import (
     DEFAULT_OUTPUT_FORMAT,
     FORMAT_COLOR_DEPTHS,
     FORMAT_EXTENSIONS,
+    CyclesFeatureSet,
     OutputFormat,
     RenderSettings,
 )
+
+# The first Blender release whose Cycles settings have no ``feature_set``
+# (#244; measured: present on 4.1, 4.2 and 4.5, absent on 5.0 and 5.2).
+CYCLES_FEATURE_SET_REMOVED_IN = (5, 0)
+
+# Fields whose change on an update can make the feature set / version pair invalid.
+_FEATURE_SET_FIELDS = frozenset({'cycles_feature_set', 'blender_version', 'asset'})
+
+# 'major.minor' with an optional patch: '5.0', '5.0.1', '4.5.16'.
+_BLENDER_VERSION_RE = re.compile(r'^\s*(\d+)\.(\d+)(?:\.\d+)?\s*$')
 
 # Every color depth some format accepts: '8', '16', '32'.
 COLOR_DEPTH_VALUES = tuple(sorted(
@@ -153,3 +165,72 @@ def validate_output_pattern_extension(data):
             f"the selected format '{file_format}' "
             f"(expected '{expected_ext}')."
         )
+
+
+def blender_version_tuple(version):
+    """``(major, minor)`` of a Blender version, or ``None`` when unknown.
+
+    ``version`` is a ``SupportedBlenderVersion`` (its ``series`` is read) or
+    a version string such as ``'5.0'``, ``'5.0.1'`` or ``'4.5.16'``.
+    """
+    text = version if isinstance(version, str) else getattr(version, 'series', None)
+    match = _BLENDER_VERSION_RE.match(text) if isinstance(text, str) else None
+    return (int(match[1]), int(match[2])) if match else None
+
+
+def blender_has_cycles_feature_set(version):
+    """Whether Blender ``version`` still has ``cycles.feature_set`` (#244).
+
+    An unknown version (``None``, or text that is not a version) counts as
+    having it: nothing is refused or left out on a guess.
+    """
+    parsed = blender_version_tuple(version)
+    return parsed is None or parsed < CYCLES_FEATURE_SET_REMOVED_IN
+
+
+def _effective_blender_version(attrs, instance):
+    """The version the job renders with: its own override, else its asset's project's."""
+    if 'blender_version' in attrs:
+        version = attrs['blender_version']
+    else:
+        version = getattr(instance, 'blender_version', None)
+    if version is not None:
+        return version
+    asset = attrs.get('asset') or getattr(instance, 'asset', None)
+    return asset.project.blender_version if asset is not None else None
+
+
+def validate_cycles_feature_set(attrs, instance=None):
+    """
+    Reject the experimental Cycles feature set on Blender 5.0 and later (#244).
+
+    The pair checked is the one the job will have after the write
+    (``attrs`` over ``instance``), and the version is the one it really
+    renders with: its ``blender_version``, else its asset's project's (set
+    from the default version when the project was created). An update is
+    checked only when it sends ``cycles_feature_set``, ``blender_version``
+    or ``asset``, so a worker's status PATCH is never refused.
+    ``SUPPORTED`` is valid on every version.
+
+    Used by the Job (Blender strategy), TiledJob and Animation serializers.
+
+    Raises ``ValidationError`` keyed by ``cycles_feature_set``.
+    """
+    if instance is not None and not _FEATURE_SET_FIELDS & attrs.keys():
+        return
+    feature_set = attrs.get(
+        'cycles_feature_set',
+        getattr(instance, 'cycles_feature_set', CyclesFeatureSet.SUPPORTED),
+    )
+    if feature_set != CyclesFeatureSet.EXPERIMENTAL:
+        return
+    version = _effective_blender_version(attrs, instance)
+    if blender_has_cycles_feature_set(version):
+        return
+    cutoff = '.'.join(str(part) for part in CYCLES_FEATURE_SET_REMOVED_IN)
+    raise serializers.ValidationError({'cycles_feature_set': [
+        f"The '{CyclesFeatureSet.EXPERIMENTAL.value}' Cycles feature set is not "
+        f"available in Blender {cutoff} and later (this job uses Blender "
+        f"{getattr(version, 'series', version)}). "
+        f"Use '{CyclesFeatureSet.SUPPORTED.value}'."
+    ]})

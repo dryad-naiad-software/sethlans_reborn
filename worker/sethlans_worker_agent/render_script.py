@@ -208,12 +208,12 @@ def _append_user_setting(script_lines, key, value):
     ``render.image_settings.file_format`` is preceded by the Blender 5.x
     media type switch it needs (#243, format_script.py).
 
-    ``cycles.feature_set`` is a named exception (#241): Blender 5.x's Cycles
-    settings no longer have it, while 4.x still does, and the manager sends
-    it for every Cycles tile job and animation frame. It is applied only
-    when the scene's Cycles settings have it. Every other key is assigned
-    directly, so an unknown setting still raises, and the failing script
-    stops the render (``--python-exit-code``, #240).
+    ``cycles.feature_set`` is a named exception (#241): Blender 5.x has no
+    such setting, and the manager sends it only for versions that have it or
+    an unknown version (#244). It is applied only when the scene's Cycles
+    settings have it (for an unknown version, or a key added by hand). Every
+    other key is assigned directly, so an unknown setting still raises, and
+    the failing script stops the render (``--python-exit-code``, #240).
 
     Values are embedded with ``ascii()`` so the script is pure ASCII
     whatever they contain (#240).

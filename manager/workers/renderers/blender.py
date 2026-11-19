@@ -9,7 +9,8 @@ here is the one the API returned before the renderer abstraction, which
 ``tests/integration/manager/test_renderer_blender_invariance.py`` pins.
 The only additions are rejections of the Unreal-only keys
 (``engine_build``, ``unreal_cvar_overrides``, the archive fields), which
-no Blender payload sent before (FR-MU-8, FR-MU-13, FR-MU-4 mirrors).
+no Blender payload sent before (FR-MU-8, FR-MU-13, FR-MU-4 mirrors), and
+of the experimental Cycles feature set on Blender 5.0 and later (#244).
 """
 
 import re
@@ -94,9 +95,12 @@ class BlenderStrategy(RendererStrategy):
         # Resolved through ``serializers.jobs`` at call time, where the
         # check lived before, so patches of that name still apply.
         from ..serializers import jobs as job_serializers
+        from ..serializers.validation_utils import validate_cycles_feature_set
         if attrs.get('engine_build'):
             raise ValidationError({'engine_build': ["Not applicable to Blender jobs."]})
         job_serializers.validate_output_pattern_extension(attrs)
+        # #244: no experimental feature set on Blender 5.0 and later.
+        validate_cycles_feature_set(attrs, instance)
         return attrs
 
     def prepare_job_create(self, validated, asset):

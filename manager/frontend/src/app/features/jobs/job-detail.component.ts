@@ -9,6 +9,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Subscription, switchMap } from 'rxjs';
 import { JobService, Job } from '../../core/services/job.service';
+import { showsCyclesFeatureSet } from '../../core/services/blender-version.util';
 
 @Component({
   selector: 'app-job-detail',
@@ -26,7 +27,9 @@ import { JobService, Job } from '../../core/services/job.service';
             <div><strong>Status:</strong> {{ job.status_display }}</div>
             <div><strong>Render Engine:</strong> {{ job.render_engine }}</div>
             <div><strong>Render Device:</strong> {{ job.render_device }}</div>
-            <div><strong>Cycles Feature Set:</strong> {{ job.cycles_feature_set }}</div>
+            @if (showsFeatureSet(job)) {
+              <div><strong>Cycles Feature Set:</strong> {{ job.cycles_feature_set }}</div>
+            }
             <div><strong>Frames:</strong> {{ job.start_frame }} - {{ job.end_frame }}</div>
             <div><strong>Worker:</strong> {{ job.assigned_worker_hostname ?? 'Unassigned' }}</div>
             <div><strong>Submitted:</strong> {{ job.submitted_at | date:'medium' }}</div>
@@ -65,6 +68,8 @@ export class JobDetailComponent implements OnInit, OnDestroy {
 
   job: Job | null = null;
   loading = true;
+  /** Cycles feature set only for Cycles jobs on Blender below 5.0 (#244). */
+  readonly showsFeatureSet = showsCyclesFeatureSet;
 
   ngOnInit(): void {
     this.sub = this.route.paramMap.pipe(

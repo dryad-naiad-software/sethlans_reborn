@@ -16,6 +16,7 @@ from ..models import Job, JobStatus, TiledJob
 from ..parent_dispatch import dispatch_tiled_job
 from ..permissions import IsAdmin
 from ..serializers import TiledJobSerializer
+from ..serializers.validation_utils import blender_has_cycles_feature_set
 from .cascade_actions import CascadeChildActionsMixin
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,10 @@ class TiledJobViewSet(CascadeChildActionsMixin, viewsets.ModelViewSet):
         # Prepare the base render settings that will be injected into child jobs.
         base_render_settings = tiled_job.render_settings.copy()
         base_render_settings[RenderSettings.RENDER_ENGINE] = tiled_job.render_engine
-        if tiled_job.render_engine == RenderEngine.CYCLES:
+        if not blender_has_cycles_feature_set(tiled_job.effective_blender_version):
+            # #244: Blender 5.0+ has no cycles.feature_set; send no key at all.
+            base_render_settings.pop(RenderSettings.CYCLES_FEATURE_SET, None)
+        elif tiled_job.render_engine == RenderEngine.CYCLES:
             base_render_settings[RenderSettings.CYCLES_FEATURE_SET] = tiled_job.cycles_feature_set
 
         jobs_to_create = []

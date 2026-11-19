@@ -23,6 +23,7 @@ from ..models import Animation, AnimationFrame, Job, JobStatus
 from ..parent_dispatch import dispatch_animation
 from ..permissions import IsAdmin
 from ..serializers import AnimationSerializer
+from ..serializers.validation_utils import blender_has_cycles_feature_set
 from .animation_video_actions import AnimationVideoActionsMixin
 from .cascade_actions import CascadeChildActionsMixin
 
@@ -88,7 +89,10 @@ class AnimationViewSet(
         # Prepare the base render settings that will be injected into child jobs.
         base_render_settings = animation.render_settings.copy()
         base_render_settings[RenderSettings.RENDER_ENGINE] = animation.render_engine
-        if animation.render_engine == RenderEngine.CYCLES:
+        if not blender_has_cycles_feature_set(animation.effective_blender_version):
+            # #244: Blender 5.0+ has no cycles.feature_set; send no key at all.
+            base_render_settings.pop(RenderSettings.CYCLES_FEATURE_SET, None)
+        elif animation.render_engine == RenderEngine.CYCLES:
             base_render_settings[RenderSettings.CYCLES_FEATURE_SET] = animation.cycles_feature_set
 
         jobs_to_create = []

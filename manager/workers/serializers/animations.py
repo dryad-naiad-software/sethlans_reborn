@@ -16,7 +16,9 @@ from .projects import ProjectSerializer
 from .assets import AssetSerializer
 from .blender_versions import EffectiveBlenderVersionSerializer
 from .job_renderer import ensure_feature_supported
-from .validation_utils import validate_render_settings, validate_output_pattern_extension
+from .validation_utils import (
+    validate_cycles_feature_set, validate_output_pattern_extension, validate_render_settings,
+)
 from .video_settings_validation import (
     validate_video_settings_create_guard,
     expand_and_validate_video_settings,
@@ -122,6 +124,7 @@ class AnimationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "The selected Asset does not belong to the selected Project."
             )
+        validate_cycles_feature_set(data, self.instance)
 
         # Validate output_file_pattern extension matches format
         validate_output_pattern_extension(data)

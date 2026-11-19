@@ -15,7 +15,9 @@ from .blender_versions import EffectiveBlenderVersionSerializer
 from .job_renderer import JobRendererFieldsMixin, ensure_feature_supported
 # ``validate_output_pattern_extension`` is looked up here by the Blender
 # strategy at call time: tests patch it on this module (#217 races).
-from .validation_utils import validate_render_settings, validate_output_pattern_extension  # noqa: F401
+from .validation_utils import (  # noqa: F401
+    validate_cycles_feature_set, validate_output_pattern_extension, validate_render_settings,
+)
 
 # Valid job status transitions: QUEUED->RENDERING->DONE/ERROR/CANCELED
 VALID_STATUS_TRANSITIONS = {
@@ -96,6 +98,7 @@ class TiledJobSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "The selected Asset does not belong to the selected Project."
             )
+        validate_cycles_feature_set(data, self.instance)
 
         # Validate format is Pillow-compatible for tiled rendering
         render_settings = data.get('render_settings') or {}
