@@ -13,7 +13,9 @@ Covers:
   bodies the manager's own validators accept.
 - The rendered Caddyfile carries the per-route ``request_body``
   limits on the public vhost and a small limit on the loopback vhost.
-- The static Docker Caddyfile carries the same directives.
+- The static Docker Caddyfile carries the same directives. That check is
+  skipped when ``deploy/`` is absent (the Docker test image does not copy
+  it, #275) and fails when ``deploy/`` exists without the Caddyfile.
 """
 
 from __future__ import annotations
@@ -35,7 +37,23 @@ from sethlans_manager.caddy_template import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DOCKER_CADDYFILE = REPO_ROOT / 'deploy' / 'docker' / 'manager' / 'Caddyfile'
+DOCKER_CADDYFILE = ('deploy', 'docker', 'manager', 'Caddyfile')
+NO_DEPLOY_REASON = (
+    'deploy/ is absent (the Docker test image does not copy it); '
+    'the Docker Caddyfile parity check needs the full repository tree'
+)
+
+
+def _docker_caddyfile(root):
+    """The Docker Caddyfile under ``root``, or ``None`` when ``deploy/`` is absent (#275).
+
+    When ``deploy/`` exists the Caddyfile must exist too.
+    """
+    if not (root / 'deploy').is_dir():
+        return None
+    path = root.joinpath(*DOCKER_CADDYFILE)
+    assert path.is_file(), f'{path} is missing although deploy/ exists'
+    return path
 
 
 class TestUploadPathClassifier:
@@ -162,19 +180,48 @@ class TestCaddyfileBodyLimits:
             assert pattern in rendered
 
 
+def _docker_caddyfile_text(root):
+    """The Docker Caddyfile's text; skips the calling test when ``deploy/`` is absent."""
+    path = _docker_caddyfile(root)
+    if path is None:
+        pytest.skip(NO_DEPLOY_REASON)
+    return path.read_text(encoding='utf-8').replace('\r\n', '\n')
+
+
+@pytest.fixture
+def docker_text():
+    return _docker_caddyfile_text(REPO_ROOT)
+
+
 class TestDockerCaddyfileParity:
     """The static Docker Caddyfile must carry the template's limits."""
 
-    @staticmethod
-    def _docker_text():
-        return DOCKER_CADDYFILE.read_text(encoding='utf-8').replace('\r\n', '\n')
-
-    def test_public_vhost_block_matches_template(self):
-        text = self._docker_text()
-        public = text[:text.index('http://127.0.0.1:')]
+    def test_public_vhost_block_matches_template(self, docker_text):
+        public = docker_text[:docker_text.index('http://127.0.0.1:')]
         assert body_limit_directives(allow_uploads=True) in public
 
-    def test_loopback_vhost_block_matches_template(self):
-        text = self._docker_text()
-        loopback = text[text.index('http://127.0.0.1:'):]
+    def test_loopback_vhost_block_matches_template(self, docker_text):
+        loopback = docker_text[docker_text.index('http://127.0.0.1:'):]
         assert body_limit_directives(allow_uploads=False) in loopback
+
+
+class TestDockerCaddyfileLookup:
+    """``deploy/`` is optional; when it exists the Caddyfile is required."""
+
+    def test_found_when_deploy_has_it(self, tmp_path):
+        path = tmp_path.joinpath(*DOCKER_CADDYFILE)
+        path.parent.mkdir(parents=True)
+        path.write_text(':8080 {\n}\n')
+        assert _docker_caddyfile(tmp_path) == path
+
+    def test_none_without_deploy(self, tmp_path):
+        assert _docker_caddyfile(tmp_path) is None
+
+    def test_fails_when_deploy_lacks_the_caddyfile(self, tmp_path):
+        (tmp_path / 'deploy' / 'docker').mkdir(parents=True)
+        with pytest.raises(AssertionError, match='missing although deploy/ exists'):
+            _docker_caddyfile(tmp_path)
+
+    def test_parity_tests_skip_without_deploy(self, tmp_path):
+        with pytest.raises(pytest.skip.Exception, match='deploy/ is absent'):
+            _docker_caddyfile_text(tmp_path)
