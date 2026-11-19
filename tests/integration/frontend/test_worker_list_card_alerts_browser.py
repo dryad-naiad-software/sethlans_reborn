@@ -261,7 +261,8 @@ def test_worker_that_never_reported_cards(manager, ui_page):
     lb.expand(ui_page, 'silent-host')
     panel = lb.panel(ui_page, 'silent-host')
 
-    expect(panel.locator('.no-status')).to_have_text(NOT_REPORTED)
+    expect(panel.locator('.read-only')).to_have_text(NOT_REPORTED)  # said by the choice status since chunk 12
+    expect(panel.locator('button.change')).to_have_count(0)
     expect(panel.locator('tr.card, li.alert, .warning')).to_have_count(0)
     expect(lb.worker_row(ui_page, 'silent-host').locator('.card-alert-chip')).to_have_count(0)
     assert errors == []
