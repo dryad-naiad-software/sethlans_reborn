@@ -9,7 +9,11 @@ name: Sethlans Reborn CI
 # images. This workflow covers ONLY the native GitHub-hosted matrix
 # (ubuntu/windows/macos) — catches platform-specific regressions Docker
 # cannot (e.g. Windows path handling, macOS PySide6 splash segfaults,
-# native Linux without containerization).
+# native Linux without containerization) — plus the Angular unit tests.
+#
+# Node 24: Angular 21 accepts ^20.19 || ^22.12 || >=24, but hdrify (a
+# manager/frontend dependency) declares node >=24. Keep node-version in
+# step with build-installers.yml.
 #
 # Self-hosted runners (Linux GPU, Apple Silicon MacBook) live in
 # python-ci-self-hosted.yml and are workflow_dispatch-only. They do
@@ -23,6 +27,37 @@ on:
     branches: [ "master" ]
 
 jobs:
+  # --- Angular unit tests (Karma, headless Chrome) ---
+  # A job of its own so a failing spec and a failing Python test are
+  # reported separately and neither hides the other.
+  angular-unit-tests:
+    name: Angular unit tests (ubuntu-latest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: manager/frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: manager/frontend/package-lock.json
+
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund
+
+      # ChromeHeadlessNoSandbox is a launcher built into the Angular Karma
+      # builder (--no-sandbox, --disable-dev-shm-usage), so no karma.conf.js
+      # is needed. Chrome's sandbox needs unprivileged user namespaces,
+      # which Ubuntu 24.04's AppArmor policy can deny; the runner VM is
+      # throwaway and only runs the project's own specs.
+      - name: Run Karma unit tests
+        run: npx ng test --watch=false --browsers=ChromeHeadlessNoSandbox
+
   # --- GitHub-Hosted Native Matrix (ubuntu / windows / macos) ---
   build-and-test-github:
     name: Test on ${{ matrix.os }} (Python ${{ matrix.python-version }})
@@ -129,6 +164,25 @@ jobs:
 
       - name: Run Unit Tests
         run: pytest tests/unit
+
+      # The browser tests in tests/integration/frontend/ that drive the
+      # manager's Angular pages skip unless manager/frontend/dist exists.
+      # The build output is the same on every OS, so build it on Linux
+      # only; the Karma specs run in the angular-unit-tests job above.
+      - name: Set up Node.js (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: manager/frontend/package-lock.json
+
+      - name: Build Angular frontend (Linux)
+        if: runner.os == 'Linux'
+        working-directory: manager/frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
 
       - name: Install Playwright Chromium (Linux)
         if: runner.os == 'Linux'
