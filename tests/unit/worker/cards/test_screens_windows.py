@@ -14,6 +14,7 @@ check, the key join and the failure rules run on every OS.
 """
 import ctypes
 import logging
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -232,6 +233,8 @@ class TestSession:
         assert screens_windows.read() is None
 
 
+@pytest.mark.skipif(sys.platform != 'win32',
+                    reason='ctypes.wintypes follows the platform C types off Windows, so only the Windows layout is real')
 class TestStructures:
 
     def test_output_desc_layout_matches_dxgi(self):
