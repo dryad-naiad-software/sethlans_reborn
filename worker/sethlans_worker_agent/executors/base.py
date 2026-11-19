@@ -50,8 +50,12 @@ class ProbePending(Exception):
 
 @dataclass(frozen=True)
 class ExecutionContext:
-    """Per-job inputs the lifecycle hands to ``RenderExecutor.execute``."""
-    assigned_gpu_index: Optional[int]
+    """Per-job inputs the lifecycle hands to ``RenderExecutor.execute``.
+
+    ``reservation`` is the job's ``capacity.SlotReservation`` (its
+    ``device_used`` and its copy of the cards), or None.
+    """
+    reservation: Optional[Any]
     yield_monitor_factory: Optional[Callable]
     manual_stop_event: Optional[threading.Event]
     shutdown_event: Optional[threading.Event]

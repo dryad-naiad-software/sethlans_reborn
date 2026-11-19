@@ -17,6 +17,7 @@ from sethlans_worker_agent.capacity import (
     WorkerCapacity,
 )
 from sethlans_worker_agent.job_report import _finalize
+from tests.unit.worker.executors._fakes import fake_cards
 
 
 def _build_profile():
@@ -25,7 +26,7 @@ def _build_profile():
         cpu_slot_count=1,
         cpu_thread_ceiling=15,
         cpu_threads_effective=15,
-        startup_gpu_count=1,
+        cards=fake_cards(1),
         gpu_mode='split',
     )
 
@@ -79,7 +80,7 @@ class TestGpuAssignmentSnapshot:
         reservation = job_processor._capacity.reserve_for_job(42, 'GPU')
         assert reservation is not None
         snapshot = job_processor.get_gpu_assignment_snapshot()
-        assert snapshot == {0: 42}
+        assert snapshot == {fake_cards(1)[0].key: 42}
 
 
 # --- Recent Jobs ---

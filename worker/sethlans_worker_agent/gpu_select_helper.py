@@ -11,14 +11,17 @@ preferences it is given, and it expects these globals to be defined first:
 ``_SETHLANS_GPU_CHECK_MARKER``, ``_SETHLANS_GPU_LIST_MISMATCH_MARKER`` and
 ``_SETHLANS_GPU_CHECK_EXIT_CODE``.
 
-``_sethlans_select_gpus(prefs, backend, mode, cards, job_cards)``:
+``_sethlans_select_gpus(prefs, backend, mode, cards, job_cards, ignored)``:
 
-- ``cards``: every card on the worker list, ``(id, type, name)``;
+- ``cards``: every card in use, ``(id, type, name)``;
 - ``job_cards``: the cards that must be found, ``(id, type)``. Isolated
   mode enables exactly these. Combined mode enables every ``backend``
-  entry that belongs to a listed card (an id without a trailing ``_OptiX``
+  entry that belongs to a card in use (an id without a trailing ``_OptiX``
   equals a listed card's id without it), so a non-RTX NVIDIA card listed
-  under CUDA still renders through OptiX next to an RTX card.
+  under CUDA still renders through OptiX next to an RTX card;
+- ``ignored``: Blender ids of detected cards that are not in use. Their
+  entries (any backend, same base id) are always switched off and never
+  produce a mismatch line (FR-CB-2).
 
 Everything it prints is ASCII (``!a`` and ``backslashreplace``), so a
 device name with non-ASCII characters cannot break the output streams.
@@ -47,7 +50,7 @@ def _sethlans_gpu_check_exit(text):
     sys.exit(_SETHLANS_GPU_CHECK_EXIT_CODE)
 
 
-def _sethlans_select_gpus(prefs, backend, mode, cards, job_cards):
+def _sethlans_select_gpus(prefs, backend, mode, cards, job_cards, ignored=()):
     def label(dev_type, dev_id):
         return f'{dev_type} {dev_id!a}'
 
@@ -76,19 +79,20 @@ def _sethlans_select_gpus(prefs, backend, mode, cards, job_cards):
     except Exception as exc:
         fail(f'could not select compute backend {backend} ({exc!a})')
     job_keys = [(t, i) for i, t in job_cards]
-    listed_bases = {base(i) for i, _t, _n in cards}
+    ignored_bases = {base(i) for i in ignored}
+    listed_bases = {base(i) for i, _t, _n in cards} - ignored_bases
     for i, t, n in cards:
         if (t, i) not in devices and (t, i) not in job_keys:
             mismatch(f'worker card {label(t, i)} ({n!a}) is not in the Blender device list')
     for t, i in devices:
-        if t != 'CPU' and base(i) not in listed_bases:
+        if t != 'CPU' and base(i) not in listed_bases and base(i) not in ignored_bases:
             mismatch(f'Blender device {label(t, i)} belongs to no card on the worker list')
     for key in job_keys:
         count = devices.count(key)
         if count != 1:
             fail(f'{count} Blender device entries match {label(*key)}')
     if mode == 'isolated':
-        on_keys = job_keys
+        on_keys = [k for k in job_keys if base(k[1]) not in ignored_bases]
     else:
         on_keys = [(t, i) for t, i in devices if t == backend and base(i) in listed_bases]
     for d in prefs.devices:

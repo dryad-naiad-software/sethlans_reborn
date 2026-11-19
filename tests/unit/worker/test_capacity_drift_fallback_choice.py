@@ -29,6 +29,7 @@ finally:
 from sethlans_worker_agent import config, hardware_detection  # noqa: E402
 from sethlans_worker_agent.capacity import CapacityProfile, WorkerCapacity, drift as drift_module  # noqa: E402
 from sethlans_worker_agent.tool_manager import tool_manager_instance  # noqa: E402
+from tests.unit.worker.executors._fakes import fake_cards  # noqa: E402
 
 DRIFT = drift_module.__name__
 HIP = {'index': 0, 'name': 'AMD Radeon', 'type': 'HIP', 'id': 'HIP_A'}
@@ -169,7 +170,7 @@ def test_series_preference_follows_the_adopted_blender(installed, gone, mocker):
                        return_value=mocker.MagicMock(stdout=json.dumps([HIP]) + '\n'))
     mocker.patch.object(agent_module, '_shutdown_event', threading.Event())
     cap = WorkerCapacity(CapacityProfile(gpu_slot_count=1, cpu_slot_count=1, cpu_thread_ceiling=15,
-                                         cpu_threads_effective=15, startup_gpu_count=1, gpu_mode='split'))
+                                         cpu_threads_effective=15, cards=fake_cards(1), gpu_mode='split'))
     first = installed('5.0.1')
     installed('4.5.16')
 

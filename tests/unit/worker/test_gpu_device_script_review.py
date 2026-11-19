@@ -171,12 +171,13 @@ class TestFailClosedGuard:
 class TestRtxAndNonRtxCards:
     """Blender [CUDA rtx, CUDA gtx, CPU, OPTIX rtx, OPTIX gtx], worker [OPTIX rtx, CUDA gtx]."""
 
-    def test_combined_enables_both_optix_entries(self, mocker, monkeypatch, capsys):
+    def test_combined_enables_both_cuda_entries(self, mocker, monkeypatch, capsys):
+        """A CUDA and OptiX mix renders through CUDA, which every NVIDIA card has."""
         prefs, bpy = render(mocker, monkeypatch, WORKER_RTX_GTX, BLENDER_RTX_GTX, None)
 
-        assert prefs.enabled() == [_key(RTX_OPTIX), _key(GTX_OPTIX)]
-        assert prefs.compute_device_type == 'OPTIX'
-        assert not any(d.use for d in prefs.devices if d.type == 'CUDA')
+        assert prefs.enabled() == [_key(RTX_CUDA), _key(GTX_CUDA)]
+        assert prefs.compute_device_type == 'CUDA'
+        assert not any(d.use for d in prefs.devices if d.type == 'OPTIX')
         assert bpy.context.scene.cycles.device == 'GPU'
         assert capsys.readouterr().err == ''
 
@@ -193,7 +194,7 @@ class TestRtxAndNonRtxCards:
 
         prefs, _bpy = render(mocker, monkeypatch, cards, blender, None)
 
-        assert prefs.enabled() == [_key(RTX_OPTIX), _key(GTX_OPTIX)]
+        assert prefs.enabled() == [_key(RTX_CUDA), _key(GTX_CUDA)]
         assert capsys.readouterr().err == ''
 
     def test_combined_ignores_optix_entry_of_unlisted_card(

@@ -107,9 +107,8 @@
     <table>
       <tr><th>Polling Interval</th><td><input type="number" class="cfg-input" id="cfg-poll" min="1" max="3600" onchange="updateConfig('POLLING_INTERVAL',this.value,this)"> s<span class="cfg-status" id="cfg-poll-status"></span></td></tr>
       <tr><th>Heartbeat Interval</th><td><input type="number" class="cfg-input" id="cfg-hb" min="1" max="3600" onchange="updateConfig('HEARTBEAT_INTERVAL',this.value,this)"> s<span class="cfg-status" id="cfg-hb-status"></span></td></tr>
-      <tr><th>Force CPU</th><td><label class="toggle"><input type="checkbox" id="cfg-cpu" onchange="updateConfig('FORCE_CPU_ONLY',this.checked,this)"><span class="slider"></span></label><span class="cfg-status" id="cfg-cpu-status"></span></td></tr>
-      <tr><th>Force GPU</th><td><label class="toggle"><input type="checkbox" id="cfg-gpu" onchange="updateConfig('FORCE_GPU_ONLY',this.checked,this)"><span class="slider"></span></label><span class="cfg-status" id="cfg-gpu-status"></span></td></tr>
-      <tr><th>GPU Mode</th><td><select id="cfg-gpu-mode" onchange="updateConfig('GPU_MODE',this.value,this)"><option value="split">split</option><option value="combined">combined</option></select><span class="cfg-status" id="cfg-gpu-mode-status"></span></td></tr>
+      <tr><th>Compute Method</th><td id="cfg-compute-method">-</td></tr>
+      <tr><th>GPU Mode</th><td id="cfg-gpu-mode">-</td></tr>
     </table>
   </div>
   <div class="card">
@@ -212,14 +211,10 @@
     var hbEl = document.getElementById('cfg-hb');
     if (pollEl && document.activeElement !== pollEl) pollEl.value = cfg.polling_interval;
     if (hbEl && document.activeElement !== hbEl) hbEl.value = cfg.heartbeat_interval;
-    var cpuEl = document.getElementById('cfg-cpu');
-    var gpuEl = document.getElementById('cfg-gpu');
+    var methodEl = document.getElementById('cfg-compute-method');
     var gpuModeEl = document.getElementById('cfg-gpu-mode');
-    if (cpuEl) cpuEl.checked = !!cfg.force_cpu;
-    if (gpuEl) gpuEl.checked = !!cfg.force_gpu;
-    if (gpuModeEl && document.activeElement !== gpuModeEl) {
-      gpuModeEl.value = cfg.gpu_mode || 'split';
-    }
+    if (methodEl) methodEl.textContent = cfg.compute_method || '-';
+    if (gpuModeEl) gpuModeEl.textContent = cfg.gpu_mode || '-';
 
     var toolsDiv = document.getElementById('tools-list');
     clearChildren(toolsDiv);
@@ -240,7 +235,7 @@
     } else {
       var jrows = jobs.map(function(j) {
         var output = createEl('span', j.last_output_line || '', 'mono');
-        return [j.job_id, j.name, j.render_engine, j.device_used, j.gpu_index != null ? j.gpu_index : '-', j.start_time, output];
+        return [j.job_id, j.name, j.render_engine, j.device_used, j.gpu_cards || '-', j.start_time, output];
       });
       ajDiv.appendChild(buildTable(['ID', 'Name', 'Engine', 'Device', 'GPU', 'Started', 'Output'], jrows));
     }
@@ -252,8 +247,8 @@
     if (allocKeys.length === 0) {
       allocDiv.appendChild(createEl('p', 'No GPU assignments', 'empty'));
     } else {
-      var arows = allocKeys.map(function(k) { return ['GPU ' + k, 'Job ' + alloc[k]]; });
-      allocDiv.appendChild(buildTable(['GPU Index', 'Job ID'], arows));
+      var arows = allocKeys.map(function(k) { return [k, 'Job ' + alloc[k]]; });
+      allocDiv.appendChild(buildTable(['Graphics Card', 'Job ID'], arows));
     }
 
     var rjDiv = document.getElementById('recent-jobs');

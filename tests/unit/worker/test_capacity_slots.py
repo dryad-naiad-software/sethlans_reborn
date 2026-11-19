@@ -5,27 +5,22 @@
 Unit tests for WorkerCapacity slot state.
 
 Covers FR-27: reserve/release, idempotency, is_full, free_device_prefs,
-gpu_assignments_snapshot, and the combined / FORCE_GPU_INDEX variants.
+gpu_assignments_snapshot, and the combined variant. GPU slots are keyed
+by card key (FR-CL-3).
 """
 from sethlans_worker_agent.capacity import (
-    CapacityProfile,
     SlotReservation,
     WorkerCapacity,
 )
 
+from .executors._fakes import key, profile
 
-def _profile(gpu_slot_count=1, cpu_slot_count=1, startup_gpu_count=1,
-             gpu_mode='split', force_gpu_index=None,
-             cpu_thread_ceiling=15, cpu_threads_effective=15):
-    return CapacityProfile(
-        gpu_slot_count=gpu_slot_count,
-        cpu_slot_count=cpu_slot_count,
-        cpu_thread_ceiling=cpu_thread_ceiling,
-        cpu_threads_effective=cpu_threads_effective,
-        startup_gpu_count=startup_gpu_count,
-        gpu_mode=gpu_mode,
-        force_gpu_index=force_gpu_index,
-    )
+
+def _profile(gpu_slot_count=1, cpu_slot_count=1, startup_gpu_count=None, gpu_mode='split'):
+    """Split: one card per GPU slot; combined: ``startup_gpu_count`` cards behind one slot."""
+    card_count = startup_gpu_count if gpu_mode == 'combined' else None
+    return profile(gpu_slot_count=gpu_slot_count, cpu_slot_count=cpu_slot_count,
+                   card_count=card_count, gpu_mode=gpu_mode)
 
 
 # --- is_full ---
@@ -92,23 +87,23 @@ class TestReserveForJob:
         reservation = cap.reserve_for_job(1, 'GPU')
         assert isinstance(reservation, SlotReservation)
         assert reservation.device_used == 'GPU'
-        assert reservation.gpu_indices == [0]
-        assert reservation.primary_gpu_index == 0
+        assert reservation.card_keys == (key(0),)
+        assert reservation.job_cards == reservation.cards[:1]
 
     def test_reserve_second_gpu_uses_next_index(self):
         cap = WorkerCapacity(_profile(gpu_slot_count=2, cpu_slot_count=0, startup_gpu_count=2))
         cap.reserve_for_job(1, 'GPU')
         reservation = cap.reserve_for_job(2, 'GPU')
         assert reservation is not None
-        assert reservation.gpu_indices == [1]
+        assert reservation.card_keys == (key(1),)
 
     def test_reserve_cpu_returns_cpu_reservation(self):
         cap = WorkerCapacity(_profile(gpu_slot_count=0, cpu_slot_count=1))
         reservation = cap.reserve_for_job(1, 'CPU')
         assert reservation is not None
         assert reservation.device_used == 'CPU'
-        assert reservation.gpu_indices == []
-        assert reservation.primary_gpu_index is None
+        assert reservation.card_keys == ()
+        assert reservation.job_cards == ()
 
     def test_reserve_any_prefers_gpu_when_available(self):
         cap = WorkerCapacity(_profile(gpu_slot_count=1, cpu_slot_count=1, startup_gpu_count=1))
@@ -141,14 +136,14 @@ class TestReserveForJob:
         cap = WorkerCapacity(_profile(gpu_slot_count=1, cpu_slot_count=0, startup_gpu_count=1))
         assert cap.reserve_for_job(1, 'CPU') is None
 
-    def test_reserve_combined_mode_uses_sentinel_and_empty_indices(self):
+    def test_reserve_combined_mode_holds_every_card(self):
         cap = WorkerCapacity(_profile(gpu_slot_count=1, cpu_slot_count=0,
                                       startup_gpu_count=4, gpu_mode='combined'))
         reservation = cap.reserve_for_job(1, 'GPU')
         assert reservation is not None
         assert reservation.device_used == 'GPU'
-        assert reservation.gpu_indices == []
-        assert reservation.primary_gpu_index is None
+        assert reservation.card_keys == tuple(key(i) for i in range(4))
+        assert reservation.gpu_mode == 'combined'
         # Combined mode is saturated after a single reservation.
         assert cap.is_full() is True
         assert cap.reserve_for_job(2, 'GPU') is None
@@ -159,13 +154,6 @@ class TestReserveForJob:
         cap.reserve_for_job(1, 'GPU')
         cap.release_slot(1)
         assert cap.reserve_for_job(2, 'GPU') is not None
-
-    def test_reserve_force_gpu_index_pins_to_that_index(self):
-        cap = WorkerCapacity(_profile(gpu_slot_count=1, cpu_slot_count=1,
-                                      startup_gpu_count=4, force_gpu_index=2))
-        reservation = cap.reserve_for_job(1, 'GPU')
-        assert reservation is not None
-        assert reservation.gpu_indices == [2]
 
 
 # --- release_slot ---
@@ -197,7 +185,7 @@ class TestReleaseSlot:
         cap = WorkerCapacity(_profile(gpu_slot_count=1, cpu_slot_count=1, startup_gpu_count=1))
         cap.reserve_for_job(1, 'GPU')
         cap.release_slot(9999)
-        assert cap.gpu_assignments_snapshot() == {0: 1}
+        assert cap.gpu_assignments_snapshot() == {key(0): 1}
         debug_msgs = [r.message for r in caplog.records if r.levelname == 'DEBUG']
         assert any('no slot held' in m for m in debug_msgs)
 
@@ -214,11 +202,11 @@ class TestReleaseSlot:
         finally:
             cap._gpu_assignments = real_assignments
 
-    def test_release_handles_combined_mode_sentinel(self):
+    def test_release_handles_combined_mode(self):
         cap = WorkerCapacity(_profile(gpu_slot_count=1, cpu_slot_count=0,
                                       startup_gpu_count=4, gpu_mode='combined'))
         cap.reserve_for_job(77, 'GPU')
-        assert cap.gpu_assignments_snapshot() == {0: 77}
+        assert cap.gpu_assignments_snapshot() == {key(i): 77 for i in range(4)}
         cap.release_slot(77)
         assert cap.gpu_assignments_snapshot() == {}
 

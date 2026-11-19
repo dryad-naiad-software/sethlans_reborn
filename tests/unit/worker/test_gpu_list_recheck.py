@@ -19,6 +19,7 @@ from sethlans_worker_agent import blender_failure, job_processor
 from sethlans_worker_agent.capacity import CapacityProfile, WorkerCapacity
 from sethlans_worker_agent.capacity.gpu_list import describe_gpu_list_change, gpu_identity
 from sethlans_worker_agent.gpu_device_script import GPU_CHECK_EXIT_CODE, GPU_CHECK_MARKER
+from tests.unit.worker.executors._fakes import fake_cards
 
 MARKER_STDERR = f"{GPU_CHECK_MARKER} 0 Blender device entries match OPTIX 'x'\n"
 
@@ -92,7 +93,7 @@ class TestRecheckRequest:
 def _capacity(gpu_slot_count=1, startup_gpu_count=1):
     return WorkerCapacity(CapacityProfile(
         gpu_slot_count=gpu_slot_count, cpu_slot_count=1, cpu_thread_ceiling=15,
-        cpu_threads_effective=15, startup_gpu_count=startup_gpu_count, gpu_mode='split',
+        cpu_threads_effective=15, cards=fake_cards(startup_gpu_count), gpu_mode='split',
     ))
 
 
@@ -211,7 +212,7 @@ class TestFailedDetection:
 class TestWorkersThatSkipTheComparison:
 
     @pytest.mark.parametrize('gpu_slots, startup_gpus', [(0, 0), (0, 2)],
-                             ids=['no-gpu', 'force-cpu-only'])
+                             ids=['no-gpu', 'gpu-slots-zero'])
     def test_never_detects_and_absorbs_requests(self, loop, gpu_slots, startup_gpus):
         job_processor._capacity = _capacity(gpu_slot_count=gpu_slots, startup_gpu_count=startup_gpus)
 
@@ -219,11 +220,3 @@ class TestWorkersThatSkipTheComparison:
         assert capacity_module.gpu_list_recheck_pending() is False
         assert _tick(loop, 5000.0) == 0  # periodic run due: still no detection
         assert job_processor._last_drift_check_ts == 5000.0
-
-    def test_force_gpu_index_worker_still_compares(self, loop):
-        cap = WorkerCapacity(CapacityProfile(
-            gpu_slot_count=1, cpu_slot_count=1, cpu_thread_ceiling=15, cpu_threads_effective=15,
-            startup_gpu_count=1, gpu_mode='split', force_gpu_index=0,
-        ))
-        job_processor._capacity = cap
-        assert _tick(loop, 1031.0) == 1

@@ -19,6 +19,7 @@ from sethlans_worker_agent.api_conflict import NO_LONGER_ASSIGNED
 from sethlans_worker_agent.capacity import CapacityProfile, WorkerCapacity
 from sethlans_worker_agent.capacity.exclusive import retained_owner
 from tests.unit.worker.executors._fakes import make_result
+from tests.unit.worker.executors._fakes import fake_cards
 
 
 def _report(mocker, result, upload=True, update=True):
@@ -108,7 +109,7 @@ class TestRetainedSlots:
     def _capacity(self):
         return WorkerCapacity(CapacityProfile(
             gpu_slot_count=2, cpu_slot_count=1, cpu_thread_ceiling=15,
-            cpu_threads_effective=15, startup_gpu_count=2, gpu_mode='split',
+            cpu_threads_effective=15, cards=fake_cards(2), gpu_mode='split',
         ))
 
     def test_a_later_claim_of_the_same_id_cannot_free_a_retained_slot(self):
@@ -119,7 +120,7 @@ class TestRetainedSlots:
 
         cap.release_slot(7)  # the second claim ends
 
-        assert cap.gpu_assignments_snapshot() == {0: retained_owner(7)}
+        assert cap.gpu_assignments_snapshot() == {fake_cards(1)[0].key: retained_owner(7)}
         assert retained_owner(7) < 0
 
     def test_retained_cpu_slot_stays_held(self):
@@ -141,4 +142,4 @@ class TestRetainedSlots:
 
         assert job_resources.release_reservations(9, reservation, cap) is False
 
-        assert cap.gpu_assignments_snapshot() == {0: retained_owner(9)}
+        assert cap.gpu_assignments_snapshot() == {fake_cards(1)[0].key: retained_owner(9)}

@@ -127,6 +127,25 @@ def _quiet_card_startup_log(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_compute_section(monkeypatch):
+    """No saved compute section and no ``SETHLANS_COMPUTE_*`` variables.
+
+    Same as the unit-suite fixture: ``config_compute.load`` would otherwise
+    read this machine's real ``config.json``. Tests that need GPU slots
+    use ``_capacity_harness.install_fake_capacity``.
+    """
+    from sethlans_worker_agent import config_compute
+    from sethlans_worker_agent.cards import in_use
+    for name in (config_compute.ENV_METHOD, config_compute.ENV_GPU_MODE,
+                 config_compute.ENV_CARDS, config_compute.ENV_ALLOW):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(config_compute, '_read_raw', lambda: None)
+    in_use.reset_env_records_for_tests()
+    yield
+    in_use.reset_env_records_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _reset_web_ui_auth():
     """Reset the web_ui auth module's cached state between tests."""
     from sethlans_worker_agent.web_ui import auth

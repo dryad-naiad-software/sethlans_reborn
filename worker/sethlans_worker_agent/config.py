@@ -10,7 +10,6 @@ and ``manager.manager_id`` are NOT env-overridable (logged + dropped).
 """
 
 import os
-import sys
 import platform
 import logging
 import configparser
@@ -144,51 +143,12 @@ JOB_POLLING_INTERVAL_SECONDS = _validate_int(
     get_config_value('worker', 'polling_interval', 5, is_int=True), 5, 1, 3600)
 
 # --- Worker Hardware Configuration ---
-# These settings are mutually exclusive and can be set via environment variables.
-FORCE_CPU_ONLY = os.getenv('SETHLANS_FORCE_CPU_ONLY', 'false').lower() == 'true'
-FORCE_GPU_ONLY = os.getenv('SETHLANS_FORCE_GPU_ONLY', 'false').lower() == 'true'
-# Allow specifying a single GPU index for all jobs on this worker
-FORCE_GPU_INDEX = os.getenv('SETHLANS_FORCE_GPU_INDEX')
-
-# GPU Mode: "split" (N GPUs -> N slots) or "combined" (N GPUs -> 1 slot).
-_VALID_GPU_MODES = {'split', 'combined'}
-_raw_gpu_mode = os.getenv('SETHLANS_GPU_MODE', 'split').strip().lower()
-if _raw_gpu_mode not in _VALID_GPU_MODES:
-    sys.stderr.write(
-        "ERROR: SETHLANS_GPU_MODE must be one of "
-        f"{sorted(_VALID_GPU_MODES)}. Got: '{_raw_gpu_mode}'.\n"
-    )
-    sys.exit(1)
-GPU_MODE = _raw_gpu_mode
-
-# Legacy SETHLANS_GPU_SPLIT_MODE is no longer recognized. Warn once on
-# startup if the user still has it set, but continue normally.
-if 'SETHLANS_GPU_SPLIT_MODE' in os.environ:
-    logger.warning(
-        "SETHLANS_GPU_SPLIT_MODE is no longer recognized. Use "
-        "SETHLANS_GPU_MODE=split (default) or SETHLANS_GPU_MODE=combined. "
-        "Continuing with the current SETHLANS_GPU_MODE value: '%s'.",
-        GPU_MODE,
-    )
-
+# CPU or GPU, the GPU mode and the ticked graphics cards are the "compute"
+# section of the JSON config (config_compute.py, SETHLANS_COMPUTE_*).
 # CPU threads for rendering. 0 = auto (cores - 1). Capped at (cores - 1)
 # by the worker capacity module; values above the ceiling are silently capped.
 CPU_THREADS = get_config_value('worker', 'cpu_threads', 0, is_int=True)
 CPU_THREADS = _validate_int('worker.cpu_threads', CPU_THREADS, 0, 0, 1024)
-
-
-if FORCE_CPU_ONLY and FORCE_GPU_ONLY:
-    sys.stderr.write("ERROR: SETHLANS_FORCE_CPU_ONLY and SETHLANS_FORCE_GPU_ONLY are mutually exclusive. Set only one.\n")
-    sys.exit(1)
-
-if FORCE_GPU_INDEX is not None and GPU_MODE == 'combined':
-    sys.stderr.write(
-        "ERROR: SETHLANS_FORCE_GPU_INDEX and SETHLANS_GPU_MODE=combined "
-        "are mutually exclusive. Pinning to one physical GPU index "
-        "contradicts using all GPUs in one invocation. "
-        "Set only one of these variables.\n"
-    )
-    sys.exit(1)
 
 
 # --- Worker TLS Configuration ---

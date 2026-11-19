@@ -196,9 +196,3 @@ QUIT_GRACE_SECONDS: int = _values['QUIT_GRACE_SECONDS']
 LOG_MAX_MB: int = _values['LOG_MAX_MB']
 LOG_FLOOD_MB_PER_MIN: int = _values['LOG_FLOOD_MB_PER_MIN']
 ZEN_PORT: int = _values['ZEN_PORT']
-
-
-def force_gpu_index_set() -> bool:
-    """True when ``SETHLANS_FORCE_GPU_INDEX`` is set (D10f disables Unreal)."""
-    value = config.FORCE_GPU_INDEX
-    return value is not None and str(value).strip() != ''

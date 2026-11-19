@@ -20,7 +20,6 @@ from collections import defaultdict
 
 import psutil
 
-from sethlans_worker_agent import config
 from sethlans_worker_agent.cpu_detection import get_cpu_name  # noqa: F401
 from sethlans_worker_agent.gpu_select_helper import KNOWN_BACKENDS
 from sethlans_worker_agent.tool_manager import tool_manager_instance
@@ -226,11 +225,6 @@ def detect_gpu_devices():
     """
     global _gpu_devices_cache
     if _gpu_devices_cache is not None:
-        return _gpu_devices_cache
-
-    if config.FORCE_CPU_ONLY:
-        logger.warning("Worker is in FORCE_CPU_ONLY mode. Reporting no GPU devices.")
-        _gpu_devices_cache = []
         return _gpu_devices_cache
 
     preferred_gpus = get_gpu_device_details()

@@ -67,12 +67,11 @@ def reachable(root='\\\\nas.lan\\sethlans', ok=True):
 
 def enable_unreal(monkeypatch, installs=(install(),), share='', share_state=None,
                   sampler=None, cache_reason='', lock_ok=True, symlink_eval=False,
-                  force_gpu_index=None, recovered=True):
+                  recovered=True):
     """Enable Unreal with fakes; returns a dict of call records."""
     calls = {'prepare': 0, 'lock': 0, 'threads': 0, 'detect': 0}
     monkeypatch.setattr(config_unreal, 'ENABLED', True)
     monkeypatch.setattr(config_unreal, 'SHARE', share)
-    monkeypatch.setattr(config_unreal.config, 'FORCE_GPU_INDEX', force_gpu_index)
     monkeypatch.setattr(runtime, '_is_windows', lambda: True)
     monkeypatch.setattr(runtime.symlink_policy, 'remote_symlink_evaluation_enabled', lambda: symlink_eval)
 

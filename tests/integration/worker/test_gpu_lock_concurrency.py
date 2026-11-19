@@ -34,6 +34,7 @@ from sethlans_worker_agent.capacity import (
     WorkerCapacity,
     compute_capacity_profile,
 )
+from sethlans_worker_agent.cards.in_use import CardInUse
 
 
 def _build_capacity(num_gpus: int, cores: int = 16) -> WorkerCapacity:
@@ -41,13 +42,13 @@ def _build_capacity(num_gpus: int, cores: int = 16) -> WorkerCapacity:
 
     Uses split mode so that ``gpu_slot_count == num_gpus``.
     """
+    cards = tuple(CardInUse(f'pci:0000:{i + 1:02x}:00.0', f'GPU {i}', f'CUDA_GPU {i}_0000:{i + 1:02x}:00', 'CUDA')
+                  for i in range(num_gpus))
     profile = compute_capacity_profile(
-        detected_gpu_count=num_gpus,
-        cpu_cores=cores,
-        force_cpu_only=False,
-        force_gpu_only=False,
-        force_gpu_index=None,
+        method='cpu_gpu',
         gpu_mode='split',
+        cards=cards,
+        cpu_cores=cores,
         cpu_threads_config=0,
     )
     assert profile.gpu_slot_count == num_gpus
@@ -55,11 +56,11 @@ def _build_capacity(num_gpus: int, cores: int = 16) -> WorkerCapacity:
 
 
 def _reserved_gpu_index(reservation):
-    """Extract the single GPU index from a split-mode reservation."""
+    """The position, among the cards in use, of the one card a split-mode reservation holds."""
     assert reservation is not None
     assert reservation.device_used == 'GPU'
-    assert len(reservation.gpu_indices) == 1
-    return reservation.gpu_indices[0]
+    assert len(reservation.card_keys) == 1
+    return [card.key for card in reservation.cards].index(reservation.card_keys[0])
 
 
 # -- Multiple threads reserving GPUs --
@@ -171,7 +172,7 @@ def test_concurrent_gpu_reservations_no_duplicates():
     assert len(failed) == num_threads - num_gpus
 
     # All successful indices should be unique
-    indices = [res.gpu_indices[0] for _, res in successful]
+    indices = [_reserved_gpu_index(res) for _, res in successful]
     assert len(set(indices)) == num_gpus
     assert set(indices) == set(range(num_gpus))
 
@@ -225,15 +226,17 @@ def test_gpu_assignment_snapshot_is_isolated():
     reservation = capacity.reserve_for_job(100, 'GPU')
     idx = _reserved_gpu_index(reservation)
 
+    key = reservation.card_keys[0]
+    assert idx == 0
     snapshot = capacity.gpu_assignments_snapshot()
-    assert snapshot == {idx: 100}
+    assert snapshot == {key: 100}
 
     # Mutating the snapshot does not affect internal state
-    snapshot[idx] = 999
+    snapshot[key] = 999
     snapshot[999] = 777
 
     internal = capacity.gpu_assignments_snapshot()
-    assert internal == {idx: 100}
+    assert internal == {key: 100}
     assert 999 not in internal
 
 

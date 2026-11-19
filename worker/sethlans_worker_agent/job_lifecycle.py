@@ -114,15 +114,11 @@ def _process_claimed_job_inner(job_data: Dict[str, Any]):
 
     job_id = job_data.get('id')
     reservation = job_data.get('_reservation')
-    assigned_gpu_index = (
-        reservation.primary_gpu_index if reservation is not None
-        else job_data.get('assigned_gpu_index')
-    )
 
     capacity = job_processor.get_worker_capacity()
-    if assigned_gpu_index is not None and capacity is not None:
+    if reservation is not None and reservation.card_keys and capacity is not None:
         logger.info(
-            f"Job {job_id} reserved GPU {assigned_gpu_index}. "
+            f"Job {job_id} reserved GPU card(s) {list(reservation.card_keys)}. "
             f"Assignments: {capacity.gpu_assignments_snapshot()}"
         )
 
@@ -132,7 +128,7 @@ def _process_claimed_job_inner(job_data: Dict[str, Any]):
     )
 
     result = _execute_and_release(job_data, capacity, ExecutionContext(
-        assigned_gpu_index=assigned_gpu_index,
+        reservation=reservation,
         yield_monitor_factory=ym_factory,
         manual_stop_event=manual_stop,
         shutdown_event=_shutdown_event,

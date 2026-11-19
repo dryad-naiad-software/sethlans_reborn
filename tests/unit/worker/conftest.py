@@ -83,6 +83,25 @@ def _quiet_card_startup_log(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_compute_section(monkeypatch):
+    """No saved compute section and no ``SETHLANS_COMPUTE_*`` variables.
+
+    ``config_compute.load`` would otherwise read this machine's real
+    ``config.json``. With no section the method is ``cpu`` and no card is
+    probed. Tests that need GPU slots patch ``config_compute._read_raw``.
+    """
+    from sethlans_worker_agent import config_compute
+    from sethlans_worker_agent.cards import in_use
+    for name in (config_compute.ENV_METHOD, config_compute.ENV_GPU_MODE,
+                 config_compute.ENV_CARDS, config_compute.ENV_ALLOW):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(config_compute, '_read_raw', lambda: None)
+    in_use.reset_env_records_for_tests()
+    yield
+    in_use.reset_env_records_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _reset_setup_gate_state():
     """Reset the setup gate module-level state between tests."""
     from sethlans_worker_agent.web_ui.setup import gate
@@ -179,18 +198,6 @@ def mock_config(mocker):
     )
     mocker.patch(
         'sethlans_worker_agent.config.API_TOKEN', 'test-token-abc'
-    )
-    mocker.patch(
-        'sethlans_worker_agent.config.FORCE_CPU_ONLY', False
-    )
-    mocker.patch(
-        'sethlans_worker_agent.config.FORCE_GPU_ONLY', False
-    )
-    mocker.patch(
-        'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
-    )
-    mocker.patch(
-        'sethlans_worker_agent.config.GPU_MODE', 'split'
     )
     mocker.patch(
         'sethlans_worker_agent.config.CPU_THREADS', 0

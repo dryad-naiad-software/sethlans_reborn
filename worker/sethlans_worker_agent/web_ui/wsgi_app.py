@@ -58,9 +58,6 @@ _shutdown_ref_lock = threading.Lock()
 _MUTABLE_CONFIG_KEYS = frozenset({
     'POLLING_INTERVAL',
     'HEARTBEAT_INTERVAL',
-    'FORCE_CPU_ONLY',
-    'FORCE_GPU_ONLY',
-    'GPU_MODE',
 })
 
 # Path to the static HTML dashboard

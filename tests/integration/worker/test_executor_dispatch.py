@@ -100,7 +100,7 @@ def test_exclusive_hold_blocks_polling_until_release(worker):
     fake.execute = execute
     _dispatch(mocks, unreal_job(33))
     assert observed['prefs'] == []
-    assert observed['assignments'] == {0: 33, 1: 33}
+    assert observed['assignments'] == {'pci:0000:01:00.0': 33, 'pci:0000:02:00.0': 33}
     assert capacity.has_no_reservations()
 
 

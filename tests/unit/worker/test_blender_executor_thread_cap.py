@@ -9,6 +9,13 @@ FR-14 (thread cap formula), FR-15 (ceiling semantics), and FR-16 (GPU
 jobs must NOT receive --threads). Includes regression coverage for the
 ANY-job-on-GPU gate bug fixed during #48 code review.
 """
+from sethlans_worker_agent.capacity.profile import SlotReservation
+
+from .executors._fakes import fake_cards
+
+_CARDS = fake_cards(1)
+_GPU_SLOT = SlotReservation(job_id=3, device_used='GPU', card_keys=(_CARDS[0].key,), cards=_CARDS)
+_CPU_SLOT = SlotReservation(job_id=3, device_used='CPU')
 
 
 class TestCpuThreadsFlag:
@@ -47,15 +54,6 @@ class TestCpuThreadsFlag:
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_ROOT',
             str(tmp_path)
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_CPU_ONLY', False
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_ONLY', False
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
         mocker.patch(
             'sethlans_worker_agent.system_monitor.get_gpu_device_details',
@@ -105,12 +103,10 @@ class TestCpuThreadsFlag:
             WorkerCapacity, compute_capacity_profile,
         )
         profile = compute_capacity_profile(
-            detected_gpu_count=0,
-            cpu_cores=cpu_cores,
-            force_cpu_only=False,
-            force_gpu_only=False,
-            force_gpu_index=None,
+            method='cpu',
             gpu_mode='split',
+            cards=(),
+            cpu_cores=cpu_cores,
             cpu_threads_config=cpu_threads_config,
         )
         job_processor._capacity = WorkerCapacity(profile)
@@ -168,7 +164,7 @@ class TestCpuThreadsFlag:
         from sethlans_worker_agent.blender_executor import execute_blender_job
         gpu_job = self._cpu_job_data()
         gpu_job['render_device'] = 'GPU'
-        execute_blender_job(gpu_job, assigned_gpu_index=0)
+        execute_blender_job(gpu_job, reservation=_GPU_SLOT)
         assert '--threads' not in captured_cmd
 
     def test_any_job_with_gpu_slot_does_not_get_threads_flag(
@@ -187,7 +183,7 @@ class TestCpuThreadsFlag:
         from sethlans_worker_agent.blender_executor import execute_blender_job
         any_job = self._cpu_job_data()
         any_job['render_device'] = 'ANY'
-        execute_blender_job(any_job, assigned_gpu_index=0)
+        execute_blender_job(any_job, reservation=_GPU_SLOT)
         assert '--threads' not in captured_cmd
 
     def test_any_job_with_cpu_fallback_gets_threads_flag(
@@ -199,7 +195,7 @@ class TestCpuThreadsFlag:
         from sethlans_worker_agent.blender_executor import execute_blender_job
         any_job = self._cpu_job_data()
         any_job['render_device'] = 'ANY'
-        execute_blender_job(any_job, assigned_gpu_index=None)
+        execute_blender_job(any_job, reservation=_CPU_SLOT)
         assert '--threads' in captured_cmd
         idx = captured_cmd.index('--threads')
         assert captured_cmd[idx + 1] == '7'

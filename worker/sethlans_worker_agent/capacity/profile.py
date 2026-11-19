@@ -11,80 +11,88 @@ formula with the FR-15 defensive assertion, and log_capacity_profile().
 This module has no threading or subprocess dependencies.
 """
 import logging
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class CapacityProfile:
-    """Frozen result of the startup capacity computation."""
+    """Frozen result of the capacity computation (FR-CL-2).
+
+    ``cards`` are the Blender cards in use, ``cards.in_use.CardInUse``
+    tuples ``(key, name, blender_id, backend)`` in PCI address order (D4);
+    GPU slots are keyed by card key. ``ignored`` are the Blender ids of the
+    detected cards that are not in use (FR-CB-2). ``problem`` is the FR-CK-6
+    text when the method includes GPU but no card is in use.
+    """
     gpu_slot_count: int
     cpu_slot_count: int
     cpu_thread_ceiling: int   # cores - 1 (>= 1)
     cpu_threads_effective: int  # min(CPU_THREADS or ceiling, ceiling)
-    startup_gpu_count: int
     gpu_mode: str  # "split" or "combined"
-    force_gpu_index: Optional[int] = None
+    method: str = 'cpu'  # "cpu", "gpu" or "cpu_gpu"
+    cards: tuple = ()
+    ignored: Tuple[str, ...] = ()
+    problem: str = ''
 
     @property
     def total(self) -> int:
         return self.gpu_slot_count + self.cpu_slot_count
 
+    @property
+    def card_keys(self) -> Tuple[str, ...]:
+        return tuple(card.key for card in self.cards)
 
-@dataclass
+
+@dataclass(frozen=True)
 class SlotReservation:
-    """Handle returned by reserve_for_job.
+    """Handle returned by reserve_for_job (FR-CL-3).
 
-    Contains everything the caller needs to drive blender_executor and
-    to release on failure. The gpu_indices list counts physical cards:
-    each index is a position in system_monitor.get_gpu_device_details()
-    (one record per card), not in Blender's per-backend device list.
+    A GPU reservation copies, under ``WorkerCapacity._lock`` at claim, the
+    cards in use from the profile (``cards``) and the keys it holds
+    (``card_keys``: one in split mode, every card in combined mode). The
+    executor, the render script and the thumbnail pass read only this copy,
+    never the profile, so a later profile cannot move a running job to
+    another card. ``device_used`` decides CPU or GPU (FR-CB-1).
     """
     job_id: int
     device_used: str  # "GPU" or "CPU"
-    gpu_indices: List[int] = field(default_factory=list)
+    card_keys: Tuple[str, ...] = ()
+    cards: tuple = ()
+    gpu_mode: str = 'split'
+    ignored: Tuple[str, ...] = ()
+    problem: str = ''
 
     @property
-    def primary_gpu_index(self) -> Optional[int]:
-        """Return the first GPU index, or None for CPU / combined mode.
-
-        For split mode this is the single physical card to isolate; the
-        render script enables only that card's entry, matched by backend
-        and Blender device id (gpu_device_script). For combined mode this
-        is None, which makes render_script enable every listed card
-        through the preferred backend and switch all other entries off.
-        """
-        if len(self.gpu_indices) == 1:
-            return self.gpu_indices[0]
-        return None
+    def job_cards(self) -> tuple:
+        """The cards this reservation renders on, in address order."""
+        return tuple(card for card in self.cards if card.key in self.card_keys)
 
 
 def compute_capacity_profile(
     *,
-    detected_gpu_count: int,
-    cpu_cores: int,
-    force_cpu_only: bool,
-    force_gpu_only: bool,
-    force_gpu_index: Optional[int],
+    method: str,
     gpu_mode: str,
+    cards: tuple,
+    cpu_cores: int,
     cpu_threads_config: int,
+    ignored: Tuple[str, ...] = (),
+    problem: str = '',
 ) -> CapacityProfile:
-    """Pure function. Implements FR-2/FR-3 verbatim."""
-    # CPU slot (FR-2)
-    cpu_usable = (cpu_cores >= 2) and not force_gpu_only
+    """Pure function (FR-2, FR-CL-2)."""
+    # CPU slot (FR-2); none when the method is GPU only.
+    cpu_usable = (cpu_cores >= 2) and method != 'gpu'
     cpu_slot_count = 1 if cpu_usable else 0
 
-    # GPU slots (FR-3)
-    if force_cpu_only:
+    # GPU slots: one per card in use (split), one for all of them (combined).
+    if method == 'cpu':
         gpu_slot_count = 0
-    elif force_gpu_index is not None:
-        gpu_slot_count = 1
     elif gpu_mode == "combined":
-        gpu_slot_count = 1 if detected_gpu_count > 0 else 0
+        gpu_slot_count = 1 if cards else 0
     else:  # split (default)
-        gpu_slot_count = detected_gpu_count
+        gpu_slot_count = len(cards)
 
     # CPU thread ceiling. max(1, cores - 1) keeps the ceiling well-defined
     # on 1-core machines; FR-2 prevents a CPU slot there anyway.
@@ -92,14 +100,17 @@ def compute_capacity_profile(
     threads_requested = cpu_threads_config if cpu_threads_config > 0 else ceiling
     effective = min(threads_requested, ceiling)
 
+    in_use = tuple(cards) if method != 'cpu' else ()
     return CapacityProfile(
         gpu_slot_count=gpu_slot_count,
         cpu_slot_count=cpu_slot_count,
         cpu_thread_ceiling=ceiling,
         cpu_threads_effective=effective,
-        startup_gpu_count=detected_gpu_count,
         gpu_mode=gpu_mode,
-        force_gpu_index=force_gpu_index,
+        method=method,
+        cards=in_use,
+        ignored=tuple(ignored),
+        problem=problem,
     )
 
 
@@ -124,20 +135,15 @@ def cpu_threads_for_blender(profile: CapacityProfile) -> int:
     return effective
 
 
-def log_capacity_profile(
-    profile: CapacityProfile,
-    detected_gpu_count: int,
-    force_cpu_only: bool,
-    force_gpu_only: bool,
-) -> None:
-    """Log the resolved capacity profile at INFO (FR-5)."""
+def log_capacity_profile(profile: CapacityProfile) -> None:
+    """Log the resolved capacity profile at INFO (FR-5), and the FR-CK-6 problem at WARNING."""
     logger.info(
-        "Worker capacity profile: gpus_detected=%d gpu_mode=%s "
-        "force_cpu_only=%s force_gpu_only=%s force_gpu_index=%s "
+        "Worker capacity profile: method=%s gpu_mode=%s cards=%s "
         "gpu_slots=%d cpu_slots=%d total=%d cpu_thread_ceiling=%d "
         "cpu_threads_effective=%d",
-        detected_gpu_count, profile.gpu_mode,
-        force_cpu_only, force_gpu_only, profile.force_gpu_index,
+        profile.method, profile.gpu_mode, list(profile.card_keys),
         profile.gpu_slot_count, profile.cpu_slot_count, profile.total,
         profile.cpu_thread_ceiling, profile.cpu_threads_effective,
     )
+    if profile.problem:
+        logger.warning("%s", profile.problem)

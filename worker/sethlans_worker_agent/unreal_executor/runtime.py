@@ -9,11 +9,10 @@ FR-WD-6, FR-WD-7, FR-WC-3/4/6/7, FR-WD-10).
 ``config_unreal.ENABLED`` is true (callers check that first, NF-6). In
 order, stopping at the first failure:
 
-1. ``SETHLANS_FORCE_GPU_INDEX`` set (D10f);
-2. Windows remote symlink evaluation enabled (Sec N5; read once);
-3. ``SETHLANS_UNREAL_SHARE`` invalid (FR-WC-7);
-4. ``CACHE_DIR`` invalid, not ours, its ACL not verifiable (FR-WC-3/4);
-5. the owner lock held by another process (FR-WC-6); only after the
+1. Windows remote symlink evaluation enabled (Sec N5; read once);
+2. ``SETHLANS_UNREAL_SHARE`` invalid (FR-WC-7);
+3. ``CACHE_DIR`` invalid, not ours, its ACL not verifiable (FR-WC-3/4);
+4. the owner lock held by another process (FR-WC-6); only after the
    lock is held are the marker and the write test written (Sec S2).
 
 These "static" reasons hold until restart; so does any reason set later
@@ -44,7 +43,6 @@ from sethlans_worker_agent.unreal_executor.vram_sampler import VramSampler
 
 logger = logging.getLogger(__name__)
 
-FORCE_GPU_INDEX_REASON = "SETHLANS_FORCE_GPU_INDEX is set: Unreal needs the whole machine (phase 1)"
 REMOTE_SYMLINK_REASON = "remote symlink evaluation is enabled"
 NO_INSTALL_REASON = "no supported Unreal Engine install found"
 NO_VRAM_REASON = "no GPU memory reading: install nvidia-smi or set SETHLANS_UNREAL_VRAM_MB"
@@ -66,8 +64,6 @@ def _is_windows() -> bool:
 
 
 def _check_platform_and_config() -> str:
-    if config_unreal.force_gpu_index_set():
-        return FORCE_GPU_INDEX_REASON
     try:
         if symlink_policy.remote_symlink_evaluation_enabled():
             return REMOTE_SYMLINK_REASON

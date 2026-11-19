@@ -22,6 +22,7 @@ from sethlans_worker_agent.capacity import (
     WorkerCapacity,
 )
 from sethlans_worker_agent.job_lifecycle import process_claimed_job
+from tests.unit.worker.executors._fakes import fake_cards
 
 
 # Declared rank: lower number acquired first.
@@ -104,7 +105,7 @@ def instrument_locks(mocker):
     profile = CapacityProfile(
         gpu_slot_count=1, cpu_slot_count=0,
         cpu_thread_ceiling=15, cpu_threads_effective=15,
-        startup_gpu_count=1, gpu_mode='split',
+        cards=fake_cards(1), gpu_mode='split',
     )
     cap = WorkerCapacity(profile)
 
@@ -172,7 +173,6 @@ class TestLockOrdering:
             'id': 101, 'name': 'A',
             'render_device': 'GPU',
             '_reservation': reservation,
-            'assigned_gpu_index': reservation.primary_gpu_index,
         }
 
         process_claimed_job(job_data)

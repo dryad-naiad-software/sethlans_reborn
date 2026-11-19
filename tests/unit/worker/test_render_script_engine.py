@@ -54,7 +54,6 @@ def _tile_settings(engine):
 
 def _generate(mocker, engine, settings):
     mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
-    mocker.patch('sethlans_worker_agent.config.FORCE_GPU_INDEX', None)
     return generate_render_config_script(242, engine, 'CPU', settings)
 
 

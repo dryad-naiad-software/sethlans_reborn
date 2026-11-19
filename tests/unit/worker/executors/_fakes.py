@@ -19,6 +19,7 @@ import types
 
 from sethlans_worker_agent import executors, job_processor, job_selection, unreal_bridge
 from sethlans_worker_agent.capacity import CapacityProfile, WorkerCapacity
+from sethlans_worker_agent.cards.in_use import CardInUse
 from sethlans_worker_agent.executors import ProbePending, RendererReservation, RenderResult
 
 UNREAL_MODULE = 'sethlans_worker_agent.unreal_executor.executor'
@@ -88,14 +89,26 @@ def install_fake_unreal(monkeypatch):
     return fake
 
 
-def profile(gpu_slot_count=1, cpu_slot_count=1, startup_gpu_count=None,
-            gpu_mode='split', force_gpu_index=None):
+def key(index):
+    """The card key of fake card ``index`` (PCI bus ``index + 1``)."""
+    return f'pci:0000:{index + 1:02x}:00.0'
+
+
+def fake_cards(count, backend='CUDA'):
+    """``count`` cards in use (``CardInUse``), in address order."""
+    return tuple(CardInUse(key(i), f'GPU {i}', f'{backend}_GPU {i}_0000:{i + 1:02x}:00', backend)
+                 for i in range(count))
+
+
+def profile(gpu_slot_count=1, cpu_slot_count=1, card_count=None, gpu_mode='split'):
+    """A profile with ``gpu_slot_count`` slots; combined mode uses ``card_count`` cards (default 2)."""
+    if card_count is None:
+        card_count = gpu_slot_count if gpu_mode != 'combined' else (2 if gpu_slot_count else 0)
     return CapacityProfile(
         gpu_slot_count=gpu_slot_count, cpu_slot_count=cpu_slot_count,
         cpu_thread_ceiling=15, cpu_threads_effective=15,
-        startup_gpu_count=(gpu_slot_count if startup_gpu_count is None
-                           else startup_gpu_count),
-        gpu_mode=gpu_mode, force_gpu_index=force_gpu_index,
+        gpu_mode=gpu_mode, method='cpu_gpu' if gpu_slot_count else 'cpu',
+        cards=fake_cards(card_count),
     )
 
 

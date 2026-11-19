@@ -16,14 +16,14 @@ from sethlans_worker_agent import capacity as capacity_module
 logger = logging.getLogger(__name__)
 
 
-def maybe_add_threads_flag(command, job_id, assigned_gpu_index):
+def maybe_add_threads_flag(command, job_id, reservation):
     """Append ``--threads N`` to command for CPU-bound Blender invocations.
 
-    Gates on the actual assigned slot (``assigned_gpu_index``) rather than
-    render_device, because an ANY job that wins a GPU slot still has
+    Gates on the reservation's ``device_used`` rather than render_device,
+    because an ANY job that wins a GPU slot still has
     ``render_device='ANY'``. FR-16: GPU jobs must NOT receive ``--threads``.
     """
-    if assigned_gpu_index is not None:
+    if reservation is not None and reservation.device_used == 'GPU':
         return
     from sethlans_worker_agent import job_processor
     worker_capacity = job_processor.get_worker_capacity()

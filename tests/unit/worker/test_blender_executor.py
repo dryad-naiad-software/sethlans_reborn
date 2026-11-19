@@ -70,15 +70,6 @@ class TestCommandConstruction:
             str(tmp_path)
         )
         mocker.patch(
-            'sethlans_worker_agent.config.FORCE_CPU_ONLY', False
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_ONLY', False
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
-        )
-        mocker.patch(
             'sethlans_worker_agent.config.CPU_THREADS', 0
         )
         mocker.patch(
@@ -181,15 +172,6 @@ class TestCommandConstruction:
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_ROOT',
             str(tmp_path)
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_CPU_ONLY', False
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_ONLY', False
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
         mocker.patch(
             'sethlans_worker_agent.config.CPU_THREADS', 0

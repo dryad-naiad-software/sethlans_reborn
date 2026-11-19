@@ -15,11 +15,12 @@ both files need.
 import threading
 import time
 
-from sethlans_worker_agent import config, job_processor
+from sethlans_worker_agent import config, config_compute, job_processor
 from sethlans_worker_agent.capacity import (
     CapacityProfile,
     compute_capacity_profile,
 )
+from sethlans_worker_agent.cards.in_use import CardInUse, Selection
 
 
 def install_fake_capacity(
@@ -30,32 +31,31 @@ def install_fake_capacity(
     gpu_mode: str = 'split',
     force_cpu_only: bool = False,
     force_gpu_only: bool = False,
-    force_gpu_index=None,
     cpu_threads: int = 0,
 ) -> CapacityProfile:
-    """Patch capacity-detection hooks and call ``init_capacity``.
+    """Patch the saved card choice and the card hooks, then call ``init_capacity``.
 
-    Returns the resolved ``CapacityProfile`` so tests can assert the
-    slot counts they seeded.
+    ``gpu_count`` ticked cards are in use; ``force_cpu_only`` means method
+    ``cpu`` and ``force_gpu_only`` method ``gpu`` (default ``cpu_gpu``).
+    Returns the resolved ``CapacityProfile`` so tests can assert the slot
+    counts they seeded.
     """
-    gpu_list = [
-        {'name': f'GPU-{i}', 'type': 'CUDA', 'index': i}
-        for i in range(gpu_count)
-    ]
+    method = 'cpu' if force_cpu_only else 'gpu' if force_gpu_only else 'cpu_gpu'
+    cards = tuple(CardInUse(f'pci:0000:{i + 1:02x}:00.0', f'GPU-{i}', f'CUDA_GPU-{i}_0000:{i + 1:02x}:00', 'CUDA')
+                  for i in range(gpu_count)) if method != 'cpu' else ()
     mocker.patch(
         'sethlans_worker_agent.job_processor.system_monitor'
         '.get_gpu_device_details',
-        return_value=gpu_list,
+        return_value=[{'name': c.name, 'type': c.backend, 'id': c.blender_id, 'index': i}
+                      for i, c in enumerate(cards)],
     )
     mocker.patch(
         'sethlans_worker_agent.job_processor.system_monitor'
         '.get_cpu_thread_count',
         return_value=cpu_cores,
     )
-    mocker.patch.object(config, 'FORCE_CPU_ONLY', force_cpu_only)
-    mocker.patch.object(config, 'FORCE_GPU_ONLY', force_gpu_only)
-    mocker.patch.object(config, 'FORCE_GPU_INDEX', force_gpu_index)
-    mocker.patch.object(config, 'GPU_MODE', gpu_mode)
+    mocker.patch.object(config_compute, '_read_raw', return_value={'method': method, 'gpu_mode': gpu_mode})
+    mocker.patch.object(job_processor.cards_in_use, 'resolve', return_value=Selection(cards=cards))
     mocker.patch.object(config, 'CPU_THREADS', cpu_threads)
 
     capacity = job_processor.init_capacity()
@@ -64,12 +64,10 @@ def install_fake_capacity(
     # compute_capacity_profile call. If the formula ever changes, this
     # assertion will point directly at the drift.
     expected = compute_capacity_profile(
-        detected_gpu_count=gpu_count,
-        cpu_cores=cpu_cores,
-        force_cpu_only=force_cpu_only,
-        force_gpu_only=force_gpu_only,
-        force_gpu_index=force_gpu_index,
+        method=method,
         gpu_mode=gpu_mode,
+        cards=cards,
+        cpu_cores=cpu_cores,
         cpu_threads_config=cpu_threads,
     )
     assert capacity.profile == expected
@@ -97,7 +95,7 @@ def sleeping_blender_stub(sleep_seconds: float):
     overlap in time, which is what the capacity invariant is testing.
     """
 
-    def _stub(job_data, assigned_gpu_index=None, **kwargs):
+    def _stub(job_data, reservation=None, **kwargs):
         time.sleep(sleep_seconds)
         return (True, False, False, '', '', '', None, None, None, None)
 

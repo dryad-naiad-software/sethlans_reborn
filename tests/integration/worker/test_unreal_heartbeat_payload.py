@@ -122,11 +122,11 @@ class TestEnabled:
         _registration, heartbeat = _register_and_beat(mocker)
         assert heartbeat['unreal_capabilities']['share_reachable'] is False
 
-    def test_force_gpu_index_reported_disabled(self, mocker, monkeypatch):
-        enable_unreal(monkeypatch, force_gpu_index='0')
+    def test_static_disabled_reason_reported(self, mocker, monkeypatch):
+        enable_unreal(monkeypatch, symlink_eval=True)
         _registration, heartbeat = _register_and_beat(mocker)
         caps = heartbeat['unreal_capabilities']
-        assert caps['enabled'] is False and caps['disabled_reason'].startswith('SETHLANS_FORCE_GPU_INDEX is set')
+        assert caps['enabled'] is False and caps['disabled_reason'] == 'remote symlink evaluation is enabled'
 
 
 @pytest.mark.parametrize('target', FAILING_IMPORTS)

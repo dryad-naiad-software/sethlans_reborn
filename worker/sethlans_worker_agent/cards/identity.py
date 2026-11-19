@@ -8,8 +8,10 @@ Card identity: card keys, Blender device addresses, "same model".
 - ``blender_pci(device_id)``: ``(domain, bus, device)`` as integers from a
   Blender device id such as ``HIP_AMD Radeon RX 7900 XT_0000:23:00`` or
   ``CUDA_NVIDIA GeForce RTX 5090_0000:01:00_OptiX``, or ``None``.
-- ``same_model(saved, now)``: equal vendor and device ids when both sides have
-  them, else equal normalised names.
+- ``same_model(saved, now)``: equal vendor and device ids (and PCI revision
+  when both sides have it) when both sides have them, else equal normalised
+  names.
+- ``is_card_key(key)``: a normalised ``pci:`` key or ``apple-gpu``.
 
 Addresses are compared as parsed integers everywhere, never as text, so a
 domain longer than four digits still matches.
@@ -78,15 +80,47 @@ def normalize_name(name) -> str:
     return ' '.join(str(name or '').split()).casefold()
 
 
+def is_card_key(key) -> bool:
+    """True for ``apple-gpu`` and for a ``pci:`` key already in its normalised form."""
+    if key == APPLE_GPU_KEY:
+        return True
+    return isinstance(key, str) and key.startswith(KEY_PREFIX) and card_key(key[len(KEY_PREFIX):]) == key
+
+
+def parse_key_list(text, limit: int) -> Optional[Tuple[str, ...]]:
+    """Distinct card keys from comma-separated PCI addresses, ``pci:`` keys or ``apple-gpu``, in order.
+
+    ``None`` when any entry does not normalise or there are more than ``limit``.
+    """
+    keys = []
+    for part in (piece.strip() for piece in str(text).split(',')):
+        address = part[len(KEY_PREFIX):] if part.lower().startswith(KEY_PREFIX) else part  # a key copied from config.json
+        key = APPLE_GPU_KEY if part.lower() == APPLE_GPU_KEY else card_key(address)
+        if part and key is None:
+            return None
+        if part and key not in keys:
+            keys.append(key)
+    return tuple(keys) if len(keys) <= limit else None
+
+
+def has_ids(record) -> bool:
+    """True when ``record`` carries both a ``vendor_id`` and a ``device_id``."""
+    return _pci_id(_field(record, 'vendor_id')) is not None and _pci_id(_field(record, 'device_id')) is not None
+
+
 def same_model(saved, now) -> bool:
     """D3: equal ``vendor_id`` and ``device_id`` when both sides have both, else equal names.
 
-    ``saved`` and ``now`` are dicts or objects with ``vendor_id``, ``device_id``
-    and ``name``.
+    With ids on both sides, ``revision_id`` is compared too when both sides
+    have it (C-17: AMD gives several models one device id). ``saved`` and
+    ``now`` are dicts or objects with ``vendor_id``, ``device_id``,
+    ``revision_id`` and ``name``.
     """
     ids = [_pci_id(_field(record, field)) for record in (saved, now) for field in ('vendor_id', 'device_id')]
     if None not in ids:
-        return ids[0] == ids[2] and ids[1] == ids[3]
+        revisions = [_pci_id(_field(record, 'revision_id')) for record in (saved, now)]
+        same_revision = None in revisions or revisions[0] == revisions[1]
+        return ids[0] == ids[2] and ids[1] == ids[3] and same_revision
     return normalize_name(_field(saved, 'name')) == normalize_name(_field(now, 'name'))
 
 

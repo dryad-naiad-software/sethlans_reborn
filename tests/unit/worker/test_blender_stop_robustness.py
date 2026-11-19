@@ -38,7 +38,7 @@ def _run_through_report(job, shutdown, mocker):
     update = mocker.patch('sethlans_worker_agent.api_handler.update_job_status')
     upload = mocker.patch('sethlans_worker_agent.api_handler.upload_render_output')
     result = BlenderExecutor().execute(job, ExecutionContext(
-        assigned_gpu_index=None, yield_monitor_factory=None, manual_stop_event=None, shutdown_event=shutdown))
+        reservation=None, yield_monitor_factory=None, manual_stop_event=None, shutdown_event=shutdown))
     job_report.report_result(job, result, job_processor)
     return result, hand_back, update, upload
 

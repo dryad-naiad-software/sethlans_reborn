@@ -114,12 +114,3 @@ class TestMalformedValuesFallBack:
         values = config_unreal.load()
         assert values['VRAM_SAMPLE_SECONDS'] == 30
         assert values['RESCAN_SECONDS'] == 120
-
-
-class TestForceGpuIndex:
-
-    @pytest.mark.parametrize('value,expected', [(None, False), ('', False), ('  ', False),
-                                                ('0', True), ('1', True), ('x', True)])
-    def test_force_gpu_index_set(self, monkeypatch, value, expected):
-        monkeypatch.setattr(config_unreal.config, 'FORCE_GPU_INDEX', value)
-        assert config_unreal.force_gpu_index_set() is expected

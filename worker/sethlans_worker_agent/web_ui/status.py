@@ -110,6 +110,8 @@ def get_status_snapshot():
     # --- Registration and pause status ---
     registration_status = 'registered' if worker_id else 'pending'
     paused = job_processor.is_paused()
+    capacity = job_processor.get_worker_capacity()
+    profile = capacity.profile if capacity is not None else None
 
     return {
         'worker': {
@@ -129,9 +131,9 @@ def get_status_snapshot():
         'config': {
             'polling_interval': config.JOB_POLLING_INTERVAL_SECONDS,
             'heartbeat_interval': config.HEARTBEAT_INTERVAL_SECONDS,
-            'force_cpu': config.FORCE_CPU_ONLY,
-            'force_gpu': config.FORCE_GPU_ONLY,
-            'gpu_mode': config.GPU_MODE,
+            # The compute choice in effect (the capacity profile); None before it is built.
+            'compute_method': profile.method if profile is not None else None,
+            'gpu_mode': profile.gpu_mode if profile is not None else None,
         },
         'active_jobs': active_jobs,
         'gpu_allocation': gpu_allocation,

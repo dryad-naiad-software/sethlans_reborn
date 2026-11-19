@@ -18,7 +18,7 @@ import pytest
 import sethlans_worker_agent
 from sethlans_worker_agent import agent, job_processor
 
-from ._fakes import blender_job, install_capacity, unreal_job
+from ._fakes import blender_job, install_capacity, key, unreal_job
 
 
 def _poll_returns(mocker, jobs):
@@ -110,8 +110,7 @@ class TestSuccess:
         _poll_returns(mocker, [unreal_job(7)])
         mocker.patch('sethlans_worker_agent.api_handler.claim_job', return_value=True)
         job = job_processor.poll_and_claim_job(worker_id=1)
-        assert job['_reservation'].gpu_indices == []
-        assert job['assigned_gpu_index'] is None
+        assert job['_reservation'].card_keys == ()
         assert job['_renderer_reservation'] is not None
         assert cap.free_device_prefs() == []
         entry = job_processor.get_active_jobs_snapshot()[7]
@@ -123,10 +122,10 @@ class TestSuccess:
         _poll_returns(mocker, [blender_job(3)])
         mocker.patch('sethlans_worker_agent.api_handler.claim_job', return_value=True)
         job = job_processor.poll_and_claim_job(worker_id=1)
-        assert job['assigned_gpu_index'] == 0
+        assert job['_reservation'].card_keys == (key(0),)
         entry = job_processor.get_active_jobs_snapshot()[3]
         assert entry['renderer'] == 'BLENDER' and entry['exclusive'] is False
-        assert entry['device_used'] == 'GPU' and entry['gpu_index'] == 0
+        assert entry['device_used'] == 'GPU' and entry['gpu_cards'] == key(0)
         assert job_processor.get_unfinished_job_ids() == [3]
 
     def test_record_failure_releases_and_logs_critical(self, mocker, fake_unreal, caplog):

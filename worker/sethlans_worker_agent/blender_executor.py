@@ -13,11 +13,9 @@ import subprocess
 import tempfile
 import threading
 import time
-from typing import Optional
-
 import psutil
 
-from sethlans_worker_agent import config, asset_manager, system_monitor
+from sethlans_worker_agent import config, asset_manager
 from sethlans_worker_agent import blender_failure, blender_stop, env_cleanup, gpu_device_script
 from sethlans_worker_agent.blender_yield import handle_yield
 from sethlans_worker_agent.format_utils import get_format_and_extension, EXR_HDR_FORMATS
@@ -52,13 +50,16 @@ def _stream_reader(stream, output_list, job_id=None):
         stream.close()
 
 
-def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # noqa: C901
+def execute_blender_job(job_data, reservation=None,  # noqa: C901
                         yield_monitor_factory=None,
                         manual_stop_event=None,
                         shutdown_event=None):
     """Execute a Blender render job as a subprocess.
 
     Args:
+        reservation: The job's capacity.SlotReservation. Its ``device_used``
+            decides CPU or GPU and its copy of the cards is the only card
+            input (FR-CB-1); None renders on the CPU.
         yield_monitor_factory: Optional callable(blender_pid) that creates
             and starts a YieldMonitor. Called after the subprocess launches.
 
@@ -73,13 +74,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
     now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     logger.info(f"[Job {job_id}] Received '{job_name}'. Started at {now_utc}.")
 
-    gpu_idx = assigned_gpu_index
-    if gpu_idx is None and config.FORCE_GPU_INDEX is not None:
-        try:
-            gpu_idx = int(config.FORCE_GPU_INDEX)
-        except (ValueError, TypeError):
-            pass
-    gpu_device_script.log_gpu_assignment(job_id, gpu_idx)
+    gpu_device_script.log_gpu_assignment(job_id, reservation)
 
     output_file_pattern = job_data.get('output_file_pattern')
     start_frame = job_data.get('start_frame', 1)
@@ -121,24 +116,11 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
 
     command = [blender_to_use, "--factory-startup", "-b", local_blend_file_path]
     from sethlans_worker_agent.blender_thread_cap import maybe_add_threads_flag
-    maybe_add_threads_flag(command, job_id, assigned_gpu_index)
+    maybe_add_threads_flag(command, job_id, reservation)
 
     try:
-        # Determine if this is a CPU fallback scenario
-        gpus_on_system = system_monitor.get_gpu_device_details()
-        is_cpu_fallback_case = (
-                render_device == 'ANY' and
-                assigned_gpu_index is None and
-                len(gpus_on_system) > 0
-        )
-        if is_cpu_fallback_case:
-            logger.info(f"[Job {job_id}] [CPU Fallback] Forcing CPU configuration for 'ANY' job as all GPUs are busy.")
-
         script_content = generate_render_config_script(
-            job_id, render_engine, render_device, render_settings,
-            gpu_index_override=assigned_gpu_index,
-            is_cpu_fallback=is_cpu_fallback_case
-        )
+            job_id, render_engine, render_device, render_settings, reservation=reservation)
         with tempfile.NamedTemporaryFile('w', encoding='utf-8', suffix='.py', delete=False, dir=config.WORKER_TEMP_DIR) as f:
             temp_script_path = f.name
             f.write(script_content)
@@ -281,7 +263,7 @@ def execute_blender_job(job_data, assigned_gpu_index: Optional[int] = None,  # n
             from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail
             thumbnail_path = render_exr_hdr_thumbnail(
                 job_data, blender_to_use, local_blend_file_path,
-                start_frame, resolved_output_pattern, assigned_gpu_index, stop_event=shutdown_event)
+                start_frame, resolved_output_pattern, reservation, stop_event=shutdown_event)
     finally:
         tool_manager_instance.release_version(resolved_version)
 

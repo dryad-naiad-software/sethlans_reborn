@@ -33,7 +33,6 @@ FLAVOURS = {'4.x': lambda: FakeImageSettings(), '5.x': lambda: FakeImageSettings
 
 def _run(mocker, monkeypatch, settings, image_settings):
     mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
-    mocker.patch('sethlans_worker_agent.config.FORCE_GPU_INDEX', None)
     install_fake_bpy(monkeypatch, FakePrefs([]), scenes=[make_scene(image_settings=image_settings)])
     script = generate_render_config_script(243, 'CYCLES', 'CPU', settings)
     run_script(script)

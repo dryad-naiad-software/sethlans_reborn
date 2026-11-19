@@ -27,7 +27,7 @@ BLENDER_TUPLE = (True, False, True, 'Time: 00:01.50', 'err', 'msg',
 
 def _ctx():
     return ExecutionContext(
-        assigned_gpu_index=1, yield_monitor_factory=lambda pid: None,
+        reservation='slot', yield_monitor_factory=lambda pid: None,
         manual_stop_event=threading.Event(), shutdown_event=threading.Event(),
     )
 
@@ -129,7 +129,7 @@ class TestBlenderExecutor:
         job = {'id': 5}
         executors.get_executor('BLENDER').execute(job, ctx)
         spy.assert_called_once_with(
-            job, assigned_gpu_index=1,
+            job, reservation='slot',
             yield_monitor_factory=ctx.yield_monitor_factory,
             manual_stop_event=ctx.manual_stop_event,
             shutdown_event=ctx.shutdown_event,

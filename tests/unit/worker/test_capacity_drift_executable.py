@@ -29,6 +29,7 @@ from sethlans_worker_agent.capacity import (  # noqa: E402
     WorkerCapacity,
     drift as drift_module,
 )
+from tests.unit.worker.executors._fakes import fake_cards  # noqa: E402
 
 RAW = [{'index': 0, 'name': 'AMD Radeon', 'type': 'HIP', 'id': 'HIP_A'}]
 
@@ -108,7 +109,7 @@ class TestRememberedExecutableMissing:
         mocker.patch.object(agent_module, '_shutdown_event', event)
         cap = WorkerCapacity(CapacityProfile(
             gpu_slot_count=1, cpu_slot_count=1, cpu_thread_ceiling=15,
-            cpu_threads_effective=15, startup_gpu_count=1, gpu_mode='split',
+            cpu_threads_effective=15, cards=fake_cards(1), gpu_mode='split',
         ))
 
         cap.assert_gpu_list_unchanged()

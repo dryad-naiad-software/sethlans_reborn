@@ -105,7 +105,6 @@ class TestEnabled:
 class TestDisabledReasons:
 
     @pytest.mark.parametrize('kwargs,reason', [
-        ({'force_gpu_index': '0'}, runtime.FORCE_GPU_INDEX_REASON),
         ({'symlink_eval': True}, runtime.REMOTE_SYMLINK_REASON),
         ({'share': r'\\nas\C$'}, 'invalid SETHLANS_UNREAL_SHARE: '),
         ({'share': r'D:\share'}, 'invalid SETHLANS_UNREAL_SHARE: '),
@@ -123,11 +122,6 @@ class TestDisabledReasons:
         if 'installs' not in kwargs:
             assert calls['threads'] == 0
             assert capabilities.gpu_memory_payload() is None
-
-    def test_force_gpu_index_reason_text(self, monkeypatch):
-        enable_unreal(monkeypatch, force_gpu_index='1')
-        assert capabilities.snapshot()['disabled_reason'] == (
-            "SETHLANS_FORCE_GPU_INDEX is set: Unreal needs the whole machine (phase 1)")
 
     def test_owner_lock_failure_skips_nothing_else_after_it(self, monkeypatch):
         calls = enable_unreal(monkeypatch, lock_ok=False)

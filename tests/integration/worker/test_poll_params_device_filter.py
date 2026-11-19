@@ -69,7 +69,7 @@ class TestPollParamsDeviceFilter:
         assert device_prefs == {'CPU', 'ANY'}
 
     def test_gpu_only_worker_omits_cpu_from_prefs(self, mocker):
-        """A FORCE_GPU_ONLY worker advertises no CPU slot."""
+        """A worker with compute method GPU advertises no CPU slot."""
         install_fake_capacity(
             mocker, gpu_count=1, cpu_cores=4, force_gpu_only=True,
         )
@@ -87,7 +87,7 @@ class TestPollParamsDeviceFilter:
         assert poll_mock.called
         params = poll_mock.call_args[0][0]
         device_prefs = set(params['device_prefs'].split(','))
-        # No CPU slot exists on a FORCE_GPU_ONLY worker.
+        # No CPU slot exists on a GPU-only worker.
         assert 'CPU' not in device_prefs
         assert device_prefs == {'GPU', 'ANY'}
 

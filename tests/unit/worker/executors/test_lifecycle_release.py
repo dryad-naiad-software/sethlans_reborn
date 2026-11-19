@@ -12,7 +12,7 @@ from sethlans_worker_agent import job_lifecycle, job_processor
 from sethlans_worker_agent.executors import UnsupportedRendererError
 from sethlans_worker_agent.job_lifecycle import process_claimed_job
 
-from ._fakes import blender_job, install_capacity, make_result, unreal_job
+from ._fakes import blender_job, install_capacity, key, make_result, unreal_job
 
 
 @pytest.fixture()
@@ -185,7 +185,7 @@ class TestSameJobIdReclaimed:
 
         api['upload'].side_effect = upload
         process_claimed_job(_claim(api, blender_job(42)))
-        assert cap.gpu_assignments_snapshot() == {0: 42}
+        assert cap.gpu_assignments_snapshot() == {key(0): 42}
 
     def test_forget_keeps_a_newer_active_entry(self, api, mocker):
         install_capacity()
@@ -215,7 +215,7 @@ class TestBlenderParity:
         )
         process_claimed_job(_claim(api, blender_job(11, **extra)))
         spy.assert_called_once()
-        assert spy.call_args.kwargs['assigned_gpu_index'] == 0
+        assert spy.call_args.kwargs['reservation'].card_keys == (key(0),)
         payload = api['update'].call_args.args[1]
         assert payload['status'] == 'DONE' and payload['render_time_seconds'] == 2
         assert cap.has_no_reservations()

@@ -35,11 +35,30 @@ jobs:
         python-version: ["3.14.4"]
     env:
       SETHLANS_SELF_HOSTED_RUNNER: "true"
+      # cpu_gpu, not gpu: the E2E jobs render on the CPU.
+      SETHLANS_COMPUTE_METHOD: "cpu_gpu"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref || github.ref }}
+      # SETHLANS_COMPUTE_CARDS: every display-class PCI device (class 0x03xxxx),
+      # read from sysfs so it works for any GPU vendor.
+      - name: Select graphics cards
+        shell: bash
+        run: |
+          cards=""
+          for dev in /sys/bus/pci/devices/*; do
+            if [[ "$(cat "$dev/class" 2>/dev/null)" == 0x03* ]]; then
+              cards="${cards:+$cards,}$(basename "$dev")"
+            fi
+          done
+          if [ -z "$cards" ]; then
+            echo "::error::No display-class PCI device (class 0x03) found under /sys/bus/pci/devices; cannot set SETHLANS_COMPUTE_CARDS."
+            exit 1
+          fi
+          echo "SETHLANS_COMPUTE_CARDS=$cards"
+          echo "SETHLANS_COMPUTE_CARDS=$cards" >> $GITHUB_ENV
       - name: Create and activate venv
         shell: bash
         run: |
@@ -112,6 +131,8 @@ jobs:
         python-version: ["3.14.4"]
     env:
       SETHLANS_SELF_HOSTED_RUNNER: "true"
+      SETHLANS_COMPUTE_METHOD: "cpu_gpu"
+      SETHLANS_COMPUTE_CARDS: "apple-gpu"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6

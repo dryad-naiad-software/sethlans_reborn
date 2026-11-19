@@ -18,6 +18,8 @@ import pytest
 from sethlans_worker_agent import blender_executor
 from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent.blender_thumbnail import render_exr_hdr_thumbnail
+from sethlans_worker_agent.capacity.profile import SlotReservation
+from sethlans_worker_agent.cards.in_use import CardInUse
 from sethlans_worker_agent.gpu_device_script import (
     GPU_CHECK_EXIT_CODE, GPU_CHECK_MARKER,
 )
@@ -31,8 +33,9 @@ _STDERR_LINES = [
     "Read blend: scene.blend\n",
     f"{GPU_CHECK_MARKER} {_DETAIL}\n",
 ]
-_CARD = {'index': 0, 'name': 'NVIDIA GeForce RTX 4080', 'type': 'OPTIX',
-         'id': 'CUDA_NVIDIA GeForce RTX 4080_0000:01:00_OptiX'}
+_CARD = CardInUse('pci:0000:01:00.0', 'NVIDIA GeForce RTX 4080',
+                  'CUDA_NVIDIA GeForce RTX 4080_0000:01:00_OptiX', 'OPTIX')
+_SLOT = SlotReservation(job_id=238, device_used='GPU', card_keys=(_CARD.key,), cards=(_CARD,))
 
 
 def _fake_process(mocker, return_code, stderr_lines):
@@ -66,18 +69,8 @@ def executor_env(mocker, tmp_path):
     mocker.patch(f'{cfg}.WORKER_TEMP_DIR', str(tmp_path / 'temp'))
     mocker.patch(f'{cfg}.WORKER_OUTPUT_DIR', str(tmp_path / 'output'))
     mocker.patch(f'{cfg}.WORKER_ROOT', str(tmp_path))
-    mocker.patch(f'{cfg}.FORCE_CPU_ONLY', False)
-    mocker.patch(f'{cfg}.FORCE_GPU_ONLY', False)
-    mocker.patch(f'{cfg}.FORCE_GPU_INDEX', None)
     mocker.patch(f'{cfg}.CPU_THREADS', 0)
-    mocker.patch(
-        'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-        return_value=[_CARD],
-    )
-    mocker.patch(
-        'sethlans_worker_agent.system_monitor.detect_gpu_devices',
-        return_value=['OPTIX'],
-    )
+
     mocker.patch(
         'sethlans_worker_agent.api_handler.get_job_status',
         return_value='RENDERING',
@@ -108,7 +101,7 @@ class TestExecutorGpuCheckFailure:
             mocker, GPU_CHECK_EXIT_CODE, _STDERR_LINES,
         )
 
-        result = blender_executor.execute_blender_job(_gpu_job(), assigned_gpu_index=0)
+        result = blender_executor.execute_blender_job(_gpu_job(), reservation=_SLOT)
 
         success, error_message, output_path = result[0], result[5], result[6]
         assert success is False
@@ -133,17 +126,17 @@ class TestExecutorGpuCheckFailure:
         mocker.patch.object(blender_executor, 'generate_render_config_script', side_effect=_capture)
         executor_env['popen'].return_value = _fake_process(mocker, 0, [])
 
-        result = blender_executor.execute_blender_job(_gpu_job(), assigned_gpu_index=0)
+        result = blender_executor.execute_blender_job(_gpu_job(), reservation=_SLOT)
 
         assert result[0] is True
         assert len(written) == 1
         assert '_sethlans_select_gpus(' in written[0]
-        assert f"({_CARD['id']!r}, 'OPTIX')," in written[0]
+        assert f"({_CARD.blender_id!r}, 'OPTIX')," in written[0]
 
     def test_other_failure_keeps_generic_message(self, mocker, executor_env):
         executor_env['popen'].return_value = _fake_process(mocker, 1, ["Error: boom\n"])
 
-        result = blender_executor.execute_blender_job(_gpu_job(), assigned_gpu_index=0)
+        result = blender_executor.execute_blender_job(_gpu_job(), reservation=_SLOT)
 
         assert result[5] == 'Blender exited with code 1. Details: Error: boom'
         assert capacity_module.gpu_list_recheck_pending() is False
@@ -151,13 +144,14 @@ class TestExecutorGpuCheckFailure:
 
 class TestExecutorScriptGenerationReleasesVersion:
 
-    def test_out_of_range_gpu_index_releases_acquired_version(self, executor_env):
-        """Index 1 on a one-card worker: generation raises before Blender starts."""
-        result = blender_executor.execute_blender_job(_gpu_job(), assigned_gpu_index=1)
+    def test_gpu_slot_without_card_releases_acquired_version(self, executor_env):
+        """A GPU slot that holds no card: generation raises before Blender starts (FR-CB-3)."""
+        result = blender_executor.execute_blender_job(
+            _gpu_job(), reservation=SlotReservation(job_id=238, device_used='GPU'))
 
         assert result[0] is False
         assert result[5].startswith('Failed to generate render settings script:')
-        assert 'out of range' in result[5]
+        assert "This job's slot holds no graphics card." in result[5]
         executor_env['acquire'].assert_called_once_with('4.1.1')
         executor_env['release'].assert_called_once_with('4.1.1')
         executor_env['popen'].assert_not_called()
@@ -168,7 +162,7 @@ class TestExecutorScriptGenerationReleasesVersion:
             side_effect=ValueError('GPU index 0 has no Blender device id'),
         )
 
-        result = blender_executor.execute_blender_job(_gpu_job(), assigned_gpu_index=0)
+        result = blender_executor.execute_blender_job(_gpu_job(), reservation=_SLOT)
 
         assert result[0] is False
         assert 'has no Blender device id' in result[5]
@@ -201,7 +195,7 @@ class TestThumbnailGpuCheckFailure:
                 str(tmp_path / 'scene.blend'),
                 1,
                 str(tmp_path / 'output' / 'render_####.exr'),
-                0,
+                _SLOT,
             )
 
         assert result is None

@@ -29,9 +29,12 @@ import tempfile
 import time
 from pathlib import Path
 
+import pytest
+
 from tests.e2e import unreal_isolation
 from tests.e2e.core_workflows_harness import CoreWorkflowsHarness
 from tests.e2e.helpers import POLL_INTERVAL, admin_login
+from tests.e2e.unreal_compute_env import compute_env
 from tests.e2e.unreal_e2e_config import (
     ARCHIVE_RELPATH,
     ARCHIVE_SHA256_ENV,
@@ -171,6 +174,11 @@ class UnrealWorkflowHarness(CoreWorkflowsHarness):
 
     @classmethod
     def _boot(cls):
+        # A worker without a card choice is CPU-only and never claims an
+        # Unreal job; stop now rather than at the claim timeout.
+        cls.compute_env, skip_reason = compute_env()
+        if skip_reason:
+            pytest.skip(f"Unreal E2E needs a GPU card choice: {skip_reason}")
         running = unreal_isolation.running_unreal_processes()
         assert not running, (
             f"Unreal is already running (an artist's editor or a leftover); "
@@ -232,6 +240,7 @@ class UnrealWorkflowHarness(CoreWorkflowsHarness):
             "SETHLANS_UNREAL_ENABLED": "true",
             "SETHLANS_UNREAL_SHARE": SHARE,
             "SETHLANS_UNREAL_CACHE_DIR": cls.cache_dir,
+            **cls.compute_env,
         })
         cls.worker_proc = start_worker(worker_env)
         wait_for_worker(cls.session, cls.base_url, timeout=180)

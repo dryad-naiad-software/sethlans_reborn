@@ -13,24 +13,9 @@ terminate_all_active_jobs_for_drift helper.
 import pytest
 
 from sethlans_worker_agent import job_processor
-from sethlans_worker_agent.capacity import (
-    CapacityProfile,
-    WorkerCapacity,
-)
+from sethlans_worker_agent.capacity import WorkerCapacity
 
-
-def _build_profile(gpu_slot_count=1, cpu_slot_count=1, startup_gpu_count=1,
-                   gpu_mode='split', force_gpu_index=None,
-                   cpu_thread_ceiling=15, cpu_threads_effective=15):
-    return CapacityProfile(
-        gpu_slot_count=gpu_slot_count,
-        cpu_slot_count=cpu_slot_count,
-        cpu_thread_ceiling=cpu_thread_ceiling,
-        cpu_threads_effective=cpu_threads_effective,
-        startup_gpu_count=startup_gpu_count,
-        gpu_mode=gpu_mode,
-        force_gpu_index=force_gpu_index,
-    )
+from .executors._fakes import key, profile as _build_profile
 
 
 # --- init_capacity / get_worker_capacity ---
@@ -46,15 +31,11 @@ class TestInitCapacity:
             'sethlans_worker_agent.system_monitor.get_cpu_thread_count',
             return_value=16,
         )
-        mocker.patch('sethlans_worker_agent.config.FORCE_CPU_ONLY', False)
-        mocker.patch('sethlans_worker_agent.config.FORCE_GPU_ONLY', False)
-        mocker.patch('sethlans_worker_agent.config.FORCE_GPU_INDEX', None)
-        mocker.patch('sethlans_worker_agent.config.GPU_MODE', 'split')
         mocker.patch('sethlans_worker_agent.config.CPU_THREADS', 0)
 
         cap = job_processor.init_capacity()
         assert isinstance(cap, WorkerCapacity)
-        assert cap.total == 3  # 2 gpu + 1 cpu
+        assert cap.total == 1  # no saved card choice: method cpu, the CPU slot only
         assert job_processor.get_worker_capacity() is cap
 
     def test_capacity_is_full_false_before_init(self):
@@ -123,7 +104,7 @@ class TestPollAndClaimJobSlotRelease:
         result = job_processor.poll_and_claim_job(worker_id=1)
         assert result is not None
         assert result['id'] == 101
-        assert cap.gpu_assignments_snapshot() == {0: 101}
+        assert cap.gpu_assignments_snapshot() == {key(0): 101}
 
 
 # --- maybe_assert_gpu_list_unchanged cadence ---

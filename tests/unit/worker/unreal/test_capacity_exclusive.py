@@ -12,7 +12,7 @@ import pytest
 
 from sethlans_worker_agent.capacity import WorkerCapacity
 
-from ..executors._fakes import profile
+from ..executors._fakes import key, profile
 
 
 def _cap(**kwargs):
@@ -25,14 +25,14 @@ class TestModes:
         cap = _cap(gpu_slot_count=3, cpu_slot_count=1)
         slot = cap.reserve_exclusive(50)
         assert slot is not None
-        assert cap.gpu_assignments_snapshot() == {0: 50, 1: 50, 2: 50}
+        assert cap.gpu_assignments_snapshot() == {key(0): 50, key(1): 50, key(2): 50}
         assert cap._cpu_slot_job_id == 50
-        assert slot.device_used == 'GPU' and slot.gpu_indices == []
+        assert slot.device_used == 'GPU' and slot.card_keys == ()
 
-    def test_combined_marks_sentinel_key(self):
-        cap = _cap(gpu_slot_count=1, startup_gpu_count=2, gpu_mode='combined')
+    def test_combined_marks_every_card(self):
+        cap = _cap(gpu_slot_count=1, card_count=2, gpu_mode='combined')
         assert cap.reserve_exclusive(51) is not None
-        assert cap.gpu_assignments_snapshot() == {0: 51}
+        assert cap.gpu_assignments_snapshot() == {key(0): 51, key(1): 51}
         assert cap.is_full() and cap.free_device_prefs() == []
 
     def test_no_cpu_slot_means_no_cpu_mark(self):
@@ -42,20 +42,14 @@ class TestModes:
         assert cap.is_full() and cap.free_device_prefs() == []
 
     def test_no_gpu_slot_returns_none(self):
-        cap = _cap(gpu_slot_count=0, cpu_slot_count=1, startup_gpu_count=0)
+        cap = _cap(gpu_slot_count=0, cpu_slot_count=1)
         assert cap.reserve_exclusive(53) is None
         assert cap.has_no_reservations()
 
-    def test_forced_gpu_index_returns_none(self):
-        """Dom N-4 / D10f: sibling workers own the host's other GPUs."""
-        cap = _cap(gpu_slot_count=1, startup_gpu_count=2, force_gpu_index=1)
-        assert cap.reserve_exclusive(55) is None
-        assert cap.has_no_reservations()
-
-    def test_single_gpu_split_has_no_primary_index(self):
+    def test_single_gpu_split_carries_no_blender_card(self):
         slot = _cap(gpu_slot_count=1).reserve_exclusive(54)
-        assert slot.gpu_indices == []
-        assert slot.primary_gpu_index is None
+        assert slot.card_keys == ()
+        assert slot.job_cards == ()
 
 
 class TestHeldState:

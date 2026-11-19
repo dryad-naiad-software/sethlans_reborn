@@ -34,7 +34,7 @@ class BlenderExecutor:
         (success, was_canceled, was_yielded, stdout, stderr,
          error_message, output_path, thumbnail_path, yield_monitor,
          grace_outcome) = blender_executor.execute_blender_job(
-            job_data, assigned_gpu_index=ctx.assigned_gpu_index,
+            job_data, reservation=ctx.reservation,
             yield_monitor_factory=ctx.yield_monitor_factory,
             manual_stop_event=ctx.manual_stop_event,
             shutdown_event=ctx.shutdown_event,

@@ -35,15 +35,24 @@ polling_interval = 5
 # scheduler headroom for the OS, the worker agent, and any co-running
 # GPU job's host process. Override via SETHLANS_WORKER_CPU_THREADS.
 cpu_threads = 0
-# GPU capacity mode. One of:
-#   split    - (default) N physical GPUs become N parallel GPU slots.
-#   combined - N physical GPUs become 1 slot; one Blender invocation
-#              uses every detected GPU through the preferred compute
-#              backend (OptiX, then CUDA, HIP, Metal, oneAPI); cards that
-#              backend cannot drive are left out. Trades throughput for
-#              per-frame speed. Incompatible with SETHLANS_FORCE_GPU_INDEX.
-# Override via SETHLANS_GPU_MODE environment variable.
-gpu_mode = split
+
+# --- Compute method and graphics cards ---
+# Not read from this file. CPU or GPU, the GPU mode and the ticked graphics
+# cards are the "compute" section of the JSON config, set in the worker's
+# setup wizard and settings page. A new worker renders on the CPU only until
+# a person ticks a card. To set them for a whole process instead (CI, Docker),
+# use these environment variables; while any of the first three is set, the
+# worker pages cannot change the choice:
+#   SETHLANS_COMPUTE_METHOD = cpu | gpu | cpu_gpu        (default cpu)
+#   SETHLANS_COMPUTE_GPU_MODE = split | combined         (default split)
+#       split    - one GPU slot per ticked card.
+#       combined - one slot; one Blender render uses every ticked card. Only
+#                  for two or more cards Blender drives the same way
+#                  (CUDA/OptiX, HIP, oneAPI or Metal).
+#   SETHLANS_COMPUTE_CARDS = comma-separated PCI addresses of the ticked
+#       cards, for example 0000:01:00.0,0000:23:00.0 (apple-gpu on macOS).
+#       The worker log lists every card with its address at start.
+#   SETHLANS_COMPUTE_ALLOW_MANAGER_CHANGES = true | false (default true)
 
 # --- Worker Web UI ---
 # Enable or disable the embedded web dashboard.

@@ -94,7 +94,7 @@ class TestLogOnceAtStart:
         assert probe.call_count == 1
         lines = [record.getMessage() for record in records(caplog, LOGGER, 'INFO')]
         assert lines == [
-            'Graphics cards (operating system list, Blender 4.5.3): 2 found. The worker does not use this list yet.',
+            'Graphics cards (operating system list, Blender 4.5.3): 2 found.',
             "  - pci:0000:03:00.0 'AMD Radeon RX 7900 XT', ids 1002:744c rev c8, DXGI adapter 0, 20464 MiB, "
             "Blender 'HIP' 'HIP_AMD Radeon RX 7900 XT_0000:03:00'",
             "  - pci:0000:23:00.0 'AMD Radeon RX 7900 XT', ids 1002:744c rev cc, DXGI adapter 1, 20464 MiB, "
@@ -121,8 +121,7 @@ class TestLogOnceAtStart:
         startup_log.log_once_at_start()
 
         lines = [record.getMessage() for record in records(caplog, LOGGER, 'INFO')]
-        assert lines[0] == ('Graphics cards (operating system list, no Blender detection yet): 2 found. '
-                            'The worker does not use this list yet.')
+        assert lines[0] == ('Graphics cards (operating system list, no Blender detection yet): 2 found.')
         assert lines[1].endswith('20464 MiB, Blender not installed yet')
         for mock in no_blender_start:
             mock.assert_not_called()
@@ -136,8 +135,7 @@ class TestLogOnceAtStart:
 
         lines = [record.getMessage() for record in records(caplog, LOGGER, 'INFO')]
         assert lines == [
-            'Graphics cards (from Blender; the operating system list failed, Blender 4.5.3): 1 found. '
-            'The worker does not use this list yet.',
+            'Graphics cards (from Blender; the operating system list failed, Blender 4.5.3): 1 found.',
             "  - pci:0000:03:00.0 'AMD Radeon RX 7900 XT', Blender 'HIP' 'HIP_AMD Radeon RX 7900 XT_0000:03:00'",
         ]
 
@@ -170,8 +168,7 @@ class TestLogOnceAtStart:
         startup_log.log_once_at_start()
 
         lines = [record.getMessage() for record in records(caplog, LOGGER, 'INFO')]
-        assert lines[0] == (f'Graphics cards (operating system list, {expected}): 2 found. '
-                            'The worker does not use this list yet.')
+        assert lines[0] == (f'Graphics cards (operating system list, {expected}): 2 found.')
         assert len(lines) == 3
 
     @pytest.mark.parametrize('target, attribute', [
@@ -237,8 +234,7 @@ class TestDescribe:
         startup_log._log(Inventory())
 
         assert [record.getMessage() for record in records(caplog, LOGGER)] == [
-            'Graphics cards (operating system list, no Blender detection yet): 0 found. '
-            'The worker does not use this list yet.']
+            'Graphics cards (operating system list, no Blender detection yet): 0 found.']
 
 
 class TestInitCapacityCall:
@@ -247,10 +243,6 @@ class TestInitCapacityCall:
         from sethlans_worker_agent import job_processor
         mocker.patch('sethlans_worker_agent.system_monitor.get_gpu_device_details', return_value=[])
         mocker.patch('sethlans_worker_agent.system_monitor.get_cpu_thread_count', return_value=8)
-        mocker.patch('sethlans_worker_agent.config.FORCE_CPU_ONLY', False)
-        mocker.patch('sethlans_worker_agent.config.FORCE_GPU_ONLY', False)
-        mocker.patch('sethlans_worker_agent.config.FORCE_GPU_INDEX', None)
-        mocker.patch('sethlans_worker_agent.config.GPU_MODE', 'split')
         mocker.patch('sethlans_worker_agent.config.CPU_THREADS', 0)
         log_card_list = mocker.patch.object(job_processor.cards_startup_log, 'log_once_at_start')
 

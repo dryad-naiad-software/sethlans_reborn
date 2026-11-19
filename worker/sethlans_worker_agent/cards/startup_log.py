@@ -4,8 +4,8 @@
 """
 Logs the joined card list once, when the worker builds its capacity.
 
-Information only: nothing here changes which cards the worker renders on.
-It runs the OS probe, joins it with the cached Blender list (it never starts
+Information only: which cards the worker renders on is decided from the
+saved choice (``cards.in_use``), not here. It runs the OS probe, joins it with the cached Blender list (it never starts
 Blender) and writes one INFO line per card. It never raises into the caller.
 """
 import logging
@@ -67,8 +67,7 @@ def _blender_text(inv: inventory.Inventory, blender_cards) -> str:
 def _log(inv: inventory.Inventory, blender_cards=None) -> None:
     source = 'from Blender; the operating system list failed' if inv.os_probe_failed else 'operating system list'
     blender = _blender_text(inv, blender_cards)
-    logger.info("Graphics cards (%s, %s): %d found. The worker does not use this list yet.",
-                source, blender, len(inv.cards))
+    logger.info("Graphics cards (%s, %s): %d found.", source, blender, len(inv.cards))
     for card in inv.cards:
         logger.info("  - %s", _describe(card))
 

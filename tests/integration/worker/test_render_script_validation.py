@@ -27,12 +27,6 @@ def _compile_script(script_text):
 
 def test_cycles_cpu_script_compiles(mocker):
     """Cycles CPU render script is syntactically valid Python."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='CYCLES',
@@ -46,12 +40,6 @@ def test_cycles_cpu_script_compiles(mocker):
 
 def test_eevee_script_compiles(mocker):
     """EEVEE render script is syntactically valid Python."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='BLENDER_EEVEE_NEXT',
@@ -65,12 +53,6 @@ def test_eevee_script_compiles(mocker):
 
 def test_workbench_script_compiles(mocker):
     """Workbench render script is syntactically valid Python."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='WORKBENCH',
@@ -84,12 +66,6 @@ def test_workbench_script_compiles(mocker):
 
 def test_script_with_render_settings_compiles(mocker):
     """Script with user-defined render settings compiles."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='CYCLES',
@@ -109,12 +85,6 @@ def test_script_with_render_settings_compiles(mocker):
 
 def test_cycles_script_sets_engine(mocker):
     """Cycles script sets bpy.context.scene.render.engine."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='CYCLES',
@@ -128,12 +98,6 @@ def test_cycles_script_sets_engine(mocker):
 
 def test_cycles_cpu_sets_cpu_device(mocker):
     """Cycles CPU script sets device to CPU."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='CYCLES',
@@ -146,12 +110,6 @@ def test_cycles_cpu_sets_cpu_device(mocker):
 
 def test_eevee_script_does_not_set_cycles_device(mocker):
     """EEVEE script does not contain Cycles-specific device config."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=['CUDA'],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='BLENDER_EEVEE_NEXT',
@@ -166,12 +124,6 @@ def test_eevee_script_does_not_set_cycles_device(mocker):
 
 def test_render_settings_applied(mocker):
     """User render settings appear in the generated script."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='CYCLES',
@@ -188,12 +140,6 @@ def test_render_settings_applied(mocker):
 
 def test_invalid_setting_key_skipped(mocker):
     """Render settings with unsafe keys are skipped."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     script = generate_render_config_script(
         job_id=1,
         render_engine='CYCLES',
@@ -211,19 +157,14 @@ def test_invalid_setting_key_skipped(mocker):
 # -- CPU fallback --
 
 def test_gpu_fallback_to_cpu(mocker):
-    """CPU fallback flag forces CPU device config."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=['CUDA'],
-    )
-
+    """An ANY job on the CPU slot gets CPU device config (device_used decides, FR-CB-1)."""
+    from sethlans_worker_agent.capacity.profile import SlotReservation
     script = generate_render_config_script(
         job_id=1,
         render_engine='CYCLES',
         render_device='ANY',
         render_settings={},
-        is_cpu_fallback=True,
+        reservation=SlotReservation(job_id=1, device_used='CPU'),
     )
 
     assert "bpy.context.scene.cycles.device = 'CPU'" in script
@@ -234,12 +175,6 @@ def test_gpu_fallback_to_cpu(mocker):
 
 def test_invalid_engine_raises_value_error(mocker):
     """Invalid render engine raises ValueError."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     with pytest.raises(ValueError, match="Invalid render engine"):
         generate_render_config_script(
             job_id=1,
@@ -251,12 +186,6 @@ def test_invalid_engine_raises_value_error(mocker):
 
 def test_all_valid_engines_produce_compilable_scripts(mocker):
     """Every engine in the allowlist produces a compilable script."""
-    mocker.patch(
-        'sethlans_worker_agent.render_script.system_monitor'
-        '.detect_gpu_devices',
-        return_value=[],
-    )
-
     for engine in _VALID_ENGINES:
         script = generate_render_config_script(
             job_id=1,

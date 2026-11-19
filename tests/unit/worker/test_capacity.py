@@ -23,14 +23,16 @@ from sethlans_worker_agent.capacity import (
     log_capacity_profile,
 )
 
+from .executors._fakes import fake_cards
 
-def _profile(**overrides):
+
+def _profile(detected_gpu_count=0, force_cpu_only=False, force_gpu_only=False, **overrides):
+    """The table's cases in compute terms: CPU only is method cpu, GPU only is method gpu."""
+    method = 'cpu' if force_cpu_only else 'gpu' if force_gpu_only else 'cpu_gpu'
     defaults = dict(
-        detected_gpu_count=0,
+        method=method,
+        cards=fake_cards(detected_gpu_count),
         cpu_cores=16,
-        force_cpu_only=False,
-        force_gpu_only=False,
-        force_gpu_index=None,
         gpu_mode='split',
         cpu_threads_config=0,
     )
@@ -98,14 +100,6 @@ _CAPACITY_CASES = [
         ),
         (0, 1, 1),
     ),
-    (
-        'four_gpu_16_cores_force_gpu_index_2',
-        dict(
-            detected_gpu_count=4, cpu_cores=16, gpu_mode='split',
-            force_gpu_index=2,
-        ),
-        (1, 1, 2),
-    ),
     # Extra coverage: FORCE_CPU_ONLY trumps GPUs and GPU_MODE entirely.
     (
         'four_gpu_16_cores_force_cpu_only_trumps_gpus',
@@ -149,19 +143,13 @@ def test_compute_capacity_profile_matches_spec_table(kwargs, expected):
 
 class TestCapacityProfileMetadata:
 
-    def test_startup_gpu_count_reflects_input(self):
+    def test_cards_reflect_input(self):
         profile = _profile(detected_gpu_count=3)
-        assert profile.startup_gpu_count == 3
+        assert profile.cards == fake_cards(3)
 
     def test_gpu_mode_propagates(self):
         profile = _profile(gpu_mode='combined', detected_gpu_count=2)
         assert profile.gpu_mode == 'combined'
-
-    def test_force_gpu_index_propagates(self):
-        profile = _profile(
-            detected_gpu_count=4, force_gpu_index=2, gpu_mode='split',
-        )
-        assert profile.force_gpu_index == 2
 
     def test_profile_is_frozen(self):
         profile = _profile(detected_gpu_count=1)
@@ -212,7 +200,6 @@ class TestCpuThreadsForBlender:
             cpu_slot_count=0,
             cpu_thread_ceiling=0,
             cpu_threads_effective=0,
-            startup_gpu_count=1,
             gpu_mode='split',
         )
         with pytest.raises(ValueError, match='FR-2'):
@@ -233,10 +220,7 @@ class TestLogCapacityProfile:
     def test_logs_at_info(self, caplog):
         caplog.set_level('INFO', logger='sethlans_worker_agent.capacity.profile')
         profile = _profile(detected_gpu_count=2, cpu_cores=16, gpu_mode='split')
-        log_capacity_profile(
-            profile, detected_gpu_count=2,
-            force_cpu_only=False, force_gpu_only=False,
-        )
+        log_capacity_profile(profile)
         info_msgs = [
             r.message for r in caplog.records if r.levelname == 'INFO'
         ]

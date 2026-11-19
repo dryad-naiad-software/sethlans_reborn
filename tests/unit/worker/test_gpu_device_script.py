@@ -13,34 +13,26 @@ import logging
 import pytest
 
 from sethlans_worker_agent import gpu_device_script
+from sethlans_worker_agent.capacity.profile import SlotReservation
+from sethlans_worker_agent.cards.in_use import CardInUse
 from sethlans_worker_agent.gpu_device_script import (
     GPU_CHECK_EXIT_CODE, GPU_CHECK_MARKER,
-    choose_backend, combined_selection, isolated_selection,
+    choose_backend, gpu_selection,
 )
 from sethlans_worker_agent.blender_failure import (
     describe_blender_failure, gpu_check_failure_message,
 )
 
-_RTX = {'index': 0, 'name': 'NVIDIA GeForce RTX 4080', 'type': 'OPTIX',
-        'id': 'CUDA_NVIDIA GeForce RTX 4080_0000:01:00_OptiX'}
-_IGPU = {'index': 1, 'name': 'AMD Radeon(TM) Graphics', 'type': 'HIP',
-         'id': 'HIP_AMD Radeon(TM) Graphics_0000:0c:00'}
-_RTX_T = (_RTX['id'], 'OPTIX', _RTX['name'])
-_IGPU_T = (_IGPU['id'], 'HIP', _IGPU['name'])
+_RTX = CardInUse('pci:0000:01:00.0', 'NVIDIA GeForce RTX 4080', 'CUDA_NVIDIA GeForce RTX 4080_0000:01:00_OptiX', 'OPTIX')
+_IGPU = CardInUse('pci:0000:0c:00.0', 'AMD Radeon(TM) Graphics', 'HIP_AMD Radeon(TM) Graphics_0000:0c:00', 'HIP')
+_RTX_T = (_RTX.blender_id, 'OPTIX', _RTX.name)
+_IGPU_T = (_IGPU.blender_id, 'HIP', _IGPU.name)
 
 
-@pytest.fixture
-def cards(mocker):
-    """Patch the worker's card list; return a setter for other lists."""
-    patched = mocker.patch(
-        'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-        return_value=[_RTX, _IGPU],
-    )
-
-    def _set(value):
-        patched.return_value = value
-
-    return _set
+def _reservation(cards, own, mode='split', ignored=()):
+    """A GPU reservation over the cards in use ``cards`` holding the keys of ``own``."""
+    return SlotReservation(job_id=1, device_used='GPU', card_keys=tuple(c.key for c in own),
+                           cards=tuple(cards), gpu_mode=mode, ignored=tuple(ignored))
 
 
 class TestChooseBackend:
@@ -61,107 +53,67 @@ class TestChooseBackend:
 
 class TestIsolatedSelection:
 
-    def test_returns_card_backend_and_full_list(self, cards):
-        assert isolated_selection(0) == ('OPTIX', [_RTX_T, _IGPU_T], [(_RTX['id'], 'OPTIX')])
+    def test_returns_card_backend_and_full_list(self):
+        assert gpu_selection(_reservation([_RTX, _IGPU], [_RTX])) == (
+            'OPTIX', 'isolated', [_RTX_T, _IGPU_T], [(_RTX.blender_id, 'OPTIX')], [])
 
-    def test_uses_the_cards_own_backend(self, cards):
-        backend, _cards, job_cards = isolated_selection(1)
+    def test_uses_the_cards_own_backend(self):
+        backend, _mode, _cards, job_cards, _ignored = gpu_selection(_reservation([_RTX, _IGPU], [_IGPU]))
 
         assert backend == 'HIP'
-        assert job_cards == [(_IGPU['id'], 'HIP')]
+        assert job_cards == [(_IGPU.blender_id, 'HIP')]
 
-    @pytest.mark.parametrize('index', [2, 99, -1, '0', None, 0.0])
-    def test_bad_index_raises(self, cards, index):
-        with pytest.raises(ValueError, match='out of range'):
-            isolated_selection(index)
-
-    def test_no_cards_raises(self, cards):
-        cards([])
-
-        with pytest.raises(ValueError, match='detected 0 GPU'):
-            isolated_selection(0)
+    def test_no_job_card_raises(self):
+        with pytest.raises(ValueError, match='holds no graphics card'):
+            gpu_selection(_reservation([_RTX], []))
 
     @pytest.mark.parametrize('bad_id', [None, '', 7])
-    def test_job_card_without_id_raises(self, cards, bad_id):
-        cards([dict(_RTX, id=bad_id), _IGPU])
+    def test_job_card_without_id_raises(self, bad_id):
+        bad = _RTX._replace(blender_id=bad_id)
 
         with pytest.raises(ValueError, match='no Blender device id'):
-            isolated_selection(0)
-
-    def test_job_card_missing_id_key_raises(self, cards):
-        record = {k: v for k, v in _RTX.items() if k != 'id'}
-        cards([record])
-
-        with pytest.raises(ValueError, match='no Blender device id'):
-            isolated_selection(0)
+            gpu_selection(_reservation([bad, _IGPU], [bad]))
 
     @pytest.mark.parametrize('bad_type', ['VULKAN', 'CPU', None, 'optix'])
-    def test_job_card_unknown_backend_raises(self, cards, bad_type):
-        cards([dict(_RTX, type=bad_type)])
+    def test_job_card_unknown_backend_raises(self, bad_type):
+        bad = _RTX._replace(backend=bad_type)
 
         with pytest.raises(ValueError, match='unknown compute backend'):
-            isolated_selection(0)
+            gpu_selection(_reservation([bad], [bad]))
 
-    def test_job_card_not_a_dict_raises(self, cards):
-        cards(['NVIDIA GeForce RTX 4080'])
-
-        with pytest.raises(ValueError, match='is not a device record'):
-            isolated_selection(0)
-
-    def test_bad_other_card_is_dropped_with_warning(self, cards, caplog):
-        cards([_RTX, dict(_IGPU, id=None), {'index': 2, 'type': 'VULKAN', 'id': 'x'}])
+    def test_bad_other_card_is_dropped_with_warning(self, caplog):
+        other = CardInUse('pci:0000:02:00.0', 'x', 'x', 'VULKAN')
 
         with caplog.at_level(logging.WARNING, logger=gpu_device_script.__name__):
-            result = isolated_selection(0)
+            result = gpu_selection(_reservation([_RTX, _IGPU._replace(blender_id=None), other], [_RTX]))
 
-        assert result == ('OPTIX', [_RTX_T], [(_RTX['id'], 'OPTIX')])
+        assert result == ('OPTIX', 'isolated', [_RTX_T], [(_RTX.blender_id, 'OPTIX')], [])
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 2
-        assert 'Detected GPU 1 has no Blender device id' in warnings[0]
-        assert "Detected GPU 2 has unknown compute backend 'VULKAN'" in warnings[1]
+        assert 'Graphics card pci:0000:0c:00.0 has no Blender device id' in warnings[0]
+        assert "Graphics card pci:0000:02:00.0 has unknown compute backend 'VULKAN'" in warnings[1]
 
-    def test_missing_name_becomes_unknown(self, cards):
-        cards([{'index': 0, 'type': 'OPTIX', 'id': _RTX['id']}])
+    def test_missing_name_becomes_unknown(self):
+        card = _RTX._replace(name='')
 
-        assert isolated_selection(0)[1] == [(_RTX['id'], 'OPTIX', 'unknown')]
+        assert gpu_selection(_reservation([card], [card]))[2] == [(_RTX.blender_id, 'OPTIX', 'unknown')]
 
 
 class TestCombinedSelection:
 
-    def test_selects_every_card_of_the_backend(self, cards):
-        rtx_b = dict(_RTX, index=2, id='CUDA_NVIDIA GeForce RTX 4080_0000:02:00_OptiX')
-        cards([_RTX, _IGPU, rtx_b])
+    def test_selects_every_card_of_the_backend(self):
+        rtx_b = _RTX._replace(key='pci:0000:02:00.0', blender_id='CUDA_NVIDIA GeForce RTX 4080_0000:02:00_OptiX')
 
-        backend, embedded, job_cards = combined_selection('OPTIX')
+        backend, mode, embedded, job_cards, _ignored = gpu_selection(
+            _reservation([_RTX, rtx_b], [_RTX, rtx_b], 'combined'))
 
-        assert backend == 'OPTIX'
-        assert len(embedded) == 3
-        assert job_cards == [(_RTX['id'], 'OPTIX'), (rtx_b['id'], 'OPTIX')]
+        assert (backend, mode) == ('OPTIX', 'combined')
+        assert len(embedded) == 2
+        assert job_cards == [(_RTX.blender_id, 'OPTIX'), (rtx_b.blender_id, 'OPTIX')]
 
-    @pytest.mark.parametrize('backend', ['VULKAN', 'CPU', None, ''])
-    def test_unknown_backend_raises(self, cards, backend):
-        with pytest.raises(ValueError, match='Unknown compute backend'):
-            combined_selection(backend)
-
-    def test_no_card_with_backend_raises(self, cards):
-        with pytest.raises(ValueError, match='No detected GPU uses compute backend CUDA'):
-            combined_selection('CUDA')
-
-    def test_bad_records_are_dropped(self, cards, caplog):
-        cards([_RTX, dict(_RTX, index=1, id='')])
-
-        with caplog.at_level(logging.WARNING, logger=gpu_device_script.__name__):
-            _backend, embedded, job_cards = combined_selection('OPTIX')
-
-        assert embedded == [_RTX_T]
-        assert job_cards == [(_RTX['id'], 'OPTIX')]
-        assert 'Detected GPU 1 has no Blender device id' in caplog.text
-
-    def test_only_bad_records_for_backend_raises(self, cards):
-        cards([dict(_RTX, id=None), _IGPU])
-
-        with pytest.raises(ValueError, match='No detected GPU uses compute backend OPTIX'):
-            combined_selection('OPTIX')
+    def test_mixed_families_raise(self):
+        with pytest.raises(ValueError, match='not driven the same way'):
+            gpu_selection(_reservation([_RTX, _IGPU], [_RTX, _IGPU], 'combined'))
 
 
 class TestAppendSelectionGuards:

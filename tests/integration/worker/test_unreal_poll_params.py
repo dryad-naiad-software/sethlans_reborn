@@ -86,7 +86,7 @@ def test_share_check_not_finished_yet_is_byte_identical(monkeypatch):
 
 
 def test_unreal_disabled_for_a_reason_is_byte_identical(monkeypatch):
-    enable_unreal(monkeypatch, share=SHARE, share_state=reachable(SHARE), force_gpu_index='0')
+    enable_unreal(monkeypatch, share=SHARE, share_state=reachable(SHARE), symlink_eval=True)
     install_capacity()
     assert _params() == TODAY
 

@@ -27,9 +27,6 @@ class TestAssetNotAvailable:
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_TEMP_DIR', '/tmp/w'
         )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
-        )
 
         result = execute_blender_job(sample_job_data)
 
@@ -45,9 +42,6 @@ class TestAssetNotAvailable:
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_TEMP_DIR', '/tmp/w'
         )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
-        )
 
         result = execute_blender_job(sample_job_data)
 
@@ -61,9 +55,6 @@ class TestAssetNotAvailable:
         )
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_TEMP_DIR', '/tmp/w'
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
 
         result = execute_blender_job(sample_job_data)
@@ -79,9 +70,6 @@ class TestAssetNotAvailable:
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_TEMP_DIR', '/tmp/w'
         )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
-        )
 
         result = execute_blender_job(sample_job_data)
 
@@ -96,9 +84,6 @@ class TestAssetNotAvailable:
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_TEMP_DIR', '/tmp/w'
         )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
-        )
 
         result = execute_blender_job(sample_job_data)
 
@@ -112,9 +97,6 @@ class TestAssetNotAvailable:
         )
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_TEMP_DIR', '/tmp/w'
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
 
         result = execute_blender_job(sample_job_data)
@@ -140,9 +122,6 @@ class TestBlenderVersionNotAvailable:
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_TEMP_DIR',
             str(tmp_path / 'temp'),
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
         )
 
     def test_returns_10_tuple(
@@ -232,15 +211,6 @@ class TestRenderScriptGenerationFailure:
         mocker.patch(
             'sethlans_worker_agent.config.WORKER_OUTPUT_DIR',
             str(tmp_path / 'output'),
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_INDEX', None
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_CPU_ONLY', False
-        )
-        mocker.patch(
-            'sethlans_worker_agent.config.FORCE_GPU_ONLY', False
         )
         mocker.patch(
             'sethlans_worker_agent.config.CPU_THREADS', 0

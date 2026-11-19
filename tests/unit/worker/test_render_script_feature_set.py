@@ -45,7 +45,6 @@ def _tile_job_settings(feature_set='SUPPORTED', extra=None):
 
 def _run(mocker, monkeypatch, settings, scenes):
     mocker.patch('sethlans_worker_agent.system_monitor.detect_gpu_devices', return_value=[])
-    mocker.patch('sethlans_worker_agent.config.FORCE_GPU_INDEX', None)
     install_fake_bpy(monkeypatch, FakePrefs([]), scenes=scenes)
     script = generate_render_config_script(241, 'CYCLES', 'CPU', settings)
     run_script(script)

@@ -19,6 +19,8 @@ import types
 from types import SimpleNamespace
 
 from sethlans_worker_agent import gpu_device_script, render_script
+from sethlans_worker_agent.capacity.profile import SlotReservation
+from sethlans_worker_agent.cards.in_use import FAMILIES, CardInUse
 from tests.unit.worker._fake_image_settings import FakeImageSettings
 
 # Generic devices. The OPTIX id is the CUDA id plus "_OptiX", as in Blender.
@@ -196,20 +198,32 @@ def install_fake_bpy(monkeypatch, prefs, scenes=None):
     return bpy
 
 
+def reservation_for(cards, gpu_index):
+    """The slot reservation for worker card records ``cards``.
+
+    An index is a split slot on that card with every card in use. ``None``
+    is a combined slot over the cards of the preferred backend's family;
+    the other cards are detected but not in use (``ignored``).
+    """
+    in_use = [CardInUse(f'pci:0000:{i + 1:02x}:00.0', c.get('name'), c.get('id'), c.get('type'))
+              for i, c in enumerate(cards)]
+    if gpu_index is not None:
+        own = [in_use[gpu_index]] if isinstance(gpu_index, int) and 0 <= gpu_index < len(in_use) else []
+        return SlotReservation(job_id=238, device_used='GPU', card_keys=tuple(c.key for c in own),
+                               cards=tuple(in_use))
+    backend = gpu_device_script.choose_backend({c.backend for c in in_use})
+    family = FAMILIES.get(backend)
+    own = [c for c in in_use if FAMILIES.get(c.backend) == family]
+    ignored = tuple(c.blender_id for c in in_use if c not in own)
+    return SlotReservation(job_id=238, device_used='GPU', card_keys=tuple(c.key for c in own),
+                           cards=tuple(own), gpu_mode='combined', ignored=ignored)
+
+
 def generate_script(mocker, cards, gpu_index, render_settings=None):
-    """Generate the GPU render script for ``cards`` with detection patched."""
-    mocker.patch(
-        'sethlans_worker_agent.system_monitor.get_gpu_device_details',
-        return_value=cards,
-    )
-    mocker.patch(
-        'sethlans_worker_agent.system_monitor.detect_gpu_devices',
-        return_value=sorted({c['type'] for c in cards}),
-    )
-    mocker.patch('sethlans_worker_agent.config.FORCE_GPU_INDEX', None)
+    """Generate the GPU render script for ``cards`` (see ``reservation_for``)."""
     return render_script.generate_render_config_script(
         238, 'CYCLES', 'GPU', render_settings or {},
-        gpu_index_override=gpu_index,
+        reservation=reservation_for(cards, gpu_index),
     )
 
 

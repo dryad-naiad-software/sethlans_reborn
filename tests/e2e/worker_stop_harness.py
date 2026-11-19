@@ -10,8 +10,8 @@ its web UI control endpoint, or killed) and started again with the
 same data directory, so the same identity. The worker's web UI is
 enabled on free loopback ports so the test can ask for a graceful
 shutdown on every platform (``POST /api/control/shutdown``, the
-dashboard's Shutdown button). The worker reports no GPUs
-(``SETHLANS_FORCE_CPU_ONLY``) and every job renders on the CPU.
+dashboard's Shutdown button). The worker uses no graphics card
+(``SETHLANS_COMPUTE_METHOD=cpu``) and every job renders on the CPU.
 
 The base class name does not start with ``Test`` so pytest does not
 collect it on its own.
@@ -150,7 +150,7 @@ class WorkerStopHarness:
             "SETHLANS_WORKER_CADDY_PUBLIC_TLS_PORT": str(ui_port),
             "SETHLANS_WORKER_CADDY_LOOPBACK_PORT": str(find_free_port()),
             "SETHLANS_WORKER_WAITRESS_UPSTREAM_PORT": str(cls.ui_upstream_port),
-            "SETHLANS_FORCE_CPU_ONLY": "true",
+            "SETHLANS_COMPUTE_METHOD": "cpu",
         })
         cls.output_dir = resolve_worker_config_path(worker_data_dir).parent / "output"
 

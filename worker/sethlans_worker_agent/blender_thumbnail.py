@@ -91,7 +91,7 @@ def _build_thumbnail_output_pattern(resolved_output_pattern):
 
 def render_exr_hdr_thumbnail(
     job_data, blender_path, blend_file_path,
-    start_frame, resolved_output_pattern, assigned_gpu_index, stop_event=None
+    start_frame, resolved_output_pattern, reservation, stop_event=None
 ):
     """
     Execute a low-resolution PNG thumbnail render pass for EXR/HDR jobs.
@@ -105,7 +105,8 @@ def render_exr_hdr_thumbnail(
         blend_file_path: Path to the .blend file.
         start_frame: The frame number to render.
         resolved_output_pattern: The primary render output pattern.
-        assigned_gpu_index: GPU index for device isolation, or None.
+        reservation: The job's capacity.SlotReservation, or None. Its
+            ``device_used`` and cards decide the device, as for the render.
         stop_event: The worker's shutdown event; when it is set during the
             pass, the thumbnail's process tree is stopped (#247).
 
@@ -137,8 +138,7 @@ def render_exr_hdr_thumbnail(
         # GPU configuration since --factory-startup resets preferences.
         script_content = generate_render_config_script(
             job_id, render_engine, render_device, thumb_settings,
-            gpu_index_override=assigned_gpu_index,
-            is_cpu_fallback=False
+            reservation=reservation,
         )
 
         os.makedirs(config.WORKER_TEMP_DIR, exist_ok=True)

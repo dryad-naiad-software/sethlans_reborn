@@ -9,12 +9,12 @@ here so ``slots.py`` stays under the 300-line limit. ``WorkerCapacity``
 exposes them as ``reserve_exclusive``, ``has_no_reservations`` and
 ``has_exclusive_reservation``.
 
-An exclusive reservation marks, under ``_lock``, exactly the GPU keys
+An exclusive reservation marks, under ``_lock``, exactly the card keys
 ``_reserve_gpu_locked`` would assign in the current mode until none is
-free (split: ``0..startup_gpu_count-1``; combined: the sentinel key 0),
-plus the CPU slot when the profile has one. ``is_full()`` and
-``free_device_prefs()`` therefore report full in every mode, and the
-existing ``release_slot(job_id)`` frees everything.
+free (every card in use, in both modes), plus the CPU slot when the
+profile has one. ``is_full()`` and ``free_device_prefs()`` therefore
+report full in every mode, and the existing ``release_slot(job_id)``
+frees everything.
 """
 import logging
 from typing import TYPE_CHECKING, List, Optional
@@ -37,20 +37,16 @@ def reserve_exclusive(
     """Reserve every slot for ``job_id`` atomically, or return None.
 
     Succeeds only when no slot holds any reservation. Returns None when
-    the profile has no GPU slot (Unreal needs a GPU), and in forced-index
-    mode (``SETHLANS_FORCE_GPU_INDEX``): the host's other GPUs belong to
-    sibling worker processes, so "whole worker" is not "whole machine"
-    (Dom N-4, D10f; defense in depth for FR-WD-7). The reservation has
-    ``device_used='GPU'`` and ``gpu_indices=[]``, so ``primary_gpu_index``
-    is None: the marked keys live only in ``_gpu_assignments``.
+    the profile has no GPU slot (Unreal needs a GPU). The profile is read
+    under the lock. The reservation has ``device_used='GPU'`` and no
+    ``card_keys``: the marked keys live only in ``_gpu_assignments``, and
+    it carries no Blender cards.
     """
-    profile = capacity._profile
-    if profile.gpu_slot_count == 0 or profile.force_gpu_index is not None:
-        return None
     with capacity._lock:
-        if _holds_any_locked(capacity):
+        profile = capacity._profile
+        if profile.gpu_slot_count == 0 or _holds_any_locked(capacity):
             return None
-        marked: List[int] = []
+        marked: List[str] = []
         while capacity._reserve_gpu_locked(job_id) is not None:
             marked = [k for k, v in capacity._gpu_assignments.items() if v == job_id]
         if not marked:
@@ -62,7 +58,7 @@ def reserve_exclusive(
         "Reserved the whole machine for job %s (gpu keys=%s, cpu=%s).",
         job_id, sorted(marked), profile.cpu_slot_count > 0,
     )
-    return SlotReservation(job_id=job_id, device_used='GPU', gpu_indices=[])
+    return SlotReservation(job_id=job_id, device_used='GPU')
 
 
 def has_no_reservations(capacity: 'WorkerCapacity') -> bool:

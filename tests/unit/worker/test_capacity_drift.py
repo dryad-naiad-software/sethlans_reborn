@@ -35,6 +35,7 @@ from sethlans_worker_agent.capacity import (  # noqa: E402
     WorkerCapacity,
     drift as drift_module,
 )
+from tests.unit.worker.executors._fakes import fake_cards  # noqa: E402
 
 RTX = {'index': 0, 'name': 'RTX', 'type': 'OPTIX', 'id': 'CUDA_RTX_0000:01:00_OptiX'}
 AMD = {'index': 1, 'name': 'AMD', 'type': 'HIP', 'id': 'HIP_AMD_0000:03:00'}
@@ -49,7 +50,7 @@ def _profile(startup_gpu_count=2):
         cpu_slot_count=1,
         cpu_thread_ceiling=15,
         cpu_threads_effective=15,
-        startup_gpu_count=startup_gpu_count,
+        cards=fake_cards(startup_gpu_count),
         gpu_mode='split',
     )
 

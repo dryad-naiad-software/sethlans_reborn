@@ -32,7 +32,9 @@ from sethlans_worker_agent import api_handler, config
 from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent import executors, job_claim, job_resources, job_selection
 from sethlans_worker_agent import system_monitor, unreal_bridge
+from sethlans_worker_agent.cards import in_use as cards_in_use
 from sethlans_worker_agent.cards import startup_log as cards_startup_log
+from sethlans_worker_agent.cards import store as cards_store
 from sethlans_worker_agent.job_lifecycle import process_claimed_job
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
@@ -55,33 +57,27 @@ _last_drift_check_ts: float = 0.0
 
 
 def init_capacity() -> capacity_module.WorkerCapacity:
-    """Build the module-global WorkerCapacity from current hardware."""
-    global _capacity
-    gpus = system_monitor.get_gpu_device_details()
-    cards_startup_log.log_once_at_start()  # log the OS/Blender card list once; information only
-    cpu_cores = system_monitor.get_cpu_thread_count()
-    force_gpu_index: Optional[int] = None
-    if config.FORCE_GPU_INDEX is not None:
-        try:
-            force_gpu_index = int(config.FORCE_GPU_INDEX)
-        except (ValueError, TypeError):
-            logger.error(
-                "Invalid SETHLANS_FORCE_GPU_INDEX '%s'; ignoring.",
-                config.FORCE_GPU_INDEX,
-            )
+    """Build the module-global WorkerCapacity from the saved card choice (FR-CL-2).
 
+    The Blender detection fills its cache first; the cards in use are the
+    ticked cards found again in a fresh OS probe joined with that list
+    (cards.in_use). With method ``cpu`` no card is probed or used.
+    """
+    global _capacity
+    system_monitor.get_gpu_device_details()
+    cards_startup_log.log_once_at_start()  # log the OS/Blender card list once
+    section = cards_store.snapshot()
+    selection = cards_in_use.resolve(section)
     profile = capacity_module.compute_capacity_profile(
-        detected_gpu_count=len(gpus),
-        cpu_cores=cpu_cores,
-        force_cpu_only=config.FORCE_CPU_ONLY,
-        force_gpu_only=config.FORCE_GPU_ONLY,
-        force_gpu_index=force_gpu_index,
-        gpu_mode=config.GPU_MODE,
+        method=section.method,
+        gpu_mode=section.gpu_mode,
+        cards=selection.cards,
+        cpu_cores=system_monitor.get_cpu_thread_count(),
         cpu_threads_config=config.CPU_THREADS,
+        ignored=selection.ignored,
+        problem=selection.problem,
     )
-    capacity_module.log_capacity_profile(
-        profile, len(gpus), config.FORCE_CPU_ONLY, config.FORCE_GPU_ONLY,
-    )
+    capacity_module.log_capacity_profile(profile)
     _capacity = capacity_module.WorkerCapacity(profile)
     return _capacity
 

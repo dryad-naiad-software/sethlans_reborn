@@ -297,11 +297,11 @@ class TestRenderExrHdrThumbnail:
             str(tmp_path / 'scene.blend'),
             1,
             str(tmp_path / 'output' / 'render_####.exr'),
-            2,  # GPU index
+            'slot',  # the job's reservation
         )
-        # Verify generate_render_config_script was called with gpu_index
+        # Verify generate_render_config_script was called with the reservation
         call_kwargs = mock_gen.call_args
-        assert call_kwargs[1]['gpu_index_override'] == 2
+        assert call_kwargs[1]['reservation'] == 'slot'
 
     def test_exception_returns_none(self, mocker, tmp_path):
         """Any exception in thumbnail pass returns None."""

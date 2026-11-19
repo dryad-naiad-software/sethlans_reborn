@@ -51,14 +51,14 @@ def _record_claim(job: Dict[str, Any], selection, slot) -> None:
     """Attach the reservations to the job and register it as active."""
     from sethlans_worker_agent import job_processor
     job_id = job.get('id')
+    # The reservation carries its own copy of the cards and device_used (FR-CB-1).
     job['_reservation'] = slot
     job['_renderer_reservation'] = selection.renderer_reservation
-    job['assigned_gpu_index'] = slot.primary_gpu_index
     entry = {
         'job_id': job_id, 'name': job.get('name', 'Unnamed Job'),
         'render_engine': job.get('render_engine', ''),
         'render_device': job.get('render_device'),
-        'gpu_index': slot.primary_gpu_index,
+        'gpu_cards': ', '.join(slot.card_keys) or None,
         'device_used': slot.device_used,
         'start_time': datetime.datetime.now(
             datetime.timezone.utc).isoformat(),
