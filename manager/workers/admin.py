@@ -22,6 +22,9 @@ class WorkerAdmin(admin.ModelAdmin):
     list_filter = ('os', 'is_active')
     search_fields = ('hostname', 'ip_address')
     ordering = ('hostname',)
+    # The card report is self-reported and the dismissals are written only
+    # under the row lock by the dismiss action (worker card selection D24).
+    readonly_fields = ('card_status', 'card_alert_dismissals')
 
 
 @admin.register(Job)

@@ -32,6 +32,8 @@ import re
 # Response keys the Unreal foundation adds, per serializer kind
 # (FR-MR-10; FR-RT-8 for the worker and heartbeat response).
 # TiledJob and Animation gain only the nested Job/Asset/Project keys.
+# The worker and heartbeat response also gain the graphics card keys
+# (worker card selection FR-CR-4, FR-CR-7).
 NEW_KEYS_BY_KIND = {
     'project': frozenset({
         'renderer', 'engine_build', 'unreal_cvar_overrides', 'unreal_measurement',
@@ -44,7 +46,10 @@ NEW_KEYS_BY_KIND = {
         'renderer', 'engine_build', 'routing_note', 'unreal_kind',
         'unreal_measured_peak_mb',
     }),
-    'worker': frozenset({'unreal_capabilities', 'gpu_memory'}),
+    'worker': frozenset({
+        'unreal_capabilities', 'gpu_memory',
+        'card_status', 'card_alert_dismissals', 'dismissed_card_alerts',
+    }),
 }
 NEW_KEY_NAMES = frozenset().union(*NEW_KEYS_BY_KIND.values())
 

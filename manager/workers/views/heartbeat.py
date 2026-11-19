@@ -40,7 +40,10 @@ from ..services.sentinel import is_setup_complete
 # Module import, attributes read at call time: ``worker_reconcile`` imports
 # ``views.stuck_jobs``, so a ``from`` import here would be an import cycle.
 from ..services import worker_reconcile
+from . import heartbeat_card_sync
+from .card_actions import WorkerCardActionsMixin
 from .heartbeat_auth import bind_heartbeat_caller
+from .heartbeat_cards import apply_card_report
 from .heartbeat_schema import WorkerHeartbeatResponseSerializer
 from .heartbeat_unreal import (
     _validate_active_job_ids, _validate_boot_id, apply_unreal_heartbeat,
@@ -109,6 +112,7 @@ def _reset_setup_complete_cache() -> None:
 class WorkerHeartbeatViewSet(
     WorkerYieldActionsMixin,
     WorkerTokenActionsMixin,
+    WorkerCardActionsMixin,
     viewsets.ViewSet,
 ):
     """Worker heartbeats and admin token management.
@@ -172,6 +176,7 @@ class WorkerHeartbeatViewSet(
                 {"error": "Worker restart reconciliation failed; retry registration."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+        result.update(heartbeat_card_sync.sync(worker, request.data))  # after the handler's save (D24)
         # Append required Blender versions to every heartbeat response
         result['required_blender_versions'] = list(
             SupportedBlenderVersion.objects.values(
@@ -217,7 +222,7 @@ class WorkerHeartbeatViewSet(
             'ip_address', 'os', 'available_tools', 'last_seen',
             'is_active', 'ui_url', 'cpu_name', 'gpu_name', 'status',
             'ui_cert_fingerprint',
-        ] + apply_unreal_registration(worker, request.data))
+        ] + apply_unreal_registration(worker, request.data) + apply_card_report(worker, request.data))
         boot_id = _validate_boot_id(request.data.get('worker_boot_id'))
         if boot_id is not None:
             worker_reconcile.reconcile_worker_restart(worker, boot_id)
@@ -276,6 +281,7 @@ class WorkerHeartbeatViewSet(
                 )
 
         update_fields.extend(apply_unreal_heartbeat(worker, request.data))
+        update_fields.extend(apply_card_report(worker, request.data))
         worker.save(update_fields=update_fields)
         logger.debug("Worker heartbeat. Hostname: %s", hostname)
         requeue_stuck_jobs()

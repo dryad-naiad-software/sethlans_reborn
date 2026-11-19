@@ -171,6 +171,21 @@ def _no_setup_blender_device_check(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_card_probe_in_heartbeats(monkeypatch):
+    """Registration and heartbeats build their ``cards`` report from an empty probe (no real OS probe).
+
+    Same as the unit-suite fixture.
+    """
+    from sethlans_worker_agent.cards import choice, payload
+    from sethlans_worker_agent.cards.inventory import Inventory
+    from sethlans_worker_agent.web_ui import cards_view
+    monkeypatch.setattr(payload, '_probe_for_report', lambda: cards_view.Probe(Inventory(), None))
+    choice.reset_for_tests()
+    yield
+    choice.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _reset_web_ui_auth():
     """Reset the web_ui auth module's cached state between tests."""
     from sethlans_worker_agent.web_ui import auth

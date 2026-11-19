@@ -4,12 +4,11 @@
 """
 The only writer of the ``compute`` section of ``config.json`` (FR-CC-4).
 
-Every read-check-write holds ``_section_lock`` and writes once through
-``config_store.set_many``. Lock order: ``_section_lock``, then ``_memory_lock``
-(a leaf) or ``config_store._config_lock``, then the file lock;
-``WorkerCapacity._lock`` is never taken under ``_section_lock`` (callers
-request a rebuild after a write returned). Writers read strictly and refuse
-on an unreadable file with ``config_store.ConfigReadError``, an ``OSError`` (C-20).
+Every read-check-write holds ``_section_lock`` and writes once through ``config_store.set_many``. Lock order:
+``_section_lock``, then ``_memory_lock`` (a leaf) or ``config_store._config_lock``, then the file lock;
+``WorkerCapacity._lock`` is never taken under ``_section_lock`` (callers request a rebuild after a write
+returned). Writers read strictly and refuse on an unreadable file with ``config_store.ConfigReadError``, an
+``OSError`` (C-20).
 
 Alerts (FR-CK-5, C5, C-21): an alert whose write failed is kept in memory for
 the process and the error is raised. Every read (``snapshot`` and each writer,
@@ -25,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Iterable, List, Optional
 
 from sethlans_worker_agent import config_compute, config_store
+from sethlans_worker_agent.cards.alert_records import ALERT_KINDS
 from sethlans_worker_agent.cards.identity import clean_name, is_card_key, key_sort_value
 from sethlans_worker_agent.cards.in_use import COMBINE_TEXT, one_family, record_of
 from sethlans_worker_agent.cards.matching import BLENDER_HOLDING_KINDS
@@ -105,7 +105,7 @@ def add_alert(kind: str, key: str, name: str, detail: str) -> bool:
 
     ``ValueError`` for an unknown kind or key; a failed read or write keeps the alert in memory and raises.
     """
-    if kind not in config_compute.ALERT_KINDS or not is_card_key(key):
+    if kind not in ALERT_KINDS or not is_card_key(key):
         raise ValueError(f'not a card alert: {kind!r} for {key!r}')
     alert = {'id': uuid.uuid4().hex, 'kind': kind, 'key': key, 'name': clean_name(name) or key,
              'detail': printable_detail(detail), 'raised_at': datetime.now(timezone.utc).isoformat(timespec='seconds')}

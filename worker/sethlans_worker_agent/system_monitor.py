@@ -21,6 +21,8 @@ from sethlans_worker_agent import config
 from sethlans_worker_agent import api_handler
 from sethlans_worker_agent import boot_id, unreal_bridge
 from sethlans_worker_agent import version_sync
+from sethlans_worker_agent.cards import choice as card_choice
+from sethlans_worker_agent.cards import payload as card_payload
 
 # Re-export hardware detection functions for backward compatibility
 from sethlans_worker_agent.hardware_detection import (  # noqa: F401
@@ -155,6 +157,7 @@ def register_with_manager():
     payload['status'] = 'IDLE'
     payload['worker_boot_id'] = boot_id.BOOT_ID
     _add_unreal_payload(payload)
+    card_payload.add_to(payload)  # FR-CR-1; display data only, never raises
 
     logger.info("Using existing API token for registration heartbeat.")
     response_data = api_handler.send_authenticated_heartbeat(payload)
@@ -170,6 +173,7 @@ def register_with_manager():
     logger.info(f"Heartbeat successful. Worker is registered as ID: {WORKER_ID}")
 
     _update_manager_setup_complete(response_data)
+    card_choice.apply_manager_dismissals(response_data)  # FR-CR-6, from this authenticated answer only
 
     # Download all required versions before entering the poll loop (P2-F4).
     if response_data:
@@ -221,9 +225,11 @@ def send_heartbeat(is_busy=False, active_jobs=None):
         payload['schedule'] = schedule_cfg
     _add_unreal_payload(payload)
     _add_active_job_ids(payload)
+    card_payload.add_to(payload)
 
     response_data = api_handler.send_authenticated_heartbeat(payload)
     if response_data:
+        card_choice.apply_manager_dismissals(response_data)
         ready = _process_heartbeat_versions(
             response_data, is_busy=is_busy,
             active_jobs=active_jobs or {}

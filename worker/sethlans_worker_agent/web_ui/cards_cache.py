@@ -12,7 +12,9 @@ to back. A cached probe is also dropped when the Blender device cache it was
 joined with has changed (the wizard's device check finished, or the agent
 adopted a new detection), so the page never shows "not checked" after the
 check is done. ``fresh_probe()`` always probes (the POSTs) and refreshes the
-cache.
+cache. ``report_probe()`` serves the heartbeat's card report from the same
+cache with a longer age (one heartbeat interval), so the heartbeat probes at
+most once per interval.
 
 ``_probe_lock`` is a leaf: nothing else is taken while it is held except
 what the probe itself takes (none of the worker's locks).
@@ -62,6 +64,26 @@ def cached_probe() -> cards_view.Probe:
             fresh = finished >= arrived or time.monotonic() - finished <= CACHE_SECONDS
             if fresh and _same_token(token, _blender_token()):
                 return probe
+        return _probe_locked()
+
+
+def report_probe(max_age: float, probe_allowed: bool = True) -> Optional[cards_view.Probe]:
+    """The probe for the heartbeat's card report (FR-CR-1): the cached one, else a new one.
+
+    The cached probe is served while it is at most ``max_age`` old and was
+    joined with the current Blender device cache. With ``probe_allowed``
+    false (an Unreal render holds the machine, FR-CK-1) it is served
+    whatever its age, and no probe ever runs: with nothing cached the answer
+    is ``None`` and the heartbeat leaves its card report out (the manager
+    keeps the last one).
+    """
+    with _probe_lock:
+        if _cache is not None:
+            finished, token, probe = _cache
+            if not probe_allowed or (time.monotonic() - finished <= max_age and _same_token(token, _blender_token())):
+                return probe
+        if not probe_allowed:
+            return None
         return _probe_locked()
 
 

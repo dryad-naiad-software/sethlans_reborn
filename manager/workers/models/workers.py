@@ -104,6 +104,24 @@ class Worker(models.Model):
             "manager -- for visibility and the routing note only."
         ),
     )
+    card_status = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Self-reported graphics card report (choice, card states, alerts, "
+            "notices, warnings). Self-reported, not verified by the manager -- "
+            "for display only."
+        ),
+    )
+    card_alert_dismissals = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Ids of card alerts dismissed on the manager, delivered to the "
+            "worker in each heartbeat answer. Written by admins through the "
+            "dismiss action, only under the row lock."
+        ),
+    )
     boot_id = models.CharField(
         max_length=32,
         blank=True,

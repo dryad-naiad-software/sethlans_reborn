@@ -15,23 +15,21 @@ An unreadable ``config.json`` (C-20) gives defaults marked ``read_failed`` (chec
 import dataclasses
 import logging
 import os
-import re
 from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_store
+from sethlans_worker_agent.cards.alert_records import distinct_alerts, valid_alert
 from sethlans_worker_agent.cards.identity import is_card_key, parse_key_list
 from sethlans_worker_agent.cards.os_probe import log_once
 
 logger = logging.getLogger(__name__)
 
 METHODS, GPU_MODES = ('cpu', 'gpu', 'cpu_gpu'), ('split', 'combined')
-ALERT_KINDS = ('card_lost', 'card_changed', 'card_lost_blender', 'adapter_mismatch')
 MAX_ENTRIES, MAX_REVISION = 16, 2 ** 31 - 1
 ENV_METHOD = 'SETHLANS_COMPUTE_METHOD'
 ENV_GPU_MODE = 'SETHLANS_COMPUTE_GPU_MODE'
 ENV_CARDS = 'SETHLANS_COMPUTE_CARDS'
 ENV_ALLOW = 'SETHLANS_COMPUTE_ALLOW_MANAGER_CHANGES'
-_ALERT_ID = re.compile(r'[0-9a-f]{32}')
 _ALLOW_KEY = 'compute.allow_manager_changes'
 
 
@@ -69,11 +67,6 @@ def _valid_record(record) -> bool:
     return ids_ok and revision_ok and isinstance(record.get('name', ''), str)
 
 
-def _valid_alert(alert) -> bool:
-    return (isinstance(alert, dict) and alert.get('kind') in ALERT_KINDS and is_card_key(alert.get('key'))
-            and isinstance(alert.get('id'), str) and _ALERT_ID.fullmatch(alert['id']) is not None)
-
-
 def _list_of(raw, name, check, invalid) -> tuple:
     value = raw.get(name, [])
     if not isinstance(value, list) or len(value) > MAX_ENTRIES or not all(check(item) for item in value):
@@ -109,7 +102,7 @@ def _from_file(raw: dict, invalid: list) -> dict:
             'gpu_mode': _choice(raw.get('gpu_mode', 'split'), GPU_MODES, 'compute.gpu_mode', invalid),
             'cards': cards, 'known': _list_of(raw, 'known', is_card_key, invalid),
             'revision': revision, 'allow_manager_changes': allow is True, 'last_request': last_request,
-            'alerts': _list_of(raw, 'alerts', _valid_alert, invalid)}
+            'alerts': distinct_alerts(_list_of(raw, 'alerts', valid_alert, invalid), logger)}
 
 
 def _apply_env(values: dict, environ, invalid: list) -> dict:

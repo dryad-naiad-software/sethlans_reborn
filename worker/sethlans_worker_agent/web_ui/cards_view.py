@@ -106,7 +106,8 @@ def _missing_view(record: dict, state: Optional[str]) -> dict:
     """A ticked card the fresh inventory does not list (``lost``, or ``unknown`` after a failed OS probe)."""
     key = record['key']
     return {'key': key, 'address': address_of(key), 'pci': short_address(key),
-            'name': clean_name(str(record.get('name') or '')) or key, 'state': state}
+            'name': clean_name(str(record.get('name') or '')) or key, 'state': state,
+            'vendor_id': record.get('vendor_id'), 'device_id': record.get('device_id')}  # the saved ids (FR-CR-1)
 
 
 def _alert_view(alert: dict) -> dict:

@@ -145,7 +145,8 @@ class TestStates:
         assert [(c['key'], c['state']) for c in answer['cards']] == [('pci:0000:03:00.0', 'unticked'),
                                                                      (KEY_XT_23, 'held')]
         assert answer['missing'] == [{'key': KEY_RTX_A, 'address': '0000:01:00.0', 'pci': '01:00.0',
-                                      'name': 'NVIDIA GeForce RTX 4080', 'state': 'lost'}]
+                                      'name': 'NVIDIA GeForce RTX 4080', 'state': 'lost',
+                                      'vendor_id': 0x10DE, 'device_id': 0x2704}]
         assert answer['alerts'] == [self.ALERT]
         assert answer['notices'] == [{'kind': 'card_new', 'key': 'pci:0000:03:00.0', 'name': 'AMD Radeon RX 7900 XT'},
                                      {'kind': 'card_new', 'key': KEY_XT_23, 'name': 'AMD Radeon RX 7900 XT'}]

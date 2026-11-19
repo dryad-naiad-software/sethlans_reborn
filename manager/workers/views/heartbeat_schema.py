@@ -71,6 +71,15 @@ class WorkerHeartbeatResponseSerializer(WorkerSerializer):
         ),
     )
 
+    dismissed_card_alerts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Ids of card alerts an admin dismissed (worker card selection "
+            "FR-CR-4).  The worker removes these alerts; an unknown id is "
+            "ignored.  Taken only from this authenticated answer."
+        ),
+    )
+
     class Meta(WorkerSerializer.Meta):
         # Re-declare fields so the new entries appear in the schema in
         # addition to every WorkerSerializer field.  We don't mutate
@@ -79,4 +88,5 @@ class WorkerHeartbeatResponseSerializer(WorkerSerializer):
         fields = list(WorkerSerializer.Meta.fields) + [
             "required_blender_versions",
             "manager_setup_complete",
+            "dismissed_card_alerts",
         ]

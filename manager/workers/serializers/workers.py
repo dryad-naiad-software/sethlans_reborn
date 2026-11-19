@@ -13,6 +13,7 @@ from rest_framework import serializers
 
 from ..constants import WORKER_STALENESS_SECONDS
 from ..models import Worker
+from .worker_card_schemas import CardStatusField, card_alert_dismissals_field
 
 # OpenAPI shapes of the self-reported JSON fields (spec FR-RT-7, FR-RT-16).
 # Every key is optional: a worker that never reported stores {}, and
@@ -67,6 +68,8 @@ class WorkerSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
     unreal_capabilities = UnrealCapabilitiesField(read_only=True)
     gpu_memory = GpuMemoryField(read_only=True)
+    card_status = CardStatusField()
+    card_alert_dismissals = card_alert_dismissals_field()
 
     class Meta:
         model = Worker
@@ -76,11 +79,13 @@ class WorkerSerializer(serializers.ModelSerializer):
             'has_token', 'cpu_name', 'gpu_name', 'status',
             'schedule_config', 'ui_cert_fingerprint',
             'unreal_capabilities', 'gpu_memory',
+            'card_status', 'card_alert_dismissals',
         ]
         read_only_fields = [
             'last_seen', 'last_heartbeat', 'has_token',
             'schedule_config', 'ui_cert_fingerprint',
             'unreal_capabilities', 'gpu_memory',
+            'card_status', 'card_alert_dismissals',
         ]
 
     def get_status(self, obj):

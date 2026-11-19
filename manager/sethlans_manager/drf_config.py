@@ -27,6 +27,14 @@ SPECTACULAR_SETTINGS = {
     'ENUM_NAME_OVERRIDES': {
         # ``POST /api/jobs/{id}/release/`` body (Unreal foundation FR-RT-11).
         'JobReleaseReasonEnum': 'workers.views.job_release_actions.RELEASE_REASONS',
+        # The worker's graphics card report (worker card selection FR-CR-7),
+        # pinned so a later field with a similar name cannot rename them.
+        'WorkerCardMethodEnum': 'workers.serializers.worker_card_schemas.CARD_METHODS',
+        'WorkerCardGpuModeEnum': 'workers.serializers.worker_card_schemas.CARD_GPU_MODES',
+        'WorkerCardStateEnum': 'workers.serializers.worker_card_schemas.CARD_STATES',
+        'WorkerCardBackendEnum': 'workers.serializers.worker_card_schemas.CARD_BACKENDS',
+        'WorkerCardAlertKindEnum': 'workers.serializers.worker_card_schemas.CARD_ALERT_KINDS',
+        'WorkerCardNoticeKindEnum': 'workers.serializers.worker_card_schemas.CARD_NOTICE_KINDS',
     },
     'SECURITY': [
         {'sessionAuth': []},
