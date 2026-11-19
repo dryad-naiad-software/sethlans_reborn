@@ -75,11 +75,18 @@ class TestParse:
     def test_macos_cards_have_no_revision(self):
         assert os_probe_macos.parse(_bytes(APPLE_SILICON))[0].revision_id is None
 
-    def test_deeply_nested_json_is_none_not_a_crash(self):
+    def test_deeply_nested_json_does_not_raise_and_lists_no_card(self):
         depth = 100_000
         data = b'{"SPDisplaysDataType": ' + b'[' * depth + b']' * depth + b'}'
 
-        assert os_probe_macos.parse(data) is None
+        # Whether the JSON decoder hits its recursion limit depends on the platform's build.
+        assert os_probe_macos.parse(data) in (None, ())
+
+    def test_recursion_error_from_the_decoder_is_none(self, mocker):
+        loads = mocker.patch.object(os_probe_macos.json, 'loads', side_effect=RecursionError('too deep'))
+
+        assert os_probe_macos.parse(_bytes(APPLE_SILICON)) is None
+        loads.assert_called_once()
 
     def test_empty_list_is_empty_not_none(self):
         assert os_probe_macos.parse(b'{"SPDisplaysDataType": []}') == ()

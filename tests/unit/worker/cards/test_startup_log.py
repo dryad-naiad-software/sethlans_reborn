@@ -6,6 +6,7 @@ Unit tests for ``cards.startup_log``: the joined card list is logged once,
 never raises, never starts Blender, and is called from ``init_capacity``.
 """
 import logging
+import os
 
 import pytest
 
@@ -15,7 +16,11 @@ from sethlans_worker_agent.cards.inventory import Card, Inventory
 from tests.unit.worker.cards._card_ids import RX_7900_XT_03, records, two_xt_blender_cards, two_xt_os_cards
 
 LOGGER = 'sethlans_worker_agent.cards.startup_log'
-BLENDER_EXE = '/opt/sethlans/blender-4.5.3-linux-x64/blender'
+# Native paths, as the product caches them: a managed Blender folder, and Blenders outside one.
+BLENDER_EXE = os.path.join(os.sep, 'opt', 'sethlans', 'blender-4.5.3-linux-x64', 'blender')
+BLENDER_501_EXE = os.path.join(os.sep, 'Sethlans', 'blender-5.0.1-windows-x64', 'blender.exe')
+UNMANAGED_EXE = os.path.join(os.sep, 'usr', 'bin', 'blender')
+UNMANAGED_EXE_2 = os.path.join(os.sep, 'Program Files', 'Blender', 'blender.exe')
 
 
 @pytest.fixture
@@ -61,7 +66,7 @@ class TestCachedBlenderList:
             mock.assert_not_called()
 
     def test_empty_cache_is_an_empty_list_not_none(self, monkeypatch):
-        _cache(monkeypatch, [], 'C:\\Sethlans\\blender-5.0.1-windows-x64\\blender.exe')
+        _cache(monkeypatch, [], BLENDER_501_EXE)
 
         assert startup_log.cached_blender_list() == ([], '5.0.1')
 
@@ -154,8 +159,8 @@ class TestLogOnceAtStart:
         ('list', BLENDER_EXE, 'Blender 4.5.3'),                       # detected by a managed Blender
         (None, None, 'no Blender detection yet'),                      # not installed yet
         ([], None, 'the Blender device check failed'),                 # what a failed device check leaves
-        ('list', '/usr/bin/blender', 'Blender version unknown'),       # outside the managed folders
-        ([], 'C:\\Program Files\\Blender\\blender.exe', 'Blender version unknown'),
+        ('list', UNMANAGED_EXE, 'Blender version unknown'),            # outside the managed folders
+        ([], UNMANAGED_EXE_2, 'Blender version unknown'),
     ])
     def test_header_names_the_blender_state(self, mocker, monkeypatch, caplog, pc_platform, cache, exe, expected):
         mocker.patch.object(os_probe, 'probe', return_value=two_xt_os_cards())
