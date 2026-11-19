@@ -13,7 +13,10 @@ from rest_framework import serializers
 
 from ..constants import WORKER_STALENESS_SECONDS
 from ..models import Worker
-from .worker_card_schemas import CardStatusField, card_alert_dismissals_field
+from .worker_card_schemas import (
+    CardChoiceOutcomeField, CardChoiceRequestField, CardStatusField,
+    card_alert_dismissals_field,
+)
 
 # OpenAPI shapes of the self-reported JSON fields (spec FR-RT-7, FR-RT-16).
 # Every key is optional: a worker that never reported stores {}, and
@@ -59,7 +62,9 @@ class WorkerSerializer(serializers.ModelSerializer):
     """
     Serializer for the `Worker` model.
 
-    ``boot_id`` is deliberately not exposed (spec FR-RT-8, NF-8).
+    ``boot_id`` is deliberately not exposed (spec FR-RT-8, NF-8), nor is
+    ``card_choice_issued`` (worker card selection FR-CM-14, C-13): every
+    field here also reaches the worker in the heartbeat answer.
     """
     has_token = serializers.SerializerMethodField()
     last_heartbeat = serializers.DateTimeField(
@@ -70,6 +75,8 @@ class WorkerSerializer(serializers.ModelSerializer):
     gpu_memory = GpuMemoryField(read_only=True)
     card_status = CardStatusField()
     card_alert_dismissals = card_alert_dismissals_field()
+    card_choice_request = CardChoiceRequestField()
+    card_choice_outcome = CardChoiceOutcomeField()
 
     class Meta:
         model = Worker
@@ -80,12 +87,14 @@ class WorkerSerializer(serializers.ModelSerializer):
             'schedule_config', 'ui_cert_fingerprint',
             'unreal_capabilities', 'gpu_memory',
             'card_status', 'card_alert_dismissals',
+            'card_choice_request', 'card_choice_outcome',
         ]
         read_only_fields = [
             'last_seen', 'last_heartbeat', 'has_token',
             'schedule_config', 'ui_cert_fingerprint',
             'unreal_capabilities', 'gpu_memory',
             'card_status', 'card_alert_dismissals',
+            'card_choice_request', 'card_choice_outcome',
         ]
 
     def get_status(self, obj):

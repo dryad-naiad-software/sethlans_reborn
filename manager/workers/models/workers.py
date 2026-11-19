@@ -122,6 +122,34 @@ class Worker(models.Model):
             "dismiss action, only under the row lock."
         ),
     )
+    # Card choice from the manager (worker card selection FR-CM-9, D23,
+    # D24): written only under the row lock.  ``card_choice_issued`` is
+    # never exposed through the API, like ``boot_id``.
+    card_choice_request = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "The pending graphics card change for this worker, {} when none. "
+            "Written by admins through the card-choice action."
+        ),
+    )
+    card_choice_issued = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "The last 8 card changes issued to this worker (id, requested_by, "
+            "requested_at), newest last. Written by admins through the "
+            "card-choice action. Not exposed through the API."
+        ),
+    )
+    card_choice_outcome = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "The last accepted outcome of a card change. Self-reported by the "
+            "worker, not verified."
+        ),
+    )
     boot_id = models.CharField(
         max_length=32,
         blank=True,

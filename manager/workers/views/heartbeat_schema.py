@@ -20,6 +20,7 @@ from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
 
 from ..serializers import WorkerSerializer
+from ..serializers.worker_card_schemas import CardChoiceRequestField
 
 
 # Item shape for ``required_blender_versions`` — each entry advertises
@@ -77,6 +78,17 @@ class WorkerHeartbeatResponseSerializer(WorkerSerializer):
             "Ids of card alerts an admin dismissed (worker card selection "
             "FR-CR-4).  The worker removes these alerts; an unknown id is "
             "ignored.  Taken only from this authenticated answer."
+        ),
+    )
+
+    # Inherited from WorkerSerializer (so not re-added to ``fields``); in
+    # this answer it is the value after the heartbeat's outcome was
+    # processed (FR-CM-12, D3).
+    card_choice_request = CardChoiceRequestField(
+        help_text=(
+            "The pending graphics card change for this worker (worker card "
+            "selection FR-CM-12), null when none.  Carried in every answer "
+            "until the worker reports its outcome or an admin withdraws it."
         ),
     )
 

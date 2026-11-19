@@ -49,6 +49,7 @@ NEW_KEYS_BY_KIND = {
     'worker': frozenset({
         'unreal_capabilities', 'gpu_memory',
         'card_status', 'card_alert_dismissals', 'dismissed_card_alerts',
+        'card_choice_request', 'card_choice_outcome',
     }),
 }
 NEW_KEY_NAMES = frozenset().union(*NEW_KEYS_BY_KIND.values())

@@ -14,8 +14,11 @@ the action cannot invent an alert; knowing an id (the worker's card page
 is anonymous) is never permission.  The write happens under the row lock
 of D24.  Every non-2xx answer is ``{"detail": "<sentence>"}`` (R6).
 
-Chunk 11 adds the card-choice request and withdraw actions here
-(FR-CM-10, FR-CM-11), with their checks in ``services/card_choice.py``.
+``POST /api/heartbeat/{pk}/card-choice/`` sends a graphics card change
+and ``DELETE`` on the same path withdraws the pending one (FR-CM-10,
+FR-CM-11), with the same permission; the checks, the row lock and the log
+lines are in ``services/card_choice.py``.  The body is JSON only, so a
+form body is 415.
 """
 
 import logging
@@ -26,12 +29,17 @@ from django.db import transaction
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 
 from ..models import Worker
 from ..serializers.worker_card_schemas import (
-    DetailResponse, DismissCardAlertRequest, DismissCardAlertResponse,
+    CardChoiceBody, CardChoiceSendResponse, DetailResponse, DismissCardAlertRequest,
+    DismissCardAlertResponse,
 )
+# Module import, attributes read at call time: the service imports
+# ``views.heartbeat_cards``, so a ``from`` import here could be a cycle.
+from ..services import card_choice as choice_service
 from ..services.row_locks import lock_own_rows
 from .heartbeat_card_sync import alert_ids, pruned_dismissals
 from .heartbeat_cards import MAX_ENTRIES, is_alert_id
@@ -109,3 +117,30 @@ class WorkerCardActionsMixin:
             "card_status": worker.card_status or None,
             "card_alert_dismissals": list(worker.card_alert_dismissals),
         })
+
+    @extend_schema(
+        methods=['POST'], tags=['Management UI'], request=CardChoiceBody,
+        responses={202: CardChoiceSendResponse, **{code: DetailResponse for code in (
+            400, 401, 403, 404, 409, 411, 413, 415)}},
+    )
+    @extend_schema(
+        methods=['DELETE'], tags=['Management UI'], request=None,
+        responses={204: None, **{code: DetailResponse for code in (401, 403, 404, 409)}},
+    )
+    @action(
+        detail=True, methods=['post', 'delete'], url_path='card-choice',
+        permission_classes=ADMIN_ONLY, parser_classes=[JSONParser],
+    )
+    def card_choice(self, request, pk=None):
+        """Send (POST) or withdraw (DELETE) a graphics card change; the worker answers in a heartbeat."""
+        try:
+            if request.method == 'DELETE':
+                choice_service.withdraw(pk, request.user.pk)
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            pending, replaced = choice_service.send(pk, request)
+        except choice_service.Refused as refused:
+            return _detail(refused.status, refused.detail)
+        return Response(
+            {"card_choice_request": pending, "replaced": replaced},
+            status=status.HTTP_202_ACCEPTED,
+        )

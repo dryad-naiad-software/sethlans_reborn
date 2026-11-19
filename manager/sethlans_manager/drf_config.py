@@ -35,6 +35,8 @@ SPECTACULAR_SETTINGS = {
         'WorkerCardBackendEnum': 'workers.serializers.worker_card_schemas.CARD_BACKENDS',
         'WorkerCardAlertKindEnum': 'workers.serializers.worker_card_schemas.CARD_ALERT_KINDS',
         'WorkerCardNoticeKindEnum': 'workers.serializers.worker_card_schemas.CARD_NOTICE_KINDS',
+        'WorkerCardOutcomeResultEnum': 'workers.serializers.worker_card_schemas.CARD_OUTCOME_RESULTS',
+        'WorkerCardOutcomeCodeEnum': 'workers.serializers.worker_card_schemas.CARD_OUTCOME_CODES',
     },
     'SECURITY': [
         {'sessionAuth': []},

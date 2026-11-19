@@ -23,8 +23,24 @@ class WorkerAdmin(admin.ModelAdmin):
     search_fields = ('hostname', 'ip_address')
     ordering = ('hostname',)
     # The card report is self-reported and the dismissals are written only
-    # under the row lock by the dismiss action (worker card selection D24).
-    readonly_fields = ('card_status', 'card_alert_dismissals')
+    # under the row lock by the dismiss and card-choice actions (worker card
+    # selection D24).
+    readonly_fields = (
+        'card_status', 'card_alert_dismissals',
+        'card_choice_request', 'card_choice_issued', 'card_choice_outcome',
+    )
+
+    def save_model(self, request, obj, form, change):
+        """On a change, write only the edited fields (D24).
+
+        A full ``save()`` would write back the read-only card fields as the
+        form loaded them, without the row lock: it could restore a withdrawn
+        request, drop a newer one, or roll back the issued ids or dismissals.
+        """
+        if not change:
+            super().save_model(request, obj, form, change)
+        elif form.changed_data:
+            obj.save(update_fields=form.changed_data)
 
 
 @admin.register(Job)

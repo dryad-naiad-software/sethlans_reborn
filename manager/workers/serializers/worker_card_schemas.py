@@ -8,7 +8,10 @@ card selection FR-CR-1, FR-CR-5, FR-CR-7).
 Every inner key is optional (``required=False``): the stored value is
 whatever ``views.heartbeat_cards`` kept of a self-reported report, and an
 absent or invalid top-level value is left out.  ``card_status`` is
-``null`` when the worker never sent a usable report (D3, R3).
+``null`` when the worker never sent a usable report (D3, R3).  The card
+change from the manager (FR-CM-14) adds the pending request, the last
+outcome (each ``null`` when empty), the action's body and its 202 answer;
+the issued ids are never exposed.
 """
 
 from drf_spectacular.utils import extend_schema_field, inline_serializer
@@ -71,9 +74,8 @@ _CARD_STATUS_SCHEMA = inline_serializer('WorkerCardStatus', {
 }, required=False, allow_null=True)
 
 
-@extend_schema_field(_CARD_STATUS_SCHEMA)
-class CardStatusField(serializers.JSONField):
-    """Self-reported card report, not verified; ``null`` when empty (D3, R3)."""
+class NullWhenEmptyJSONField(serializers.JSONField):
+    """A read-only JSON value shown as ``null`` while the stored value is empty (D3)."""
 
     def __init__(self, **kwargs):
         kwargs.setdefault('read_only', True)
@@ -84,6 +86,11 @@ class CardStatusField(serializers.JSONField):
         return super().to_representation(value) if value else None
 
 
+@extend_schema_field(_CARD_STATUS_SCHEMA)
+class CardStatusField(NullWhenEmptyJSONField):
+    """Self-reported card report, not verified; ``null`` when empty (D3, R3)."""
+
+
 def card_alert_dismissals_field():
     """The read-only list of dismissed alert ids (written by the dismiss action)."""
     return serializers.ListField(
@@ -91,6 +98,75 @@ def card_alert_dismissals_field():
         help_text="Ids of card alerts dismissed by an admin, until the worker stops reporting them.",
     )
 
+
+# A card change from the manager (FR-CM-4, FR-CM-7, FR-CM-14).  The outcome
+# codes are the worker's FR-CM-5 set; ``applied`` exactly when ``result`` is.
+CARD_OUTCOME_RESULTS = ('applied', 'refused')
+CARD_OUTCOME_CODES = (
+    'applied', 'invalid', 'env_override', 'not_allowed', 'probe_failed',
+    'identity_mismatch', 'stale_revision', 'card_held', 'save_failed',
+)
+
+
+def _choice_card(name, required):
+    ids = {'required': required, 'allow_null': True, 'min_value': 0, 'max_value': 0xFFFF}
+    return inline_serializer(name, {
+        'key': serializers.CharField(required=required, help_text="Card key: pci:dddd:bb:dd.f or apple-gpu."),
+        'vendor_id': serializers.IntegerField(**ids),
+        'device_id': serializers.IntegerField(**ids),
+    })
+
+
+def _choice_fields(required, card):
+    return {
+        'method': serializers.ChoiceField(required=required, choices=CARD_METHODS),
+        'gpu_mode': serializers.ChoiceField(required=required, choices=CARD_GPU_MODES),
+        'cards': serializers.ListField(required=required, child=card, max_length=16),
+        'shown': serializers.ListField(required=required, child=serializers.CharField(), max_length=16),
+        'base_revision': serializers.IntegerField(required=required, min_value=0, max_value=2 ** 31 - 1),
+    }
+
+
+_CARD_CHOICE_REQUEST_SCHEMA = inline_serializer('WorkerCardChoiceRequest', {
+    **_choice_fields(False, _choice_card('WorkerCardChoiceCard', False)),
+    'id': serializers.CharField(required=False),
+    'requested_by': serializers.CharField(required=False, help_text='"user id=<pk>", never a username.'),
+    'requested_at': serializers.DateTimeField(required=False),
+}, required=False, allow_null=True)
+_CARD_CHOICE_OUTCOME_SCHEMA = inline_serializer('WorkerCardChoiceOutcome', {
+    'id': serializers.CharField(required=False),
+    'result': serializers.ChoiceField(required=False, choices=CARD_OUTCOME_RESULTS),
+    'code': serializers.ChoiceField(required=False, choices=CARD_OUTCOME_CODES),
+    'reason': serializers.CharField(required=False),
+    'revision': serializers.IntegerField(required=False),
+    'finished_at': serializers.DateTimeField(required=False),
+    'requested_by': serializers.CharField(required=False),
+    'requested_at': serializers.DateTimeField(required=False),
+}, required=False, allow_null=True)
+
+
+@extend_schema_field(_CARD_CHOICE_REQUEST_SCHEMA)
+class CardChoiceRequestField(NullWhenEmptyJSONField):
+    """The pending card change sent by an admin; ``null`` when none."""
+
+
+@extend_schema_field(_CARD_CHOICE_OUTCOME_SCHEMA)
+class CardChoiceOutcomeField(NullWhenEmptyJSONField):
+    """The worker's last accepted outcome of a card change, not verified; ``null`` when none."""
+
+
+CardChoiceBody = inline_serializer('CardChoiceBody', _choice_fields(True, _choice_card('CardChoiceBodyCard', True)))
+# The 202 answer always carries the new request, so this variant is not nullable.
+_SENT_REQUEST = inline_serializer('CardChoiceSentRequest', {
+    **_choice_fields(True, _choice_card('CardChoiceSentCard', True)),
+    'id': serializers.CharField(),
+    'requested_by': serializers.CharField(help_text='"user id=<pk>", never a username.'),
+    'requested_at': serializers.DateTimeField(),
+})
+CardChoiceSendResponse = inline_serializer('CardChoiceSendResponse', {
+    'card_choice_request': _SENT_REQUEST,
+    'replaced': serializers.CharField(allow_null=True, help_text="Id of the pending change this one replaced."),
+})
 
 DismissCardAlertRequest = inline_serializer('DismissCardAlertRequest', {
     'alert_id': serializers.CharField(help_text="Id of an alert the worker reported (32 hex)."),
