@@ -142,8 +142,9 @@ class TestRegistry:
         assert registered_ids() == []
 
     @pytest.mark.parametrize('job, registered', [(blender_job(31), [31]), (blender_job(32, renderer='BLENDER'), [32]),
-                                                 (unreal_job(33), [])], ids=['no-renderer', 'blender', 'unreal'])
-    def test_claim_registers_blender_jobs_only(self, job, registered):
+                                                 (unreal_job(33), [33])], ids=['no-renderer', 'blender', 'unreal'])
+    def test_claim_registers_every_job(self, job, registered):
+        """Unreal jobs get their own stop too (card selection C-24 m)."""
         selection = type('Selection', (), {'renderer_reservation': None, 'capacity_mode': 'shared'})()
         slot = type('Slot', (), {'card_keys': (), 'device_used': 'GPU'})()
         job_claim._record_claim(job, selection, slot)

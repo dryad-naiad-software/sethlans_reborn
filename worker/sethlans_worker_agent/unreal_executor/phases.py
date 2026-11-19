@@ -20,7 +20,11 @@ FR-UE-26, FR-UE-27; chunk 7 integration requirements 10, 11, 15).
 3. ``process_runner.run(spec, registry)`` with a **fresh**
    ``zen_port.LoopbackWatch`` as ``tick_check`` and
    ``phase_vram_sample(sampler)``;
-4. the post-exit reading; survivors raise ``SurvivorsLeft``; the loopback
+4. a warm-up or render whose log names another D3D12 adapter than its
+   ``-graphicsadapter`` card raises the alert and refuses the project
+   (``adapter_log.check_run``), then releases the job unless survivors
+   remain (FR-CU-3);
+   the post-exit reading; survivors raise ``SurvivorsLeft``; the loopback
    rule raises ``LocalConflict`` and disables Unreal until restart; a cancel
    cause raises ``Cancelled``;
 5. the FR-UE-26 Zen log verification (data path, port, override line),
@@ -33,7 +37,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
-from sethlans_worker_agent.unreal_executor import log_validation, zen_log, zen_port
+from sethlans_worker_agent.unreal_executor import adapter_log, log_validation, zen_log, zen_port
 from sethlans_worker_agent.unreal_executor.outcomes import Cancelled, JobFailure, LocalConflict, SurvivorsLeft
 from sethlans_worker_agent.unreal_executor.process_runner import phase_vram_sample
 from sethlans_worker_agent.unreal_executor.runner_types import CANCEL_CAUSES, MB, RunSpec
@@ -89,6 +93,8 @@ class PhaseRunner:
     runs: List[PhaseRun] = field(default_factory=list)
     project_dir: object = None              # the working copy's project folder (set by job_run)
     zen_scan: Optional[Callable] = None     # zen_guard.scan_project_config, re-run before every launch
+    add_alert: Optional[Callable] = None    # store.add_alert (adapter_log's default when None)
+    project: str = ''                       # archive sha256 (set by job_run): an adapter mismatch refuses it
 
     def _stop_requested(self) -> None:
         """No launch once a cancel cause or the shutdown is known (review L2)."""
@@ -125,7 +131,7 @@ class PhaseRunner:
     def used(reading) -> Optional[Dict[int, int]]:
         return None if reading is None else {gpu.index: gpu.used_mb for gpu in reading.gpus}
 
-    def _spec(self, launch, phase, attempt, success_marker, success_check, sample, baseline) -> RunSpec:
+    def _spec(self, launch, phase, attempt, success_marker, success_check, sample, baseline, adapter) -> RunSpec:
         cfg = self.config
         return RunSpec(
             launch=launch, log_path=self.job_dir.log(phase, attempt), stdout_path=self.job_dir.stdout(phase, attempt),
@@ -136,22 +142,28 @@ class PhaseRunner:
             cancel=self.cancel, shutdown_event=self.shutdown_event, excluded_images=cfg.excluded_images,
             vram_sample=phase_vram_sample(self.sampler) if sample and self.sampler is not None else None,
             tick_check=self.loopback_factory(cfg.zen_port, cfg.cache_dir, worker_sid=cfg.worker_sid),
-            vram_baseline=baseline)
+            vram_baseline=baseline, expected_adapter=adapter.index if adapter is not None else None,
+            expected_ids=adapter_log.ids_of(adapter))
 
     def launch(self, phase: str, attempt: int, launch, *, success_marker=None, success_check=None,
-               sample: bool = False) -> PhaseRun:
+               sample: bool = False, adapter=None) -> PhaseRun:
+        """``adapter``: the ``adapter_choice.Choice`` of a warm-up or render (its index is on the command line)."""
         self._stop_requested()
         self._guard()
         self._prelaunch()
         self.first_launch = False
         pre_reading = self.reading() if sample else None
         pre = self.used(pre_reading)
-        spec = self._spec(launch, phase, attempt, success_marker, success_check, sample, pre or ({} if sample else None))
+        spec = self._spec(launch, phase, attempt, success_marker, success_check, sample,
+                          pre or ({} if sample else None), adapter)
         outcome = self.run(spec, self.registry)
         run = PhaseRun(phase, attempt, outcome, spec.log_path, pre=pre, pre_reading=pre_reading)
         self.runs.append(run)
+        conflict = adapter_log.check_run(outcome, adapter, self)   # alert and per-project refusal done
         if outcome.survivors:
             raise SurvivorsLeft(outcome.survivors)
+        if conflict is not None:
+            raise conflict
         run.post = self.used(self.reading()) if sample else None
         if outcome.reason == 'local_conflict':
             self.disable_until_restart(zen_port.LOOPBACK_DISABLE_REASON)

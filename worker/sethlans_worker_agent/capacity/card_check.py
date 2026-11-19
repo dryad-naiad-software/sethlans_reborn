@@ -15,8 +15,14 @@ The card checks at start, periodically and for a rebuild (FR-CK-1, FR-CK-3, FR-C
   nothing: ``DETECTION_FAILED``, try again later (AC-11, C-20). Otherwise one
   CRITICAL line per newly added alert; then, in a ``finally`` (C5), every job
   on a card that is no longer usable for its renderer gets its own stop
-  (``blender_stop.request_card_stop``) and a rebuild is requested when the
-  cards in use differ from the profile.
+  (``card_stops``) and a rebuild is requested when the cards in use differ
+  from the profile.
+- ``check_during_unreal(capacity, now)``: while an Unreal render holds the
+  machine ``check`` never runs (FR-CK-1, FR-WX-14). Instead, once per
+  heartbeat interval, the OS list alone (DXGI and D3DKMT reads; no device is
+  created, Blender is never started) with the known Blender list: the same
+  alerts, the stop of the Unreal job whose card is lost, changed or held
+  (C-24 m), and a rebuild request that waits for the hold to end.
 - ``rebuild_profile(capacity)``: the profile a pending rebuild swaps in.
 
 The Blender list a check uses without detecting, and the one a rebuild uses,
@@ -24,66 +30,31 @@ is the list of the last trusted fresh detection, else the startup cache: one
 list, so a check and the rebuild it requests agree. A detection by a fallback
 Blender that lacks a card of the profile is not trusted. Ticked cards are
 probed and alerted whatever the method; with no ticked card nothing is
-probed (B6). Per-card stops reach Blender jobs only (chunk 7 owns the Unreal
-launch). Module state is read and written by the agent-loop thread only; the
+probed (B6). Module state is read and written by the agent-loop thread only; the
 only locks taken are ``WorkerCapacity._lock`` (to copy the assignments) and
 the store's, never together.
 """
 import logging
 from typing import Optional
 
+from sethlans_worker_agent import config
 from sethlans_worker_agent.capacity import card_blender, rebuild
 from sethlans_worker_agent.capacity.card_profile import log_problem, profile_for, selection_of
+from sethlans_worker_agent.capacity.card_stops import raise_alerts, stop_jobs
 from sethlans_worker_agent.capacity.drift import DETECTION_FAILED, adopt_detection_executable, detect_physical_gpus_now
 from sethlans_worker_agent.cards import in_use, inventory, matching, os_probe, store
 from sethlans_worker_agent.cards import warnings as card_warnings
-from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 
 logger = logging.getLogger(__name__)
 
-_STOPPED_FOR_BOTH = frozenset({matching.LOST, matching.CHANGED, matching.HELD})
 _SKIP = object()
 _probe_ever_worked = False  # the OS probe gave a list at least once in this process
+_last_unreal_check: Optional[float] = None  # monotonic time of the last check during an Unreal hold
 
 
 def _nothing_to_check(section) -> bool:
     """No ticked card: nothing to probe. Ticked cards are checked whatever the method (Unreal uses them, C-23)."""
     return not section.cards
-
-
-def raise_alerts(result) -> None:
-    """``add_alert`` for every unusable ticked card (FR-CK-3); CRITICAL only for a new one.
-
-    A failed write keeps the alert in memory (``store``, C5) and is reported
-    from there; it does not stop the check.
-    """
-    for card in result.unusable:
-        try:
-            added = store.add_alert(card.kind, card.key, card.name, card.detail)
-        except (ConfigLockTimeoutError, OSError):
-            added = True
-        if added:
-            logger.critical("Graphics card %s (%s) is %s (%s).", ascii(card.name), card.key, card.state,
-                            ascii(card.detail))
-
-
-def jobs_on_unusable_cards(capacity, states) -> list:
-    """Job ids holding a card that is not usable for their renderer; retained (negative) owners skipped.
-
-    Blender jobs need ``ok``; the whole-machine (Unreal) job ``ok`` or
-    ``blender_lost`` (D19). Unticked or unknown cards stop nothing.
-    """
-    with capacity._lock:
-        held = list(capacity._gpu_assignments.items())
-        exclusive = capacity._exclusive_job_id
-    return sorted({owner for key, owner in held if owner >= 0 and (
-        states.get(key) in _STOPPED_FOR_BOTH or (states.get(key) == matching.BLENDER_LOST and owner != exclusive))})
-
-
-def _stop_jobs(capacity, states) -> None:
-    from sethlans_worker_agent import blender_stop
-    for job_id in capacity.jobs_on_unusable_cards(states):
-        blender_stop.request_card_stop(job_id)
 
 
 def _request_if_differs(capacity, section, cards, problem) -> None:
@@ -113,7 +84,7 @@ def _evaluate_known(section, capacity=None):
         raise_alerts(result)
     finally:
         if capacity is not None and not inv.os_probe_failed:
-            _stop_jobs(capacity, result.states)
+            stop_jobs(capacity, result.states)
     card_warnings.remember(inv, result)
     return selection_of(result, blender_cards), inv
 
@@ -181,7 +152,7 @@ def check(capacity) -> Optional[str]:
     try:
         raise_alerts(result)
     finally:  # C5: even when an alert could not be raised
-        _stop_jobs(capacity, result.states)
+        stop_jobs(capacity, result.states)
         _request_if_differs(capacity, result.section, result.blender_cards, result.problem)
     card_warnings.remember(inv, result)
     log_problem(result.problem)
@@ -190,10 +161,29 @@ def check(capacity) -> Optional[str]:
     return None
 
 
+def check_during_unreal(capacity, now: float) -> None:
+    """C-24 m: once per heartbeat interval during an Unreal hold, the OS list only (no Blender is started).
+
+    The level-triggered alerts, the stop of the Unreal job whose card is
+    gone, and a rebuild request (it waits for the hold to end). An unreadable
+    ``config.json`` or a failed probe changes nothing.
+    """
+    global _last_unreal_check
+    if _last_unreal_check is not None and now - _last_unreal_check < max(1, config.HEARTBEAT_INTERVAL_SECONDS):
+        return
+    _last_unreal_check = now
+    section = store.snapshot()
+    if section.read_failed or _nothing_to_check(section):
+        return
+    selection, inv = _evaluate_known(section, capacity)
+    if not inv.os_probe_failed:
+        _request_if_differs(capacity, section, selection.cards, selection.problem)
+
+
 def reset_for_tests() -> None:
     """Forget the last fresh Blender list, the probe record and the logged problem. Test-only hook."""
-    global _probe_ever_worked
-    _probe_ever_worked = False
+    global _probe_ever_worked, _last_unreal_check
+    _probe_ever_worked, _last_unreal_check = False, None
     card_blender.reset_for_tests()
     from sethlans_worker_agent.capacity import card_profile
     card_profile.reset_for_tests()

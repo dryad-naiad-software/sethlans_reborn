@@ -30,7 +30,7 @@ class TestDefaults:
         assert unreal_bridge.gpu_memory_payload() is None
         snap = unreal_bridge.snapshot()
         assert snap == {
-            'schema': 1, 'enabled': False, 'disabled_reason': 'disabled by config',
+            'schema': 1, 'enabled': False, 'disabled_reason': 'Unreal is switched off in the worker settings',
             'installs': [], 'share': '', 'share_reachable': False,
         }
 

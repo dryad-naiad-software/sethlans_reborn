@@ -14,15 +14,18 @@ checks the D3D12 adapter, collects the CSV capture and computes its
 metrics (``pilot.measure``) over **every** phase it ran.
 
 Every launch goes through ``PhaseRunner.launch`` (pre-launch checks, Zen
-verification) and every command through the builders in ``command``.
+verification) and every command through the builders in ``command``. Each
+warm-up and render launch resolves its card's DXGI index afresh (``choose``,
+``adapter_choice.choose``; FR-CU-1), always the card of the first launch (D8).
 """
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import List, Optional
 
 from sethlans_worker_agent.unreal_executor import (
-    cvars, job_dir, log_summary, log_validation, output, pilot, pilot_csv, queue_prep, render_check, warmup)
+    adapter_choice, cvars, job_dir, log_summary, log_validation, output, pilot, pilot_csv, queue_prep, render_check,
+    warmup)
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure
 from sethlans_worker_agent.unreal_executor.runner_types import RENDER_SUCCESS, WARMUP_SUCCESS
 
@@ -56,12 +59,18 @@ class FlowResult:
 class UeFlow:
 
     def __init__(self, params, launch_ctx, job, runner, summary, builders, marker_path, uproject, config: FlowConfig,
-                 reading=None):
+                 reading=None, choose=None):
         self.params, self.ctx, self.job, self.runner = params, launch_ctx, job, runner
         self.summary, self.builders, self.marker, self.uproject = summary, builders, marker_path, str(uproject)
         self.config, self.reading = config, reading
         self.cvars_sha = cvars.cvars_sha256(params.merged)
         self.prep_s = self.warmup_s = self.render_s = 0.0
+        self.choose, self.choice = choose or adapter_choice.choose, None
+
+    def _adapter_ctx(self):
+        """FR-CU-1: the job's card (chosen at its first launch) re-resolved; its DXGI index goes on the command line."""
+        self.choice = self.choose(self.params.job_id, key=self.choice.key if self.choice is not None else None)
+        return replace(self.ctx, graphics_adapter=self.choice.index)
 
     # -- prep -----------------------------------------------------------
     def prep(self) -> queue_prep.PrepResult:
@@ -100,9 +109,10 @@ class UeFlow:
         data = queue_prep.warmup_params(params, prep, job.warmup_result, cfg.step_frames, cfg.step_seconds,
                                         cfg.hold_seconds)
         queue_prep.write_json(job.warmup_params, data)
-        launch = self.builders.build_warmup(self.ctx, self.uproject, job.script(job_dir.WARMUP_SCRIPT),
+        launch = self.builders.build_warmup(self._adapter_ctx(), self.uproject, job.script(job_dir.WARMUP_SCRIPT),
                                             job.log('warmup', attempt), job.warmup_params, params.merged)
-        run = self.runner.launch('warmup', attempt, launch, success_marker=WARMUP_SUCCESS, sample=params.is_pilot)
+        run = self.runner.launch('warmup', attempt, launch, success_marker=WARMUP_SUCCESS, sample=params.is_pilot,
+                                 adapter=self.choice)
         self.warmup_s += run.outcome.wall_s
         self._note_quit(run, 'warmup')
         render_check.check_warmup(run.outcome)
@@ -112,10 +122,11 @@ class UeFlow:
     # -- render ---------------------------------------------------------
     def render(self, prep, attempt: int):
         params, job = self.params, self.job
-        launch = self.builders.build_render(self.ctx, self.uproject, params.map, prep.queue_asset,
+        launch = self.builders.build_render(self._adapter_ctx(), self.uproject, params.map, prep.queue_asset,
                                             job.log('render', attempt), params.merged, pilot_launch=params.is_pilot)
         before = pilot_csv.listing(self.config.profile) if params.is_pilot else frozenset()
-        run = self.runner.launch('render', attempt, launch, success_marker=RENDER_SUCCESS, sample=True)
+        run = self.runner.launch('render', attempt, launch, success_marker=RENDER_SUCCESS, sample=True,
+                                 adapter=self.choice)
         self.render_s += run.outcome.wall_s
         self._note_quit(run, 'render')
         check = render_check.check_render(run.outcome, run.log_path, prep.queue_jobs, self.config.log_max_bytes)

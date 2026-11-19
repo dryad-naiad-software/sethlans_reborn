@@ -14,8 +14,9 @@ function) and returns a safe value, so it never raises into the poll
 loop, the heartbeat or registration.
 """
 import logging
+import sys
 import threading
-from typing import Optional
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,22 @@ def startup() -> None:
         capabilities.startup()
     except Exception as exc:
         _log_failure_once('startup', exc)
+
+
+def unreal_card_in_use() -> Optional[Tuple[int, str]]:
+    """``(job id, card key)`` of the card the running Unreal job chose at its latest launch (C-24 m).
+
+    ``None`` when no Unreal job has chosen a card; the module is looked up,
+    never imported here, so a worker that never ran Unreal imports nothing.
+    Fallback ``None``.
+    """
+    try:
+        module = sys.modules.get('sethlans_worker_agent.unreal_executor.adapter_choice')
+        choice = module.current() if module is not None else None
+        return None if choice is None else (choice.job_id, choice.key)
+    except Exception as exc:
+        _log_failure_once('unreal_card_in_use', exc)
+        return None
 
 
 def drift_check_allowed() -> bool:

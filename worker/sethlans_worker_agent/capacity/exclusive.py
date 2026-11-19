@@ -9,16 +9,19 @@ here so ``slots.py`` stays under the 300-line limit. ``WorkerCapacity``
 exposes them as ``reserve_exclusive``, ``has_no_reservations`` and
 ``has_exclusive_reservation``.
 
-An exclusive reservation marks, under ``_lock``, exactly the card keys
-``_reserve_gpu_locked`` would assign in the current mode until none is
-free (every card in use, in both modes), plus the CPU slot when the
-profile has one. ``is_full()`` and ``free_device_prefs()`` therefore
-report full in every mode, and the existing ``release_slot(job_id)``
-frees everything.
+An exclusive reservation marks, under ``_lock``, every Blender card in use
+(the profile's cards, in both modes), the Unreal cards in use the caller
+passes (``unreal_keys``, FR-CL-1; cards Blender does not drive included),
+and the CPU slot when the profile has one. It works with zero Blender GPU
+slots and whatever the compute method (C-27 b): it needs at least one
+marked card, and no rebuild may be pending. ``is_full()`` and
+``free_device_prefs()`` therefore report full in every mode, and the
+existing ``release_slot(job_id)`` frees everything.
 """
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Iterable, List, Optional
 
+from sethlans_worker_agent.capacity import rebuild
 from sethlans_worker_agent.capacity.profile import SlotReservation
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -32,25 +35,25 @@ def _holds_any_locked(capacity: 'WorkerCapacity') -> bool:
 
 
 def reserve_exclusive(
-    capacity: 'WorkerCapacity', job_id: int,
+    capacity: 'WorkerCapacity', job_id: int, unreal_keys: Iterable[str] = (),
 ) -> Optional[SlotReservation]:
     """Reserve every slot for ``job_id`` atomically, or return None.
 
-    Succeeds only when no slot holds any reservation. Returns None when
-    the profile has no GPU slot (Unreal needs a GPU). The profile is read
-    under the lock. The reservation has ``device_used='GPU'`` and no
-    ``card_keys``: the marked keys live only in ``_gpu_assignments``, and
-    it carries no Blender cards.
+    Succeeds only when no slot holds any reservation, no rebuild is pending
+    and there is a card to mark (a Blender card in use or an Unreal card
+    in ``unreal_keys``). The profile is read under the lock. The
+    reservation has ``device_used='GPU'`` and no ``card_keys``: the marked
+    keys live only in ``_gpu_assignments``, and it carries no Blender cards.
     """
     with capacity._lock:
         profile = capacity._profile
-        if profile.gpu_slot_count == 0 or _holds_any_locked(capacity):
+        if _holds_any_locked(capacity) or rebuild.pending():
             return None
-        marked: List[str] = []
-        while capacity._reserve_gpu_locked(job_id) is not None:
-            marked = [k for k, v in capacity._gpu_assignments.items() if v == job_id]
+        marked: List[str] = list(dict.fromkeys(tuple(profile.card_keys) + tuple(unreal_keys)))
         if not marked:
             return None
+        for key in marked:
+            capacity._gpu_assignments[key] = job_id
         if profile.cpu_slot_count > 0:
             capacity._cpu_slot_job_id = job_id
         capacity._exclusive_job_id = job_id

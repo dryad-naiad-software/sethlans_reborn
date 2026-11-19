@@ -175,6 +175,19 @@ def _guard_skips(job, now: float, unfinished) -> bool:
     return _claim_recently_refused(job_id, renderer, now)
 
 
+def _no_blender_slot(job, free_prefs, now: float) -> bool:
+    """True (logged) for a Blender job no free slot can take (card selection C-27 b).
+
+    The poll asks for GPU jobs for Unreal even when no Blender GPU slot is
+    free, so a Blender GPU job is never claimed without one.
+    """
+    renderer = job.get('renderer') or executors.DEFAULT_RENDERER
+    if free_prefs is None or renderer != executors.DEFAULT_RENDERER or job.get('render_device') in free_prefs:
+        return False
+    _log_skip(job.get('id'), renderer, f"no free slot for render device {job.get('render_device')}", now)
+    return True
+
+
 def _try_job(job, is_first: bool, now: float):
     """Return ``(selection, stop)`` for one job that passed the guards."""
     job_id = job.get('id')
@@ -206,20 +219,21 @@ def select_claimable_job(available_jobs: List[Dict[str, Any]],
                          capacity) -> Optional[Selection]:
     """Return the first eligible job of the poll response, or None.
 
-    ``capacity`` is the worker's ``WorkerCapacity``; executors read it
-    through ``job_processor`` themselves, it is accepted here so the
-    signature matches the spec and future executors can use it.
+    ``capacity`` is the worker's ``WorkerCapacity``; a Blender job whose
+    render device no free slot serves is skipped (C-27 b). Executors read
+    it through ``job_processor`` themselves.
     """
     from sethlans_worker_agent import job_processor  # circular at import time
     now = _clock()
     _prune(now)
     _prune_refused(now)
     unfinished = frozenset(job_processor.get_unfinished_job_ids())
+    free_prefs = capacity.free_device_prefs() if capacity is not None else None
     # The pending-probe wait applies to the first job that passed the
     # guards, not to one skipped as unfinished or recently refused (F8).
     is_first = True
     for job in available_jobs:
-        if _guard_skips(job, now, unfinished):
+        if _guard_skips(job, now, unfinished) or _no_blender_slot(job, free_prefs, now):
             continue
         selection, stop = _try_job(job, is_first, now)
         is_first = False

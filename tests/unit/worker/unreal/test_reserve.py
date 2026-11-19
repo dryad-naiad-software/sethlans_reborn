@@ -76,11 +76,20 @@ def test_eligible_job_returns_a_reservation_with_validated_params():
     {'reachability': lambda: Reach({'project-fixes': False})},
     {'sampler': lambda: Sampler(reading(), fresh=reading(used=25000))},
     {'sampler': lambda: Sampler(reading(), fresh=None)},
+    {'card_keys': lambda: ()},                                   # no Unreal card in use (C-27 b)
 ])
 def test_each_failed_check_declines_and_holds_nothing(override):
     reserver, _reach = make(**override)
     assert reserver.try_reserve(job()) is None
     assert token_free(reserver)
+
+
+def test_the_reservation_carries_the_unreal_cards_in_use():
+    """C-27 b: the exclusive reservation holds these cards (job_claim)."""
+    reserver, _reach = make(card_keys=lambda: ('pci:0000:23:00.0',))
+    reservation = reserver.try_reserve(job())
+    assert reservation.card_keys == ('pci:0000:23:00.0',)
+    reservation.release()
 
 
 def test_invalid_job_data_is_declined_before_any_share_access():

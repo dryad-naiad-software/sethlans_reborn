@@ -91,8 +91,8 @@ class TestShutdownRace:
         stopping = threading.Event()
         real_reserve = cap.reserve_exclusive
 
-        def reserve_then_sigterm(job_id):
-            slot = real_reserve(job_id)
+        def reserve_then_sigterm(job_id, unreal_keys=()):
+            slot = real_reserve(job_id, unreal_keys)
             stopping.set()
             return slot
 

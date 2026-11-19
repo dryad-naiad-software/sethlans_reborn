@@ -98,7 +98,7 @@ def test_settings_cpu_shows_cards_and_saves_the_ticks(page, worker_ui):
     base_url, data_dir = worker_ui
     errors = _open_settings(page, base_url, ui.PASSWORD)
     assert page.input_value('#gc-method') == 'cpu'
-    assert page.locator('#gc-list').is_visible() and page.inner_text('#gc-help') == ui.HELP_TEXT
+    assert page.locator('#gc-list').is_visible() and page.inner_text('#gc-help') == ui.SETTINGS_HELP_TEXT
     assert page.is_enabled('#gc-save')
     _tick(page, CUDA_1, NO_FAMILY)
     assert not page.locator('#gc-combine-row').is_visible()

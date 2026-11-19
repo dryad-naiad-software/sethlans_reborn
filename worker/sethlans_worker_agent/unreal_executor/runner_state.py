@@ -3,12 +3,14 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 Decision state of the UE process runner's monitor loop (Unreal foundation
-FR-UE-11): fatal log rules, the success marker and quit grace, log flood,
-per-tick conflicts, cancel causes, shutdown, the wall timeout and hang.
+FR-UE-11): fatal log rules, the D3D12 adapter rule (card selection
+FR-CU-3), the success marker and quit grace, log flood, per-tick conflicts,
+cancel causes, shutdown, the wall timeout and hang.
 """
 import threading
 from typing import List, Optional
 
+from sethlans_worker_agent.unreal_executor.adapter_log import MISMATCH, AdapterWatch
 from sethlans_worker_agent.unreal_executor.log_validation import LOG_FLOOD, LogScan, scan_line
 from sethlans_worker_agent.unreal_executor.runner_monitor import CpuTracker, FloodTracker
 from sethlans_worker_agent.unreal_executor.runner_types import HANG_CPU_SECONDS, HANG_CPU_WINDOW_SECONDS, RunSpec
@@ -31,6 +33,7 @@ class MonitorState:
         self.cpu = CpuTracker(spec.excluded_images)
         self.flood = FloodTracker(spec.log_max_bytes, spec.log_flood_bytes_per_min)
         self.waiter = spec.shutdown_event or threading.Event()
+        self.adapter = AdapterWatch(spec.expected_adapter, spec.expected_ids)
 
     def lines(self, lines: List[str], now: float) -> Optional[str]:
         if lines:
@@ -39,10 +42,14 @@ class MonitorState:
             for rule in scan_line(text, self.scan, self.rules):
                 if rule.severity == 'fatal' and not self.fatal_rule:
                     self.fatal_rule, self.detail = rule.name, text[:500]
+            if self.adapter.line(text) and not self.fatal_rule:
+                self.detail = text[:500]
             if (self.marker_at is None and self.spec.success_marker is not None
                     and self.spec.success_marker.search(text)):
                 self.marker_at = now
-        return 'fatal' if self.fatal_rule else None
+        if self.fatal_rule:
+            return 'fatal'
+        return MISMATCH if self.adapter.mismatch else None
 
     def _flood(self, now: float) -> Optional[str]:
         message = self.flood.check((self.spec.log_path, self.spec.stdout_path), now)

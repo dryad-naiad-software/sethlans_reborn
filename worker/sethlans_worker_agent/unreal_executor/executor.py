@@ -15,17 +15,22 @@ objects; every dependency is resolved at call time.
   resource on ``None`` or ``ProbePending``).
 * ``execute(job_data, ctx)``: ``job_run.JobRun`` for the reservation the
   claim recorded in ``job_data['_renderer_reservation']``; the validated
-  ``JobParams`` come from that reservation, never from the raw dict.
+  ``JobParams`` come from that reservation, never from the raw dict. The
+  job's own card stop (``blender_job_stop``, registered at claim) is joined
+  with ``ctx.shutdown_event``; the job's card choice is forgotten when
+  ``execute`` returns (``adapter_choice``, C-24 m).
 
 ``default_reserve_deps`` / ``default_run_deps`` wire the production
 modules; tests pass their own.
 """
+import dataclasses
 import logging
 from typing import Optional
 
 from sethlans_worker_agent import api_extras, config_unreal, unreal_share
+from sethlans_worker_agent.blender_job_stop import job_stop
 from sethlans_worker_agent.executors.base import ExecutionContext, RenderResult
-from sethlans_worker_agent.unreal_executor import command, job_params, reserve
+from sethlans_worker_agent.unreal_executor import adapter_choice, command, job_params, reserve
 from sethlans_worker_agent.unreal_executor.delivery import DeliveryDeps, result
 
 logger = logging.getLogger(__name__)
@@ -70,6 +75,13 @@ def _entry_ready(sha256: str) -> bool:
     return cache is not None and cache.state(sha256) == 'ready'
 
 
+def _unreal_card_keys() -> tuple:
+    """The keys of the Unreal cards in use, from the heartbeat's card probe (C-27 b); () when undecided."""
+    from sethlans_worker_agent.cards import unreal_cards
+    found = unreal_cards.current()
+    return tuple(card.key for card in found[0]) if found is not None else ()
+
+
 class _Lazy:
     """One shared ``Reachability`` (its probe pools start on first use, NF-6)."""
     reach = None
@@ -89,7 +101,7 @@ def default_reserve_deps() -> reserve.ReserveDeps:
         is_idle=_capacity_idle, status=_status, installs=runtime.installs, sampler=runtime.sampler,
         port_ok=_port_ok, isolation_ok=_isolation_ok, share_state=unreal_share.state, entry_ready=_entry_ready,
         reachability=_Lazy.reachability, resolve=resolve_share_path,
-        budget=lambda: ProbeBudget(config_unreal.POLL_PROBE_BUDGET_SECONDS))
+        budget=lambda: ProbeBudget(config_unreal.POLL_PROBE_BUDGET_SECONDS), card_keys=_unreal_card_keys)
 
 
 def _worker_id():
@@ -136,7 +148,7 @@ def default_run_deps():
                               upload=api_extras.upload_output_handle, report_pilot=api_extras.report_pilot_result),
         disable_until_restart=runtime.disable_until_restart, keep_job_logs=lambda: config_unreal.KEEP_JOB_LOGS,
         prep_timeout_s=lambda: config_unreal.PREP_TIMEOUT_SECONDS,
-        cancel_poll_s=lambda: config_unreal.CANCEL_POLL_SECONDS)
+        cancel_poll_s=lambda: config_unreal.CANCEL_POLL_SECONDS, choose_adapter=adapter_choice.choose)
 
 
 class UnrealExecutor:
@@ -162,4 +174,9 @@ class UnrealExecutor:
                 return result(error=f"Invalid Unreal job data ({exc}).")
             return result(error="Unreal job was not reserved by this worker's executor.")
         deps = self._run_deps or default_run_deps()
-        return job_run.JobRun(reservation, ctx, deps).run()
+        # The job's own card stop (C-24 m) is seen wherever the shutdown is: the joined event replaces it.
+        ctx = dataclasses.replace(ctx, shutdown_event=job_stop(ctx.shutdown_event, job_data))
+        try:
+            return job_run.JobRun(reservation, ctx, deps).run()
+        finally:
+            adapter_choice.forget(reservation.params.job_id)

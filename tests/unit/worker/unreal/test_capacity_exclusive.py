@@ -86,6 +86,46 @@ class TestHeldState:
         assert not cap.has_exclusive_reservation()
 
 
+class TestUnrealCards:
+    """Card selection C-27 b: the exclusive reservation holds the Unreal cards in use, Blender slots or not."""
+
+    UNREAL = 'pci:0000:23:00.0'
+
+    def test_no_blender_gpu_slot_holds_the_unreal_card_and_the_cpu_slot(self):
+        cap = _cap(gpu_slot_count=0, cpu_slot_count=1)   # a CPU-method worker
+        slot = cap.reserve_exclusive(55, unreal_keys=(self.UNREAL,))
+        assert slot is not None and slot.device_used == 'GPU'
+        assert cap.gpu_assignments_snapshot() == {self.UNREAL: 55} and cap._cpu_slot_job_id == 55
+        assert cap.is_full() and cap.free_device_prefs() == [] and cap.has_exclusive_reservation()
+        cap.release_slot(55)
+        assert cap.has_no_reservations() and cap.free_device_prefs() == ['CPU', 'ANY']
+
+    def test_no_slot_at_all_still_holds_the_unreal_card(self):
+        cap = _cap(gpu_slot_count=0, cpu_slot_count=0)   # method gpu, the only ticked card has no Blender match
+        assert cap.reserve_exclusive(56, unreal_keys=(self.UNREAL,)) is not None
+        assert cap.has_exclusive_reservation() and not cap.has_no_reservations()
+
+    def test_blender_cards_and_unreal_cards_are_marked_once_each(self):
+        cap = _cap(gpu_slot_count=2, cpu_slot_count=1)
+        assert cap.reserve_exclusive(57, unreal_keys=(key(1), self.UNREAL)) is not None
+        assert cap.gpu_assignments_snapshot() == {key(0): 57, key(1): 57, self.UNREAL: 57}
+
+    def test_nothing_to_mark_or_a_pending_rebuild_reserves_nothing(self):
+        from sethlans_worker_agent.capacity import rebuild
+        cap = _cap(gpu_slot_count=0, cpu_slot_count=1)
+        assert cap.reserve_exclusive(58) is None and cap.has_no_reservations()
+        rebuild.request_rebuild()
+        assert cap.reserve_exclusive(58, unreal_keys=(self.UNREAL,)) is None and cap.has_no_reservations()
+
+    def test_the_hold_blocks_a_profile_swap(self):
+        from sethlans_worker_agent.capacity import rebuild
+        cap = _cap(gpu_slot_count=0, cpu_slot_count=1)
+        cap.reserve_exclusive(59, unreal_keys=(self.UNREAL,))
+        rebuild.request_rebuild()
+        assert rebuild.step(cap) == rebuild.WAITING
+        assert cap.try_rebuild(profile(gpu_slot_count=1), rebuild.generation()) == rebuild.WAITING
+
+
 def test_no_drain_module():
     """D1 / FR-WX-11: the v2 drain is not built."""
     import sethlans_worker_agent

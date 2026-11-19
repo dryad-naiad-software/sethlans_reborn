@@ -14,14 +14,20 @@ completion lines, ``RequestExitWithStatus(0, 0``), the prep result, the
 warm-up marker line, and PNGs into ``j/<job>/output``.
 
 It fails like a crashed UE (a critical-error line, exit 3) when a warm-up or
-render launch lacks exactly one ``-RenderOffscreen`` or the prep commandlet
-carries one, or any launch lacks ``-UDPMESSAGING_TRANSPORT_ENABLE=0`` (#233),
-so every passing test also proves the launches are headless and quiet.
+render launch lacks exactly one ``-RenderOffscreen`` or one ``-dx12`` and
+``-graphicsadapter=N`` pair, or the prep commandlet carries any of them, or
+any launch lacks ``-UDPMESSAGING_TRANSPORT_ENABLE=0`` (#233), so every
+passing test also proves the launches are headless, quiet and on the chosen
+card. Warm-up and render log every D3D12 adapter (WARP and a virtual
+adapter included, at their real indexes) and ``Chosen D3D12 Adapter Id = N``
+with the ``N`` they got.
 
 Behavior switches come from a ``fake_ue.json`` next to the ``.uproject``
 (written by the test into the archive): ``cancel_first_render`` logs
 ``Compilation cancelled.`` on ``render.1``, ``prep_error`` makes the prep
-fail, ``zen_path`` overrides the logged Zen data path.
+fail, ``zen_path`` overrides the logged Zen data path, ``chosen_adapter``
+overrides the logged adapter id (only in ``chosen_phase`` when given;
+``after_chosen_sleep`` waits after it).
 """
 import glob
 import shutil
@@ -66,6 +72,28 @@ def png(path):
                 + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
 
 
+# DXGI order as measured on a dev machine: the iGPU, WARP and a virtual display adapter that copies the real
+# card's name and ids; the real card sits at the index the worker passed.
+OTHER_ADAPTERS = [('AMD Radeon(TM) Graphics', '1002', '13c0', '00e5'),
+                  ('Microsoft Basic Render Driver', '1414', '008c', '0000'),
+                  ('NVIDIA GeForce RTX 5090', '10de', '2b85', '00a1')]
+
+
+def d3d12_lines(phase):
+    n = int(value('-graphicsadapter='))
+    listed = list(OTHER_ADAPTERS)
+    listed.insert(min(n, len(listed)), ('NVIDIA GeForce RTX 5090', '10de', '2b85', '00a1'))
+    # The words are split so this .uproject passes the worker's project text guard (adapter_marker).
+    found, chosen = 'LogD3D12RHI: Found D3D12' + ' adapter ', 'LogD3D12RHI: Chosen D3D12' + ' Adapter Id = '
+    for i, (name, vendor, device, rev) in enumerate(listed):
+        say(found + '%d: %s (VendorId: %s, DeviceId: %s, SubSysId: 0, Revision: %s' % (i, name, vendor, device, rev))
+    if OPTS.get('chosen_phase', phase) != phase:
+        say(chosen + str(n))
+        return
+    say(chosen + str(OPTS.get('chosen_adapter', n)))
+    time.sleep(float(OPTS.get('after_chosen_sleep', 0)))
+
+
 time.sleep(float(OPTS.get('phase_sleep', 0)))
 if '-run=pythonscript' not in args and args.count('-RenderOffscreen') != 1:
     say('LogWindows: Error: === Critical error: === a window would open (no -RenderOffscreen)')
@@ -75,6 +103,13 @@ if args.count('-UDPMESSAGING_TRANSPORT_ENABLE=0') != 1:
     sys.exit(3)
 if '-run=pythonscript' in args and '-RenderOffscreen' in args:
     say('LogWindows: Error: === Critical error: === the prep commandlet got -RenderOffscreen')
+    sys.exit(3)
+adapter = [a for a in args if a.lower().startswith('-graphicsadapter')]
+if '-run=pythonscript' in args and (adapter or '-dx12' in args):
+    say('LogWindows: Error: === Critical error: === the prep commandlet got -dx12 or -graphicsadapter')
+    sys.exit(3)
+if '-run=pythonscript' not in args and (args.count('-dx12') != 1 or len(adapter) != 1):
+    say('LogWindows: Error: === Critical error: === no single -dx12 -graphicsadapter=N pair')
     sys.exit(3)
 say('LogZenServiceInstance: Found command line override ZenDataPath=' + zen)
 say("LogZenServiceInstance: Display: Launching executable 'C:\\zen\\zenserver.exe', working dir 'C:\\zen', "
@@ -105,6 +140,7 @@ if any(a.startswith('-ExecCmds=py ') for a in args):
     params = json.load(open(os.environ['SETHLANS_UE_JOB_PARAMS'], encoding='utf-8'))
     say('[Warm] scalability ' + str(params['scalability']))
     say('[Warm] 2 deformers loaded')
+    d3d12_lines('warmup')
     say('[Warm] done, quitting')
     json.dump({'ok': True}, open(params['result_path'], 'w', encoding='utf-8'))
     log.close()
@@ -113,9 +149,7 @@ if any(a.startswith('-ExecCmds=py ') for a in args):
 prep = json.load(open(os.path.join(job_dir, 'prep_result.json'), encoding='utf-8'))
 params = json.load(open(os.path.join(job_dir, 'params.json'), encoding='utf-8'))
 frames = prep.get('pilot_frames') or [params['frame']]
-say('LogD3D12RHI: Found D3D12 adapter 0: NVIDIA GeForce RTX 5090 (VendorId: 10de, DeviceId: 2b85, SubSysId: 0, '
-    'Revision: 00a1')
-say('LogD3D12RHI: Chosen D3D12 Adapter Id = 0')
+d3d12_lines('render')
 time.sleep(float(OPTS.get('render_sleep', 0.5)))
 for f in frames:
     png(os.path.join(job_dir, 'output', 'sethlans_' + str(params['job_id']) + '.' + '%04d' % f + '.png'))

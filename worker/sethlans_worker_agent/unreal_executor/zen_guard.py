@@ -39,6 +39,10 @@ case-insensitively, after stripping an ini array prefix (``+``, ``-``,
 
 The files are never rewritten (they are part of the pinned project). A
 hit is a content failure (job ERROR) with ``zen_ddc_guard=FAILED``.
+
+The same scan refuses any ``*.ini``, ``.uproject`` or ``.uplugin`` that
+contains the text ``D3D12 Adapter`` (``adapter_marker``: it could fake the
+adapter log lines the card check reads).
 """
 import re
 from dataclasses import dataclass, field
@@ -46,6 +50,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from sethlans_worker_agent.project_archive import fs_safe
+from sethlans_worker_agent.unreal_executor import adapter_marker
 
 MAX_INI_BYTES = 16 * 1024 * 1024
 _ARRAY_PREFIXES = '+-.!'
@@ -177,7 +182,9 @@ def scan_project_config(project_dir) -> ZenGuardResult:
         if listing.files[rel].st_size > MAX_INI_BYTES:
             return ZenGuardResult(error=f"Project config file {rel} is too large to check (Zen/DDC guard).")
         text, error = _read(project_dir.joinpath(*rel.split('/')), rel)
+        error = error or adapter_marker.check_text(text, rel)   # a faked D3D12 adapter line (card selection)
         if error:
             return ZenGuardResult(error=error)
         hits.extend(scan_ini_text(text, rel))
-    return ZenGuardResult(hits=tuple(hits), files=tuple(files))
+    error = adapter_marker.check_json_files(project_dir, listing.files, _read, MAX_INI_BYTES)
+    return ZenGuardResult(hits=tuple(hits), files=tuple(files), error=error or '')

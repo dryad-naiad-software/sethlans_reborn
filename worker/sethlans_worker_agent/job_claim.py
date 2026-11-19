@@ -42,8 +42,9 @@ def _shutdown_requested() -> bool:
 
 def _reserve_slot(selection, capacity):
     job = selection.job
-    if selection.capacity_mode == 'exclusive':
-        return capacity.reserve_exclusive(job.get('id'))
+    if selection.capacity_mode == 'exclusive':  # the Unreal cards in use come with the renderer reservation (C-27 b)
+        keys = tuple(getattr(selection.renderer_reservation, 'card_keys', ()) or ())
+        return capacity.reserve_exclusive(job.get('id'), unreal_keys=keys)
     return capacity.reserve_for_job(job.get('id'), job.get('render_device'))
 
 
@@ -70,8 +71,8 @@ def _record_claim(job: Dict[str, Any], selection, slot) -> None:
     with job_processor._active_jobs_lock:
         job_processor._active_jobs[job_id] = entry
         job_processor._unfinished_job_ids.add(job_id)
-    if entry['renderer'] == 'BLENDER':  # its own stop event, removed in release_after_job (FR-CL-5)
-        blender_stop.register_card_stop(job)
+    # Its own stop event, removed in release_after_job (FR-CL-5; Unreal: C-24 m).
+    blender_stop.register_card_stop(job)
 
 
 def claim_selected(selection, capacity, worker_id) -> Optional[Dict[str, Any]]:

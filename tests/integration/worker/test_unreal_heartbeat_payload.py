@@ -68,7 +68,7 @@ class TestDisabled:
         with job_processor._active_jobs_lock:
             job_processor._unfinished_job_ids.update({12, 3})
         registration, heartbeat = _register_and_beat(mocker)
-        disabled = {'schema': 1, 'enabled': False, 'disabled_reason': 'disabled by config',
+        disabled = {'schema': 1, 'enabled': False, 'disabled_reason': 'Unreal is switched off in the worker settings',
                     'installs': [], 'share': '', 'share_reachable': False}
         assert registration['unreal_capabilities'] == disabled
         assert heartbeat['unreal_capabilities'] == disabled

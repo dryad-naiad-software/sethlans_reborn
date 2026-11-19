@@ -25,7 +25,9 @@ Package layout:
                      cpu_threads_for_blender, SlotReservation.
     drift.py      -- detect_physical_gpus_now (uncached GPU list from the
                      Blender that produced the list in use).
-    card_check.py -- the start and periodic card checks (FR-CK-1..3).
+    card_check.py -- the start and periodic card checks (FR-CK-1..3), and
+                     the OS-only check during an Unreal render (C-24 m).
+    card_stops.py -- the alerts and per-job stops of one evaluation.
     rebuild.py    -- generation, pending mark and profile swap (FR-CL-4).
     recheck.py    -- when the check runs: periodically, and early (with a
                      floor) after a failed GPU device check.

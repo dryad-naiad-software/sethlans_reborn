@@ -20,7 +20,7 @@ import logging
 
 import pytest
 
-from sethlans_worker_agent import blender_stop, job_processor, system_monitor
+from sethlans_worker_agent import blender_stop, job_processor, system_monitor, unreal_bridge
 from sethlans_worker_agent.capacity import WorkerCapacity, rebuild
 from sethlans_worker_agent.capacity.exclusive import retained_owner
 from sethlans_worker_agent.cards import choice, matching, startup_log, store
@@ -66,12 +66,23 @@ class TestJobsOnUnusableCards:
 
     @pytest.mark.parametrize('state, stopped', [
         (matching.BLENDER_LOST, []), (matching.LOST, [7]), (matching.CHANGED, [7]), (matching.HELD, [7]),
+        (matching.OK, []), (matching.UNTICKED, []), (matching.UNKNOWN, []),
     ])
-    def test_whole_machine_job_keeps_a_card_blender_lost(self, state, stopped):
-        """D19: Unreal may still use a ``blender_lost`` card."""
+    def test_unreal_job_by_the_state_of_the_card_it_chose(self, monkeypatch, state, stopped):
+        """C-24 m, D19: only the Unreal job's own card counts, and Unreal may keep a ``blender_lost`` card."""
         cap = WorkerCapacity(profile(gpu_slot_count=2))
         assert cap.reserve_exclusive(7) is not None
+        monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: (7, key(1)))
         assert cap.jobs_on_unusable_cards({key(0): matching.OK, key(1): state}) == stopped
+
+    def test_unreal_marks_on_other_cards_stop_nothing(self, monkeypatch):
+        """C-24 m: the whole-machine marks on the Blender slots are not the card Unreal renders on."""
+        cap = WorkerCapacity(profile(gpu_slot_count=2))
+        cap.reserve_exclusive(7)
+        monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: (7, key(0)))
+        assert cap.jobs_on_unusable_cards({key(0): matching.OK, key(1): matching.LOST}) == []
+        monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: None)  # before its first launch
+        assert cap.jobs_on_unusable_cards({key(0): matching.LOST, key(1): matching.LOST}) == []
 
     def test_retained_owner_is_never_stopped(self, two_jobs):
         two_jobs.retain_slots(12)

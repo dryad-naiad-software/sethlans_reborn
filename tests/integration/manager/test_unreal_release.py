@@ -6,9 +6,13 @@ Integration tests: ``POST /api/jobs/{id}/release/`` (Unreal foundation
 FR-RT-11, FR-RT-13, D4, FR-T-3, AC-22).
 """
 
+import json
+
 import pytest
+from django.test import Client
 
 from workers.models import Job, JobStatus
+from workers.views.job_release_actions import RELEASE_REASONS
 
 from .unreal_helpers import unreal_asset
 
@@ -26,7 +30,10 @@ def _release(client, job_pk, reason='shutdown'):
 @pytest.mark.django_db
 class TestRelease:
 
-    @pytest.mark.parametrize('reason', ['shutdown', 'dispatch_failed', 'share_unavailable'])
+    @pytest.mark.parametrize('reason', [
+        'shutdown', 'dispatch_failed', 'share_unavailable', 'local_conflict',
+        'worker_hardware_changed',
+    ])
     def test_assigned_worker_requeues(self, worker_with_token, reason):
         worker, client = worker_with_token
         job = _rendering(unreal_asset(), worker)
@@ -46,6 +53,19 @@ class TestRelease:
         assert resp.data == {'status': 'ERROR', 'auto_requeue_count': 4}
         job.refresh_from_db()
         assert (job.status, job.error_message) == (JobStatus.ERROR, "Max auto-requeue attempts exceeded (3)")
+
+    def test_hardware_changed_counts_toward_the_limit(self, worker_with_token):
+        """A lost or changed card is counted like the yield-requeue hand-back (#247)."""
+        worker, client = worker_with_token
+        job = _rendering(unreal_asset(), worker)
+        for count in (1, 2, 3):
+            resp = _release(client, job.pk, 'worker_hardware_changed')
+            assert resp.data == {'status': 'QUEUED', 'auto_requeue_count': count}
+            Job.objects.filter(pk=job.pk).update(status=JobStatus.RENDERING, assigned_worker=worker)
+        resp = _release(client, job.pk, 'worker_hardware_changed')
+        assert resp.data == {'status': 'ERROR', 'auto_requeue_count': 4}
+        job.refresh_from_db()
+        assert (job.status, job.yield_requeue_count) == (JobStatus.ERROR, 0)
 
     def test_repeat_after_success_is_409(self, worker_with_token):
         worker, client = worker_with_token
@@ -73,7 +93,7 @@ class TestRelease:
         assert (resp.status_code, resp.data) == (409, {'error': "Release is not supported for this renderer."})
         assert Job.objects.get(pk=job.pk).status == JobStatus.RENDERING
 
-    @pytest.mark.parametrize('reason', ['reassigned_abort', 'other', ''])
+    @pytest.mark.parametrize('reason', ['reassigned_abort', 'other', 'hardware_changed', 'worker_shutdown', ''])
     def test_bad_reason(self, worker_with_token, reason):
         worker, client = worker_with_token
         job = _rendering(unreal_asset(), worker)
@@ -93,3 +113,12 @@ class TestRelease:
         worker, _client = worker_with_token
         job = _rendering(unreal_asset(), worker)
         assert _release(admin_client, job.pk).status_code == 403
+
+
+@pytest.mark.django_db
+def test_openapi_release_reason_enum():
+    resp = Client().get('/api/schema/?format=json', HTTP_ACCEPT='application/json')
+    assert resp.status_code == 200
+    enum = json.loads(resp.content.decode('utf-8'))['components']['schemas']['JobReleaseReasonEnum']['enum']
+    assert enum == list(RELEASE_REASONS)
+    assert 'worker_hardware_changed' in enum

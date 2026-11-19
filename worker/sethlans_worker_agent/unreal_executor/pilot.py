@@ -46,8 +46,13 @@ PILOT_MAX_SAMPLE_GAP_S = 10.0
 MIN_PLAUSIBLE_PEAK_MB = vram_gate.MIN_PLAUSIBLE_PEAK_MB
 PILOT_SUMMARY_MAX_BYTES = 32 * 1024  # JSON size; also the manager's UTF-8 limit on ``summary`` (#260)
 
-FOUND_ADAPTER = re.compile(r'LogD3D12RHI: Found D3D12 adapter (\d+): (.{1,200}?) \(VendorId: ')
-CHOSEN_ADAPTER = re.compile(r'LogD3D12RHI: Chosen D3D12 Adapter Id = (\d+)')
+# Anchored to the line start (UE's optional "[time][frame]" prefix) with bounded digits, so a project ini
+# value that UE echoes inside another line ("LogConfig: Set CVar [[...]]") does not match (chunk 7 security).
+_UE_PREFIX = r'^(?:\[[^\]]*\]\[\s*\d+\])?'
+FOUND_ADAPTER = re.compile(_UE_PREFIX + r'LogD3D12RHI: Found D3D12 adapter ([0-9]{1,2}): (.{1,200}?) '
+                           r'\(VendorId: ([0-9a-fA-F]{1,4})(?:, DeviceId: ([0-9a-fA-F]{1,4}))?', re.ASCII)
+CHOSEN_ADAPTER = re.compile(_UE_PREFIX + r'LogD3D12RHI: Chosen D3D12 Adapter Id = ([0-9]{1,2})\s*$', re.ASCII)
+FOUND_REVISION = re.compile(r', Revision: ([0-9a-fA-F]{1,4})', re.ASCII)
 FREED_MESSAGE = "GPU memory was freed by another program during the pilot; the measurement is unreliable."
 GAP_MESSAGE = "GPU memory sampling stalled for {n} s during the pilot; the measurement is unreliable."
 

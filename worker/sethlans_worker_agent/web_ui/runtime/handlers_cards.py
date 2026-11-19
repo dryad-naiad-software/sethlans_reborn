@@ -7,6 +7,8 @@ Settings page graphics card endpoints (FR-CW-4).
 GET  /api/cards/                -- anonymous, like ``/api/status``; display data only
 POST /api/control/cards         -- save the card choice
 POST /api/control/cards/dismiss -- dismiss one open alert: ``{"alert_id": "<32 hex>"}``
+POST /api/control/cards/unreal  -- the Unreal switch (O14): ``{"enabled": true | false}``; saved for
+                                   the next start; 409 when ``SETHLANS_UNREAL_ENABLED`` sets it
 
 The POSTs get the Bearer password check, the shutdown guard and the body
 cap from ``wsgi_app``, which hands every ``cards`` action to
@@ -25,6 +27,7 @@ import logging
 import re
 from typing import Callable, Iterable
 
+from sethlans_worker_agent import unreal_switch
 from sethlans_worker_agent.cards import choice, store
 from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 from sethlans_worker_agent.web_ui import cards_cache, cards_view
@@ -36,6 +39,9 @@ SAVED_TEXT = "Saved. The new graphics card choice is in use once running GPU job
 DISMISSED_TEXT = "Dismissed. A card that is still missing or changed is alerted again at the next check."
 UNKNOWN_ALERT_TEXT = "No open alert has this id. Reload the page."
 NOT_DISMISSED_TEXT = "The alert could not be dismissed; see the worker log."
+UNREAL_SAVED_TEXT = "Saved. The Unreal switch takes effect at the next worker start."
+UNREAL_ENV_TEXT = "This switch is set by an environment variable on this worker."
+UNREAL_NOT_SAVED_TEXT = "The Unreal switch could not be saved; see the worker log."
 _ALERT_ID = re.compile(r'[0-9a-f]{32}')
 
 
@@ -50,7 +56,38 @@ def handle_cards_control(action: str, start_response: Callable, body: bytes) -> 
         return _save(start_response, body)
     if action == 'cards/dismiss':
         return _dismiss(start_response, body)
+    if action == 'cards/unreal':
+        return _unreal_switch(start_response, body)
     return send_json_wsgi(start_response, {'error': 'Not Found'}, 404)
+
+
+def parse_unreal_body(body: bytes) -> bool:
+    """``{"enabled": true | false}`` and nothing else; ``ValueError`` with one plain sentence."""
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        data = None
+    if not isinstance(data, dict) or set(data) != {'enabled'} or not isinstance(data['enabled'], bool):
+        raise ValueError("The request must be a JSON object with enabled set to true or false.")
+    return data['enabled']
+
+
+def _unreal_switch(start_response: Callable, body: bytes) -> Iterable[bytes]:
+    """O14: save the Unreal switch for the next start; 409 under its environment variable."""
+    try:
+        enabled = parse_unreal_body(body)
+    except ValueError as invalid:
+        return send_json_wsgi(start_response, {'error': str(invalid)}, 400)
+    try:
+        unreal_switch.save(enabled, 'settings page')
+    except unreal_switch.EnvOverride:
+        return send_json_wsgi(start_response, {'error': UNREAL_ENV_TEXT}, 409)
+    except (ConfigLockTimeoutError, OSError):
+        logger.error("The Unreal switch could not be saved.", exc_info=True)
+        return send_json_wsgi(start_response, {'error': UNREAL_NOT_SAVED_TEXT}, 503)
+    answer = {'status': 'ok', 'message': UNREAL_SAVED_TEXT}
+    answer.update(unreal_switch.state())
+    return send_json_wsgi(start_response, answer)
 
 
 def _save(start_response: Callable, body: bytes) -> Iterable[bytes]:

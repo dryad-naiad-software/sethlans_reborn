@@ -51,9 +51,11 @@ class World:
         monkeypatch.setattr(job_run, 'UeFlow', self._flow_factory)
 
     # -- fakes ----------------------------------------------------------
-    def _flow_factory(self, params, ctx, job, runner, summary, builders, marker, uproject, config, reading=None):
+    def _flow_factory(self, params, ctx, job, runner, summary, builders, marker, uproject, config, reading=None,
+                      choose=None):
         world = self
         self.job = job
+        self.choose = choose
 
         class Flow:
             def run(self):

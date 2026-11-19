@@ -15,7 +15,7 @@ UE process runner (Unreal foundation FR-UE-11; Conc H1, M4, M10, R2-M1).
   Object, and only then resumed. A Job Object failure kills it and raises
   ``UnconfinedLaunchError`` (fail closed, ``job_object=failed``).
 * **Monitor** (every ``TICK_SECONDS``; every ``VRAM_TICK_SECONDS`` while
-  sampling GPU memory): fatal rules on the tailed lines, the ledger, tree
+  sampling GPU memory): fatal rules and the D3D12 adapter rule on the tailed lines, the ledger, tree
   CPU, GPU memory samples, log flood, the success marker and quit grace,
   ``tick_check``, the cancel cause, ``shutdown_event``, the wall timeout
   and the hang rule.
@@ -208,7 +208,8 @@ class ProcessRunner:
             wall_s=self._clock() - state.started, survivors=(), vram_peak_mb=peak,
             phase=self.spec.phase, success_marker_seen=state.marker_at is not None,
             quit_forced=reason == 'exited_after_grace', fatal_rule=state.fatal_rule, detail=state.detail,
-            job_object='ok' if self.job is not None else 'none', vram=self.vram)
+            job_object='ok' if self.job is not None else 'none', vram=self.vram,
+            adapter_chosen=state.adapter.chosen, adapter_found=state.adapter.found, adapter_problem=state.adapter.problem)
 
     # -- exit confirmation ---------------------------------------------
     def _confirm(self) -> Tuple[Tuple[int, str], ...]:

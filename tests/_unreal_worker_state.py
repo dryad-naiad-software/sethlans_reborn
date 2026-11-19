@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from sethlans_worker_agent import config_unreal, unreal_share
+from sethlans_worker_agent.cards import unreal_cards
 from sethlans_worker_agent.unreal_executor import cache_dir, detection, runtime, startup_recovery
 from sethlans_worker_agent.unreal_executor.vram import GpuMem, GpuMemoryReading
 
@@ -67,10 +68,14 @@ def reachable(root='\\\\nas.lan\\sethlans', ok=True):
 
 def enable_unreal(monkeypatch, installs=(install(),), share='', share_state=None,
                   sampler=None, cache_reason='', lock_ok=True, symlink_eval=False,
-                  recovered=True):
-    """Enable Unreal with fakes; returns a dict of call records."""
+                  recovered=True, card_reason=''):
+    """Enable Unreal with fakes; returns a dict of call records.
+
+    ``card_reason`` is the FR-CU-6 card reason (default: a ticked card Unreal can use).
+    """
     calls = {'prepare': 0, 'lock': 0, 'threads': 0, 'detect': 0}
     monkeypatch.setattr(config_unreal, 'ENABLED', True)
+    monkeypatch.setattr(unreal_cards, 'disabled_reason', lambda: card_reason)
     monkeypatch.setattr(config_unreal, 'SHARE', share)
     monkeypatch.setattr(runtime, '_is_windows', lambda: True)
     monkeypatch.setattr(runtime.symlink_policy, 'remote_symlink_evaluation_enabled', lambda: symlink_eval)

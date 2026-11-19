@@ -80,7 +80,10 @@ class CancelWatcher:
         self._thread: Optional[threading.Thread] = None
 
     def _check_once(self) -> None:
-        if self._shutdown is not None and self._shutdown.is_set():
+        # The worker's own shutdown only: a job's card stop (a ``JobStop`` joins it) is not a cancel cause,
+        # and the manager is still asked so a later CANCELED is recorded (chunk 7 review).
+        worker = getattr(self._shutdown, 'shutdown_event', self._shutdown)
+        if worker is not None and worker.is_set():
             self.cause.set('shutdown')
             return
         found = classify(self._get(self.job_id), self._worker_id)

@@ -19,7 +19,10 @@ Inputs and outputs of the UE process runner (Unreal foundation FR-UE-11).
   900 s window could never fire, review D1);
 * ``fatal``: a fatal log rule (``fatal_rule``; ``log_flood`` included);
 * ``local_conflict``: a per-tick check (``tick_check``, e.g. the farm
-  zenserver's loopback rule, FR-UE-26) asked to end the phase.
+  zenserver's loopback rule, FR-UE-26) asked to end the phase;
+* ``adapter_mismatch``: the log named another D3D12 adapter than
+  ``expected_adapter`` (``adapter_log``, FR-CU-3). ``adapter_chosen`` and
+  ``adapter_found`` report the adapter lines of every launch that has one.
 """
 import re
 import threading
@@ -31,7 +34,7 @@ from sethlans_worker_agent.unreal_executor.command import UeLaunch
 from sethlans_worker_agent.unreal_executor.log_validation import LogRule
 
 REASONS = ('exited', 'exited_after_grace', 'canceled', 'shutdown', 'reassigned', 'timeout', 'hang', 'fatal',
-           'local_conflict')
+           'local_conflict', 'adapter_mismatch')
 CANCEL_CAUSES = ('canceled', 'shutdown', 'reassigned')
 HANG_CPU_SECONDS = 5.0           # tree CPU below this over HANG_CPU_WINDOW_SECONDS ... (S1, S3)
 HANG_CPU_WINDOW_SECONDS = 60.0   # ... once the log has been silent for hang_s (review D1: 0.9 CPU-s/min idle)
@@ -77,6 +80,8 @@ class RunSpec:
     vram_sample: Optional[Callable[[float], object]] = None  # timeout_s -> GpuMemoryReading | None
     tick_check: Optional[Callable[[], Optional[str]]] = None  # returns a reason to end the phase
     vram_baseline: Optional[Dict[int, int]] = None    # per-GPU used_mb before the launch
+    expected_adapter: Optional[int] = None            # -graphicsadapter=N of a warm-up or render (FR-CU-3)
+    expected_ids: Optional[Tuple] = None              # (vendor, device, revision) of the chosen card
 
     @property
     def phase(self) -> str:
@@ -128,3 +133,6 @@ class RunOutcome:
     detail: str = ''
     job_object: str = 'ok'
     vram: VramTrace = field(default_factory=VramTrace)
+    adapter_chosen: Optional[int] = None   # the "Chosen D3D12 Adapter Id" of the log (expected launches only)
+    adapter_found: bool = False            # the log has "Found D3D12 adapter" lines
+    adapter_problem: str = ''              # what the log chose instead of the expected card ('' when it matched)

@@ -61,6 +61,7 @@ def _reset_job_processor_state():
     blender_stop.reset_for_tests()
     rebuild.reset_for_tests()
     card_check.reset_for_tests()
+    _reset_unreal_card_state()
     yield
     job_processor._capacity = None
     job_processor._last_drift_check_ts = 0.0
@@ -69,6 +70,22 @@ def _reset_job_processor_state():
     blender_stop.reset_for_tests()
     rebuild.reset_for_tests()
     card_check.reset_for_tests()
+    _reset_unreal_card_state()
+
+
+def _reset_unreal_card_state():
+    """The Unreal job's card choice and the last FR-CU-6 reason (card selection chunk 7).
+
+    The choice module is looked up, not imported: some tests make importing
+    ``unreal_executor`` fail on purpose.
+    """
+    import sys
+    from sethlans_worker_agent.cards import unreal_cards
+    for name in ('adapter_choice', 'adapter_log'):  # the card choice; the projects refused after a mismatch
+        module = sys.modules.get(f'sethlans_worker_agent.unreal_executor.{name}')
+        if module is not None:
+            module.reset_for_tests()
+    unreal_cards.reset_for_tests()
 
 
 @pytest.fixture(autouse=True)

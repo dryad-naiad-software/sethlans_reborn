@@ -51,6 +51,8 @@
   .toggle .slider::before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: var(--text); border-radius: 50%; transition: transform 0.2s; }
   .toggle input:checked + .slider { background: var(--ok); }
   .toggle input:checked + .slider::before { transform: translateX(16px); }
+  .toggle input:focus-visible + .slider { outline: 2px solid var(--ok); outline-offset: 2px; }
+  .toggle input:disabled + .slider { opacity: 0.5; cursor: default; }
   .cfg-status { font-size: 0.75rem; margin-left: 0.5rem; }
   .cfg-status.ok { color: var(--ok); }
   .cfg-status.err { color: var(--err); }
@@ -76,6 +78,8 @@
   .gc-alerts ul { list-style: none; }
   .gc-alerts li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; padding: 0.25rem 0; }
   .gc-time { font-size: 0.75rem; opacity: 0.7; }
+  .gc-unreal { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--accent); }
+  .gc-unreal .gc-opt { align-items: center; }
 </style>
 </head>
 <body>
@@ -155,7 +159,7 @@
       </table>
       <p class="gc-msg empty" id="gc-checking" style="display:none">Checking which cards Blender can use...</p>
       <fieldset class="gc-list" id="gc-list" style="display:none"><legend>Graphics cards to use</legend><div id="gc-items"></div><div id="gc-missing"></div>
-        <p class="gc-note" id="gc-help" style="padding-left:0;margin-top:0.25rem">Unreal renders on a ticked card. Blender uses the ticked cards only when the method includes GPU.</p></fieldset>
+        <p class="gc-note" id="gc-help" style="padding-left:0;margin-top:0.25rem">Unreal renders on a ticked card when it is switched on below. Blender uses the ticked cards only when the method includes GPU.</p></fieldset>
       <label class="gc-opt" id="gc-combine-row" style="display:none"><input type="checkbox" id="gc-combine"> Combine GPUs</label>
       <ul class="gc-warnings" id="gc-warnings"></ul>
       <div id="gc-notices" style="display:none"><ul class="gc-warnings" id="gc-notice-list"></ul>
@@ -164,6 +168,17 @@
     </div>
     <p class="gc-msg" id="gc-result" role="status"></p>
     <button class="btn btn-secondary" id="gc-retry" style="display:none" onclick="loadCards(false)">Retry</button>
+    <!-- The Unreal switch (O14): saved on its own, separate from the card choice; used from the next worker start. -->
+    <div class="gc-unreal" id="gc-unreal" style="display:none">
+      <label class="gc-opt" for="gc-unreal-on"><span class="toggle"><input type="checkbox" role="switch" id="gc-unreal-on"
+        aria-describedby="gc-unreal-env gc-unreal-restart"><span class="slider"></span></span>
+        <span>Render Unreal jobs on the ticked card</span></label>
+      <p class="gc-note" id="gc-unreal-env" style="display:none;padding-left:0">This switch is set by an environment variable on this worker.</p>
+      <p class="gc-msg status-warn" id="gc-unreal-restart" style="display:none">Restart the worker for this change to take effect.</p>
+      <div class="gc-actions" id="gc-unreal-actions"><button class="btn btn-ok" id="gc-unreal-save" disabled
+        aria-label="Save the Unreal switch" onclick="saveUnreal()">Save</button></div>
+      <p class="gc-msg" id="gc-unreal-result" role="status"></p>
+    </div>
   </div>
   <div class="card">
     <h2>Blender Tools</h2>
@@ -445,7 +460,9 @@
   function hasGpu(method) { return method === 'gpu' || method === 'cpu_gpu'; }
   function cardLabel(c) { return c.pci ? c.name + ' (PCI ' + c.pci + ')' : c.name; }
   function tickedCards() { return cards.data.cards.filter(function(c) { return cards.ticked[c.address]; }); }
-  function setResult(text, cls) { var el = byId('gc-result'); el.textContent = text || ''; el.className = 'gc-msg' + (cls ? ' ' + cls : ''); }
+  function setMsg(id, text, cls) { var el = byId(id); el.textContent = text || ''; el.className = 'gc-msg' + (cls ? ' ' + cls : ''); }
+  function setResult(text, cls) { setMsg('gc-result', text, cls); }
+  function setUnrealResult(text, cls) { setMsg('gc-unreal-result', text, cls); }
   function localTime(iso) { var t = new Date(iso); return isNaN(t.getTime()) ? String(iso || '') : t.toLocaleString(); }
   function changed() { cards.dirty = true; refreshCards(); }
 
@@ -502,6 +519,7 @@
     cards.shown = d.cards.map(function(c) { return c.address; });
     Object.keys(cards.ticked).forEach(function(a) { if (cards.shown.indexOf(a) < 0) delete cards.ticked[a]; });
     renderCards();
+    applyUnreal(d);
     show('gc-loading', false); show('gc-form', true);
   }
 
@@ -611,13 +629,16 @@
     cards.busy = on;
     Array.prototype.forEach.call(byId('gc-alert-list').querySelectorAll('button'), function(b) { b.disabled = on; });
     refreshCards();
+    refreshUnreal();
   }
 
-  // POST to /api/control/<path>; done(ok) after the result line is set. A 401 forgets the stored password.
-  function postCards(path, body, failText, done) {
+  // POST to /api/control/<path>; done(ok, answer) after the result line (out, default gc-result) is set.
+  // A 401 forgets the stored password.
+  function postCards(path, body, failText, done, out) {
+    out = out || setResult;
     var password = getPassword();
     if (!password) return;
-    setResult('');
+    out('');
     setBusy(true);
     fetch('/api/control/' + path, {
       method: 'POST',
@@ -626,12 +647,12 @@
     }).then(function(r) {
       return r.json().catch(function() { return {}; }).then(function(data) {
         setBusy(false);
-        if (r.ok) { setResult(data.message || 'Done.', 'status-ok'); done(true); return; }
-        if (r.status === 401) { sessionStorage.removeItem('workerUIPassword'); setResult('Wrong password. Try again.', 'status-err'); return; }
-        setResult(data.error || failText, 'status-err');
-        done(false);
+        if (r.ok) { out(data.message || 'Done.', 'status-ok'); done(true, data); return; }
+        if (r.status === 401) { sessionStorage.removeItem('workerUIPassword'); out('Wrong password. Try again.', 'status-err'); return; }
+        out(data.error || failText, 'status-err');
+        done(false, data);
       });
-    }).catch(function(err) { setBusy(false); setResult(err.message, 'status-err'); });
+    }).catch(function(err) { setBusy(false); out(err.message, 'status-err'); });
   }
 
   function dismissAlert(id) {
@@ -652,8 +673,36 @@
   }
   window.saveCards = saveCards;
 
+  // --- The Unreal switch (O14): saved on its own; a refresh never overwrites a change not yet saved. ---
+  var unrealSaved = null;  // the value the next worker start will use, from the last answer
+
+  function applyUnreal(d) {
+    if (typeof d.unreal_enabled !== 'boolean') return;
+    var box = byId('gc-unreal-on'), env = d.unreal_enabled_env === true;
+    if (env || unrealSaved === null || box.checked === unrealSaved) box.checked = d.unreal_enabled;
+    unrealSaved = d.unreal_enabled;
+    box.disabled = env;
+    show('gc-unreal-env', env);
+    show('gc-unreal-actions', !env);
+    show('gc-unreal-restart', d.unreal_restart_needed === true);
+    show('gc-unreal', true);
+    refreshUnreal();
+  }
+
+  function refreshUnreal() {
+    byId('gc-unreal-save').disabled = cards.busy || unrealSaved === null || byId('gc-unreal-on').checked === unrealSaved;
+  }
+
+  function saveUnreal() {
+    if (cards.busy || unrealSaved === null || byId('gc-unreal-on').disabled) return;
+    postCards('cards/unreal', { enabled: byId('gc-unreal-on').checked }, 'The Unreal switch could not be saved.',
+      function(ok, data) { if (ok) applyUnreal(data); else loadCards(true); }, setUnrealResult);
+  }
+  window.saveUnreal = saveUnreal;
+
   byId('gc-method').addEventListener('change', changed);
   byId('gc-combine').addEventListener('change', function() { cards.dirty = true; });
+  byId('gc-unreal-on').addEventListener('change', refreshUnreal);
   loadCards(false);
   setInterval(function() { if (cards.data) loadCards(true); }, CARDS_SLOW_MS);
 

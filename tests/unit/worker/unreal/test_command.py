@@ -22,18 +22,20 @@ ZEN = [r'-ZenDataPath=D:\uecache\zen\data', r'-LocalDataCachePath=D:\uecache\zen
 NET = '-UDPMESSAGING_TRANSPORT_ENABLE=0'
 TAIL = [NET] + ZEN + ['-notraceserver', DPCVARS]
 HEADLESS = '-RenderOffscreen'
+ADAPTER = ['-dx12', '-graphicsadapter=1']   # the chosen card's DXGI index (FR-CU-2)
+CARD_TAIL = [NET] + ADAPTER + TAIL[1:]
 
 
 @pytest.fixture()
 def ctx():
-    return command.context_for(EDITOR, CACHE, 8668)
+    return command.context_for(EDITOR, CACHE, 8668, graphics_adapter=1)
 
 
 def test_render_golden(ctx):
     launch = command.build_render(ctx, UPROJECT, MAP, QUEUE, JOB + r'\logs\render.1.log', MERGED)
     expected = [EDITOR, UPROJECT, MAP, '-game', f'-MoviePipelineConfig={QUEUE}', '-windowed', '-resx=1280',
                 '-resy=720', '-unattended', '-nosplash', '-NoLoadingScreen', '-log', farm_defaults.INI_INPUT_OVERRIDE,
-                r'-abslog=D:\uecache\j\42-1a2b3c4d\logs\render.1.log', HEADLESS] + TAIL
+                r'-abslog=D:\uecache\j\42-1a2b3c4d\logs\render.1.log', HEADLESS] + CARD_TAIL
     assert list(launch.args) == expected
     assert launch.cwd == CACHE and launch.phase == 'render' and not launch.pilot
     assert 'SETHLANS_UE_JOB_PARAMS' not in launch.env
@@ -42,7 +44,7 @@ def test_render_golden(ctx):
 def test_pilot_render_carries_literal_csv_tokens_before_zen(ctx):
     launch = command.build_render(ctx, UPROJECT, MAP, QUEUE, JOB + r'\logs\render.1.log', MERGED, pilot_launch=True)
     args = list(launch.args)
-    assert args[-10:] == [HEADLESS, NET, '-csvCaptureFrames=5000000', '-csvGpuStats'] + TAIL[1:]
+    assert args[-12:] == [HEADLESS, NET] + ADAPTER + ['-csvCaptureFrames=5000000', '-csvGpuStats'] + TAIL[1:]
 
 
 def test_prep_golden(ctx):
@@ -61,7 +63,7 @@ def test_warmup_golden(ctx):
     assert list(launch.args) == [EDITOR, UPROJECT, '-unattended', '-nosplash', '-log',
                                  r'-abslog=D:\uecache\j\42-1a2b3c4d\logs\warmup.1.log',
                                  r'-ExecCmds=py D:\uecache\j\42-1a2b3c4d\scripts\sethlans_warm_up.py',
-                                 HEADLESS] + TAIL
+                                 HEADLESS] + CARD_TAIL
 
 
 def test_every_launch_has_the_isolation_environment(ctx, monkeypatch):
@@ -153,8 +155,8 @@ def test_map_and_queue_are_revalidated(ctx):
 
 
 def test_zen_port_8558_is_refused():
-    ctx = command.context_for(EDITOR, CACHE, 8558)
-    with pytest.raises(ValueError):
+    ctx = command.context_for(EDITOR, CACHE, 8558, graphics_adapter=1)
+    with pytest.raises(ValueError, match='8558'):
         command.build_render(ctx, UPROJECT, MAP, QUEUE, JOB + r'\l.log', MERGED)
 
 

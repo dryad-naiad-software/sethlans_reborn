@@ -6,10 +6,13 @@ Worker-initiated release of a job, and the per-renderer worker PATCH
 allowlist (Unreal foundation FR-RT-11, FR-RT-14, D4).
 
 ``POST /api/jobs/{id}/release/`` returns a RENDERING job to the queue when
-its worker shuts down cleanly, cannot dispatch it, or loses the Sethlans
-share before the render starts.  It goes through ``requeue_or_fail``,
-shared with the stuck-job reaper, so the 4th requeue ends in ERROR with
-the reaper's message.  Only renderers whose strategy supports release
+its worker shuts down cleanly, cannot dispatch it, loses the Sethlans
+share before the render starts, meets a local conflict, or stops it
+because its graphics card was lost or changed (``worker_hardware_changed``,
+the same reason and counting as the Blender hand-back through
+yield-requeue).  Every reason goes through ``requeue_or_fail``, shared
+with the stuck-job reaper, so the 4th requeue ends in ERROR with the
+reaper's message.  Only renderers whose strategy supports release
 (Unreal) accept it.
 """
 
@@ -32,7 +35,10 @@ from .stuck_jobs import requeue_or_fail
 
 logger = logging.getLogger(__name__)
 
-RELEASE_REASONS = ('shutdown', 'dispatch_failed', 'share_unavailable', 'local_conflict')
+RELEASE_REASONS = (
+    'shutdown', 'dispatch_failed', 'share_unavailable', 'local_conflict',
+    'worker_hardware_changed',
+)
 NOT_RENDERING_HERE = "Job is not rendering on this worker."
 RELEASE_UNSUPPORTED = "Release is not supported for this renderer."
 
@@ -126,7 +132,7 @@ class JobReleaseActionsMixin:
             200 ``{"status": "QUEUED" | "ERROR", "auto_requeue_count": n}``;
                 ERROR means the auto-requeue limit was exceeded.
             400 for a ``reason`` other than shutdown, dispatch_failed,
-                share_unavailable or local_conflict.
+                share_unavailable, local_conflict or worker_hardware_changed.
             404 if the job does not exist.
             409 if the job is not RENDERING on this worker (checked first),
                 or its renderer does not support release.  A repeated

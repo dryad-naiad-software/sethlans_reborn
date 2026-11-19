@@ -19,6 +19,14 @@ from tests.integration.worker.unreal_executor._harness import Harness, summary
 pytestmark = pytest.mark.skipif(sys.platform != 'win32', reason='Job Objects, Windows command lines')
 
 
+@pytest.fixture(autouse=True)
+def _forget_refused_projects():
+    from sethlans_worker_agent.unreal_executor import adapter_log
+    adapter_log.reset_for_tests()
+    yield
+    adapter_log.reset_for_tests()
+
+
 def test_normal_job_renders_uploads_and_reports_summary(tmp_path, monkeypatch):
     h = Harness(tmp_path, monkeypatch)
     result = h.execute(h.job(42))
@@ -86,6 +94,63 @@ def test_shutdown_mid_render_terminates_and_releases(tmp_path, monkeypatch):
     assert time.monotonic() - started < 30 and not h.manager.uploads
     assert not any((p.info.get('exe') or '').lower() == str(h.exe).lower()
                    for p in psutil.process_iter(['exe']))
+
+
+def test_warm_up_and_render_run_on_the_chosen_card(tmp_path, monkeypatch):
+    """Card selection FR-CU-1/2: a fresh choice per launch; the fake UE exits 3 without one -dx12/-graphicsadapter."""
+    h = Harness(tmp_path, monkeypatch)
+    result = h.execute(h.job(21))
+    assert result.success, result.error_message
+    assert h.choices == [(21, None), (21, 'pci:0000:01:00.0')]   # warm-up chooses; render keeps that card (D8)
+    logs = next(h.cache.layout.j.iterdir()) / 'logs'
+    for name in ('warmup.1.log', 'render.1.log'):
+        text = (logs / name).read_text(encoding='utf-8')
+        assert 'Found D3D12 adapter 2: Microsoft Basic Render Driver' in text
+        assert 'Chosen D3D12 Adapter Id = 1' in text
+
+
+def _no_fake_ue_left(h):
+    return not any((p.info.get('exe') or '').lower() == str(h.exe).lower() for p in psutil.process_iter(['exe']))
+
+
+@pytest.mark.parametrize('phase, job_id', [('warmup', 23), ('render', 24)])
+def test_another_adapter_stops_the_launch_alerts_and_refuses_the_project(tmp_path, monkeypatch, phase, job_id):
+    """FR-CU-3 / AC-13 end to end: the line stops the run; the alert, the release and the project refusal follow.
+
+    One project is not enough to disable Unreal: its ini could have forged the line (security review).
+    """
+    from sethlans_worker_agent.cards import store
+    from sethlans_worker_agent.unreal_executor import adapter_log, runtime
+    alerts, disabled = [], []
+    monkeypatch.setattr(store, 'add_alert', lambda *args: alerts.append(args) or True)
+    monkeypatch.setattr(runtime, 'disable_until_restart', disabled.append)
+    h = Harness(tmp_path, monkeypatch, opts={'chosen_adapter': 0, 'chosen_phase': phase, 'after_chosen_sleep': 60})
+    started = time.monotonic()
+    result = h.execute(h.job(job_id))
+    assert result.released and h.manager.releases == [(job_id, 'local_conflict')] and not h.manager.uploads
+    assert alerts == [('adapter_mismatch', 'pci:0000:01:00.0', 'NVIDIA GeForce RTX 5090',
+                       f'Unreal chose adapter 0 instead of 1; project {h.sha[:12]}+none')]
+    assert disabled == [] and adapter_log.refused(f'{h.sha}:')
+    logs = {p.name for p in next(h.cache.layout.j.iterdir()).joinpath('logs').iterdir()}
+    assert ('render.1.log' in logs) is (phase == 'render')
+    assert time.monotonic() - started < 40 and _no_fake_ue_left(h)
+
+
+def test_card_stop_mid_render_releases_and_keeps_the_cache_entry(tmp_path, monkeypatch):
+    """C-24 m: the job's own stop ends the render like a shutdown, but finish() runs and the shutdown is not set."""
+    from sethlans_worker_agent import blender_stop
+    h = Harness(tmp_path, monkeypatch, opts={'render_sleep': 60})
+    job = h.job(25)
+    blender_stop.register_card_stop(job)
+    shutdown = threading.Event()
+    timer = threading.Timer(4.0, blender_stop.request_card_stop, (25,))
+    timer.start()
+    try:
+        result = h.execute(job, shutdown=shutdown)
+    finally:
+        timer.cancel()
+    assert result.released and h.manager.releases == [(25, 'worker_hardware_changed')] and not shutdown.is_set()
+    assert summary(result)['pristine_integrity'] == 'ok' and _no_fake_ue_left(h)
 
 
 def test_pilot_measures_every_phase_and_reports_pilot_result(tmp_path, monkeypatch):

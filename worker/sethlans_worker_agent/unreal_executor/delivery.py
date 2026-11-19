@@ -20,7 +20,10 @@ Runs **after** exit confirmation and the FR-PA-16 integrity check:
 * local conflict -> ``release/`` with its reason; share failure ->
   ``release/`` with ``share_unavailable`` and ``mark_unreachable``;
 * ``canceled`` -> ``CANCELED``; ``shutdown`` -> ``release/`` with
-  ``shutdown``; ``reassigned`` -> nothing reported.
+  ``shutdown``; ``reassigned`` -> nothing reported;
+* ``worker_hardware_changed`` (the card the job renders on was lost,
+  changed or held, C-24 m) -> ``release/`` with ``worker_hardware_changed``
+  (accepted by the manager from the same change on).
 """
 import logging
 import os
@@ -28,6 +31,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from sethlans_worker_agent.api_conflict import JobNoLongerAssigned
+from sethlans_worker_agent.blender_job_stop import WORKER_HARDWARE_CHANGED
 from sethlans_worker_agent.executors.base import RenderResult
 from sethlans_worker_agent.project_archive import fs_safe
 from sethlans_worker_agent.unreal_executor import pilot
@@ -37,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 INTEGRITY_MESSAGE = "The pristine project cache failed its integrity check after the render; output discarded."
 UPLOAD_MESSAGE = "Unreal output upload failed."
+HARDWARE_MESSAGE = "the graphics card it renders on can no longer be used"
 
 
 @dataclass
@@ -99,6 +104,8 @@ class Delivery:
                 return result(canceled=True, stdout=self._text(), after_report=self.after)
             if outcome.reason == 'shutdown':
                 return self.released('shutdown')
+            if outcome.reason == WORKER_HARDWARE_CHANGED:
+                return self.released(WORKER_HARDWARE_CHANGED, HARDWARE_MESSAGE)
             logger.warning("Unreal job %s was reassigned; nothing is reported.", self.params.job_id)
             return result(released=True, stdout=self._text(), after_report=self.after)
         return self.failed(outcome.message)

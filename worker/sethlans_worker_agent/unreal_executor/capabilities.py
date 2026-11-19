@@ -6,8 +6,9 @@ Unreal capabilities report, poll parameters and GPU memory payload
 (Unreal foundation FR-WD-7, FR-WD-8, FR-WD-9, FR-WD-10).
 
 Reached only through ``unreal_bridge``. Every function checks
-``config_unreal.ENABLED`` **first**: when it is false they return the
-"disabled by config" report, ``{}`` and ``None`` without running
+``config_unreal.ENABLED`` (the worker page's Unreal switch, O14) **first**:
+when it is false they return the "switched off" report (FR-CU-6), ``{}``
+and ``None`` without running
 detection, touching ``CACHE_DIR`` or the share, creating directories,
 taking the owner lock, calling an ACL API or running ``nvidia-smi``
 (NF-6). Otherwise ``runtime.startup()`` runs once (idempotent).
@@ -22,18 +23,28 @@ from sethlans_worker_agent import config_unreal, unreal_share
 from sethlans_worker_agent.unreal_executor import runtime, startup_recovery, vram
 
 SCHEMA = 1
-DISABLED_BY_CONFIG_REASON = "disabled by config"
+DISABLED_BY_CONFIG_REASON = "Unreal is switched off in the worker settings"   # FR-CU-6, C-27 c
+SWITCHED_ON_AT_RESTART_REASON = "Unreal is switched on in the worker settings; it starts at the next worker start"
 MAX_REASON_LENGTH = 200
 MAX_REPORTED_INSTALLS = 16
 MAX_POLL_BUILDS = 10
 RENDERERS_WITH_UNREAL = 'BLENDER,UNREAL'
 
 
+def _off_reason() -> str:
+    """Off now; the saved switch may already be on for the next start (O14). Reads only config.json."""
+    try:
+        from sethlans_worker_agent import unreal_switch
+        return SWITCHED_ON_AT_RESTART_REASON if unreal_switch.saved() else DISABLED_BY_CONFIG_REASON
+    except Exception:  # noqa: BLE001 - the report never fails over its reason text
+        return DISABLED_BY_CONFIG_REASON
+
+
 def _disabled_by_config() -> dict:
     return {
         "schema": SCHEMA,
         "enabled": False,
-        "disabled_reason": DISABLED_BY_CONFIG_REASON,
+        "disabled_reason": _off_reason(),
         "installs": [],
         "share": "",
         "share_reachable": False,

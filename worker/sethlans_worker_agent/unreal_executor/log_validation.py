@@ -98,6 +98,9 @@ LOG_RULES: Tuple[LogRule, ...] = (
     # Sec S1, second layer behind the env scrub: UE appends UE-CmdLineArgs after -DPCVars.
     _rule('cmdline_env_injection', r'Inserting commandline from UE-CmdLineArgs', 'fatal'),
     _rule('python_error', r'LogPython: Error:', 'warn'),
+    # Card selection C-15: -dx12 is always passed; a project whose data has no D3D12 shaders falls back.
+    _rule('dx12_unsupported', r"User requested RHI 'D3D12' but that is not supported by this project's data", 'warn',
+          literals=("User requested RHI 'D3D12'",)),
     _rule('ensure_failed', r'Ensure condition failed', 'warn'),
     # v4.1 (S1): also the legacy line "Movie Pipeline completed. Duration: +00:00:04.643";
     # review D6: the "+d.hh:mm:ss" form of runs longer than a day.

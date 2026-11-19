@@ -11,6 +11,7 @@ function, ``_finish``, which appends, in this order and exactly once::
 
     -RenderOffscreen                           warm-up and render (headless; not the prep commandlet)
     -UDPMESSAGING_TRANSPORT_ENABLE=0           every launch (no UdpMessaging listener, #233)
+    -dx12 -graphicsadapter=<N>                 warm-up and render: DX12 on the chosen card (FR-CU-2, B5)
     [-csvCaptureFrames=5000000 -csvGpuStats]   pilot render only
     *zen_private.zen_flags(CACHE_DIR, ZEN_PORT)
     *user_state.isolation_args()               (-notraceserver)
@@ -27,8 +28,10 @@ plus ``user_state.isolation_env(P)``. No launch path can omit either.
   path, ``-ZenDataPath=``, ``-LocalDataCachePath=``, ``SETHLANS_UE_JOB_PARAMS``)
   matches ``^[A-Za-z]:\\`` with no ``.`` or ``..`` component; the script
   paths lie under ``CACHE_DIR`` and match the FR-WC-3 allowlist;
-* the Zen tokens, ``-notraceserver`` and (pilot) the CSV tokens appear
-  exactly once each, in the order above; no other ``-ini:Engine:``,
+* the Zen tokens, ``-notraceserver``, (warm-up and render) ``-dx12`` and
+  ``-graphicsadapter=N`` with ``N`` 0-63, and (pilot) the CSV tokens appear
+  exactly once each, in the order above; the prep carries neither adapter
+  token; no other ``-ini:Engine:``,
   ``-ZenDataPath=``, ``-LocalDataCachePath=`` or ``-csv`` token appears;
 * ``-DPCVars=`` is the last token.
 
@@ -43,20 +46,17 @@ from typing import Mapping, Optional, Sequence, Tuple
 from sethlans_worker_agent import env_cleanup
 from sethlans_worker_agent.unreal_executor import farm_defaults, pilot, user_state, zen_private
 from sethlans_worker_agent.unreal_executor.cache_dir import ALLOWLIST
+from sethlans_worker_agent.unreal_executor.launch_flags import (  # CommandError is part of this module's API
+    ADAPTER_PHASES, CommandError, adapter_flags, check_phase_flags, positions)
 from shared.unreal import validation
 
 PHASES = ('prep', 'warmup', 'render')
 DPCVARS = '-DPCVars='
 EXEC_PY = '-ExecCmds=py '
-HEADLESS = farm_defaults.HEADLESS_FLAGS[0]
 _ABS = re.compile(r'^[A-Za-z]:\\', re.ASCII)
 _CONTROL = re.compile(r'[\x00-\x1f\x7f"]')
 _WHITESPACE = re.compile(r'\s')
 _PATH_PREFIXES = ('-abslog=', '-script=', '-zendatapath=', '-localdatacachepath=')
-
-
-class CommandError(ValueError):
-    """A UE command line or launch environment breaks an FR-UE-7 rule."""
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,7 @@ class LaunchContext:
     cache_dir: str      # CACHE_DIR (validated by FR-WC-3)
     zen_port: int       # config_unreal.ZEN_PORT
     profile: str        # user_state.profile_dir(CACHE_DIR)
+    graphics_adapter: Optional[int] = None  # DXGI index of the chosen card (adapter_choice, FR-CU-1)
 
 
 @dataclass(frozen=True)
@@ -77,9 +78,9 @@ class UeLaunch:
     profile: str
 
 
-def context_for(editor_cmd, cache_dir, zen_port: int) -> LaunchContext:
+def context_for(editor_cmd, cache_dir, zen_port: int, graphics_adapter: Optional[int] = None) -> LaunchContext:
     return LaunchContext(str(editor_cmd), str(cache_dir), int(zen_port),
-                         str(user_state.profile_dir(cache_dir)))
+                         str(user_state.profile_dir(cache_dir)), graphics_adapter)
 
 
 def dpcvars_token(merged: Sequence[Tuple[str, str]]) -> str:
@@ -145,37 +146,12 @@ def _check_token(index: int, token: str, ctx: LaunchContext) -> None:
         _check_paths(token, ctx)
 
 
-def _positions(args: Sequence[str], predicate) -> list:
-    return [index for index, token in enumerate(args) if predicate(token)]
-
-
 def _exactly_once(args: Sequence[str], value: str, prefix: Optional[str] = None) -> int:
     folded = (prefix or value).lower()
-    found = _positions(args, lambda t: t.lower().startswith(folded) if prefix else t.lower() == folded)
+    found = positions(args, lambda t: t.lower().startswith(folded) if prefix else t.lower() == folded)
     if len(found) != 1 or args[found[0]] != value:
         raise CommandError(f"{value!r} must appear exactly once (found {len(found)})")
     return found[0]
-
-
-def _check_headless(args: Sequence[str], phase: Optional[str], first_zen: int) -> None:
-    """Warm-up and render carry ``-RenderOffscreen`` exactly once, before the Zen tokens; the prep never does."""
-    if phase is None:
-        return
-    found = _positions(args, lambda t: t.lower() == HEADLESS.lower())
-    if phase in farm_defaults.HEADLESS_PHASES:
-        if len(found) != 1 or args[found[0]] != HEADLESS or not found[0] < first_zen:
-            raise CommandError(f"a {phase} launch must carry {HEADLESS} exactly once, before the Zen tokens")
-    elif found:
-        raise CommandError(f"a {phase} launch must not carry {HEADLESS}")
-
-
-def _check_network(args: Sequence[str], first_zen: int) -> None:
-    """Every launch carries the UdpMessaging switch exactly once, before the Zen tokens (#233)."""
-    for flag in farm_defaults.NETWORK_FLAGS:
-        name = flag.split('=', 1)[0].lower() + '='
-        found = _positions(args, lambda t: t.lower().startswith(name))
-        if len(found) != 1 or args[found[0]] != flag or not found[0] < first_zen:
-            raise CommandError(f"every launch must carry {flag} exactly once, before the Zen tokens")
 
 
 def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool, phase: Optional[str] = None) -> None:
@@ -184,24 +160,26 @@ def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool, ph
            _exactly_once(args, shared, '-shareddatacachepath='), _exactly_once(args, ini, '-ini:engine:')]
     trace = _exactly_once(args, user_state.NOTRACESERVER)
     last = len(args) - 1
-    if _positions(args, lambda t: t.startswith(DPCVARS)) != [last]:
+    if positions(args, lambda t: t.startswith(DPCVARS)) != [last]:
         raise CommandError("-DPCVars= must be the last token, exactly once")
     if not max(zen) < trace < last:
         raise CommandError("the Zen tokens, then -notraceserver, must precede -DPCVars=")
-    csv = _positions(args, lambda t: t.lower().startswith('-csv'))
+    csv = positions(args, lambda t: t.lower().startswith('-csv'))
     if pilot_launch:
         flags = [_exactly_once(args, flag) for flag in pilot.PILOT_CSV_FLAGS]
         if len(csv) != len(flags) or not max(flags) < min(zen):
             raise CommandError("a pilot render carries exactly the CSV tokens, before the Zen tokens")
     elif csv:
         raise CommandError("only a pilot render may carry -csv tokens")
-    _check_headless(args, phase, min(zen))
-    _check_network(args, min(zen))
+    check_phase_flags(args, phase, min(zen))
 
 
 def validate_args(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool = False,
                   phase: Optional[str] = None) -> None:
-    """FR-UE-7 rules on a complete UE command line (``phase`` adds the headless rule). Raises ``CommandError``."""
+    """FR-UE-7 rules on a complete UE command line (``phase`` adds the headless and adapter rules, ``launch_flags``).
+
+    Raises ``CommandError``.
+    """
     if len(args) < 3:
         raise CommandError("a UE command line needs the editor, the project and switches")
     for index, token in enumerate(args):
@@ -221,6 +199,8 @@ def _finish(ctx: LaunchContext, phase: str, head: Sequence[str], merged, params_
     if phase in farm_defaults.HEADLESS_PHASES:
         args += list(farm_defaults.HEADLESS_FLAGS)
     args += list(farm_defaults.NETWORK_FLAGS)
+    if phase in ADAPTER_PHASES:
+        args += adapter_flags(ctx.graphics_adapter)
     if pilot_launch:
         args += list(pilot.PILOT_CSV_FLAGS)
     args += list(zen_private.zen_flags(ctx.cache_dir, ctx.zen_port))

@@ -128,9 +128,9 @@ class WorkerCapacity:
                 return SlotReservation(job_id=job_id, device_used='CPU', problem=profile.problem)
         return None
 
-    def reserve_exclusive(self, job_id: int) -> Optional[SlotReservation]:
-        """Reserve every slot for one job (Unreal, FR-WX-10); see exclusive.py."""
-        return exclusive.reserve_exclusive(self, job_id)
+    def reserve_exclusive(self, job_id: int, unreal_keys=()) -> Optional[SlotReservation]:
+        """Reserve every slot and the Unreal cards for one job (Unreal, FR-WX-10, C-27 b); see exclusive.py."""
+        return exclusive.reserve_exclusive(self, job_id, unreal_keys)
 
     def has_no_reservations(self) -> bool:
         """True when no slot holds any reservation (FR-WX-13)."""
@@ -194,9 +194,9 @@ class WorkerCapacity:
         return card_check.check(self)
 
     def jobs_on_unusable_cards(self, states) -> list:
-        """Job ids on cards not usable for their renderer (FR-CK-3); see card_check.py."""
-        from sethlans_worker_agent.capacity import card_check
-        return card_check.jobs_on_unusable_cards(self, states)
+        """Job ids on cards not usable for their renderer (FR-CK-3); see card_stops.py."""
+        from sethlans_worker_agent.capacity import card_stops
+        return card_stops.jobs_on_unusable_cards(self, states)
 
     def try_rebuild(self, profile: CapacityProfile, generation: int) -> str:
         """Swap in ``profile`` unless a running job blocks it (FR-CL-4); see rebuild.py."""

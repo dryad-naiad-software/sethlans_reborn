@@ -21,7 +21,9 @@ FR-UE-11). When none applies, the share-check thread and the GPU memory
 sampler start (after one synchronous first sample). Engine detection
 runs at startup in any case (so the heartbeat shows the installs) and
 again every ``RESCAN_SECONDS``; each scan replaces an immutable tuple.
-Dynamic reasons: zero supported installs, no GPU memory reading
+Dynamic reasons: zero supported installs, no ticked graphics card Unreal
+can use (FR-CU-6, ``cards.unreal_cards``; the compute method plays no part,
+C-23), no GPU memory reading
 ever since the first sample (F6), and a failed known-folder check
 (FR-UE-27, ``isolation_state``; refreshed with each engine scan once the
 farm profile is registered).
@@ -37,6 +39,7 @@ import time
 from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_unreal, unreal_share
+from sethlans_worker_agent.cards import unreal_cards
 from sethlans_worker_agent.project_archive import owner_lock
 from sethlans_worker_agent.unreal_executor import cache_dir, detection, isolation_state, symlink_policy, vram
 from sethlans_worker_agent.unreal_executor.vram_sampler import VramSampler
@@ -177,6 +180,9 @@ def status(current: Tuple[detection.EngineInstall, ...]) -> Tuple[bool, str]:
         return False, reason
     if not any(install.supported for install in current):
         return False, NO_INSTALL_REASON
+    card_reason = unreal_cards.disabled_reason()  # FR-CU-6, before the memory reading's reason (O6)
+    if card_reason:
+        return False, card_reason
     if current_sampler is not None and current_sampler.never_succeeded():
         return False, NO_VRAM_REASON
     isolation_reason = isolation_state.reason()
@@ -220,6 +226,7 @@ def reset_for_tests() -> None:
     if old_sampler is not None:
         old_sampler.stop(timeout=5)
     unreal_share.reset_for_tests()
+    unreal_cards.reset_for_tests()
     isolation_state.reset_for_tests()
     owner_lock.release_for_process()
     recovery_gate = sys.modules.get('sethlans_worker_agent.unreal_executor.startup_recovery')  # imports this one

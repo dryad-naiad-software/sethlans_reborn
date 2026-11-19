@@ -24,7 +24,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from sethlans_worker_agent import config_compute
+from sethlans_worker_agent import config_compute, unreal_switch
 from sethlans_worker_agent.capacity import rebuild
 from sethlans_worker_agent.cards import choice, inventory, matching, os_probe, store
 from sethlans_worker_agent.cards import warnings as card_warnings
@@ -164,6 +164,7 @@ def view(probe: Probe, section: config_compute.ComputeSection, checking: bool = 
                   for card in probe.inventory.cards],
         'rebuild_waiting': rebuild.rebuild_waiting(),  # a new card list waits for running GPU jobs (FR-CW-3)
     }
+    answer.update(unreal_switch.state())  # the Unreal switch (O14): unreal_enabled, _env, _restart_needed
     answer.update((name, checked[name]) for name in ('missing', 'alerts', 'notices', 'problem', 'warnings'))
     if failed:
         answer['error'] = READ_FAILED_TEXT

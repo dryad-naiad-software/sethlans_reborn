@@ -24,7 +24,7 @@ from tests._unreal_worker_state import (  # noqa: F401
 pytestmark = pytest.mark.usefixtures('unreal_runtime_reset')
 
 SHARE = r'\\nas.lan\sethlans'
-DISABLED = {'schema': 1, 'enabled': False, 'disabled_reason': 'disabled by config',
+DISABLED = {'schema': 1, 'enabled': False, 'disabled_reason': 'Unreal is switched off in the worker settings',
             'installs': [], 'share': '', 'share_reachable': False}
 
 

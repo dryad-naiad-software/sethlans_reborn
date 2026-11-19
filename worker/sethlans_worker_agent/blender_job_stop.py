@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Per-job stop of a Blender render whose card can no longer be used (FR-CL-5, C3).
+Per-job stop of a render whose card can no longer be used (FR-CL-5, C3; Unreal: C-24 m).
 
-At claim, on the agent-loop thread, each Blender job gets its own stop event
+At claim, on the agent-loop thread, each job (Blender and Unreal) gets its own stop event
 (``register_card_stop``), kept in its dict and in a registry by job id.
 ``request_card_stop(job_id)`` sets it (the card check, on the agent-loop
 thread); it does nothing for an unknown id or a negative (retained) owner.
@@ -19,13 +19,15 @@ and is never held with another lock; the events' own locks are leaves.
 """
 import logging
 import threading
-from typing import Dict
+import time
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 CARD_STOP_KEY = '_card_stop_event'
 WORKER_SHUTDOWN = 'worker_shutdown'
 WORKER_HARDWARE_CHANGED = 'worker_hardware_changed'
+WAIT_SLICE_SECONDS = 0.25  # JobStop.wait looks at the worker's shutdown event this often
 
 _stops_lock = threading.Lock()
 _card_stops: Dict[int, threading.Event] = {}
@@ -49,6 +51,16 @@ class JobStop:
     def reason(self) -> str:
         return WORKER_HARDWARE_CHANGED if self.own.is_set() else WORKER_SHUTDOWN
 
+    def wait(self, timeout: Optional[float] = None) -> bool:
+        """Wait until either event is set, at most ``timeout`` s (the Unreal runner's tick sleep)."""
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while not self.is_set():
+            remaining = WAIT_SLICE_SECONDS if deadline is None else min(WAIT_SLICE_SECONDS, deadline - time.monotonic())
+            if remaining <= 0:
+                return False
+            self.own.wait(remaining)
+        return True
+
 
 def job_stop(shutdown_event, job_data):
     """``shutdown_event`` joined with the job's own stop event, or unchanged when the job has none."""
@@ -64,7 +76,7 @@ def stop_reason(stop_event) -> str:
 
 
 def register_card_stop(job_data) -> None:
-    """Give a claimed Blender job its own stop event (agent-loop thread, at claim)."""
+    """Give a claimed job (Blender or Unreal) its own stop event (agent-loop thread, at claim)."""
     event = threading.Event()
     job_data[CARD_STOP_KEY] = event
     with _stops_lock:

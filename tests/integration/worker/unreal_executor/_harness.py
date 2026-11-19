@@ -20,7 +20,8 @@ from sethlans_worker_agent import api_extras
 from sethlans_worker_agent.executors.base import ExecutionContext
 from sethlans_worker_agent.project_archive import workspace
 from sethlans_worker_agent.unreal_executor import (
-    detection, executor, isolation_state, job_params, reserve, startup_recovery, user_state, vram_gate_check)
+    adapter_choice, detection, executor, isolation_state, job_params, reserve, startup_recovery, user_state,
+    vram_gate_check)
 from sethlans_worker_agent.unreal_executor.delivery import DeliveryDeps
 from sethlans_worker_agent.unreal_executor.vram import GpuMem, GpuMemoryReading
 from tests.integration.worker.project_archive._helpers import (
@@ -29,6 +30,8 @@ from tests.integration.worker.unreal_executor._fake_ue import FAKE_UE_SCRIPT, ma
 
 BUILD = '5.8.4-58902052'
 GPU = 'NVIDIA GeForce RTX 5090'
+CARD_KEY = 'pci:0000:01:00.0'
+ADAPTER_INDEX = 1  # not 0, so a launch that ignored the choice would show
 OVERRIDES = {'Constraints.NewEvaluation': '1', 'r.Streaming.PoolSize': '9000'}
 
 
@@ -105,6 +108,7 @@ class Harness:
         assert isolation_state.register(profile).ok
         self.sampler = FakeSampler(self.exe)
         self.manager = FakeManager()
+        self.choices = []
 
     def job(self, job_id, kind='render', frame=1000, peak=2000):
         return {'id': job_id, 'renderer': 'UNREAL', 'unreal_kind': kind,
@@ -128,7 +132,12 @@ class Harness:
         deps.get_assignment = lambda job_id: (self.manager.status, 1)
         deps.worker_id = lambda: 1
         deps.prep_timeout_s = lambda: 300
+        deps.choose_adapter = self.choose_adapter  # no real DXGI probe or saved card choice in these tests
         return deps
+
+    def choose_adapter(self, job_id, key=None):
+        self.choices.append((job_id, key))
+        return adapter_choice.Choice(job_id, CARD_KEY, GPU, ADAPTER_INDEX, 0x10DE, 0x2B85, 0xA1)
 
     def reservation(self, job_data):
         params = job_params.validate_job_data(job_data).with_share_root(SHARE_ROOT)

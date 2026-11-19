@@ -23,7 +23,7 @@ Module name starts with an underscore so pytest does not collect it.
 import contextlib
 import json
 
-from sethlans_worker_agent import config_compute
+from sethlans_worker_agent import config_compute, config_unreal, unreal_switch
 from sethlans_worker_agent.cards import in_use, os_probe, startup_log
 from sethlans_worker_agent.cards.os_probe import OsCard
 from sethlans_worker_agent.tool_manager import tool_manager_instance
@@ -37,8 +37,10 @@ from tests.integration.worker._health_fixtures import _bring_up_wsgi, _wait_for_
 PASSWORD = pages.PASSWORD
 BLENDER_VERSION = '4.5.1'
 XSS_NAME = '<img src=x onerror="window.__xss=1">'
-HELP_TEXT = ("Unreal renders on a ticked card. Blender uses the ticked cards only when the method "
-             "includes GPU.")
+SETTINGS_HELP_TEXT = ("Unreal renders on a ticked card when it is switched on below. Blender uses the ticked "
+                      "cards only when the method includes GPU.")
+WIZARD_HELP_TEXT = ("Unreal renders on a ticked card when it is switched on in the worker settings. Blender uses "
+                    "the ticked cards only when the method includes GPU.")
 NO_CARD_TEXT = "No graphics card was found on this machine."
 BEFORE_CARDS = ('topology_chosen', 'manager_selected', 'enrolled', 'password_set', 'blender_installed')
 
@@ -77,6 +79,9 @@ def _isolate(monkeypatch):
     for name in (config_compute.ENV_METHOD, config_compute.ENV_GPU_MODE,
                  config_compute.ENV_CARDS, config_compute.ENV_ALLOW):
         monkeypatch.delenv(name, raising=False)
+    # The Unreal switch (O14): no environment override, and the running value is off.
+    monkeypatch.delenv(unreal_switch.ENV_VAR, raising=False)
+    monkeypatch.setattr(config_unreal, 'ENABLED', False)
     monkeypatch.setattr(startup_log, '_done', True)
     monkeypatch.setattr(blender_devices, 'start_device_check', lambda: None)
     monkeypatch.setattr(blender_devices, '_failed', False)

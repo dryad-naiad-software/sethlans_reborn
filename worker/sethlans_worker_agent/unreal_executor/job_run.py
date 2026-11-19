@@ -24,6 +24,9 @@ A shutdown skips ``finish`` (the re-hash would not fit the shutdown
 budget): the entry is **quarantined** instead (dropped from ``index.json``,
 nothing deleted now), so a restart never trusts an entry UE may have
 touched; FR-PA-18 removes it and the working copy on the next start.
+The job's own card stop (``ctx.shutdown_event`` is then a ``JobStop``;
+cause ``worker_hardware_changed``, C-24 m) ends the phases as a shutdown
+does, but ``finish`` runs as usual and the job is released (``delivery``).
 
 Any unexpected exception from the phases becomes an ``ERROR`` outcome, so
 exit confirmation, ``finish``, delivery and the post-report cleanup always
@@ -33,13 +36,14 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Optional
 
+from sethlans_worker_agent.blender_job_stop import WORKER_HARDWARE_CHANGED, JobStop
 from sethlans_worker_agent.project_archive.abort import NEVER, Abort
 from sethlans_worker_agent.project_archive.errors import (
     AbortedError, ArchiveError, CacheUnavailableError, ShareUnavailableError)
 from sethlans_worker_agent.project_archive.workspace import ArchiveRequest
-from sethlans_worker_agent.unreal_executor import job_dir, user_state, warmup
+from sethlans_worker_agent.unreal_executor import adapter_log, job_dir, user_state, warmup
 from sethlans_worker_agent.unreal_executor.cancel_watch import CancelCause, CancelWatcher
 from sethlans_worker_agent.unreal_executor.command import CommandError
 from sethlans_worker_agent.unreal_executor.delivery import Delivery, Outcome
@@ -75,6 +79,7 @@ class RunDeps:
     keep_job_logs: Callable[[], int]
     prep_timeout_s: Callable[[], float]
     cancel_poll_s: Callable[[], float]
+    choose_adapter: Optional[Callable] = None  # (job_id) -> adapter_choice.Choice; None: adapter_choice.choose
 
 
 class JobRun:
@@ -88,9 +93,14 @@ class JobRun:
         self.job = self.ws = self.layout = None
 
     def cause(self) -> str:
-        if self.ctx.shutdown_event is not None and self.ctx.shutdown_event.is_set():
+        """``shutdown``, then the manager's cause, then ``worker_hardware_changed`` (the job's own card stop, C-24 m)."""
+        stop = self.ctx.shutdown_event
+        worker = stop.shutdown_event if isinstance(stop, JobStop) else stop
+        if worker is not None and worker.is_set():
             return 'shutdown'
-        return self.cancel.cause or ''
+        if self.cancel.cause:
+            return self.cancel.cause
+        return WORKER_HARDWARE_CHANGED if stop is not None and stop.is_set() else ''
 
     def _start_summary(self) -> None:
         p = self.params
@@ -129,6 +139,9 @@ class JobRun:
         if cache is None:
             raise CacheUnavailableError("The Unreal cache is not ready (startup recovery did not succeed).")
         self.layout = cache.layout
+        if adapter_log.refused(adapter_log.project_key(self.params)):  # before any launch (the reserver declines it too)
+            raise LocalConflict('local_conflict', "This project reported another graphics card on this worker; "
+                                                  "it is refused here until the worker restarts.")
         att8 = uuid.uuid4().hex[:8]
         self.summary.set('attempt', att8)
         self.job = job_dir.create(cache.layout, self.params.job_id, att8)
@@ -140,11 +153,12 @@ class JobRun:
                                         self.job, self.cause, self.ctx.shutdown_event, self.deps.sampler())
         self.runner = runner
         runner.project_dir, runner.zen_scan = self.ws.working_copy.project_dir, self.deps.zen_scan  # every phase
+        runner.project = adapter_log.project_key(self.params)  # what a mismatch refuses (adapter_log)
         marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build)
         profile = user_state.profile_dir(cache_dir)
         flow = UeFlow(self.params, self.deps.launch_context(self.install, cache_dir), self.job, runner, self.summary,
                       self.deps.builders, marker, self.ws.working_copy.uproject, self.deps.flow_config(profile),
-                      reading=self.reservation.gate.reading)
+                      reading=self.reservation.gate.reading, choose=self.deps.choose_adapter)
         try:
             return flow.run()
         finally:
@@ -200,7 +214,8 @@ class JobRun:
         else:
             self.summary.set('survivors', '')
         integrity_ok = True
-        if self.ws is not None and outcome.kind == 'cancel' and outcome.reason == 'shutdown':
+        # A shutdown after a card stop also skips the re-hash (the shutdown budget).
+        if self.ws is not None and outcome.kind == 'cancel' and 'shutdown' in (outcome.reason, self.cause()):
             self._quarantine_for_shutdown()
         elif self.ws is not None:
             try:

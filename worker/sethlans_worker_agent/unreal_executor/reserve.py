@@ -10,9 +10,12 @@ not claimed):
 
 0. the machine is fully idle (``capacity.has_no_reservations()``);
 1. Unreal is enabled and the startup recovery succeeded;
-2. ``job_params.validate_job_data`` (before any share access);
+2. ``job_params.validate_job_data`` (before any share access); a project
+   refused after an adapter mismatch (``adapter_log.refused``) is declined;
 3. the per-worker Unreal token (``BoundedSemaphore(1)``, non-blocking);
-4. a supported install of the job's ``engine_build``;
+4. a supported install of the job's ``engine_build``; then the Unreal
+   cards in use (card selection C-27 b), which the exclusive reservation
+   holds;
 5. ``source_type == 'shared_project'`` (part of 2; logged explicitly);
 6. the **static** VRAM gate on the sampler's latest reading (no wait):
    the relaxed pilot gate (``pilot_need_mb``, ``nvidia-smi`` only) or the
@@ -39,7 +42,7 @@ from typing import Callable, Dict, Optional
 
 from sethlans_worker_agent.executors.base import ProbePending, RendererReservation
 from sethlans_worker_agent.unreal_executor import job_params as jp
-from sethlans_worker_agent.unreal_executor import vram_gate_check
+from sethlans_worker_agent.unreal_executor import adapter_log, vram_gate_check
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +54,12 @@ VRAM_FRESH_DEADLINE_S = 2.0
 class UnrealReservation(RendererReservation):
     """The token plus what ``execute`` needs from the checks."""
 
-    def __init__(self, params, install, gate, on_release: Callable[[], None]):
+    def __init__(self, params, install, gate, on_release: Callable[[], None], card_keys: tuple = ()):
         super().__init__(on_release=on_release)
         self.params = params
         self.install = install
         self.gate = gate
+        self.card_keys = tuple(card_keys)  # held by the exclusive reservation (job_claim, C-27 b)
 
 
 @dataclass
@@ -73,6 +77,7 @@ class ReserveDeps:
     resolve: Callable[[object, str, str], object]
     budget: Callable[[], object]
     clock: Callable[[], float] = time.monotonic
+    card_keys: Optional[Callable[[], tuple]] = None  # the Unreal cards in use (C-27 b); None: not checked
 
 
 class Reserver:
@@ -108,10 +113,15 @@ class Reserver:
             self._skip(job_data.get('id'), "Unreal is disabled on this worker (%s).", reason)
             return None
         try:
-            return jp.validate_job_data(job_data)
+            params = jp.validate_job_data(job_data)
         except jp.JobDataError as exc:
             self._skip(job_data.get('id'), "invalid job data (%s).", exc)
             return None
+        if adapter_log.refused(adapter_log.project_key(params)):
+            self._skip(params.job_id, "its project reported another graphics card on this worker (refused until "
+                                      "restart).")
+            return None
+        return params
 
     def _install(self, params):
         for install in self.deps.installs():
@@ -179,9 +189,22 @@ class Reserver:
         gate = self._gate(params, reading)
         return gate if gate.ok else None
 
+    def _card_keys(self, params) -> Optional[tuple]:
+        """The Unreal cards in use (FR-CL-1), whatever Blender's slots and the compute method (C-27 b)."""
+        if self.deps.card_keys is None:
+            return ()
+        keys = tuple(self.deps.card_keys())
+        if not keys:
+            self._skip(params.job_id, "no ticked graphics card can be used.")
+            return None
+        return keys
+
     def _after_token(self, params):
         install = self._install(params)
         if install is None:
+            return None
+        card_keys = self._card_keys(params)
+        if card_keys is None:
             return None
         sampler = self.deps.sampler()
         if not self._gate(params, sampler.latest() if sampler is not None else None).ok:
@@ -199,7 +222,7 @@ class Reserver:
         gate = self._fresh_gate(params)
         if gate is None:
             return None
-        return UnrealReservation(params, install, gate, on_release=self.token.release)
+        return UnrealReservation(params, install, gate, on_release=self.token.release, card_keys=card_keys)
 
     def try_reserve(self, job_data: dict) -> Optional[UnrealReservation]:
         params = self._prechecks(job_data)

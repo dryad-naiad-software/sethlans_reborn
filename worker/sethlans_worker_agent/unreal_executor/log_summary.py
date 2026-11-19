@@ -48,12 +48,16 @@ def render_values(scan, merged: Sequence[Tuple[str, str]]) -> Tuple[Dict[str, ob
         'cvars': cvars.dpcvars_string(merged),
         'cvars_applied': f"{len(applied)}/{len(merged)}",
         'cvar_collisions': ','.join(collisions),
+        'dx12_unsupported': scan.count('dx12_unsupported'),
     }
     merged_dict = dict(merged)
     for name, key in POOL_SUMMARY:
         values[key] = _held(scan, name) or next((v for n, v in merged_dict.items() if n.casefold() == name.casefold()),
                                                 '')
-    return values, [f"cvar_collision={name}" for name in collisions]
+    warnings = [f"cvar_collision={name}" for name in collisions]
+    if scan.count('dx12_unsupported'):  # C-15: this project's data cannot run on D3D12; it fell back to another RHI
+        warnings.append("dx12_unsupported: the project's data does not support D3D12")
+    return values, warnings
 
 
 def vram_values(params, peak_mb) -> Dict[str, object]:

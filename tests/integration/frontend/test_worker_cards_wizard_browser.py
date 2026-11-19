@@ -98,7 +98,7 @@ def test_cpu_shows_cards_and_help_and_saves_the_ticks(page, worker_ui):
     assert page.input_value('#cards-method') == 'cpu'
     assert page.locator('#cards-list').is_visible()
     assert page.locator('#cards-items input[type=checkbox]').count() == len(ui.CARDS)
-    assert page.inner_text('#cards-help') == ui.HELP_TEXT
+    assert page.inner_text('#cards-help') == ui.WIZARD_HELP_TEXT
     assert page.locator('#cards-help').is_visible()
     assert _next_enabled(page)
     _tick(page, CUDA_1, NO_FAMILY)

@@ -8,6 +8,7 @@ A ticked card is in use for Blender when its state (``cards.matching``,
 FR-CK-2) is ``ok`` and Blender offers it; for Unreal when its state is ``ok``
 or ``blender_lost`` and it has a DXGI index. With method ``cpu`` no card is in
 use for Blender (B6); the Unreal list does not depend on the method (C-23).
+``unreal_card_addresses`` gives the addresses of the Unreal cards (FR-CU-5).
 The probing itself is done by ``capacity.card_check``. The cards in use are in PCI address order (D4);
 the Blender ones are frozen into the capacity profile, and ``ignored`` are the
 Blender ids of the detected cards that are not in use, so the render script
@@ -137,6 +138,19 @@ def unreal_cards_in_use(inv, section, alerts=None, states=None) -> tuple:
     return tuple(sorted((card for card in inv.cards if card.key in ticked and card.dxgi_index is not None
                          and states.get(card.key) in (matching.OK, matching.BLENDER_LOST)),
                         key=lambda card: key_sort_value(card.key)))
+
+
+def unreal_card_addresses(inv=None, section=None) -> frozenset:
+    """FR-CU-5: the ``dddd:bb:dd.f`` addresses of the Unreal cards in use (the GPU memory reader's filter).
+
+    From ``inv`` and ``section`` when both are given, else from the saved
+    choice and the heartbeat's card probe (``unreal_cards.current``). Empty
+    when no card is ticked or nothing can be decided; never a card without
+    an address (O6).
+    """
+    from sethlans_worker_agent.cards import unreal_cards
+    found = unreal_cards.evaluate(section, inv) if inv is not None and section is not None else unreal_cards.current()
+    return unreal_cards.addresses(found[0]) if found is not None else frozenset()
 
 
 def problem_message(section, cards: Tuple[CardInUse, ...]) -> str:

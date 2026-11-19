@@ -84,10 +84,14 @@ def get_worker_capacity() -> Optional[capacity_module.WorkerCapacity]:
 
 
 def capacity_is_full() -> bool:
-    """Polling gate source of truth (FR-6). Delegates to WorkerCapacity."""
+    """Polling gate source of truth (FR-6). Delegates to WorkerCapacity.
+
+    A fully idle machine is never full: with no Blender slot at all it may
+    still take an Unreal job (C-27 b); ``poll_and_claim_job`` decides.
+    """
     if _capacity is None:
         return False
-    return _capacity.is_full()
+    return _capacity.is_full() and not _capacity.has_no_reservations()
 
 
 def maybe_assert_gpu_list_unchanged() -> None:
@@ -108,8 +112,10 @@ def maybe_assert_gpu_list_unchanged() -> None:
     if _capacity is None:
         return
     rebuild.step(_capacity)
-    # FR-WX-14: never enumerate GPUs while an Unreal render owns the machine.
+    # FR-WX-14: Blender never enumerates GPUs while an Unreal render owns the machine; the OS list is
+    # still read once per interval, so a lost card stops that render and raises its alert (C-24 m).
     if not unreal_bridge.drift_check_allowed():
+        card_check.check_during_unreal(_capacity, time.monotonic())
         return
     now = time.monotonic()
     due = (now - _last_drift_check_ts) >= max(1, config.HEARTBEAT_INTERVAL_SECONDS)
@@ -119,7 +125,7 @@ def maybe_assert_gpu_list_unchanged() -> None:
     _last_drift_check_ts = now
 
 
-def _build_poll_params(free_prefs):
+def _build_poll_params(free_prefs, unreal_params=None):
     params: Dict[str, str] = {
         'status': 'QUEUED', 'assigned_worker__isnull': 'true',
     }
@@ -130,10 +136,27 @@ def _build_poll_params(free_prefs):
         params['available_versions'] = ','.join(
             b['version'] for b in installed
         )
-    # Unreal only on a fully idle machine (FR-WX-13); {} when disabled.
-    node_idle = _capacity is not None and _capacity.has_no_reservations()
-    params.update(unreal_bridge.poll_params(node_idle=node_idle))
+    if unreal_params is None:  # Unreal only on a fully idle machine (FR-WX-13); {} when disabled.
+        unreal_params = _unreal_poll_params()
+    params.update(unreal_params)
     return params
+
+
+def _unreal_poll_params() -> Dict[str, str]:
+    # A pending rebuild refuses the exclusive reservation: asking for Unreal jobs then would only run try_reserve.
+    node_idle = _capacity is not None and _capacity.has_no_reservations() and not rebuild.pending()
+    return unreal_bridge.poll_params(node_idle=node_idle)
+
+
+def _device_prefs(free_prefs, unreal_params) -> list:
+    """C-27 b: GPU jobs are asked for when Unreal may take one, even without a free Blender GPU slot.
+
+    Unreal jobs are GPU jobs; a Blender GPU job polled this way is skipped
+    unless a Blender GPU slot is free (``job_selection``).
+    """
+    if unreal_params and 'GPU' not in free_prefs:
+        return list(free_prefs) + ['GPU']
+    return list(free_prefs)
 
 
 def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
@@ -148,12 +171,13 @@ def poll_and_claim_job(worker_id: int) -> Optional[Dict[str, Any]]:
         logger.error("poll_and_claim_job called before init_capacity().")
         return None
 
-    free_prefs = _capacity.free_device_prefs()
-    if not free_prefs:
+    unreal_params = _unreal_poll_params()
+    prefs = _device_prefs(_capacity.free_device_prefs(), unreal_params)
+    if not prefs:
         return None
 
     available_jobs = api_handler.poll_for_available_jobs(
-        _build_poll_params(free_prefs)
+        _build_poll_params(prefs, unreal_params)
     )
     if not available_jobs:
         return None
