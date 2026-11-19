@@ -10,7 +10,6 @@ project serialize and a key gets one pilot.  The concurrency cases run
 real threads with separate connections (``transaction=True``).
 """
 
-import sqlite3
 import threading
 
 import pytest
@@ -21,6 +20,7 @@ from rest_framework.test import APIClient
 
 from workers.models import Asset, Job, ManagerSettings, UnrealMeasurement
 
+from .sqlite_file_db import file_backed_sqlite
 from .unreal_helpers import ARCHIVE_SHA, SHARE, set_share, unreal_asset
 from .unreal_pilot_helpers import JOBS, POLL, create_job, created_job, pilots, ready_worker, settings
 
@@ -35,40 +35,18 @@ def _client(user):
 
 
 @pytest.fixture
-def file_database(transactional_db, admin_user):
+def file_database(transactional_db, admin_user, tmp_path):
     """Run the test on a file copy of the SQLite test database.
 
     The test database is an in-memory shared-cache database, where a
     second writer gets SQLITE_LOCKED at once instead of waiting on
     ``busy_timeout``; production runs on a file in WAL mode, where
-    ``BEGIN IMMEDIATE`` waits.  The rows created so far are copied into
-    the file, the threads connect to it, and the in-memory database (kept
-    open) is restored afterwards.
+    ``BEGIN IMMEDIATE`` waits (see ``sqlite_file_db.py``).
     """
     ManagerSettings.objects.get_or_create(pk=1, defaults={'manager_id': 'm', 'enrollment_key': 'k'})
     set_share(SHARE)
-    if connection.vendor != 'sqlite':
+    with file_backed_sqlite(tmp_path):
         yield
-        return
-    import tempfile
-    from pathlib import Path
-    directory = tempfile.TemporaryDirectory()
-    path = str(Path(directory.name) / 'race.sqlite3')
-    connection.ensure_connection()
-    target = sqlite3.connect(path)
-    connection.connection.backup(target)
-    target.execute('PRAGMA journal_mode=WAL')
-    target.close()
-    memory, original = connection.connection, connection.settings_dict['NAME']
-    connection.connection = None
-    connection.settings_dict['NAME'] = path
-    try:
-        yield
-    finally:
-        connection.close()
-        connection.settings_dict['NAME'] = original
-        connection.connection = memory
-        directory.cleanup()
 
 
 def _run_together(*calls):

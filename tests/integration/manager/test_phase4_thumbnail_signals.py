@@ -35,6 +35,8 @@ from workers.signal_helpers import (
     _tls,
 )
 
+from .sqlite_file_db import sqlite_file_database  # noqa: F401
+
 User = get_user_model()
 
 JOBS_URL = "/api/jobs/"
@@ -137,9 +139,15 @@ def _clean_tls():
 class TestConcurrentThumbnailGeneration:
 
     def test_two_concurrent_uploads_each_produce_thumbnail(
-        self, admin_user, _fixtures,
+        self, admin_user, _fixtures, sqlite_file_database,  # noqa: F811
     ):
-        """Two uploads on DIFFERENT jobs must each get a thumbnail."""
+        """Two uploads on DIFFERENT jobs must each get a thumbnail.
+
+        Runs on a file database like production: on the in-memory
+        shared-cache test database one upload's read fails at once with
+        "database table is locked" while the other writes (issue #272,
+        ``test_sqlite_table_lock_uploads.py``).
+        """
         asset = _fixtures["asset"]
         admin_client_a = APIClient()
         admin_client_a.force_authenticate(user=admin_user)
@@ -289,8 +297,3 @@ class TestReentrancy:
             f"expected exactly one fire after contexts exit, "
             f"got {handler_fires}"
         )
-
-
-# Rate-limiter TOCTOU concurrency test lives in
-# ``test_phase4_rate_limiter_concurrency.py`` to respect the 300-line
-# per-file ceiling.
