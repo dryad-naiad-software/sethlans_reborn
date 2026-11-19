@@ -55,7 +55,7 @@ export class AnimationDetailComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.sub = this.route.paramMap.pipe(
       switchMap(params =>
-        this.animationService.pollDetail(Number(params.get('id')))
+        this.animationService.pollDetail(Number(params.get('id')), () => { this.loading = false; })
       ),
     ).subscribe({
       next: (anim) => { this.animation = anim; this.loading = false; },

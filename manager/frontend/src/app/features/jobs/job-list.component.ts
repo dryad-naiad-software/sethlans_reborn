@@ -127,7 +127,7 @@ export class JobListComponent implements OnInit, OnDestroy {
       switchMap(() => {
         const filters: JobFilter = {};
         if (this.statusFilter) filters.status = this.statusFilter;
-        return this.jobService.pollList(filters);
+        return this.jobService.pollList(filters, () => { this.loading = false; });
       }),
     ).subscribe({
       next: (jobs) => { this.jobs = jobs; this.loading = false; },

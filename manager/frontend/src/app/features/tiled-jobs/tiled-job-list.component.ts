@@ -72,7 +72,7 @@ export class TiledJobListComponent implements OnInit, OnDestroy {
   displayedColumns = ['id', 'project', 'tiling', 'status', 'progress'];
 
   ngOnInit(): void {
-    this.sub = this.tiledJobService.pollList().subscribe({
+    this.sub = this.tiledJobService.pollList(undefined, () => { this.loading = false; }).subscribe({
       next: (jobs) => { this.tiledJobs = jobs; this.loading = false; },
       error: () => { this.loading = false; },
     });

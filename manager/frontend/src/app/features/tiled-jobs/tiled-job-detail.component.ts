@@ -94,7 +94,7 @@ export class TiledJobDetailComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.sub = this.route.paramMap.pipe(
       switchMap(params =>
-        this.tiledJobService.pollDetail(params.get('id')!)
+        this.tiledJobService.pollDetail(params.get('id')!, () => { this.loading = false; })
       ),
     ).subscribe({
       next: (job) => {

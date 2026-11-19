@@ -125,18 +125,19 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   activeJobCount = 0;
 
   ngOnInit(): void {
+    const failed = (): void => {
+      this.loading = false;
+      this.snackBar.open('Failed to load project', 'Dismiss', { duration: 5000 });
+    };
     this.projectSub = this.route.paramMap.pipe(
       switchMap(params => {
         const id = params.get('id')!;
         this.fetchAsset(id);
-        return poll(() => this.projectService.get(id));
+        return poll(() => this.projectService.get(id), failed);
       }),
     ).subscribe({
       next: (p) => { this.project = p; this.loading = false; },
-      error: () => {
-        this.loading = false;
-        this.snackBar.open('Failed to load project', 'Dismiss', { duration: 5000 });
-      },
+      error: failed,
     });
   }
 

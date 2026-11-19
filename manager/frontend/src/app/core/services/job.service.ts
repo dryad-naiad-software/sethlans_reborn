@@ -6,7 +6,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { poll } from './polling.util';
+import { poll, PollErrorHandler } from './polling.util';
 import { Asset } from './asset.service';
 
 export interface EffectiveBlenderVersion {
@@ -77,16 +77,16 @@ export class JobService {
     return this.http.get<Job[]>(`${this.baseUrl}/`, { params });
   }
 
-  pollList(filters?: JobFilter): Observable<Job[]> {
-    return poll(() => this.list(filters));
+  pollList(filters?: JobFilter, onError?: PollErrorHandler): Observable<Job[]> {
+    return poll(() => this.list(filters), onError);
   }
 
   get(id: number): Observable<Job> {
     return this.http.get<Job>(`${this.baseUrl}/${id}/`);
   }
 
-  pollDetail(id: number): Observable<Job> {
-    return poll(() => this.get(id));
+  pollDetail(id: number, onError?: PollErrorHandler): Observable<Job> {
+    return poll(() => this.get(id), onError);
   }
 
   create(data: CreateJobRequest): Observable<Job> {

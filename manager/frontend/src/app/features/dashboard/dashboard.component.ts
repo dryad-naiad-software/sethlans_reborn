@@ -82,7 +82,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   loading = true;
 
   ngOnInit(): void {
-    this.sub = this.statsService.pollStats().subscribe({
+    this.sub = this.statsService.pollStats(() => { this.loading = false; }).subscribe({
       next: (stats) => {
         this.stats = stats;
         this.loading = false;

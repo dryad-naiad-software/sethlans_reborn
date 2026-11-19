@@ -97,6 +97,54 @@ describe('WorkerListComponent polling', () => {
     expect(fixture.componentInstance.workers[0].card_alert_dismissals).toEqual([alert.id]);
   });
 
+  describe('after a failed poll (#261)', () => {
+    function failPoll(): void {
+      const onError = service.pollList.calls.mostRecent().args[0];
+      expect(onError).toEqual(jasmine.any(Function));
+      onError!(new Error('manager down'));
+      fixture.detectChanges();
+    }
+
+    function note(): string {
+      return (fixture.nativeElement.querySelector('.update-failed') as HTMLElement).textContent!.trim();
+    }
+
+    it('keeps its rows, panel and expansion and says the update failed', () => {
+      poll([makeWorker({ id: 1 }), makeWorker({ id: 2, hostname: 'render-02' })]);
+      expand(1);
+      const before = panels()[0];
+      const rowsBefore = fixture.nativeElement.querySelectorAll('tr.worker-row').length;
+
+      failPoll();
+      expect(fixture.nativeElement.querySelectorAll('tr.worker-row').length).toBe(rowsBefore);
+      expect(panels().length).toBe(1);
+      expect(panels()[0]).toBe(before);
+      expect(fixture.componentInstance.expandedIds.has(2)).toBeTrue();
+      expect(note()).toBe('Last update failed. Retrying.');
+
+      poll([makeWorker({ id: 1 }), makeWorker({ id: 2, hostname: 'render-02', status: 'RENDERING' })]);
+      expect(panels()[0]).toBe(before);
+      expect(panels()[0].worker.status).toBe('RENDERING');
+      expect(note()).toBe('');
+    });
+
+    it('drops the "Retrying" note when polling ends with an auth error', () => {
+      poll([makeWorker({ id: 1 })]);
+      failPoll();
+      list$.error(new Error('403'));
+      fixture.detectChanges();
+      expect(note()).toBe('');
+      expect(fixture.nativeElement.querySelectorAll('tr.worker-row').length).toBe(1);
+    });
+
+    it('stops the spinner when the first poll fails', () => {
+      expect(fixture.nativeElement.querySelector('mat-spinner')).not.toBeNull();
+      failPoll();
+      expect(fixture.nativeElement.querySelector('mat-spinner')).toBeNull();
+      expect(note()).toBe('Last update failed. Retrying.');
+    });
+  });
+
   it('drops the alert chip once an applied body has no alerts', () => {
     poll([makeWorker({ id: 1, card_status: makeStatus({ alerts: [makeAlert()] }) })]);
     expect(fixture.nativeElement.querySelector('.card-alert-chip')).not.toBeNull();

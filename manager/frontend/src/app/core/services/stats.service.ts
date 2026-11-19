@@ -6,7 +6,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { poll } from './polling.util';
+import { poll, PollErrorHandler } from './polling.util';
 
 export interface DashboardStats {
   totalProjects: number;
@@ -44,7 +44,7 @@ export class StatsService {
     );
   }
 
-  pollStats(): Observable<DashboardStats> {
-    return poll(() => this.getStats());
+  pollStats(onError?: PollErrorHandler): Observable<DashboardStats> {
+    return poll(() => this.getStats(), onError);
   }
 }

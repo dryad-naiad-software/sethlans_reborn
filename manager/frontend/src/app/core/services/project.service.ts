@@ -6,7 +6,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { poll } from './polling.util';
+import { poll, PollErrorHandler } from './polling.util';
 import { SupportedVersion } from './supported-version.service';
 
 export interface Project {
@@ -31,16 +31,16 @@ export class ProjectService {
     return this.http.get<Project[]>(`${this.baseUrl}/`);
   }
 
-  pollList(): Observable<Project[]> {
-    return poll(() => this.list());
+  pollList(onError?: PollErrorHandler): Observable<Project[]> {
+    return poll(() => this.list(), onError);
   }
 
   get(id: string): Observable<Project> {
     return this.http.get<Project>(`${this.baseUrl}/${id}/`);
   }
 
-  pollDetail(id: string): Observable<Project> {
-    return poll(() => this.get(id));
+  pollDetail(id: string, onError?: PollErrorHandler): Observable<Project> {
+    return poll(() => this.get(id), onError);
   }
 
   create(data: { name: string; blender_version: number }): Observable<Project> {

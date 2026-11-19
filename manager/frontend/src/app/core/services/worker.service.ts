@@ -6,7 +6,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { poll } from './polling.util';
+import { poll, PollErrorHandler } from './polling.util';
 import {
   CardChoiceOutcome, CardChoiceRequest, CardStatus, DismissCardAlertResponse,
 } from './worker-cards.model';
@@ -42,8 +42,8 @@ export class WorkerService {
     return this.http.get<Worker[]>(`${this.baseUrl}/`);
   }
 
-  pollList(): Observable<Worker[]> {
-    return poll(() => this.list());
+  pollList(onError?: PollErrorHandler): Observable<Worker[]> {
+    return poll(() => this.list(), onError);
   }
 
   get(id: number): Observable<Worker> {

@@ -72,7 +72,7 @@ export class AnimationListComponent implements OnInit, OnDestroy {
   displayedColumns = ['id', 'project', 'frames', 'status', 'progress'];
 
   ngOnInit(): void {
-    this.sub = this.animationService.pollList().subscribe({
+    this.sub = this.animationService.pollList(undefined, () => { this.loading = false; }).subscribe({
       next: (anims) => { this.animations = anims; this.loading = false; },
       error: () => { this.loading = false; },
     });

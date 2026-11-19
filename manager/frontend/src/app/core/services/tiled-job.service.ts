@@ -6,7 +6,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { poll } from './polling.util';
+import { poll, PollErrorHandler } from './polling.util';
 import { Project } from './project.service';
 import { Asset } from './asset.service';
 import { EffectiveBlenderVersion } from './job.service';
@@ -62,16 +62,16 @@ export class TiledJobService {
     return this.http.get<TiledJob[]>(`${this.baseUrl}/`, { params });
   }
 
-  pollList(filters?: { project?: string }): Observable<TiledJob[]> {
-    return poll(() => this.list(filters));
+  pollList(filters?: { project?: string }, onError?: PollErrorHandler): Observable<TiledJob[]> {
+    return poll(() => this.list(filters), onError);
   }
 
   get(id: string): Observable<TiledJob> {
     return this.http.get<TiledJob>(`${this.baseUrl}/${id}/`);
   }
 
-  pollDetail(id: string): Observable<TiledJob> {
-    return poll(() => this.get(id));
+  pollDetail(id: string, onError?: PollErrorHandler): Observable<TiledJob> {
+    return poll(() => this.get(id), onError);
   }
 
   create(data: CreateTiledJobRequest): Observable<TiledJob> {

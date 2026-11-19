@@ -6,7 +6,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { poll } from './polling.util';
+import { poll, PollErrorHandler } from './polling.util';
 import { Project } from './project.service';
 import { Asset } from './asset.service';
 import { EffectiveBlenderVersion } from './job.service';
@@ -86,16 +86,16 @@ export class AnimationService {
     return this.http.get<Animation[]>(`${this.baseUrl}/`, { params });
   }
 
-  pollList(filters?: { project?: string }): Observable<Animation[]> {
-    return poll(() => this.list(filters));
+  pollList(filters?: { project?: string }, onError?: PollErrorHandler): Observable<Animation[]> {
+    return poll(() => this.list(filters), onError);
   }
 
   get(id: number): Observable<Animation> {
     return this.http.get<Animation>(`${this.baseUrl}/${id}/`);
   }
 
-  pollDetail(id: number): Observable<Animation> {
-    return poll(() => this.get(id));
+  pollDetail(id: number, onError?: PollErrorHandler): Observable<Animation> {
+    return poll(() => this.get(id), onError);
   }
 
   create(data: CreateAnimationRequest): Observable<Animation> {

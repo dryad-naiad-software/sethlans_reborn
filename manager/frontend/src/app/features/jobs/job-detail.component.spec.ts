@@ -85,7 +85,7 @@ describe('JobDetailComponent', () => {
 
   it('should request the job id from the route', () => {
     render(makeJob('CYCLES', 'GPU', V4));
-    expect(jobService.pollDetail).toHaveBeenCalledOnceWith(42);
+    expect(jobService.pollDetail).toHaveBeenCalledOnceWith(42, jasmine.any(Function));
   });
 
   describe('Cycles Feature Set row', () => {

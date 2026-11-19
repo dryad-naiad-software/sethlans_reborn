@@ -88,12 +88,13 @@ export class ProjectListComponent implements OnInit, OnDestroy {
   displayedColumns = ['name', 'blender_version', 'created_at', 'actions'];
 
   ngOnInit(): void {
-    this.sub = this.projectService.pollList().subscribe({
+    const failed = (): void => {
+      this.loading = false;
+      this.snackBar.open('Failed to load projects', 'Dismiss', { duration: 5000 });
+    };
+    this.sub = this.projectService.pollList(failed).subscribe({
       next: (projects) => { this.projects = projects; this.loading = false; },
-      error: () => {
-        this.loading = false;
-        this.snackBar.open('Failed to load projects', 'Dismiss', { duration: 5000 });
-      },
+      error: failed,
     });
   }
 

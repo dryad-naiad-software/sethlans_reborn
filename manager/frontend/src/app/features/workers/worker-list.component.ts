@@ -31,6 +31,9 @@ export interface WorkerRow extends Worker {
   ],
   template: `
     <h1>Workers</h1>
+    <p class="update-failed" role="status">
+      @if (updateFailed && !loading) { Last update failed. Retrying. }
+    </p>
 
     @if (loading) {
       <mat-spinner diameter="40" />
@@ -111,6 +114,7 @@ export interface WorkerRow extends Worker {
   styles: [`
     .full-width { width: 100%; }
     .no-ui { color: #999; }
+    .update-failed { color: #c62828; margin: 0 0 8px; min-height: 1.25em; }
     .card-alert-row > td:first-child { box-shadow: inset 4px 0 0 #c62828; }
     .card-alert-chips { display: inline-block; margin-left: 8px; vertical-align: middle; }
     .card-alert-chip {
@@ -129,6 +133,8 @@ export class WorkerListComponent implements OnInit, OnDestroy {
 
   workers: WorkerRow[] = [];
   loading = true;
+  /** True after a failed poll until the next successful one; the rows stay as they were (#261). */
+  updateFailed = false;
   /** Ids of the expanded workers; kept across polls (R1). */
   readonly expandedIds = new Set<number>();
   displayedColumns = [
@@ -141,13 +147,16 @@ export class WorkerListComponent implements OnInit, OnDestroy {
   readonly trackById = (_index: number, row: WorkerRow): number => row.id;
 
   ngOnInit(): void {
-    this.sub = this.workerService.pollList().subscribe({
+    const failed = (): void => { this.loading = false; this.updateFailed = true; };
+    this.sub = this.workerService.pollList(failed).subscribe({
       next: (workers) => {
         this.workers = workers.map(w => toRow(w));
         this.pruneExpanded();
         this.loading = false;
+        this.updateFailed = false;
       },
-      error: () => { this.loading = false; },
+      // Only a 401/403 ends polling; nothing retries then, so no "Retrying" note.
+      error: () => { this.loading = false; this.updateFailed = false; },
     });
   }
 
