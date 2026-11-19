@@ -21,13 +21,13 @@ windows_only = pytest.mark.skipif(sys.platform != 'win32', reason='CACHE_DIR rul
 class TestLexicalRules:
 
     @pytest.mark.parametrize('path', [
-        r'D:\uecache', r'C:\Users\mestrella\AppData\Local\Sethlans\worker\unreal', r'E:\a_b.c-d',
+        r'D:\uecache', r'C:\Users\artist\AppData\Local\Sethlans\worker\unreal', r'E:\a_b.c-d',
     ])
     def test_accepts(self, path):
         cache_dir.check_cache_dir_text(path, env={})
 
     @pytest.mark.parametrize('path', [
-        r'C:\Users\Mario Estrella\AppData\Local\Sethlans\worker\unreal',  # whitespace
+        r'C:\Users\Jane Artist\AppData\Local\Sethlans\worker\unreal',  # whitespace
         r'D:\ue,cache', r'D:\ue;cache', r'D:\ue"cache', "D:\\ue'cache",
         r'\\nas\sethlans\cache', r'\\?\D:\uecache', r'\\.\D:\uecache',
         'uecache', '/srv/uecache', r'D:\ü', 'D:\\uecache\n',

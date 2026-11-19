@@ -5,13 +5,15 @@
 """
 Constants and gating of the real Unreal E2E (Unreal foundation FR-T-8).
 
-The E2E is opt-in (``SETHLANS_UNREAL_E2E=1``) and also needs Windows, an
-NVIDIA GPU, a supported UE 5.8.4 install and the PoC archive on the
-Sethlans share. ``unreal_skip_reason`` checks them in that order, so a
-CI runner (not opted in) stops at the first check without importing
-worker code, running ``nvidia-smi`` or touching the network.
+The E2E is opt-in (``SETHLANS_UNREAL_E2E=1``) and also needs Windows, the
+Sethlans share root in ``SETHLANS_UNREAL_E2E_SHARE``, a graphics card, a
+supported UE 5.8.4 install and the PoC archive on that share.
+``unreal_skip_reason`` checks them in that order, so a CI runner (not
+opted in) stops at the first check without importing worker code,
+probing the graphics cards or touching the network.
 
-Optional overrides: ``SETHLANS_UNREAL_E2E_SHARE`` (the share root),
+Required when opted in: ``SETHLANS_UNREAL_E2E_SHARE`` (the share root,
+for example ``\\\\fileserver\\projects\\unreal``). Optional overrides:
 ``SETHLANS_UNREAL_E2E_CACHE_DIR`` (the worker's Unreal cache, a new
 space-free dir used only by this test) and
 ``SETHLANS_UNREAL_E2E_ARCHIVE_SHA256`` (skips hashing the 3.7 GB archive).
@@ -19,7 +21,7 @@ space-free dir used only by this test) and
 
 import os
 import platform
-import subprocess
+import tempfile
 from pathlib import Path
 
 OPT_IN_ENV = "SETHLANS_UNREAL_E2E"
@@ -27,11 +29,15 @@ SHARE_ENV = "SETHLANS_UNREAL_E2E_SHARE"
 CACHE_DIR_ENV = "SETHLANS_UNREAL_E2E_CACHE_DIR"
 ARCHIVE_SHA256_ENV = "SETHLANS_UNREAL_E2E_ARCHIVE_SHA256"
 
-SHARE = os.environ.get(SHARE_ENV) or r"\\alpha\mestrella\applications\unreal"
-# Never an artist's cache or a spike/smoke dir.
-DEFAULT_CACHE_DIR = r"D:\sethlans-uecache-e2e"
+# No built-in default: the share comes only from the environment.
+SHARE = os.environ.get(SHARE_ENV, "").strip()
+# Never an artist's cache or a spike/smoke dir. The worker's cache-dir
+# check needs a space-free path with no 8.3 short name (``~``), so the
+# temp dir is resolved to its long form; set CACHE_DIR_ENV when it still
+# has a space.
+DEFAULT_CACHE_DIR = os.path.join(os.path.realpath(tempfile.gettempdir()), "sethlans-uecache-e2e")
 
-# The PoC (development/specs/unreal-spike-results.md, unreal-chunk7b-smoke.md).
+# The proof-of-concept project (an Unreal sample project) and its build.
 ENGINE_BUILD = "5.8.4-58902052"
 ARCHIVE_RELPATH = "incoming/ACOMAnimationSample.zip"
 UPROJECT_RELPATH = "ACOMAnimationSample/ACOMAnimationSample.uproject"
@@ -59,15 +65,12 @@ def _opted_in():
     return os.environ.get(OPT_IN_ENV, "").strip().lower() in ("1", "true")
 
 
-def _nvidia_gpu_present():
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0 and bool(result.stdout.strip())
+def _graphics_card_present():
+    # Imported lazily: only an opted-in Windows node gets this far. The
+    # worker's own vendor-neutral probe; None means the probe failed.
+    from sethlans_worker_agent.cards.os_probe import probe
+    cards = probe()
+    return bool(cards) and any(card.key for card in cards)
 
 
 def _engine_installed():
@@ -85,8 +88,10 @@ def unreal_skip_reason():
         return f"real Unreal E2E is opt-in: set {OPT_IN_ENV}=1"
     if platform.system() != "Windows":
         return "Unreal rendering is Windows-only in phase 1"
-    if not _nvidia_gpu_present():
-        return "no NVIDIA GPU (nvidia-smi reports none)"
+    if not SHARE:
+        return f"no Sethlans share: set {SHARE_ENV} to the share root"
+    if not _graphics_card_present():
+        return "no graphics card found"
     if not _engine_installed():
         return f"Unreal Engine {ENGINE_BUILD} is not installed"
     if not archive_on_share().is_file():

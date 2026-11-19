@@ -91,7 +91,7 @@ def _registry_lines(export_path):
 
 
 def _is_listener(conn):
-    # A bound socket without a peer. theta's Windows build reports a
+    # A bound socket without a peer. The dev machine's Windows build reports a
     # listener's TCP state wrongly (psutil: NONE), so the state is not used;
     # see ``unreal_network_watch``.
     return bool(conn.laddr) and not conn.raddr

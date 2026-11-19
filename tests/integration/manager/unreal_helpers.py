@@ -10,7 +10,7 @@ Not a test module: imported by ``test_unreal_*.py``.
 from workers.models import Asset, ManagerSettings, Project
 
 BUILD = '5.8.4-58902052'
-SHARE = r'\\alpha.lan\mestrella\applications\unreal'
+SHARE = r'\\fileserver.example\projects\unreal'
 ARCHIVE_SHA = 'ab' * 32
 OVERLAY_SHA = 'cd' * 32
 RENDER_SETTINGS = {

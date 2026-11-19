@@ -67,7 +67,7 @@ class LoopbackCheck:
 def _is_listener(conn) -> bool:
     """``LISTEN``, or a socket with no remote end whose state psutil cannot name.
 
-    On theta (Windows 11 26300, psutil 7.0.0) a listening loopback socket is
+    On the dev machine (Windows 11 26300, psutil 7.0.0) a listening loopback socket is
     reported with status ``NONE``; counting it keeps the check fail-closed
     (a bound socket on the port blocks the farm zenserver as well).
     """

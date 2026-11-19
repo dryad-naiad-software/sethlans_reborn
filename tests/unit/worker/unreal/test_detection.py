@@ -7,7 +7,6 @@ FR-T-5 "Detection").
 """
 import json
 import os
-import socket
 import sys
 from pathlib import Path
 
@@ -17,7 +16,7 @@ from sethlans_worker_agent.unreal_executor import detection
 
 windows_only = pytest.mark.skipif(sys.platform != 'win32', reason='Windows detection (phase 1)')
 
-THETA_UE58 = Path(r'C:\Program Files\Epic Games\UE_5.8')
+DEFAULT_UE58 = Path(r'C:\Program Files\Epic Games\UE_5.8')
 
 
 def build_version(major, minor, patch, changelist):
@@ -35,8 +34,8 @@ def make_engine(root: Path, build=None, raw=None):
     return root
 
 
-def theta_launcher_dat(path: Path, ue58: Path, ue57: Path, extra=()):
-    """theta's LauncherInstalled.dat: engines plus plugin/marketplace entries (2026-11-14)."""
+def marketplace_launcher_dat(path: Path, ue58: Path, ue57: Path, extra=()):
+    """A real LauncherInstalled.dat layout: engines plus plugin/marketplace entries (2026-11-14)."""
     entries = [
         (ue58, 'Blueprin0b23223502eaV17', '5.8.0-59291227+++UE5+Dev-Marketplace-Windows'),
         (ue57, 'FabPlugin_5.7', '5.7.0-47537391+++UE5+Release-5.7-0.0.15-59183337-Windows'),
@@ -55,31 +54,31 @@ def theta_launcher_dat(path: Path, ue58: Path, ue57: Path, extra=()):
 
 
 @pytest.fixture()
-def theta_like(tmp_path, monkeypatch):
+def launcher_like(tmp_path, monkeypatch):
     program_files = tmp_path / 'Program Files'
     ue58 = make_engine(program_files / 'Epic Games' / 'UE_5.8', (5, 8, 4, 58902052))
     ue57 = make_engine(program_files / 'Epic Games' / 'UE_5.7', (5, 7, 4, 51494982))
     monkeypatch.setenv('ProgramFiles', str(program_files))
     monkeypatch.setenv('ProgramW6432', str(program_files))
-    dat = theta_launcher_dat(tmp_path / 'LauncherInstalled.dat', ue58, ue57)
+    dat = marketplace_launcher_dat(tmp_path / 'LauncherInstalled.dat', ue58, ue57)
     return tmp_path, dat, ue58, ue57
 
 
 @windows_only
-class TestThetaFixture:
+class TestLauncherFixture:
 
-    def test_two_installs_from_plugin_heavy_launcher_list(self, theta_like):
-        _tmp, dat, ue58, ue57 = theta_like
+    def test_two_installs_from_plugin_heavy_launcher_list(self, launcher_like):
+        _tmp, dat, ue58, ue57 = launcher_like
         installs = detection.detect_engines([detection.WindowsLauncherLocator(str(dat))])
         assert [(i.build, i.supported, i.source) for i in installs] == [
             ('5.7.4-51494982', False, 'launcher'), ('5.8.4-58902052', True, 'launcher')]
         assert installs[0].reason == 'UE 5.7 not supported (R14)'
         assert installs[1].editor_cmd == ue58 / 'Engine/Binaries/Win64/UnrealEditor-Cmd.exe'
 
-    def test_outside_program_files_is_untrusted_unless_configured(self, theta_like):
-        tmp, _dat, _ue58, _ue57 = theta_like
+    def test_outside_program_files_is_untrusted_unless_configured(self, launcher_like):
+        tmp, _dat, _ue58, _ue57 = launcher_like
         other = make_engine(tmp / 'Engines' / 'UE_5.8b', (5, 8, 4, 58902052))
-        dat = theta_launcher_dat(tmp / 'other.dat', other, other)
+        dat = marketplace_launcher_dat(tmp / 'other.dat', other, other)
         [install] = detection.detect_engines([detection.WindowsLauncherLocator(str(dat))])
         assert install.supported is False and install.reason == detection.UNTRUSTED_LOCATION_REASON
         [install] = detection.detect_engines([detection.ConfiguredPathLocator(str(other)),
@@ -103,8 +102,8 @@ class TestThetaFixture:
         (tmp_path / 'Engine/Build/Build.version').write_text(json.dumps(build_version(5, 8, 4, 1)))
         assert detection.detect_engines([detection.ConfiguredPathLocator(str(tmp_path))]) == []
 
-    def test_dedupes_case_insensitively(self, theta_like):
-        _tmp, _dat, ue58, _ue57 = theta_like
+    def test_dedupes_case_insensitively(self, launcher_like):
+        _tmp, _dat, ue58, _ue57 = launcher_like
         paths = os.pathsep.join([str(ue58), str(ue58).upper(), str(ue58).replace('\\', '/')])
         assert len(detection.detect_engines([detection.ConfiguredPathLocator(paths)])) == 1
 
@@ -198,10 +197,9 @@ class TestOtherPlatforms:
         assert caplog.text.count('Unreal detection not implemented on Plan9 (phase 4)') == 1
 
 
-@pytest.mark.skipif(not THETA_UE58.is_dir(), reason='needs a machine with UE 5.8 installed (theta)')
+@pytest.mark.skipif(not DEFAULT_UE58.is_dir(), reason='needs a machine with UE 5.8 installed')
 def test_real_machine_detects_ue58():
-    """AC-8 on theta (UE 5.8.4 and 5.7.4 installed); elsewhere only 5.8 is required."""
+    """AC-8: UE 5.8.4 is supported; any other installed release is listed as unsupported."""
     builds = {i.build: i.supported for i in detection.detect_engines()}
     assert builds.get('5.8.4-58902052') is True
-    if socket.gethostname().lower() == 'theta':
-        assert builds == {'5.8.4-58902052': True, '5.7.4-51494982': False}
+    assert all(not supported for build, supported in builds.items() if not build.startswith('5.8.'))

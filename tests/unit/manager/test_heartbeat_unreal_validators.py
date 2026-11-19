@@ -13,7 +13,7 @@ import pytest
 from workers.views import heartbeat_unreal as hu
 
 BUILD = '5.8.4-58902052'
-SHARE = r'\\alpha.lan\share'
+SHARE = r'\\fileserver.example\share'
 
 
 def _caps(**extra):
@@ -81,7 +81,7 @@ class TestUnrealCapabilities:
         assert log.debug.call_count == 4
         log.warning.assert_not_called()
 
-    @pytest.mark.parametrize('share', [r'\\ALPHA.lan\share', 'C:\\x', 5, '\\\\h\\' + 's' * 1100])
+    @pytest.mark.parametrize('share', [r'\\FILESERVER.example\share', 'C:\\x', 5, '\\\\h\\' + 's' * 1100])
     def test_non_canonical_or_invalid_share_is_stored_empty(self, share):
         assert hu._validate_unreal_capabilities(_caps(share=share))['share'] == ''
 

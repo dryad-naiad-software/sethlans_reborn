@@ -16,7 +16,7 @@ from workers.renderers.unreal import UNREAL_WORKER_PATCH_FIELDS
 from workers.services.worker_job_writes import WORKER_PATCH_FIELDS
 
 BUILD = '5.8.4-58902052'
-SHARE = r'\\alpha.lan\share\unreal'
+SHARE = r'\\fileserver.example\share\unreal'
 
 
 def _caps(**extra):
@@ -85,13 +85,13 @@ class TestReportsShareReachable:
     def test_matching_reachable_share(self):
         assert reports_share_reachable(_caps(), SHARE)
 
-    @pytest.mark.parametrize('reported', [r'\\ALPHA.LAN\Share\Unreal', SHARE + '\\'])
+    @pytest.mark.parametrize('reported', [r'\\FILESERVER.EXAMPLE\Share\Unreal', SHARE + '\\'])
     def test_case_and_trailing_separator_do_not_matter(self, reported):
         assert reports_share_reachable(_caps(share=reported), SHARE)
 
     @pytest.mark.parametrize('caps', [
         _caps(enabled=False), _caps(share_reachable=False), _caps(share_reachable='true'),
-        _caps(share=''), _caps(share=r'\\alpha\share\unreal'), {k: v for k, v in _caps().items() if k != 'share'},
+        _caps(share=''), _caps(share=r'\\fileserver\share\unreal'), {k: v for k, v in _caps().items() if k != 'share'},
         None,
     ])
     def test_refusals(self, caps):

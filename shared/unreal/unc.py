@@ -141,7 +141,7 @@ def shares_match(a, b) -> bool:
     True only when both values are non-empty, both pass
     ``validate_unc_dir`` and their per-character case-folded components
     are equal (``fold_component``; ``ß`` and ``ss`` differ, as on NTFS).
-    Host aliases are not resolved: ``alpha`` and ``alpha.lan`` differ.
+    Host aliases are not resolved: ``fileserver`` and ``fileserver.example`` differ.
     """
     if not a or not b:
         return False

@@ -45,7 +45,7 @@ class TestValidateUncDir:
     @pytest.mark.parametrize('raw,canonical', [
         (r'\\nas\sethlans', r'\\nas\sethlans'),
         ('\\\\NAS.Lan\\Sethlans\\', r'\\nas.lan\Sethlans'),
-        (r'\\alpha\mestrella\applications\unreal', r'\\alpha\mestrella\applications\unreal'),
+        (r'\\fileserver\projects\unreal', r'\\fileserver\projects\unreal'),
         (r'\\10.0.0.5\Render Farm\Projects', r'\\10.0.0.5\Render Farm\Projects'),
     ])
     def test_accepts_and_canonicalizes(self, raw, canonical):
@@ -79,7 +79,7 @@ class TestComparisons:
     @pytest.mark.parametrize('a,b,expected', [
         (r'\\nas\Sethlans', '\\\\NAS\\sethlans\\', True),
         (r'\\nas\s\Projects', r'\\nas\S\projects', True),
-        (r'\\alpha\s', r'\\alpha.lan\s', False),
+        (r'\\fileserver\s', r'\\fileserver.example\s', False),
         (r'\\nas\s', r'\\nas\s\x', False),
         ('', r'\\nas\s', False), (r'\\nas\s', '', False),
         (r'\\nas\C$', r'\\nas\C$', False),
@@ -107,7 +107,7 @@ class TestComparisons:
         assert not unc.validate_unc_path(r'\\nas\share\projects\a.zip').is_within(root)
 
     @pytest.mark.parametrize('raw,expected', [
-        (r'\\alpha\s', True), (r'\\alpha.lan\s', False), (r'\\10.0.0.5\s', False), (r'\\3232235777\s', False),
+        (r'\\fileserver\s', True), (r'\\fileserver.example\s', False), (r'\\10.0.0.5\s', False), (r'\\3232235777\s', False),
     ])
     def test_single_label(self, raw, expected):
         assert unc.is_single_label_host(unc.validate_unc_dir(raw)) is expected

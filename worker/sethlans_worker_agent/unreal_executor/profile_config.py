@@ -49,7 +49,7 @@ CVAR_SECTIONS = frozenset({'consolevariables', 'systemsettings'})
 ENGINE_CVARS_RELPATH = ('Engine', 'Config', 'ConsoleVariables.ini')
 ENGINE_CVARS_SECTIONS = frozenset({'startup', 'startup_windows'})
 ANY_INI_LAYERS = (1, 2)  # indexes in config_layers(): the two "Unreal Engine\Engine\Config" layers
-# (name, value) pairs of the stock UE 5.8 ConsoleVariables.ini [Startup] (theta, 5.8.4).
+# (name, value) pairs of the stock UE 5.8 ConsoleVariables.ini [Startup] (the dev machine, 5.8.4).
 STOCK_ENGINE_CVARS_5_8 = frozenset({('p.chaos.allowcreatephysxbodies', '1'),
                                     ('fx.skipvectorvmbackendoptimizations', '1')})
 _LINE_BREAK = re.compile(r'\r\n|\r|\n')

@@ -8,7 +8,7 @@ import pytest
 
 from shared.unreal import share_paths, unc
 
-ROOT = unc.validate_unc_dir(r'\\alpha\mestrella\applications\unreal')
+ROOT = unc.validate_unc_dir(r'\\fileserver\projects\unreal')
 
 
 class TestValidateShareRelpath:
@@ -26,7 +26,7 @@ class TestValidateShareRelpath:
 
     @pytest.mark.parametrize('value', [
         '', '/incoming/x.zip', r'\incoming\x.zip', 'C:\\x.zip', 'c:x.zip',
-        r'\\alpha\other\x.zip', '//host/x.zip', r'\\?\C:\x.zip', r'\\.\pipe\x.zip',
+        r'\\fileserver\other\x.zip', '//host/x.zip', r'\\?\C:\x.zip', r'\\.\pipe\x.zip',
         '../x.zip', 'a/../x.zip', './x.zip', 'a/./x.zip', 'incoming//x.zip', 'incoming/x.zip/',
         'CON/x.zip', 'a/nul.txt/x.zip', 'COM1.zip', 'lpt9/x.zip', 'COM\u00b9/x.zip', 'conin$/x.zip',
         'incoming/x.txt', 'incoming /x.zip', 'incoming/ x.zip', 'a./x.zip', 'PROGRA~1/x.zip',
@@ -57,7 +57,7 @@ class TestResolveInShare:
 
     def test_joins_under_the_root(self):
         result = share_paths.resolve_in_share(ROOT, 'incoming/x.zip')
-        assert result.canonical == r'\\alpha\mestrella\applications\unreal\incoming\x.zip'
+        assert result.canonical == r'\\fileserver\projects\unreal\incoming\x.zip'
         assert result.is_within(ROOT)
 
     def test_accepts_a_string_root_and_a_bare_share(self):
@@ -90,11 +90,11 @@ class TestUncRootRules:
             unc.validate_unc_path(r'\\nas\sethlans')
 
     @pytest.mark.parametrize('a, b, expected', [
-        (r'\\alpha\Share\Dir', r'\\ALPHA\share\dir', True),
-        (r'\\alpha\share\dir' + '\\', r'\\alpha\share\dir', True),
-        (r'\\alpha\share', r'\\alpha.lan\share', False),
-        ('', r'\\alpha\share', False),
-        (r'\\alpha\share', 'C:\\share', False),
+        (r'\\fileserver\Share\Dir', r'\\FILESERVER\share\dir', True),
+        (r'\\fileserver\share\dir' + '\\', r'\\fileserver\share\dir', True),
+        (r'\\fileserver\share', r'\\fileserver.example\share', False),
+        ('', r'\\fileserver\share', False),
+        (r'\\fileserver\share', 'C:\\share', False),
     ])
     def test_shares_match(self, a, b, expected):
         assert unc.shares_match(a, b) is expected

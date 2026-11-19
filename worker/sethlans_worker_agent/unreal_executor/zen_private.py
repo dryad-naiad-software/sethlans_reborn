@@ -34,7 +34,7 @@ no ``=None`` host switch is needed (``-ZenSharedDataCacheHost=``/
 ``-CloudDataCacheHost=`` do exist as command-line host overrides).
 
 **Loopback setting (chunk 7 integration requirement 13), checked against
-the UE 5.8.4 source on theta:** the spec's ``AllowRemoteNetworkService=false``
+the UE 5.8.4 source on the dev machine:** the spec's ``AllowRemoteNetworkService=false``
 does not exist in 5.8. ``[Zen.AutoLaunch]`` is read by
 ``ZenServerInterface.cpp:1562-1566`` as ``RemoteNetworkService`` (a string:
 ``None``, ``Unsecured`` or ``GeneratedStaticKey``, parsed at ``:1299-1318``),

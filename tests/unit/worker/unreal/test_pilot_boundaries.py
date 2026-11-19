@@ -63,7 +63,7 @@ class TestCsvHardening:
         assert csv.field_size_limit() == before  # the global limit is never changed
 
     def test_ue58_capture_with_a_huge_first_events_row(self, tmp_path):
-        """#232: the layout of a real 5.8.4 ``-csvCaptureFrames`` capture (theta, 2026-11-14).
+        """#232: the layout of a real 5.8.4 ``-csvCaptureFrames`` capture (the dev machine, 2026-11-14).
 
         438 columns, ``EVENTS`` first, ``GPUMem/LocalUsedMB`` at index 401; the first data
         row carries ~447 KB of engine-init events, above the 128 KiB csv field limit.

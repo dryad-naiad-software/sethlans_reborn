@@ -64,10 +64,10 @@ class TestConfigure:
         assert current.reachable is False and current.checked_at is None
 
     def test_single_label_host_warns(self, caplog):
-        unreal_share.configure(r'\\alpha\sethlans', 60, 900, 5)
+        unreal_share.configure(r'\\fileserver\sethlans', 60, 900, 5)
         assert unreal_share.SINGLE_LABEL_WARNING in caplog.text
         caplog.clear()
-        unreal_share.configure(r'\\alpha.lan\sethlans', 60, 900, 5)
+        unreal_share.configure(r'\\fileserver.example\sethlans', 60, 900, 5)
         assert unreal_share.SINGLE_LABEL_WARNING not in caplog.text
 
     def test_mark_unreachable_without_root_is_harmless(self):

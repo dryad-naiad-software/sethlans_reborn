@@ -15,7 +15,7 @@ fill both from the same VRAM. A pool CVar absent from the merged CVars
 counts at ``DEFAULT_POOL_MB``.
 
 Constants from spike S6 (spec v4.1): the reserve is ``ceil(1.1 * 8,252)``,
-the non-pool peak of theta's full-edit capture; the fraction is the
+the non-pool peak of the dev machine's full-edit capture; the fraction is the
 16 GB card's DXGI budget ratio, which must hold for the smallest
 supported card. Whether to keep this gate model is open (OQ-23).
 """

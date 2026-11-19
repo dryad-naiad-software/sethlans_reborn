@@ -17,8 +17,8 @@ the worker's reads. Read once at startup, **fail closed**:
 Two locations are read: the values ``fsutil behavior set SymlinkEvaluation``
 writes (``HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem``), and,
 defensively, the same value names under a policies key
-(``HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Filesystems\\NTFS``). theta
-has no symlink entry under any ``Policies`` key (checked 2026-11-14), so
+(``HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Filesystems\\NTFS``). The dev
+machine has no symlink entry under any ``Policies`` key (checked 2026-11-14), so
 the second read is a guard, not a verified Group Policy location.
 """
 import sys

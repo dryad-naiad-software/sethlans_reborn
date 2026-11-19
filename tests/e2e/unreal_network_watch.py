@@ -23,7 +23,7 @@ child) and flags:
   binary; at most one such listener per process is allowed;
 - any ``unrealtraceserver.exe`` that was not already running at start.
 
-Why a connect probe and not the socket state: on theta's Windows build
+Why a connect probe and not the socket state: on the dev machine's Windows build
 (26300) the TCP table reports a user-mode listener's state as 0 or a
 wrong value (psutil says NONE, ``netstat`` omits it, ``Get-NetTCPConnection``
 shows value 0 or e.g. FinWait1 for RPC's ``0.0.0.0:135``), the same as a

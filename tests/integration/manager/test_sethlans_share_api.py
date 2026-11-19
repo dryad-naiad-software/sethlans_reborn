@@ -18,7 +18,7 @@ from workers.views import sethlans_share as share_view
 from .unreal_helpers import BUILD, RENDER_SETTINGS, caps, set_share, unreal_asset
 
 URL = '/api/sethlans-share/'
-CANONICAL = r'\\alpha.lan\mestrella\applications\unreal'
+CANONICAL = r'\\fileserver.example\projects\unreal'
 
 
 @pytest.fixture
@@ -66,7 +66,7 @@ class TestPermissions:
 class TestPut:
 
     @pytest.mark.parametrize('value, stored', [
-        (r'\\ALPHA.LAN\mestrella\applications\unreal', CANONICAL),
+        (r'\\FILESERVER.EXAMPLE\projects\unreal', CANONICAL),
         (CANONICAL + '\\', CANONICAL),
         (r'\\nas.lan\sethlans', r'\\nas.lan\sethlans'),
     ])
@@ -143,9 +143,9 @@ class TestNonCanonicalStoredValue:
     """A value written around the view is treated as not configured."""
 
     def test_get_claim_and_routing_note(self, admin_client, worker_with_token):
-        set_share(r'\\ALPHA.LAN\share')
+        set_share(r'\\FILESERVER.EXAMPLE\share')
         worker, client = worker_with_token
-        worker.unreal_capabilities = caps(share=r'\\alpha.lan\share')
+        worker.unreal_capabilities = caps(share=r'\\fileserver.example\share')
         worker.save(update_fields=['unreal_capabilities'])
         job = Job.objects.create(
             name='ShareJob', asset=unreal_asset(), output_file_pattern='//r/f.png',

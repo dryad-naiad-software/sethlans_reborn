@@ -47,7 +47,7 @@ class TestClaimChecks:
         resp = _claim(client, job, worker)
         assert (resp.status_code, resp.data) == (409, {'error': "The Sethlans share is not configured."})
 
-    @pytest.mark.parametrize('share', [r'\\other.lan\share', '', r'\\alpha\mestrella\applications\unreal'])
+    @pytest.mark.parametrize('share', [r'\\other.lan\share', '', r'\\fileserver\projects\unreal'])
     def test_share_mismatch(self, worker_with_token, job, share):
         worker, client = worker_with_token
         _ready(worker, share=share)
@@ -64,7 +64,7 @@ class TestClaimChecks:
             409, {'error': "Worker does not report the Sethlans share as reachable."},
         )
 
-    @pytest.mark.parametrize('share', [SHARE, SHARE.upper(), SHARE + '\\', r'\\alpha.lan\MESTRELLA\Applications\Unreal'])
+    @pytest.mark.parametrize('share', [SHARE, SHARE.upper(), SHARE + '\\', r'\\fileserver.example\PROJECTS\Unreal'])
     def test_success(self, worker_with_token, job, share):
         worker, client = worker_with_token
         _ready(worker, share=share)

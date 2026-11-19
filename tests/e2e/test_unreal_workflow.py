@@ -15,8 +15,9 @@ The output is verified the way the Blender E2E verifies its renders
 (``verify_image_output``: a valid, not solid-black image) plus the
 expected resolution; there are no reference images.
 
-Opt-in: set ``SETHLANS_UNREAL_E2E=1`` on a Windows node with an NVIDIA
-GPU, UE 5.8.4 and the Sethlans share. Elsewhere the module is skipped
+Opt-in: set ``SETHLANS_UNREAL_E2E=1`` and ``SETHLANS_UNREAL_E2E_SHARE``
+on a Windows node with a graphics card, UE 5.8.4 and the Sethlans share.
+Elsewhere the module is skipped
 before any fixture runs. The constants and gating live in
 ``tests/e2e/unreal_e2e_config.py``, the manager/worker harness in
 ``tests/e2e/unreal_workflow_harness.py``, the isolation checks in
@@ -52,12 +53,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 # FR-T-8: the pilot is DONE within 120 min (a cold pilot took ~23 min on
-# theta: copy + extract, prep, warm-up ~13 min, 23 frames ~8.5 min).
+# the dev machine: copy + extract, prep, warm-up ~13 min, 23 frames ~8.5 min).
 PILOT_TIMEOUT = 7200
 # FR-T-8: the normal job is DONE within 120 min after the pilot (a warm
-# render took ~70 s on theta).
+# render took ~70 s on the dev machine).
 RENDER_TIMEOUT = 7200
-# A plausible pilot peak for the PoC (theta measured 9,229 MB).
+# A plausible pilot peak for the PoC (the dev machine measured 9,229 MB).
 PEAK_RANGE_MB = (6000, 12000)
 OUTPUT_SIZE = (1920, 1080)
 PENDING_NOTE = "Waiting for this project's memory measurement (pilot render)."
