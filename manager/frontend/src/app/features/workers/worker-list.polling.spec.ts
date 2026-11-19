@@ -5,13 +5,14 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-import { Subject } from 'rxjs';
+import { Subject, of } from 'rxjs';
 import { WorkerListComponent } from './worker-list.component';
 import { WorkerCardsComponent } from './worker-cards.component';
 import { WorkerCardAlertsComponent } from './worker-card-alerts.component';
+import { STALE_TEXT, WorkerCardChoiceFormComponent } from './worker-card-choice-form.component';
 import { WorkerService, Worker } from '../../core/services/worker.service';
 import { DismissCardAlertResponse } from '../../core/services/worker-cards.model';
-import { makeAlert, makeStatus, makeWorker } from './worker-cards.fixtures';
+import { makeAlert, makeCard, makeRequest, makeStatus, makeWorker } from './worker-cards.fixtures';
 
 /** R1: an expanded row and its panel survive a poll that returns new objects. */
 describe('WorkerListComponent polling', () => {
@@ -21,7 +22,9 @@ describe('WorkerListComponent polling', () => {
 
   beforeEach(async () => {
     list$ = new Subject<Worker[]>();
-    service = jasmine.createSpyObj('WorkerService', ['pollList', 'dismissCardAlert']);
+    service = jasmine.createSpyObj('WorkerService', [
+      'pollList', 'dismissCardAlert', 'sendCardChoice', 'withdrawCardChoice',
+    ]);
     service.pollList.and.returnValue(list$.asObservable());
     await TestBed.configureTestingModule({
       imports: [WorkerListComponent, NoopAnimationsModule],
@@ -142,6 +145,51 @@ describe('WorkerListComponent polling', () => {
       failPoll();
       expect(fixture.nativeElement.querySelector('mat-spinner')).toBeNull();
       expect(note()).toBe('Last update failed. Retrying.');
+    });
+  });
+
+  describe('the card choice form (R1)', () => {
+    const twoCards = (revision: number): Worker => makeWorker({ id: 1, card_status: makeStatus({
+      revision, cards: [makeCard(), makeCard({ key: 'pci:0000:02:00.0', ticked: false, state: 'unticked' })],
+    }) });
+
+    function form(): WorkerCardChoiceFormComponent {
+      return fixture.debugElement.query(By.directive(WorkerCardChoiceFormComponent)).componentInstance;
+    }
+
+    function openForm(): void {
+      poll([twoCards(3)]);
+      expand(0);
+      (fixture.nativeElement.querySelector('button.change') as HTMLButtonElement).click();
+      fixture.detectChanges();
+    }
+
+    it('keeps the same form instance and the edits across a poll with new objects', () => {
+      openForm();
+      const before = form();
+      const boxes = fixture.nativeElement.querySelectorAll('.card-tick input[type="checkbox"]');
+      (boxes[1] as HTMLInputElement).click();
+      fixture.detectChanges();
+
+      poll([twoCards(3)]);
+      expect(form()).toBe(before);
+      expect([...form().ticked]).toEqual(['pci:0000:01:00.0', 'pci:0000:02:00.0']);
+      expect((fixture.nativeElement.querySelector('button.send') as HTMLButtonElement).disabled).toBeFalse();
+
+      poll([twoCards(4)]);
+      expect(form()).toBe(before);
+      expect(fixture.nativeElement.querySelector('.stale').textContent).toContain(STALE_TEXT);
+      expect((fixture.nativeElement.querySelector('button.send') as HTMLButtonElement).disabled).toBeTrue();
+    });
+
+    it('applies the 202 body to the row at once: "Change pending"', () => {
+      service.sendCardChoice.and.returnValue(of({ card_choice_request: makeRequest(), replaced: null }));
+      openForm();
+      (fixture.nativeElement.querySelector('button.send') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.change-pending-chip')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('.pending')).not.toBeNull();
+      expect(fixture.componentInstance.workers[0].card_choice_request).toEqual(makeRequest());
     });
   });
 

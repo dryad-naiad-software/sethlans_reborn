@@ -6,10 +6,10 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { Worker } from '../../core/services/worker.service';
-import {
-  CardAlert, CardEntry, CardNotice, CardStatus, DismissCardAlertResponse,
-} from '../../core/services/worker-cards.model';
+import { CardAlert, CardEntry, CardNotice, CardStatus } from '../../core/services/worker-cards.model';
 import { WorkerCardAlertsComponent } from './worker-card-alerts.component';
+import { WorkerCardChoiceStatusComponent } from './worker-card-choice-status.component';
+import { WorkerCardPatch } from './worker-row.util';
 import {
   addressLabel, alertsOf, cardName, cardsOf, hasCardStatus, noticeText, screenLabels, stateLabel,
   stateTone,
@@ -23,7 +23,7 @@ import {
 @Component({
   selector: 'app-worker-cards',
   standalone: true,
-  imports: [MatButtonModule, MatIconModule, WorkerCardAlertsComponent],
+  imports: [MatButtonModule, MatIconModule, WorkerCardAlertsComponent, WorkerCardChoiceStatusComponent],
   template: `
     <section class="cards-panel" aria-label="Graphics cards">
       @if (status; as s) {
@@ -78,9 +78,9 @@ import {
         @for (notice of s.notices ?? []; track $index) {
           <p class="notice">{{ noticeLine(notice) }}</p>
         }
-      } @else {
-        <p class="no-status">This worker has not reported its graphics cards yet.</p>
       }
+      <!-- Also says when the cards are not reported yet (FR-CF-7). -->
+      <app-worker-card-choice-status [worker]="worker" (choiceUpdated)="cardsUpdated.emit($event)" />
       @if (uiUrl) {
         <a mat-stroked-button class="worker-ui-link" [href]="uiUrl"
            target="_blank" rel="noopener noreferrer">
@@ -107,15 +107,15 @@ import {
     .card-note { color: #555; }
     .screen-mark { margin-right: 8px; white-space: nowrap; }
     .sep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-    .no-status, .no-cards { color: #666; }
+    .no-cards { color: #666; }
   `],
 })
 export class WorkerCardsComponent {
   @Input({ required: true }) worker!: Worker;
   /** The worker UI address, already limited to http(s) by the list; never built from card text. */
   @Input() uiUrl: string | null = null;
-  /** A card action's body (today the Dismiss 200 body), for the list to apply to the row. */
-  @Output() cardsUpdated = new EventEmitter<DismissCardAlertResponse>();
+  /** A card action's answer (Dismiss 200, Send 202, Withdraw 204), for the list to apply to the row. */
+  @Output() cardsUpdated = new EventEmitter<WorkerCardPatch>();
 
   /** The report when it is usable (`schema === 1`), else `null` (`null` and `{}` alike). */
   get status(): CardStatus | null {

@@ -33,7 +33,8 @@ describe('WorkerCardsComponent', () => {
   it('says the cards are not reported for null and for {}', () => {
     for (const status of [null, {} as CardStatus, makeStatus({ schema: 2 })]) {
       const el = render(makeWorker({ card_status: status }));
-      expect(el.querySelector('.no-status')!.textContent).toContain(NOT_REPORTED);
+      expect(el.querySelector('.read-only')!.textContent).toContain(NOT_REPORTED);
+      expect(el.querySelector('button.change')).toBeNull();
       expect(el.querySelector('table.cards')).toBeNull();
     }
   });

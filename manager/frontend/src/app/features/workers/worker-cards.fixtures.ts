@@ -5,7 +5,9 @@
 /** Test data for the worker list and card panel specs. */
 
 import { Worker } from '../../core/services/worker.service';
-import { CardAlert, CardEntry, CardStatus } from '../../core/services/worker-cards.model';
+import {
+  CardAlert, CardChoiceOutcome, CardChoiceRequest, CardEntry, CardStatus,
+} from '../../core/services/worker-cards.model';
 
 /** Card text that must stay text (C-25k). */
 export const HOSTILE_TEXT = '"><img src=x onerror=alert(1)>';
@@ -45,6 +47,26 @@ export function makeWorker(overrides: Partial<Worker> = {}): Worker {
     ui_url: 'https://10.0.0.5:7443/', last_heartbeat: '2026-11-19T10:00:00Z',
     is_active: true, has_token: true,
     card_status: makeStatus(), card_alert_dismissals: [],
+    card_choice_request: null, card_choice_outcome: null,
+    ...overrides,
+  };
+}
+
+export function makeRequest(overrides: Partial<CardChoiceRequest> = {}): CardChoiceRequest {
+  return {
+    id: 'd'.repeat(32), method: 'gpu', gpu_mode: 'split',
+    cards: [{ key: 'pci:0000:01:00.0', vendor_id: 0x10de, device_id: 0x2b85 }],
+    shown: ['pci:0000:01:00.0'], base_revision: 3,
+    requested_by: 'user id=5', requested_at: '2026-11-19T10:00:00+00:00',
+    ...overrides,
+  };
+}
+
+export function makeOutcome(overrides: Partial<CardChoiceOutcome> = {}): CardChoiceOutcome {
+  return {
+    id: 'e'.repeat(32), result: 'applied', code: 'applied', reason: '', revision: 4,
+    finished_at: '2026-11-19T10:05:00+00:00',
+    requested_by: 'user id=5', requested_at: '2026-11-19T10:00:00+00:00',
     ...overrides,
   };
 }

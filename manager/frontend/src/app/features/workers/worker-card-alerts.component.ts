@@ -107,8 +107,14 @@ export class WorkerCardAlertsComponent {
         this.dismissed.emit(body);
         afterNextRender(() => this.moveFocus(index), { injector: this.injector });
       },
-      error: (err: HttpErrorResponse) => { this.error = actionErrorText(err.status, err.error); },
+      error: (err: HttpErrorResponse) => { this.error = this.errorText(alert, err); },
     });
+  }
+
+  /** The error sentence; with several alerts listed it names the card (C-26e). */
+  private errorText(alert: CardAlert, err: HttpErrorResponse): string {
+    const text = actionErrorText(err.status, err.error);
+    return this.alerts.length > 1 ? `Dismissing the alert for ${cardName(alert)} failed: ${text}` : text;
   }
 
   /** After a dismissal the button is gone: focus the next Dismiss button, else the list. */

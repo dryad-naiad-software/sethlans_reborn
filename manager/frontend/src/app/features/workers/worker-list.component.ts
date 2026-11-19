@@ -10,17 +10,9 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Subscription } from 'rxjs';
-import { WorkerService, Worker } from '../../core/services/worker.service';
-import { DismissCardAlertResponse } from '../../core/services/worker-cards.model';
+import { WorkerService } from '../../core/services/worker.service';
 import { WorkerCardsComponent } from './worker-cards.component';
-import { alertCount, gpuColumnText } from './worker-cards.util';
-
-export interface WorkerRow extends Worker {
-  /** `ui_url` when it is an http(s) URL, else `null`. */
-  uiUrl: string | null;
-  alertCount: number;
-  gpuText: string;
-}
+import { WorkerCardPatch, WorkerRow, toRow } from './worker-row.util';
 
 @Component({
   selector: 'app-worker-list',
@@ -70,9 +62,14 @@ export interface WorkerRow extends Worker {
           <th mat-header-cell *matHeaderCellDef>GPU</th>
           <td mat-cell *matCellDef="let w">
             <span class="gpu-text">{{ w.gpuText }}</span>
-            @if (w.alertCount > 0) {
-              <mat-chip-set class="card-alert-chips">
-                <mat-chip class="card-alert-chip">Card alert ({{ w.alertCount }})</mat-chip>
+            @if (w.alertCount > 0 || w.pending) {
+              <mat-chip-set class="card-chips">
+                @if (w.alertCount > 0) {
+                  <mat-chip class="card-alert-chip">Card alert ({{ w.alertCount }})</mat-chip>
+                }
+                @if (w.pending) {
+                  <mat-chip class="change-pending-chip">Change pending</mat-chip>
+                }
               </mat-chip-set>
             }
           </td>
@@ -116,11 +113,15 @@ export interface WorkerRow extends Worker {
     .no-ui { color: #999; }
     .update-failed { color: #c62828; margin: 0 0 8px; min-height: 1.25em; }
     .card-alert-row > td:first-child { box-shadow: inset 4px 0 0 #c62828; }
-    .card-alert-chips { display: inline-block; margin-left: 8px; vertical-align: middle; }
+    .card-chips { display: inline-block; margin-left: 8px; vertical-align: middle; }
     .card-alert-chip {
       --mat-chip-elevated-container-color: #c62828;
       --mat-chip-label-text-color: #fff;
       --mat-chip-outline-color: #c62828;
+    }
+    .change-pending-chip {
+      --mat-chip-elevated-container-color: #e3f2fd;
+      --mat-chip-label-text-color: #0d47a1;
     }
     .cards-row.collapsed { height: 0; }
     .cards-row.collapsed > .cards-cell { padding-top: 0; padding-bottom: 0; }
@@ -171,14 +172,8 @@ export class WorkerListComponent implements OnInit, OnDestroy {
   }
 
   /** Applies a card action's answer to its row at once, without waiting for the next poll. */
-  applyCardUpdate(id: number, body: DismissCardAlertResponse): void {
-    this.workers = this.workers.map(w => w.id === id
-      ? toRow({
-        ...w,
-        card_status: body.card_status,
-        card_alert_dismissals: body.card_alert_dismissals,
-      })
-      : w);
+  applyCardUpdate(id: number, patch: WorkerCardPatch): void {
+    this.workers = this.workers.map(w => w.id === id ? toRow({ ...w, ...patch }) : w);
   }
 
   private pruneExpanded(): void {
@@ -186,25 +181,5 @@ export class WorkerListComponent implements OnInit, OnDestroy {
     for (const id of [...this.expandedIds]) {
       if (!ids.has(id)) this.expandedIds.delete(id);
     }
-  }
-}
-
-function toRow(w: Worker): WorkerRow {
-  return {
-    ...w,
-    uiUrl: httpUrl(w.ui_url),
-    alertCount: alertCount(w.card_status),
-    gpuText: gpuColumnText(w.card_status, w.gpu_name),
-  };
-}
-
-/** The URL when it parses with an http: or https: scheme, else `null`. */
-function httpUrl(url: string | null): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : null;
-  } catch {
-    return null;
   }
 }

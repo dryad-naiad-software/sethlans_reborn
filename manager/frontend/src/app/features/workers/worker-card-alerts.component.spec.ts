@@ -140,6 +140,17 @@ describe('WorkerCardAlertsComponent', () => {
     expect(el.querySelector('.action-error')!.textContent).toContain('The request failed (HTTP 503).');
   });
 
+  it('names the card in the error when several alerts are listed (C-26e)', () => {
+    service.dismissCardAlert.and.returnValue(throwError(() => new HttpErrorResponse({
+      status: 400, error: { detail: 'This worker has not reported an alert with that id.' },
+    })));
+    const el = render([makeAlert(), makeAlert({ id: 'c'.repeat(32), key: 'pci:0000:02:00.0', name: 'RX 7900 XT' })]);
+    el.querySelectorAll<HTMLButtonElement>('button.dismiss')[1].click();
+    fixture.detectChanges();
+    expect(el.querySelector('.action-error')!.textContent!.trim()).toBe(
+      'Dismissing the alert for RX 7900 XT failed: This worker has not reported an alert with that id.');
+  });
+
   it('keeps hostile alert text as text', () => {
     const el = render([makeAlert({ name: HOSTILE_TEXT, detail: HOSTILE_TEXT })]);
     expect(el.querySelector('img')).toBeNull();

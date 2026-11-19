@@ -8,7 +8,8 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { poll, PollErrorHandler } from './polling.util';
 import {
-  CardChoiceOutcome, CardChoiceRequest, CardStatus, DismissCardAlertResponse,
+  CardChoiceBody, CardChoiceOutcome, CardChoiceRequest, CardChoiceSendResponse, CardStatus,
+  DismissCardAlertResponse,
 } from './worker-cards.model';
 
 export interface Worker {
@@ -27,10 +28,10 @@ export interface Worker {
   card_status: CardStatus | null;
   /** Alert ids an admin dismissed that the worker still reports. */
   card_alert_dismissals: string[];
-  /** Pending change request from the manager (not sent by the API yet). */
-  card_choice_request?: CardChoiceRequest | null;
-  /** Last outcome of a change request (not sent by the API yet). */
-  card_choice_outcome?: CardChoiceOutcome | null;
+  /** Pending change request from the manager; `null` when none waits. */
+  card_choice_request: CardChoiceRequest | null;
+  /** Last outcome the worker reported for a change request; `null` before the first. */
+  card_choice_outcome: CardChoiceOutcome | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -58,5 +59,15 @@ export class WorkerService {
     return this.http.post<DismissCardAlertResponse>(
       `${this.baseUrl}/${workerId}/dismiss-card-alert/`, { alert_id: alertId },
     );
+  }
+
+  /** Sends a graphics card change (202 with the stored request); the worker answers in a heartbeat. */
+  sendCardChoice(workerId: number, body: CardChoiceBody): Observable<CardChoiceSendResponse> {
+    return this.http.post<CardChoiceSendResponse>(`${this.baseUrl}/${workerId}/card-choice/`, body);
+  }
+
+  /** Withdraws the pending change (204, no body). */
+  withdrawCardChoice(workerId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${workerId}/card-choice/`);
   }
 }

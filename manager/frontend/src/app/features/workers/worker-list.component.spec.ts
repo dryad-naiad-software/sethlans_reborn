@@ -7,7 +7,9 @@ import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { Subject } from 'rxjs';
 import { WorkerListComponent } from './worker-list.component';
 import { WorkerService, Worker } from '../../core/services/worker.service';
-import { HOSTILE_URL, makeAlert, makeCard, makeStatus, makeWorker } from './worker-cards.fixtures';
+import {
+  HOSTILE_URL, makeAlert, makeCard, makeRequest, makeStatus, makeWorker,
+} from './worker-cards.fixtures';
 
 describe('WorkerListComponent', () => {
   let fixture: ComponentFixture<WorkerListComponent>;
@@ -46,6 +48,18 @@ describe('WorkerListComponent', () => {
     expect(clean.classList).not.toContain('card-alert-row');
     expect(clean.querySelector('.card-alert-chip')).toBeNull();
     expect(alerted.querySelector('mat-chip-set')!.hasAttribute('aria-label')).toBeFalse();
+  });
+
+  it('shows "Change pending" only for a worker with a pending request (FR-CF-2)', () => {
+    const el = emit([
+      makeWorker({ id: 1, card_choice_request: makeRequest() }),
+      makeWorker({ id: 2, card_choice_request: null }),
+      makeWorker({ id: 3, card_choice_request: {} as Worker['card_choice_request'] }),
+      makeWorker({ id: 4, card_choice_request: makeRequest(), card_status: makeStatus({ alerts: [makeAlert()] }) }),
+    ]);
+    const chips = workerRows(el).map(r =>
+      Array.from(r.querySelectorAll('mat-chip')).map(c => c.textContent!.trim()));
+    expect(chips).toEqual([['Change pending'], [], [], ['Card alert (1)', 'Change pending']]);
   });
 
   it('shows the ticked card names, else gpu_name', () => {
