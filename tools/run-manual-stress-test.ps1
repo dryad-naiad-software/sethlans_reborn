@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 <#
 .SYNOPSIS
     This script automates the creation of a new project and a variety of render jobs for manual stress testing.
@@ -5,7 +9,7 @@
     This script submits a heavy workload to stress-test the Sethlans Reborn system. It creates a new project,
     uploads all necessary assets, and then queues a diverse set of 9 render jobs.
 .NOTES
-    Author: Mario Estrella
+    Author: Dryad and Naiad Software LLC
     Date: 2025-08-07
     Project: Sethlans Reborn
 #>
