@@ -87,21 +87,24 @@ class ProjectViewSet(UnrealMeasurementActionsMixin, viewsets.ModelViewSet):
                 assigned_worker=None,
                 is_paused=False,
             )
+            if count > 0 and locked is not None:
+                # The UPDATE fires no signal: fail the discoveries of the
+                # shots jobs canceled here (FR-SD-9, FR-SS-8), before any
+                # submission is refreshed (D22: ... -> SequenceDiscovery ->
+                # SequenceSubmission).
+                settle_canceled_shots_jobs(project, canceled_at)
             if count > 0:
                 # Refresh only the parents of the jobs canceled here, with
-                # the shared rules (issue #219).  Child rows are already
-                # locked by the UPDATE, so lock order (child -> parent) holds.
+                # the shared rules (issue #219), sequence submissions
+                # included (FR-SS-8).  Child rows are already locked by the
+                # UPDATE, so lock order (child -> parent) holds.
                 dispatch_parents(Job.objects.filter(
                     asset__project=project,
                     status=JobStatus.CANCELED,
                     completed_at=canceled_at,
                 ).values_list(
-                    'tiled_job_id', 'animation_id', 'animation_frame_id',
+                    'tiled_job_id', 'animation_id', 'animation_frame_id', 'sequence_submission_id',
                 ).distinct())
-            if count > 0 and locked is not None:
-                # The UPDATE fires no signal: fail the discoveries of the
-                # shots jobs canceled here (FR-SD-9, FR-SS-8).
-                settle_canceled_shots_jobs(project, canceled_at)
 
         logger.info(
             f"Canceled {count} jobs for project '{project.name}' "

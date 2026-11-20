@@ -12,13 +12,16 @@ validated relative path, never a full path supplied by the client. The
 manager does not stat the share; the worker checks existence at job time.
 """
 
+import re
+
 from rest_framework.exceptions import ValidationError
 
 from shared.unreal.share_paths import resolve_in_share, validate_share_relpath
-from shared.unreal.validation import validate_cvars, validate_sha256, validate_uproject_relpath
+from shared.unreal.validation import validate_cvars, validate_object_path, validate_sha256, validate_uproject_relpath
 from shared.unreal.vram_gate import vram_need_mb
 
 from ..constants import Renderer
+from ..constants_sequence import MAX_SOUND_OFFSETS, SOUND_OFFSET_MS_MAX
 from ..services.sethlans_share import configured_share_root
 from .unreal_settings import check_engine_build
 
@@ -51,6 +54,27 @@ def validate_unreal_project(attrs, instance):
     if errors:
         raise ValidationError(errors)
     return attrs
+
+
+_OFFSET_RATE = re.compile(r'([0-9]{1,7})/([0-9]{1,4})', re.ASCII)
+
+
+def validate_sound_offsets(value):
+    """D18 ``unreal_sound_offsets``: ``{"<preset object path>@<num>/<den>": ms}``, at most 64,
+    each an integer of -10,000 to 10,000 ms; returns it or raises ``ValueError`` naming the entry."""
+    if not isinstance(value, dict):
+        raise ValueError("Must be an object.")
+    if len(value) > MAX_SOUND_OFFSETS:
+        raise ValueError(f"At most {MAX_SOUND_OFFSETS} entries.")
+    for key, ms in value.items():
+        preset, _at, rate = str(key).rpartition('@')
+        match = _OFFSET_RATE.fullmatch(rate)
+        if not preset or match is None or not (1 <= int(match[1]) <= 1_000_000 and 1 <= int(match[2]) <= 1_001):
+            raise ValueError(f"'{key}': keys are \"<preset object path>@<num>/<den>\".")
+        validate_object_path(preset)
+        if isinstance(ms, bool) or not isinstance(ms, int) or abs(ms) > SOUND_OFFSET_MS_MAX:
+            raise ValueError(f"'{key}': an integer of -{SOUND_OFFSET_MS_MAX} to {SOUND_OFFSET_MS_MAX} ms.")
+    return value
 
 
 def _share_relpath(root, value, **rules):

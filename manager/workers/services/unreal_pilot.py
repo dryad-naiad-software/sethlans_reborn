@@ -189,10 +189,13 @@ def create_pilot(project, asset, target, *, reason, frame=0, remeasure=False):
     """Insert a measurement record and its pilot job (FR-PM-2 step 4).
 
     Runs in the caller's locked transaction: the record first (its pk
-    names the job), then the job, then the record's ``pilot_job``.
+    names the job), then the job, then the record's ``pilot_job``.  A
+    sequence target's resolution, shot set and frames go into the pilot's
+    ``render_settings`` (D8, FR-SR-1), so its key equals its pieces' key.
     """
     now = timezone.now()
     target_hash = target.sha256()
+    frame = target.pilot_frame(frame)
     record = UnrealMeasurement.objects.create(
         project=project, asset=asset, overrides_sha256=project.unreal_overrides_sha256,
         target_sha256=target_hash, created_at=now, engine_build=target.engine_build,
@@ -204,7 +207,7 @@ def create_pilot(project, asset, target, *, reason, frame=0, remeasure=False):
         engine_build=target.engine_build, unreal_kind=UnrealKind.PILOT,
         render_device=RenderDevice.GPU, start_frame=frame, end_frame=frame,
         render_settings={MAP: target.map, SEQUENCE: target.sequence, PRESET: target.preset,
-                         OUTPUT_FORMAT: 'PNG'},
+                         OUTPUT_FORMAT: 'PNG', **target.pilot_settings()},
         status=JobStatus.QUEUED, submitted_at=_queue_position(asset, target_hash, now),
     )
     UnrealMeasurement.objects.filter(pk=record.pk).update(pilot_job=pilot)

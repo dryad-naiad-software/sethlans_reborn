@@ -27,7 +27,8 @@ from ..serializers.sequence_discovery import (
     CREATE_KEYS, SequenceDiscoveryCreateSerializer, SequenceDiscoverySerializer,
     SequenceDiscoverySummarySerializer,
 )
-from ..services.sequence_discovery import request_discovery, settle_discovery, stale_discoveries
+from ..services.sequence_discovery import settle_discovery, stale_discoveries
+from ..services.sequence_discovery_create import request_discovery
 from ..strict_json import unknown_keys
 
 _TAGS = ['Management UI']

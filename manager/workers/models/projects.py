@@ -11,6 +11,7 @@ from django.utils.text import slugify
 from shared.unreal.validation import overrides_sha256
 
 from ..constants import AssetSourceType, Renderer
+from ..constants_sequence import LEAD_IN_MS_DEFAULT, PIECE_SECONDS_DEFAULT
 from .renderer_constraints import ASSET_SOURCE_FIELDS_CONSISTENT, PROJECT_RENDERER_FIELDS_CONSISTENT
 from .upload_paths import asset_upload_path
 
@@ -50,6 +51,27 @@ class Project(models.Model):
     unreal_overrides_sha256 = models.CharField(
         max_length=64, blank=True, default='', db_default='', editable=False,
         help_text="Unreal projects: hash of unreal_cvar_overrides (measurement key); '' for Blender.",
+    )
+    # Unreal sequence rendering (D18).  Each submission copies them at create,
+    # so an edit never changes a running submission.  ``db_default``: the
+    # migration adds the columns without rewriting the table (0028).
+    unreal_piece_seconds = models.PositiveSmallIntegerField(
+        default=PIECE_SECONDS_DEFAULT, db_default=PIECE_SECONDS_DEFAULT,
+        help_text="Unreal sequences: seconds of footage per piece (5-600).",
+    )
+    unreal_lead_in_ms = models.PositiveIntegerField(
+        default=LEAD_IN_MS_DEFAULT, db_default=LEAD_IN_MS_DEFAULT,
+        help_text="Unreal sequences: discarded lead-in before a piece that starts mid-stretch (0-10000 ms).",
+    )
+    unreal_sound = models.BooleanField(
+        default=True, db_default=True, help_text="Unreal sequences: sound on by default; set by each submission.",
+    )
+    unreal_sound_offsets = models.JSONField(
+        null=True, blank=True,
+        help_text=(
+            'Unreal sequences: manual sound offsets in ms, {"<preset>@<num>/<den>": ms}, used only when '
+            "a run's offset cannot be measured; null means none."
+        ),
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

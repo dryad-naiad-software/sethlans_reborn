@@ -55,11 +55,19 @@ def validate_video_settings_create_guard(value):
     return value
 
 
-def expand_and_validate_video_settings(video_settings, file_format):
-    """Validate and expand video_settings, returning the final dict."""
+def expand_and_validate_video_settings(video_settings, file_format, require_framerate=True):
+    """Validate and expand video_settings, returning the final dict.
+
+    ``require_framerate=False`` (Unreal sequences, D19): the rate comes
+    from the sequence, so a sent ``framerate`` is refused.
+    """
     if not isinstance(video_settings, dict):
         raise serializers.ValidationError(
             {"video_settings": "Must be a JSON object."}
+        )
+    if not require_framerate and 'framerate' in video_settings:
+        raise serializers.ValidationError(
+            {"video_settings": "Do not send framerate: the video uses the sequence's display rate."}
         )
 
     # Check HDR format restriction
@@ -81,6 +89,8 @@ def expand_and_validate_video_settings(video_settings, file_format):
         _expand_preset(video_settings, preset)
     else:
         _validate_custom_settings(video_settings)
+    if not require_framerate:
+        return video_settings
 
     # Validate framerate (required for both modes)
     framerate = video_settings.get('framerate')

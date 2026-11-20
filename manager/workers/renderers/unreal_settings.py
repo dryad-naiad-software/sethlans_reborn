@@ -22,20 +22,24 @@ from ..constants import (
     FORMAT_EXTENSIONS, PILOT_NAME_PREFIX, UNREAL_OUTPUT_FORMATS, CyclesFeatureSet,
     RenderDevice, RenderEngine,
 )
-from ..constants_sequence import SEQUENCE_NAME_PREFIX
+from ..constants_sequence import (
+    MANAGER_ONLY_KEYS, RESOLUTION_KEY, RESOLUTION_MAX, RESOLUTION_MIN, SEQUENCE_NAME_PREFIX,
+)
 
 MAP = 'unreal.map'
 SEQUENCE = 'unreal.sequence'
 PRESET = 'unreal.preset'
 OUTPUT_FORMAT = 'unreal.output_format'
 REQUIRED_KEYS = (MAP, SEQUENCE, PRESET)
-ALLOWED_KEYS = frozenset(REQUIRED_KEYS + (OUTPUT_FORMAT,))
+# ``unreal.resolution`` is open to standalone jobs too (sequence FR-SW-2, D8).
+ALLOWED_KEYS = frozenset(REQUIRED_KEYS + (OUTPUT_FORMAT, RESOLUTION_KEY))
 DEFAULT_OUTPUT_FORMAT = 'PNG'
 
 FRAME_MIN = -10_000_000
 FRAME_MAX = 10_000_000
 
 PNG_ONLY_MESSAGE = "Unreal jobs support PNG output only in this version."
+EXR_MESSAGE = "EXR output is set by sequence renders only."
 # Model defaults of the Blender-only job fields: sending them unchanged is allowed.
 _BLENDER_DEFAULTS = (
     ('render_engine', RenderEngine.CYCLES),
@@ -54,12 +58,31 @@ def check_engine_build(value, errors):
         errors['engine_build'] = [build_message(value)]
 
 
+def is_resolution(value):
+    """``[w, h]``, both integers 64-16,384 (sequence FR-SQ-5, FR-SW-1)."""
+    return (isinstance(value, (list, tuple)) and len(value) == 2
+            and all(isinstance(v, int) and not isinstance(v, bool) and RESOLUTION_MIN <= v <= RESOLUTION_MAX
+                    for v in value))
+
+
+def _sequence_key_errors(value, problems):
+    """Manager-only keys and EXR are refused from clients (FR-SW-2); ``unreal.resolution`` is checked."""
+    for key in sorted(set(value) & set(MANAGER_ONLY_KEYS)):
+        problems.append(f"'{key}' is set by sequence renders only.")
+    if value.get(OUTPUT_FORMAT) == 'EXR':
+        problems.append(EXR_MESSAGE)
+    elif OUTPUT_FORMAT in value and value[OUTPUT_FORMAT] not in UNREAL_OUTPUT_FORMATS:
+        problems.append(PNG_ONLY_MESSAGE)
+    if RESOLUTION_KEY in value and not is_resolution(value[RESOLUTION_KEY]):
+        problems.append(f"'{RESOLUTION_KEY}' must be [width, height], integers {RESOLUTION_MIN}-{RESOLUTION_MAX}.")
+
+
 def render_settings_errors(value):
-    """Return the list of problems with Unreal ``render_settings`` (FR-MU-10)."""
+    """Return the list of problems with Unreal ``render_settings`` (FR-MU-10, sequence FR-SW-2)."""
     if not isinstance(value, dict):
         return ["Unreal render settings must be an object."]
     problems = []
-    unknown = sorted(set(value) - ALLOWED_KEYS)
+    unknown = sorted(set(value) - ALLOWED_KEYS - set(MANAGER_ONLY_KEYS))
     if unknown:
         problems.append(f"Unknown Unreal render settings: {', '.join(unknown)}.")
     for key in REQUIRED_KEYS:
@@ -70,8 +93,7 @@ def render_settings_errors(value):
             validate_object_path(value[key])
         except ValueError as exc:
             problems.append(f"'{key}': {exc}")
-    if OUTPUT_FORMAT in value and value[OUTPUT_FORMAT] not in UNREAL_OUTPUT_FORMATS:
-        problems.append(PNG_ONLY_MESSAGE)
+    _sequence_key_errors(value, problems)
     return problems
 
 

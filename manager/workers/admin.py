@@ -7,6 +7,7 @@ from django.contrib import admin
 
 from .constants import PILOT_TARGET_FIELDS, AssetSourceType, UnrealKind
 from .models import Worker, Job, Animation, Asset, SupportedBlenderVersion
+from .services.job_kind_rules import is_piece
 
 
 @admin.register(SupportedBlenderVersion)
@@ -55,17 +56,21 @@ class JobAdmin(admin.ModelAdmin):
     ordering = ('-submitted_at',)
     # ``renderer`` is derived from the project and ``engine_build`` is
     # pinned at submission (spec FR-MR-3, FR-MU-3): never edited here.
-    # ``unreal_kind`` is set only by the manager (pilot jobs, FR-PM-9).
+    # ``unreal_kind`` is set only by the manager (pilot jobs, FR-PM-9), as
+    # are a sequence piece's submission and lead-in (sequence D2).
     readonly_fields = (
         'submitted_at', 'started_at', 'completed_at',
         'last_output', 'error_message', 'renderer', 'engine_build',
-        'unreal_kind',
+        'unreal_kind', 'sequence_submission', 'unreal_lead_in_frames',
     )
 
     def get_readonly_fields(self, request, obj=None):
-        """A manager-created job's target and status are manager-owned (FR-PM-9, FR-RT-14, D12)."""
+        """A manager-created job's target and status are manager-owned (FR-PM-9, FR-RT-14, D12).
+
+        Sequence pieces too: an edit would re-key them or set DONE without ``piece-result/``.
+        """
         fields = tuple(super().get_readonly_fields(request, obj))
-        if obj is not None and obj.unreal_kind != UnrealKind.RENDER:
+        if obj is not None and (obj.unreal_kind != UnrealKind.RENDER or is_piece(obj)):
             fields += tuple(f for f in PILOT_TARGET_FIELDS + ('status',) if f not in fields)
         return fields
 

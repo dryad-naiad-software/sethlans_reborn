@@ -47,6 +47,12 @@ SPECTACULAR_SETTINGS = {
         'SequenceDiscoveryStatusEnum': 'workers.constants_sequence.DiscoveryStatus',
         'SequenceShotSourceEnum': 'shared.unreal.shots_result.SHOT_SOURCES',
         'UnrealPresetKindEnum': 'shared.unreal.shots_result.PRESET_KINDS',
+        # Submissions (FR-SQ-1, FR-SS-1): pinned for the same reason.
+        'SequenceSubmissionStatusEnum': 'workers.constants_sequence.SequenceStatus',
+        'SequenceShotStatusEnum': 'workers.constants_sequence.ShotStatus',
+        'SequenceFrameFormatEnum': 'workers.constants_sequence.FrameFormat',
+        # Animation videos and the sequence result items (FR-SV-2) share one set.
+        'VideoStatusEnum': 'workers.constants_video.VideoStatus',
     },
     'SECURITY': [
         {'sessionAuth': []},

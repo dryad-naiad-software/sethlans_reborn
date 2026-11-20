@@ -17,6 +17,7 @@ from rest_framework import serializers
 from ..constants import PILOT_TARGET_FIELDS, UnrealKind
 from ..models import Asset, Job, Project
 from ..renderers import UnsupportedRendererError, get_strategy, strategy_for_source_type
+from ..services.job_kind_rules import is_piece
 
 # Asset fields that pin what a worker downloads; immutable once a job uses them.
 DELIVERY_FIELDS = (
@@ -77,16 +78,17 @@ def _asset_errors(instance, attrs):
 
 
 def _pilot_errors(instance, attrs):
-    """A manager-created job's target is fixed (FR-PM-9; sequence D12)."""
-    article = 'An' if instance.unreal_kind == UnrealKind.AUDIO else 'A'
+    """A manager-created job's target is fixed (FR-PM-9; sequence D12, FR-SW-2)."""
+    kind = 'piece' if is_piece(instance) else instance.unreal_kind
+    article = 'An' if kind == UnrealKind.AUDIO else 'A'
     return {
-        field: [f"{article} {instance.unreal_kind} job's {field} cannot be changed."]
+        field: [f"{article} {kind} job's {field} cannot be changed."]
         for field in PILOT_TARGET_FIELDS if _changed(attrs, instance, field)
     }
 
 
 def _job_errors(instance, attrs):
-    if instance.unreal_kind != UnrealKind.RENDER:
+    if instance.unreal_kind != UnrealKind.RENDER or instance.sequence_submission_id is not None:
         errors = _pilot_errors(instance, attrs)
         if errors:
             return errors

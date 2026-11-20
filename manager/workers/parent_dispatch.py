@@ -138,8 +138,12 @@ def dispatch_animation_frame(frame_id):
         dispatch_tiled_animation(animation_id)
 
 
-def dispatch_for_job(job):
-    """Recompute the parent of a saved child ``Job`` (a ``shots`` job's discovery too)."""
+def dispatch_for_job(job, update_fields=None):
+    """Recompute the parent of a saved child ``Job`` (a ``shots`` job's discovery, a piece's submission).
+
+    ``update_fields`` is the save's: a piece's submission is refreshed only
+    for a full save or one that writes ``status`` (not a progress PATCH).
+    """
     if job.animation_frame_id:
         dispatch_animation_frame(job.animation_frame_id)
     elif job.animation_id:
@@ -151,6 +155,10 @@ def dispatch_for_job(job):
         # Sequence FR-SD-9: imported here, the service imports the renderers.
         from .services.sequence_discovery import on_shots_job_saved
         on_shots_job_saved(job)
+    elif job.sequence_submission_id and (update_fields is None or 'status' in update_fields):
+        # Sequence FR-SS-3: the shots the piece covers, then the submission.
+        from .services.sequence_status import refresh_for_job
+        refresh_for_job(job)
 
 
 def dispatch_animation(animation_id):
@@ -178,22 +186,30 @@ def dispatch_parents(rows):
     """Refresh the parents of a batch of child jobs.
 
     Args:
-        rows: iterable of ``(tiled_job_id, animation_id, animation_frame_id)``
-            for the child jobs that changed (e.g. a bulk cancel).
+        rows: iterable of ``(tiled_job_id, animation_id, animation_frame_id
+            [, sequence_submission_id])`` for the child jobs that changed
+            (e.g. a bulk cancel).
 
     Each parent is refreshed once, in sorted order: tiled jobs, then
-    frames, then animations (frame before animation, as everywhere).
+    frames, then animations (frame before animation, as everywhere), then
+    sequence submissions, every shot (sequence FR-SS-8; the caller holds
+    the Job rows, so the order is Job -> SequenceSubmission, D22).
     """
-    rows = list(rows)
-    tiled_ids = sorted({t for t, _a, _f in rows if t})
-    frame_ids = sorted({f for _t, _a, f in rows if f})
-    animation_ids = sorted({a for _t, a, _f in rows if a})
+    rows = [(tuple(row) + (None,))[:4] for row in rows]
+    tiled_ids = sorted({t for t, _a, _f, _s in rows if t})
+    frame_ids = sorted({f for _t, _a, f, _s in rows if f})
+    animation_ids = sorted({a for _t, a, _f, _s in rows if a})
+    submission_ids = sorted({s for _t, _a, _f, s in rows if s})
     for pk in tiled_ids:
         dispatch_tiled_job(pk)
     for pk in frame_ids:
         dispatch_frame_only(pk)
     for pk in animation_ids:
         dispatch_animation_status(pk)
+    if submission_ids:
+        from .services.sequence_status import refresh_submission
+        for pk in submission_ids:
+            refresh_submission(pk)
 
 
 def dispatch_animation_status(animation_id):

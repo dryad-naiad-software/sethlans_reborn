@@ -5,11 +5,13 @@
 Status rules for manager-created Unreal jobs (Unreal foundation FR-RT-14,
 FR-PM-9; sequence rendering D12).
 
-* A pilot, ``shots`` or ``audio`` job becomes DONE only through its own
-  result endpoint, never through a PATCH or PUT, whoever sends it.
+* A pilot, ``shots`` or ``audio`` job, or a sequence piece, becomes DONE
+  only through its own result endpoint, never through a PATCH or PUT,
+  whoever sends it.
 * A failed pilot or ``shots`` job is never set QUEUED again: the
   measurement retry, or a new discovery, replaces it.  (Its key or its
-  discovery has already been settled as failed.)
+  discovery has already been settled as failed.)  A failed piece may be
+  requeued (FR-SS-5 uses the same rules).
 """
 
 from ..constants import UnrealKind
@@ -20,12 +22,21 @@ RESULT_ACTIONS = {
     UnrealKind.SHOTS: ('Shots', 'shots-result'),
     UnrealKind.AUDIO: ('Audio', 'sound-result'),
 }
+PIECE_ACTION = ('Piece', 'piece-result')
 NO_REQUEUE_KINDS = frozenset({UnrealKind.PILOT, UnrealKind.SHOTS})
+
+
+def is_piece(job):
+    """A sequence piece: a ``render`` job of a sequence submission (D2)."""
+    return job.unreal_kind == UnrealKind.RENDER and getattr(job, 'sequence_submission_id', None) is not None
 
 
 def pilot_done_message(job):
     """The one refusal text for setting a manager-created job DONE (FR-RT-14, D12)."""
-    label, path = RESULT_ACTIONS.get(job.unreal_kind, RESULT_ACTIONS[UnrealKind.PILOT])
+    if is_piece(job):
+        label, path = PIECE_ACTION
+    else:
+        label, path = RESULT_ACTIONS.get(job.unreal_kind, RESULT_ACTIONS[UnrealKind.PILOT])
     return f"{label} jobs complete through POST /api/jobs/{job.pk}/{path}/."
 
 
@@ -41,7 +52,7 @@ def pilot_requeue_message(job):
 
 def done_only_by_result(job):
     """Whether ``job`` becomes DONE only through its result endpoint."""
-    return job.unreal_kind in RESULT_ACTIONS
+    return job.unreal_kind in RESULT_ACTIONS or is_piece(job)
 
 
 def never_requeued(job):

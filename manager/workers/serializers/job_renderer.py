@@ -48,6 +48,14 @@ class JobRendererFieldsMixin(serializers.Serializer):
             "measurement), 'shots' (shot discovery) or 'audio' (a sound render)."
         ),
     )
+    sequence_submission = serializers.PrimaryKeyRelatedField(
+        read_only=True,
+        help_text="Unreal sequence pieces and audio jobs: their submission (a piece may span frames).",
+    )
+    unreal_lead_in_frames = serializers.IntegerField(
+        read_only=True,
+        help_text="Unreal pieces: frames rendered before start_frame and thrown away (sequence FR-SP-4).",
+    )
     unreal_measured_peak_mb = serializers.SerializerMethodField(
         help_text=(
             "Unreal normal jobs: the measured peak GPU memory (MB) of the job's "

@@ -84,7 +84,7 @@ def handle_job_completion(sender, instance, **kwargs):
     from .image_utils import generate_thumbnail
 
     # Issue #219: recompute the parent on every child save.
-    dispatch_for_job(instance)
+    dispatch_for_job(instance, kwargs.get('update_fields'))
 
     # --- Thumbnail Generation for Standard (non-frame, non-tiled) Jobs ---
     _maybe_generate_job_thumbnail(instance, generate_thumbnail)

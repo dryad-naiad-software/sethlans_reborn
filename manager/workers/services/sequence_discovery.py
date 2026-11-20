@@ -2,117 +2,59 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Shot discovery records (Unreal sequence rendering FR-SD-2, FR-SD-8,
+Settling shot discovery records (Unreal sequence rendering FR-SD-8,
 FR-SD-9, D22).
 
-* :func:`find_or_create_discovery` -- the latest record of a key is reused
-  while it is QUEUED, RUNNING or DONE; otherwise a new record and its
-  ``shots`` job are inserted.  Runs under the caller's ``lock_project``.
-* :func:`record_shots_result` -- the worker's result, in one transaction:
-  Project -> Job -> SequenceDiscovery, then the waiting submissions.
+* :func:`plan_waiting_submissions` / :func:`fail_waiting_submissions` -- the
+  hooks a finished discovery calls for its DISCOVERING submissions (the
+  work is in ``sequence_submit``).
 * :func:`settle_discovery` -- a ``shots`` job that ended ERROR, CANCELED,
   DONE without a result, or was deleted, fails its discovery.  It runs
   after commit under ``lock_project`` and is idempotent; reads call it for
   open records whose job is final, and the server start hook (D16) calls
   :func:`settle_open_discoveries`.
 
-Lock order (D22): Project -> Job -> SequenceDiscovery -> SequenceSubmission.
-The status mirror (:func:`on_shots_job_saved`) runs after the caller's Job
-lock and writes the discovery by ``update()``, never ``save()``.
+Creating records is ``sequence_discovery_create``; storing a result is
+``sequence_shots_result``.  Lock order (D22): Project -> Job ->
+SequenceDiscovery -> SequenceSubmission.  The status mirror
+(:func:`on_shots_job_saved`) runs after the caller's Job lock and writes
+the discovery by ``update()``, never ``save()``.
 """
 
 import logging
 
 from django.db import transaction
 from django.db.models import Q
-from django.utils import timezone
 
 from shared.unreal.shots_result import clean_text
-from shared.unreal.validation import target_sha256
 
-from ..constants import RenderDevice, UnrealKind
 from ..constants_sequence import (
-    OPEN_DISCOVERY_STATUSES, REUSABLE_DISCOVERY_STATUSES, SHOTS_JOB_CANCELED, SHOTS_JOB_DELETED,
-    SHOTS_JOB_DONE_WITHOUT_RESULT, SHOTS_JOB_FAILED, DiscoveryStatus, shots_job_name,
+    OPEN_DISCOVERY_STATUSES, SHOTS_JOB_CANCELED, SHOTS_JOB_DELETED, SHOTS_JOB_DONE_WITHOUT_RESULT,
+    SHOTS_JOB_FAILED, DiscoveryStatus,
 )
 from ..models import Job, JobStatus, Project, SequenceDiscovery
-from ..renderers.unreal_settings import MAP, PRESET, SEQUENCE
 from .row_locks import lock_own_rows
 from .unreal_pilot import lock_project, locked_project
 
 logger = logging.getLogger(__name__)
 
-NOT_RENDERING_HERE = "Job is not rendering on this worker."
-NOT_A_SHOTS_JOB = "Job is not a shots job."
-NOT_WAITING = "This job's shot discovery is no longer waiting for a result."
 MAX_REASON = 500
 _ACTIVE = (JobStatus.QUEUED, JobStatus.RENDERING)
 
 
 def plan_waiting_submissions(discovery):
-    """FR-SD-8 hook: plan every submission still DISCOVERING on ``discovery``.
+    """FR-SD-8: plan every submission still DISCOVERING on the DONE ``discovery``.
 
-    Runs in :func:`record_shots_result`'s transaction, after the discovery
-    is DONE.  Submissions arrive with chunk 3 (FR-SP-8); none exist yet.
+    Runs in ``record_shots_result``'s transaction, under the discovery lock.
     """
+    from .sequence_submit import plan_waiting
+    plan_waiting(discovery)
 
 
 def fail_waiting_submissions(discovery, reason):
-    """FR-SD-9 hook: set every submission still DISCOVERING on ``discovery`` ERROR.
-
-    Runs under the discovery lock.  Submissions arrive with chunk 3.
-    """
-
-
-def _key(asset, build, map_path, sequence, preset):
-    return SequenceDiscovery.objects.filter(
-        asset=asset, target_sha256=target_sha256(build, map_path, sequence, preset),
-        engine_build=build, map=map_path, sequence=sequence, preset=preset,
-    )
-
-
-def _create(project, asset, build, map_path, sequence, preset):
-    """Insert the record, then its ``shots`` job (FR-SD-3), then link them."""
-    now = timezone.now()
-    discovery = SequenceDiscovery.objects.create(
-        project=project, asset=asset, engine_build=build, map=map_path, sequence=sequence, preset=preset,
-        target_sha256=target_sha256(build, map_path, sequence, preset), created_at=now,
-    )
-    name = shots_job_name(discovery.pk)
-    job = Job.objects.create(
-        name=name, asset=asset, output_file_pattern=f"//sethlans_shots/{name}.png",
-        engine_build=build, unreal_kind=UnrealKind.SHOTS, render_device=RenderDevice.GPU,
-        start_frame=0, end_frame=0, render_settings={MAP: map_path, SEQUENCE: sequence, PRESET: preset},
-        status=JobStatus.QUEUED, submitted_at=now,
-    )
-    SequenceDiscovery.objects.filter(pk=discovery.pk).update(job=job)
-    discovery.job = job
-    logger.info("Created shot discovery %s (shots job %s) for asset %s, sequence %s.",
-                discovery.pk, job.pk, asset.pk, sequence)
-    return discovery
-
-
-def find_or_create_discovery(asset, map_path, sequence, preset):
-    """FR-SD-2 inside the caller's transaction; returns ``(discovery, created)``.
-
-    Raises:
-        ProjectLockMissing: the caller did not take ``lock_project`` first.
-    """
-    project = locked_project(asset.project)
-    build = project.engine_build
-    latest = _key(asset, build, map_path, sequence, preset).order_by('-created_at', '-id').first()
-    if latest is not None and latest.status in OPEN_DISCOVERY_STATUSES and _settle_locked(latest.pk):
-        latest.status = DiscoveryStatus.ERROR
-    if latest is not None and latest.status in REUSABLE_DISCOVERY_STATUSES:
-        return latest, False
-    return _create(project, asset, build, map_path, sequence, preset), True
-
-
-def request_discovery(asset, map_path, sequence, preset):
-    """``POST /api/sequence-discoveries/``: :func:`find_or_create_discovery` in its own transaction."""
-    with transaction.atomic():
-        lock_project(asset.project)
-        return find_or_create_discovery(asset, map_path, sequence, preset)
+    """FR-SD-9: set every submission still DISCOVERING on ``discovery`` ERROR (under its lock)."""
+    from .sequence_submit import fail_waiting
+    fail_waiting(discovery, reason)
 
 
 def failure_reason(job_row):
@@ -221,49 +163,3 @@ def before_shots_job_delete(job):
     discovery_id = SequenceDiscovery.objects.filter(job_id=job.pk).values_list('pk', flat=True).first()
     if discovery_id is not None:
         transaction.on_commit(lambda pk=discovery_id: settle_discovery(pk), robust=True)
-
-
-def _store(discovery, job, result, now):
-    """Write the result by ``update()`` and onto ``discovery`` too, so the planning hook reads it."""
-    fields = {
-        'status': DiscoveryStatus.DONE, 'playback_start': result['playback_start'],
-        'playback_end': result['playback_end'], 'frame_rate_num': result['frame_rate_num'],
-        'frame_rate_den': result['frame_rate_den'], 'shot_source': result['shot_source'],
-        'shots': result['shots'], 'preset_facts': dict(result['preset_facts'], preset_kind=result['preset_kind']),
-        'warnings': result['warnings'], 'error_message': '',
-    }
-    SequenceDiscovery.objects.filter(pk=discovery.pk).update(**fields)
-    for name, value in fields.items():
-        setattr(discovery, name, value)
-    job.status = JobStatus.DONE
-    job.completed_at = now
-    if job.started_at is not None:
-        job.render_time_seconds = max(0, round((now - job.started_at).total_seconds()))
-    job.save(update_fields=['status', 'completed_at', 'render_time_seconds'])
-
-
-def record_shots_result(job_pk, worker, result):
-    """Apply a checked ``shots-result/`` body (FR-SD-8); return ``(status, body)``.
-
-    Raises:
-        Job.DoesNotExist: no such job (the view answers 404).
-    """
-    project_id = Job.objects.filter(pk=job_pk).values_list('asset__project_id', flat=True).first()
-    if project_id is None:
-        raise Job.DoesNotExist
-    with transaction.atomic():
-        lock_project(Project(pk=project_id))
-        job = lock_own_rows(Job.objects).filter(pk=job_pk).first()
-        if job is None:
-            raise Job.DoesNotExist
-        if job.status != JobStatus.RENDERING or job.assigned_worker_id != worker.pk:
-            return 409, {'error': NOT_RENDERING_HERE}
-        if job.unreal_kind != UnrealKind.SHOTS:
-            return 409, {'error': NOT_A_SHOTS_JOB}
-        discovery = lock_own_rows(SequenceDiscovery.objects).filter(job_id=job.pk).first()
-        if discovery is None or discovery.status not in OPEN_DISCOVERY_STATUSES:
-            return 409, {'error': NOT_WAITING}
-        _store(discovery, job, result, timezone.now())
-        plan_waiting_submissions(discovery)
-    logger.info("Shot discovery %s DONE: %d shots from %s.", discovery.pk, len(result['shots']), worker.hostname)
-    return 200, {'status': JobStatus.DONE, 'discovery': discovery.pk, 'shots': len(result['shots'])}

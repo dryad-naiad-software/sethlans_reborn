@@ -221,6 +221,8 @@ class JobSerializer(JobRendererFieldsMixin, serializers.ModelSerializer):
             'routing_note',
             'unreal_kind',
             'unreal_measured_peak_mb',
+            'sequence_submission',
+            'unreal_lead_in_frames',
             'start_frame',
             'end_frame',
             'status',

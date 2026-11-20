@@ -37,6 +37,8 @@ import re
 NEW_KEYS_BY_KIND = {
     'project': frozenset({
         'renderer', 'engine_build', 'unreal_cvar_overrides', 'unreal_measurement',
+        # Unreal sequence rendering (D18).
+        'unreal_piece_seconds', 'unreal_lead_in_ms', 'unreal_sound', 'unreal_sound_offsets',
     }),
     'asset': frozenset({
         'source_type', 'archive_path', 'uproject_path', 'archive_sha256',
@@ -45,6 +47,8 @@ NEW_KEYS_BY_KIND = {
     'job': frozenset({
         'renderer', 'engine_build', 'routing_note', 'unreal_kind',
         'unreal_measured_peak_mb',
+        # Unreal sequence rendering (D2): pieces' submission and lead-in.
+        'sequence_submission', 'unreal_lead_in_frames',
     }),
     'worker': frozenset({
         'unreal_capabilities', 'gpu_memory',

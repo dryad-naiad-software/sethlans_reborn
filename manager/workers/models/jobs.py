@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from shared.unreal.validation import target_sha256
 
 from ..constants import RenderEngine, CyclesFeatureSet, RenderDevice, Renderer, UnrealKind
+from ..constants_sequence import RESOLUTION_KEY, SHOT_SET_KEY
 from .upload_paths import job_output_upload_path, tiled_job_output_upload_path, thumbnail_upload_path
 from .projects import Asset
 from .renderer_constraints import JOB_KIND_CONSISTENT, JOB_RENDERER_BUILD_CONSISTENT
@@ -162,6 +163,13 @@ class Job(models.Model):
     animation_frame = models.ForeignKey(
         'workers.AnimationFrame', on_delete=models.CASCADE, null=True, blank=True, related_name='tile_jobs',
     )
+    sequence_submission = models.ForeignKey(
+        'workers.SequenceSubmission', on_delete=models.CASCADE, null=True, blank=True, related_name='jobs',
+        help_text="Unreal sequence pieces and audio jobs: their submission (sequence D2).",
+    )
+    unreal_lead_in_frames = models.PositiveIntegerField(
+        default=0, db_default=0, help_text="Unreal pieces: discarded frames rendered before start_frame.",
+    )
     render_time_seconds = models.IntegerField(
         null=True, blank=True, help_text="The total time in seconds this job took to render.",
     )
@@ -219,13 +227,18 @@ class Job(models.Model):
         super().save(*args, **kwargs)
 
     def compute_target_sha256(self):
-        """The measurement target hash of an Unreal job, ``''`` otherwise (FR-PM-1)."""
+        """The measurement target hash of an Unreal job, ``''`` otherwise (FR-PM-1).
+
+        Sequence D8: the output resolution and the chosen shot set stored in
+        ``render_settings`` are part of the key, so every save keeps it.
+        """
         if self.renderer != Renderer.UNREAL:
             return ''
         settings = self.render_settings if isinstance(self.render_settings, dict) else {}
         return target_sha256(
             self.engine_build, settings.get('unreal.map'),
             settings.get('unreal.sequence'), settings.get('unreal.preset'),
+            settings.get(RESOLUTION_KEY), settings.get(SHOT_SET_KEY),
         )
 
     def __str__(self):

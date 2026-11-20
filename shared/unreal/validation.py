@@ -171,12 +171,32 @@ def overrides_sha256(overrides) -> str:
     return _frozen_sha256({str(k): str(v) for k, v in overrides.items()})
 
 
-def target_sha256(engine_build, map_path, sequence, preset) -> str:
-    """Return the frozen hash of a measurement target (FR-PM-1, OQ-26).
+def _resolution_text(resolution) -> str:
+    """``"<w>x<h>"`` for a ``[w, h]`` pair, ``''`` for ``None``, else ``str()`` (never raises)."""
+    if resolution is None:
+        return ''
+    if isinstance(resolution, (list, tuple)) and len(resolution) == 2:
+        return f'{resolution[0]}x{resolution[1]}'
+    return str(resolution)
+
+
+def target_sha256(engine_build, map_path, sequence, preset, resolution=None, shot_set=None) -> str:
+    """Return the frozen hash of a measurement target (FR-PM-1, OQ-26; sequence D8).
 
     The same frozen, pure, never-raising form as :func:`overrides_sha256`
     over ``[engine_build, map, sequence, preset]`` (each ``str(x)``,
-    ``None`` as ``''``).
+    ``None`` as ``''``).  When an output ``resolution`` (``[w, h]``) or a
+    chosen ``shot_set`` hash (:func:`shot_set_sha256`) is given, the list
+    gains ``"<w>x<h>"`` (or ``''``) and the shot set (or ``''``); with
+    neither, the hash is the original four-part form, so standalone jobs
+    keep their keys.
     """
     parts = [engine_build, map_path, sequence, preset]
+    if resolution is not None or shot_set:
+        parts += [_resolution_text(resolution), shot_set or '']
     return _frozen_sha256(['' if part is None else str(part) for part in parts])
+
+
+def shot_set_sha256(pairs) -> str:
+    """D8: the hash of the canonical JSON of the sorted chosen ``[start, end]`` pairs."""
+    return _frozen_sha256(sorted([int(start), int(end)] for start, end in pairs))

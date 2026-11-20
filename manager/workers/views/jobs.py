@@ -72,7 +72,8 @@ class JobViewSet(
     ordering_fields = ['submitted_at', 'status', 'name']
 
     def get_permissions(self):
-        if self.action in ('claim', 'upload_output', 'yield_requeue', 'release', 'pilot_result', 'shots_result'):
+        if self.action in ('claim', 'upload_output', 'yield_requeue', 'release', 'pilot_result', 'shots_result',
+                           'frames', 'piece_result'):
             return [IsWorker()]
         elif self.action in ('list', 'retrieve'):
             return [(IsAdmin | IsWorker)()]

@@ -9,7 +9,9 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from ..constants import Renderer
+from ..constants_sequence import LEAD_IN_MS_MAX, PIECE_SECONDS_MAX, PIECE_SECONDS_MIN
 from ..models import Project, SupportedBlenderVersion
+from ..renderers.unreal_validation import validate_sound_offsets
 from .blender_versions import SupportedBlenderVersionSerializer
 from .renderer_checks import check_immutable_and_consistent, resolve_strategy
 
@@ -17,6 +19,18 @@ from .renderer_checks import check_immutable_and_consistent, resolve_strategy
 @extend_schema_field({'type': 'object', 'additionalProperties': {'type': 'string'}})
 class CvarOverridesField(serializers.JSONField):
     """``unreal_cvar_overrides``: a CVar-name to value map (OpenAPI type)."""
+
+
+@extend_schema_field({'type': 'object', 'nullable': True, 'additionalProperties': {'type': 'integer'}})
+class SoundOffsetsField(serializers.JSONField):
+    """``unreal_sound_offsets`` (sequence D18): checked by ``validate_sound_offsets``."""
+
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        try:
+            return validate_sound_offsets(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -47,11 +61,31 @@ class ProjectSerializer(serializers.ModelSerializer):
         ),
     )
 
+    unreal_piece_seconds = serializers.IntegerField(
+        required=False, min_value=PIECE_SECONDS_MIN, max_value=PIECE_SECONDS_MAX,
+        help_text="Unreal sequences: seconds of footage per piece (5-600, default 30).",
+    )
+    unreal_lead_in_ms = serializers.IntegerField(
+        required=False, min_value=0, max_value=LEAD_IN_MS_MAX,
+        help_text="Unreal sequences: lead-in rendered and thrown away before a piece (0-10000 ms, default 1000).",
+    )
+    unreal_sound = serializers.BooleanField(
+        required=False, help_text="Unreal sequences: sound on by default; each submission sets it.",
+    )
+    unreal_sound_offsets = SoundOffsetsField(
+        required=False, allow_null=True,
+        help_text=(
+            'Unreal sequences: manual sound offsets {"<preset object path>@<num>/<den>": ms} (at most 64, '
+            "-10000 to 10000), used only when a run's offset cannot be measured; null for none."
+        ),
+    )
+
     class Meta:
         model = Project
         fields = [
             'id', 'name', 'renderer', 'blender_version', 'blender_version_details',
-            'engine_build', 'unreal_cvar_overrides', 'created_at',
+            'engine_build', 'unreal_cvar_overrides', 'unreal_piece_seconds', 'unreal_lead_in_ms',
+            'unreal_sound', 'unreal_sound_offsets', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
 
