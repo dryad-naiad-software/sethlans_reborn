@@ -25,6 +25,7 @@ from ..constants import UnrealKind
 from ..models import Job, JobStatus, UnrealMeasurement
 from ..parent_status import take_write_lock
 from ..renderers import UnsupportedRendererError, get_strategy
+from ..renderers.unreal_measured import reading_measures_card
 from .row_locks import lock_own_rows
 
 NOT_RENDERING_HERE = "Job is not rendering on this worker."
@@ -42,11 +43,16 @@ _RESULT_FIELDS = (
 
 
 def _gpu_matches(gpu_memory, gpu):
-    """The reported GPU is in the caller's own ``nvidia-smi`` reading (Sec R3-F1)."""
-    if not isinstance(gpu_memory, dict) or gpu_memory.get('source') != 'nvidia-smi':
+    """The reported GPU is in the caller's own live card reading (Sec R3-F1; FR-GH-10).
+
+    Matched by ``card_key`` and total, never by ``index``: the index of one
+    backend need not be another's (gpu-memory-reader FR-GN-5).
+    """
+    if not reading_measures_card(gpu_memory):
         return False
     for stored in gpu_memory.get('gpus') or []:
-        if (isinstance(stored, dict) and stored.get('index') == gpu['index']
+        if (isinstance(stored, dict) and stored.get('card_key') is not None
+                and stored.get('card_key') == gpu['card_key']
                 and isinstance(stored.get('total_mb'), int)
                 and abs(stored['total_mb'] - gpu['total_mb']) <= TOTAL_SKEW_MB):
             return True

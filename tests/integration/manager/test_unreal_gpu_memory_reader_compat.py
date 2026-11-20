@@ -3,16 +3,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 Contract: the GPU memory reader's worker payloads (gpu-memory-reader chunk 2,
-FR-GU-7, FR-GU-9) against the manager as it is before chunk 1.
-
-Chunk 2 is pushed before the manager chunk, so the manager in this tree must
-take the new worker shapes unchanged:
+FR-GU-7, FR-GU-9) against the manager of chunk 1 (FR-GH-1..3, FR-GH-10):
 
 * the heartbeat ``gpu_memory`` with ``capabilities`` and per-GPU ``card_key``
-  (``vram.to_payload``) is stored in today's shape, the new keys dropped, and
-  the worker is still offered pilots (``source`` is still ``nvidia-smi``);
-* the pilot result (``pilot.report_body``; ``gpu.card_key`` is not sent until
-  chunk 1) with a summary carrying ``pilot_process_peak_mb``
+  (``vram.to_payload``) is stored with both, and the worker is offered pilots
+  (``capabilities.card`` is true);
+* the pilot result (``pilot.report_body``, whose ``gpu`` carries ``card_key``)
+  with a summary carrying ``pilot_process_peak_mb``
   (``pilot.summary_values``) is stored.
 
 The bodies come from the worker's own builders, so a drift in the worker
@@ -71,8 +68,8 @@ def _pilot_body(metrics):
                              frames=23, engine_build=BUILD, overrides_sha256=overrides_sha256({}),
                              summary=summary.text())
     body = _wire(body)
-    # Guard: chunk 2 keeps today's ``gpu`` keys; ``card_key`` waits for chunk 1 (FR-GH-10).
-    assert set(body['gpu']) == {'index', 'name', 'total_mb'}
+    # Guard: the worker sends the card key the manager matches on (FR-GN-5, FR-GH-10).
+    assert body['gpu'] == {'index': 0, 'name': CARD_NAME, 'total_mb': TOTAL_MB, 'card_key': CARD_KEY}
     assert 'pilot_process_peak_mb=6144' in body['summary']
     return body
 
@@ -92,16 +89,17 @@ def heartbeat(worker_with_token):
 @pytest.mark.django_db
 class TestUnrealGpuMemoryReaderCompatIntegration:
 
-    def test_heartbeat_is_stored_in_todays_shape(self, heartbeat):
+    def test_heartbeat_is_stored_with_capabilities_and_card_key(self, heartbeat):
         worker, _client, _resp = heartbeat
         sent = _heartbeat_payload()
         assert Worker.objects.get(pk=worker.pk).gpu_memory == {
             'schema': 1, 'source': 'nvidia-smi', 'age_s': sent['age_s'],
+            'capabilities': {'card': True, 'process': True},
             'gpus': [{'index': 0, 'name': CARD_NAME, 'total_mb': TOTAL_MB, 'used_mb': 2048,
-                      'sethlans_used_mb': 512, 'other_used_mb': 1536}],
+                      'sethlans_used_mb': 512, 'other_used_mb': 1536, 'card_key': CARD_KEY}],
         }
 
-    def test_worker_is_still_offered_pilots(self, admin_client, heartbeat):
+    def test_worker_is_offered_pilots(self, admin_client, heartbeat):
         worker, client, _resp = heartbeat
         created_job(admin_client, unreal_asset())
         offered = [job['name'] for job in client.get(JOBS, POLL).data]

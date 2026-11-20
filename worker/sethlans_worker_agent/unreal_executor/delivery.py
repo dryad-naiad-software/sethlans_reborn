@@ -15,7 +15,9 @@ Runs **after** exit confirmation and the FR-PA-16 integrity check:
 * success, pilot: ``pilot-result/``; 200 -> ``released=True``; 409/404 ->
   terminal, ``released=True``; 5xx after the retries -> ERROR logged, job
   left ``RENDERING`` (``released=True``); another 4xx -> ``ERROR`` with
-  ``"Pilot result rejected by the manager: <detail>"``;
+  ``"Pilot result rejected by the manager: <detail>"``; a measured card
+  without a card key is not reported (the manager could not match it):
+  ``release/`` with ``local_conflict``, never a project failure;
 * failure -> ``ERROR`` (pilot: ``"Pilot render failed: <reason>"``);
 * local conflict -> ``release/`` with its reason; share failure ->
   ``release/`` with ``share_unavailable`` and ``mark_unreachable``;
@@ -42,6 +44,8 @@ logger = logging.getLogger(__name__)
 INTEGRITY_MESSAGE = "The pristine project cache failed its integrity check after the render; output discarded."
 UPLOAD_MESSAGE = "Unreal output upload failed."
 HARDWARE_MESSAGE = "the graphics card it renders on can no longer be used"
+NO_CARD_KEY_MESSAGE = ("the measured graphics card has no PCI address in this worker's GPU memory reading, so the "
+                       "manager cannot match it; the pilot result is not sent and the job goes back to the queue.")
 
 
 @dataclass
@@ -137,6 +141,8 @@ class Delivery:
         gpu = pilot.gpu_of(flow.gate_reading, flow.metrics.gpu_index)
         if gpu is None:
             return self.failed("the GPU of the measured peak is not in the nvidia-smi reading.")
+        if getattr(gpu, 'card_key', None) is None:  # this worker's fault, never the project's: back to the queue
+            return self.released('local_conflict', NO_CARD_KEY_MESSAGE)
         body = pilot.report_body(flow.metrics, gpu, prep_s=flow.prep_s, warmup_s=flow.warmup_s,
                                  render_s=flow.render_s, frames=len(flow.prep.pilot_frames),
                                  engine_build=self.params.engine_build,

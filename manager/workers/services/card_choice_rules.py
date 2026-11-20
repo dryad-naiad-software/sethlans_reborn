@@ -9,10 +9,9 @@ shape (400) before the reported state (409), and the rules against the
 stored report (400) last, since they need a usable report.
 """
 
+from ..card_keys import is_card_key
 from ..strict_json import _int_in
-from ..views.heartbeat_cards import (
-    GPU_MODES, MAX_ENTRIES, MAX_PCI_ID, MAX_REVISION, METHODS, is_card_key,
-)
+from ..views.heartbeat_cards import GPU_MODES, MAX_ENTRIES, MAX_PCI_ID, MAX_REVISION, METHODS
 
 BODY_KEYS = ('method', 'gpu_mode', 'cards', 'shown', 'base_revision')
 CARD_KEYS = ('key', 'vendor_id', 'device_id')

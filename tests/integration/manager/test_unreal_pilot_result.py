@@ -15,7 +15,7 @@ from shared.unreal.validation import overrides_sha256
 
 from workers.models import Job
 
-from .unreal_helpers import unreal_asset
+from .unreal_helpers import card_key_of, unreal_asset
 from .unreal_pilot_helpers import (
     JOBS, claimed_pilot, created_job, pilot_body, pilots, post_result, ready_worker, record_of,
 )
@@ -182,7 +182,7 @@ class TestStrictBody:
 
     def test_gpu_name_is_sanitized_not_refused(self, pilot):
         job, _worker, client = pilot
-        body = pilot_body(gpu={'index': 0, 'name': '<script>', 'total_mb': 32607})
+        body = pilot_body(gpu={'index': 0, 'name': '<script>', 'total_mb': 32607, 'card_key': card_key_of(0)})
         assert post_result(client, job.pk, body).status_code == 200
         assert record_of(job).gpu_name == ''
 
@@ -196,7 +196,7 @@ class TestJobDependent:
         assert resp.status_code == 400 and 'engine_build' in resp.data
 
     @pytest.mark.parametrize('memory', [
-        {}, {'source': 'override'}, {'other_index': True}, {'total_mb': 32607 - 65},
+        {}, {'no_card': True}, {'other_card_key': True}, {'total_mb': 32607 - 65},
     ])
     def test_gpu_cross_check(self, pilot, memory):
         job, worker, client = pilot
@@ -204,10 +204,10 @@ class TestJobDependent:
         gpu = dict(stored['gpus'][0])
         if memory == {}:
             stored = {}
-        elif 'source' in memory:
-            stored['source'] = 'override'
-        elif 'other_index' in memory:
-            gpu['index'] = 1
+        elif 'no_card' in memory:
+            stored['capabilities'] = {'card': False, 'process': False}
+        elif 'other_card_key' in memory:
+            gpu['card_key'] = card_key_of(1)
         else:
             gpu['total_mb'] = memory['total_mb']
         if stored:

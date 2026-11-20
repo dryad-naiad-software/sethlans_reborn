@@ -23,6 +23,8 @@ import re
 from shared.unreal.builds import parse_build
 from shared.unreal.unc import validate_unc_dir
 
+from ..card_keys import is_pci_card_key
+from ..serializers.workers import GPU_MEMORY_SOURCE_CHOICES
 from ..strict_json import _int_in, _is_int
 from .heartbeat_validators import _sanitize_cpu_name
 
@@ -32,7 +34,9 @@ MAX_REASON_LENGTH = 200
 MAX_INSTALLS = 16
 MAX_SHARE_LENGTH = 1024
 INSTALL_SOURCES = frozenset({'launcher', 'config'})
-GPU_MEMORY_SOURCES = frozenset({'nvidia-smi', 'override'})
+# Membership only; the OpenAPI enum comes from the sorted tuple (FR-GH-6).
+GPU_MEMORY_SOURCES = frozenset(GPU_MEMORY_SOURCE_CHOICES)
+OVERRIDE_SOURCE = 'override'
 MAX_GPUS = 16
 MAX_GPU_INDEX = 63
 MAX_GPU_NAME_LENGTH = 128
@@ -60,6 +64,15 @@ def _sanitize_reason(raw):
     return _REASON_UNSAFE.sub('?', raw)[:MAX_REASON_LENGTH]
 
 
+def _choice_in(value, allowed):
+    """True when ``value`` is a string in ``allowed``.
+
+    The type check comes first: a list or dict is unhashable, and testing it
+    against a frozenset raises TypeError (#279).
+    """
+    return isinstance(value, str) and value in allowed
+
+
 def _valid_install(raw):
     if not isinstance(raw, dict):
         return None
@@ -68,7 +81,7 @@ def _valid_install(raw):
         parse_build(build)
     except ValueError:
         return None
-    if not isinstance(supported, bool) or source not in INSTALL_SOURCES:
+    if not isinstance(supported, bool) or not _choice_in(source, INSTALL_SOURCES):
         return None
     return {'build': build, 'supported': supported, 'source': source}
 
@@ -121,7 +134,16 @@ def _attribution(raw, total):
     return sethlans, other
 
 
-def _valid_gpu(raw, seen):
+def _card_key(raw, keys):
+    """The entry's ``pci:`` card key, or ``None`` when invalid or already in ``keys`` (FR-GH-3)."""
+    key = raw.get('card_key')
+    if not is_pci_card_key(key) or key in keys:
+        return None
+    keys.add(key)
+    return key
+
+
+def _valid_gpu(raw, seen, keys):
     if not isinstance(raw, dict):
         return None
     index, total, used = raw.get('index'), raw.get('total_mb'), raw.get('used_mb')
@@ -135,26 +157,55 @@ def _valid_gpu(raw, seen):
     seen.add(index)
     return {
         'index': index, 'name': name, 'total_mb': total, 'used_mb': used,
-        'sethlans_used_mb': sethlans, 'other_used_mb': other,
+        'sethlans_used_mb': sethlans, 'other_used_mb': other, 'card_key': _card_key(raw, keys),
     }
 
 
-def _validate_gpu_memory(raw):
-    """Reduce a reported ``gpu_memory`` to its FR-RT-16 shape, else ``{}``."""
-    if not isinstance(raw, dict) or not _is_int(raw.get('schema')) or raw.get('schema') != 1:
-        return {}
-    gpus = raw.get('gpus')
-    if raw.get('source') not in GPU_MEMORY_SOURCES or not _int_in(raw.get('age_s'), 0, MAX_AGE_S) \
-            or not isinstance(gpus, list) or len(gpus) > MAX_GPUS:
-        return {}
-    kept, seen = [], set()
+def _capabilities(raw, source, gpus):
+    """The stored ``gpu_memory.capabilities``, or ``None`` when absent or invalid (FR-GH-2, AC-26).
+
+    ``card`` as sent is not trusted: it is ``False`` for the override, which
+    reads no card, and for a reading with no kept GPU that has a card key
+    (a pilot's result is matched by card key, so it could never pass).
+    """
+    caps = raw.get('capabilities')
+    if not isinstance(caps, dict) or not isinstance(caps.get('card'), bool) \
+            or not isinstance(caps.get('process'), bool):
+        return None
+    keyed = any(gpu['card_key'] is not None for gpu in gpus)
+    card = caps['card'] and source != OVERRIDE_SOURCE and keyed
+    return {'card': card, 'process': caps['process']}
+
+
+def _valid_gpus(gpus):
+    kept, seen, keys = [], set(), set()
     for gpu in gpus:
-        valid = _valid_gpu(gpu, seen)
+        valid = _valid_gpu(gpu, seen, keys)
         if valid is None:
             logger.debug("Dropping invalid gpu_memory entry: %r", repr(gpu)[:200])
         else:
             kept.append(valid)
-    return {'schema': 1, 'source': raw['source'], 'age_s': raw['age_s'], 'gpus': kept}
+    return kept
+
+
+def _validate_gpu_memory(raw):
+    """Reduce a reported ``gpu_memory`` to its FR-RT-16 / FR-GH shape, else ``{}``.
+
+    The stored value is rebuilt from known keys only; ``schema`` stays 1 (D8).
+    """
+    if not isinstance(raw, dict) or not _is_int(raw.get('schema')) or raw.get('schema') != 1:
+        return {}
+    gpus = raw.get('gpus')
+    if not _choice_in(raw.get('source'), GPU_MEMORY_SOURCES) or not _int_in(raw.get('age_s'), 0, MAX_AGE_S) \
+            or not isinstance(gpus, list) or len(gpus) > MAX_GPUS:
+        return {}
+    kept = _valid_gpus(gpus)
+    reading = {'schema': 1, 'source': raw['source'], 'age_s': raw['age_s']}
+    capabilities = _capabilities(raw, raw['source'], kept)
+    if capabilities is not None:
+        reading['capabilities'] = capabilities
+    reading['gpus'] = kept
+    return reading
 
 
 def _validate_active_job_ids(raw):

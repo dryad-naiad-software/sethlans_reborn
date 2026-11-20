@@ -34,13 +34,25 @@ def caps(*, enabled=True, builds=(BUILD,), share=SHARE, reachable=True, supporte
     }
 
 
-def gpu_memory(*totals, used=0):
-    """A stored ``gpu_memory`` dict with one GPU per total."""
+def card_key_of(index):
+    """The card key ``gpu_memory`` gives the GPU at ``index``."""
+    return f'pci:0000:{index + 1:02x}:00.0'
+
+
+def gpu_memory(*totals, used=0, source='nvidia-smi'):
+    """A stored ``gpu_memory`` dict with one GPU per total, as the heartbeat stores it.
+
+    ``capabilities.card`` follows the manager's own rule (FR-GH-2): false for
+    the override and for a reading without GPUs.
+    """
+    override = source == 'override'
     return {
-        'schema': 1, 'source': 'nvidia-smi', 'age_s': 3,
+        'schema': 1, 'source': source, 'age_s': 3,
+        'capabilities': {'card': not override and bool(totals), 'process': False},
         'gpus': [
             {'index': i, 'name': 'GPU', 'total_mb': t, 'used_mb': used,
-             'sethlans_used_mb': None, 'other_used_mb': None}
+             'sethlans_used_mb': None, 'other_used_mb': None,
+             'card_key': None if override else card_key_of(i)}
             for i, t in enumerate(totals)
         ],
     }

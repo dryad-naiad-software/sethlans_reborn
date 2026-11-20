@@ -37,6 +37,8 @@ SPECTACULAR_SETTINGS = {
         'WorkerCardNoticeKindEnum': 'workers.serializers.worker_card_schemas.CARD_NOTICE_KINDS',
         'WorkerCardOutcomeResultEnum': 'workers.serializers.worker_card_schemas.CARD_OUTCOME_RESULTS',
         'WorkerCardOutcomeCodeEnum': 'workers.serializers.worker_card_schemas.CARD_OUTCOME_CODES',
+        # The heartbeat ``gpu_memory.source`` names (gpu-memory-reader FR-GH-6).
+        'WorkerGpuMemorySourceEnum': 'workers.serializers.workers.GPU_MEMORY_SOURCE_CHOICES',
     },
     'SECURITY': [
         {'sessionAuth': []},

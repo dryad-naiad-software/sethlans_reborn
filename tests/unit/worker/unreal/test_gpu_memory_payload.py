@@ -120,10 +120,10 @@ class TestPilotReport:
         values = pilot.summary_values(self._metrics(ours), [1, 2], 'Test Card A', 'c' * 64)
         assert values['pilot_process_peak_mb'] == expected
 
-    def test_the_pilot_result_body_has_no_card_key_or_process_peak_yet(self):
+    def test_the_pilot_result_body_has_the_card_key_but_no_process_peak(self):
         gpu = GpuMem(0, 'Test Card A', 16384, 1000, None, None, 'pci:0000:0a:00.0')
         body = pilot.report_body(self._metrics({0: 7000}), gpu, prep_s=1, warmup_s=1, render_s=1, frames=1,
                                  engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s')
-        assert body['gpu'] == {'index': 0, 'name': 'Test Card A', 'total_mb': 16384}
-        assert 'card_key' not in body['gpu'] and 'process_peak_mb' not in body
+        assert body['gpu'] == {'index': 0, 'name': 'Test Card A', 'total_mb': 16384, 'card_key': 'pci:0000:0a:00.0'}
+        assert 'process_peak_mb' not in body
         assert not any('process_peak' in key for key in body)

@@ -29,7 +29,7 @@ from ..models import JobStatus, Worker
 from ..models.workers import reported_unreal_builds, reports_share_reachable
 from ..services.sethlans_share import configured_share
 from .unreal_measured import (
-    MEASURED, has_nvidia_reading, held_message, measured_claim_rejection, poll_measured_q,
+    MEASURED, held_message, measured_claim_rejection, measures_card, poll_measured_q,
 )
 
 MAX_POLL_BUILDS = 10
@@ -71,7 +71,8 @@ def unreal_poll_q(params, worker):
     narrowed to the builds the worker reports.  A non-worker caller
     (``worker is None``) gets only the share-unset rule.  For every caller,
     normal jobs of unmeasured keys and stale or superseded pilots are left
-    out; a worker without an ``nvidia-smi`` reading gets no pilots (D2).
+    out; a worker without a live card reading gets no pilots (D2;
+    gpu-memory-reader D7).
     """
     builds = parse_poll_builds(params)
     share = configured_share()
@@ -84,7 +85,7 @@ def unreal_poll_q(params, worker):
         builds &= reported_unreal_builds(caps)
         if not builds:
             return _no_jobs()
-    include_pilots = worker is None or has_nvidia_reading(worker)
+    include_pilots = worker is None or measures_card(worker)
     return Q(renderer=Renderer.UNREAL, engine_build__in=sorted(builds)) & poll_measured_q(include_pilots)
 
 

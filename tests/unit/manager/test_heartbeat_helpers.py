@@ -42,6 +42,11 @@ class TestValidateWorkerStatus:
     def test_integer_defaults_to_idle(self):
         assert _validate_worker_status(42) == WorkerStatus.IDLE
 
+    def test_unhashable_status_defaults_to_idle(self):
+        """#279: a list or dict status raised TypeError (a 500) instead of counting as invalid."""
+        assert _validate_worker_status(['IDLE']) == WorkerStatus.IDLE
+        assert _validate_worker_status({'IDLE': 1}) == WorkerStatus.IDLE
+
     def test_lowercase_idle_defaults_to_idle(self):
         """Case-sensitive: 'idle' is not 'IDLE'."""
         assert _validate_worker_status('idle') == WorkerStatus.IDLE

@@ -20,6 +20,7 @@ import re
 import threading
 from datetime import datetime
 
+from ..card_keys import is_card_key
 from ..serializers.worker_card_schemas import (
     CARD_ALERT_KINDS, CARD_BACKENDS, CARD_GPU_MODES, CARD_METHODS, CARD_NOTICE_KINDS,
     CARD_STATES as _STATES,
@@ -35,10 +36,8 @@ MAX_NAME_LENGTH = 128
 MAX_PCI_ID = 0xFFFF
 MAX_REVISION = 2 ** 31 - 1
 MAX_RAISED_AT_LENGTH = 40
-APPLE_GPU_KEY = 'apple-gpu'
 METHODS, GPU_MODES, CARD_STATES = frozenset(CARD_METHODS), frozenset(CARD_GPU_MODES), frozenset(_STATES)
 BACKENDS, ALERT_KINDS, NOTICE_KINDS = frozenset(CARD_BACKENDS), frozenset(CARD_ALERT_KINDS), frozenset(CARD_NOTICE_KINDS)
-_CARD_KEY = re.compile(r'pci:[0-9a-f]{4,8}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]', re.ASCII)
 _ALERT_ID = re.compile(r'[0-9a-f]{32}', re.ASCII)
 _WARNING_CODE = re.compile(r'[a-z_]{1,32}', re.ASCII)
 
@@ -49,13 +48,6 @@ _REQUIRED = object()
 # Workers whose unusable report was logged at WARNING; later ones are DEBUG until a usable one.
 _warned_workers = set()
 _warned_lock = threading.Lock()
-
-
-def is_card_key(value) -> bool:
-    """True for ``apple-gpu`` and a normalised ``pci:dddd:bb:dd.f`` key."""
-    return isinstance(value, str) and (
-        value == APPLE_GPU_KEY or _CARD_KEY.fullmatch(value) is not None
-    )
 
 
 def is_alert_id(value) -> bool:

@@ -185,8 +185,8 @@ def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, r
         'prep_s': round(prep_s, 1), 'warmup_s': round(warmup_s, 1), 'warmup_ran': True,
         'render_s': round(render_s, 1), 'frames': int(frames),
         'seconds_per_frame': round(render_s / frames, 2) if frames else 0.0, 'per_shot': [],
-        # No card_key yet: the manager rejects unknown gpu keys; it is added together with the manager's support.
-        'gpu': {'index': gpu.index, 'name': gpu.name, 'total_mb': gpu.total_mb},
+        # The manager matches the GPU to its stored reading by card_key, never by index (FR-GN-5, FR-GH-10).
+        'gpu': {'index': gpu.index, 'name': gpu.name, 'total_mb': gpu.total_mb, 'card_key': gpu.card_key},
         'engine_build': engine_build, 'csv_local_used_peak_mb': metrics.csv_local_used_peak_mb,
         'overrides_sha256': overrides_sha256, 'summary': report_limits.bounded_tail(summary, PILOT_SUMMARY_MAX_BYTES),
     }

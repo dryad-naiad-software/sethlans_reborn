@@ -160,7 +160,8 @@ def test_pilot_measures_every_phase_and_reports_pilot_result(tmp_path, monkeypat
     body, = h.manager.pilot_bodies
     assert body['frames'] == 3 and body['warmup_ran'] is True and body['peak_source'] == 'card'
     assert body['card_delta_peak_mb'] == 2000 and body['peak_mb'] == 2000 and body['baseline_used_mb'] == 1000
-    assert body['gpu'] == {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607}
+    assert body['gpu'] == {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607,
+                           'card_key': 'pci:0000:01:00.0'}
     assert body['csv_local_used_peak_mb'] is None and body['engine_build'] == '5.8.4-58902052'
     s = summary(result)
     assert s['pilot_frames'] == '3' and s['warmup'] == 'ran' and s['vram_gate'] == 'pilot'

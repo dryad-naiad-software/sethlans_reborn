@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """FR-UE-25 pilot metrics, CSV capture and report body; FR-UE-13 output collection; FR-UE-10/13 render checks."""
+import dataclasses
+
 import pytest
 
 from sethlans_worker_agent.unreal_executor import output, pilot, pilot_csv, render_check
@@ -71,11 +73,12 @@ class TestAdapter:
 
 def test_report_body_matches_the_manager_schema():
     metrics = pilot.measure(runs(), 8102)
-    gpu = pilot.gpu_of(reading(), 0)
+    gpu = dataclasses.replace(pilot.gpu_of(reading(), 0), card_key='pci:0000:01:00.0')
     body = pilot.report_body(metrics, gpu, prep_s=24.06, warmup_s=800.2, render_s=1380.5, frames=23,
                              engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s')
     assert set(body) == PILOT_FIELDS and body['seconds_per_frame'] == 60.02 and body['warmup_ran'] is True
-    assert body['gpu'] == {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607}
+    assert body['gpu'] == {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607,
+                           'card_key': 'pci:0000:01:00.0'}
     assert pilot.gpu_of(reading(), 3) is None
 
 

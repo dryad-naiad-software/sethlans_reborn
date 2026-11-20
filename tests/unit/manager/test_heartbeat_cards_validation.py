@@ -11,10 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from workers.card_keys import is_card_key
 from workers.views import heartbeat_cards
-from workers.views.heartbeat_cards import (
-    apply_card_report, is_alert_id, is_card_key, validate_card_report,
-)
+from workers.views.heartbeat_cards import apply_card_report, is_alert_id, validate_card_report
 
 from .card_report_helpers import (
     ALERT_ID_2, KEY, KEY_2, alert, card, notice, report, stored, warning,

@@ -28,13 +28,14 @@ def _caps(**extra):
 
 def _gpu(**extra):
     gpu = {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607, 'used_mb': 1012,
-           'sethlans_used_mb': 0, 'other_used_mb': 1012}
+           'sethlans_used_mb': 0, 'other_used_mb': 1012, 'card_key': 'pci:0000:01:00.0'}
     gpu.update(extra)
     return gpu
 
 
 def _mem(*gpus, **extra):
-    mem = {'schema': 1, 'source': 'nvidia-smi', 'age_s': 4, 'gpus': list(gpus) or [_gpu()]}
+    mem = {'schema': 1, 'source': 'nvidia-smi', 'age_s': 4, 'capabilities': {'card': True, 'process': True},
+           'gpus': list(gpus) or [_gpu()]}
     mem.update(extra)
     return mem
 

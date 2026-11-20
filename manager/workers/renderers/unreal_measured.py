@@ -39,7 +39,7 @@ INFRA_SENTENCE = (
     "or network problem, not to the project."
 )
 PENDING_NOTE = "Waiting for this project's memory measurement (pilot render)."
-NO_NVIDIA_MESSAGE = "Worker cannot measure GPU memory (no nvidia-smi reading)."
+NO_CARD_READING_MESSAGE = "Worker cannot measure GPU memory (no live card reading)."
 STALE_MESSAGE = "Pilot is stale: the project's CVars changed since it was created."
 SUPERSEDED_MESSAGE = "Pilot is no longer needed: its target was measured by a later pilot."
 MAX_REASON = 200
@@ -210,17 +210,27 @@ def claim_row(job):
     ).first()
 
 
-def has_nvidia_reading(worker):
-    """Whether the worker's stored ``gpu_memory`` comes from ``nvidia-smi`` (FR-WD-10)."""
-    reading = worker.gpu_memory if isinstance(worker.gpu_memory, dict) else {}
-    return reading.get('source') == 'nvidia-smi'
+def reading_measures_card(gpu_memory):
+    """Whether a stored ``gpu_memory`` is a live card reading (gpu-memory-reader D7, FR-GH-4).
+
+    True only when ``capabilities.card is True`` as the heartbeat stored it
+    (FR-GH-2 forces it false for the override and for an empty reading).
+    """
+    reading = gpu_memory if isinstance(gpu_memory, dict) else {}
+    capabilities = reading.get('capabilities')
+    return isinstance(capabilities, dict) and capabilities.get('card') is True
+
+
+def measures_card(worker):
+    """Whether the worker's stored ``gpu_memory`` is a live card reading (FR-GH-4)."""
+    return reading_measures_card(worker.gpu_memory)
 
 
 def measured_claim_rejection(worker, job):
     """The measured-gate part of an Unreal claim check, or ``None`` (FR-RT-4)."""
     is_pilot = job.unreal_kind == UnrealKind.PILOT
-    if is_pilot and not has_nvidia_reading(worker):
-        return NO_NVIDIA_MESSAGE
+    if is_pilot and not measures_card(worker):
+        return NO_CARD_READING_MESSAGE
     row = claim_row(job)
     if row is None:
         return None

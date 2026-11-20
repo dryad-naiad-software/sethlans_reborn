@@ -25,6 +25,7 @@ from rest_framework import serializers
 from shared.unreal.builds import BUILD_RE
 from shared.unreal.vram_gate import MAX_PEAK_MB, MIN_PLAUSIBLE_PEAK_MB
 
+from ..card_keys import is_pci_card_key
 from ..renderers import UnsupportedRendererError, get_strategy
 from ..strict_json import _int_in, is_number
 from .projects import ProjectSerializer
@@ -84,6 +85,16 @@ class PilotGpuSerializer(serializers.Serializer):
     index = StrictIntegerField(min_value=0, max_value=63)
     name = StrictCharField(allow_blank=True)
     total_mb = StrictIntegerField(min_value=1, max_value=MAX_PEAK_MB)
+    card_key = StrictCharField(
+        max_length=20,
+        help_text="The card's key, pci:dddd:bb:dd.f (gpu-memory-reader FR-GH-10).",
+    )
+
+    def validate_card_key(self, value):
+        # The heartbeat's per-GPU rule (FR-GH-3); a pilot always ran on a card with a key.
+        if not is_pci_card_key(value):
+            raise serializers.ValidationError("Must be a card key pci:dddd:bb:dd.f.")
+        return value
 
     def validate_name(self, value):
         # Sanitized like the heartbeat's GPU names (FR-RT-16), never refused.

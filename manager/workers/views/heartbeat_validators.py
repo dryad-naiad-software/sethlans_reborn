@@ -76,8 +76,12 @@ def _validate_available_tools(raw_value):
 
 
 def _validate_worker_status(raw_status):
-    """Validate status from worker payload. Returns a valid status string."""
-    if raw_status in WORKER_ACCEPTED_STATUSES:
+    """Validate status from worker payload. Returns a valid status string.
+
+    A non-string is invalid like any unknown value; it is checked first
+    because a list or dict is unhashable in a set test (#279).
+    """
+    if isinstance(raw_status, str) and raw_status in WORKER_ACCEPTED_STATUSES:
         return raw_status
     return WorkerStatus.IDLE
 

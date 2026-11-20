@@ -137,13 +137,13 @@ class TestStates:
 @pytest.mark.django_db
 class TestPilotExclusions:
 
-    def test_worker_without_nvidia_reading_gets_no_pilot(self, held):
+    def test_worker_without_a_card_reading_gets_no_pilot(self, held):
         _job, pilot, worker, client = held
-        worker.gpu_memory = {**worker.gpu_memory, 'source': 'override'}
+        worker.gpu_memory = gpu_memory(32607, source='override')
         worker.save(update_fields=['gpu_memory'])
         assert _names(client.get(JOBS, POLL)) == []
         assert claim(client, pilot, worker).data == {
-            'error': "Worker cannot measure GPU memory (no nvidia-smi reading)."}
+            'error': "Worker cannot measure GPU memory (no live card reading)."}
 
     def test_admin_poll_still_lists_the_pilot(self, admin_client, held):
         _job, pilot, _worker, _client = held

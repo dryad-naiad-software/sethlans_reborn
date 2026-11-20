@@ -15,7 +15,7 @@ from shared.unreal.validation import overrides_sha256
 
 from workers.models import Job, UnrealMeasurement
 
-from .unreal_helpers import BUILD, RENDER_SETTINGS, SHARE, caps, gpu_memory, set_share
+from .unreal_helpers import BUILD, RENDER_SETTINGS, SHARE, caps, card_key_of, gpu_memory, set_share
 
 JOBS = '/api/jobs/'
 POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true',
@@ -61,9 +61,7 @@ def ready_worker(worker, total_mb=32607, source='nvidia-smi'):
     """Make ``worker`` eligible for Unreal jobs on the manager's share."""
     set_share(SHARE)
     worker.unreal_capabilities = caps()
-    memory = gpu_memory(total_mb)
-    memory['source'] = source
-    worker.gpu_memory = memory
+    worker.gpu_memory = gpu_memory(total_mb, source=source)
     worker.save(update_fields=['unreal_capabilities', 'gpu_memory'])
     return worker
 
@@ -108,7 +106,7 @@ def pilot_body(**overrides):
         'max_sample_gap_s': 1.2, 'prep_s': 24.1, 'warmup_s': 800.2, 'warmup_ran': True,
         'render_s': 1380.5, 'frames': 23, 'seconds_per_frame': 60.0,
         'per_shot': [{'frame': 0, 'render_s': 58.2}],
-        'gpu': {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607},
+        'gpu': {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607, 'card_key': card_key_of(0)},
         'engine_build': BUILD, 'csv_local_used_peak_mb': 8102,
         'overrides_sha256': overrides_sha256({}), 'summary': 'pilot_frames=23',
     }

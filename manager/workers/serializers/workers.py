@@ -33,11 +33,19 @@ _UNREAL_CAPABILITIES_SCHEMA = inline_serializer('WorkerUnrealCapabilities', {
     'share': serializers.CharField(required=False),
     'share_reachable': serializers.BooleanField(required=False),
 }, required=False)
+# The ``gpu_memory.source`` names (gpu-memory-reader D9, FR-GH-6): one sorted
+# tuple, pinned as ``WorkerGpuMemorySourceEnum`` in ``ENUM_NAME_OVERRIDES``.
+GPU_MEMORY_SOURCE_CHOICES = ('amdgpu-sysfs', 'mixed', 'nvidia-smi', 'override', 'pdh')
 _GPU_MEMORY_SCHEMA = inline_serializer('WorkerGpuMemory', {
     'schema': serializers.IntegerField(required=False),
-    'source': serializers.ChoiceField(choices=['nvidia-smi', 'override'], required=False),
+    'source': serializers.ChoiceField(choices=GPU_MEMORY_SOURCE_CHOICES, required=False),
     'age_s': serializers.IntegerField(required=False),
+    'capabilities': inline_serializer('WorkerGpuMemoryCapabilities', {
+        'card': serializers.BooleanField(),
+        'process': serializers.BooleanField(),
+    }, required=False, allow_null=True),
     'gpus': serializers.ListField(required=False, child=inline_serializer('WorkerGpuMemoryEntry', {
+        'card_key': serializers.CharField(required=False, allow_null=True),
         'index': serializers.IntegerField(required=False),
         'name': serializers.CharField(required=False),
         'total_mb': serializers.IntegerField(required=False),
