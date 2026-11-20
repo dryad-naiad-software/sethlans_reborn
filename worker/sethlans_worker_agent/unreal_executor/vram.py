@@ -67,6 +67,8 @@ _failure_logged = False
 
 def sethlans_pids() -> frozenset:
     """The worker process and all its descendants (Blender, UE trees)."""
+    # A pid reused between this snapshot and the counter collect (milliseconds) counts another process's
+    # memory as ours: other_used_mb reads low and the gate admits more. Accepted for that window.
     try:
         me = psutil.Process(os.getpid())
         return frozenset([me.pid] + [child.pid for child in me.children(recursive=True)])

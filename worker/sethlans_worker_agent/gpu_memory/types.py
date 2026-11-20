@@ -43,7 +43,7 @@ class GpuMem:
 @dataclass(frozen=True)
 class GpuMemoryReading:
     taken_at: float                   # time.monotonic()
-    source: str                       # 'nvidia-smi' | 'override' (more sources come with their backends)
+    source: str                       # 'pdh' | 'nvidia-smi' | 'override' (more sources come with their backends)
     gpus: Tuple[GpuMem, ...]
     measures_card: bool = False
     measures_process: bool = False

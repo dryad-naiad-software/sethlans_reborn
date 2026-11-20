@@ -125,6 +125,41 @@ class TestStatistics:
         assert self._stats(caplog) == []
 
 
+class HookedBackend(FakeBackend):
+    """A backend with ``before_sample()``: it logs, advances the clock by 5 s, or raises ``error``."""
+
+    error = None
+
+    def before_sample(self):
+        self.log.append((self.name, 'before'))
+        if self.clock is not None:
+            self.clock.now += 5.0
+        if self.error is not None:
+            raise self.error
+
+
+class TestBeforeSample:
+
+    def test_runs_untimed_before_each_sample_after_selection_only(self):
+        clock, log = Clock(), []
+        backend = HookedBackend('nvidia-smi', log, clock=clock, duration=0.002)
+        reader, _created = make_reader(backend, clock=clock)
+        reader.read(lambda: PIDS)
+        assert ('nvidia-smi', 'before') not in log   # not during selection: the first reading is never delayed
+        reader.read(lambda: PIDS)
+        assert log[-3][1] == 'before' and log[-2][1] == 'sample'
+        assert max(reader._durations) == pytest.approx(0.002)   # the hook's 5 s is not in the statistics
+
+    def test_a_failing_hook_still_gives_the_reading(self, caplog):
+        caplog.set_level(logging.DEBUG, logger=READER_LOG)
+        backend = HookedBackend('nvidia-smi', [])
+        backend.error = RuntimeError('cross-check broke')
+        reader, _created = make_reader(backend)
+        reader.read(lambda: PIDS)
+        assert reader.read(lambda: PIDS) is not None
+        assert "GPU memory source nvidia-smi: work before the sample failed." in caplog.messages
+
+
 class TestClose:
 
     def test_close_waits_for_a_running_sample(self):

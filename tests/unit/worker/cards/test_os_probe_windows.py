@@ -153,6 +153,30 @@ class TestDuplicateKey:
         assert os_probe_windows.probe() == ()
 
 
+class TestCardsWithLuids:
+    """GPU memory reader FR-GW-4: the same cards as ``probe()``, each with its LUID."""
+
+    def test_same_cards_same_order_with_each_luid(self, fake_bindings):
+        fake_bindings(_two_xt_adapters())
+
+        pairs = os_probe_windows.cards_with_luids()
+
+        assert tuple(card for card, _luid in pairs) == os_probe_windows.probe()
+        assert [luid for _card, luid in pairs] == [(0, 1001), (0, 1003)]
+
+    def test_duplicate_keys_are_dropped_with_their_luids(self, fake_bindings):
+        fake_bindings([_adapter(0, 'A', '0000:03:00.0'), _adapter(1, 'B', '0000:03:00.0'),
+                       _adapter(2, 'C', '0000:23:00.0')])
+
+        assert [(card.key, luid) for card, luid in os_probe_windows.cards_with_luids()] == [(KEY_XT_23, (0, 1002))]
+
+    @pytest.mark.parametrize('pairs,available', [(None, True), ([], False)])
+    def test_unavailable_is_none(self, fake_bindings, pairs, available):
+        fake_bindings(pairs, available=available)
+
+        assert os_probe_windows.cards_with_luids() is None
+
+
 class TestFailures:
 
     def test_no_dxgi_list_is_none(self, fake_bindings):

@@ -18,10 +18,19 @@ READER_LOG = 'sethlans_worker_agent.gpu_memory.reader'
 class TestCandidates:
 
     @pytest.mark.parametrize('platform,expected', [
-        ('win32', ('nvidia-smi',)), ('linux', ('nvidia-smi',)), ('linux2', ('nvidia-smi',)),
+        ('win32', ('pdh', 'nvidia-smi')), ('linux', ('nvidia-smi',)), ('linux2', ('nvidia-smi',)),
         ('darwin', ()), ('freebsd14', ())])
     def test_auto_per_platform(self, platform, expected):
-        assert reader_module.candidates('auto', platform) == expected
+        assert reader_module.candidates('auto', platform, is_64bit=True) == expected
+
+    def test_auto_on_32_bit_windows_has_only_nvidia_smi(self):
+        assert reader_module.candidates('auto', 'win32', is_64bit=False) == ('nvidia-smi',)
+
+    def test_auto_on_windows_uses_this_python_width(self, monkeypatch):
+        monkeypatch.setattr(reader_module.sys, 'maxsize', 2 ** 31 - 1)
+        assert reader_module.candidates('auto', 'win32') == ('nvidia-smi',)
+        monkeypatch.setattr(reader_module.sys, 'maxsize', 2 ** 63 - 1)
+        assert reader_module.candidates('auto', 'win32') == ('pdh', 'nvidia-smi')
 
     def test_auto_defaults_to_this_platform(self, monkeypatch):
         monkeypatch.setattr(reader_module.sys, 'platform', 'darwin')
@@ -36,8 +45,15 @@ class TestCandidates:
     def test_none_has_no_candidate(self, platform):
         assert reader_module.candidates('none', platform) == ()
 
-    def test_default_factories_offer_the_nvidia_smi_backend(self):
-        assert reader_module._default_factories() == {'nvidia-smi': nvidia_smi.NvidiaSmiBackend}
+    def test_default_factories_offer_the_nvidia_smi_and_pdh_backends(self):
+        factories = reader_module._default_factories()
+        assert set(factories) == {'nvidia-smi', 'pdh'}
+        assert factories['nvidia-smi'] is nvidia_smi.NvidiaSmiBackend
+
+    def test_the_pdh_factory_builds_the_windows_backend_without_opening_it(self):
+        from sethlans_worker_agent.gpu_memory import win_backend
+        backend = reader_module._default_factories()['pdh']()
+        assert isinstance(backend, win_backend.PdhBackend) and backend.name == 'pdh'
 
 
 class TestSelection:
@@ -50,6 +66,21 @@ class TestSelection:
         assert reader.read(lambda: PIDS) == reading(source='nvidia-smi')
         assert reader.source == 'nvidia-smi' and created == ['nvidia-smi']
         assert log == [('nvidia-smi', 'open'), ('nvidia-smi', 'sample', PIDS), ('nvidia-smi', 'sample-end')]
+
+    def test_auto_on_windows_chooses_pdh_before_nvidia_smi(self, monkeypatch):
+        monkeypatch.setattr(reader_module.sys, 'maxsize', 2 ** 63 - 1)
+        log = []
+        reader, created = make_reader(FakeBackend('pdh', log), FakeBackend('nvidia-smi', log), platform='win32')
+        assert reader.read(lambda: PIDS).source == 'pdh'
+        assert reader.source == 'pdh' and created == ['pdh']
+
+    def test_auto_on_windows_falls_back_to_nvidia_smi_when_pdh_cannot_open(self, monkeypatch):
+        monkeypatch.setattr(reader_module.sys, 'maxsize', 2 ** 63 - 1)
+        log = []
+        reader, created = make_reader(FakeBackend('pdh', log, opens=False), FakeBackend('nvidia-smi', log),
+                                      platform='win32')
+        assert reader.read(lambda: PIDS).source == 'nvidia-smi'
+        assert created == ['pdh', 'nvidia-smi'] and ('pdh', 'close') in log
 
     def test_auto_on_macos_tries_nothing(self):
         backend = FakeBackend('nvidia-smi', [])

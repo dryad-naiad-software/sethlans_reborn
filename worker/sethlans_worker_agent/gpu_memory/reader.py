@@ -9,8 +9,9 @@ calls ``backend.sample(pids())``. It never raises: an exception is logged
 (first at ERROR with the traceback, then at DEBUG) and gives ``None``.
 
 Selection: the candidates of ``[gpu_memory] source`` (``candidates``:
-``auto`` is ``nvidia-smi`` on Windows and Linux, none on macOS; a pinned
-name only that backend) are tried in order; one is chosen when ``open()``
+``auto`` is ``pdh`` then ``nvidia-smi`` on 64-bit Windows, ``nvidia-smi``
+on 32-bit Windows and Linux, none on macOS; a pinned name only that
+backend) are tried in order; one is chosen when ``open()``
 is True **and** its first sample has a card. A rejected candidate is
 closed (a failing ``close()`` is logged, never skips the next one). The
 chosen backend is kept for the life of the process; a failed sample gives
@@ -46,6 +47,8 @@ SOURCE_NONE = 'none'
 
 
 class Backend(Protocol):
+    """A GPU memory source. Optional ``before_sample()`` (backends may omit it): called untimed, failures
+    swallowed, before each sample once chosen; ``pdh`` uses it for its one cross-check after the first good sample."""
     name: str
 
     def open(self) -> bool: ...
@@ -55,9 +58,14 @@ class Backend(Protocol):
     def close(self) -> None: ...
 
 
+def _pdh_backend() -> Backend:
+    from sethlans_worker_agent.gpu_memory import win_backend  # imported only when pdh is tried
+    return win_backend.PdhBackend()
+
+
 def _default_factories() -> Dict[str, Callable[[], Backend]]:
     from sethlans_worker_agent.gpu_memory import nvidia_smi
-    return {nvidia_smi.SOURCE: nvidia_smi.NvidiaSmiBackend}
+    return {nvidia_smi.SOURCE: nvidia_smi.NvidiaSmiBackend, 'pdh': _pdh_backend}
 
 
 def _configured_source() -> str:
@@ -65,14 +73,17 @@ def _configured_source() -> str:
     return config_gpu_memory.SOURCE
 
 
-def candidates(setting: str, platform: Optional[str] = None) -> Tuple[str, ...]:
-    """Backend names to try, in order, for a ``[gpu_memory] source`` value."""
+def candidates(setting: str, platform: Optional[str] = None, is_64bit: Optional[bool] = None) -> Tuple[str, ...]:
+    """Backend names to try, in order, for a ``[gpu_memory] source`` value (FR-GS-2)."""
     if setting == SOURCE_NONE:
         return ()
     if setting != 'auto':
         return (setting,)
     platform = sys.platform if platform is None else platform
-    if platform == 'win32' or platform.startswith('linux'):
+    if platform == 'win32':
+        is_64bit = sys.maxsize > 2 ** 32 if is_64bit is None else is_64bit
+        return ('pdh', 'nvidia-smi') if is_64bit else ('nvidia-smi',)
+    if platform.startswith('linux'):
         return ('nvidia-smi',)
     return ()
 
@@ -128,10 +139,22 @@ class GpuMemoryReader:
     # -- under _sample_lock -----------------------------------------------
     def _read_locked(self, pids) -> Optional[GpuMemoryReading]:
         if self._backend is not None:
+            self._before_sample(self._backend)
             return self._timed(self._backend, pids)
         if self._next_select is not None and self._clock() < self._next_select:
             return None
         return self._select(pids)
+
+    @staticmethod
+    def _before_sample(backend: Backend) -> None:
+        """A chosen backend's optional, untimed ``before_sample()`` (log-only work); a failure is ignored."""
+        hook = getattr(backend, 'before_sample', None)
+        if hook is None:
+            return
+        try:
+            hook()
+        except Exception:  # noqa: BLE001 - log-only work never costs a reading
+            logger.debug("GPU memory source %s: work before the sample failed.", backend.name, exc_info=True)
 
     def _timed(self, backend: Backend, pids) -> Optional[GpuMemoryReading]:
         ours = pids()

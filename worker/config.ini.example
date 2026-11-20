@@ -141,7 +141,9 @@ key_file =
 [gpu_memory]
 # How the worker reads graphics card memory (used by Unreal rendering).
 # Env var: SETHLANS_GPU_MEMORY_SOURCE. Changing it needs a worker restart.
-# auto (default) picks the platform's source; nvidia-smi pins that source
-# (on Windows only the copy the driver installs in System32 is run); none
-# reads nothing (Unreal then needs SETHLANS_UNREAL_VRAM_MB).
+# auto (default) picks the platform's source: on Windows the built-in
+# performance counters (pdh, every card brand), then nvidia-smi; on Linux
+# nvidia-smi. pdh or nvidia-smi pins that source (on Windows only the
+# nvidia-smi the driver installs in System32 is run); none reads nothing
+# (Unreal then needs SETHLANS_UNREAL_VRAM_MB).
 # source = auto

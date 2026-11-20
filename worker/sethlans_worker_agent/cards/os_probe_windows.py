@@ -13,7 +13,8 @@ so the software adapter and a virtual display adapter (no PCI address) are not
 cards. Two adapters with the same key are both dropped, with one ERROR line.
 
 The LUID is used inside this call only and compared as integers; it is never
-kept, saved or sent (it changes on reboot).
+kept, saved or sent (it changes on reboot). ``cards_with_luids()`` returns it
+with each card for the GPU memory reader, which keeps it in memory only.
 """
 import logging
 from typing import Optional, Tuple
@@ -49,8 +50,11 @@ def _drop_duplicates(cards) -> Tuple[OsCard, ...]:
     return tuple(card for card in cards if counts[card.key] == 1)
 
 
-def probe() -> Optional[Tuple[OsCard, ...]]:
-    """The cards DXGI and D3DKMT report, in DXGI order; ``None`` when either is unavailable."""
+def cards_with_luids() -> Optional[Tuple[Tuple[OsCard, Tuple[int, int]], ...]]:
+    """``probe()``'s cards, each with its ``(HighPart, LowPart)`` LUID; ``None`` when DXGI or D3DKMT is unavailable.
+
+    For the GPU memory reader only (GPU memory reader FR-GW-4): the LUID stays in the result, in memory.
+    """
     from sethlans_worker_agent.gpu_memory import win_adapter_info, win_dxgi
     adapters = win_dxgi.enumerate_adapters()
     if adapters is None:
@@ -59,5 +63,13 @@ def probe() -> Optional[Tuple[OsCard, ...]]:
     if not win_adapter_info.available():
         logger.debug("PCI addresses of the adapters cannot be read (D3DKMT unavailable).")
         return None
-    cards = [card for card in (_card(adapter, win_adapter_info.pci_address) for adapter in adapters) if card]
-    return _drop_duplicates(cards)
+    pairs = [(_card(adapter, win_adapter_info.pci_address), adapter.luid) for adapter in adapters]
+    pairs = [(card, luid) for card, luid in pairs if card]
+    kept = {card.key for card in _drop_duplicates([card for card, _luid in pairs])}
+    return tuple((card, luid) for card, luid in pairs if card.key in kept)
+
+
+def probe() -> Optional[Tuple[OsCard, ...]]:
+    """The cards DXGI and D3DKMT report, in DXGI order; ``None`` when either is unavailable."""
+    pairs = cards_with_luids()
+    return None if pairs is None else tuple(card for card, _luid in pairs)
