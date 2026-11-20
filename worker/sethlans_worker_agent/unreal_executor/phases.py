@@ -19,7 +19,12 @@ FR-UE-26, FR-UE-27; chunk 7 integration requirements 10, 11, 15).
    phase, and every render);
 3. ``process_runner.run(spec, registry)`` with a **fresh**
    ``zen_port.LoopbackWatch`` as ``tick_check`` and
-   ``phase_vram_sample(sampler)``;
+   ``phase_vram_sample(sampler)``. Every reading of the launch (pre-launch,
+   per tick, post-exit) is cut to the launch's card (D22, FR-GU-11,
+   ``vram.only_card``): the ``adapter`` choice's key, else the gated card
+   (``card_key``, set by ``job_run``; a pilot's prep has no choice). A
+   reading without that card counts as no sample. With no key at all (the
+   override) nothing is cut;
 4. a warm-up or render whose log names another D3D12 adapter than its
    ``-graphicsadapter`` card raises the alert and refuses the project
    (``adapter_log.check_run``), then releases the job unless survivors
@@ -37,7 +42,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
-from sethlans_worker_agent.unreal_executor import adapter_log, log_validation, zen_log, zen_port
+from sethlans_worker_agent.unreal_executor import adapter_log, log_validation, vram, zen_log, zen_port
 from sethlans_worker_agent.unreal_executor.outcomes import Cancelled, JobFailure, LocalConflict, SurvivorsLeft
 from sethlans_worker_agent.unreal_executor.process_runner import phase_vram_sample
 from sethlans_worker_agent.unreal_executor.runner_types import CANCEL_CAUSES, MB, RunSpec
@@ -95,6 +100,7 @@ class PhaseRunner:
     zen_scan: Optional[Callable] = None     # zen_guard.scan_project_config, re-run before every launch
     add_alert: Optional[Callable] = None    # store.add_alert (adapter_log's default when None)
     project: str = ''                       # archive sha256 (set by job_run): an adapter mismatch refuses it
+    card_key: Optional[str] = None          # the gated card (set by job_run): traces of a launch without a choice
 
     def _stop_requested(self) -> None:
         """No launch once a cancel cause or the shutdown is known (review L2)."""
@@ -122,10 +128,14 @@ class PhaseRunner:
         self.user_cvars = max(self.user_cvars, result.user_cvars)
         self.collisions.extend(c for c in result.user_cvar_collisions if c not in self.collisions)
 
-    def reading(self) -> Optional[object]:
+    def reading(self, key: Optional[str] = None) -> Optional[object]:
+        """A fresh reading, cut to the card ``key`` when one is given (FR-GU-11)."""
         if self.sampler is None:
             return None
-        return self.sampler.fresh(max_age_s=1.0, deadline=time.monotonic() + READING_TIMEOUT_S)
+        return _cut(self.sampler.fresh(max_age_s=1.0, deadline=time.monotonic() + READING_TIMEOUT_S), key)
+
+    def _key(self, adapter) -> Optional[str]:
+        return adapter.key if adapter is not None else self.card_key
 
     @staticmethod
     def used(reading) -> Optional[Dict[int, int]]:
@@ -133,6 +143,8 @@ class PhaseRunner:
 
     def _spec(self, launch, phase, attempt, success_marker, success_check, sample, baseline, adapter) -> RunSpec:
         cfg = self.config
+        sampled = phase_vram_sample(self.sampler) if sample and self.sampler is not None else None
+        key = self._key(adapter)
         return RunSpec(
             launch=launch, log_path=self.job_dir.log(phase, attempt), stdout_path=self.job_dir.stdout(phase, attempt),
             ledger_path=self.job_dir.ledger, timeout_s=cfg.timeouts[phase], hang_s=cfg.hang_s,
@@ -140,7 +152,7 @@ class PhaseRunner:
             log_flood_bytes_per_min=cfg.log_flood_bytes_per_min,
             fatal_rules=log_validation.fatal_rules(), success_marker=success_marker, success_check=success_check,
             cancel=self.cancel, shutdown_event=self.shutdown_event, excluded_images=cfg.excluded_images,
-            vram_sample=phase_vram_sample(self.sampler) if sample and self.sampler is not None else None,
+            vram_sample=(lambda timeout_s: _cut(sampled(timeout_s), key)) if sampled is not None else None,
             tick_check=self.loopback_factory(cfg.zen_port, cfg.cache_dir, worker_sid=cfg.worker_sid),
             vram_baseline=baseline, expected_adapter=adapter.index if adapter is not None else None,
             expected_ids=adapter_log.ids_of(adapter))
@@ -152,7 +164,7 @@ class PhaseRunner:
         self._guard()
         self._prelaunch()
         self.first_launch = False
-        pre_reading = self.reading() if sample else None
+        pre_reading = self.reading(self._key(adapter)) if sample else None
         pre = self.used(pre_reading)
         spec = self._spec(launch, phase, attempt, success_marker, success_check, sample,
                           pre or ({} if sample else None), adapter)
@@ -164,7 +176,7 @@ class PhaseRunner:
             raise SurvivorsLeft(outcome.survivors)
         if conflict is not None:
             raise conflict
-        run.post = self.used(self.reading()) if sample else None
+        run.post = self.used(self.reading(self._key(adapter))) if sample else None
         if outcome.reason == 'local_conflict':
             self.disable_until_restart(zen_port.LOOPBACK_DISABLE_REASON)
             raise LocalConflict('local_conflict', outcome.detail or zen_port.LOOPBACK_DISABLE_REASON)
@@ -188,6 +200,11 @@ class PhaseRunner:
     @property
     def zen_ok(self) -> bool:
         return all(run.zen_ok for run in self.runs)
+
+
+def _cut(reading, key: Optional[str]):
+    """The reading with only the card ``key`` (``None``: no sample); unchanged without a key (the override)."""
+    return reading if key is None else vram.only_card(reading, key)
 
 
 def default_config(cache_dir, worker_sid, merged_names, excluded_images=frozenset()) -> PhaseConfig:

@@ -14,7 +14,8 @@ adopted a new detection), so the page never shows "not checked" after the
 check is done. ``fresh_probe()`` always probes (the POSTs) and refreshes the
 cache. ``report_probe()`` serves the heartbeat's card report from the same
 cache with a longer age (one heartbeat interval), so the heartbeat probes at
-most once per interval.
+most once per interval. ``cached_only_probe()`` serves the GPU memory
+sampler thread: the cached probe or ``None``, never a probe or a wait.
 
 ``_probe_lock`` is a leaf: nothing else is taken while it is held except
 what the probe itself takes (none of the worker's locks).
@@ -85,6 +86,16 @@ def report_probe(max_age: float, probe_allowed: bool = True) -> Optional[cards_v
         if not probe_allowed:
             return None
         return _probe_locked()
+
+
+def cached_only_probe() -> Optional[cards_view.Probe]:
+    """The cached probe whatever its age; never probes and never waits (``None`` if none, or one is running)."""
+    if not _probe_lock.acquire(blocking=False):
+        return None
+    try:
+        return _cache[2] if _cache is not None else None
+    finally:
+        _probe_lock.release()
 
 
 def fresh_probe() -> cards_view.Probe:

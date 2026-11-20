@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """FR-UE-25 pilot metrics, CSV capture and report body; FR-UE-13 output collection; FR-UE-10/13 render checks."""
 import dataclasses
+from types import SimpleNamespace
 
 import pytest
 
@@ -59,27 +60,35 @@ class TestAdapter:
     LINES = ('[t][0]LogD3D12RHI: Found D3D12 adapter 0: NVIDIA GeForce RTX 5090 (VendorId: 10de, DeviceId: 2b85\n'
              '[t][0]LogD3D12RHI: Found D3D12 adapter 1: AMD Radeon(TM) Graphics (VendorId: 1002, DeviceId: 13c0\n')
 
-    def test_chosen_adapter_must_be_an_nvidia_smi_gpu(self, tmp_path):
+    def test_chosen_adapter_is_ues_name_for_it(self, tmp_path):
         log = tmp_path / 'render.1.log'
-        log.write_text(self.LINES + '[t][0]LogD3D12RHI: Chosen D3D12 Adapter Id = 0\n', encoding='utf-8')
-        assert pilot.check_adapter(log, reading()) == 'NVIDIA GeForce RTX 5090'
         log.write_text(self.LINES + '[t][0]LogD3D12RHI: Chosen D3D12 Adapter Id = 1\n', encoding='utf-8')
-        with pytest.raises(JobFailure, match=r'adapter \(AMD Radeon\(TM\) Graphics\) that nvidia-smi'):
-            pilot.check_adapter(log, reading())
+        assert pilot.chosen_adapter(log) == 'AMD Radeon(TM) Graphics'
         log.write_text(self.LINES, encoding='utf-8')
+        assert pilot.chosen_adapter(log) is None
+
+    def test_check_card_goes_by_card_key(self):
+        """FR-GU-4: the launch's card must be in the reading, by key (never by name or index)."""
+        card = dataclasses.replace(reading().gpus[0], card_key='pci:0000:01:00.0')
+        live = reading(gpus=(card,))
+        assert pilot.check_card(SimpleNamespace(key='pci:0000:01:00.0'), live) is card
+        with pytest.raises(JobFailure, match=r'the card Unreal rendered on \(pci:0000:02:00.0\) is not in the GPU'):
+            pilot.check_card(SimpleNamespace(key='pci:0000:02:00.0'), live)
         with pytest.raises(JobFailure, match='unknown'):
-            pilot.check_adapter(log, reading())
+            pilot.check_card(None, live)
+
+
+def _gpu(card_key=None):
+    return dataclasses.replace(reading().gpus[0], card_key=card_key)
 
 
 def test_report_body_matches_the_manager_schema():
     metrics = pilot.measure(runs(), 8102)
-    gpu = dataclasses.replace(pilot.gpu_of(reading(), 0), card_key='pci:0000:01:00.0')
-    body = pilot.report_body(metrics, gpu, prep_s=24.06, warmup_s=800.2, render_s=1380.5, frames=23,
-                             engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s')
+    body = pilot.report_body(metrics, _gpu('pci:0000:01:00.0'), prep_s=24.06, warmup_s=800.2, render_s=1380.5,
+                             frames=23, engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s')
     assert set(body) == PILOT_FIELDS and body['seconds_per_frame'] == 60.02 and body['warmup_ran'] is True
     assert body['gpu'] == {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607,
                            'card_key': 'pci:0000:01:00.0'}
-    assert pilot.gpu_of(reading(), 3) is None
 
 
 MANAGER_BODY_LIMIT = 128 * 1024  # SMALL_BODY_LIMIT on the manager
@@ -88,7 +97,7 @@ MANAGER_SUMMARY_LIMIT = 32 * 1024  # the manager's UTF-8 limit on pilot-result/ 
 
 
 def _pilot_body(summary):
-    return pilot.report_body(pilot.measure(runs(), 8102), pilot.gpu_of(reading(), 0), prep_s=1, warmup_s=1,
+    return pilot.report_body(pilot.measure(runs(), 8102), _gpu(), prep_s=1, warmup_s=1,
                              render_s=1, frames=1, engine_build='5.8.4-58902052', overrides_sha256='c' * 64,
                              summary=summary)
 
@@ -121,7 +130,7 @@ def test_worst_case_pilot_body_fits_the_manager_limit():
     assert len(text.encode('utf-8')) > MAX_BYTES - 2 * MAX_VALUE - 64  # filled to the summary's cap
     assert report_limits.json_size(text) > 85 * 1024  # unbounded, it would nearly fill the limit alone
 
-    body = pilot.report_body(pilot.measure(runs(), 8102), pilot.gpu_of(reading(), 0), prep_s=1e9, warmup_s=1e9,
+    body = pilot.report_body(pilot.measure(runs(), 8102), _gpu(), prep_s=1e9, warmup_s=1e9,
                              render_s=1e9, frames=2 ** 31 - 1, engine_build='5.8.4-58902052' * 4,
                              overrides_sha256='c' * 64, summary=text)
     body['per_shot'] = [{'frame': 2 ** 31 - 1, 'render_s': 1.7976931348623157e308}] * MAX_PER_SHOT

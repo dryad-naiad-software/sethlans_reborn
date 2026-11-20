@@ -17,7 +17,8 @@ Runs **after** exit confirmation and the FR-PA-16 integrity check:
   left ``RENDERING`` (``released=True``); another 4xx -> ``ERROR`` with
   ``"Pilot result rejected by the manager: <detail>"``; a measured card
   without a card key is not reported (the manager could not match it):
-  ``release/`` with ``local_conflict``, never a project failure;
+  ``release/`` with ``local_conflict``, never a project failure (a
+  backstop: the reserver already refuses such a pilot, FR-GU-10);
 * failure -> ``ERROR`` (pilot: ``"Pilot render failed: <reason>"``);
 * local conflict -> ``release/`` with its reason; share failure ->
   ``release/`` with ``share_unavailable`` and ``mark_unreachable``;
@@ -138,10 +139,10 @@ class Delivery:
 
     def _pilot(self, flow) -> RenderResult:
         from shared.unreal.validation import overrides_sha256
-        gpu = pilot.gpu_of(flow.gate_reading, flow.metrics.gpu_index)
+        gpu = flow.card  # the job's card, found by key (pilot.check_card); every trace holds it alone (D22)
         if gpu is None:
-            return self.failed("the GPU of the measured peak is not in the nvidia-smi reading.")
-        if getattr(gpu, 'card_key', None) is None:  # this worker's fault, never the project's: back to the queue
+            return self.failed("the card of the measured peak is not in the GPU memory reading.")
+        if gpu.card_key is None:  # backstop (the reserver refuses a keyless pilot): this worker's fault, requeue
             return self.released('local_conflict', NO_CARD_KEY_MESSAGE)
         body = pilot.report_body(flow.metrics, gpu, prep_s=flow.prep_s, warmup_s=flow.warmup_s,
                                  render_s=flow.render_s, frames=len(flow.prep.pilot_frames),

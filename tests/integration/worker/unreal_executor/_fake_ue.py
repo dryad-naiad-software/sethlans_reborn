@@ -27,7 +27,9 @@ Behavior switches come from a ``fake_ue.json`` next to the ``.uproject``
 ``Compilation cancelled.`` on ``render.1``, ``prep_error`` makes the prep
 fail, ``zen_path`` overrides the logged Zen data path, ``chosen_adapter``
 overrides the logged adapter id (only in ``chosen_phase`` when given;
-``after_chosen_sleep`` waits after it).
+``after_chosen_sleep`` waits after it), ``adapters`` maps a
+``-graphicsadapter`` index (as a string) to the ``[name, vendor, device,
+revision]`` (hex strings) of the card logged there (default: one NVIDIA card).
 """
 import glob
 import shutil
@@ -82,7 +84,8 @@ OTHER_ADAPTERS = [('AMD Radeon(TM) Graphics', '1002', '13c0', '00e5'),
 def d3d12_lines(phase):
     n = int(value('-graphicsadapter='))
     listed = list(OTHER_ADAPTERS)
-    listed.insert(min(n, len(listed)), ('NVIDIA GeForce RTX 5090', '10de', '2b85', '00a1'))
+    card = OPTS.get('adapters', {}).get(str(n), ('NVIDIA GeForce RTX 5090', '10de', '2b85', '00a1'))
+    listed.insert(min(n, len(listed)), tuple(card))
     # The words are split so this .uproject passes the worker's project text guard (adapter_marker).
     found, chosen = 'LogD3D12RHI: Found D3D12' + ' adapter ', 'LogD3D12RHI: Chosen D3D12' + ' Adapter Id = '
     for i, (name, vendor, device, rev) in enumerate(listed):

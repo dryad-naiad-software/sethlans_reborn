@@ -96,6 +96,18 @@ class TestOneCardPerJob:
             adapter_choice.choose(5, key=first.key)
         assert info.value.message == adapter_choice.KEPT_CARD_REASON
 
+    def test_the_kept_key_matches_by_address_not_text(self, monkeypatch):
+        """Review round: the gate's key spelled with a wider domain names the same card (no release loop)."""
+        CardMachine(monkeypatch, [adapter(0, A03), adapter(1, A23, gib=24)], ticked=[A03, A23])
+        assert adapter_choice.choose(5, key='pci:00000000:03:00.0').key == key(A03)
+
+    @pytest.mark.parametrize('kept', ['pci:bogus', 'apple-gpu', ''])
+    def test_an_unreadable_kept_key_matches_nothing(self, monkeypatch, kept):
+        CardMachine(monkeypatch, [adapter(0, A03)], ticked=[A03])
+        with pytest.raises(LocalConflict) as info:
+            adapter_choice.choose(5, key=kept)
+        assert info.value.message == adapter_choice.KEPT_CARD_REASON
+
 
 class TestNoCard:
     """FR-CU-1: ``LocalConflict('local_conflict', <FR-CU-6 text>)`` before any launch."""

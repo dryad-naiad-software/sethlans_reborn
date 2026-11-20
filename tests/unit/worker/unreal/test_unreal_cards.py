@@ -115,6 +115,37 @@ class TestReasons:
             cards_cache.reset_for_tests()
 
 
+class TestCachedOnly:
+    """Review round: the GPU memory sampler thread never runs the card probe nor waits on ``_probe_lock``."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_cache(self, monkeypatch):
+        cards_cache.reset_for_tests()
+        monkeypatch.setattr(cards_cache, 'report_probe', lambda *a, **kw: pytest.fail('report_probe called'))
+        yield
+        cards_cache.reset_for_tests()
+
+    def test_nothing_cached_cannot_decide_and_probes_nothing(self, monkeypatch):
+        machine = CardMachine(monkeypatch, [adapter(0, A03)], ticked=[A03])
+        assert unreal_cards.current(cached_only=True) is None and machine.probes == 0
+
+    def test_the_cached_probe_serves_whatever_its_age(self, monkeypatch):
+        machine = CardMachine(monkeypatch, [adapter(0, A03)], ticked=[A03])
+        cards_cache._cache = (-1e9, (None, None), SimpleNamespace(inventory=machine.inventory()))
+        probes = machine.probes
+        cards, reason = unreal_cards.current(cached_only=True)
+        assert [card.key for card in cards] == [key(A03)] and reason == '' and machine.probes == probes
+
+    def test_a_running_probe_is_not_waited_for(self, monkeypatch):
+        machine = CardMachine(monkeypatch, [adapter(0, A03)], ticked=[A03])
+        cards_cache._cache = (0.0, (None, None), SimpleNamespace(inventory=machine.inventory()))
+        assert cards_cache._probe_lock.acquire(timeout=5)  # stands for a probe running on another thread
+        try:
+            assert unreal_cards.current(cached_only=True) is None
+        finally:
+            cards_cache._probe_lock.release()
+
+
 class TestHeartbeat:
     """The capability report carries the card reason instead of the memory reader's (O6)."""
 

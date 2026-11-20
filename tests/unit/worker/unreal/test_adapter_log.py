@@ -278,7 +278,7 @@ class TestRefusedProject:
         assert reserver.try_reserve(job()) is not None   # declined only because of the refusal
 
     def test_the_job_run_refuses_it_before_any_launch(self, tmp_path, monkeypatch):
-        from tests.unit.worker.unreal.test_job_run import World
+        from tests.unit.worker.unreal._job_run_world import World
         w = World(tmp_path, monkeypatch)
         adapter_log.report('0', CHOICE, adapter_log.project_key(w.params), lambda reason: None, add_alert=lambda *a: True)
         w.flow_action = lambda job: pytest.fail('launched')

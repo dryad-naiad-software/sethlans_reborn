@@ -46,7 +46,7 @@ class TestHeartbeatPayload:
         out = "3, 0000000A:4B:00.0, 12288, 2048, Test Card A\n"
         backend = nvidia_smi.NvidiaSmiBackend(run=lambda args: out, clock=lambda: 2.0)
         reading = vram.take_reading(0, clock=lambda: 2.0, read=lambda pids: backend.sample(pids()),
-                                    pids=lambda: frozenset())
+                                    pids=lambda: frozenset(), cards=lambda: frozenset({(0x0a, 0x4b, 0, 0)}))
         [gpu] = vram.to_payload(reading, now=2.0)['gpus']
         assert gpu['card_key'] == 'pci:000a:4b:00.0' and gpu['index'] == 3
 

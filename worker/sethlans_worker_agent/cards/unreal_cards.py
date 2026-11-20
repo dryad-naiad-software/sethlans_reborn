@@ -45,8 +45,11 @@ def evaluate(section, inv) -> Tuple[tuple, str]:
     return cards, '' if cards else NONE_USABLE_REASON
 
 
-def current() -> Optional[Tuple[tuple, str]]:
-    """``evaluate`` on the saved choice and the heartbeat's card probe; ``None`` when it cannot be decided."""
+def current(cached_only: bool = False) -> Optional[Tuple[tuple, str]]:
+    """``evaluate`` on the saved choice and the heartbeat's card probe; ``None`` when it cannot be decided.
+
+    ``cached_only`` (the GPU memory sampler thread): the cached probe only, never a probe or a wait for one.
+    """
     from sethlans_worker_agent import config, unreal_bridge
     from sethlans_worker_agent.cards import store
     from sethlans_worker_agent.web_ui import cards_cache
@@ -56,7 +59,8 @@ def current() -> Optional[Tuple[tuple, str]]:
     if not section.cards:
         return evaluate(section, None)
     max_age = max(cards_cache.CACHE_SECONDS, float(config.HEARTBEAT_INTERVAL_SECONDS))
-    probe = cards_cache.report_probe(max_age, probe_allowed=unreal_bridge.drift_check_allowed())
+    probe = (cards_cache.cached_only_probe() if cached_only else
+             cards_cache.report_probe(max_age, probe_allowed=unreal_bridge.drift_check_allowed()))
     return None if probe is None else evaluate(section, probe.inventory)
 
 

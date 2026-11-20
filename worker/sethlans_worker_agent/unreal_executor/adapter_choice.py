@@ -26,7 +26,7 @@ import threading
 from typing import NamedTuple, Optional
 
 from sethlans_worker_agent.cards import inventory, os_probe, store, unreal_cards
-from sethlans_worker_agent.cards.identity import key_sort_value
+from sethlans_worker_agent.cards.identity import key_address, key_sort_value
 from sethlans_worker_agent.unreal_executor.outcomes import LocalConflict
 
 logger = logging.getLogger(__name__)
@@ -74,8 +74,10 @@ def choose(job_id, key: Optional[str] = None) -> Choice:
     if section.read_failed:
         raise LocalConflict('local_conflict', READ_FAILED_REASON)
     cards, reason = _cards_now(section)
-    if key is not None:
-        cards, reason = tuple(card for card in cards if card.key == key), KEPT_CARD_REASON
+    if key is not None:  # by address, as the gate and the reserver compare; an unreadable key matches nothing
+        address = key_address(key)
+        cards = tuple(card for card in cards if address is not None and key_address(card.key) == address)
+        reason = KEPT_CARD_REASON
     if not cards:
         logger.warning("Unreal job %s: no graphics card to render on (%s).", job_id, reason)
         raise LocalConflict('local_conflict', reason)

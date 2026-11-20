@@ -2,10 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-The VRAM gate per job kind (Unreal foundation FR-UE-21, D2; OQ-28 (d)).
+The VRAM gate per job kind (Unreal foundation FR-UE-21, D2; OQ-28 (d);
+GPU memory reader D22, FR-GU-10).
 
 The arithmetic is ``shared.unreal.vram_gate`` (shared with the manager's
-routing note, so the two cannot drift). For **every** GPU in the reading:
+routing note, so the two cannot drift). It checks **the job's card** only:
+``job_card(reading)``, the card the card selection's D8 picks (the most
+``total_mb``, ties to the lowest card key; with the override, its one GPU),
+which is the card the job's first launch renders on:
 
 * **pilot** (the relaxed gate): ``pilot_need_mb(merged) <=
   floor(total * VRAM_BUDGET_FRACTION) - used``, and the reading must
@@ -15,12 +19,14 @@ routing note, so the two cannot drift). For **every** GPU in the reading:
   <= floor(total * 0.93)`` and the caps sanity bound.
 
 No reading (``None``) or no GPU in it fails. The result carries the
-FR-UE-21 log line and the summary values (the smallest GPU, and
+checked card's key (``card_key``, ``None`` with the override), the
+FR-UE-21 log line and the summary values (the checked card, and
 ``vram_source``, the reading's source).
 """
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
+from sethlans_worker_agent.cards.identity import key_sort_value
 from shared.unreal import vram_gate
 
 
@@ -32,6 +38,12 @@ class GateResult:
     need_mb: Optional[int] = None
     summary: Dict[str, object] = field(default_factory=dict)
     reading: object = None
+    card_key: Optional[str] = None  # the checked card (FR-GU-10); the job's first launch renders on it
+
+
+def job_card(reading):
+    """D8's card of the reading: the most ``total_mb``, ties to the lowest card key (``adapter_choice.pick``)."""
+    return min(reading.gpus, key=lambda gpu: (-gpu.total_mb, key_sort_value(gpu.card_key)))
 
 
 def _need(params) -> int:
@@ -61,15 +73,14 @@ def evaluate(params, reading) -> GateResult:
         caps = vram_gate.caps_sum_mb(params.merged_dict)
     except ValueError as exc:
         return GateResult(False, gate, f"invalid pool CVar ({exc}).")
-    smallest = min(reading.gpus, key=lambda g: g.total_mb)
-    for gpu in reading.gpus:
-        usable = vram_gate.usable_mb(gpu.total_mb, gpu.used_mb)
-        if need > usable:
-            return GateResult(False, gate, f"needs {need} MB; {usable} MB usable on a {gpu.total_mb} MB GPU "
-                                           f"({gpu.used_mb} MB in use).", need,
-                              _summary(params, gate, need, gpu, source))
-        if not params.is_pilot and not vram_gate.caps_within_budget(caps, gpu.total_mb):
-            limit = vram_gate.usable_mb(gpu.total_mb, 0)  # floor(total * fraction), shared arithmetic
-            return GateResult(False, gate, f"pool caps {caps} MB exceed the {limit} MB budget of a "
-                                           f"{gpu.total_mb} MB GPU.", need, _summary(params, gate, need, gpu, source))
-    return GateResult(True, gate, '', need, _summary(params, gate, need, smallest, source), reading)
+    gpu = job_card(reading)
+    summary, key = _summary(params, gate, need, gpu, source), gpu.card_key
+    usable = vram_gate.usable_mb(gpu.total_mb, gpu.used_mb)
+    if need > usable:
+        return GateResult(False, gate, f"needs {need} MB; {usable} MB usable on a {gpu.total_mb} MB GPU "
+                                       f"({gpu.used_mb} MB in use).", need, summary, card_key=key)
+    if not params.is_pilot and not vram_gate.caps_within_budget(caps, gpu.total_mb):
+        limit = vram_gate.usable_mb(gpu.total_mb, 0)  # floor(total * fraction), shared arithmetic
+        return GateResult(False, gate, f"pool caps {caps} MB exceed the {limit} MB budget of a "
+                                       f"{gpu.total_mb} MB GPU.", need, summary, card_key=key)
+    return GateResult(True, gate, '', need, summary, reading, key)

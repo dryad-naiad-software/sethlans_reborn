@@ -1,7 +1,11 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""A pilot whose measured card has no card key is released, never reported or blamed on the project."""
+"""A pilot whose measured card has no card key is released, never reported or blamed on the project.
+
+A backstop: the reserver refuses such a pilot before the render (FR-GU-10).
+"""
+import dataclasses
 import logging
 from types import SimpleNamespace
 
@@ -24,7 +28,8 @@ def _flow(card_key):
                            max_sample_gap_s=1.0)
     gpu = GpuMem(0, 'Test Card A', 16384, 900, None, None, card_key)
     return FlowResult(prep=SimpleNamespace(pilot_frames=(0, 1)), render_s=60.0, prep_s=10.0, warmup_s=30.0,
-                      warmup_ran=True, render_time_seconds=60, metrics=metrics, gate_reading=reading(gpus=(gpu,)))
+                      warmup_ran=True, render_time_seconds=60, metrics=metrics, gate_reading=reading(gpus=(gpu,)),
+                      card=gpu)
 
 
 @pytest.fixture()
@@ -55,3 +60,22 @@ def test_a_card_key_reports_the_result_with_it(calls):
     [(name, body)] = calls
     assert name == 'pilot' and body['gpu']['card_key'] == KEY
     assert result.success is True and result.released is True
+
+
+def test_the_report_names_the_flows_card_never_a_gate_reading_lookup(calls):
+    """D22: ``FlowResult.card`` is the job's card; the gate reading's card at the peak's index is another one."""
+    job_card = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, 'pci:0000:41:00.0')
+    flow = dataclasses.replace(_flow(KEY), card=job_card)   # gate reading: index 0 is 'Test Card A' (KEY)
+    assert flow.metrics.gpu_index == 0 and flow.gate_reading.gpus[0].card_key == KEY
+    _delivery(calls).deliver(Outcome('success', flow=flow), integrity_ok=True)
+    [(_name, body)] = calls
+    assert body['gpu'] == {'index': 1, 'name': 'Radeon Test 24G', 'total_mb': 24560,
+                           'card_key': 'pci:0000:41:00.0'}
+
+
+def test_no_card_fails_the_pilot_in_brand_neutral_words(calls):
+    flow = dataclasses.replace(_flow(KEY), card=None)
+    result = _delivery(calls).deliver(Outcome('success', flow=flow), integrity_ok=True)
+    assert calls == [] and result.success is False and result.released is False
+    assert result.error_message == 'Pilot render failed: the card of the measured peak is not in the GPU memory reading.'
+    assert all('nvidia' not in text.lower() for text in (result.error_message, NO_CARD_KEY_MESSAGE))

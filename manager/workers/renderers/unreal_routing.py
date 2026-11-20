@@ -104,20 +104,31 @@ def unreal_claim_rejection(worker, job):
     return measured_claim_rejection(worker, job)
 
 
-def _min_total_mb(gpu_memory):
-    """Smallest reported ``total_mb``, or ``None`` when the worker reports no GPUs."""
+def _max_total_mb(gpu_memory):
+    """Largest reported ``total_mb``, or ``None`` when no GPU reports one.
+
+    An Unreal job renders on one card, the largest Unreal card in use, and the
+    worker's memory gate checks that card only (gpu-memory-reader D22,
+    FR-GH-9), so the note judges fit against the largest card. Entries
+    without an integer ``total_mb`` are skipped. A worker whose reading has
+    no totals clears the note, as before, although its own gate rejects an
+    empty reading.
+    """
     gpus = gpu_memory.get('gpus') if isinstance(gpu_memory, dict) else None
     if not isinstance(gpus, list):
         return None
-    totals = [g['total_mb'] for g in gpus if isinstance(g, dict) and isinstance(g.get('total_mb'), int)]
-    return min(totals) if totals else None
+    totals = [
+        g['total_mb'] for g in gpus
+        if isinstance(g, dict) and isinstance(g.get('total_mb'), int) and not isinstance(g['total_mb'], bool)
+    ]
+    return max(totals) if totals else None
 
 
 def _online_unreal():
     """Build the per-response routing data: two queries at most (FR-RT-9).
 
     Returns ``(share, online_builds, reachable)`` where ``reachable`` maps
-    each build to the smallest GPU ``total_mb`` (or ``None``) of every
+    each build to the largest GPU ``total_mb`` (or ``None``) of every
     online worker that reports it and passes ``reports_share_reachable``.
     """
     share = configured_share()
@@ -132,7 +143,7 @@ def _online_unreal():
         builds = reported_unreal_builds(caps)
         online_builds |= builds
         if builds and reports_share_reachable(caps, share):
-            total = _min_total_mb(gpu_memory)
+            total = _max_total_mb(gpu_memory)
             for build in builds:
                 reachable.setdefault(build, []).append(total)
     return share, online_builds, reachable

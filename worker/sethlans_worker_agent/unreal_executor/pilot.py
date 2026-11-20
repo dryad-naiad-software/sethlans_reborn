@@ -9,7 +9,9 @@ Dom R3-1..4, Conc R3-M7, R3-L6, Sec R3-F1).
 length, so the CSV capture covers the whole render and ends when UE exits.
 
 ``measure(runs, csv_peak)`` turns the card samples of every pilot phase
-into the measurement:
+into the measurement. Every trace holds the job's card only (D22,
+FR-GU-11: ``phases`` cuts each reading to it), so every rule below sees
+that card alone:
 
 * **per-phase baselines**: ``baseline(phase, gpu) = min(pre-launch reading,
   post-exit reading)``;
@@ -27,16 +29,20 @@ names the card size), an implausible peak (< ``MIN_PLAUSIBLE_PEAK_MB``)
 ``PILOT_BASELINE_DROP_MB`` below the phase baseline) or a sampling gap
 (> ``PILOT_MAX_SAMPLE_GAP_S``) -> ``LocalConflict('local_conflict')``.
 
-``chosen_adapter(log)`` reads the D3D12 adapter UE chose (5.8.4
-``D3D12RHI/Private/Windows/WindowsD3D12Device.cpp``: ``:873`` "Found D3D12
-adapter %u: %ls (VendorId: ..." and ``:942`` "Chosen D3D12 Adapter Id =
-%u"); it must match, by name, a GPU of the ``nvidia-smi`` reading.
+``check_card(choice, reading)`` (FR-GU-4): the card the launch rendered on
+(``adapter_choice.Choice.key``) must be in the GPU memory reading, by card
+key; the launch check of UE's chosen index and ids is ``adapter_log``'s.
+``chosen_adapter(log)`` reads UE's name for the D3D12 adapter it chose
+(5.8.4 ``D3D12RHI/Private/Windows/WindowsD3D12Device.cpp``: ``:873``
+"Found D3D12 adapter %u: %ls (VendorId: ..." and ``:942`` "Chosen D3D12
+Adapter Id = %u"), for the ``pilot_adapter`` summary value only.
 """
 import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
 from sethlans_worker_agent import report_limits
+from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.unreal_executor.log_tail import iter_log_lines
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
 from shared.unreal import vram_gate
@@ -151,21 +157,15 @@ def chosen_adapter(log_path) -> Optional[str]:
     return found.get(chosen) if chosen is not None else None
 
 
-def check_adapter(log_path, reading) -> str:
-    """FR-UE-25: the chosen adapter must be a GPU ``nvidia-smi`` reports; returns its name."""
-    name = chosen_adapter(log_path)
-    names = {gpu.name.strip().casefold() for gpu in (reading.gpus if reading is not None else ())}
-    if not name or name.casefold() not in names:
-        raise JobFailure(f"Pilot render failed: Unreal rendered on an adapter ({name or 'unknown'}) that "
-                         "nvidia-smi does not report.")
-    return name
-
-
-def gpu_of(reading, index: int):
-    for gpu in reading.gpus if reading is not None else ():
-        if gpu.index == index:
+def check_card(choice, reading):
+    """FR-GU-4: the reading's card whose key is the launch's card (``choice.key``); ``JobFailure`` otherwise."""
+    key = choice.key if choice is not None else None
+    address = key_address(key)
+    for gpu in reading.gpus if reading is not None and address is not None else ():
+        if key_address(gpu.card_key) == address:
             return gpu
-    return None
+    raise JobFailure(f"Pilot render failed: the card Unreal rendered on ({key or 'unknown'}) is not in the GPU "
+                     "memory reading.")
 
 
 def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, render_s: float,

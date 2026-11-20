@@ -235,6 +235,7 @@ def reset_for_tests() -> None:
     if old_sampler is not None and old_sampler.stop(timeout=5) is False:
         raise RuntimeError("the GPU memory sampler thread did not stop within 5 s")
     gpu_reader.reset_for_tests()
+    vram.reset_for_tests()
     unreal_share.reset_for_tests()
     unreal_cards.reset_for_tests()
     isolation_state.reset_for_tests()

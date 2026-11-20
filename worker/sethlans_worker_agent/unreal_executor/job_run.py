@@ -79,7 +79,7 @@ class RunDeps:
     keep_job_logs: Callable[[], int]
     prep_timeout_s: Callable[[], float]
     cancel_poll_s: Callable[[], float]
-    choose_adapter: Optional[Callable] = None  # (job_id) -> adapter_choice.Choice; None: adapter_choice.choose
+    choose_adapter: Optional[Callable] = None  # (job_id, key=) -> adapter_choice.Choice; None: adapter_choice.choose
 
 
 class JobRun:
@@ -154,11 +154,13 @@ class JobRun:
         self.runner = runner
         runner.project_dir, runner.zen_scan = self.ws.working_copy.project_dir, self.deps.zen_scan  # every phase
         runner.project = adapter_log.project_key(self.params)  # what a mismatch refuses (adapter_log)
+        gate = self.reservation.gate
+        runner.card_key = gate.card_key  # the gated card: the traces of a launch without a choice (D22)
         marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build)
         profile = user_state.profile_dir(cache_dir)
         flow = UeFlow(self.params, self.deps.launch_context(self.install, cache_dir), self.job, runner, self.summary,
                       self.deps.builders, marker, self.ws.working_copy.uproject, self.deps.flow_config(profile),
-                      reading=self.reservation.gate.reading, choose=self.deps.choose_adapter)
+                      reading=gate.reading, choose=self.deps.choose_adapter, first_key=gate.card_key)
         try:
             return flow.run()
         finally:

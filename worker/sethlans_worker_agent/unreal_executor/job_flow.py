@@ -10,13 +10,19 @@ effective-CVar check) -> warm-up when the marker rule asks for it (a pilot
 always warms up) -> render -> on ``Compilation cancelled.`` or a forced
 quit: drop the pair from the marker, warm up again (``warmup.2.log``) and
 re-render **once** (``render.2.log``) -> output collection. A pilot also
-checks the D3D12 adapter, collects the CSV capture and computes its
-metrics (``pilot.measure``) over **every** phase it ran.
+checks that the card it rendered on is in the gate's GPU memory reading,
+by card key (``pilot.check_card``, FR-GU-4), is released when a warm-up or
+render log lacks UE's ``Chosen`` adapter line (``require_adapter_lines``;
+normal jobs keep ``adapter_log``'s rule), collects the CSV capture and
+computes its metrics (``pilot.measure``) over **every** phase it ran.
 
 Every launch goes through ``PhaseRunner.launch`` (pre-launch checks, Zen
 verification) and every command through the builders in ``command``. Each
 warm-up and render launch resolves its card's DXGI index afresh (``choose``,
 ``adapter_choice.choose``; FR-CU-1), always the card of the first launch (D8).
+The first launch asks for the card the memory gate checked (``first_key``,
+FR-GU-10; ``None`` with the override), so it renders on that card or the
+job is released with the ``LocalConflict`` ``choose`` raises.
 """
 import logging
 from dataclasses import dataclass, field, replace
@@ -26,10 +32,13 @@ from typing import List, Optional
 from sethlans_worker_agent.unreal_executor import (
     adapter_choice, cvars, job_dir, log_summary, log_validation, output, pilot, pilot_csv, queue_prep, render_check,
     warmup)
-from sethlans_worker_agent.unreal_executor.outcomes import JobFailure
+from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
 from sethlans_worker_agent.unreal_executor.runner_types import RENDER_SUCCESS, WARMUP_SUCCESS
 
 logger = logging.getLogger(__name__)
+
+NO_ADAPTER_LINE_MESSAGE = ("the Unreal log did not say which graphics card it rendered on, so the measured peak "
+                           "cannot be tied to the job's card; the job goes back to the queue.")
 
 
 @dataclass
@@ -54,22 +63,24 @@ class FlowResult:
     metrics: Optional[pilot.PilotMetrics] = None
     adapter: str = ''
     gate_reading: object = None
+    card: object = None           # pilot: the reading's GpuMem of the card it rendered on (FR-GU-4)
 
 
 class UeFlow:
 
     def __init__(self, params, launch_ctx, job, runner, summary, builders, marker_path, uproject, config: FlowConfig,
-                 reading=None, choose=None):
+                 reading=None, choose=None, first_key=None):
         self.params, self.ctx, self.job, self.runner = params, launch_ctx, job, runner
         self.summary, self.builders, self.marker, self.uproject = summary, builders, marker_path, str(uproject)
         self.config, self.reading = config, reading
         self.cvars_sha = cvars.cvars_sha256(params.merged)
         self.prep_s = self.warmup_s = self.render_s = 0.0
-        self.choose, self.choice = choose or adapter_choice.choose, None
+        self.choose, self.choice, self.first_key = choose or adapter_choice.choose, None, first_key
 
     def _adapter_ctx(self):
-        """FR-CU-1: the job's card (chosen at its first launch) re-resolved; its DXGI index goes on the command line."""
-        self.choice = self.choose(self.params.job_id, key=self.choice.key if self.choice is not None else None)
+        """FR-CU-1: the job's card (the gated one at the first launch) re-resolved; its DXGI index on the command line."""
+        self.choice = self.choose(self.params.job_id,
+                                  key=self.choice.key if self.choice is not None else self.first_key)
         return replace(self.ctx, graphics_adapter=self.choice.index)
 
     # -- prep -----------------------------------------------------------
@@ -185,12 +196,20 @@ class UeFlow:
             self.summary.set('output', result.outputs[0].name)
             return result
         result.outputs = output.collect_pilot(self.job.output, self.params.job_id, prep.pilot_frames)
-        result.adapter = pilot.check_adapter(run.log_path, self.reading)
+        result.adapter = pilot.chosen_adapter(run.log_path) or ''  # UE's name for it, summary only
+        require_adapter_lines(self.runner.runs, result.adapter)
+        result.card = pilot.check_card(self.choice, self.reading)
         csv_peak = pilot_csv.collect(run.log_path, self.config.profile, before, self.job.logs)
         result.metrics = pilot.measure(self.runner.runs, csv_peak)
         self.summary.update(pilot.summary_values(result.metrics, list(prep.pilot_frames), result.adapter,
                                                  self.cvars_sha))
         return result
+
+
+def require_adapter_lines(runs, adapter: str) -> None:
+    """A pilot's peak is tied to its card only when every warm-up and render log says which card UE chose."""
+    if not adapter or any(r.outcome.adapter_chosen is None for r in runs if r.phase in ('warmup', 'render')):
+        raise LocalConflict('local_conflict', NO_ADAPTER_LINE_MESSAGE)
 
 
 def render_check_time(check, render_s: float) -> int:

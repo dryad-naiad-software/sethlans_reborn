@@ -147,12 +147,16 @@ class TestGate:
         result = vram_gate_check.evaluate(params(peak=7930), reading(total=total))
         assert result.ok is ok and result.message == text and result.need_mb == 9120
 
-    def test_every_gpu_must_fit_and_the_summary_names_the_smallest(self):
+    def test_only_the_job_card_is_checked_and_named_in_the_summary(self):
+        """D22, FR-GU-10: the largest card is gated; a busy smaller card does not refuse the job."""
         from sethlans_worker_agent.unreal_executor.vram import GpuMem
-        two = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None), GpuMem(1, 'b', 16303, 1000, None, None)))
+        two = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None, 'pci:0000:01:00.0'),
+                            GpuMem(1, 'b', 16303, 9000, None, None, 'pci:0000:02:00.0')))
         result = vram_gate_check.evaluate(params(peak=7930), two)
-        assert result.ok and result.summary['vram_mb'] == 16303 and result.summary['vram_measured_peak_mb'] == 7930
-        busy = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None), GpuMem(1, 'b', 16303, 9000, None, None)))
+        assert result.ok and result.summary['vram_mb'] == 32607 and result.summary['vram_measured_peak_mb'] == 7930
+        assert result.card_key == 'pci:0000:01:00.0'
+        busy = reading(gpus=(GpuMem(0, 'a', 32607, 30000, None, None, 'pci:0000:01:00.0'),
+                             GpuMem(1, 'b', 16303, 1000, None, None, 'pci:0000:02:00.0')))
         assert not vram_gate_check.evaluate(params(peak=7930), busy).ok
 
     def test_no_reading(self):

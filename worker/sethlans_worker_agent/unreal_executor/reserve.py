@@ -18,8 +18,8 @@ not claimed):
    holds;
 5. ``source_type == 'shared_project'`` (part of 2; logged explicitly);
 6. the **static** VRAM gate on the sampler's latest reading (no wait):
-   the relaxed pilot gate (``pilot_need_mb``, ``nvidia-smi`` only) or the
-   measured-peak gate (FR-UE-21);
+   the relaxed pilot gate (``pilot_need_mb``, a reading that measures card
+   memory) or the measured-peak gate (FR-UE-21), on the job's card (D22);
 6a. the farm Zen port is free or held by the farm zenserver;
 6b. the latest known-folder check passed within ``check_6b_max_age_s()``;
 7. one read of the worker's share state: a configured, reachable root,
@@ -28,7 +28,10 @@ not claimed):
 8. the FR-PA-3 probes (archive unless a ``ready`` entry exists; overlay),
    on the ``poll`` pool within the per-call probe budget;
 9. the gate again on a ``fresh()`` reading (``used_mb`` read at reserve
-   time) with its own short deadline.
+   time) with its own short deadline; its card must be one of the Unreal
+   cards in use read in step 4, and a pilot's card must have a card key
+   (FR-GU-10). The reservation keeps that gate: the job's first launch is
+   asked for its card (``gate.card_key``).
 
 **No resource is held when this returns None or raises** (chunk 3 L2): the
 token is released on every such path. ``ProbePending`` is raised only when
@@ -40,6 +43,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
+from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.executors.base import ProbePending, RendererReservation
 from sethlans_worker_agent.unreal_executor import job_params as jp
 from sethlans_worker_agent.unreal_executor import adapter_log, vram_gate_check
@@ -189,6 +193,19 @@ class Reserver:
         gate = self._gate(params, reading)
         return gate if gate.ok else None
 
+    def _gated_card_ok(self, params, gate, card_keys: tuple) -> bool:
+        """FR-GU-10: the gated card is still an Unreal card in use; a pilot needs a card the manager can match."""
+        if params.is_pilot and gate.card_key is None:
+            self._skip(params.job_id, "the card the memory gate checked has no PCI address, so a pilot could not "
+                                      "be reported.")
+            return False
+        in_use = {key_address(key) for key in card_keys} - {None}  # unreadable keys match nothing (fail closed)
+        gated = key_address(gate.card_key)
+        if gate.card_key is not None and card_keys and (gated is None or gated not in in_use):
+            self._skip(params.job_id, "the card the memory gate checked is no longer an Unreal card in use.")
+            return False
+        return True
+
     def _card_keys(self, params) -> Optional[tuple]:
         """The Unreal cards in use (FR-CL-1), whatever Blender's slots and the compute method (C-27 b)."""
         if self.deps.card_keys is None:
@@ -220,7 +237,7 @@ class Reserver:
         if not probes:
             return None
         gate = self._fresh_gate(params)
-        if gate is None:
+        if gate is None or not self._gated_card_ok(params, gate, card_keys):
             return None
         return UnrealReservation(params, install, gate, on_release=self.token.release, card_keys=card_keys)
 

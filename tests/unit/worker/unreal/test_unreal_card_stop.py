@@ -23,7 +23,7 @@ from sethlans_worker_agent.unreal_executor import adapter_choice
 from sethlans_worker_agent.unreal_executor.outcomes import Cancelled
 from tests.unit.worker._card_check_env import CardEnv
 from tests.unit.worker.executors._fakes import install_capacity, key, unreal_job
-from tests.unit.worker.unreal.test_job_run import World
+from tests.unit.worker.unreal._job_run_world import World
 
 
 @pytest.fixture

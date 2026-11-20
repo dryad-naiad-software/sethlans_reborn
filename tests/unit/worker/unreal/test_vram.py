@@ -25,7 +25,8 @@ class TestReading:
             seen.append(pids())
             return LIVE
 
-        reading = vram.take_reading(0, clock=lambda: 5.0, read=read, pids=lambda: frozenset({31392}))
+        reading = vram.take_reading(0, clock=lambda: 5.0, read=read, pids=lambda: frozenset({31392}),
+                                    cards=lambda: frozenset({(0, 1, 0, 0)}))
         assert reading.taken_at == 5.0 and reading.gpus == LIVE.gpus and reading.measures_card is True
         assert seen == [frozenset({31392})]
 

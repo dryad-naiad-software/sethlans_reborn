@@ -101,7 +101,8 @@ def test_warm_up_and_render_run_on_the_chosen_card(tmp_path, monkeypatch):
     h = Harness(tmp_path, monkeypatch)
     result = h.execute(h.job(21))
     assert result.success, result.error_message
-    assert h.choices == [(21, None), (21, 'pci:0000:01:00.0')]   # warm-up chooses; render keeps that card (D8)
+    # The first launch asks for the gated card (FR-GU-10); the render keeps that card (D8).
+    assert h.choices == [(21, 'pci:0000:01:00.0'), (21, 'pci:0000:01:00.0')]
     logs = next(h.cache.layout.j.iterdir()) / 'logs'
     for name in ('warmup.1.log', 'render.1.log'):
         text = (logs / name).read_text(encoding='utf-8')

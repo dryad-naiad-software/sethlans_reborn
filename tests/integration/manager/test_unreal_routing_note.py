@@ -15,7 +15,9 @@ from django.utils import timezone
 
 from workers.models import Job, JobStatus, Worker
 
-from .unreal_helpers import BUILD, RENDER_SETTINGS, SHARE, caps, gpu_memory, set_share, unreal_asset, unreal_project
+from .unreal_helpers import (
+    BUILD, RENDER_SETTINGS, SHARE, caps, card_key_of, gpu_memory, set_share, unreal_asset, unreal_project,
+)
 from .unreal_pilot_helpers import measure_key
 
 # chunk 2b: a measured normal job needs measured_need_mb(peak) (FR-RT-9 note 4);
@@ -80,10 +82,10 @@ class TestMessages:
     def test_not_enough_gpu_memory(self, admin_client, job):
         set_share(SHARE)
         _worker('note-16', caps(), gpu_memory(16303))
-        _worker('note-mixed', caps(), gpu_memory(32607, 12282))
+        _worker('note-mixed', caps(), gpu_memory(16303, 12282))
         assert _note(admin_client, job) == _no_vram(16100)
 
-    def test_enough_memory_on_every_gpu(self, admin_client, job):
+    def test_enough_memory_on_the_largest_gpu(self, admin_client, job):
         set_share(SHARE)
         _worker('note-16', caps(), gpu_memory(16303))
         _worker('note-32', caps(), gpu_memory(32607, 32607, used=30000))
@@ -102,6 +104,47 @@ class TestMessages:
                                  unreal_kind='pilot')
         _worker('note-12', caps(), gpu_memory(12282))
         assert _note(admin_client, job) == _no_vram(12478)
+
+
+def _without_total(memory, index):
+    """``memory`` plus one GPU entry that reports no ``total_mb``."""
+    memory['gpus'].append({'index': index, 'name': 'GPU', 'used_mb': 0, 'sethlans_used_mb': None,
+                           'other_used_mb': None, 'card_key': card_key_of(index)})
+    return memory
+
+
+@pytest.mark.django_db
+class TestLargestCardDecides:
+    """AC-25 / FR-GH-9: the job renders on the largest card (D22), so the note judges that card."""
+
+    def test_largest_of_mixed_cards_fits(self, admin_client, job):
+        set_share(SHARE)
+        _worker('note-mixed', caps(), gpu_memory(12282, 32607))
+        assert _note(admin_client, job) is None
+
+    def test_largest_of_mixed_cards_too_small(self, admin_client, job):
+        set_share(SHARE)
+        _worker('note-mixed', caps(), gpu_memory(8188, 12282))
+        assert _note(admin_client, job) == _no_vram(16100)
+
+    @pytest.mark.parametrize('total, expected', [(16303, _no_vram(16100)), (32607, None)])
+    def test_one_card(self, admin_client, job, total, expected):
+        set_share(SHARE)
+        _worker('note-one', caps(), gpu_memory(total))
+        assert _note(admin_client, job) == expected
+
+    def test_entry_without_total_is_skipped(self, admin_client, job):
+        set_share(SHARE)
+        _worker('note-partial', caps(), _without_total(gpu_memory(12282), 1))
+        assert _note(admin_client, job) == _no_vram(16100)
+
+    @pytest.mark.parametrize('make_memory', [lambda: _without_total(gpu_memory(), 0), gpu_memory],
+                             ids=['no-totals', 'empty-reading'])
+    def test_no_total_is_not_counted_against(self, admin_client, job, make_memory):
+        set_share(SHARE)
+        _worker('note-small', caps(), gpu_memory(12282))
+        _worker('note-unknown', caps(), make_memory())
+        assert _note(admin_client, job) is None
 
 
 @pytest.mark.django_db

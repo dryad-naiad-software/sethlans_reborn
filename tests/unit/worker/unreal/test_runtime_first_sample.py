@@ -14,7 +14,7 @@ import pytest
 from sethlans_worker_agent import config_unreal, unreal_share
 from sethlans_worker_agent.gpu_memory import nvidia_smi
 from sethlans_worker_agent.gpu_memory import reader as gpu_reader
-from sethlans_worker_agent.unreal_executor import capabilities, runtime
+from sethlans_worker_agent.unreal_executor import capabilities, runtime, vram
 from sethlans_worker_agent.unreal_executor.vram import GpuMem, GpuMemoryReading
 from sethlans_worker_agent.unreal_executor.vram_sampler import VramSampler
 from tests._unreal_worker_state import enable_unreal, unreal_runtime_reset  # noqa: F401
@@ -58,6 +58,7 @@ def real_threads(monkeypatch):
     monkeypatch.setattr(unreal_share, 'start', lambda: None)
     monkeypatch.setattr(config_unreal, 'VRAM_MB', 0)
     monkeypatch.setattr(config_unreal, 'VRAM_SAMPLE_SECONDS', 3600)
+    monkeypatch.setattr(vram, 'unreal_card_set', lambda: frozenset({(0, 0x0a, 0, 0)}))  # FakeReader's card (FR-GU-2)
 
 
 @pytest.fixture()
