@@ -88,13 +88,13 @@ if WEB_UI_STATIC.exists():
     ))
 
 # Unreal foundation FR-UE-20: the scripts UE's embedded Python runs (prep,
-# warm-up, and the preset facts and shot helpers the prep loads by file
-# path). They import ``unreal``, so they are data, never collected as modules
-# (the directory has no __init__.py); ``job_dir`` copies them from
-# ``<package>/unreal_executor/ue_scripts`` into each job directory.
+# warm-up, and the preset facts, shot helpers and duplicate edits the prep
+# loads by file path). They import ``unreal``, so they are data, never
+# collected as modules (the directory has no __init__.py); ``job_dir`` copies
+# them from ``<package>/unreal_executor/ue_scripts`` into each job directory.
 UE_SCRIPTS = WORKER_DIR / 'sethlans_worker_agent' / 'unreal_executor' / 'ue_scripts'
 for _ue_script in ('sethlans_prepare_queue.py', 'sethlans_warm_up.py', 'sethlans_preset_facts.py',
-                   'sethlans_shots.py'):
+                   'sethlans_shots.py', 'sethlans_sequence_edits.py'):
     if not (UE_SCRIPTS / _ue_script).is_file():
         raise SystemExit(f"Unreal script missing: {UE_SCRIPTS / _ue_script}")
     datas.append((str(UE_SCRIPTS / _ue_script), 'sethlans_worker_agent/unreal_executor/ue_scripts'))

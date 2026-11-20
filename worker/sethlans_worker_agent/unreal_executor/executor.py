@@ -146,7 +146,8 @@ def default_run_deps():
         worker_id=_worker_id,
         delivery=DeliveryDeps(release_job=api_extras.release_job, mark_unreachable=unreal_share.mark_unreachable,
                               upload=api_extras.upload_output_handle, report_pilot=api_extras.report_pilot_result,
-                              report_shots=api_sequence.report_shots_result),
+                              report_shots=api_sequence.report_shots_result, upload_frame=api_sequence.upload_frame,
+                              report_piece=api_sequence.report_piece_result),
         disable_until_restart=runtime.disable_until_restart, keep_job_logs=lambda: config_unreal.KEEP_JOB_LOGS,
         prep_timeout_s=lambda: config_unreal.PREP_TIMEOUT_SECONDS,
         cancel_poll_s=lambda: config_unreal.CANCEL_POLL_SECONDS, choose_adapter=adapter_choice.choose)

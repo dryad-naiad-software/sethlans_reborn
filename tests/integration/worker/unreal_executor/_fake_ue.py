@@ -33,6 +33,13 @@ overrides the logged adapter id (only in ``chosen_phase`` when given;
 revision]`` (hex strings) of the card logged there (default: one NVIDIA card),
 ``shots_result`` replaces fields of the ``list_shots`` result (shot discovery,
 sequence rendering FR-SD-4: the prep alone answers with a shot list).
+
+A sequence piece (``prepare_range``, FR-SW-3) renders every frame of the
+params' ``range`` as ``.png`` (``size`` [w, h], default 1x1) or ``.exr`` (the
+EXR magic and filler); ``skip_frame`` leaves one out, ``frame_sleep`` waits
+between frames, ``draft_conflicts`` is the prep's list, and
+``loads_in_flight`` ends the render on UE's audio streaming assertion
+(critical error, exit 3) after every frame is written (FR-SW-8).
 """
 import glob
 import shutil
@@ -69,12 +76,20 @@ def say(text):
     log.write('[2026.11.14-00.00.00:000][  0]' + text + '\n')
 
 
-def png(path):
-    raw = b'\x00\xff\x00\x00'
+def png(path, w=1, h=1):
+    raw = (b'\x00' + b'\xff\x00\x00' * w) * h
     chunk = lambda tag, data: struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data))
     with open(path, 'wb') as f:
-        f.write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0))
+        f.write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
                 + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+
+def frame_file(path, ext):
+    if ext == 'exr':
+        with open(path, 'wb') as f:
+            f.write(b'\x76\x2f\x31\x01' + b'\x00' * 60)
+    else:
+        png(path, *OPTS.get('size', [1, 1]))
 
 
 # DXGI order as measured on a dev machine: the iGPU, WARP and a virtual display adapter that copies the real
@@ -143,7 +158,7 @@ def shots_result(params):
 if '-run=pythonscript' in args:
     params = json.load(open(os.environ['SETHLANS_UE_JOB_PARAMS'], encoding='utf-8'))
     pilot = params['mode'] == 'prepare_pilot'
-    frames = OPTS.get('pilot_frames', [0, 99, 202]) if pilot else [params.get('frame')]
+    frames = (params.get('pilot_frames') or OPTS.get('pilot_frames', [0, 99, 202])) if pilot else [params.get('frame')]
     result = {'ok': True, 'queue_asset': params.get('package_root', '') + '/Q_Job' + str(params['job_id']),
               'preset_kind': 'graph', 'playback_range': [0, 1928], 'camera_cut_starts': [0, 99, 202],
               'effective_cvars': {n: ('true' if v == '1' else v) for n, v in cvars}, 'queue_jobs': len(frames),
@@ -151,6 +166,8 @@ if '-run=pythonscript' in args:
               'texture_streaming': OPTS.get('texture_streaming', 'off')}
     if pilot:
         result['pilot_frames'] = frames
+    if params['mode'] == 'prepare_range':
+        result.update(queue_jobs=1, draft_conflicts=OPTS.get('draft_conflicts', []))
     if params['mode'] == 'list_shots':
         result = shots_result(params)
     if OPTS.get('prep_error'):
@@ -172,13 +189,23 @@ if any(a.startswith('-ExecCmds=py ') for a in args):
 
 prep = json.load(open(os.path.join(job_dir, 'prep_result.json'), encoding='utf-8'))
 params = json.load(open(os.path.join(job_dir, 'params.json'), encoding='utf-8'))
-frames = prep.get('pilot_frames') or [params['frame']]
+frames = prep.get('pilot_frames') or [params.get('frame')]
+ext, jobs = 'png', len(frames)
+if params['mode'] == 'prepare_range':
+    frames, ext, jobs = list(range(*params['range'])), params['output_format'].lower(), 1
 d3d12_lines('render')
 time.sleep(float(OPTS.get('render_sleep', 0.5)))
 for f in frames:
-    png(os.path.join(job_dir, 'output', 'sethlans_' + str(params['job_id']) + '.' + '%04d' % f + '.png'))
+    if f != OPTS.get('skip_frame'):
+        frame_file(os.path.join(job_dir, 'output', 'sethlans_' + str(params['job_id']) + '.' + '%04d' % f + '.' + ext), ext)
+        time.sleep(float(OPTS.get('frame_sleep', 0)))
 say('LogMovieRenderPipeline: Movie Graph Render completed. Duration: +00:00:05.250')
-say('LogMovieRenderPipeline: MoviePipelineLinearExecutorBase finished ' + str(len(frames)) + ' jobs in +00:00:09.0.')
+say('LogMovieRenderPipeline: MoviePipelineLinearExecutorBase finished ' + str(jobs) + ' jobs in +00:00:09.0.')
+if OPTS.get('loads_in_flight'):
+    say('LogWindows: Error: === Critical error: ===')
+    say('LogWindows: Error: Assertion failed: NumberOfLoadsInFlight == 0 [File:AudioStreamingCache.cpp] [Line: 1]')
+    log.close()
+    sys.exit(3)
 say('LogCore: FPlatformMisc::RequestExitWithStatus(0, 0, <NoCallSiteInfo>)')
 if OPTS.get('cancel_first_render') and attempt == '1':
     say('LogComputeFramework: Warning: DG_LatticeDeformer: Compilation cancelled.')

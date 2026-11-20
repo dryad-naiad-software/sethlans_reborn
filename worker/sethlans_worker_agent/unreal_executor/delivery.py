@@ -20,7 +20,8 @@ Runs **after** exit confirmation and the FR-PA-16 integrity check:
   ``release/`` with ``local_conflict``, never a project failure (a
   backstop: the reserver already refuses such a pilot, FR-GU-10);
 * success, sequence kinds: ``sequence_delivery`` (``shots``: ``shots-result/``,
-  FR-SD-8);
+  FR-SD-8; a piece: ``frames/`` per kept frame, then ``piece-result/``,
+  FR-SW-10);
 * failure -> ``ERROR`` (pilot: ``"Pilot render failed: <reason>"``);
 * local conflict -> ``release/`` with its reason; share failure ->
   ``release/`` with ``share_unavailable`` and ``mark_unreachable``;
@@ -66,6 +67,8 @@ class DeliveryDeps:
     upload: Callable                      # (job_id, handle, filename) -> bool
     report_pilot: Callable                # (job_id, body) -> PilotReport
     report_shots: Callable                # (job_id, body) -> PilotReport (shots-result/, FR-SD-8)
+    upload_frame: Callable                # (job_id, frame, handle, filename) -> PilotReport (frames/, FR-SW-10)
+    report_piece: Callable                # (job_id, body) -> PilotReport (piece-result/, FR-SW-10)
 
 
 def result(*, success=False, canceled=False, stdout='', error='', released=False, render_time=None,
@@ -78,8 +81,10 @@ def result(*, success=False, canceled=False, stdout='', error='', released=False
 
 class Delivery:
 
-    def __init__(self, params, deps: DeliveryDeps, summary, after_report: Optional[Callable[[], None]]):
+    def __init__(self, params, deps: DeliveryDeps, summary, after_report: Optional[Callable[[], None]],
+                 cause: Optional[Callable[[], str]] = None):
         self.params, self.deps, self.summary, self.after = params, deps, summary, after_report
+        self.cause = cause or (lambda: '')  # JobRun.cause: a piece's uploads stop on shutdown or cancel
 
     def _text(self) -> str:
         return self.summary.text()
@@ -99,11 +104,7 @@ class Delivery:
     def deliver(self, outcome: Outcome, integrity_ok: bool) -> RenderResult:
         kind = outcome.kind
         if kind == 'success':
-            if not integrity_ok:
-                return self.failed(INTEGRITY_MESSAGE)
-            if self.params.is_shots:
-                return sequence_delivery.deliver_shots(self, outcome.flow)
-            return self._pilot(outcome.flow) if self.params.is_pilot else self._upload(outcome.flow)
+            return self._success(outcome.flow) if integrity_ok else self.failed(INTEGRITY_MESSAGE)
         if kind == 'release':
             return self.released(outcome.reason, outcome.message)
         if kind == 'share':
@@ -120,12 +121,20 @@ class Delivery:
             return result(released=True, stdout=self._text(), after_report=self.after)
         return self.failed(outcome.message)
 
+    def _success(self, flow) -> RenderResult:
+        if self.params.is_shots:
+            return sequence_delivery.deliver_shots(self, flow)
+        if self.params.is_piece:
+            return sequence_delivery.deliver_piece(self, flow)
+        return self._pilot(flow) if self.params.is_pilot else self._upload(flow)
+
     def _upload(self, flow) -> RenderResult:
         path = flow.outputs[0]
         try:
             handle = fs_safe.open_output_file(path, path.parent)
         except OSError as exc:
-            return self.failed(f"Unreal output failed the output safety checks ({exc}); not uploaded.")
+            logger.error("The output of job %s failed the output safety checks: %s", self.params.job_id, exc)
+            return self.failed(f"Unreal output failed the output safety checks ({type(exc).__name__}); not uploaded.")
         try:
             uploaded = self.deps.upload(self.params.job_id, handle, path.name)
         except JobNoLongerAssigned:

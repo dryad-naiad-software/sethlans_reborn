@@ -72,18 +72,34 @@ class FakeManager:
     uploads: list = field(default_factory=list)
     pilot_bodies: list = field(default_factory=list)
     shots_bodies: list = field(default_factory=list)
+    frames: list = field(default_factory=list)
+    piece_bodies: list = field(default_factory=list)
     status: str = 'RENDERING'
     pilot_report: object = None
     shots_report: object = None
+    frame_sink: object = None
+    piece_sink: object = None
 
     def deps(self) -> DeliveryDeps:
         return DeliveryDeps(release_job=lambda job_id, reason: self.releases.append((job_id, reason)) or True,
                             mark_unreachable=lambda reason: None, upload=self.upload, report_pilot=self.report,
-                            report_shots=self.report_shots)
+                            report_shots=self.report_shots, upload_frame=self.upload_frame,
+                            report_piece=self.report_piece)
 
     def report_shots(self, job_id, body):
         self.shots_bodies.append((job_id, body))
         return self.shots_report or api_extras.PilotReport('done', 200)
+
+    def upload_frame(self, job_id, frame, handle, filename):
+        """``frames/`` (FR-SW-10); ``frame_sink`` (a callable) replaces it, e.g. the real endpoint."""
+        if self.frame_sink is not None:
+            return self.frame_sink(job_id, frame, handle, filename)
+        self.frames.append((job_id, frame, filename, handle.read()))
+        return api_extras.PilotReport('done', 200)
+
+    def report_piece(self, job_id, body):
+        self.piece_bodies.append((job_id, body))
+        return self.piece_sink(job_id, body) if self.piece_sink is not None else api_extras.PilotReport('done', 200)
 
     def upload(self, job_id, handle, filename):
         self.uploads.append((job_id, filename, handle.read()))
@@ -128,6 +144,15 @@ class Harness:
                 'asset': {'source_type': 'shared_project', 'archive_path': 'incoming/demo.zip',
                           'uproject_path': 'Demo/Demo.uproject', 'archive_sha256': self.sha,
                           'project_details': {'unreal_cvar_overrides': dict(OVERRIDES)}}}
+
+    def piece(self, job_id, start=100, end=129, lead=30, fmt='PNG', settings=None, submission=7, **extra):
+        """A sequence piece (FR-SW-1): kept frames ``start..end`` after ``lead`` lead-in frames, one shot by default."""
+        data = self.job(job_id, frame=start)
+        data.update(end_frame=end, unreal_lead_in_frames=lead, sequence_submission=submission)
+        data['render_settings'].update(settings or {'unreal.output_format': fmt, 'unreal.shot_set_sha256': 'c' * 64,
+                                                    'unreal.piece_shots': [[1, start, end + 1]]})
+        data['render_settings'].update(extra)
+        return data
 
     def run_deps(self):
         deps = executor.default_run_deps()

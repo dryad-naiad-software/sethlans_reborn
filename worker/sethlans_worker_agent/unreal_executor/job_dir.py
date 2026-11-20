@@ -32,7 +32,8 @@ PREP_SCRIPT = 'sethlans_prepare_queue.py'
 WARMUP_SCRIPT = 'sethlans_warm_up.py'
 FACTS_SCRIPT = 'sethlans_preset_facts.py'  # loaded by the prep script from scripts\ by file path (FR-GC-3)
 SHOTS_SCRIPT = 'sethlans_shots.py'  # the shot and cut helpers, loaded the same way (FR-SW-4)
-UE_SCRIPTS = (PREP_SCRIPT, WARMUP_SCRIPT, FACTS_SCRIPT, SHOTS_SCRIPT)
+EDITS_SCRIPT = 'sethlans_sequence_edits.py'  # the edits on the farm's duplicate, loaded the same way (FR-SW-4)
+UE_SCRIPTS = (PREP_SCRIPT, WARMUP_SCRIPT, FACTS_SCRIPT, SHOTS_SCRIPT, EDITS_SCRIPT)
 
 _active_lock = threading.Lock()  # leaf lock
 _active: Set[str] = set()        # names of j/ dirs a job still uses (never pruned)
@@ -99,6 +100,12 @@ def create(layout: CacheLayout, job_id: int, att8: str) -> JobDir:
     for name in UE_SCRIPTS:
         shutil.copyfile(SCRIPTS_SOURCE / name, job.script(name))
     return job
+
+
+def clear_output(output_dir) -> None:
+    """Empty ``output\\`` before a render retry: the retry's files are then the only ones (recreated owner-only)."""
+    fs_safe.remove_tree(Path(output_dir))
+    fs_safe.ensure_owned_dir(Path(output_dir))
 
 
 def release(job: JobDir) -> None:

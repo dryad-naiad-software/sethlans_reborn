@@ -134,7 +134,8 @@ class TestPresetFacts:
         # now fails the prep: test_ue_shots_module.py).
         scripts = tmp_path / 'scripts'
         scripts.mkdir()
-        shutil.copyfile(job_dir.SCRIPTS_SOURCE / job_dir.SHOTS_SCRIPT, scripts / job_dir.SHOTS_SCRIPT)
+        for name in (job_dir.SHOTS_SCRIPT, job_dir.EDITS_SCRIPT):
+            shutil.copyfile(job_dir.SCRIPTS_SOURCE / name, scripts / name)
         result, error, _world = run(tmp_path, monkeypatch, poc_assets(scalability=2), scripts_dir=str(scripts))
         assert error is None and result['ok'] is True and result['queue_asset'].endswith('Q_Job42')
         assert (result['scalability'], result['game_overrides'], result['texture_streaming']) == (4, 'unknown', 'unknown')

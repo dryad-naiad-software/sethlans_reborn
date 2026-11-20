@@ -20,6 +20,14 @@ allowlists is ``unknown``, FR-GC-4). Any other fault raises
 playback start below 0 raises ``JobFailure("Sequences that start before
 frame 0 are not supported.")``. ``Discovery.body()`` is what the worker
 sends to ``shots-result/``.
+
+``range_params`` writes a piece's ``prepare_range`` params (FR-SW-3): the
+rendered range ``[start - lead, end + 1)``, the first kept frame (it must
+lie in a camera cut), the output format, the resolution, the draft and the
+names of the draft CVars the job sends. ``draft_conflicts`` checks the
+prep's untrusted ``draft_conflicts``: at most 16 names, each one of the
+draft CVars this job sent (D11, Security notes); anything else is
+``PrepError("Prep pass returned an invalid result (draft_conflicts).")``.
 """
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
@@ -30,7 +38,34 @@ from shared.unreal import shots_result
 
 SCHEMA = queue_prep.SCHEMA
 MAX_SHOTS = shots_result.MAX_SHOTS
+MAX_DRAFT_CONFLICTS = 16
 _WORDS = {'game_overrides': queue_prep.GAME_OVERRIDES, 'texture_streaming': queue_prep.TEXTURE_STREAMING}
+
+
+def sent_draft_cvars(params) -> Tuple[Tuple[str, str], ...]:
+    """The draft CVars the merged list really sends (one a lower tier already beats is not sent, D11)."""
+    merged = {name.casefold(): value for name, value in params.merged}
+    return tuple((name, value) for name, value in params.seq.draft_cvars if merged.get(name.casefold()) == value)
+
+
+def range_params(params, output_dir, result_path, scripts_dir) -> Dict[str, Any]:
+    """FR-SW-3: a piece's prep params, from the validated ``JobParams`` only (NF-7)."""
+    piece, seq = params.piece, params.seq
+    data = queue_prep.prep_params(params, output_dir, result_path, scripts_dir)
+    data.pop('frame', None)
+    data.update(mode='prepare_range', range=[piece.first, piece.end + 1], start=piece.start, draft=dict(seq.draft),
+                draft_cvars=[name for name, _value in sent_draft_cvars(params)])
+    return data
+
+
+def draft_conflicts(data: Optional[dict], sent) -> Tuple[str, ...]:
+    """D11: the draft CVars the preset sets itself, as the names this job sent (``sent``: ``(name, value)``)."""
+    raw = (data or {}).get('draft_conflicts', [])
+    names = {name.casefold(): name for name, _value in sent}
+    if not isinstance(raw, list) or len(raw) > MAX_DRAFT_CONFLICTS \
+            or not all(isinstance(item, str) and item.casefold() in names for item in raw):
+        raise queue_prep.invalid('draft_conflicts')
+    return tuple(dict.fromkeys(names[item.casefold()] for item in raw))
 
 
 def shots_params(params, result_path: str, scripts_dir: str) -> Dict[str, Any]:

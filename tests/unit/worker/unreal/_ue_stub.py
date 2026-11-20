@@ -12,10 +12,14 @@ in ``_ue_stub_mrq`` and are re-exported here.
 import copy
 import types
 
+from tests.unit.worker.unreal import _ue_stub_seq
 from tests.unit.worker.unreal._ue_stub_mrq import (  # noqa: F401 - re-exported for the tests
     LEGACY_CLASSES, FrameRate, MoviePipelineAntiAliasingSetting, MoviePipelineGameOverrideSetting,
     MoviePipelineImageSequenceOutput_PNG, MoviePipelineOutputBase, MoviePipelineOutputSetting,
     MoviePipelinePrimaryConfig, MoviePipelineRenderPass, MoviePipelineTextureStreamingMethod, _Props, _Strict, size)
+from tests.unit.worker.unreal._ue_stub_seq import (  # noqa: F401 - re-exported for the tests
+    SEQ_LEGACY_CLASSES, MoviePipelineCameraSetting, MoviePipelineConsoleVariableSetting,
+    MoviePipelineImageSequenceOutput_EXR)
 
 
 class MovieGraphNode(_Props):
@@ -69,6 +73,19 @@ class MovieGraphImagePassBaseNode(MovieGraphNode):
 
 class MovieGraphRenderPassNode(MovieGraphImagePassBaseNode):
     pass
+
+
+class MovieGraphDeferredRenderPassNode(MovieGraphRenderPassNode):
+    pass
+
+
+class MovieGraphCameraSettingNode(_Strict, MovieGraphNode):
+    DEFAULTS = {'override_shutter_timing': False, 'shutter_timing': 'FRAME_CENTER'}  # 5.8.4: no shutter angle
+
+
+class MovieGraphConsoleVariableNode(MovieGraphNode):
+    def get_console_variables(self):
+        return _ue_stub_seq.cvar_entries(self.props)
 
 
 class MovieGraphConfig:
@@ -181,7 +198,7 @@ class Queue:
         self.jobs = []
 
     def allocate_new_job(self, cls):
-        job = types.SimpleNamespace(graph=None, origin=None)
+        job = types.SimpleNamespace(graph=None, origin=None, author='')
         job.set_graph_preset = lambda preset: setattr(job, 'graph', preset)
         job.set_preset_origin = lambda preset: setattr(job, 'origin', preset)
         self.jobs.append(job)
@@ -198,8 +215,11 @@ def make_unreal(world):
                 MovieGraphFileOutputNode, MovieGraphImageSequenceOutputNode_PNG, MovieGraphRenderLayerNode,
                 MovieGraphRenderPassNode, MovieGraphConfig, MovieSceneCameraCutTrack, MovieSceneCinematicShotTrack,
                 MovieSceneSubTrack, MovieGraphSubgraphNode, MovieGraphImageSequenceOutputNode_EXR,
-                MovieGraphAudioOutputNode, MovieGraphSamplingMethodNode, MovieGraphImagePassBaseNode) + LEGACY_CLASSES:
+                MovieGraphAudioOutputNode, MovieGraphSamplingMethodNode, MovieGraphImagePassBaseNode,
+                MovieGraphDeferredRenderPassNode, MovieGraphCameraSettingNode,
+                MovieGraphConsoleVariableNode) + LEGACY_CLASSES + SEQ_LEGACY_CLASSES:
         setattr(module, cls.__name__, cls)
+    _ue_stub_seq.install(module)
     module.get_default_object = lambda cls: cls()  # a fresh instance holds the class defaults
     module.MoviePipelineTextureStreamingMethod = MoviePipelineTextureStreamingMethod
     module.log = world['logs'].append

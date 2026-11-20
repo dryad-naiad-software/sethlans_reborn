@@ -14,7 +14,8 @@ params file named by ``SETHLANS_UE_JOB_PARAMS`` (mode ``warmup``).
 2. loads every ``/Script/OptimusCore.OptimusDeformer`` asset (a missing class
    means zero deformers);
 3. loads the map, opens the sequence and visits every ``step_frames`` stride
-   frame, the first frame of every camera cut and the job's own frame(s),
+   frame, the first frame of every camera cut and the job's own frame(s)
+   (a sequence piece, ``only_frames``: its own frames alone, at most 64),
    holding each ``step_seconds`` (time is set with ``set_global_position``,
    the 5.8 replacement of the deprecated ``set_current_time``);
 4. holds ``hold_seconds``, logs ``[Warm] done, quitting`` (the success
@@ -69,6 +70,8 @@ def load_deformers():
 
 
 def visit_list(first, last):
+    if P.get("only_frames"):  # a sequence piece (FR-SW-6): its own frames only, at most 64; no stride, no other cut
+        return sorted({int(f) for f in P.get("frames", []) if first <= int(f) < last})[:64]
     step = max(1, int(P.get("step_frames", 24)))
     visits = set(range(first, last, step))
     for key in ("camera_cut_starts", "frames"):

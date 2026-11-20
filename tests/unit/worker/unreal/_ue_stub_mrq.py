@@ -59,6 +59,9 @@ class _Setting(_Props):
     def is_enabled(self):
         return not self.disabled
 
+    def set_is_enabled(self, value):
+        self.disabled = not value
+
 
 class MoviePipelineGameOverrideSetting(_Setting):
     pass
@@ -104,6 +107,14 @@ class MoviePipelinePrimaryConfig:
 
     def get_all_settings(self, include_disabled_settings=False, include_transient_settings=False):
         return [s for s in self.settings if include_disabled_settings or s.is_enabled()]
+
+    def find_or_add_setting_by_class(self, cls, include_disabled_settings=False):
+        """``UMoviePipelineConfigBase::FindOrAddSettingByClass``: a new one has the class defaults."""
+        found = self.find_setting_by_class(cls, include_disabled_settings)
+        if found is None:
+            found = cls()
+            self.settings.append(found)
+        return found
 
 
 LEGACY_CLASSES = (MoviePipelinePrimaryConfig, MoviePipelineGameOverrideSetting, MoviePipelineOutputSetting,

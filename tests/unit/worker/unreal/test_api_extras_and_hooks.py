@@ -151,7 +151,7 @@ class TestSummary:
         s.set('bad', 'a\nb')
         s.warn('cvar_collision=r.X')
         lines = s.text().splitlines()
-        assert lines[0] == '[sethlans-unreal] farm_defaults_version=2' and lines[1].endswith('log_rules_version=3')
+        assert lines[0] == '[sethlans-unreal] farm_defaults_version=2' and lines[1].endswith('log_rules_version=4')
         assert '[sethlans-unreal] quit_forced=prep,render' in lines and '[sethlans-unreal] bad=a b' in lines
         assert lines[-1] == '[sethlans-unreal] warning=cvar_collision=r.X'
         for index in range(2000):
@@ -198,7 +198,8 @@ def test_worker_spec_bundles_the_ue_scripts_as_data():
     assert "'sethlans_worker_agent/unreal_executor/ue_scripts'" in spec
     assert "'sethlans_worker_agent.unreal_executor.executor'" in spec
     scripts = REPO / 'worker' / 'sethlans_worker_agent' / 'unreal_executor' / 'ue_scripts'
-    names = {'sethlans_prepare_queue.py', 'sethlans_warm_up.py', 'sethlans_preset_facts.py', 'sethlans_shots.py'}
+    names = {'sethlans_prepare_queue.py', 'sethlans_warm_up.py', 'sethlans_preset_facts.py', 'sethlans_shots.py',
+             'sethlans_sequence_edits.py'}
     assert {p.name for p in scripts.glob('*.py')} == names
     assert all(f"'{name}'" in spec for name in names)  # each one listed in the bundle (FR-GC-1)
     assert not (scripts / '__init__.py').exists()  # data, never collected as modules (they import unreal)

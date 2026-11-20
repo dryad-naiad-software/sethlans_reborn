@@ -15,14 +15,14 @@ by card key (``pilot.check_card``, FR-GU-4), is released when a warm-up or
 render log lacks UE's ``Chosen`` adapter line (``require_adapter_lines``;
 normal jobs keep ``adapter_log``'s rule), collects the CSV capture and
 computes its metrics (``pilot.measure``) over **every** phase it ran.
+A sequence piece (``sequence_flow.RangeFlow``) replaces four hooks.
 
 Every launch goes through ``PhaseRunner.launch`` (pre-launch checks, Zen
 verification) and every command through the builders in ``command``. Each
 warm-up and render launch resolves its card's DXGI index afresh (``choose``,
 ``adapter_choice.choose``; FR-CU-1), always the card of the first launch (D8).
-The first launch asks for the card the memory gate checked (``first_key``,
-FR-GU-10; ``None`` with the override), so it renders on that card or the
-job is released with the ``LocalConflict`` ``choose`` raises.
+The first launch asks for the gated card (``first_key``, FR-GU-10; ``None``
+with the override): it renders there or ``choose``'s ``LocalConflict`` releases it.
 """
 import logging
 from dataclasses import dataclass, field, replace
@@ -64,6 +64,7 @@ class FlowResult:
     adapter: str = ''
     gate_reading: object = None
     card: object = None           # pilot: the reading's GpuMem of the card it rendered on (FR-GU-4)
+    piece: object = None          # a sequence piece: sequence_flow.PieceOutput (frames, timings, card)
 
 
 class UeFlow:
@@ -73,7 +74,7 @@ class UeFlow:
         self.params, self.ctx, self.job, self.runner = params, launch_ctx, job, runner
         self.summary, self.builders, self.marker, self.uproject = summary, builders, marker_path, str(uproject)
         self.config, self.reading = config, reading
-        self.cvars_sha = cvars.cvars_sha256(params.merged)
+        self.cvars_sha = cvars.warmup_cvars_sha256(params.merged)  # the warm-up key: shader-relevant CVars only
         self.prep_s = self.warmup_s = self.render_s = 0.0
         self.choose, self.choice, self.first_key = choose or adapter_choice.choose, None, first_key
 
@@ -83,10 +84,20 @@ class UeFlow:
                                   key=self.choice.key if self.choice is not None else self.first_key)
         return replace(self.ctx, graphics_adapter=self.choice.index)
 
+    # -- hooks: prep params, warm-up frames, render check, output step (sequence_flow.RangeFlow replaces them) --
+    def _prep_params(self) -> dict:
+        return queue_prep.prep_params(self.params, self.job.output, self.job.prep_result, self.job.scripts)
+
+    def _warm_frames(self, prep) -> Optional[List[int]]:
+        return None  # the pilot's frames, or the job's one frame (queue_prep.warmup_params)
+
+    def _check_render(self, run, prep):
+        return render_check.check_render(run.outcome, run.log_path, prep.queue_jobs, self.config.log_max_bytes)
+
     # -- prep -----------------------------------------------------------
     def prep(self) -> queue_prep.PrepResult:
         params, job = self.params, self.job
-        queue_prep.write_json(job.params, queue_prep.prep_params(params, job.output, job.prep_result, job.scripts))
+        queue_prep.write_json(job.params, self._prep_params())
         launch = self.builders.build_prep(self.ctx, self.uproject, job.script(job_dir.PREP_SCRIPT),
                                           job.log('prep', 1), job.params, params.merged)
         run = self.runner.launch('prep', 1, launch, success_check=lambda: queue_prep.result_ok(job.prep_result),
@@ -122,7 +133,7 @@ class UeFlow:
     def warm_up(self, prep, attempt: int):
         params, job, cfg = self.params, self.job, self.config
         data = queue_prep.warmup_params(params, prep, job.warmup_result, cfg.step_frames, cfg.step_seconds,
-                                        cfg.hold_seconds)
+                                        cfg.hold_seconds, frames=self._warm_frames(prep))
         queue_prep.write_json(job.warmup_params, data)
         launch = self.builders.build_warmup(self._adapter_ctx(), self.uproject, job.script(job_dir.WARMUP_SCRIPT),
                                             job.log('warmup', attempt), job.warmup_params, params.merged)
@@ -144,8 +155,7 @@ class UeFlow:
                                  adapter=self.choice)
         self.render_s += run.outcome.wall_s
         self._note_quit(run, 'render')
-        check = render_check.check_render(run.outcome, run.log_path, prep.queue_jobs, self.config.log_max_bytes)
-        return run, check, before
+        return run, self._check_render(run, prep), before
 
     def _note_quit(self, run, phase: str) -> None:
         if run.outcome.quit_forced:
@@ -171,6 +181,7 @@ class UeFlow:
             warmup.remove_pair(self.marker, self.params.map, self.params.sequence)
             self.warm_up(prep, 2)
             self.summary.set('warmup', 'ran(retry)')
+            job_dir.clear_output(self.job.output)  # attempt 1's files never mix with the retry's
             run, check, before = self.render(prep, 2)
             if check.retry:
                 self._render_summary(run, check)
@@ -195,6 +206,9 @@ class UeFlow:
         result = FlowResult(prep=prep, render_s=self.render_s, prep_s=self.prep_s, warmup_s=self.warmup_s,
                             warmup_ran=warmed, render_time_seconds=render_check_time(check, self.render_s),
                             gate_reading=self.reading)
+        return self._collect(result, prep, run, before)
+
+    def _collect(self, result: FlowResult, prep, run, before) -> FlowResult:  # one PNG, or a pilot's and its measure
         if not self.params.is_pilot:
             result.outputs = [output.collect_single(self.job.output)]
             self.summary.set('output', result.outputs[0].name)

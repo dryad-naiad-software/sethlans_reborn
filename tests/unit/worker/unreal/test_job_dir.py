@@ -27,9 +27,10 @@ def test_create_copies_the_ue_scripts(tmp_path):
     assert 'set_scalability' in job.script(job_dir.WARMUP_SCRIPT).read_text(encoding='utf-8')
     # FR-GC-1: the facts module sits next to the prep script, which loads it from there by file path.
     assert 'def game_overrides(' in job.script(job_dir.FACTS_SCRIPT).read_text(encoding='utf-8')
-    # FR-SW-4: so does the shots module.
+    # FR-SW-4: so do the shots module and the duplicate's edits module.
     assert 'def cut_starts(' in job.script(job_dir.SHOTS_SCRIPT).read_text(encoding='utf-8')
-    assert sorted(p.name for p in job.scripts.iterdir()) == sorted(job_dir.UE_SCRIPTS) and len(job_dir.UE_SCRIPTS) == 4
+    assert 'def apply(' in job.script(job_dir.EDITS_SCRIPT).read_text(encoding='utf-8')
+    assert sorted(p.name for p in job.scripts.iterdir()) == sorted(job_dir.UE_SCRIPTS) and len(job_dir.UE_SCRIPTS) == 5
     assert job.log('render', 2).name == 'render.2.log' and job.stdout('prep', 1).name == 'prep.1.stdout.txt'
 
 

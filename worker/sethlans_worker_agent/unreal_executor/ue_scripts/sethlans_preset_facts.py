@@ -248,7 +248,7 @@ def _outputs(preset, kind):
     nodes = _all_nodes(preset, unreal.MovieGraphNode)
     audio = getattr(unreal, "MovieGraphAudioOutputNode", None)
     return {"can_png": any(isinstance(n, unreal.MovieGraphImageSequenceOutputNode_PNG) for n in nodes),
-            "can_exr": any(isinstance(n, unreal.MovieGraphImageSequenceOutputNode_EXR) for n in nodes),
+            "can_exr": any(type(n) is unreal.MovieGraphImageSequenceOutputNode_EXR for n in nodes),  # not multilayer
             "can_sound": audio is not None and any(isinstance(n, audio) for n in nodes)}
 
 

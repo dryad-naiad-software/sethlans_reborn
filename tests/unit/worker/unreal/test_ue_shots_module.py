@@ -33,7 +33,7 @@ def _functions(path):
 def _scripts_copy(tmp_path):
     scripts = tmp_path / 'scripts'
     scripts.mkdir()
-    for name in (job_dir.FACTS_SCRIPT, job_dir.SHOTS_SCRIPT):
+    for name in (job_dir.FACTS_SCRIPT, job_dir.SHOTS_SCRIPT, job_dir.EDITS_SCRIPT):
         shutil.copyfile(job_dir.SCRIPTS_SOURCE / name, scripts / name)
     return scripts
 
@@ -42,8 +42,8 @@ class TestStatic:
 
     def test_the_prep_loads_it_by_file_path_and_keeps_no_copy_of_the_helpers(self):
         text = PREP_PATH.read_text(encoding='utf-8')
-        assert 'SHOTS = "sethlans_shots"' in text
-        assert 'importlib.util.spec_from_file_location(SHOTS, os.path.join(P["scripts_dir"], SHOTS + ".py"))' in text
+        assert 'SHOTS = "sethlans_shots"' in text and 'load_required(SHOTS, "shots", "ShotsError")' in text
+        assert 'importlib.util.spec_from_file_location(name, os.path.join(P["scripts_dir"], name + ".py"))' in text
         assert _functions(SHOTS_PATH) == HELPERS
         assert not _functions(PREP_PATH) & HELPERS
 

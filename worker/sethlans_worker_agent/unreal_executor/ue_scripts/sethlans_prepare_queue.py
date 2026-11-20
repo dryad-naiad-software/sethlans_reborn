@@ -5,12 +5,12 @@
 sequence rendering FR-SW-4).
 
 Runs in UE 5.8's embedded Python (3.11) as the PythonScript commandlet (``-run=pythonscript -script=<this file>``);
-imports only unreal, importlib, json, os, sys and time, and loads ``sethlans_shots.py`` (required) and
-``sethlans_preset_facts.py`` from ``scripts_dir`` by file path, never through ``sys.path``. Job data comes only
-from the params file named by ``SETHLANS_UE_JOB_PARAMS``. Modes ``prepare`` (one frame), ``prepare_pilot``
-(one frame per shot) and ``list_shots`` (shot discovery, FR-SD-4, FR-SD-5: the shots, the rate and the preset's
-facts; no queue asset, nothing saved). Writes ``result_path`` and, on failure, re-raises so the commandlet exits
-with -1.
+imports only unreal, importlib, json, os, sys and time; loads ``sethlans_shots.py``, ``sethlans_sequence_edits.py``
+(both required) and ``sethlans_preset_facts.py`` from ``scripts_dir`` by file path, never through ``sys.path``.
+Job data comes only from the params file named by ``SETHLANS_UE_JOB_PARAMS``. Modes ``prepare`` (one frame),
+``prepare_pilot`` (one frame per shot, or the manager's ``pilot_frames``), ``prepare_range`` (a piece: one
+duplicate over ``range``, FR-SW-3; every duplicate gets the edits module's changes) and ``list_shots`` (FR-SD-4,
+FR-SD-5: shots, rate, preset facts; no queue asset, nothing saved). Writes ``result_path``; on failure re-raises.
 """
 import importlib.util
 import json
@@ -25,13 +25,14 @@ RES = {"ok": False, "warnings": []}
 P = {}
 FACTS = "sethlans_preset_facts"
 SHOTS = "sethlans_shots"
+EDITS = "sethlans_sequence_edits"
 
 
 class PrepFailure(RuntimeError):
     """A failure whose text this script composed: safe to report."""
 
 
-SAFE = [PrepFailure]  # the loaded modules add their own failure classes (ShotsError, FactsError)
+SAFE = [PrepFailure]  # the loaded modules add their own failure classes (ShotsError, EditsError, FactsError)
 
 
 def fail(msg):
@@ -52,23 +53,16 @@ def all_nodes(graph, cls):
     return out
 
 
-def bound(value):
-    b = unreal.MovieGraphSequencePlaybackRangeBound()
-    b.type = unreal.MovieGraphSequenceRangeType.CUSTOM
-    b.value = int(value)
-    return b
-
-
-def load_shots():
-    """FR-SW-4: the shot and cut helpers; required, so a module that does not load fails the prep (class name only)."""
+def load_required(name, what, error):
+    """FR-SW-4: the shots or edits module; required, so one that does not load fails the prep (class name only)."""
     try:  # one fixed file; nothing is added to sys.path, so nothing else can be imported in its place
-        spec = importlib.util.spec_from_file_location(SHOTS, os.path.join(P["scripts_dir"], SHOTS + ".py"))
-        shots = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(shots)
+        spec = importlib.util.spec_from_file_location(name, os.path.join(P["scripts_dir"], name + ".py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
     except Exception as exc:
-        fail(f"The shots module did not load ({type(exc).__name__}).")  # never the message: it can carry a path
-    SAFE.append(getattr(shots, "ShotsError", PrepFailure))
-    return shots
+        fail(f"The {what} module did not load ({type(exc).__name__}).")  # never the message: it can carry a path
+    SAFE.append(getattr(module, error, PrepFailure))
+    return module
 
 
 def read_facts(preset, kind):
@@ -110,52 +104,34 @@ def override_graph(dup, start, end):
     if not gos:
         fail("Preset has no Global Output Settings node.")
     for node in gos:
-        node.set_editor_property("override_custom_playback_range_start", True)
-        node.set_editor_property("custom_playback_range_start", bound(start))
-        node.set_editor_property("override_custom_playback_range_end", True)
-        node.set_editor_property("custom_playback_range_end", bound(end))
+        for edge, value in (("start", start), ("end", end)):
+            bound = unreal.MovieGraphSequencePlaybackRangeBound()
+            bound.type, bound.value = unreal.MovieGraphSequenceRangeType.CUSTOM, int(value)
+            node.set_editor_property(f"override_custom_playback_range_{edge}", True)
+            node.set_editor_property(f"custom_playback_range_{edge}", bound)
         node.set_editor_property("override_output_directory", True)
         node.set_editor_property("output_directory", unreal.DirectoryPath(path=P["output_dir"]))
-    pngs = 0
-    for node in all_nodes(dup, unreal.MovieGraphNode):
-        if isinstance(node, unreal.MovieGraphImageSequenceOutputNode_PNG):
-            node.set_editor_property("override_file_name_format", True)
-            node.set_editor_property("file_name_format", P["file_name_format"])
-            pngs += 1
-        elif isinstance(node, unreal.MovieGraphFileOutputNode) and not node.is_disabled():
-            node.set_disabled(True)
-    if not pngs:
-        fail("Preset does not output PNG; phase 1 does not add outputs.")
-    layers = graph_layers(dup)
-    if layers != 1:
-        fail(f"Preset renders {layers} layers; phase 1 supports one.")
 
 
 def override_legacy(dup, start, end):
     out = dup.find_or_add_setting_by_class(unreal.MoviePipelineOutputSetting)
-    out.use_custom_playback_range = True
-    out.custom_start_frame = int(start)
-    out.custom_end_frame = int(end)
-    out.output_directory = unreal.DirectoryPath(P["output_dir"])
-    out.file_name_format = P["file_name_format"]
-    pngs = 0
-    for setting in dup.get_all_settings():
-        if isinstance(setting, unreal.MoviePipelineImageSequenceOutput_PNG):
-            pngs += 1
-        elif isinstance(setting, unreal.MoviePipelineOutputBase):
-            setting.set_is_enabled(False)
-    if not pngs:
-        fail("Preset does not output PNG; phase 1 does not add outputs.")
-    passes = legacy_passes(dup)
-    if passes > 1:
-        fail(f"Preset renders {passes} layers; phase 1 supports one.")
+    out.set_editor_property("use_custom_playback_range", True)
+    out.set_editor_property("custom_start_frame", int(start))
+    out.set_editor_property("custom_end_frame", int(end))
+    out.set_editor_property("output_directory", unreal.DirectoryPath(P["output_dir"]))
+    out.set_editor_property("file_name_format", P["file_name_format"])
 
 
-def duplicate(eal, preset_path, kind, index, start, end):
-    dup = eal.duplicate_asset(preset_path, f"{P['package_root']}/MRG_Job{P['job_id']}_{index}")
+def duplicate(eal, edits, kind, index, start, end):
+    """One farm duplicate over ``[start, end)``: range and directory here, then the edits module (FR-SW-3)."""
+    dup = eal.duplicate_asset(P["preset"], f"{P['package_root']}/MRG_Job{P['job_id']}_{index}")
     if dup is None:
         fail("Could not duplicate the preset.")
     (override_graph if kind == "graph" else override_legacy)(dup, start, end)
+    RES.update(edits.apply(dup, kind, P, RES["warnings"]))  # format, D5b, size, draft; never the original
+    layers = graph_layers(dup) if kind == "graph" else legacy_passes(dup)
+    if layers != 1 and (kind == "graph" or layers > 1):
+        fail(f"Preset renders {layers} layers; phase 1 supports one.")
     eal.save_loaded_asset(dup, False)
     return dup
 
@@ -170,21 +146,33 @@ def preset_kind(preset):
     fail(f"Preset class {preset.get_class().get_name()} is neither a Movie Render Graph nor an MRQ config.")
 
 
-def job_frames(shots, seq, first, last):
-    if P["mode"] == "prepare_pilot":
-        frames = shots.pilot_frames(seq, first, last)
-        RES["pilot_frames"] = frames
-        if not frames:
-            fail(f"No camera cut found in {P['sequence']}; cannot measure.")
-        if len(frames) > int(P.get("max_pilot_frames", 256)):
-            fail(f"Sequence has {len(frames)} shots; the pilot supports at most {P.get('max_pilot_frames', 256)}.")
-        return frames
-    frame = int(P["frame"])
+def in_cut(shots, seq, frame, first, last, what="Frame"):
     if not first <= frame < last:
-        fail(f"Frame {frame} is outside the playback range [{first}, {last}).")
+        fail(f"{what} {frame} is outside the playback range [{first}, {last}).")
     if not shots.frame_in_cut(seq, frame):
-        fail(f"Frame {frame} is not inside a camera cut of {P['sequence']}.")
-    return [frame]
+        fail(f"{what} {frame} is not inside a camera cut of {P['sequence']}.")
+
+
+def job_ranges(shots, seq, first, last):
+    """The ``[start, end)`` of each queue job: one frame each (pilot: one per shot, FR-UE-25), or a piece's range."""
+    if P["mode"] == "prepare_range":  # FR-SW-3: the first kept frame lies in a shot or camera cut
+        lo, hi = int(P["range"][0]), int(P["range"][1])
+        if not first <= lo < hi <= last:
+            fail(f"Frames {lo}-{hi - 1} are outside the playback range [{first}, {last}).")
+        in_cut(shots, seq, int(P["start"]), first, last)
+        return [(lo, hi)]
+    if P["mode"] != "prepare_pilot":
+        in_cut(shots, seq, int(P["frame"]), first, last)
+        return [(int(P["frame"]), int(P["frame"]) + 1)]
+    asked = [int(f) for f in P.get("pilot_frames") or ()]  # a sequence pilot renders the manager's frames (FR-SR-1)
+    frames = RES["pilot_frames"] = asked or shots.pilot_frames(seq, first, last)
+    if not frames:
+        fail(f"No camera cut found in {P['sequence']}; cannot measure.")
+    if len(frames) > int(P.get("max_pilot_frames", 256)):
+        fail(f"Sequence has {len(frames)} shots; the pilot supports at most {P.get('max_pilot_frames', 256)}.")
+    for frame in asked:
+        in_cut(shots, seq, frame, first, last, "Pilot frame")
+    return [(f, f + 1) for f in frames]
 
 
 def search_assets():
@@ -201,7 +189,8 @@ def load(what, path):
 
 
 def prepare():
-    shots = load_shots()
+    shots = load_required(SHOTS, "shots", "ShotsError")
+    edits = load_required(EDITS, "edits", "EditsError")
     eal = unreal.EditorAssetLibrary
     search_assets()
     root = P["package_root"]
@@ -215,18 +204,21 @@ def prepare():
     first, last = seq.get_playback_start(), seq.get_playback_end()
     RES["playback_range"] = [first, last]
     RES["camera_cut_starts"] = shots.cut_starts(seq)
-    frames = job_frames(shots, seq, first, last)
+    ranges = job_ranges(shots, seq, first, last)
+    if P.get("draft_cvars"):  # D11: draft CVars the preset's own console variables set again at render time
+        RES["draft_conflicts"] = edits.draft_conflicts(preset, kind, P["draft_cvars"], RES["warnings"])
     queue = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
         f"Q_Job{P['job_id']}", root, unreal.MoviePipelineQueue, None)
-    for index, frame in enumerate(frames):
-        dup = duplicate(eal, P["preset"], kind, index, frame, frame + 1)
+    for index, (start, end) in enumerate(ranges):
+        dup = duplicate(eal, edits, kind, index, start, end)
         job = queue.allocate_new_job(unreal.MoviePipelineExecutorJob)
-        job.job_name = f"sethlans_{P['job_id']}_{frame}"
+        job.job_name = f"sethlans_{P['job_id']}_{start}"
+        job.author = "Sethlans"  # EXR metadata unreal/jobAuthor; else the OS user name reaches the frames
         job.map = unreal.SoftObjectPath(P["map"])
         job.sequence = unreal.SoftObjectPath(P["sequence"])
         (job.set_graph_preset if kind == "graph" else job.set_preset_origin)(dup)
     eal.save_loaded_asset(queue, False)
-    RES["queue_jobs"] = len(frames)
+    RES["queue_jobs"] = len(ranges)
     RES["effective_cvars"] = {n: unreal.SystemLibrary.get_console_variable_string_value(n) for n in P.get("cvar_names", [])}
     RES["queue_asset"] = f"{root}/Q_Job{P['job_id']}"
     RES["ok"] = True
@@ -234,7 +226,7 @@ def prepare():
 
 def discover():
     """Mode ``list_shots`` (FR-SD-4, FR-SD-5): what the person chooses from; reads only: no queue asset, no save."""
-    shots = load_shots()
+    shots = load_required(SHOTS, "shots", "ShotsError")
     search_assets()
     preset = load("Preset", P["preset"])
     kind = preset_kind(preset)

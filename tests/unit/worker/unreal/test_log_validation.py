@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Log rules v3 (FR-UE-12, FR-UE-13, FR-UE-15; AC-42)."""
+"""Log rules v4 (FR-UE-12, FR-UE-13, FR-UE-15; AC-42; sequence rendering FR-SW-8)."""
 import pytest
 
 from sethlans_worker_agent.unreal_executor import log_validation as lv
@@ -22,8 +22,16 @@ IGNORED = (P + "LogConsoleManager: Warning: Setting the console variable 'r.Stre
 DP_SET = P + 'LogInit: Setting CommandLine Device Profile CVar: [[r.Streaming.PoolSize:9000]]'
 
 
-def test_version_is_3():
-    assert lv.LOG_RULES_VERSION == 3
+def test_version_is_4():
+    assert lv.LOG_RULES_VERSION == 4
+
+
+def test_loads_in_flight_assertion_is_a_warning_only():
+    """Sequence rendering FR-SW-8, U-7: the line is counted, never fatal by itself."""
+    line = P + 'LogWindows: Error: Assertion failed: NumberOfLoadsInFlight == 0 [File:AudioStreamingCache.cpp]'
+    scan = lv.scan_lines([line])
+    assert scan.count('loads_in_flight_assert') == 1 and scan.fatal_hits() == []
+    assert lv.scan_lines([P + 'LogAudio: NumberOfLoadsInFlight is 3']).count('loads_in_flight_assert') == 0
 
 
 def test_cancellations_after_exit_are_counted():

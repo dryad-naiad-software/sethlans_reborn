@@ -100,6 +100,11 @@ def prep_params(params, output_dir: str, result_path: str, scripts_dir: str) -> 
             'max_pilot_frames': PILOT_MAX_FRAMES, 'scripts_dir': str(scripts_dir)}
     if not params.is_pilot:
         data['frame'] = params.frame
+    seq = getattr(params, 'seq', None)  # sequence rendering: an output size (D8) and a sequence pilot's frames
+    if seq is not None and seq.resolution:
+        data['resolution'] = list(seq.resolution)
+    if seq is not None and seq.pilot_frames and params.is_pilot:
+        data['pilot_frames'] = list(seq.pilot_frames)
     return data
 
 
@@ -207,13 +212,20 @@ def parse_result(data: Optional[dict], root: str, pilot: bool, sequence: str) ->
 
 
 def read_result(path, params) -> PrepResult:
-    return parse_result(load(path), package_root(params.job_id), params.is_pilot, params.sequence)
+    prep = parse_result(load(path), package_root(params.job_id), params.is_pilot, params.sequence)
+    asked = getattr(getattr(params, 'seq', None), 'pilot_frames', ())
+    if params.is_pilot and asked and prep.pilot_frames != tuple(asked):
+        raise invalid('pilot_frames')  # a sequence pilot renders exactly the manager's frames (FR-SR-1)
+    return prep
 
 
 def warmup_params(params, prep: PrepResult, result_path: str, step_frames: int, step_seconds: int,
-                  hold_seconds: int) -> Dict[str, Any]:
-    frames: List[int] = list(prep.pilot_frames) if params.is_pilot else [params.frame]
+                  hold_seconds: int, frames: Optional[List[int]] = None) -> Dict[str, Any]:
+    """``frames``: a piece's frames, then the only ones visited (``only_frames``, FR-SW-6, no stride, no other
+    cut); default the pilot's frames or the job's one frame, visited with the stride and every cut start."""
+    only = frames is not None
+    frames = frames if only else (list(prep.pilot_frames) if params.is_pilot else [params.frame])
     return {'schema': SCHEMA, 'job_id': params.job_id, 'mode': 'warmup', 'map': params.map,
-            'sequence': params.sequence, 'frames': frames, 'camera_cut_starts': list(prep.camera_cut_starts),
+            'sequence': params.sequence, 'frames': list(frames), 'camera_cut_starts': list(prep.camera_cut_starts),
             'step_frames': int(step_frames), 'step_seconds': int(step_seconds), 'hold_seconds': int(hold_seconds),
-            'scalability': prep.scalability, 'result_path': str(result_path)}
+            'scalability': prep.scalability, 'result_path': str(result_path), 'only_frames': only}

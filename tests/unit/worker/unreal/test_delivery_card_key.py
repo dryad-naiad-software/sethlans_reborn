@@ -44,7 +44,9 @@ def _delivery(calls):
                         upload=lambda *args: calls.append(('upload',)),
                         report_pilot=lambda job_id, body: (calls.append(('pilot', body)),
                                                            api_extras.PilotReport('done', 200, ''))[1],
-                        report_shots=lambda job_id, body: calls.append(('shots', body)))
+                        report_shots=lambda job_id, body: calls.append(('shots', body)),
+                        upload_frame=lambda *args: calls.append(('frame',)),
+                        report_piece=lambda job_id, body: calls.append(('piece', body)))
     return Delivery(params(kind='pilot'), deps, Summary(), after_report=None)
 
 

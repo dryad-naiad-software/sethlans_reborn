@@ -14,9 +14,14 @@ FR-UE-12, FR-UE-13, FR-UE-15; S1, S3).
   (FR-UE-10); otherwise the FR-UE-13 rules apply: exit 0 and ``exited``,
   ``mrq_executor_finished == expected_jobs``, ``exit_status_zero >= 1`` and
   no fatal hit.
+* ``check_range`` (a piece, FR-SW-8): ``check_render`` with one MRQ job,
+  but a non-zero exit (or an end on the critical-error line) is accepted
+  when every frame exists, MRQ finished its job, nothing was cancelled and
+  the only fatal hit is ``critical_error`` with UE's ``NumberOfLoadsInFlight``
+  assertion in the log (U-7); the check carries ``accepted_exit``.
 """
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from sethlans_worker_agent.unreal_executor import log_validation
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure
@@ -25,6 +30,8 @@ RETRY_CANCELLED = ("Unreal render had {n} cancelled kernel compilations after wa
                    "(see render.2.log).")
 RETRY_QUIT = ("Unreal did not exit within {grace} s after the render finished, twice; cancelled compilations "
               "cannot be ruled out (see render.2.log).")
+LOADS_IN_FLIGHT = 'loads_in_flight_assert'
+ACCEPTED_WARNING = "Unreal exited {code} on its NumberOfLoadsInFlight assertion after every frame was written; frames kept."
 
 
 def _failure_text(phase: str, outcome) -> str:
@@ -66,6 +73,8 @@ class RenderCheck:
     scan: log_validation.LogScan
     retry: str = ''        # '' | 'cancelled' | 'quit_forced'
     cancelled: int = 0
+    accepted: bool = False
+    accepted_exit: Optional[int] = None  # FR-SW-8: the exit code accepted on the loads-in-flight assertion
 
 
 def _scan(outcome, log_path, max_bytes: Optional[int]) -> log_validation.LogScan:
@@ -74,7 +83,7 @@ def _scan(outcome, log_path, max_bytes: Optional[int]) -> log_validation.LogScan
     try:
         scan = log_validation.scan_log(log_path, max_bytes=max_bytes)
     except OSError as exc:
-        raise JobFailure(f"Unreal render log could not be read ({exc}).") from exc
+        raise JobFailure(f"Unreal render log could not be read ({type(exc).__name__}).") from exc
     if scan.oversized:
         raise JobFailure("Unreal render log grew past the size limit (log flood).")
     fatal = scan.fatal_hits()
@@ -101,6 +110,27 @@ def check_render(outcome, log_path, expected_jobs: int, max_bytes: Optional[int]
     if scan.count('exit_status_zero') < 1:
         raise JobFailure("Unreal render did not request a clean exit (RequestExitWithStatus(0, 0)).")
     return check
+
+
+def _accepted(outcome, log_path, max_bytes: Optional[int], frames_complete: Callable[[], bool]) -> Optional[RenderCheck]:
+    """FR-SW-8's one exception, or None when it does not apply (the normal rules then decide)."""
+    crashed = outcome.reason == 'fatal' and outcome.fatal_rule == 'critical_error'
+    if not crashed and not (outcome.reason == 'exited' and outcome.exit_code not in (0, None)):
+        return None
+    try:
+        scan = log_validation.scan_log(log_path, max_bytes=max_bytes)
+    except OSError:
+        return None
+    if scan.oversized or scan.count('compilation_cancelled') or not scan.count(LOADS_IN_FLIGHT) \
+            or not set(scan.fatal_hits()) <= {'critical_error'} or scan.executor_jobs() != 1 or not frames_complete():
+        return None
+    return RenderCheck(scan=scan, accepted=True, accepted_exit=outcome.exit_code)
+
+
+def check_range(outcome, log_path, frames_complete: Callable[[], bool], max_bytes: Optional[int] = None) -> RenderCheck:
+    """FR-SW-8 on one render attempt of a piece; raises ``JobFailure`` for a non-retryable failure."""
+    accepted = _accepted(outcome, log_path, max_bytes, frames_complete)
+    return accepted if accepted is not None else check_render(outcome, log_path, 1, max_bytes)
 
 
 def retry_failure(check: RenderCheck, quit_grace_s: float) -> JobFailure:

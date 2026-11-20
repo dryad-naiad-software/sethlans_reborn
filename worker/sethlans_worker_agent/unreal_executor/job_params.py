@@ -15,11 +15,13 @@ offending field. Checks:
   FR-MU-7; ``archive_path``/``overlay_path`` pass FR-MU-15 and equal their
   normalized forms; ``archive_sha256`` (and ``overlay_sha256`` with an
   overlay) passes ``validate_sha256``;
-* ``render_settings`` holds exactly the FR-MU-10 keys (map, sequence and
-  preset required, output format optional) with valid object paths, and
-  the output format is ``PNG`` (D5);
-* ``start_frame == end_frame``, ints in range (normal jobs only: a pilot's
-  frames come from the prep, FR-UE-25);
+* ``render_settings`` holds the FR-MU-10 keys (map, sequence and preset
+  required, output format optional) with valid object paths, plus only the
+  sequence keys the job may carry (``job_params_sequence``); the output
+  format is ``PNG`` (D5), or ``EXR`` for a sequence piece;
+* ``start_frame == end_frame``, ints in range (standalone render jobs; a
+  pilot's frames come from the prep, FR-UE-25; a sequence piece has a frame
+  range and a lead-in, ``job_params_sequence``);
 * ``engine_build`` matches ``BUILD_RE`` and is supported;
 * ``unreal_kind`` is ``'render'`` (also when missing), ``'pilot'`` or a
   sequence kind (``job_params_sequence``: ``'shots'``); a normal job needs
@@ -43,7 +45,7 @@ from shared.unreal.vram_gate import MAX_PEAK_MB
 
 MAP, SEQUENCE, PRESET, OUTPUT_FORMAT = 'unreal.map', 'unreal.sequence', 'unreal.preset', 'unreal.output_format'
 REQUIRED_SETTINGS = (MAP, SEQUENCE, PRESET)
-ALLOWED_SETTINGS = frozenset(REQUIRED_SETTINGS + (OUTPUT_FORMAT,))
+ALLOWED_SETTINGS = frozenset(REQUIRED_SETTINGS + (OUTPUT_FORMAT,)) | sequence.EXTRA_KEYS
 FRAME_MIN, FRAME_MAX = -10_000_000, 10_000_000
 KINDS = ('render', 'pilot') + sequence.KINDS
 
@@ -75,6 +77,7 @@ class JobParams:
     cvar_overrides: Tuple[Tuple[str, str], ...]
     merged: Tuple[Tuple[str, str], ...]
     share_root: Optional[UncPath] = None
+    seq: sequence.SequenceSettings = sequence.NONE
 
     @property
     def is_pilot(self) -> bool:
@@ -83,6 +86,14 @@ class JobParams:
     @property
     def is_shots(self) -> bool:
         return self.kind == sequence.SHOTS
+
+    @property
+    def is_piece(self) -> bool:
+        return self.seq.piece is not None
+
+    @property
+    def piece(self) -> Optional[sequence.Piece]:
+        return self.seq.piece
 
     @property
     def merged_dict(self) -> Dict[str, str]:
@@ -109,6 +120,7 @@ def _checked(field: str, fn, value):
 
 
 def _settings(raw) -> Tuple[str, str, str, str]:
+    """The base keys; the output format and the sequence keys are checked per job by ``job_params_sequence``."""
     _require(isinstance(raw, dict), 'render_settings', 'must be an object')
     unknown = sorted(set(raw) - ALLOWED_SETTINGS)
     _require(not unknown, 'render_settings', f"unknown keys {unknown}")
@@ -116,9 +128,7 @@ def _settings(raw) -> Tuple[str, str, str, str]:
     for key in REQUIRED_SETTINGS:
         _require(key in raw, 'render_settings', f"'{key}' is required")
         values.append(_checked(f'render_settings.{key}', validation.validate_object_path, raw[key]))
-    output = raw.get(OUTPUT_FORMAT, 'PNG')
-    _require(output == 'PNG', 'render_settings.unreal.output_format', 'only PNG is supported (D5)')
-    return values[0], values[1], values[2], output
+    return values[0], values[1], values[2], raw.get(OUTPUT_FORMAT, 'PNG')
 
 
 def _relpath(field: str, value, kind: str, suffix=None) -> str:
@@ -183,18 +193,20 @@ def validate_job_data(job_data: dict) -> JobParams:
     _require(job_data.get('renderer') == 'UNREAL', 'renderer', "must be 'UNREAL'")
     asset_raw = job_data.get('asset')
     asset = _asset(asset_raw)
-    map_path, sequence, preset, output = _settings(job_data.get('render_settings'))
+    map_path, sequence_path, preset, output = _settings(job_data.get('render_settings'))
     build = job_data.get('engine_build')
     _require(isinstance(build, str) and _checked('engine_build', builds.parse_build, build) is not None,
              'engine_build', 'invalid')
     _require(builds.is_supported(build), 'engine_build', 'not a supported build')
     kind, peak = _kind_and_peak(job_data)
-    frame = _frame(job_data) if kind == 'render' else None  # a pilot's frames come from the prep; shots render none
+    seq = sequence.settings(kind, job_data, job_data['render_settings'], output, _require)
+    # A pilot's frames come from the prep (or the manager's list); shots render none; a piece has a range.
+    frame = _frame(job_data) if kind == 'render' and seq.piece is None else None
     overrides = _overrides(asset_raw)
     try:
-        merged = tuple(cvars.merge(overrides=dict(overrides)))
+        merged = tuple(cvars.merge(overrides=dict(overrides), draft=dict(seq.draft_cvars)))
     except ValueError as exc:
         raise JobDataError('asset.project_details.unreal_cvar_overrides', str(exc)) from None
-    return JobParams(job_id=job_id, kind=kind, engine_build=build, map=map_path, sequence=sequence, preset=preset,
-                     output_format=output, frame=frame, measured_peak_mb=peak, cvar_overrides=overrides,
-                     merged=merged, **asset)
+    return JobParams(job_id=job_id, kind=kind, engine_build=build, map=map_path, sequence=sequence_path,
+                     preset=preset, output_format=output, frame=frame, measured_peak_mb=peak,
+                     cvar_overrides=overrides, merged=merged, seq=seq, **asset)

@@ -5,7 +5,7 @@
 Unreal log rules, as data (Unreal foundation FR-UE-12, FR-UE-13, FR-UE-15;
 v4.1: S1, S3; review Sec S3, S1).
 
-``LOG_RULES`` is a tuple of ``LogRule``, versioned ``LOG_RULES_VERSION = 3``.
+``LOG_RULES`` is a tuple of ``LogRule``, versioned ``LOG_RULES_VERSION = 4``.
 Lines carry a ``[timestamp][frame]`` prefix, so rules search anywhere in a
 line. Severities: ``fatal`` (the runner terminates at once; the job fails
 without retry), ``retry`` (FR-UE-10), ``warn`` and ``info``.
@@ -35,7 +35,7 @@ from typing import Dict, Iterable, List, Optional, Pattern, Tuple
 
 from sethlans_worker_agent.unreal_executor.log_tail import MB, iter_log_lines
 
-LOG_RULES_VERSION = 3
+LOG_RULES_VERSION = 4
 SEVERITIES = ('fatal', 'retry', 'warn', 'info')
 LOG_FLOOD = 'log_flood'
 MAX_CAPTURES_PER_RULE = 256
@@ -114,6 +114,10 @@ LOG_RULES: Tuple[LogRule, ...] = (
           r"as it is lower priority", 'info', capture=True, then=r"Value remains '([^']{0,256})'",
           literals=('was ignored as it is lower priority',)),
     _rule('dp_cvar_set', r'Setting CommandLine Device Profile CVar: \[\[([^:\]]{1,256}):', 'info', capture=True),
+    # v4 (sequence rendering FR-SW-8, U-7): UE's audio streaming cache can assert at shutdown after every frame
+    # was written; counted here, and a piece accepts it only together with the render check's other conditions.
+    _rule('loads_in_flight_assert', r'Assertion failed: NumberOfLoadsInFlight', 'warn',
+          literals=('NumberOfLoadsInFlight',)),
     _rule(LOG_FLOOD, None, 'fatal'),
 )
 

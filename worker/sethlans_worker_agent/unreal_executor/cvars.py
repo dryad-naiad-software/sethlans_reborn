@@ -5,20 +5,16 @@
 CVar merge and the effective-CVar check (Unreal foundation FR-UE-5,
 FR-UE-8 step 4a; R10; v4.1: S1).
 
-* ``merge(farm, overrides, critical)``: farm defaults < per-project
-  overrides < farm-critical, names compared case-insensitively (UE treats
-  them as one). Output order: the farm keys in declared order, then the
-  rest sorted. Every name and value is re-validated with
-  ``shared.unreal.validation``.
-* ``cvars_sha256(merged)``: SHA-256 of the canonical ``-DPCVars`` string
-  (the warm-up marker key, FR-UE-9).
-* ``check_effective(effective, merged)``: the prep's ``effective_cvars``
-  are untrusted (names must pass ``CVAR_NAME_RE`` and be in the merged set;
-  values are truncated to 64 characters and stripped of control
-  characters). Values are normalized (``true``/``false`` -> ``1``/``0``;
-  two numbers compare numerically). A differing ``POOL_CVARS`` or
-  ``FARM_CVARS`` value fails the job; any other difference is a
-  ``cvar_overridden=<name>`` warning.
+* ``merge(farm, overrides, critical, draft)``: farm defaults < project overrides < a piece's draft CVars
+  (sequence D11, R10; a draft value only ever lowers, ``draft_tier``) < farm-critical, names compared
+  case-insensitively (UE treats them as one). Farm keys first in declared order, then the rest sorted; every
+  name and value re-validated with ``shared.unreal.validation``.
+* ``cvars_sha256(merged)``: SHA-256 of the ``-DPCVars`` string; ``warmup_cvars_sha256``, the warm-up marker
+  key (FR-UE-9), leaves out the shader-neutral CVars.
+* ``check_effective(effective, merged)``: the prep's ``effective_cvars`` are untrusted (names must pass
+  ``CVAR_NAME_RE`` and be in the merged set; values truncated to 64 characters, control characters stripped).
+  Values are normalized (``true``/``false`` -> ``1``/``0``; two numbers compare numerically). A differing
+  ``POOL_CVARS`` or ``FARM_CVARS`` value fails the job; any other is a ``cvar_overridden=<name>`` warning.
 """
 import hashlib
 import re
@@ -29,14 +25,21 @@ from shared.unreal import validation, vram_gate
 
 MAX_VALUE = 64
 _CONTROL = re.compile(r'[\x00-\x1f\x7f]')
+# D11: the only CVars a draft sends, by draft key (motion blur: also temporal samples 1 on the preset copy).
+DRAFT_CVARS = {'screen_percentage': 'r.ScreenPercentage', 'ray_traced_shadows': 'r.RayTracing.Shadows',
+               'ray_traced_reflections': 'r.Lumen.Reflections.HardwareRayTracing', 'motion_blur': 'r.MotionBlurQuality'}
+# Shader-neutral, so left out of the warm-up key; the ray-tracing and Lumen switches change shaders and stay in.
+WARMUP_NEUTRAL = frozenset({'r.screenpercentage', 'r.motionblurquality'})
 _NAME = re.compile(validation.CVAR_NAME_RE, re.ASCII)
 
 
 def merge(farm: Optional[dict] = None, overrides: Optional[dict] = None,
-          critical: Optional[dict] = None) -> List[Tuple[str, str]]:
+          critical: Optional[dict] = None, draft: Optional[dict] = None) -> List[Tuple[str, str]]:
     """The merged ``(name, value)`` list; raises ``ValueError`` on an invalid entry."""
     farm = dict(farm_defaults.FARM_CVARS if farm is None else farm)
-    tiers = [farm, dict(overrides or {}), dict(farm_defaults.FARM_CRITICAL_CVARS if critical is None else critical)]
+    below = {name.casefold(): value for tier in (farm, overrides or {}) for name, value in tier.items()}
+    tiers = [farm, dict(overrides or {}), draft_tier(draft or {}, below),
+             dict(farm_defaults.FARM_CRITICAL_CVARS if critical is None else critical)]
     values: Dict[str, Tuple[str, str]] = {}  # folded name -> (name as first declared, value)
     for tier in tiers:
         for name, value in validation.validate_cvars(tier).items():
@@ -52,12 +55,28 @@ def merge(farm: Optional[dict] = None, overrides: Optional[dict] = None,
     return merged
 
 
+def draft_tier(draft: dict, below: Dict[str, str]) -> dict:
+    """D11: a draft value a lower tier sets too (``below``, folded) stays only when both are numbers and it is lower."""
+    kept = {}
+    for name, value in draft.items():
+        current = below.get(str(name).casefold())
+        low, high = _numeric(normalize(str(value))), _numeric(normalize(current)) if current is not None else None
+        if current is None or (low is not None and high is not None and low < high):
+            kept[name] = value
+    return kept
+
+
 def dpcvars_string(merged: Sequence[Tuple[str, str]]) -> str:
     return ','.join(f"{name}={value}" for name, value in merged)
 
 
 def cvars_sha256(merged: Sequence[Tuple[str, str]]) -> str:
     return hashlib.sha256(dpcvars_string(merged).encode('ascii')).hexdigest()
+
+
+def warmup_cvars_sha256(merged: Sequence[Tuple[str, str]]) -> str:
+    """The warm-up marker key (FR-UE-9): ``cvars_sha256`` without the ``WARMUP_NEUTRAL`` CVars."""
+    return cvars_sha256([(name, value) for name, value in merged if name.casefold() not in WARMUP_NEUTRAL])
 
 
 def sanitize_value(value) -> str:

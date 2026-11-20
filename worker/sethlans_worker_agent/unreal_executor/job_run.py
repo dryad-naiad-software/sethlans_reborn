@@ -10,10 +10,11 @@ Order: cancel watcher -> ``j/<id>-<att8>/`` -> ``prepare_workspace``
 (cache, overlay, working copy) -> ``zen_guard.scan_project_config`` ->
 ``UeFlow`` (prep, warm-up, render, retry; each launch through the
 pre-launch check; a ``shots`` job runs ``ShotsFlow``, the prep alone,
-FR-SD-4) -> **outermost** ``finally``: ``registry.confirm_all()``
-(no UE process outlives ``execute``), survivors handling, then
-``JobWorkspace.finish(survivors=..., abort=NEVER)`` -> delivery (upload
-from the checked handle, or ``pilot-result/``, or ``shots-result/``, or
+FR-SD-4; a sequence piece ``RangeFlow``, FR-SW-3) -> **outermost**
+``finally``: ``registry.confirm_all()`` (no UE process outlives
+``execute``), survivors handling, then ``JobWorkspace.finish(survivors=...,
+abort=NEVER)`` -> delivery (upload from the checked handle, or
+``pilot-result/``, ``shots-result/``, ``frames/`` and ``piece-result/``, or
 release).
 
 Survivors (from a phase or ``confirm_all``): ``reservation.retain_until_
@@ -53,7 +54,7 @@ from sethlans_worker_agent.unreal_executor.job_flow import UeFlow
 from sethlans_worker_agent.unreal_executor.outcomes import Cancelled, JobFailure, LocalConflict, SurvivorsLeft
 from sethlans_worker_agent.unreal_executor.runner_types import (
     SURVIVORS_DISABLED_REASON, SURVIVORS_MESSAGE, UnconfinedLaunchError)
-from sethlans_worker_agent.unreal_executor.sequence_flow import ShotsFlow
+from sethlans_worker_agent.unreal_executor.sequence_flow import RangeFlow, ShotsFlow
 from sethlans_worker_agent.unreal_executor.summary import Summary
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,8 @@ class JobRun:
         runner.card_key = gate.card_key  # the gated card: the traces of a launch without a choice (D22)
         marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build)
         profile = user_state.profile_dir(cache_dir)
-        flow_class = ShotsFlow if self.params.is_shots else UeFlow  # FR-SD-4: shots run the prep only
+        # FR-SD-4: shots run the prep only; a sequence piece renders a frame range (FR-SW-3).
+        flow_class = ShotsFlow if self.params.is_shots else RangeFlow if self.params.is_piece else UeFlow
         flow = flow_class(self.params, self.deps.launch_context(self.install, cache_dir), self.job, runner,
                           self.summary, self.deps.builders, marker, self.ws.working_copy.uproject,
                           self.deps.flow_config(profile), reading=gate.reading, choose=self.deps.choose_adapter,
@@ -264,7 +266,7 @@ class JobRun:
                 outcome = self._attempt()
             finally:
                 outcome, integrity_ok = self._confirm_and_finish(outcome)
-            delivery = Delivery(self.params, self.deps.delivery, self.summary, self._after_report())
+            delivery = Delivery(self.params, self.deps.delivery, self.summary, self._after_report(), cause=self.cause)
             return delivery.deliver(outcome, integrity_ok)
         finally:
             watcher.stop()

@@ -40,6 +40,8 @@ class World:
         self.share_error = None
         self.pilot_report = api_extras.PilotReport('done', 200)
         self.shots_report = api_extras.PilotReport('done', 200)
+        self.piece_report = api_extras.PilotReport('done', 200)
+        self.frame_reports = []  # one PilotReport per frames/ call, in order; 'done' when empty
         self.upload_result = True
         self.retained = False
         self.params = params(kind=kind)
@@ -90,6 +92,10 @@ class World:
             raise self.upload_result
         return self.upload_result
 
+    def upload_frame(self, job_id, frame, handle, filename):
+        self.calls.append(('frame', frame, filename, handle.read()))
+        return self.frame_reports.pop(0) if self.frame_reports else api_extras.PilotReport('done', 200)
+
     def deps(self):
         return job_run.RunDeps(
             cache=lambda: SimpleNamespace(layout=self.layout), limits=lambda: None, reachability=lambda: None,
@@ -105,7 +111,10 @@ class World:
                                   report_pilot=lambda job_id, body: (self.calls.append(('pilot', body)),
                                                                      self.pilot_report)[1],
                                   report_shots=lambda job_id, body: (self.calls.append(('shots', job_id, body)),
-                                                                     self.shots_report)[1]),
+                                                                     self.shots_report)[1],
+                                  upload_frame=self.upload_frame,
+                                  report_piece=lambda job_id, body: (self.calls.append(('piece', job_id, body)),
+                                                                     self.piece_report)[1]),
             disable_until_restart=lambda reason: self.calls.append(('disable', reason)),
             keep_job_logs=lambda: 10, prep_timeout_s=lambda: 60, cancel_poll_s=lambda: 60)
 

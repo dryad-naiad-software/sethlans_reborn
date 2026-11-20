@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-The UE phases of sequence rendering's job kinds (FR-SD-4; ``RangeFlow`` and
-``AudioFlow`` come with pieces and sound).
+The UE phases of sequence rendering's job kinds (FR-SD-4, FR-SW-3..11;
+``AudioFlow`` comes with sound).
 
 ``ShotsFlow`` (kind ``shots``) runs the prep commandlet in mode
 ``list_shots`` and nothing else: no warm-up, no render, no
@@ -12,18 +12,61 @@ memory sampling. It reuses ``UeFlow``'s constructor and quit notes; the
 launch goes through ``PhaseRunner.launch`` like every other phase (the
 pre-launch checks, the Zen verification, the cancel and shutdown rules).
 The result is parsed strictly by ``sequence_prep.parse_shots``.
-"""
-from dataclasses import dataclass
 
-from sethlans_worker_agent.unreal_executor import job_dir, queue_prep, render_check, sequence_prep
-from sethlans_worker_agent.unreal_executor.job_flow import UeFlow
-from sethlans_worker_agent.unreal_executor.outcomes import JobFailure
+``RangeFlow`` (a piece: kind ``render`` with a frame range) is ``UeFlow``
+with four hooks replaced:
+
+* before the prep, the disk check (FR-SW-11): ``rendered frames x w x h x
+  B`` bytes (``B`` 4 for PNG, 8 for EXR; ``[w, h]`` from
+  ``unreal.output_size``) must fit in the cache drive's free space above
+  ``MIN_FREE_GB``, else the piece is released (``local_conflict``) with a
+  message naming both figures; without an output size it is skipped;
+  frames other job directories still hold count as free (``leftover_bytes``);
+* the prep runs in mode ``prepare_range`` (one duplicate over ``[start -
+  lead, end + 1)``); the preset's own draft CVars (``draft_conflicts``)
+  become summary warnings (FR-SW-5);
+* the warm-up visits the frames the piece renders first in each shot
+  (FR-SW-6, at most 64): the lead-in's first frame (the shot the lead-in
+  starts in is not in ``unreal.piece_shots``, so the worker takes it from
+  the range), each covered shot's first kept frame, and every camera-cut
+  start inside the rendered range (from the prep);
+* the render check accepts FR-SW-8's loads-in-flight exit;
+* the output step checks every rendered frame, deletes the lead-in files
+  (``output.collect_range``), and records the per-shot timings
+  (``frame_timing``) and the card the piece rendered on.
+"""
+import shutil
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional, Sequence
+
+from sethlans_worker_agent.project_archive import fs_safe
+from sethlans_worker_agent.unreal_executor import (
+    frame_timing, job_dir, output, pilot, queue_prep, render_check, sequence_prep)
+from sethlans_worker_agent.unreal_executor.job_flow import FlowResult, UeFlow
+from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
+
+GIB = 1024 ** 3
+MAX_WARM_FRAMES = 64
+DRAFT_CONFLICT = "The preset sets {name} itself; the draft could not change it."
+MOTION_BLUR_PATHS = ('samples1_pp_off',)
+DISK_MESSAGE = ("This piece needs up to {need:.1f} GB for its {frames} frames, but the cache drive has only "
+                "{free:.1f} GB free above the {reserve} GB reserve.")
 
 
 @dataclass
 class ShotsResult:
     discovery: sequence_prep.Discovery
     prep_s: float
+
+
+@dataclass(frozen=True)
+class PieceOutput:
+    frames: tuple                    # the kept frame numbers, in the order of FlowResult.outputs
+    timing: frame_timing.PieceTiming
+    vram_peak_mb: Optional[int]
+    card: object = None              # the reading's GpuMem of the card it rendered on, or None (the override)
 
 
 class ShotsFlow(UeFlow):
@@ -51,3 +94,129 @@ class ShotsFlow(UeFlow):
                              'shots': len(discovery.shots), 'frame_rate': '/'.join(map(str, discovery.frame_rate)),
                              'playback_range': '-'.join(map(str, discovery.playback_range)), 'warmup': 'skipped'})
         return ShotsResult(discovery, self.prep_s)
+
+
+def warm_frames(piece, cut_starts: Sequence[int]) -> List[int]:
+    """FR-SW-6: the first frame the piece renders in each shot it touches, lead-in included; at most 64."""
+    frames = {piece.first} | {start for _index, start, _end in piece.shots}
+    frames |= {cut for cut in cut_starts if piece.first <= cut <= piece.end}
+    return sorted(frames)[:MAX_WARM_FRAMES]
+
+
+def disk_need(piece, ext: str) -> Optional[int]:
+    """FR-SW-11: the bytes a piece's frames can take (uncompressed RGBA), or None without an output size."""
+    if piece.output_size is None:
+        return None
+    width, height = piece.output_size
+    return piece.rendered * width * height * (8 if ext == 'exr' else 4)
+
+
+def leftover_bytes(jobs_dir, own) -> int:
+    """Bytes in other job directories' ``output\\``: a finished job's frames wait for its post-report cleanup,
+    which runs after its card is freed, so the next piece would otherwise count them as used (they go soon)."""
+    total = 0
+    for entry in Path(jobs_dir).iterdir() if jobs_dir is not None else ():
+        out = entry / 'output'
+        if entry.name == Path(own).name or not out.is_dir():
+            continue
+        try:
+            total += sum(fs_safe.lstat(out / rel).st_size for rel in fs_safe.walk_tree(out).files)
+        except OSError:
+            continue  # unsafe or gone meanwhile: not counted
+    return total
+
+
+def check_disk(piece, ext: str, output_dir, reserve_gb: int, free_bytes=None, leftover: int = 0) -> Optional[int]:
+    """Raise ``LocalConflict`` when the piece's frames do not fit above the reserve; returns the estimate.
+
+    One Unreal job runs per machine (the Unreal token), so no other piece writes frames meanwhile; a Blender job
+    on another card writes elsewhere and is not counted (an accepted gap)."""
+    need = disk_need(piece, ext)
+    if need is None:
+        return None
+    free = shutil.disk_usage(output_dir).free if free_bytes is None else free_bytes
+    available = free + leftover - reserve_gb * GIB
+    if need > available:
+        raise LocalConflict('local_conflict', DISK_MESSAGE.format(need=need / GIB, frames=piece.rendered,
+                                                                  free=max(available, 0) / GIB, reserve=reserve_gb))
+    return need
+
+
+def card_of(choice, reading):
+    """The reading's card the piece rendered on (by card key), or None (the override, or not found)."""
+    try:
+        return pilot.check_card(choice, reading)
+    except JobFailure:
+        return None
+
+
+def _reserve_gb() -> int:
+    from sethlans_worker_agent import config_unreal
+    return config_unreal.MIN_FREE_GB
+
+
+class RangeFlow(UeFlow):
+    """A sequence piece: one Unreal launch over ``[start - lead, end]``; the lead-in frames are thrown away."""
+    launched_at = 0.0
+    reserve_gb = staticmethod(_reserve_gb)
+
+    @property
+    def ext(self) -> str:
+        return 'exr' if self.params.output_format == 'EXR' else 'png'
+
+    def _prep_params(self) -> dict:
+        job = self.job
+        return sequence_prep.range_params(self.params, job.output, job.prep_result, job.scripts)
+
+    def _warm_frames(self, prep) -> List[int]:
+        return warm_frames(self.params.piece, prep.camera_cut_starts)
+
+    def prep(self) -> queue_prep.PrepResult:
+        piece, root = self.params.piece, getattr(self.job, 'root', None)
+        leftover = leftover_bytes(root.parent, root) if root is not None and piece.output_size else 0
+        need = check_disk(piece, self.ext, self.job.output, self.reserve_gb(), leftover=leftover)
+        self.summary.update({'piece': f"{piece.start}-{piece.end}", 'lead_in': piece.lead,
+                             'output_format': self.params.output_format,
+                             'disk_need_gb': '' if need is None else round(need / GIB, 1)})
+        prep = super().prep()
+        try:
+            data = queue_prep.load(self.job.prep_result)
+            conflicts = sequence_prep.draft_conflicts(data, sequence_prep.sent_draft_cvars(self.params))
+        except queue_prep.PrepError as exc:
+            raise JobFailure(str(exc)) from exc
+        for name in conflicts:
+            self.summary.append('draft_conflicts', name)
+            self.summary.warn(DRAFT_CONFLICT.format(name=name))
+        if dict(self.params.seq.draft).get('motion_blur') is False:  # which path U-3 saw (edits module)
+            self.summary.set('motion_blur_off', queue_prep.allowed_word((data or {}).get('motion_blur_off'),
+                                                                        MOTION_BLUR_PATHS))
+        return prep
+
+    def render(self, prep, attempt: int):
+        run, check, before = super().render(prep, attempt)
+        self.launched_at = time.time() - run.outcome.wall_s  # the render process's start, on the files' clock
+        return run, check, before
+
+    def _check_render(self, run, prep):
+        piece, job_id, out = self.params.piece, self.params.job_id, self.job.output
+        check = render_check.check_range(
+            run.outcome, run.log_path, lambda: output.range_complete(out, job_id, piece.first, piece.end, self.ext),
+            self.config.log_max_bytes)
+        if check.accepted:
+            self.summary.set('exit_accepted', check.accepted_exit)
+            self.summary.warn(render_check.ACCEPTED_WARNING.format(code=check.accepted_exit))
+        return check
+
+    def _collect(self, result: FlowResult, prep, run, before) -> FlowResult:
+        piece, job_id = self.params.piece, self.params.job_id
+        out = output.collect_range(self.job.output, job_id, piece.start, piece.end, piece.lead, self.ext)
+        timing = frame_timing.piece_timing([(frame, mtime) for frame, _path, mtime in out.kept], out.lead_mtimes,
+                                           self.launched_at, piece.shots)
+        for text in timing.warnings:
+            self.summary.warn(text)
+        result.outputs = [path for _frame, path, _mtime in out.kept]
+        result.piece = PieceOutput(frames=tuple(frame for frame, _path, _mtime in out.kept), timing=timing,
+                                   vram_peak_mb=run.outcome.vram_peak_mb, card=card_of(self.choice, self.reading))
+        self.summary.update({'output': f"{len(out.kept)} {self.ext.upper()} frames",
+                             'lead_in_deleted': len(out.lead_mtimes)})
+        return result
