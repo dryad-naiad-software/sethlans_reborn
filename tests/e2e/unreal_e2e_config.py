@@ -54,6 +54,24 @@ RENDER_SETTINGS = {
     "unreal.output_format": "PNG",
 }
 FRAME = 1000
+# Below this the pilot's peak for the PoC is a broken measurement; the
+# upper bound is the measured card's own memory (``peak_upper_bound_mb``).
+MIN_PILOT_PEAK_MB = 6000
+
+
+def peak_upper_bound_mb(gpus, gpu_name, gpu_total_mb):
+    """The measured card's total memory in MB, or ``None`` when unknown.
+
+    ``gpus`` is the worker's heartbeat ``gpu_memory.gpus`` list; the card is
+    the entry named ``gpu_name`` (the measurement's card). Cards with that
+    name but different totals are ambiguous, so the measurement's own
+    ``gpu_total_mb`` is used then, and when no entry matches.
+    """
+    totals = {
+        gpu.get("total_mb") for gpu in gpus or []
+        if gpu.get("name") == gpu_name and gpu.get("total_mb")
+    }
+    return totals.pop() if len(totals) == 1 else gpu_total_mb
 
 
 def archive_on_share():

@@ -35,8 +35,10 @@ from tests.e2e.unreal_network_watch import FarmNetworkWatch
 from tests.e2e.unreal_e2e_config import (
     ENGINE_BUILD,
     FRAME,
+    MIN_PILOT_PEAK_MB,
     RENDER_SETTINGS,
     archive_on_share,
+    peak_upper_bound_mb,
     unreal_skip_reason,
 )
 from tests.e2e.unreal_workflow_harness import (
@@ -58,8 +60,6 @@ PILOT_TIMEOUT = 7200
 # FR-T-8: the normal job is DONE within 120 min after the pilot (a warm
 # render took ~70 s on the dev machine).
 RENDER_TIMEOUT = 7200
-# A plausible pilot peak for the PoC (the dev machine measured 9,229 MB).
-PEAK_RANGE_MB = (6000, 12000)
 OUTPUT_SIZE = (1920, 1080)
 PENDING_NOTE = "Waiting for this project's memory measurement (pilot render)."
 
@@ -153,13 +153,27 @@ class TestUnrealWorkflow(UnrealWorkflowHarness):
             f"CSV peak {csv_peak} MB is not within 10% of the peak {peak} MB"
         )
 
+    def _card_total_mb(self, latest):
+        """The measured card's total memory from this worker's heartbeat reading."""
+        hostname = self.worker_data["hostname"]
+        workers = [w for w in self._get("/api/heartbeat/") if w.get("hostname") == hostname]
+        gpus = (workers[0].get("gpu_memory") or {}).get("gpus") if workers else None
+        logger.info("Measured card %s; worker GPU reading: %s", latest["gpu_name"], gpus)
+        return peak_upper_bound_mb(gpus, latest["gpu_name"], latest["gpu_total_mb"])
+
     def _assert_measurement(self, pilot_id):
         """The project's measurement is recorded and plausible; nothing is held."""
         measurement = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]
         latest = measurement["latest"]
         assert latest["status"] == "measured", latest
         assert latest["pilot_job_id"] == pilot_id, latest
-        assert PEAK_RANGE_MB[0] <= latest["peak_mb"] <= PEAK_RANGE_MB[1], latest
+        # The peak varies by card and driver: at least a working measurement,
+        # at most the measured card's own memory (the worker's reading).
+        card_total = self._card_total_mb(latest)
+        assert card_total, f"No total memory for the measured card: {latest}"
+        assert MIN_PILOT_PEAK_MB <= latest["peak_mb"] <= card_total, (
+            f"Peak {latest['peak_mb']} MB is outside {MIN_PILOT_PEAK_MB}..{card_total} MB: {latest}"
+        )
         assert latest["engine_build"] == ENGINE_BUILD, latest
         assert latest["worker_hostname"] == self.worker_data["hostname"], latest
         assert latest["prep_s"] is not None, latest
@@ -219,6 +233,8 @@ class TestUnrealWorkflow(UnrealWorkflowHarness):
             self.session, f"{self.base_url}/api/jobs/{pilot_id}/",
             PILOT_TIMEOUT, watch.sample, held_url=job_url,
         )
+        # Before any check can fail: the pilot summary in the console.
+        logger.info("Pilot %s summary:\n%s", pilot.get("status"), pilot.get("last_output"))
         self._assert_pilot(pilot)
         peak = self._assert_measurement(pilot_id)
 
