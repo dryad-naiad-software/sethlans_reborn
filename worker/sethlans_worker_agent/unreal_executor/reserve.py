@@ -33,6 +33,11 @@ not claimed):
    (FR-GU-10). The reservation keeps that gate: the job's first launch is
    asked for its card (``gate.card_key``).
 
+A ``shots`` job (sequence rendering D3, FR-SD-3) skips only the memory gate
+(steps 6 and 9: no reading is needed, no card is chosen); every other check
+runs, and its reservation carries the Unreal cards in use (step 4), so the
+exclusive reservation can mark them.
+
 **No resource is held when this returns None or raises** (chunk 3 L2): the
 token is released on every such path. ``ProbePending`` is raised only when
 the sole reason to decline is a probe still pending.
@@ -185,6 +190,8 @@ class Reserver:
         return None if pending else True
 
     def _fresh_gate(self, params):
+        if params.is_shots:  # D3: no memory gate, no reading, no card choice; the card keys are still held
+            return vram_gate_check.evaluate(params, None)
         sampler = self.deps.sampler()
         if sampler is None:
             self._skip(params.job_id, "no GPU memory reading.")

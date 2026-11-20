@@ -20,6 +20,10 @@ job's first launch renders on:
   caps_sum_mb(merged), total, used)``, i.e. ``measured_need_mb(peak) + used
   <= floor(total * 0.93)`` and the caps sanity bound.
 
+* **shots** (sequence rendering D3, FR-SD-3): never gated; the prep
+  commandlet uses no GPU, so no reading is needed (gate ``skipped``, no
+  card key). The reservation still holds the Unreal cards in use.
+
 No reading (``None``) or no GPU in it fails. The result carries the
 checked card's key (``card_key``, ``None`` with the override), the
 FR-UE-21 log line and the summary values (the checked card, and
@@ -35,7 +39,7 @@ from shared.unreal import vram_gate
 @dataclass(frozen=True)
 class GateResult:
     ok: bool
-    gate: str                     # 'pilot' | 'measured'
+    gate: str                     # 'pilot' | 'measured' | 'skipped'
     message: str = ''
     need_mb: Optional[int] = None
     summary: Dict[str, object] = field(default_factory=dict)
@@ -64,6 +68,8 @@ def _summary(params, gate: str, need: int, gpu, source: str) -> Dict[str, object
 
 
 def evaluate(params, reading) -> GateResult:
+    if params.is_shots:  # D3: no memory gate and no card reading
+        return GateResult(True, 'skipped', summary={'vram_gate': 'skipped'})
     gate = 'pilot' if params.is_pilot else 'measured'
     if reading is None or not reading.gpus:
         return GateResult(False, gate, "no usable GPU memory reading.")

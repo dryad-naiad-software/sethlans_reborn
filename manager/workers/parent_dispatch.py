@@ -24,7 +24,7 @@ import threading
 
 from django.db import transaction
 
-from .constants import TilingConfiguration
+from .constants import TilingConfiguration, UnrealKind
 from .models import Animation, AnimationFrame, AnimationFrameStatus
 from .parent_status import (
     refresh_animation_frame,
@@ -139,7 +139,7 @@ def dispatch_animation_frame(frame_id):
 
 
 def dispatch_for_job(job):
-    """Recompute the parent of a saved child ``Job``."""
+    """Recompute the parent of a saved child ``Job`` (a ``shots`` job's discovery too)."""
     if job.animation_frame_id:
         dispatch_animation_frame(job.animation_frame_id)
     elif job.animation_id:
@@ -147,6 +147,10 @@ def dispatch_for_job(job):
             dispatch_untiled_animation(job.animation_id)
     elif job.tiled_job_id:
         dispatch_tiled_job(job.tiled_job_id)
+    elif job.unreal_kind == UnrealKind.SHOTS:
+        # Sequence FR-SD-9: imported here, the service imports the renderers.
+        from .services.sequence_discovery import on_shots_job_saved
+        on_shots_job_saved(job)
 
 
 def dispatch_animation(animation_id):

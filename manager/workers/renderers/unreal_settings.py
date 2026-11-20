@@ -22,6 +22,7 @@ from ..constants import (
     FORMAT_EXTENSIONS, PILOT_NAME_PREFIX, UNREAL_OUTPUT_FORMATS, CyclesFeatureSet,
     RenderDevice, RenderEngine,
 )
+from ..constants_sequence import SEQUENCE_NAME_PREFIX
 
 MAP = 'unreal.map'
 SEQUENCE = 'unreal.sequence'
@@ -113,12 +114,14 @@ def _output_pattern_errors(attrs, instance, errors):
 
 
 def _reserved_name_errors(attrs, instance, errors):
-    """FR-PM-9: ``sethlans-pilot-`` names belong to manager-created pilots."""
+    """FR-PM-9, sequence D20: ``sethlans-pilot-`` and ``sethlans-seq-`` names are the manager's."""
     name = attrs.get('name')
     if not isinstance(name, str) or (instance is not None and name == instance.name):
         return
     if name.lower().startswith(PILOT_NAME_PREFIX):
         errors['name'] = [f'Names starting with "{PILOT_NAME_PREFIX}" are reserved for pilot jobs.']
+    elif name.lower().startswith(SEQUENCE_NAME_PREFIX):
+        errors['name'] = [f'Names starting with "{SEQUENCE_NAME_PREFIX}" are reserved for sequence renders.']
 
 
 def validate_unreal_job(attrs, instance):

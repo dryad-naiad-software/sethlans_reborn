@@ -34,24 +34,27 @@ from ..serializers.unreal_measurement import (
     PilotGpuSerializer, PilotResultRequestSerializer, PilotResultResponseSerializer,
     PilotShotSerializer,
 )
+from ..services.job_kind_rules import (
+    done_only_by_result, never_requeued, pilot_done_message, pilot_requeue_message,
+)
 from ..services.pilot_result import record_pilot_result
 from ..services.row_locks import lock_own_rows
-from ..services.worker_job_writes import pilot_done_message, pilot_requeue_message
+from ..services.sequence_discovery import before_shots_job_delete
 from ..strict_json import unknown_keys
 
 _ERROR = inline_serializer('PilotResultError', {'error': serializers.CharField()})
 
 
 def refuse_pilot_done(job, data):
-    """Raise a 400 when a write would set a pilot to DONE (FR-RT-14, FR-PM-9)."""
-    if (job.unreal_kind == UnrealKind.PILOT and hasattr(data, 'get')
+    """Raise a 400 when a write would set a pilot, shots or audio job DONE (FR-RT-14, D12)."""
+    if (done_only_by_result(job) and hasattr(data, 'get')
             and data.get('status') == JobStatus.DONE):
         raise ValidationError({'detail': pilot_done_message(job)})
 
 
 def pilot_requeue_refusal(job):
-    """The 409 text for ``requeue/`` on a pilot, else ``None`` (FR-PM-9)."""
-    if job.unreal_kind != UnrealKind.PILOT:
+    """The 409 text for ``requeue/`` on a pilot or shots job, else ``None`` (FR-PM-9)."""
+    if not never_requeued(job):
         return None
     return pilot_requeue_message(job)
 
@@ -90,6 +93,9 @@ class JobPilotActionsMixin:
         with transaction.atomic():
             locked = lock_own_rows(Job.objects).filter(pk=instance.pk).first()
             if locked is not None:
+                if locked.unreal_kind == UnrealKind.SHOTS:
+                    # FR-SD-9: its discovery fails after commit.
+                    before_shots_job_delete(locked)
                 instance.delete()
 
     @extend_schema(

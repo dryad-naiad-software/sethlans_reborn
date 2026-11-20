@@ -20,7 +20,10 @@ from tests.unit.worker.unreal.test_ue_scripts import poc_assets, run
 REPO = Path(__file__).resolve().parents[4]
 SHOTS_PATH = job_dir.SCRIPTS_SOURCE / job_dir.SHOTS_SCRIPT
 PREP_PATH = job_dir.SCRIPTS_SOURCE / job_dir.PREP_SCRIPT
-HELPERS = {'rate', 'active', 'shot_sections', 'cuts_of', 'in_shot_cut', 'cut_starts', 'frame_in_cut', 'pilot_frames'}
+HELPERS = {'rate', 'active', 'shot_sections', 'cuts_of', 'in_shot_cut', 'cut_starts', 'frame_in_cut', 'pilot_frames',
+           # shot discovery (chunk 2: D4, FR-SD-5, FR-SD-6)
+           'clean', '_name_of', '_first_at', '_merge', '_section_rows', '_cut_rows', '_no_overlap', 'list_shots',
+           '_mapped', '_play_rate', '_nested_cuts', 'discovery_sections'}
 
 
 def _functions(path):

@@ -6,40 +6,36 @@ A stub of UE 5.8's ``unreal`` Python module, just enough to run the worker's
 UE scripts (``ue_scripts/``) outside Unreal: Movie Render Graph presets,
 level sequences with camera-cut and shot tracks, the asset library and the
 queue. ``make_unreal(world)`` returns the module; ``world`` holds the assets
-and records what the script did.
+and records what the script did. The legacy preset and the base pieces live
+in ``_ue_stub_mrq`` and are re-exported here.
 """
 import copy
 import types
 
-
-class FrameRate:
-    def __init__(self, numerator, denominator=1):
-        self.numerator, self.denominator = numerator, denominator
-
-
-class _Props:
-    def __init__(self, **props):
-        self.props = dict(props)
-        self.disabled = props.pop('disabled', False)
-
-    def set_editor_property(self, name, value):
-        self.props[name] = value
-
-    def get_editor_property(self, name):
-        return self.props.get(name)
-
-    def is_disabled(self):
-        return self.disabled
-
-    def set_disabled(self, value):
-        self.disabled = value
+from tests.unit.worker.unreal._ue_stub_mrq import (  # noqa: F401 - re-exported for the tests
+    LEGACY_CLASSES, FrameRate, MoviePipelineAntiAliasingSetting, MoviePipelineGameOverrideSetting,
+    MoviePipelineImageSequenceOutput_PNG, MoviePipelineOutputBase, MoviePipelineOutputSetting,
+    MoviePipelinePrimaryConfig, MoviePipelineRenderPass, MoviePipelineTextureStreamingMethod, _Props, _Strict, size)
 
 
 class MovieGraphNode(_Props):
     pass
 
 
-class MovieGraphGlobalOutputSettingNode(MovieGraphNode):
+class MovieGraphGlobalOutputSettingNode(_Strict, MovieGraphNode):
+    """UE 5.8.4's graph node, as far as discovery reads it: no frame-step property (reported absent, U-1)."""
+    DEFAULTS = {'output_resolution': types.SimpleNamespace(profile_name='Custom', resolution=size(1920, 1080)),
+                'override_output_resolution': False, 'output_frame_rate': FrameRate(24),
+                'override_output_frame_rate': False, 'zero_pad_frame_numbers': 4,
+                'override_zero_pad_frame_numbers': False, 'frame_number_offset': 0,
+                'override_frame_number_offset': False, 'handle_frame_count': 0, 'override_handle_frame_count': False}
+
+
+class MovieGraphSamplingMethodNode(MovieGraphNode):
+    pass
+
+
+class MovieGraphAudioOutputNode(MovieGraphNode):
     pass
 
 
@@ -67,7 +63,11 @@ class MovieGraphRenderLayerNode(MovieGraphNode):
     pass
 
 
-class MovieGraphRenderPassNode(MovieGraphNode):
+class MovieGraphImagePassBaseNode(MovieGraphNode):
+    pass
+
+
+class MovieGraphRenderPassNode(MovieGraphImagePassBaseNode):
     pass
 
 
@@ -88,34 +88,35 @@ class MovieGraphConfig:
         return types.SimpleNamespace(get_name=lambda: 'MovieGraphConfig')
 
 
-class MoviePipelineGameOverrideSetting(_Props):
-    """A legacy setting; ``disabled`` is its ``is_enabled() == False`` (UE: ``bEnabled``)."""
+class TimeWarp:
+    """UE 5.8.4's ``MovieSceneTimeWarpVariant``: ``to_fixed_play_rate()`` gives the rate; a curve gives 1.0 (the
+    engine only logs an error); ``broken`` makes it unreadable."""
 
-    def is_enabled(self):
-        return not self.disabled
+    def __init__(self, play_rate=1.0, curve=False, broken=False):
+        self.play_rate, self.curve, self.broken = play_rate, curve, broken
+
+    def to_fixed_play_rate(self):
+        if self.broken:
+            raise RuntimeError('unreadable')
+        return 1.0 if self.curve else self.play_rate
 
 
-# UE 5.8.4 EMoviePipelineTextureStreamingMethod as Python exposes it (MoviePipelineGameOverrideSetting.h:13-22).
-MoviePipelineTextureStreamingMethod = types.SimpleNamespace(NONE='NONE', DISABLED='DISABLED', FULLY_LOAD='FULLY_LOAD')
-
-
-class MoviePipelinePrimaryConfig:
-    """A legacy preset: its user settings, found like ``UMoviePipelineConfigBase::FindSettingByClass``."""
-
-    def __init__(self, settings=()):
-        self.settings = list(settings)
-
-    def find_setting_by_class(self, cls, include_disabled_settings=False, exact_match=False):
-        for setting in self.settings:
-            if isinstance(setting, cls) and (include_disabled_settings or setting.is_enabled()):
-                return setting
-        return None
+class _Struct(types.SimpleNamespace):
+    def get_editor_property(self, name):
+        return getattr(self, name)
 
 
 class Section:
-    def __init__(self, start, end, sequence=None, offset_ticks=0, active=True):
-        self.start, self.end, self.sequence, self.active = start, end, sequence, active
-        self.parameters = types.SimpleNamespace(start_frame_offset=types.SimpleNamespace(value=offset_ticks))
+    def __init__(self, start, end, sequence=None, offset_ticks=0, active=True, row=0, time_scale=None):
+        self.start, self.end, self.sequence, self.active, self.row = start, end, sequence, active, row
+        self.parameters = _Struct(start_frame_offset=types.SimpleNamespace(value=offset_ticks),
+                                  time_scale=time_scale or TimeWarp())
+
+    def get_editor_property(self, name):
+        return getattr(self, name)
+
+    def get_row_index(self):
+        return self.row
 
     def get_start_frame(self):
         return self.start
@@ -131,6 +132,8 @@ class Section:
 
 
 class Track:
+    """No mute or eval-disabled accessor: UE 5.8.4 does not expose them to Python (probe)."""
+
     def __init__(self, sections):
         self.sections = sections
 
@@ -155,7 +158,7 @@ class Sequence:
         self.start, self.end, self.tracks, self.rate, self.ticks, self.name = start, end, list(tracks), rate, ticks, name
 
     def get_display_rate(self):
-        return FrameRate(self.rate)
+        return FrameRate(*self.rate) if isinstance(self.rate, tuple) else FrameRate(self.rate)
 
     def get_tick_resolution(self):
         return FrameRate(self.ticks)
@@ -193,10 +196,11 @@ def make_unreal(world):
     module = types.ModuleType('unreal')
     for cls in (FrameRate, MovieGraphNode, MovieGraphGlobalOutputSettingNode, MovieGraphGlobalGameOverridesNode,
                 MovieGraphFileOutputNode, MovieGraphImageSequenceOutputNode_PNG, MovieGraphRenderLayerNode,
-                MovieGraphRenderPassNode, MovieGraphConfig, MoviePipelinePrimaryConfig, MovieSceneCameraCutTrack,
-                MovieSceneCinematicShotTrack, MovieSceneSubTrack, MoviePipelineGameOverrideSetting,
-                MovieGraphSubgraphNode):
+                MovieGraphRenderPassNode, MovieGraphConfig, MovieSceneCameraCutTrack, MovieSceneCinematicShotTrack,
+                MovieSceneSubTrack, MovieGraphSubgraphNode, MovieGraphImageSequenceOutputNode_EXR,
+                MovieGraphAudioOutputNode, MovieGraphSamplingMethodNode, MovieGraphImagePassBaseNode) + LEGACY_CLASSES:
         setattr(module, cls.__name__, cls)
+    module.get_default_object = lambda cls: cls()  # a fresh instance holds the class defaults
     module.MoviePipelineTextureStreamingMethod = MoviePipelineTextureStreamingMethod
     module.log = world['logs'].append
     module.MovieGraphSequenceRangeType = types.SimpleNamespace(CUSTOM='custom')
@@ -254,7 +258,8 @@ def graph(layers=1, passes=1, png=True, extra_outputs=(), subgraphs=(), scalabil
     return MovieGraphConfig(nodes, subgraphs)
 
 
-def shot(start, end, inner_cuts, inner_start=0, offset_frames=0):
-    """A shot section whose sub-sequence has its own camera cuts (24 fps, 24,000 ticks)."""
-    sub = Sequence(inner_start, inner_start + 10000, [MovieSceneCameraCutTrack([Section(s, e) for s, e in inner_cuts])])
-    return Section(start, end, sequence=sub, offset_ticks=offset_frames * 1000)
+def shot(start, end, inner_cuts, inner_start=0, offset_frames=0, name='Seq', active=True, inner_tracks=(), **section):
+    """A shot section whose sub-sequence has its own camera cuts (24 fps, 24,000 ticks); ``section``: row, scale."""
+    tracks = [MovieSceneCameraCutTrack([Section(s, e) for s, e in inner_cuts])] + list(inner_tracks)
+    sub = Sequence(inner_start, inner_start + 10000, tracks, name=name)
+    return Section(start, end, sequence=sub, offset_ticks=offset_frames * 1000, active=active, **section)

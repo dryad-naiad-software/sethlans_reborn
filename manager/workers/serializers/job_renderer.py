@@ -43,7 +43,10 @@ class JobRendererFieldsMixin(serializers.Serializer):
 
     unreal_kind = serializers.ChoiceField(
         choices=UnrealKind.choices, read_only=True,
-        help_text="'pilot' for a manager-created Unreal measurement render, else 'render'.",
+        help_text=(
+            "'render' for a normal Unreal job; manager-created jobs are 'pilot' (a memory "
+            "measurement), 'shots' (shot discovery) or 'audio' (a sound render)."
+        ),
     )
     unreal_measured_peak_mb = serializers.SerializerMethodField(
         help_text=(

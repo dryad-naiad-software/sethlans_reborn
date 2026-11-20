@@ -148,12 +148,12 @@ def _classify(response) -> Optional[PilotReport]:
     return None  # 5xx: retried
 
 
-def report_pilot_result(job_id: int, body: dict, sleep: Callable[[float], None] = time.sleep) -> PilotReport:
-    """``POST jobs/{id}/pilot-result/`` with the FR-UE-25 response handling. Never raises."""
+def post_result(job_id: int, endpoint: str, body: dict, sleep: Callable[[float], None] = time.sleep) -> PilotReport:
+    """``POST jobs/{id}/<endpoint>/`` with the FR-UE-25 response handling (also ``shots-result/``). Never raises."""
     last = PilotReport('failed')
     for attempt in range(PILOT_ATTEMPTS):
         try:
-            response = get_session().request('post', _url(f"jobs/{int(job_id)}/pilot-result/"), json=body,
+            response = get_session().request('post', _url(f"jobs/{int(job_id)}/{endpoint}/"), json=body,
                                              headers=get_auth_headers(), timeout=PILOT_TIMEOUT_SECONDS)
             result = _classify(response)
             if result is not None:
@@ -162,6 +162,11 @@ def report_pilot_result(job_id: int, body: dict, sleep: Callable[[float], None] 
         except requests.exceptions.RequestException as exc:
             last = PilotReport('failed', None, f"{type(exc).__name__}: {exc}"[:MAX_DETAIL])
         if attempt + 1 < PILOT_ATTEMPTS:
-            logger.warning("pilot-result/ for job %s failed (%s); retrying.", job_id, last.detail or last.status_code)
+            logger.warning("%s/ for job %s failed (%s); retrying.", endpoint, job_id, last.detail or last.status_code)
             sleep(PILOT_BACKOFF_SECONDS[min(attempt, len(PILOT_BACKOFF_SECONDS) - 1)])
     return last
+
+
+def report_pilot_result(job_id: int, body: dict, sleep: Callable[[float], None] = time.sleep) -> PilotReport:
+    """``POST jobs/{id}/pilot-result/`` with the FR-UE-25 response handling. Never raises."""
+    return post_result(job_id, 'pilot-result', body, sleep)

@@ -5,9 +5,10 @@
 Integration tests for the request size classes (Unreal sequence spec
 D21, FR-BL-2, FR-BL-4) on real Waitress listeners.
 
-The sequence endpoints do not exist yet, so each test installs the D21
-class table (``tests._body_limit_classes``) and starts a manager-style
-listener with a 2 MiB ceiling, as the issue #260 tests do. Covers:
+Most sequence endpoints do not exist yet, so most tests install the D21
+class table (``tests._body_limit_classes``) and start a manager-style
+listener with a 2 MiB ceiling, as the issue #260 tests do; the live
+table (``shots-result/`` since chunk 2) is checked without it. Covers:
 
 - A JSON result of 1 MiB + 1 on each result path gets 413 from the
   headers, and the app never runs; exactly 1 MiB is accepted.
@@ -90,6 +91,49 @@ class TestFileClasses:
     def test_server_ceiling_still_applies(self, serve_d21, path):
         port, app = serve_d21()
         assert base._post_with_length(port, path, CEILING + 1, 0) == 413
+        assert app.calls == []
+
+
+@pytest.fixture
+def serve_live():
+    """Start a listener with the live table (no class installed by the test)."""
+    started = []
+
+    def _start():
+        app = base._Recorder()
+        server = waitress.create_server(
+            app, host='127.0.0.1', port=0, threads=2,
+            max_request_body_size=CEILING, ident='body-class-live-test',
+        )
+        limit_request_bodies(server, allow_uploads=True)
+        thread = threading.Thread(target=server.run, name='body-class-live-waitress', daemon=True)
+        thread.start()
+        started.append((server, thread))
+        return server.effective_port, app
+
+    yield _start
+    for server, thread in started:
+        base._stop(server, thread)
+
+
+class TestLiveResultClass:
+    """Chunk 2: ``shots-result/`` is in the live result class (1 MiB)."""
+
+    def test_one_byte_over_refused(self, serve_live):
+        port, app = serve_live()
+        assert base._post_with_length(port, '/api/jobs/7/shots-result/', RESULT_BODY_LIMIT + 1, 1024) == 413
+        assert app.calls == []
+
+    def test_exactly_the_limit_accepted(self, serve_live):
+        port, app = serve_live()
+        path = '/api/jobs/7/shots-result/'
+        assert base._post_with_length(port, path, RESULT_BODY_LIMIT, RESULT_BODY_LIMIT) == 200
+        assert app.calls == [(path, RESULT_BODY_LIMIT)]
+
+    @pytest.mark.parametrize('path', ['/api/jobs/7/piece-result/', '/api/sequence-submissions/'])
+    def test_later_result_paths_still_small(self, serve_live, path):
+        port, app = serve_live()
+        assert base._post_with_length(port, path, LARGE, 1024) == 413
         assert app.calls == []
 
 

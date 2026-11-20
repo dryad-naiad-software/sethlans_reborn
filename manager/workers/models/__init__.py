@@ -11,6 +11,7 @@ from .queue_setting import QueueSetting
 from .manager_settings import ManagerSettings
 from .yield_events import WorkerYieldEvent
 from .unreal_measurement import UnrealMeasurement
+from .sequences import SequenceDiscovery
 
 __all__ = [
     "SupportedBlenderVersion",
@@ -22,4 +23,5 @@ __all__ = [
     "ManagerSettings",
     "WorkerYieldEvent",
     "UnrealMeasurement",
+    "SequenceDiscovery",
 ]

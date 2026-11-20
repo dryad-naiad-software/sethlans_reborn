@@ -9,10 +9,12 @@ requirements 2-6, 8, 9).
 Order: cancel watcher -> ``j/<id>-<att8>/`` -> ``prepare_workspace``
 (cache, overlay, working copy) -> ``zen_guard.scan_project_config`` ->
 ``UeFlow`` (prep, warm-up, render, retry; each launch through the
-pre-launch check) -> **outermost** ``finally``: ``registry.confirm_all()``
+pre-launch check; a ``shots`` job runs ``ShotsFlow``, the prep alone,
+FR-SD-4) -> **outermost** ``finally``: ``registry.confirm_all()``
 (no UE process outlives ``execute``), survivors handling, then
 ``JobWorkspace.finish(survivors=..., abort=NEVER)`` -> delivery (upload
-from the checked handle, or ``pilot-result/``, or release).
+from the checked handle, or ``pilot-result/``, or ``shots-result/``, or
+release).
 
 Survivors (from a phase or ``confirm_all``): ``reservation.retain_until_
 restart()`` -> ``runtime.disable_until_restart(SURVIVORS_DISABLED_REASON)``
@@ -51,6 +53,7 @@ from sethlans_worker_agent.unreal_executor.job_flow import UeFlow
 from sethlans_worker_agent.unreal_executor.outcomes import Cancelled, JobFailure, LocalConflict, SurvivorsLeft
 from sethlans_worker_agent.unreal_executor.runner_types import (
     SURVIVORS_DISABLED_REASON, SURVIVORS_MESSAGE, UnconfinedLaunchError)
+from sethlans_worker_agent.unreal_executor.sequence_flow import ShotsFlow
 from sethlans_worker_agent.unreal_executor.summary import Summary
 
 logger = logging.getLogger(__name__)
@@ -158,9 +161,11 @@ class JobRun:
         runner.card_key = gate.card_key  # the gated card: the traces of a launch without a choice (D22)
         marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build)
         profile = user_state.profile_dir(cache_dir)
-        flow = UeFlow(self.params, self.deps.launch_context(self.install, cache_dir), self.job, runner, self.summary,
-                      self.deps.builders, marker, self.ws.working_copy.uproject, self.deps.flow_config(profile),
-                      reading=gate.reading, choose=self.deps.choose_adapter, first_key=gate.card_key)
+        flow_class = ShotsFlow if self.params.is_shots else UeFlow  # FR-SD-4: shots run the prep only
+        flow = flow_class(self.params, self.deps.launch_context(self.install, cache_dir), self.job, runner,
+                          self.summary, self.deps.builders, marker, self.ws.working_copy.uproject,
+                          self.deps.flow_config(profile), reading=gate.reading, choose=self.deps.choose_adapter,
+                          first_key=gate.card_key)
         try:
             return flow.run()
         finally:

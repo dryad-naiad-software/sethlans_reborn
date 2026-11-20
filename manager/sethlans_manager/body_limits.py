@@ -142,8 +142,14 @@ def check_disjoint(classes) -> None:
 
 UPLOAD_CLASS = BodyClass('upload', UPLOAD_BODY_LIMIT, UPLOAD_PATHS)
 
+# D21's result class; each sequence result path joins with its endpoint.
+RESULT_PATHS = (
+    '/api/jobs/*/shots-result/',
+)
+RESULT_CLASS = BodyClass('result', RESULT_BODY_LIMIT, RESULT_PATHS)
+
 # Every class but the small one. Read at call time by every layer.
-BODY_CLASSES = (UPLOAD_CLASS,)
+BODY_CLASSES = (UPLOAD_CLASS, RESULT_CLASS)
 check_disjoint(BODY_CLASSES)
 
 

@@ -38,7 +38,7 @@ def run(tmp_path, monkeypatch, assets, mode='prepare', frame=1000, scripts_dir=s
     error = None
     try:
         runpy.run_path(SCRIPT, run_name='sethlans_prep')
-    except RuntimeError as exc:
+    except Exception as exc:  # the script re-raises whatever failed it
         error = exc
     result = json.loads((tmp_path / 'result.json').read_text(encoding='utf-8'))
     return result, error, world

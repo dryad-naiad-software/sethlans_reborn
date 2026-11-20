@@ -151,8 +151,9 @@ class TestCaddyfileBodyLimits:
     def test_public_vhost_has_per_route_limits(self, rendered):
         public, _ = _site_blocks(rendered)
         paths = ' '.join(body_limits.UPLOAD_PATHS)
+        every = ' '.join(p for body_class in body_limits.BODY_CLASSES for p in body_class.paths)
         assert f'    @upload_body {{\n        path {paths}\n    }}\n' in public
-        assert f'    @small_body {{\n        not path {paths}\n    }}\n' in public
+        assert f'    @small_body {{\n        not path {every}\n    }}\n' in public
         assert (
             '    request_body @upload_body {\n'
             f'        max_size {UPLOAD_BODY_LIMIT}\n    }}\n'

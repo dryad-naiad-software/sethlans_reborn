@@ -17,6 +17,7 @@ from .views import (
 )
 from .views.manager_defaults import manager_defaults_view
 from .views.manager_summary import manager_summary_view
+from .views.sequence_discoveries import SequenceDiscoveryViewSet
 from .views.sethlans_share import SethlansShareView
 
 # Create a router instance
@@ -30,6 +31,7 @@ router.register(r'assets', AssetViewSet, basename='asset')
 router.register(r'tiled-jobs', TiledJobViewSet, basename='tiledjob')
 router.register(r'queue-settings', QueueSettingViewSet, basename='queuesetting')
 router.register(r'supported-versions', SupportedBlenderVersionViewSet, basename='supportedversion')
+router.register(r'sequence-discoveries', SequenceDiscoveryViewSet, basename='sequence-discovery')
 
 urlpatterns = [
     path('stats/', dashboard_stats, name='dashboard-stats'),

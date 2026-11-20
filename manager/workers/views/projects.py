@@ -14,8 +14,10 @@ from rest_framework.response import Response
 from ..models import Asset, Job, JobStatus, Project
 from ..parent_dispatch import dispatch_parents
 from ..permissions import IsAdmin
+from ..renderers import get_strategy
 from ..renderers.unreal_project_measurement import project_annotations
 from ..serializers.unreal_measurement import ProjectDetailSerializer
+from ..services.sequence_discovery import settle_canceled_shots_jobs
 from .unreal_measurement import UnrealMeasurementActionsMixin
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,9 @@ class ProjectViewSet(UnrealMeasurementActionsMixin, viewsets.ModelViewSet):
         project = self.get_object()
 
         with transaction.atomic():
+            # Unreal locks the project first (sequence D22: Project -> Job
+            # rows -> SequenceDiscovery); Blender takes no lock (None).
+            locked = get_strategy(project.renderer).lock_for_write(project)
             # Bulk cancel all active jobs (the first statement is a write,
             # so SQLite takes its write lock before anything is read).
             canceled_at = timezone.now()
@@ -93,6 +98,10 @@ class ProjectViewSet(UnrealMeasurementActionsMixin, viewsets.ModelViewSet):
                 ).values_list(
                     'tiled_job_id', 'animation_id', 'animation_frame_id',
                 ).distinct())
+            if count > 0 and locked is not None:
+                # The UPDATE fires no signal: fail the discoveries of the
+                # shots jobs canceled here (FR-SD-9, FR-SS-8).
+                settle_canceled_shots_jobs(project, canceled_at)
 
         logger.info(
             f"Canceled {count} jobs for project '{project.name}' "

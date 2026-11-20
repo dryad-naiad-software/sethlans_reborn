@@ -21,9 +21,10 @@ offending field. Checks:
 * ``start_frame == end_frame``, ints in range (normal jobs only: a pilot's
   frames come from the prep, FR-UE-25);
 * ``engine_build`` matches ``BUILD_RE`` and is supported;
-* ``unreal_kind`` is ``'render'`` (also when missing) or ``'pilot'``; a
-  normal job needs an ``int`` ``unreal_measured_peak_mb`` in
-  ``[1, 1048576]``, a pilot must have none (D2);
+* ``unreal_kind`` is ``'render'`` (also when missing), ``'pilot'`` or a
+  sequence kind (``job_params_sequence``: ``'shots'``); a normal job needs
+  an ``int`` ``unreal_measured_peak_mb`` in ``[1, 1048576]``, a pilot must
+  have none (D2);
 * ``asset.project_details.unreal_cvar_overrides`` passes ``validate_cvars``.
 
 The merged CVar list (FR-UE-5) is computed here once, so every later use
@@ -34,6 +35,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
 from sethlans_worker_agent.unreal_executor import cvars
+from sethlans_worker_agent.unreal_executor import job_params_sequence as sequence
 from shared.unreal import builds, validation
 from shared.unreal.share_paths import validate_share_relpath
 from shared.unreal.unc import UncPath
@@ -43,7 +45,7 @@ MAP, SEQUENCE, PRESET, OUTPUT_FORMAT = 'unreal.map', 'unreal.sequence', 'unreal.
 REQUIRED_SETTINGS = (MAP, SEQUENCE, PRESET)
 ALLOWED_SETTINGS = frozenset(REQUIRED_SETTINGS + (OUTPUT_FORMAT,))
 FRAME_MIN, FRAME_MAX = -10_000_000, 10_000_000
-KINDS = ('render', 'pilot')
+KINDS = ('render', 'pilot') + sequence.KINDS
 
 
 class JobDataError(ValueError):
@@ -77,6 +79,10 @@ class JobParams:
     @property
     def is_pilot(self) -> bool:
         return self.kind == 'pilot'
+
+    @property
+    def is_shots(self) -> bool:
+        return self.kind == sequence.SHOTS
 
     @property
     def merged_dict(self) -> Dict[str, str]:
@@ -157,7 +163,9 @@ def _frame(job_data) -> int:
 
 def _kind_and_peak(job_data) -> Tuple[str, Optional[int]]:
     kind = job_data.get('unreal_kind') or 'render'
-    _require(kind in KINDS, 'unreal_kind', "must be 'render' or 'pilot'")
+    _require(kind in KINDS, 'unreal_kind', f"must be one of {', '.join(KINDS)}")
+    if kind in sequence.KINDS:
+        return kind, sequence.check(kind, job_data, _require)
     peak = job_data.get('unreal_measured_peak_mb')
     if kind == 'pilot':
         _require(peak is None, 'unreal_measured_peak_mb', 'must be null for a pilot')
@@ -181,7 +189,7 @@ def validate_job_data(job_data: dict) -> JobParams:
              'engine_build', 'invalid')
     _require(builds.is_supported(build), 'engine_build', 'not a supported build')
     kind, peak = _kind_and_peak(job_data)
-    frame = None if kind == 'pilot' else _frame(job_data)
+    frame = _frame(job_data) if kind == 'render' else None  # a pilot's frames come from the prep; shots render none
     overrides = _overrides(asset_raw)
     try:
         merged = tuple(cvars.merge(overrides=dict(overrides)))

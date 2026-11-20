@@ -27,7 +27,7 @@ import dataclasses
 import logging
 from typing import Optional
 
-from sethlans_worker_agent import api_extras, config_unreal, unreal_share
+from sethlans_worker_agent import api_extras, api_sequence, config_unreal, unreal_share
 from sethlans_worker_agent.blender_job_stop import job_stop
 from sethlans_worker_agent.executors.base import ExecutionContext, RenderResult
 from sethlans_worker_agent.unreal_executor import adapter_choice, command, job_params, reserve
@@ -145,7 +145,8 @@ def default_run_deps():
         builders=command, flow_config=_flow_config, get_assignment=api_extras.get_job_assignment,
         worker_id=_worker_id,
         delivery=DeliveryDeps(release_job=api_extras.release_job, mark_unreachable=unreal_share.mark_unreachable,
-                              upload=api_extras.upload_output_handle, report_pilot=api_extras.report_pilot_result),
+                              upload=api_extras.upload_output_handle, report_pilot=api_extras.report_pilot_result,
+                              report_shots=api_sequence.report_shots_result),
         disable_until_restart=runtime.disable_until_restart, keep_job_logs=lambda: config_unreal.KEEP_JOB_LOGS,
         prep_timeout_s=lambda: config_unreal.PREP_TIMEOUT_SECONDS,
         cancel_poll_s=lambda: config_unreal.CANCEL_POLL_SECONDS, choose_adapter=adapter_choice.choose)

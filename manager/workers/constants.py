@@ -38,9 +38,11 @@ UNREAL_OUTPUT_FORMATS = ('PNG',)
 
 
 class UnrealKind(models.TextChoices):
-    """A job's role in the Unreal measured-peak gate (spec FR-PM-1)."""
+    """A job's role in the Unreal measured-peak gate (spec FR-PM-1; sequence D3)."""
     RENDER = 'render', 'Render'
     PILOT = 'pilot', 'Pilot'
+    AUDIO = 'audio', 'Audio'
+    SHOTS = 'shots', 'Shots'
 
 
 UNREAL_GAME_OVERRIDES_CHOICES = tuple((value, value) for value in UNREAL_GAME_OVERRIDES)

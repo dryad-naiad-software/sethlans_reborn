@@ -77,14 +77,16 @@ def _asset_errors(instance, attrs):
 
 
 def _pilot_errors(instance, attrs):
+    """A manager-created job's target is fixed (FR-PM-9; sequence D12)."""
+    article = 'An' if instance.unreal_kind == UnrealKind.AUDIO else 'A'
     return {
-        field: [f"A pilot job's {field} cannot be changed."]
+        field: [f"{article} {instance.unreal_kind} job's {field} cannot be changed."]
         for field in PILOT_TARGET_FIELDS if _changed(attrs, instance, field)
     }
 
 
 def _job_errors(instance, attrs):
-    if instance.unreal_kind == UnrealKind.PILOT:
+    if instance.unreal_kind != UnrealKind.RENDER:
         errors = _pilot_errors(instance, attrs)
         if errors:
             return errors

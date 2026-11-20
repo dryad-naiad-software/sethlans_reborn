@@ -63,9 +63,9 @@ class JobAdmin(admin.ModelAdmin):
     )
 
     def get_readonly_fields(self, request, obj=None):
-        """A pilot's target and status are manager-owned (FR-PM-9, FR-RT-14)."""
+        """A manager-created job's target and status are manager-owned (FR-PM-9, FR-RT-14, D12)."""
         fields = tuple(super().get_readonly_fields(request, obj))
-        if obj is not None and obj.unreal_kind == UnrealKind.PILOT:
+        if obj is not None and obj.unreal_kind != UnrealKind.RENDER:
             fields += tuple(f for f in PILOT_TARGET_FIELDS + ('status',) if f not in fields)
         return fields
 

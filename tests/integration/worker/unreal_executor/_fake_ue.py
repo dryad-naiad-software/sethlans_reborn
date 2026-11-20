@@ -30,7 +30,9 @@ overrides the logged adapter id (only in ``chosen_phase`` when given;
 ``game_overrides`` / ``texture_streaming`` set the prep's preset facts, default ``implicit`` / ``off``;
 ``after_chosen_sleep`` waits after it), ``adapters`` maps a
 ``-graphicsadapter`` index (as a string) to the ``[name, vendor, device,
-revision]`` (hex strings) of the card logged there (default: one NVIDIA card).
+revision]`` (hex strings) of the card logged there (default: one NVIDIA card),
+``shots_result`` replaces fields of the ``list_shots`` result (shot discovery,
+sequence rendering FR-SD-4: the prep alone answers with a shot list).
 """
 import glob
 import shutil
@@ -123,17 +125,34 @@ for name, val in cvars:
 job_dir = os.path.dirname(os.path.dirname(log_path))
 attempt = os.path.basename(log_path).split('.')[1]
 
+def shots_result(params):
+    """Mode list_shots: a discovery with a name to clean and a duplicate; ``shots_result`` replaces fields."""
+    facts = {'resolution': [1920, 1080], 'custom_frame_rate': None, 'frame_step': None, 'handle_frames': 0,
+             'frame_number_offset': 0, 'zero_pad': 4, 'temporal_samples': 8, 'spatial_samples': 1,
+             'layers_ok': True, 'can_png': True, 'can_exr': False, 'can_sound': True, 'game_overrides': 'preset',
+             'texture_streaming': 'off'}
+    result = {'ok': True, 'preset_kind': 'graph', 'playback_range': [0, 400], 'frame_rate': [30000, 1001],
+              'shot_source': 'shot_tracks', 'shots': [['sh010', 0, 99], ['sh 020', 99, 202], ['sh010', 202, 400]],
+              'preset_facts': facts, 'warnings': ['Shot sh030 has no camera cut inside the playback range.'],
+              'scalability': 4, 'game_overrides': 'preset', 'texture_streaming': 'off'}
+    result.update(OPTS.get('shots_result', {}))
+    say('[SethlansPrep] listed ' + str(len(result['shots'])) + ' shots of ' + params['sequence'])
+    return result
+
+
 if '-run=pythonscript' in args:
     params = json.load(open(os.environ['SETHLANS_UE_JOB_PARAMS'], encoding='utf-8'))
     pilot = params['mode'] == 'prepare_pilot'
-    frames = OPTS.get('pilot_frames', [0, 99, 202]) if pilot else [params['frame']]
-    result = {'ok': True, 'queue_asset': params['package_root'] + '/Q_Job' + str(params['job_id']),
+    frames = OPTS.get('pilot_frames', [0, 99, 202]) if pilot else [params.get('frame')]
+    result = {'ok': True, 'queue_asset': params.get('package_root', '') + '/Q_Job' + str(params['job_id']),
               'preset_kind': 'graph', 'playback_range': [0, 1928], 'camera_cut_starts': [0, 99, 202],
               'effective_cvars': {n: ('true' if v == '1' else v) for n, v in cvars}, 'queue_jobs': len(frames),
               'scalability': 4, 'warnings': [], 'game_overrides': OPTS.get('game_overrides', 'implicit'),
               'texture_streaming': OPTS.get('texture_streaming', 'off')}
     if pilot:
         result['pilot_frames'] = frames
+    if params['mode'] == 'list_shots':
+        result = shots_result(params)
     if OPTS.get('prep_error'):
         result = {'ok': False, 'error': OPTS['prep_error']}
     json.dump(result, open(params['result_path'], 'w', encoding='utf-8'))

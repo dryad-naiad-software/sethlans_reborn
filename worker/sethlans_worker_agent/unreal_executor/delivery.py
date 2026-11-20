@@ -19,6 +19,8 @@ Runs **after** exit confirmation and the FR-PA-16 integrity check:
   without a card key is not reported (the manager could not match it):
   ``release/`` with ``local_conflict``, never a project failure (a
   backstop: the reserver already refuses such a pilot, FR-GU-10);
+* success, sequence kinds: ``sequence_delivery`` (``shots``: ``shots-result/``,
+  FR-SD-8);
 * failure -> ``ERROR`` (pilot: ``"Pilot render failed: <reason>"``);
 * local conflict -> ``release/`` with its reason; share failure ->
   ``release/`` with ``share_unavailable`` and ``mark_unreachable``;
@@ -37,7 +39,7 @@ from sethlans_worker_agent.api_conflict import JobNoLongerAssigned
 from sethlans_worker_agent.blender_job_stop import WORKER_HARDWARE_CHANGED
 from sethlans_worker_agent.executors.base import RenderResult
 from sethlans_worker_agent.project_archive import fs_safe
-from sethlans_worker_agent.unreal_executor import pilot
+from sethlans_worker_agent.unreal_executor import pilot, sequence_delivery
 from sethlans_worker_agent.unreal_executor.outcomes import pilot_message
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,7 @@ class DeliveryDeps:
     mark_unreachable: Callable[[str], None]
     upload: Callable                      # (job_id, handle, filename) -> bool
     report_pilot: Callable                # (job_id, body) -> PilotReport
+    report_shots: Callable                # (job_id, body) -> PilotReport (shots-result/, FR-SD-8)
 
 
 def result(*, success=False, canceled=False, stdout='', error='', released=False, render_time=None,
@@ -98,6 +101,8 @@ class Delivery:
         if kind == 'success':
             if not integrity_ok:
                 return self.failed(INTEGRITY_MESSAGE)
+            if self.params.is_shots:
+                return sequence_delivery.deliver_shots(self, outcome.flow)
             return self._pilot(outcome.flow) if self.params.is_pilot else self._upload(outcome.flow)
         if kind == 'release':
             return self.released(outcome.reason, outcome.message)

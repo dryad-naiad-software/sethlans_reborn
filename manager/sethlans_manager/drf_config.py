@@ -43,6 +43,10 @@ SPECTACULAR_SETTINGS = {
         # pilot-result body, ``unreal_measurement.latest`` and the model.
         'UnrealGameOverridesEnum': 'shared.unreal.render_context.GAME_OVERRIDES_VALUES',
         'UnrealTextureStreamingEnum': 'shared.unreal.render_context.TEXTURE_STREAMING_VALUES',
+        # Unreal sequence rendering (FR-SD-1, FR-SD-5): pinned beside the job status names.
+        'SequenceDiscoveryStatusEnum': 'workers.constants_sequence.DiscoveryStatus',
+        'SequenceShotSourceEnum': 'shared.unreal.shots_result.SHOT_SOURCES',
+        'UnrealPresetKindEnum': 'shared.unreal.shots_result.PRESET_KINDS',
     },
     'SECURITY': [
         {'sessionAuth': []},

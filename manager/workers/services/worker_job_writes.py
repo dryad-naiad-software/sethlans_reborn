@@ -35,9 +35,11 @@ import time
 
 from django.db import OperationalError, transaction
 
-from ..constants import UnrealKind
 from ..models import Job, JobStatus
 from ..serializers.jobs import VALID_STATUS_TRANSITIONS
+from .job_kind_rules import (  # noqa: F401  (the message helpers are re-exported)
+    done_only_by_result, never_requeued, pilot_done_message, pilot_requeue_message,
+)
 from .row_locks import lock_own_rows
 
 logger = logging.getLogger(__name__)
@@ -74,35 +76,23 @@ class PilotDoneRefused(Exception):
     """A write would set a pilot job DONE outside ``pilot-result/`` (HTTP 400)."""
 
 
-def pilot_done_message(job):
-    """The one FR-RT-14 refusal text for setting a pilot DONE."""
-    return f"Pilot jobs complete through POST /api/jobs/{job.pk}/pilot-result/."
-
-
-def pilot_requeue_message(job):
-    """The FR-PM-9 refusal text for requeuing a pilot."""
-    return (
-        f"Use POST /api/projects/{job.asset.project_id}/unreal-measurement/retry/ "
-        "to measure again."
-    )
-
-
 def refuse_pilot_status(job, changes):
-    """Refuse a status a pilot may not be given by a PATCH or PUT (FR-RT-14, FR-PM-9).
+    """Refuse a status a manager-created job may not be given by a PATCH or PUT.
 
-    Every caller and write path, checked on the locked row:
+    Every caller and write path, checked on the locked row
+    (``job_kind_rules``; FR-RT-14, FR-PM-9, sequence D12):
 
-    * DONE -- :class:`PilotDoneRefused` (400): a pilot becomes DONE only
-      through ``POST /api/jobs/{id}/pilot-result/``;
+    * DONE -- :class:`PilotDoneRefused` (400): a pilot, ``shots`` or
+      ``audio`` job becomes DONE only through its result endpoint;
     * QUEUED -- :class:`JobWriteConflict` (409): a failed or canceled pilot
-      is never revived (that would give its key a second pending pilot);
-      the measurement retry creates a new one.
+      or ``shots`` job is never revived; a retry or a new discovery
+      replaces it.
     """
-    if job.unreal_kind != UnrealKind.PILOT or 'status' not in changes:
+    if 'status' not in changes:
         return
-    if changes['status'] == JobStatus.DONE:
+    if changes['status'] == JobStatus.DONE and done_only_by_result(job):
         raise PilotDoneRefused(pilot_done_message(job))
-    if changes['status'] == JobStatus.QUEUED:
+    if changes['status'] == JobStatus.QUEUED and never_requeued(job):
         raise JobWriteConflict(pilot_requeue_message(job))
 
 

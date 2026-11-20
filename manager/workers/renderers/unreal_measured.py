@@ -26,6 +26,7 @@ from django.db.models import Case, Exists, F, OuterRef, Q, Subquery, TextField, 
 
 from ..constants import UnrealKind
 from ..models import Job, JobStatus, UnrealMeasurement
+from .unreal_sequence import ungated_poll_q
 
 MEASURED, PENDING, FAILED, NONE = 'measured', 'pending', 'failed', 'none'
 _ACTIVE = (JobStatus.QUEUED, JobStatus.RENDERING)
@@ -189,10 +190,10 @@ def _superseded():
 
 
 def poll_measured_q(include_pilots):
-    """FR-MS-5: normal jobs of measured keys; fresh, unsuperseded pilots."""
-    normal = Q(unreal_kind=UnrealKind.RENDER) & Exists(
+    """FR-MS-5: normal jobs of measured keys; fresh, unsuperseded pilots; ``shots`` jobs (D3)."""
+    normal = (Q(unreal_kind=UnrealKind.RENDER) & Exists(
         key_records(*JOB_KEY_REFS).filter(peak_mb__isnull=False),
-    )
+    )) | ungated_poll_q()
     if not include_pilots:
         return normal
     pilot = Q(unreal_kind=UnrealKind.PILOT) & _fresh() & ~_superseded()

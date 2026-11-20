@@ -43,7 +43,8 @@ def _delivery(calls):
                         mark_unreachable=lambda reason: calls.append(('unreachable', reason)),
                         upload=lambda *args: calls.append(('upload',)),
                         report_pilot=lambda job_id, body: (calls.append(('pilot', body)),
-                                                           api_extras.PilotReport('done', 200, ''))[1])
+                                                           api_extras.PilotReport('done', 200, ''))[1],
+                        report_shots=lambda job_id, body: calls.append(('shots', body)))
     return Delivery(params(kind='pilot'), deps, Summary(), after_report=None)
 
 

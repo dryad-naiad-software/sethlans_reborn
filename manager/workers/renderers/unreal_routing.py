@@ -31,6 +31,7 @@ from ..services.sethlans_share import configured_share
 from .unreal_measured import (
     MEASURED, held_message, measured_claim_rejection, measures_card, poll_measured_q,
 )
+from .unreal_sequence import skips_measured_gate
 
 MAX_POLL_BUILDS = 10
 SHARE_UNSET_MESSAGE = "The Sethlans share is not configured."
@@ -101,6 +102,8 @@ def unreal_claim_rejection(worker, job):
         return SHARE_MISMATCH_MESSAGE
     if not reports_share_reachable(caps, share):
         return SHARE_UNREACHABLE_MESSAGE
+    if skips_measured_gate(job):
+        return None
     return measured_claim_rejection(worker, job)
 
 
@@ -204,6 +207,8 @@ def unreal_routing_note(job, context):
             f"No online worker with Unreal Engine build {build} is configured "
             "with the manager's Sethlans share and reports it reachable."
         )
+    if skips_measured_gate(job):
+        return None
     peak = None
     if job.unreal_kind != UnrealKind.PILOT:
         state, reason, peak = _key_state(job)

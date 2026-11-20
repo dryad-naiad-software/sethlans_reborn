@@ -39,6 +39,7 @@ class World:
         self.integrity_ok = True
         self.share_error = None
         self.pilot_report = api_extras.PilotReport('done', 200)
+        self.shots_report = api_extras.PilotReport('done', 200)
         self.upload_result = True
         self.retained = False
         self.params = params(kind=kind)
@@ -102,7 +103,9 @@ class World:
                                   mark_unreachable=lambda reason: self.calls.append(('unreachable', reason)),
                                   upload=self.upload,
                                   report_pilot=lambda job_id, body: (self.calls.append(('pilot', body)),
-                                                                     self.pilot_report)[1]),
+                                                                     self.pilot_report)[1],
+                                  report_shots=lambda job_id, body: (self.calls.append(('shots', job_id, body)),
+                                                                     self.shots_report)[1]),
             disable_until_restart=lambda reason: self.calls.append(('disable', reason)),
             keep_job_logs=lambda: 10, prep_timeout_s=lambda: 60, cancel_poll_s=lambda: 60)
 

@@ -120,7 +120,7 @@ class Job(models.Model):
     )
     unreal_kind = models.CharField(
         max_length=8, choices=UnrealKind.choices, default=UnrealKind.RENDER,
-        help_text="Unreal jobs: 'pilot' for a manager-created measurement render; read-only.",
+        help_text="Unreal jobs: 'pilot', 'shots' or 'audio' for a manager-created job; read-only.",
     )
     unreal_target_sha256 = models.CharField(
         max_length=64, blank=True, default='', editable=False,

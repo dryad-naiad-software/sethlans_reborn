@@ -22,7 +22,7 @@ from waitress import parser as waitress_parser
 from waitress.channel import HTTPChannel
 
 from sethlans_manager import waitress_body_limits as wbl
-from sethlans_manager.body_limits import SMALL_BODY_LIMIT, UPLOAD_BODY_LIMIT
+from sethlans_manager.body_limits import RESULT_BODY_LIMIT, SMALL_BODY_LIMIT, UPLOAD_BODY_LIMIT
 from tests._body_limit_classes import FRAME_CLASS, RESULT_CLASS, SOUND_CLASS, use_d21_classes
 
 
@@ -120,9 +120,14 @@ class TestBodyClassSelfTest:
     """The start check also proves each class below the ceiling gets its own
     limit (spec D21), with the D21 table installed."""
 
-    def test_live_table_adds_no_class_check(self):
-        """The upload class is capped by the ceiling, so it is not probed."""
-        assert wbl._class_checks(UPLOAD_BODY_LIMIT) == []
+    def test_live_table_checks_the_result_class_only(self):
+        """The upload class is capped by the ceiling, so it is not probed;
+        the live result class (``shots-result/``, chunk 2) is, both ways."""
+        path = b'/api/jobs/1/shots-result/'
+        assert wbl._class_checks(UPLOAD_BODY_LIMIT) == [
+            (b'POST %s HTTP/1.1\r\nContent-Length: %d\r\n\r\n' % (path, RESULT_BODY_LIMIT + 1), True),
+            (b'POST %s HTTP/1.1\r\nContent-Length: %d\r\n\r\n' % (path, RESULT_BODY_LIMIT), False),
+        ]
 
     def test_d21_checks_each_class_both_ways(self, monkeypatch):
         use_d21_classes(monkeypatch)

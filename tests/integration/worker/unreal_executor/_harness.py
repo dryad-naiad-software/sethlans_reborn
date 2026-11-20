@@ -4,7 +4,8 @@
 """
 Harness for the executor integration tests: a real cache under ``tmp_path``,
 a local directory standing in for the share, the fake engine, a fake GPU
-sampler and a fake manager (cancel watcher, release, upload, pilot-result).
+sampler and a fake manager (cancel watcher, release, upload, pilot-result,
+shots-result). ``sampler = None`` runs a job with no GPU memory reading at all.
 """
 import functools
 import json
@@ -70,12 +71,19 @@ class FakeManager:
     releases: list = field(default_factory=list)
     uploads: list = field(default_factory=list)
     pilot_bodies: list = field(default_factory=list)
+    shots_bodies: list = field(default_factory=list)
     status: str = 'RENDERING'
     pilot_report: object = None
+    shots_report: object = None
 
     def deps(self) -> DeliveryDeps:
         return DeliveryDeps(release_job=lambda job_id, reason: self.releases.append((job_id, reason)) or True,
-                            mark_unreachable=lambda reason: None, upload=self.upload, report_pilot=self.report)
+                            mark_unreachable=lambda reason: None, upload=self.upload, report_pilot=self.report,
+                            report_shots=self.report_shots)
+
+    def report_shots(self, job_id, body):
+        self.shots_bodies.append((job_id, body))
+        return self.shots_report or api_extras.PilotReport('done', 200)
 
     def upload(self, job_id, handle, filename):
         self.uploads.append((job_id, filename, handle.read()))
@@ -142,7 +150,7 @@ class Harness:
 
     def reservation(self, job_data):
         params = job_params.validate_job_data(job_data).with_share_root(SHARE_ROOT)
-        gate = vram_gate_check.evaluate(params, self.sampler.reading())
+        gate = vram_gate_check.evaluate(params, self.sampler.reading() if self.sampler is not None else None)
         assert gate.ok, gate.message
         return reserve.UnrealReservation(params, self.install, gate, on_release=lambda: None)
 
