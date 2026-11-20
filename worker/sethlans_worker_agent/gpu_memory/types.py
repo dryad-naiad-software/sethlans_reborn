@@ -11,6 +11,9 @@ the old positional constructors keep working. Sizes are MiB
 
 * ``card_key``: ``pci:dddd:bb:dd.f`` (``cards.identity.card_key``), or
   ``None`` when the source does not give an address.
+* ``screen``: the card drives a screen (``True``/``False``; ``None``
+  unknown), the card selection's screen mark. Backends leave it ``None``;
+  only ``unreal_executor.vram`` sets it, for D8's tie rule. Not reported.
 * ``measures_card``: ``used_mb`` is a live reading (False for the
   ``SETHLANS_UNREAL_VRAM_MB`` override).
 * ``measures_process``: every card has ``sethlans_used_mb``.
@@ -38,6 +41,7 @@ class GpuMem:
     sethlans_used_mb: Optional[int]   # None = not attributed
     other_used_mb: Optional[int]      # None iff sethlans_used_mb is None
     card_key: Optional[str] = None
+    screen: Optional[bool] = None     # drives a screen; set by the Unreal adapter (vram), never by a backend
 
 
 @dataclass(frozen=True)

@@ -8,8 +8,13 @@ The graphics card an Unreal launch renders on (card selection FR-CU-1, D8, B4).
 launch: a fresh OS probe (``cards.os_probe``; it never starts Blender), the
 cached Blender list, the saved choice (``store.snapshot``) and the Unreal
 cards in use (``cards.unreal_cards.evaluate``, read-only: no alert is raised
-here). D8 picks the only card, else the one with the most dedicated memory
-(DXGI ``DedicatedVideoMemory``), ties to the lowest PCI address. Its
+here). D8 (``card_order``) picks the only card, else the one with the most
+dedicated memory (DXGI ``DedicatedVideoMemory``); among equal sizes a card
+without a screen before one with a screen (an unknown mark counts as no
+screen), then the lowest PCI address. The screen marks
+(``cards.screens.marked``) are read only when no card key is handed over
+(the ``SETHLANS_UNREAL_VRAM_MB`` override); with a key the gate already
+chose by the same order and one card is left. Its
 ``index`` is the card's raw position in the
 ``EnumAdapterByGpuPreference(HIGH_PERFORMANCE)`` list (``EnumAdapters1``
 without ``IDXGIFactory6``), counting the software and virtual adapters: the
@@ -25,8 +30,9 @@ import logging
 import threading
 from typing import NamedTuple, Optional
 
-from sethlans_worker_agent.cards import inventory, os_probe, store, unreal_cards
-from sethlans_worker_agent.cards.identity import key_address, key_sort_value
+from sethlans_worker_agent.cards import inventory, os_probe, screens, store, unreal_cards
+from sethlans_worker_agent.cards.identity import key_address
+from sethlans_worker_agent.unreal_executor import card_order
 from sethlans_worker_agent.unreal_executor.outcomes import LocalConflict
 
 logger = logging.getLogger(__name__)
@@ -50,16 +56,18 @@ _current: Optional[Choice] = None
 
 
 def pick(cards):
-    """D8: the only card, else the most dedicated memory; ties to the lowest PCI address."""
-    return min(cards, key=lambda card: (-(card.dedicated_mib or 0), key_sort_value(card.key)))
+    """D8 (``card_order``): the only card, else the most dedicated memory; ties to a card without a screen,
+    then to the lowest PCI address."""
+    return min(cards, key=lambda card: card_order.sort_key(card.dedicated_mib, card.screen, card.key))
 
 
-def _cards_now(section):
+def _cards_now(section, with_screens: bool):
     from sethlans_worker_agent.cards.startup_log import cached_blender_list
     if not section.cards:
         return unreal_cards.evaluate(section, None)
     blender_cards, version = cached_blender_list()
-    return unreal_cards.evaluate(section, inventory.build(os_probe.probe(), blender_cards, version))
+    inv = inventory.build(os_probe.probe(), blender_cards, version)
+    return unreal_cards.evaluate(section, screens.marked(inv) if with_screens else inv)
 
 
 def choose(job_id, key: Optional[str] = None) -> Choice:
@@ -73,7 +81,7 @@ def choose(job_id, key: Optional[str] = None) -> Choice:
     section = store.snapshot()
     if section.read_failed:
         raise LocalConflict('local_conflict', READ_FAILED_REASON)
-    cards, reason = _cards_now(section)
+    cards, reason = _cards_now(section, with_screens=key is None)  # with a key there is one card: no tie
     if key is not None:  # by address, as the gate and the reserver compare; an unreadable key matches nothing
         address = key_address(key)
         cards = tuple(card for card in cards if address is not None and key_address(card.key) == address)

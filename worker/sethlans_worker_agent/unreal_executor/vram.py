@@ -30,6 +30,14 @@ or a failure (logged once) keeps the last decided set and is never cached;
 before any decision the reading is ``None``. ``_set_lock`` is a leaf lock,
 held only to read or replace the cached set.
 
+The decided set also keeps those cards' screen marks (the cached probe's
+``cards.screens`` marks; no screen read here), and each kept card of the
+reading carries its mark in ``GpuMem.screen`` (``None`` when unknown or
+before any decision), so the gate's ``job_card`` can break a size tie
+(``card_order``) on the reading alone. The marks come from a cached probe
+of any age, so after a monitor is moved only the preference lags; the gated
+card is still the card the job renders on (its key is handed to the launch).
+
 ``only_card(reading, key)`` keeps the one card a launch renders on
 (FR-GU-11). ``taken_at`` is the time the sample started. Any failure
 yields ``None``.
@@ -58,6 +66,7 @@ class _Decided(NamedTuple):
     addresses: frozenset      # (domain, bus, device, function) of each Unreal card in use
     at: float
     generation: int
+    screens: dict             # address -> True/False: the cards' known screen marks (never mutated)
 
 
 _set_lock = threading.Lock()  # leaf lock
@@ -119,10 +128,27 @@ def unreal_card_set(clock: Callable[[], float] = time.monotonic, current: Callab
         found = None
     if found is None:
         return last.addresses if last is not None else None
-    addresses = frozenset(address for address in (key_address(card.key) for card in found[0]) if address is not None)
+    keyed = [(key_address(card.key), card) for card in found[0]]
+    addresses = frozenset(address for address, _card in keyed if address is not None)
+    screens = {address: card.screen for address, card in keyed
+               if address is not None and isinstance(getattr(card, 'screen', None), bool)}
     with _set_lock:
-        _decided, _failure_logged = _Decided(addresses, now, gen), False
+        _decided, _failure_logged = _Decided(addresses, now, gen, screens), False
     return addresses
+
+
+def screen_marks() -> dict:
+    """``{address: True/False}`` of the last decided Unreal cards; unknown marks are left out."""
+    with _set_lock:
+        return dict(_decided.screens) if _decided is not None else {}
+
+
+def with_screens(reading: Optional[GpuMemoryReading], screens: dict) -> Optional[GpuMemoryReading]:
+    """The reading with each card's screen mark (``None`` when unknown), for D8's tie rule."""
+    if reading is None:
+        return None
+    gpus = tuple(replace(gpu, screen=screens.get(key_address(gpu.card_key))) for gpu in reading.gpus)
+    return replace(reading, gpus=gpus)
 
 
 def cut_to_cards(reading: Optional[GpuMemoryReading], addresses: Optional[frozenset]) -> Optional[GpuMemoryReading]:
@@ -157,7 +183,8 @@ def take_reading(override_mb: int, clock: Callable[[], float] = time.monotonic,
         reading = (read or _read_live)(pids)
         if reading is None:
             return None
-        return cut_to_cards(replace(reading, taken_at=taken_at), (cards or unreal_card_set)())
+        cut = cut_to_cards(replace(reading, taken_at=taken_at), (cards or unreal_card_set)())
+        return with_screens(cut, screen_marks())
     except Exception:  # noqa: BLE001 - any failure means "no reading"
         logger.exception("GPU memory reading failed.")
         return None

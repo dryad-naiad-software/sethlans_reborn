@@ -14,9 +14,14 @@ output, which ``inventory.build`` already put on ``apple-gpu``
 ``screen``); nothing is run a second time.
 
 ``marked(inventory)`` is the inventory with those marks on its cards. The
-start check, the periodic check, the light check during an Unreal hold and
-the card pages' probe call it; a manager request does not (FR-CK-1). Marks
-are display data: they never change a tick, a slot or a state.
+start check, the periodic check, the light check during an Unreal hold, the
+card pages' probe (``web_ui.cards_view.probe_now``, whose cached result the
+heartbeat and the GPU memory sampler reuse) and the Unreal launch's choice
+without a handed-over card (``unreal_executor.adapter_choice``) call it; a
+manager request does not (FR-CK-1). Marks are display data, with one use
+beyond it: among equal-size cards, Unreal prefers one without a screen
+(``unreal_executor.card_order``). They never change a tick, a slot or a
+card state.
 
 Holds no lock and keeps no state except the once-only log record.
 """

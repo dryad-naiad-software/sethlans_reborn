@@ -7,9 +7,11 @@ GPU memory reader D22, FR-GU-10).
 
 The arithmetic is ``shared.unreal.vram_gate`` (shared with the manager's
 routing note, so the two cannot drift). It checks **the job's card** only:
-``job_card(reading)``, the card the card selection's D8 picks (the most
-``total_mb``, ties to the lowest card key; with the override, its one GPU),
-which is the card the job's first launch renders on:
+``job_card(reading)``, the card the card selection's D8 picks
+(``card_order``: the most ``total_mb``; among equal sizes a card without a
+screen (``GpuMem.screen``, from ``vram``) before one with a screen; then the
+lowest card key; with the override, its one GPU), which is the card the
+job's first launch renders on:
 
 * **pilot** (the relaxed gate): ``pilot_need_mb(merged) <=
   floor(total * VRAM_BUDGET_FRACTION) - used``, and the reading must
@@ -26,7 +28,7 @@ FR-UE-21 log line and the summary values (the checked card, and
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
-from sethlans_worker_agent.cards.identity import key_sort_value
+from sethlans_worker_agent.unreal_executor import card_order
 from shared.unreal import vram_gate
 
 
@@ -42,8 +44,8 @@ class GateResult:
 
 
 def job_card(reading):
-    """D8's card of the reading: the most ``total_mb``, ties to the lowest card key (``adapter_choice.pick``)."""
-    return min(reading.gpus, key=lambda gpu: (-gpu.total_mb, key_sort_value(gpu.card_key)))
+    """D8's card of the reading (``card_order``, as ``adapter_choice.pick``): size, then no screen, then key."""
+    return min(reading.gpus, key=lambda gpu: card_order.sort_key(gpu.total_mb, gpu.screen, gpu.card_key))
 
 
 def _need(params) -> int:
