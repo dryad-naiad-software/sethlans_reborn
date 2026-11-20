@@ -26,6 +26,7 @@ from shared.unreal.builds import BUILD_RE
 from shared.unreal.vram_gate import MAX_PEAK_MB, MIN_PLAUSIBLE_PEAK_MB
 
 from ..card_keys import is_pci_card_key
+from ..constants import UNREAL_GAME_OVERRIDES, UNREAL_TEXTURE_STREAMING
 from ..renderers import UnsupportedRendererError, get_strategy
 from ..strict_json import _int_in, is_number
 from .projects import ProjectSerializer
@@ -138,6 +139,9 @@ class PilotResultRequestSerializer(serializers.Serializer):
     csv_local_used_peak_mb = _megabytes(allow_null=True)
     overrides_sha256 = StrictCharField()
     summary = StrictCharField(allow_blank=True)
+    # What the pilot ran with, from its preset (gpu-memory-reader FR-GC-8); stored, never keyed.
+    game_overrides = serializers.ChoiceField(choices=UNREAL_GAME_OVERRIDES)
+    texture_streaming = serializers.ChoiceField(choices=UNREAL_TEXTURE_STREAMING)
 
     def validate_engine_build(self, value):
         if not re.fullmatch(BUILD_RE, value, re.ASCII):
@@ -200,6 +204,15 @@ class LatestMeasurementSerializer(serializers.Serializer):
     preset = serializers.CharField()
     peak_mb = serializers.IntegerField(allow_null=True)
     peak_source = serializers.CharField(allow_null=True)
+    game_overrides = serializers.ChoiceField(
+        choices=UNREAL_GAME_OVERRIDES, allow_null=True, read_only=True,
+        help_text="The preset's Game Overrides as the pilot ran (gpu-memory-reader FR-GC-10); "
+                  "null until measured.",
+    )
+    texture_streaming = serializers.ChoiceField(
+        choices=UNREAL_TEXTURE_STREAMING, allow_null=True, read_only=True,
+        help_text="The preset's texture streaming mode as the pilot ran (FR-GC-10); null until measured.",
+    )
     gate_need_mb = serializers.IntegerField(allow_null=True)
     measured_at = serializers.DateTimeField(allow_null=True)
     worker_hostname = serializers.CharField(allow_null=True)

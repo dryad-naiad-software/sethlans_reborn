@@ -13,7 +13,8 @@ from tests.unit.worker.unreal._executor_fakes import outcome, phase_run, reading
 
 PILOT_FIELDS = {'peak_mb', 'peak_source', 'card_delta_peak_mb', 'baseline_used_mb', 'baseline_drift_mb', 'peak_phase',
                 'max_sample_gap_s', 'prep_s', 'warmup_s', 'warmup_ran', 'render_s', 'frames', 'seconds_per_frame',
-                'per_shot', 'gpu', 'engine_build', 'csv_local_used_peak_mb', 'overrides_sha256', 'summary'}
+                'per_shot', 'gpu', 'engine_build', 'csv_local_used_peak_mb', 'overrides_sha256', 'summary',
+                'game_overrides', 'texture_streaming'}
 
 
 def runs():
@@ -89,6 +90,11 @@ def test_report_body_matches_the_manager_schema():
     assert set(body) == PILOT_FIELDS and body['seconds_per_frame'] == 60.02 and body['warmup_ran'] is True
     assert body['gpu'] == {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607,
                            'card_key': 'pci:0000:01:00.0'}
+    assert body['game_overrides'] == body['texture_streaming'] == 'unknown'  # always sent (FR-GC-8)
+    body = pilot.report_body(metrics, _gpu('pci:0000:01:00.0'), prep_s=1, warmup_s=1, render_s=1, frames=1,
+                             engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s',
+                             game_overrides='implicit', texture_streaming='off')
+    assert (body['game_overrides'], body['texture_streaming']) == ('implicit', 'off')
 
 
 MANAGER_BODY_LIMIT = 128 * 1024  # SMALL_BODY_LIMIT on the manager

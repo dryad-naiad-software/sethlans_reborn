@@ -74,4 +74,5 @@ def report(gpu):
     """The worker's own pilot-result body for a pilot that ran on ``gpu``."""
     return wire(pilot.report_body(
         metrics(), gpu, prep_s=24.1, warmup_s=800.2, render_s=1380.5, frames=23,
-        engine_build=BUILD, overrides_sha256=overrides_sha256({}), summary='pilot_frames=23'))
+        engine_build=BUILD, overrides_sha256=overrides_sha256({}), summary='pilot_frames=23',
+        game_overrides='preset', texture_streaming='fully_load'))

@@ -11,6 +11,8 @@ setting keys. These constants are used for validation, API documentation,
 and ensuring consistency across the entire system.
 """
 from django.db import models
+from shared.unreal.render_context import GAME_OVERRIDES_VALUES as UNREAL_GAME_OVERRIDES  # FR-GC-2, FR-GC-7
+from shared.unreal.render_context import TEXTURE_STREAMING_VALUES as UNREAL_TEXTURE_STREAMING
 
 
 class Renderer(models.TextChoices):
@@ -34,6 +36,9 @@ class UnrealKind(models.TextChoices):
     RENDER = 'render', 'Render'
     PILOT = 'pilot', 'Pilot'
 
+
+UNREAL_GAME_OVERRIDES_CHOICES = tuple((value, value) for value in UNREAL_GAME_OVERRIDES)
+UNREAL_TEXTURE_STREAMING_CHOICES = tuple((value, value) for value in UNREAL_TEXTURE_STREAMING)
 
 # Job names reserved for manager-created pilot jobs (FR-PM-9).
 PILOT_NAME_PREFIX = 'sethlans-pilot-'

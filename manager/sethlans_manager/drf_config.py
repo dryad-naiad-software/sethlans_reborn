@@ -39,6 +39,10 @@ SPECTACULAR_SETTINGS = {
         'WorkerCardOutcomeCodeEnum': 'workers.serializers.worker_card_schemas.CARD_OUTCOME_CODES',
         # The heartbeat ``gpu_memory.source`` names (gpu-memory-reader FR-GH-6).
         'WorkerGpuMemorySourceEnum': 'workers.serializers.workers.GPU_MEMORY_SOURCE_CHOICES',
+        # What a pilot render ran with (gpu-memory-reader FR-GC-10): the
+        # pilot-result body, ``unreal_measurement.latest`` and the model.
+        'UnrealGameOverridesEnum': 'shared.unreal.render_context.GAME_OVERRIDES_VALUES',
+        'UnrealTextureStreamingEnum': 'shared.unreal.render_context.TEXTURE_STREAMING_VALUES',
     },
     'SECURITY': [
         {'sessionAuth': []},

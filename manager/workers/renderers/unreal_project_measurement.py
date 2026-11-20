@@ -34,6 +34,7 @@ _RECORD_FIELDS = (
     ('measurement_id', 'id'), ('remeasure', 'remeasure'), ('asset_id', 'asset_id'),
     ('engine_build', 'engine_build'), ('map', 'map'), ('sequence', 'sequence'),
     ('preset', 'preset'), ('peak_mb', 'peak_mb'), ('peak_source', 'peak_source'),
+    ('game_overrides', 'game_overrides'), ('texture_streaming', 'texture_streaming'),
     ('measured_at', 'measured_at'), ('worker_hostname', 'worker_hostname'),
     ('gpu_name', 'gpu_name'), ('gpu_total_mb', 'gpu_total_mb'), ('prep_s', 'prep_s'),
     ('warmup_s', 'warmup_s'), ('seconds_per_frame', 'seconds_per_frame'),
@@ -42,8 +43,10 @@ _RECORD_FIELDS = (
 # Results that read ``null`` until the record is measured.
 _RESULT_KEYS = frozenset({
     'peak_mb', 'peak_source', 'measured_at', 'worker_hostname', 'gpu_name',
-    'gpu_total_mb', 'prep_s', 'warmup_s', 'seconds_per_frame',
+    'gpu_total_mb', 'prep_s', 'warmup_s', 'seconds_per_frame', 'game_overrides', 'texture_streaming',
 })
+# Results stored as '' by records measured before migration 0026 (FR-GC-10): shown as null.
+_BLANK_AS_NULL = ('game_overrides', 'texture_streaming')
 
 
 def _held_count(state):
@@ -85,6 +88,9 @@ def _latest(row):
     peak = latest['peak_mb']
     if peak is None:
         for key in _RESULT_KEYS:
+            latest[key] = None
+    for key in _BLANK_AS_NULL:
+        if latest[key] == '':
             latest[key] = None
     latest['gate_need_mb'] = measured_need_mb(peak) if isinstance(peak, int) and peak > 0 else None
     if latest['measured_at'] is not None:

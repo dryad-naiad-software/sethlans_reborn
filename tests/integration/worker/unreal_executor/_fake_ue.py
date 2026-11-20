@@ -27,6 +27,7 @@ Behavior switches come from a ``fake_ue.json`` next to the ``.uproject``
 ``Compilation cancelled.`` on ``render.1``, ``prep_error`` makes the prep
 fail, ``zen_path`` overrides the logged Zen data path, ``chosen_adapter``
 overrides the logged adapter id (only in ``chosen_phase`` when given;
+``game_overrides`` / ``texture_streaming`` set the prep's preset facts, default ``implicit`` / ``off``;
 ``after_chosen_sleep`` waits after it), ``adapters`` maps a
 ``-graphicsadapter`` index (as a string) to the ``[name, vendor, device,
 revision]`` (hex strings) of the card logged there (default: one NVIDIA card).
@@ -129,7 +130,8 @@ if '-run=pythonscript' in args:
     result = {'ok': True, 'queue_asset': params['package_root'] + '/Q_Job' + str(params['job_id']),
               'preset_kind': 'graph', 'playback_range': [0, 1928], 'camera_cut_starts': [0, 99, 202],
               'effective_cvars': {n: ('true' if v == '1' else v) for n, v in cvars}, 'queue_jobs': len(frames),
-              'scalability': 4, 'warnings': []}
+              'scalability': 4, 'warnings': [], 'game_overrides': OPTS.get('game_overrides', 'implicit'),
+              'texture_streaming': OPTS.get('texture_streaming', 'off')}
     if pilot:
         result['pilot_frames'] = frames
     if OPTS.get('prep_error'):

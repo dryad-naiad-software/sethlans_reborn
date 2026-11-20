@@ -131,7 +131,7 @@ def pilot_flow(job, card_key='pci:0000:01:00.0'):
     metrics = PilotMetrics(peak_mb=8102, peak_source='csv', card_delta_peak_mb=7930, csv_local_used_peak_mb=8102,
                            baseline_used_mb=945, baseline_drift_mb=12, peak_phase='render', gpu_index=0,
                            max_sample_gap_s=1.2)
-    prep = SimpleNamespace(pilot_frames=(0, 99, 202))
+    prep = SimpleNamespace(pilot_frames=(0, 99, 202), game_overrides='implicit', texture_streaming='off')
     gpu = GpuMem(0, 'NVIDIA GeForce RTX 5090', 32607, 1000, None, None, card_key)
     return FlowResult(prep=prep, render_s=180.0, prep_s=24.0, warmup_s=800.0, warmup_ran=True, render_time_seconds=60,
                       metrics=metrics, gate_reading=reading(gpus=(gpu,)), card=gpu)

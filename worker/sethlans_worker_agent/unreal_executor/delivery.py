@@ -148,7 +148,8 @@ class Delivery:
                                  render_s=flow.render_s, frames=len(flow.prep.pilot_frames),
                                  engine_build=self.params.engine_build,
                                  overrides_sha256=overrides_sha256(dict(self.params.cvar_overrides)),
-                                 summary=self._text())
+                                 summary=self._text(), game_overrides=flow.prep.game_overrides,
+                                 texture_streaming=flow.prep.texture_streaming)
         report = self.deps.report_pilot(self.params.job_id, body)
         if report.outcome == 'rejected':
             return self.failed(f"Pilot result rejected by the manager: {report.detail}"[:1000], prefix=False)

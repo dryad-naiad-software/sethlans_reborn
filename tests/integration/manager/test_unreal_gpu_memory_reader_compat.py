@@ -66,8 +66,10 @@ def _pilot_body(metrics):
     summary.update(pilot.summary_values(metrics, list(range(23)), CARD_NAME, 'ef' * 32))
     body = pilot.report_body(metrics, _reading().gpus[0], prep_s=24.1, warmup_s=800.2, render_s=1380.5,
                              frames=23, engine_build=BUILD, overrides_sha256=overrides_sha256({}),
-                             summary=summary.text())
+                             summary=summary.text(), game_overrides='implicit', texture_streaming='off')
     body = _wire(body)
+    # Guard: the worker sends what the pilot ran with (gpu-memory-reader FR-GC-8).
+    assert (body['game_overrides'], body['texture_streaming']) == ('implicit', 'off')
     # Guard: the worker sends the card key the manager matches on (FR-GN-5, FR-GH-10).
     assert body['gpu'] == {'index': 0, 'name': CARD_NAME, 'total_mb': TOTAL_MB, 'card_key': CARD_KEY}
     assert 'pilot_process_peak_mb=6144' in body['summary']
@@ -120,3 +122,4 @@ class TestUnrealGpuMemoryReaderCompatIntegration:
         assert (record.peak_mb, record.card_delta_peak_mb, record.csv_local_used_peak_mb) == (8102, 7930, 8102)
         assert (record.worker_id, record.gpu_index, record.gpu_name, record.gpu_total_mb) == (
             worker.pk, 0, CARD_NAME, TOTAL_MB)
+        assert (record.game_overrides, record.texture_streaming) == ('implicit', 'off')

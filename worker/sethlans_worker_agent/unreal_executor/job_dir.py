@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 SCRIPTS_SOURCE = Path(__file__).resolve().parent / 'ue_scripts'
 PREP_SCRIPT = 'sethlans_prepare_queue.py'
 WARMUP_SCRIPT = 'sethlans_warm_up.py'
+FACTS_SCRIPT = 'sethlans_preset_facts.py'  # loaded by the prep script from scripts\ by file path (FR-GC-3)
+UE_SCRIPTS = (PREP_SCRIPT, WARMUP_SCRIPT, FACTS_SCRIPT)
 
 _active_lock = threading.Lock()  # leaf lock
 _active: Set[str] = set()        # names of j/ dirs a job still uses (never pruned)
@@ -93,7 +95,7 @@ def create(layout: CacheLayout, job_id: int, att8: str) -> JobDir:
         _active.add(job.root.name)
     for path in (job.root, job.logs, job.scripts, job.output):
         fs_safe.ensure_owned_dir(path)
-    for name in (PREP_SCRIPT, WARMUP_SCRIPT):
+    for name in UE_SCRIPTS:
         shutil.copyfile(SCRIPTS_SOURCE / name, job.script(name))
     return job
 

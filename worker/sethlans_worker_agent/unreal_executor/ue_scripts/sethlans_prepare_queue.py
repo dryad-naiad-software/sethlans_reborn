@@ -1,15 +1,15 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Sethlans per-job queue prep (Unreal foundation FR-UE-8, FR-UE-19, FR-UE-25).
+"""Sethlans per-job queue prep (Unreal foundation FR-UE-8, FR-UE-19, FR-UE-25; GPU memory reader FR-GC-3).
 
-Runs in UE 5.8's embedded Python (3.11) as the PythonScript commandlet
-(``-run=pythonscript -script=<this file>``); imports only unreal, json, os,
-sys and time. Job data comes only from the params file named by
-``SETHLANS_UE_JOB_PARAMS``. Modes ``prepare`` (one frame) and
-``prepare_pilot`` (one frame per shot). Writes ``result_path`` and, on
-failure, re-raises so the commandlet exits with -1.
+Runs in UE 5.8's embedded Python (3.11) as the PythonScript commandlet (``-run=pythonscript -script=<this file>``);
+imports only unreal, importlib, json, os, sys and time, and loads ``sethlans_preset_facts.py`` from ``scripts_dir``
+by file path, never through ``sys.path``. Job data comes only from the params file named by ``SETHLANS_UE_JOB_PARAMS``.
+Modes ``prepare`` (one frame) and ``prepare_pilot`` (one frame per shot). Writes ``result_path`` and, on failure,
+re-raises so the commandlet exits with -1.
 """
+import importlib.util
 import json
 import os
 import sys
@@ -18,8 +18,9 @@ import time
 import unreal
 
 T0 = time.time()
-RES = {"ok": False}
+RES = {"ok": False, "warnings": []}
 P = {}
+FACTS = "sethlans_preset_facts"
 
 
 def fail(msg):
@@ -134,15 +135,19 @@ def pilot_frames(seq, first, last):
     return sorted(frames)
 
 
-def graph_scalability(dup):
-    level = 4  # the MovieGraphGlobalGameOverridesNode default (Cinematic)
-    try:
-        for node in all_nodes(dup, unreal.MovieGraphGlobalGameOverridesNode):
-            if node.get_editor_property("override_scalability_quality_level"):
-                level = int(node.get_editor_property("scalability_quality_level").value)
+def read_facts(preset, kind):
+    """FR-GC-1, FR-GC-3: what the loaded preset renders with; scalability 4 and ``unknown`` when unreadable."""
+    RES["scalability"], RES["game_overrides"], RES["texture_streaming"] = 4, "unknown", "unknown"
+    try:  # one fixed file; nothing is added to sys.path, so nothing else can be imported in its place
+        spec = importlib.util.spec_from_file_location(FACTS, os.path.join(P["scripts_dir"], FACTS + ".py"))
+        facts = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(facts)
     except Exception as exc:
-        RES.setdefault("warnings", []).append(f"scalability not read: {exc}"[:200])
-    return level
+        RES["warnings"].append(f"The preset facts module did not load ({type(exc).__name__}).")  # never the message
+        return
+    RES["game_overrides"], RES["texture_streaming"] = facts.game_overrides(preset, kind, RES["warnings"])
+    if kind == "graph":  # the duplicates keep the preset's Game Overrides nodes unchanged
+        RES["scalability"] = facts.graph_scalability(preset, RES["warnings"])
 
 
 def override_graph(dup, start, end):
@@ -202,10 +207,7 @@ def duplicate(eal, preset_path, kind, index, start, end):
     dup = eal.duplicate_asset(preset_path, f"{P['package_root']}/MRG_Job{P['job_id']}_{index}")
     if dup is None:
         fail("Could not duplicate the preset.")
-    if kind == "graph":
-        override_graph(dup, start, end)
-    else:
-        override_legacy(dup, start, end)
+    (override_graph if kind == "graph" else override_legacy)(dup, start, end)
     eal.save_loaded_asset(dup, False)
     return dup
 
@@ -250,6 +252,7 @@ def prepare():
         fail(f"Preset {P['preset']} not found.")
     kind = preset_kind(preset)
     RES["preset_kind"] = kind
+    read_facts(preset, kind)
     seq = unreal.load_asset(P["sequence"])
     if seq is None:
         fail(f"Sequence {P['sequence']} not found.")
@@ -261,20 +264,14 @@ def prepare():
         f"Q_Job{P['job_id']}", root, unreal.MoviePipelineQueue, None)
     for index, frame in enumerate(frames):
         dup = duplicate(eal, P["preset"], kind, index, frame, frame + 1)
-        if index == 0:
-            RES["scalability"] = graph_scalability(dup) if kind == "graph" else 4
         job = queue.allocate_new_job(unreal.MoviePipelineExecutorJob)
         job.job_name = f"sethlans_{P['job_id']}_{frame}"
         job.map = unreal.SoftObjectPath(P["map"])
         job.sequence = unreal.SoftObjectPath(P["sequence"])
-        if kind == "graph":
-            job.set_graph_preset(dup)
-        else:
-            job.set_preset_origin(dup)
+        (job.set_graph_preset if kind == "graph" else job.set_preset_origin)(dup)
     eal.save_loaded_asset(queue, False)
     RES["queue_jobs"] = len(frames)
-    lib = unreal.SystemLibrary
-    RES["effective_cvars"] = {name: lib.get_console_variable_string_value(name) for name in P.get("cvar_names", [])}
+    RES["effective_cvars"] = {n: unreal.SystemLibrary.get_console_variable_string_value(n) for n in P.get("cvar_names", [])}
     RES["queue_asset"] = f"{root}/Q_Job{P['job_id']}"
     RES["ok"] = True
 

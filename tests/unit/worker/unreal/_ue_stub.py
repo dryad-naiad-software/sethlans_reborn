@@ -51,6 +51,10 @@ class MovieGraphFileOutputNode(MovieGraphNode):
     pass
 
 
+class MovieGraphSubgraphNode(MovieGraphNode):
+    pass
+
+
 class MovieGraphImageSequenceOutputNode_PNG(MovieGraphFileOutputNode):
     pass
 
@@ -84,8 +88,28 @@ class MovieGraphConfig:
         return types.SimpleNamespace(get_name=lambda: 'MovieGraphConfig')
 
 
+class MoviePipelineGameOverrideSetting(_Props):
+    """A legacy setting; ``disabled`` is its ``is_enabled() == False`` (UE: ``bEnabled``)."""
+
+    def is_enabled(self):
+        return not self.disabled
+
+
+# UE 5.8.4 EMoviePipelineTextureStreamingMethod as Python exposes it (MoviePipelineGameOverrideSetting.h:13-22).
+MoviePipelineTextureStreamingMethod = types.SimpleNamespace(NONE='NONE', DISABLED='DISABLED', FULLY_LOAD='FULLY_LOAD')
+
+
 class MoviePipelinePrimaryConfig:
-    pass
+    """A legacy preset: its user settings, found like ``UMoviePipelineConfigBase::FindSettingByClass``."""
+
+    def __init__(self, settings=()):
+        self.settings = list(settings)
+
+    def find_setting_by_class(self, cls, include_disabled_settings=False, exact_match=False):
+        for setting in self.settings:
+            if isinstance(setting, cls) and (include_disabled_settings or setting.is_enabled()):
+                return setting
+        return None
 
 
 class Section:
@@ -170,8 +194,10 @@ def make_unreal(world):
     for cls in (FrameRate, MovieGraphNode, MovieGraphGlobalOutputSettingNode, MovieGraphGlobalGameOverridesNode,
                 MovieGraphFileOutputNode, MovieGraphImageSequenceOutputNode_PNG, MovieGraphRenderLayerNode,
                 MovieGraphRenderPassNode, MovieGraphConfig, MoviePipelinePrimaryConfig, MovieSceneCameraCutTrack,
-                MovieSceneCinematicShotTrack, MovieSceneSubTrack):
+                MovieSceneCinematicShotTrack, MovieSceneSubTrack, MoviePipelineGameOverrideSetting,
+                MovieGraphSubgraphNode):
         setattr(module, cls.__name__, cls)
+    module.MoviePipelineTextureStreamingMethod = MoviePipelineTextureStreamingMethod
     module.log = world['logs'].append
     module.MovieGraphSequenceRangeType = types.SimpleNamespace(CUSTOM='custom')
     module.MovieGraphSequencePlaybackRangeBound = lambda: types.SimpleNamespace(type=None, value=None)
@@ -204,12 +230,20 @@ def make_unreal(world):
     return module
 
 
-def graph(layers=1, passes=1, png=True, extra_outputs=(), subgraphs=(), scalability=None):
+def overrides_node(scalability=None, streaming=None, disabled=False):
+    """A Global Game Overrides node; ``None`` leaves that value un-overridden (UE's ``bOverride_*`` false)."""
+    return MovieGraphGlobalGameOverridesNode(
+        override_scalability_quality_level=scalability is not None,
+        scalability_quality_level=types.SimpleNamespace(value=4 if scalability is None else scalability),
+        override_disable_texture_streaming=streaming is not None, disable_texture_streaming=bool(streaming),
+        disabled=disabled)
+
+
+def graph(layers=1, passes=1, png=True, extra_outputs=(), subgraphs=(), scalability=None, overrides=()):
     nodes = {'Globals': [MovieGraphGlobalOutputSettingNode()], 'DefaultLayer': []}
     if scalability is not None:
-        nodes['Globals'].append(MovieGraphGlobalGameOverridesNode(
-            override_scalability_quality_level=True,
-            scalability_quality_level=types.SimpleNamespace(value=scalability)))
+        nodes['Globals'].append(overrides_node(scalability=scalability))
+    nodes['Globals'].extend(overrides)
     for index in range(layers):
         nodes['DefaultLayer'].append(MovieGraphRenderLayerNode(layer_name=f'l{index}'))
     for _ in range(passes):

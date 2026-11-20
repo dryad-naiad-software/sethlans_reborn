@@ -39,6 +39,8 @@ _RESULT_FIELDS = (
     'peak_mb', 'peak_source', 'card_delta_peak_mb', 'baseline_used_mb', 'baseline_drift_mb',
     'peak_phase', 'max_sample_gap_s', 'prep_s', 'warmup_s', 'warmup_ran', 'render_s',
     'frames', 'seconds_per_frame', 'csv_local_used_peak_mb',
+    # What the pilot ran with (gpu-memory-reader FR-GC-8); stored, never part of the key.
+    'game_overrides', 'texture_streaming',
 )
 
 

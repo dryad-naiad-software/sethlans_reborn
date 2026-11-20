@@ -22,12 +22,13 @@ from tests.unit.worker.unreal._executor_fakes import params, reading
 KEY = 'pci:0000:0a:00.0'
 
 
-def _flow(card_key):
+def _flow(card_key, game_overrides='preset', texture_streaming='fully_load'):
     metrics = PilotMetrics(peak_mb=8102, peak_source='card', card_delta_peak_mb=8102, csv_local_used_peak_mb=None,
                            baseline_used_mb=900, baseline_drift_mb=0, peak_phase='render', gpu_index=0,
                            max_sample_gap_s=1.0)
     gpu = GpuMem(0, 'Test Card A', 16384, 900, None, None, card_key)
-    return FlowResult(prep=SimpleNamespace(pilot_frames=(0, 1)), render_s=60.0, prep_s=10.0, warmup_s=30.0,
+    prep = SimpleNamespace(pilot_frames=(0, 1), game_overrides=game_overrides, texture_streaming=texture_streaming)
+    return FlowResult(prep=prep, render_s=60.0, prep_s=10.0, warmup_s=30.0,
                       warmup_ran=True, render_time_seconds=60, metrics=metrics, gate_reading=reading(gpus=(gpu,)),
                       card=gpu)
 
@@ -60,6 +61,15 @@ def test_a_card_key_reports_the_result_with_it(calls):
     [(name, body)] = calls
     assert name == 'pilot' and body['gpu']['card_key'] == KEY
     assert result.success is True and result.released is True
+
+
+@pytest.mark.parametrize('game_overrides,texture_streaming', [
+    ('preset', 'fully_load'), ('implicit', 'off'), ('none', 'unchanged'), ('unknown', 'unknown')])
+def test_the_report_carries_what_the_prep_said_the_render_ran_with(calls, game_overrides, texture_streaming):
+    """FR-GC-8: both values always reach pilot-result/, ``unknown`` included."""
+    _delivery(calls).deliver(Outcome('success', flow=_flow(KEY, game_overrides, texture_streaming)), integrity_ok=True)
+    [(_name, body)] = calls
+    assert (body['game_overrides'], body['texture_streaming']) == (game_overrides, texture_streaming)
 
 
 def test_the_report_names_the_flows_card_never_a_gate_reading_lookup(calls):

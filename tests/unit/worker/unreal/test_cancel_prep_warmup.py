@@ -77,14 +77,16 @@ class TestCancel:
 class TestPrepParams:
 
     def test_render_params(self):
-        data = queue_prep.prep_params(params(), 'D:\\c\\j\\42-x\\output', 'D:\\c\\j\\42-x\\prep_result.json')
+        data = queue_prep.prep_params(params(), 'D:\\c\\j\\42-x\\output', 'D:\\c\\j\\42-x\\prep_result.json',
+                                      'D:\\c\\j\\42-x\\scripts')
         assert data['mode'] == 'prepare' and data['frame'] == 1000 and data['schema'] == 1
+        assert data['scripts_dir'] == 'D:\\c\\j\\42-x\\scripts'  # where the facts module is loaded from (FR-GC-3)
         assert data['package_root'] == '/Game/_SethlansFarm/Job42'
         assert data['file_name_format'] == 'sethlans_42.{frame_number}'
         assert data['cvar_names'][0] == 'gc.TimeBetweenPurgingPendingKillObjects'
 
     def test_pilot_params_have_no_frame(self):
-        data = queue_prep.prep_params(params(kind='pilot'), 'o', 'r')
+        data = queue_prep.prep_params(params(kind='pilot'), 'o', 'r', 's')
         assert data['mode'] == 'prepare_pilot' and 'frame' not in data and data['max_pilot_frames'] == 256
 
     def test_write_json_is_atomic_and_leaves_no_temp(self, tmp_path):

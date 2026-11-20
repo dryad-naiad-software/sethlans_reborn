@@ -86,7 +86,7 @@ class UeFlow:
     # -- prep -----------------------------------------------------------
     def prep(self) -> queue_prep.PrepResult:
         params, job = self.params, self.job
-        queue_prep.write_json(job.params, queue_prep.prep_params(params, job.output, job.prep_result))
+        queue_prep.write_json(job.params, queue_prep.prep_params(params, job.output, job.prep_result, job.scripts))
         launch = self.builders.build_prep(self.ctx, self.uproject, job.script(job_dir.PREP_SCRIPT),
                                           job.log('prep', 1), job.params, params.merged)
         run = self.runner.launch('prep', 1, launch, success_check=lambda: queue_prep.result_ok(job.prep_result),
@@ -109,7 +109,11 @@ class UeFlow:
             self.summary.warn(f"cvar_overridden={name}")
         for text in prep.warnings:
             self.summary.warn(text)
-        self.summary.update({'preset_kind': prep.preset_kind, 'queue': prep.queue_asset})
+        # What the render runs with (D23, FR-GC-5): shown only; the worker never changes it (FR-GC-6).
+        self.summary.update({'preset_kind': prep.preset_kind, 'game_overrides': prep.game_overrides,
+                             'texture_streaming': prep.texture_streaming, 'queue': prep.queue_asset})
+        if prep.game_overrides == 'implicit':
+            self.summary.warn(queue_prep.IMPLICIT_WARNING)
         if params.is_pilot:
             self.summary.set('pilot_frames', len(prep.pilot_frames))
         return prep

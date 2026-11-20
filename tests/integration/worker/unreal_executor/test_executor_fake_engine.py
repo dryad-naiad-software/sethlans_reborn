@@ -14,6 +14,7 @@ import time
 import psutil
 import pytest
 
+from sethlans_worker_agent.unreal_executor import queue_prep
 from tests.integration.worker.unreal_executor._harness import Harness, summary
 
 pytestmark = pytest.mark.skipif(sys.platform != 'win32', reason='Job Objects, Windows command lines')
@@ -40,6 +41,9 @@ def test_normal_job_renders_uploads_and_reports_summary(tmp_path, monkeypatch):
     assert s['pristine_integrity'] == 'ok' and s['survivors'] == '' and s['user_state'] == 'isolated'
     assert s['cvars_applied'] == '3/3' and s['compilation_cancelled'] == '0' and s['vram_gate'] == 'measured'
     assert s['user_cvars'] == '0' and s['cvar_overridden'] == '' and s['quit_forced'] == ''
+    # FR-GC-5: what the render ran with, and the one warning for MRQ's implicit Game Overrides.
+    assert (s['preset_kind'], s['game_overrides'], s['texture_streaming']) == ('graph', 'implicit', 'off')
+    assert result.stdout.count(queue_prep.IMPLICIT_WARNING) == 1
     jobs = list(h.cache.layout.j.iterdir())
     assert len(jobs) == 1 and not (jobs[0] / 'output').exists()  # FR-PA-17 after the report
     assert not list(h.cache.layout.w.iterdir())                    # working copy removed by finish()
@@ -155,10 +159,13 @@ def test_card_stop_mid_render_releases_and_keeps_the_cache_entry(tmp_path, monke
 
 
 def test_pilot_measures_every_phase_and_reports_pilot_result(tmp_path, monkeypatch):
-    h = Harness(tmp_path, monkeypatch, opts={'render_sleep': 4, 'phase_sleep': 4})
+    h = Harness(tmp_path, monkeypatch, opts={'render_sleep': 4, 'phase_sleep': 4, 'game_overrides': 'preset',
+                                             'texture_streaming': 'fully_load'})
     result = h.execute(h.job(77, kind='pilot'))
     assert result.success and result.released, result.error_message
     body, = h.manager.pilot_bodies
+    assert (body['game_overrides'], body['texture_streaming']) == ('preset', 'fully_load')  # FR-GC-8
+    assert queue_prep.IMPLICIT_WARNING not in result.stdout
     assert body['frames'] == 3 and body['warmup_ran'] is True and body['peak_source'] == 'card'
     assert body['card_delta_peak_mb'] == 2000 and body['peak_mb'] == 2000 and body['baseline_used_mb'] == 1000
     assert body['gpu'] == {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607,

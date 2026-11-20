@@ -22,6 +22,12 @@ code wrote, so it is **untrusted** (Sec M4):
 
 A violation raises ``PrepError("Prep pass returned an invalid result
 (<field>).")``; ``ok: false`` raises ``PrepError`` with the sanitized error.
+
+``game_overrides`` and ``texture_streaming`` (what the render runs with,
+GPU memory reader D23, FR-GC-4) are only shown, never acted on: a word
+outside ``GAME_OVERRIDES`` / ``TEXTURE_STREAMING``, or none, is
+``unknown`` and never fails the job. The words live once, in
+``shared.unreal.render_context``, which the manager uses too.
 """
 import json
 import os
@@ -31,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from shared.unreal import validation
+from shared.unreal import render_context, validation
 
 SCHEMA = 1
 PACKAGE_ROOT = '/Game/_SethlansFarm/Job{job_id}'
@@ -42,6 +48,12 @@ MAX_LIST = 4096
 PILOT_MAX_FRAMES = 256
 _CONTROL = re.compile(r'[\x00-\x1f\x7f]')
 _OBJECT_PATH = re.compile(validation.OBJECT_PATH_RE, re.ASCII)
+GAME_OVERRIDES = render_context.GAME_OVERRIDES_VALUES
+TEXTURE_STREAMING = render_context.TEXTURE_STREAMING_VALUES
+UNKNOWN = render_context.UNKNOWN
+IMPLICIT_WARNING = ("The preset has no Game Overrides setting; Movie Render Queue then renders with texture streaming "
+                    "off, which needs more GPU memory than streaming on. To choose, add a Game Overrides setting to "
+                    "the preset and set its Texture Streaming.")
 
 
 class PrepError(Exception):
@@ -77,14 +89,15 @@ def write_json(path, data: dict) -> None:
             tmp.unlink()
 
 
-def prep_params(params, output_dir: str, result_path: str) -> Dict[str, Any]:
+def prep_params(params, output_dir: str, result_path: str, scripts_dir: str) -> Dict[str, Any]:
+    """``scripts_dir``: the job's own ``scripts\\``, where the prep script loads the facts module from (FR-GC-3)."""
     data = {'schema': SCHEMA, 'job_id': params.job_id,
             'mode': 'prepare_pilot' if params.is_pilot else 'prepare',
             'map': params.map, 'sequence': params.sequence, 'preset': params.preset,
             'output_format': params.output_format, 'output_dir': str(output_dir),
             'file_name_format': file_name_format(params.job_id), 'package_root': package_root(params.job_id),
             'result_path': str(result_path), 'cvar_names': [name for name, _value in params.merged],
-            'max_pilot_frames': PILOT_MAX_FRAMES}
+            'max_pilot_frames': PILOT_MAX_FRAMES, 'scripts_dir': str(scripts_dir)}
     if not params.is_pilot:
         data['frame'] = params.frame
     return data
@@ -101,6 +114,8 @@ class PrepResult:
     pilot_frames: Tuple[int, ...] = ()
     queue_jobs: int = 1
     scalability: int = 4
+    game_overrides: str = UNKNOWN
+    texture_streaming: str = UNKNOWN
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -150,6 +165,11 @@ def _check_pilot(data: dict, playback: Tuple[int, int], sequence: str) -> Tuple[
     return frames, jobs
 
 
+def allowed_word(value, allowed: Tuple[str, ...]) -> str:
+    """FR-GC-4: ``value`` when it is one of the ``allowed`` words, else ``unknown`` (never an error)."""
+    return value if isinstance(value, str) and value in allowed else UNKNOWN
+
+
 def _warnings(data: dict) -> Tuple[str, ...]:
     raw = data.get('warnings', [])
     if not isinstance(raw, list):
@@ -181,7 +201,9 @@ def parse_result(data: Optional[dict], root: str, pilot: bool, sequence: str) ->
     return PrepResult(queue_asset=queue, preset_kind=data['preset_kind'], playback_range=tuple(playback),
                       camera_cut_starts=_ints(data, 'camera_cut_starts', required=False),
                       effective_cvars=effective, warnings=_warnings(data), pilot_frames=frames, queue_jobs=jobs,
-                      scalability=scalability)
+                      scalability=scalability,
+                      game_overrides=allowed_word(data.get('game_overrides'), GAME_OVERRIDES),
+                      texture_streaming=allowed_word(data.get('texture_streaming'), TEXTURE_STREAMING))
 
 
 def read_result(path, params) -> PrepResult:

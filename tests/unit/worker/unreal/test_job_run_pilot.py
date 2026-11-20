@@ -22,6 +22,7 @@ def test_pilot_report_responses(tmp_path, monkeypatch, report, released):
     assert result.released is released and 'upload' not in w.names()
     body = next(call[1] for call in w.calls if call[0] == 'pilot')
     assert body['peak_mb'] == 8102 and body['frames'] == 3 and len(body['overrides_sha256']) == 64
+    assert (body['game_overrides'], body['texture_streaming']) == ('implicit', 'off')  # the prep's (FR-GC-8)
     if report == 'rejected':
         assert result.error_message == 'Pilot result rejected by the manager: peak_mb: too low'
 

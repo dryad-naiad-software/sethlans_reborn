@@ -20,6 +20,8 @@ record and of a key is derived (``renderers/unreal_measured.py``).
 from django.db import models
 from django.utils import timezone
 
+from ..constants import UNREAL_GAME_OVERRIDES_CHOICES, UNREAL_TEXTURE_STREAMING_CHOICES
+
 
 class UnrealMeasurement(models.Model):
     """A pilot render's measurement of a project target's peak GPU memory."""
@@ -47,6 +49,15 @@ class UnrealMeasurement(models.Model):
     # Results: all null until a successful pilot-result report.
     peak_mb = models.IntegerField(null=True, blank=True)
     peak_source = models.CharField(max_length=8, blank=True, default='')
+    # What the pilot ran with, from its preset (gpu-memory-reader FR-GC-7).
+    # Information only: never part of the key (FR-GC-9); '' until measured,
+    # and on records measured before migration 0026.
+    game_overrides = models.CharField(
+        max_length=16, blank=True, default='', choices=UNREAL_GAME_OVERRIDES_CHOICES,
+    )
+    texture_streaming = models.CharField(
+        max_length=16, blank=True, default='', choices=UNREAL_TEXTURE_STREAMING_CHOICES,
+    )
     card_delta_peak_mb = models.IntegerField(null=True, blank=True)
     baseline_used_mb = models.IntegerField(null=True, blank=True)
     baseline_drift_mb = models.IntegerField(null=True, blank=True)

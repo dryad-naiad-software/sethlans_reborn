@@ -70,11 +70,12 @@ def claim(client, job, worker):
     return client.post(f'{JOBS}{job.pk}/claim/', {'worker_id': worker.pk}, format='json')
 
 
-def measure(record, peak_mb=8102, worker=None):
+def measure(record, peak_mb=8102, worker=None, game_overrides='preset', texture_streaming='fully_load'):
     """Store a successful result on ``record`` (as ``pilot-result/`` would)."""
     UnrealMeasurement.objects.filter(pk=record.pk).update(
         peak_mb=peak_mb, peak_source='csv', measured_at=timezone.now(),
         worker=worker, worker_hostname=getattr(worker, 'hostname', ''),
+        game_overrides=game_overrides, texture_streaming=texture_streaming,
     )
     if record.pilot_job_id is not None:
         Job.objects.filter(pk=record.pilot_job_id).update(status='DONE')
@@ -109,6 +110,7 @@ def pilot_body(**overrides):
         'gpu': {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607, 'card_key': card_key_of(0)},
         'engine_build': BUILD, 'csv_local_used_peak_mb': 8102,
         'overrides_sha256': overrides_sha256({}), 'summary': 'pilot_frames=23',
+        'game_overrides': 'implicit', 'texture_streaming': 'off',
     }
     body.update(overrides)
     return body

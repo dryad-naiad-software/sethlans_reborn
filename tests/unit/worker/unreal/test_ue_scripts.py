@@ -20,7 +20,7 @@ PRESET, SEQ = '/Game/Presets/MRG', '/Game/Seq/Edit'
 POC_SHOT = ue.shot(965, 1106, [(101, 250)], offset_frames=101)
 
 
-def run(tmp_path, monkeypatch, assets, mode='prepare', frame=1000, **world):
+def run(tmp_path, monkeypatch, assets, mode='prepare', frame=1000, scripts_dir=str(job_dir.SCRIPTS_SOURCE), **world):
     world['assets'] = assets
     world.setdefault('cvars', {'r.Streaming.PoolSize': '9000'})
     monkeypatch.setitem(sys.modules, 'unreal', ue.make_unreal(world))
@@ -28,6 +28,8 @@ def run(tmp_path, monkeypatch, assets, mode='prepare', frame=1000, **world):
               'output_format': 'PNG', 'output_dir': 'D:\\c\\j\\42-x\\output', 'file_name_format': 'sethlans_42.{frame_number}',
               'package_root': '/Game/_SethlansFarm/Job42', 'result_path': str(tmp_path / 'result.json'),
               'cvar_names': ['r.Streaming.PoolSize'], 'max_pilot_frames': 256}
+    if scripts_dir is not None:
+        params['scripts_dir'] = scripts_dir
     if mode == 'prepare':
         params['frame'] = frame
     (tmp_path / 'params.json').write_text(json.dumps(params), encoding='utf-8')
@@ -102,6 +104,55 @@ class TestPrepare:
         assert result['error'] == 'Package root /Game/_SethlansFarm/Job42 already exists.'
         result, _error, _world = run(tmp_path, monkeypatch, {})
         assert result['error'] == f'Preset {PRESET} not found.'
+
+
+class TestPresetFacts:
+    """FR-GC-1..3 through the prep script: the facts module is loaded from ``scripts_dir`` by file path."""
+
+    def test_the_poc_shape_reports_preset_and_its_streaming(self, tmp_path, monkeypatch):
+        node = ue.overrides_node(scalability=3, streaming=True)
+        result, error, world = run(tmp_path, monkeypatch, poc_assets(overrides=[node]))
+        assert error is None and result['ok'] is True
+        assert (result['scalability'], result['game_overrides'], result['texture_streaming']) == (3, 'preset', 'off')
+        assert result['warnings'] == [] and world['assets'][PRESET].branches['Globals'][1] is node
+        assert node.props == ue.overrides_node(scalability=3, streaming=True).props  # read, never written (D23)
+
+    def test_no_enabled_node_gives_the_class_defaults(self, tmp_path, monkeypatch):
+        result, _error, _world = run(tmp_path, monkeypatch, poc_assets(overrides=[ue.overrides_node(1, True, True)]))
+        assert (result['scalability'], result['game_overrides'], result['texture_streaming']) == (4, 'none', 'unchanged')
+
+    def test_conflicting_nodes_give_4_unknown_and_one_warning(self, tmp_path, monkeypatch):
+        nodes = [ue.overrides_node(scalability=1), ue.overrides_node(scalability=3)]
+        result, error, _world = run(tmp_path, monkeypatch, poc_assets(overrides=nodes), mode='prepare_pilot')
+        assert error is None and result['ok'] is True
+        assert (result['scalability'], result['game_overrides'], result['texture_streaming']) == (4, 'unknown', 'unknown')
+        assert len(result['warnings']) == 1 and 'disagree' in result['warnings'][0]
+
+    @pytest.mark.parametrize('where', ['empty', 'missing'])
+    def test_a_facts_module_that_does_not_load_gives_unknown_and_the_prep_goes_on(self, tmp_path, monkeypatch, where):
+        scripts = tmp_path / 'scripts'
+        scripts.mkdir()
+        assets = poc_assets(scalability=2)
+        if where == 'missing':  # an old params file without scripts_dir
+            result, error, _world = run(tmp_path, monkeypatch, assets, scripts_dir=None)
+        else:
+            result, error, _world = run(tmp_path, monkeypatch, assets, scripts_dir=str(scripts))
+        assert error is None and result['ok'] is True and result['queue_asset'].endswith('Q_Job42')
+        assert (result['scalability'], result['game_overrides'], result['texture_streaming']) == (4, 'unknown', 'unknown')
+        # Fixed text and the class name only: the message would carry a local path to the manager.
+        assert result['warnings'] == [
+            f"The preset facts module did not load ({'KeyError' if where == 'missing' else 'FileNotFoundError'})."]
+        assert str(tmp_path) not in json.dumps(result['warnings'])
+
+    def test_a_sethlans_preset_facts_on_sys_path_is_never_imported(self, tmp_path, monkeypatch):
+        """FR-GC-3: only the file in scripts_dir is loaded; a planted module elsewhere is never run."""
+        planted = tmp_path / 'planted'
+        planted.mkdir()
+        (planted / 'sethlans_preset_facts.py').write_text("raise SystemExit('planted module ran')\n", encoding='utf-8')
+        monkeypatch.syspath_prepend(str(planted))
+        result, error, _world = run(tmp_path, monkeypatch, poc_assets(scalability=2))
+        assert error is None and result['scalability'] == 2 and result['game_overrides'] == 'preset'
+        assert 'sethlans_preset_facts' not in sys.modules
 
 
 class TestPilotFrames:
