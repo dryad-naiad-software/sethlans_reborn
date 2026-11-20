@@ -137,3 +137,11 @@ key_file =
 # keep_job_logs = 10
 # warmup_hold_seconds = 240
 # render_timeout_seconds = 14400
+
+[gpu_memory]
+# How the worker reads graphics card memory (used by Unreal rendering).
+# Env var: SETHLANS_GPU_MEMORY_SOURCE. Changing it needs a worker restart.
+# auto (default) picks the platform's source; nvidia-smi pins that source
+# (on Windows only the copy the driver installs in System32 is run); none
+# reads nothing (Unreal then needs SETHLANS_UNREAL_VRAM_MB).
+# source = auto

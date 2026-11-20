@@ -41,7 +41,7 @@ def params(**kwargs):
 
 def reading(used=1000, total=32607, source='nvidia-smi', taken_at=0.0, name=GPU_NAME, gpus=None):
     gpus = gpus or (GpuMem(0, name, total, used, None, None),)
-    return GpuMemoryReading(taken_at, source, tuple(gpus))
+    return GpuMemoryReading(taken_at, source, tuple(gpus), measures_card=source != 'override')
 
 
 def trace(max_used=None, min_used=None, total=32607, samples=5, gap=2.0):

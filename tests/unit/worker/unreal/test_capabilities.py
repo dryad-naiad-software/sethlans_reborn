@@ -277,9 +277,10 @@ class TestGpuMemoryPayload:
         enable_unreal(monkeypatch, sampler=FakeSampler(reading(taken_at=0.0)))
         monkeypatch.setattr('time.monotonic', lambda: 4.0)
         payload = capabilities.gpu_memory_payload()
-        assert payload == {'schema': 1, 'source': 'nvidia-smi', 'age_s': 4, 'gpus': [
-            {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607, 'used_mb': 1012,
-             'sethlans_used_mb': None, 'other_used_mb': None}]}
+        gpu = {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607, 'used_mb': 1012,
+               'sethlans_used_mb': None, 'other_used_mb': None, 'card_key': None}
+        assert payload == {'schema': 1, 'source': 'nvidia-smi', 'age_s': 4,
+                           'capabilities': {'card': True, 'process': False}, 'gpus': [gpu]}
 
     def test_no_reading_yet(self, monkeypatch):
         enable_unreal(monkeypatch, sampler=FakeSampler(None))

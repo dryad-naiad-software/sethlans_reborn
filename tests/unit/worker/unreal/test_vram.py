@@ -2,157 +2,63 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-GPU memory reading and sampler (Unreal foundation FR-WD-10, FR-RT-16, D8;
-FR-T-5 "VRAM" reading part; the gate table belongs to the executor).
+GPU memory reading for Unreal and the sampler (Unreal foundation FR-WD-10,
+FR-RT-16, D8; FR-T-5 "VRAM" reading part; the gate table belongs to the
+executor). The ``nvidia-smi`` parsing moved to
+``tests/unit/worker/gpu_memory/test_nvidia_smi.py``.
 """
-import subprocess
 import threading
-
-import pytest
 
 from sethlans_worker_agent.unreal_executor import vram
 from sethlans_worker_agent.unreal_executor.vram_sampler import VramSampler
 
-ONE_GPU = "0, NVIDIA GeForce RTX 5090, 32607, 1012\n"
-TWO_GPUS = "0, NVIDIA GeForce RTX 4090, 24564, 2000\n1, NVIDIA GeForce RTX 3090, 24576, 100\n"
-UUIDS = "0, GPU-aaa\n1, GPU-bbb\n"
-QUERY_GPU_FLAG = vram.QUERY_GPU[1]
-APPS_FLAG = vram.QUERY_APPS[1]
-UUID_FLAG = vram.QUERY_UUIDS[1]
-
-
-WDDM_APPS = ("GPU-aaa, 10512, [N/A]\n"
-             "GPU-aaa, 31392, [N/A]\n")
-
-
-def fake_run(outputs):
-    calls = []
-
-    def run(args):
-        calls.append(args)
-        return outputs.get(args[1])
-
-    run.calls = calls
-    return run
-
-
-class TestParse:
-
-    def test_one_gpu(self):
-        assert vram.parse_query_gpu(ONE_GPU) == [(0, 'NVIDIA GeForce RTX 5090', 32607, 1012)]
-
-    def test_two_gpus(self):
-        assert [row[0] for row in vram.parse_query_gpu(TWO_GPUS)] == [0, 1]
-
-    def test_na_fields(self):
-        text = "0, [N/A], 8192, 10\n1, Tesla, [N/A], 10\n2, Tesla, 8192, [N/A]\n[N/A], X, 1, 1\n"
-        assert vram.parse_query_gpu(text) == [(0, '', 8192, 10)]
-
-    def test_name_with_comma_and_garbage_lines(self):
-        text = "\n0, Quadro, Special, 4096, 5000\nnot a row\n"
-        assert vram.parse_query_gpu(text) == [(0, 'Quadro, Special', 4096, 4096)]
-
-    def test_compute_apps(self):
-        assert vram.parse_compute_apps(WDDM_APPS) == [('GPU-aaa', 10512, None), ('GPU-aaa', 31392, None)]
-
-
-@pytest.fixture()
-def posix_attribution(monkeypatch):
-    """Attribution through compute-apps is only attempted off Windows."""
-    monkeypatch.setattr(vram, '_is_windows', lambda: False)
+LIVE = vram.GpuMemoryReading(99.0, 'nvidia-smi', (
+    vram.GpuMem(0, 'NVIDIA GeForce RTX 5090', 32607, 1012, None, None, 'pci:0000:01:00.0'),), measures_card=True)
 
 
 class TestReading:
 
-    def test_nvidia_reading_without_attribution_under_wddm(self, posix_attribution):
-        run = fake_run({QUERY_GPU_FLAG: ONE_GPU, APPS_FLAG: WDDM_APPS})
-        reading = vram.take_reading(0, clock=lambda: 5.0, run=run, pids=lambda: frozenset({31392}))
-        assert reading.source == 'nvidia-smi' and reading.taken_at == 5.0
-        assert reading.gpus == (vram.GpuMem(0, 'NVIDIA GeForce RTX 5090', 32607, 1012, None, None),)
-        assert [call[1] for call in run.calls] == [QUERY_GPU_FLAG, APPS_FLAG]  # no uuid query
+    def test_live_reading_comes_from_the_reader_stamped_with_the_start_time(self):
+        seen = []
 
-    def test_windows_never_attributes(self, monkeypatch):
-        monkeypatch.setattr(vram, '_is_windows', lambda: True)
-        apps = "GPU-aaa, 100, 600\n"
-        run = fake_run({QUERY_GPU_FLAG: ONE_GPU, APPS_FLAG: apps, UUID_FLAG: "0, GPU-aaa\n"})
-        [gpu] = vram.take_reading(0, run=run, pids=lambda: frozenset({100})).gpus
-        assert gpu.sethlans_used_mb is None and gpu.other_used_mb is None
-        assert [call[1] for call in run.calls] == [QUERY_GPU_FLAG]  # compute-apps not even asked
+        def read(pids):
+            seen.append(pids())
+            return LIVE
 
-    def test_attribution_when_numbers_are_available(self, posix_attribution):
-        apps = "GPU-aaa, 100, 600\nGPU-aaa, 200, 300\nGPU-bbb, 300, 50\n"
-        run = fake_run({QUERY_GPU_FLAG: TWO_GPUS, APPS_FLAG: apps, UUID_FLAG: UUIDS})
-        reading = vram.take_reading(0, run=run, pids=lambda: frozenset({100, 300}))
-        first, second = reading.gpus
-        assert (first.sethlans_used_mb, first.other_used_mb) == (600, 1400)
-        assert (second.sethlans_used_mb, second.other_used_mb) == (50, 50)
+        reading = vram.take_reading(0, clock=lambda: 5.0, read=read, pids=lambda: frozenset({31392}))
+        assert reading.taken_at == 5.0 and reading.gpus == LIVE.gpus and reading.measures_card is True
+        assert seen == [frozenset({31392})]
 
-    def test_mixed_na_nulls_only_that_gpu(self, posix_attribution):
-        apps = "GPU-aaa, 100, [N/A]\nGPU-bbb, 300, 40\n"
-        run = fake_run({QUERY_GPU_FLAG: TWO_GPUS, APPS_FLAG: apps, UUID_FLAG: UUIDS})
-        first, second = vram.take_reading(0, run=run, pids=lambda: frozenset({300})).gpus
-        assert first.sethlans_used_mb is None and first.other_used_mb is None
-        assert second.sethlans_used_mb == 40
+    def test_override_never_calls_the_reader(self):
+        def read(pids):
+            raise AssertionError('reader called')
 
-    def test_unlisted_gpu_is_not_attributed(self, posix_attribution):
-        apps = "GPU-bbb, 300, 40\n"
-        run = fake_run({QUERY_GPU_FLAG: TWO_GPUS, APPS_FLAG: apps, UUID_FLAG: UUIDS})
-        first, _second = vram.take_reading(0, run=run, pids=lambda: frozenset({300})).gpus
-        assert first.sethlans_used_mb is None
-
-    def test_override_never_runs_nvidia_smi(self):
-        def run(args):
-            raise AssertionError('nvidia-smi called')
-
-        reading = vram.take_reading(16384, clock=lambda: 1.0, run=run)
+        reading = vram.take_reading(16384, clock=lambda: 1.0, read=read)
         assert reading.source == 'override'
         assert reading.gpus == (vram.GpuMem(0, '', 16384, 0, None, None),)
+        assert reading.measures_card is False and reading.measures_process is False
 
-    @pytest.mark.parametrize('outputs', [{}, {QUERY_GPU_FLAG: ''}, {QUERY_GPU_FLAG: 'garbage'}])
-    def test_failure_returns_none(self, outputs):
-        assert vram.take_reading(0, run=fake_run(outputs)) is None
+    def test_no_reading_returns_none(self):
+        assert vram.take_reading(0, read=lambda pids: None) is None
 
     def test_unexpected_exception_returns_none(self):
-        def run(args):
+        def read(pids):
             raise RuntimeError('boom')
 
-        assert vram.take_reading(0, run=run) is None
-
-    @pytest.mark.parametrize('exc', [FileNotFoundError(), subprocess.TimeoutExpired('nvidia-smi', 10), OSError()])
-    def test_run_nvidia_smi_swallows_errors(self, mocker, exc):
-        mocker.patch('subprocess.run', side_effect=exc)
-        assert vram.run_nvidia_smi(vram.QUERY_GPU) is None
-
-    def test_run_nvidia_smi_uses_list_form_and_timeout(self, mocker):
-        run = mocker.patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, ONE_GPU, ''))
-        assert vram.run_nvidia_smi(vram.QUERY_GPU) == ONE_GPU
-        args, kwargs = run.call_args
-        assert args[0] == [vram.nvidia_smi_executable()] + vram.QUERY_GPU[1:]
-        assert kwargs['timeout'] == 10 and 'shell' not in kwargs
-
-    def test_system32_binary_is_preferred_on_windows(self, monkeypatch, tmp_path):
-        system32 = tmp_path / 'System32'
-        system32.mkdir()
-        monkeypatch.setattr(vram, '_is_windows', lambda: True)
-        monkeypatch.setenv('SystemRoot', str(tmp_path))
-        assert vram.nvidia_smi_executable() == 'nvidia-smi'  # not installed there: PATH
-        (system32 / 'nvidia-smi.exe').write_bytes(b'MZ')
-        assert vram.nvidia_smi_executable() == str(system32 / 'nvidia-smi.exe')
-
-    def test_path_lookup_off_windows(self, monkeypatch):
-        monkeypatch.setattr(vram, '_is_windows', lambda: False)
-        assert vram.nvidia_smi_executable() == 'nvidia-smi'
+        assert vram.take_reading(0, read=read) is None
 
 
 class TestPayload:
 
     def test_shape(self):
         reading = vram.GpuMemoryReading(10.0, 'nvidia-smi', (
-            vram.GpuMem(0, 'NVIDIA GeForce RTX 5090', 32607, 1012, 0, 1012),))
+            vram.GpuMem(0, 'NVIDIA GeForce RTX 5090', 32607, 1012, 0, 1012, 'pci:0000:01:00.0'),),
+            measures_card=True, measures_process=True)
         assert vram.to_payload(reading, now=14.6) == {
-            'schema': 1, 'source': 'nvidia-smi', 'age_s': 4,
+            'schema': 1, 'source': 'nvidia-smi', 'age_s': 4, 'capabilities': {'card': True, 'process': True},
             'gpus': [{'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607,
-                      'used_mb': 1012, 'sethlans_used_mb': 0, 'other_used_mb': 1012}]}
+                      'used_mb': 1012, 'sethlans_used_mb': 0, 'other_used_mb': 1012,
+                      'card_key': 'pci:0000:01:00.0'}]}
 
     def test_none_and_bounds(self):
         assert vram.to_payload(None) is None
@@ -249,11 +155,12 @@ class TestSampler:
             return None
 
         sampler = VramSampler(failing, 3600, clock)
-        sampler.sample_once()
-        sampler.start(initial_sample_done=True)
+        begun = clock.now
+        sampler.start()
         try:
-            assert sampler.fresh(5, deadline=clock.now + 1000) is None
-            assert len(count) == 2
+            assert sampler.fresh(5, deadline=clock.now + 1000, requested_at=begun) is None
+            threading.Event().wait(0.05)  # room for a wrong extra sample to show
+            assert len(count) == 1
         finally:
             sampler.stop(timeout=5)
 

@@ -95,6 +95,7 @@ class VramTrace:
     max_used: Dict[int, int] = field(default_factory=dict)
     min_used: Dict[int, int] = field(default_factory=dict)
     total: Dict[int, int] = field(default_factory=dict)
+    max_sethlans: Dict[int, int] = field(default_factory=dict)  # largest attributed sethlans_used_mb per GPU
     max_gap_s: float = 0.0
     last_sample_at: Optional[float] = None
 
@@ -110,6 +111,9 @@ class VramTrace:
             self.max_used[gpu.index] = max(self.max_used.get(gpu.index, gpu.used_mb), gpu.used_mb)
             self.min_used[gpu.index] = min(self.min_used.get(gpu.index, gpu.used_mb), gpu.used_mb)
             self.total[gpu.index] = gpu.total_mb
+            ours = getattr(gpu, 'sethlans_used_mb', None)
+            if ours is not None:
+                self.max_sethlans[gpu.index] = max(self.max_sethlans.get(gpu.index, 0), ours)
 
     def peak_over(self, baseline: Dict[int, int]) -> Optional[int]:
         """Largest ``max_used - baseline`` over GPUs (at least 0), or None without samples."""

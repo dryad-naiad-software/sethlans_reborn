@@ -17,7 +17,9 @@ into the measurement:
   baseline`` (>= 0), with its phase, GPU and baseline; ``baseline_drift_mb``
   = the largest ``|pre - post|``;
 * ``peak_mb = max(card_delta_peak_mb, csv_local_used_peak_mb or 0)``,
-  ``peak_source`` the larger (``card`` on a tie).
+  ``peak_source`` the larger (``card`` on a tie);
+* ``process_peak_mb``: the largest attributed worker-tree memory on the
+  peak's GPU (summary ``pilot_process_peak_mb`` only, never reported).
 
 Rejections: saturation (any sample ``>= floor(total * 0.93)``; the reason
 names the card size), an implausible peak (< ``MIN_PLAUSIBLE_PEAK_MB``)
@@ -68,6 +70,13 @@ class PilotMetrics:
     peak_phase: str
     gpu_index: int
     max_sample_gap_s: float
+    process_peak_mb: Optional[int] = None  # largest attributed worker-tree memory on the peak's GPU (summary only)
+
+
+def _process_peak(runs: Sequence, index: int) -> Optional[int]:
+    values = [getattr(run.outcome.vram, 'max_sethlans', {}).get(index) for run in runs]
+    values = [value for value in values if value is not None]
+    return max(values) if values else None
 
 
 def _baselines(run) -> Dict[int, int]:
@@ -124,7 +133,7 @@ def measure(runs: Sequence, csv_peak_mb: Optional[int]) -> PilotMetrics:
         raise JobFailure(f"Pilot render failed: implausible GPU memory peak ({peak} MB).")
     return PilotMetrics(peak_mb=peak, peak_source=source, card_delta_peak_mb=card, csv_local_used_peak_mb=csv_peak_mb,
                         baseline_used_mb=baseline, baseline_drift_mb=drift, peak_phase=phase, gpu_index=index,
-                        max_sample_gap_s=round(gap, 2))
+                        max_sample_gap_s=round(gap, 2), process_peak_mb=_process_peak(runs, index))
 
 
 def chosen_adapter(log_path) -> Optional[str]:
@@ -176,6 +185,7 @@ def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, r
         'prep_s': round(prep_s, 1), 'warmup_s': round(warmup_s, 1), 'warmup_ran': True,
         'render_s': round(render_s, 1), 'frames': int(frames),
         'seconds_per_frame': round(render_s / frames, 2) if frames else 0.0, 'per_shot': [],
+        # No card_key yet: the manager rejects unknown gpu keys; it is added together with the manager's support.
         'gpu': {'index': gpu.index, 'name': gpu.name, 'total_mb': gpu.total_mb},
         'engine_build': engine_build, 'csv_local_used_peak_mb': metrics.csv_local_used_peak_mb,
         'overrides_sha256': overrides_sha256, 'summary': report_limits.bounded_tail(summary, PILOT_SUMMARY_MAX_BYTES),
@@ -189,4 +199,5 @@ def summary_values(metrics: PilotMetrics, frames: List[int], adapter: str, cvars
             'pilot_csv_peak_mb': '' if metrics.csv_local_used_peak_mb is None else metrics.csv_local_used_peak_mb,
             'pilot_peak_phase': metrics.peak_phase, 'pilot_baseline_drift_mb': metrics.baseline_drift_mb,
             'pilot_max_sample_gap_s': metrics.max_sample_gap_s, 'pilot_adapter': adapter,
+            'pilot_process_peak_mb': '' if metrics.process_peak_mb is None else metrics.process_peak_mb,
             'pilot_cvars_sha256': cvars_sha}

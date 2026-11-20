@@ -10,8 +10,10 @@ Reached only through ``unreal_bridge``. Every function checks
 when it is false they return the "switched off" report (FR-CU-6), ``{}``
 and ``None`` without running
 detection, touching ``CACHE_DIR`` or the share, creating directories,
-taking the owner lock, calling an ACL API or running ``nvidia-smi``
-(NF-6). Otherwise ``runtime.startup()`` runs once (idempotent).
+taking the owner lock, calling an ACL API or creating the GPU memory
+reader (NF-6: the reader runs only when a consumer asks, and its only
+consumer, the sampler, starts with Unreal). Otherwise
+``runtime.startup()`` runs once (idempotent).
 
 ``share`` and ``share_reachable`` come from **one** ``unreal_share.state()``
 read, so they are never torn. Share reachability does not affect

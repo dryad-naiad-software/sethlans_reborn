@@ -35,7 +35,8 @@ def install(build=BUILD_58, supported=True, source='launcher', reason=''):
 
 
 def reading(total=32607, used=1012, sethlans=None, other=None, taken_at=0.0, source='nvidia-smi'):
-    return GpuMemoryReading(taken_at, source, (GpuMem(0, 'NVIDIA GeForce RTX 5090', total, used, sethlans, other),))
+    return GpuMemoryReading(taken_at, source, (GpuMem(0, 'NVIDIA GeForce RTX 5090', total, used, sethlans, other),),
+                            measures_card=source != 'override')
 
 
 class FakeSampler:

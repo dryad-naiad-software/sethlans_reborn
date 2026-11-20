@@ -134,9 +134,9 @@ class TestGate:
         result = vram_gate_check.evaluate(params(kind='pilot'), reading(total=total))
         assert result.ok is ok and result.need_mb == 12478 and result.gate == 'pilot'
 
-    def test_pilot_needs_nvidia_smi(self):
+    def test_pilot_needs_a_reading_that_measures_the_card(self):
         result = vram_gate_check.evaluate(params(kind='pilot'), reading(source='override'))
-        assert not result.ok and 'nvidia-smi' in result.message
+        assert not result.ok and result.message == "a pilot needs a live GPU memory reading (source override)."
 
     @pytest.mark.parametrize('total,ok,text', [
         (32607, True, ''), (16303, True, ''), (12282, True, ''),

@@ -55,7 +55,8 @@ class FakeSampler:
 
     def reading(self):
         used = 3000 if self._busy() else 1000
-        return GpuMemoryReading(time.monotonic(), 'nvidia-smi', (GpuMem(0, GPU, 32607, used, None, None),))
+        return GpuMemoryReading(time.monotonic(), 'nvidia-smi', (GpuMem(0, GPU, 32607, used, None, None),),
+                                measures_card=True)
 
     def fresh(self, max_age_s, deadline):
         return self.reading()

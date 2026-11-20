@@ -18,7 +18,9 @@ order, stopping at the first failure:
 These "static" reasons hold until restart; so does any reason set later
 with ``disable_until_restart`` (e.g. surviving Unreal processes,
 FR-UE-11). When none applies, the share-check thread and the GPU memory
-sampler start (after one synchronous first sample). Engine detection
+sampler start; startup waits at most ``FIRST_SAMPLE_DEADLINE_S`` for the
+sampler thread's first sample (a reader call stuck in a driver never
+holds ``_start_lock`` longer). Engine detection
 runs at startup in any case (so the heartbeat shows the installs) and
 again every ``RESCAN_SECONDS``; each scan replaces an immutable tuple.
 Dynamic reasons: zero supported installs, no ticked graphics card Unreal
@@ -40,6 +42,7 @@ from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_unreal, unreal_share
 from sethlans_worker_agent.cards import unreal_cards
+from sethlans_worker_agent.gpu_memory import reader as gpu_reader
 from sethlans_worker_agent.project_archive import owner_lock
 from sethlans_worker_agent.unreal_executor import cache_dir, detection, isolation_state, symlink_policy, vram
 from sethlans_worker_agent.unreal_executor.vram_sampler import VramSampler
@@ -48,7 +51,8 @@ logger = logging.getLogger(__name__)
 
 REMOTE_SYMLINK_REASON = "remote symlink evaluation is enabled"
 NO_INSTALL_REASON = "no supported Unreal Engine install found"
-NO_VRAM_REASON = "no GPU memory reading: install nvidia-smi or set SETHLANS_UNREAL_VRAM_MB"
+NO_VRAM_REASON = "no GPU memory reading on this machine (see the worker log); SETHLANS_UNREAL_VRAM_MB overrides it"
+FIRST_SAMPLE_DEADLINE_S = 12.0  # the 10 s nvidia-smi timeout plus 2 s (FR-GU-12)
 
 _start_lock = threading.Lock()
 _lock = threading.Lock()  # leaf lock
@@ -105,14 +109,19 @@ def _check_cache_dir() -> str:
 
 
 def _start_threads() -> None:
+    """Start the share check and the sampler; wait at most ``FIRST_SAMPLE_DEADLINE_S`` for its first sample (F6).
+
+    The first sample runs on the sampler thread; a late one enables Unreal when it lands.
+    """
     global _sampler
     unreal_share.start()
     sampler = VramSampler(lambda: vram.take_reading(config_unreal.VRAM_MB),
                           config_unreal.VRAM_SAMPLE_SECONDS)
-    sampler.sample_once()  # the first report already knows whether a reading exists (F6)
-    sampler.start(initial_sample_done=True)
-    with _lock:
+    begun = time.monotonic()  # the sampler's clock
+    sampler.start()
+    with _lock:  # published before the wait so reset_for_tests can always stop it; status() waits for _started
         _sampler = sampler
+    sampler.fresh(FIRST_SAMPLE_DEADLINE_S, deadline=begun + FIRST_SAMPLE_DEADLINE_S, requested_at=begun)
 
 
 def startup() -> None:
@@ -223,8 +232,9 @@ def reset_for_tests() -> None:
         old_sampler = _sampler
         _started, _static_reason, _prepared, _sampler = False, '', None, None
         _installs, _scanned_at, _scanning = (), None, False
-    if old_sampler is not None:
-        old_sampler.stop(timeout=5)
+    if old_sampler is not None and old_sampler.stop(timeout=5) is False:
+        raise RuntimeError("the GPU memory sampler thread did not stop within 5 s")
+    gpu_reader.reset_for_tests()
     unreal_share.reset_for_tests()
     unreal_cards.reset_for_tests()
     isolation_state.reset_for_tests()
