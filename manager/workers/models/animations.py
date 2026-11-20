@@ -8,8 +8,9 @@ from django.core.validators import MinLengthValidator
 from django.core.exceptions import ValidationError
 from ..constants import (
     TilingConfiguration, RenderEngine, CyclesFeatureSet,
-    RenderDevice, VideoStatus,
+    RenderDevice,
 )
+from ..constants_video import VideoStatus
 from .upload_paths import (
     animation_frame_output_upload_path, animation_video_upload_path,
     thumbnail_upload_path,

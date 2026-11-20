@@ -19,8 +19,9 @@
 #   - /api/status/public/* returns 404 on the public vhost
 #     (tray-helper endpoint is loopback-only)
 #   - reverse_proxy transport pinned to HTTP/1.1
-#   - request_body limits per route (issue #260; kept equal to
-#     caddy_template.body_limit_directives() by a unit test)
+#   - request_body limits per route, one matcher per class of
+#     body_limits.BODY_CLASSES (issue #260; kept equal to
+#     caddy_body_classes.body_limit_directives() by a unit test)
 
 {
     admin off
@@ -45,8 +46,8 @@
     }
     respond @loopback_only 404
 
-    # Request body limits (issue #260): upload paths keep the
-    # large limit, every other path gets the small one.
+    # Request body limits (issue #260): each path class has its
+    # own limit, every other path gets the small one.
     @upload_body {
         path /api/assets/* /api/jobs/*/upload_output/ /admin/workers/asset/add/ /admin/workers/asset/*/change/
     }

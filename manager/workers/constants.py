@@ -14,6 +14,12 @@ from django.db import models
 from shared.unreal.render_context import GAME_OVERRIDES_VALUES as UNREAL_GAME_OVERRIDES  # FR-GC-2, FR-GC-7
 from shared.unreal.render_context import TEXTURE_STREAMING_VALUES as UNREAL_TEXTURE_STREAMING
 
+# Video assembly constants live in constants_video; re-exported for importers.
+from .constants_video import (  # noqa: F401
+    CONTAINER_CONTENT_TYPES, VIDEO_CODEC_CONTAINER_MAP, VIDEO_CODECS,
+    VIDEO_COMPATIBLE_FORMATS, VIDEO_CONTAINERS, VIDEO_PRESETS, VideoStatus,
+)
+
 
 class Renderer(models.TextChoices):
     """The render applications a project (and its jobs) can target."""
@@ -216,49 +222,6 @@ WORKER_HEARTBEAT_INTERVAL_SECONDS = 30
 # leaves a RENDERING job alone until it started more than two heartbeat
 # intervals ago.
 LIVE_RECONCILE_GRACE_SECONDS = 2 * WORKER_HEARTBEAT_INTERVAL_SECONDS
-
-
-class VideoStatus(models.TextChoices):
-    """
-    Defines the possible states of video assembly for an animation.
-    """
-    PENDING = 'PENDING', 'Pending'
-    ASSEMBLING = 'ASSEMBLING', 'Assembling'
-    DONE = 'DONE', 'Done'
-    ERROR = 'ERROR', 'Error'
-
-
-# Video assembly preset configurations mapping preset names to codec settings.
-VIDEO_PRESETS = {
-    'web_h264': {'container': 'mp4', 'codec': 'libx264', 'crf': 23},
-    'hq_h265': {'container': 'mp4', 'codec': 'libx265', 'crf': 28},
-    'web_vp9': {'container': 'webm', 'codec': 'libvpx-vp9', 'crf': 31},
-    'archive_prores': {'container': 'mov', 'codec': 'prores_ks', 'crf': 0},
-}
-
-# Allowed video codecs for ffmpeg command construction.
-VIDEO_CODECS = frozenset({'libx264', 'libx265', 'libvpx-vp9', 'prores_ks'})
-
-# Allowed video container formats.
-VIDEO_CONTAINERS = frozenset({'mp4', 'webm', 'mov'})
-
-# Maps each codec to its valid container formats.
-VIDEO_CODEC_CONTAINER_MAP = {
-    'libx264': ['mp4'],
-    'libx265': ['mp4'],
-    'libvpx-vp9': ['webm'],
-    'prores_ks': ['mov'],
-}
-
-# Maps container formats to their MIME content types.
-CONTAINER_CONTENT_TYPES = {
-    'mp4': 'video/mp4',
-    'webm': 'video/webm',
-    'mov': 'video/quicktime',
-}
-
-# Image formats compatible with video assembly (excludes HDR formats).
-VIDEO_COMPATIBLE_FORMATS = frozenset({'PNG', 'JPEG', 'TIFF', 'BMP', 'TARGA'})
 
 
 class YieldReason(models.TextChoices):

@@ -20,7 +20,7 @@ Public callables are imported by ``animations.AnimationSerializer``:
 
 from rest_framework import serializers
 
-from ..constants import (
+from ..constants_video import (
     VIDEO_PRESETS, VIDEO_CODECS, VIDEO_CONTAINERS,
     VIDEO_CODEC_CONTAINER_MAP, VIDEO_COMPATIBLE_FORMATS,
 )

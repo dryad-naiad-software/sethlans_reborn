@@ -28,8 +28,6 @@ from django.db import transaction
 from django.db.models import Min
 from django.utils import timezone
 
-from shared.unreal.validation import target_sha256
-
 from ..constants import PILOT_NAME_PREFIX, RenderDevice, UnrealKind
 from ..models import Job, JobStatus, Project, UnrealMeasurement
 from ..parent_status import take_write_lock
@@ -38,6 +36,7 @@ from ..renderers.unreal_measured import (
 )
 from ..renderers.unreal_settings import MAP, OUTPUT_FORMAT, PRESET, SEQUENCE
 from .row_locks import lock_own_rows
+from .unreal_target import Target
 
 logger = logging.getLogger(__name__)
 
@@ -49,25 +48,6 @@ _LOCK_FIELD = 'unreal_overrides_sha256'
 
 class ProjectLockMissing(RuntimeError):
     """``ensure_pilot`` ran without ``lock_project`` in this transaction."""
-
-
-@dataclass(frozen=True)
-class Target:
-    """What a pilot renders: the job's build and its map, sequence and preset."""
-
-    engine_build: str
-    map: str
-    sequence: str
-    preset: str
-
-    @classmethod
-    def of(cls, job):
-        settings = job.render_settings if isinstance(job.render_settings, dict) else {}
-        return cls(job.engine_build, settings.get(MAP, ''), settings.get(SEQUENCE, ''),
-                   settings.get(PRESET, ''))
-
-    def sha256(self):
-        return target_sha256(self.engine_build, self.map, self.sequence, self.preset)
 
 
 @dataclass(frozen=True)

@@ -7,6 +7,7 @@ The UE prep script (``ue_scripts/sethlans_prepare_queue.py``) against a stub
 """
 import json
 import runpy
+import shutil
 import sys
 
 import pytest
@@ -128,20 +129,17 @@ class TestPresetFacts:
         assert (result['scalability'], result['game_overrides'], result['texture_streaming']) == (4, 'unknown', 'unknown')
         assert len(result['warnings']) == 1 and 'disagree' in result['warnings'][0]
 
-    @pytest.mark.parametrize('where', ['empty', 'missing'])
-    def test_a_facts_module_that_does_not_load_gives_unknown_and_the_prep_goes_on(self, tmp_path, monkeypatch, where):
+    def test_a_facts_module_that_does_not_load_gives_unknown_and_the_prep_goes_on(self, tmp_path, monkeypatch):
+        # Only the facts module is absent; the shots module is required (a params file without scripts_dir
+        # now fails the prep: test_ue_shots_module.py).
         scripts = tmp_path / 'scripts'
         scripts.mkdir()
-        assets = poc_assets(scalability=2)
-        if where == 'missing':  # an old params file without scripts_dir
-            result, error, _world = run(tmp_path, monkeypatch, assets, scripts_dir=None)
-        else:
-            result, error, _world = run(tmp_path, monkeypatch, assets, scripts_dir=str(scripts))
+        shutil.copyfile(job_dir.SCRIPTS_SOURCE / job_dir.SHOTS_SCRIPT, scripts / job_dir.SHOTS_SCRIPT)
+        result, error, _world = run(tmp_path, monkeypatch, poc_assets(scalability=2), scripts_dir=str(scripts))
         assert error is None and result['ok'] is True and result['queue_asset'].endswith('Q_Job42')
         assert (result['scalability'], result['game_overrides'], result['texture_streaming']) == (4, 'unknown', 'unknown')
         # Fixed text and the class name only: the message would carry a local path to the manager.
-        assert result['warnings'] == [
-            f"The preset facts module did not load ({'KeyError' if where == 'missing' else 'FileNotFoundError'})."]
+        assert result['warnings'] == ["The preset facts module did not load (FileNotFoundError)."]
         assert str(tmp_path) not in json.dumps(result['warnings'])
 
     def test_a_sethlans_preset_facts_on_sys_path_is_never_imported(self, tmp_path, monkeypatch):

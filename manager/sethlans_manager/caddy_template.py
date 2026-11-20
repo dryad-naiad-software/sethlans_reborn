@@ -17,10 +17,10 @@ spec, "Caddy TLS hardening invariants"):
 * ``/api/status/public/`` routes return 404 on the **public** vhost
   (defense-in-depth against URLconf-origin middleware); the loopback
   vhost passes them through
-* ``request_body`` limits per route (issue #260): upload paths keep the
-  large limit, every other path gets the small one
-  (:mod:`sethlans_manager.body_limits`); the loopback vhost is small
-  on every path
+* ``request_body`` limits per route (issue #260): each path class of
+  :mod:`sethlans_manager.body_limits` keeps its own limit, every other
+  path gets the small one (:mod:`caddy_body_classes`); the loopback
+  vhost is small on every path
 * Access log disabled by default; if enabled, ``Authorization``,
   ``X-Setup-Token``, ``Cookie`` headers AND query-string keys
   ``token``, ``setup_token``, ``password``, ``api_key``, ``secret``
@@ -42,11 +42,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Union
 
-from sethlans_manager.body_limits import (
-    SMALL_BODY_LIMIT,
-    UPLOAD_BODY_LIMIT,
-    UPLOAD_PATHS,
-)
+from sethlans_manager.caddy_body_classes import body_limit_directives
+
+__all__ = ['body_limit_directives', 'render_manager_caddyfile']
 
 # ---------------------------------------------------------------------
 # Validation primitives (mirror the worker Caddyfile template).
@@ -133,41 +131,6 @@ def _validate_plain_string(name: str, value: object) -> str:
 # ---------------------------------------------------------------------
 # Renderer
 # ---------------------------------------------------------------------
-
-def body_limit_directives(*, allow_uploads: bool) -> str:
-    """Return the ``request_body`` lines for one site block (issue #260).
-
-    Caddy stops reading a body once it passes the limit and answers
-    413, for ``Content-Length`` and chunked bodies alike. With
-    ``allow_uploads`` the upload paths of :mod:`body_limits` keep the
-    large limit and every other path gets the small one; without it
-    every path gets the small one. The static Docker Caddyfile carries
-    the same text (a unit test keeps them equal).
-    """
-    if not allow_uploads:
-        return (
-            "    request_body {\n"
-            f"        max_size {SMALL_BODY_LIMIT}\n"
-            "    }\n"
-        )
-    paths = ' '.join(UPLOAD_PATHS)
-    return (
-        "    # Request body limits (issue #260): upload paths keep the\n"
-        "    # large limit, every other path gets the small one.\n"
-        "    @upload_body {\n"
-        f"        path {paths}\n"
-        "    }\n"
-        "    @small_body {\n"
-        f"        not path {paths}\n"
-        "    }\n"
-        "    request_body @upload_body {\n"
-        f"        max_size {UPLOAD_BODY_LIMIT}\n"
-        "    }\n"
-        "    request_body @small_body {\n"
-        f"        max_size {SMALL_BODY_LIMIT}\n"
-        "    }\n"
-    )
-
 
 def render_manager_caddyfile(
     *,

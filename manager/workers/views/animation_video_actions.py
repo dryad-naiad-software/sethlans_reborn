@@ -20,7 +20,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from ..constants import CONTAINER_CONTENT_TYPES
+from ..constants_video import CONTAINER_CONTENT_TYPES
 from ..models import Animation
 
 logger = logging.getLogger(__name__)

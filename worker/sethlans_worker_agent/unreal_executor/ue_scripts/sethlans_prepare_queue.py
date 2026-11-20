@@ -1,13 +1,14 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Sethlans per-job queue prep (Unreal foundation FR-UE-8, FR-UE-19, FR-UE-25; GPU memory reader FR-GC-3).
+"""Sethlans per-job queue prep (Unreal foundation FR-UE-8, FR-UE-19, FR-UE-25; GPU memory reader FR-GC-3;
+sequence rendering FR-SW-4).
 
 Runs in UE 5.8's embedded Python (3.11) as the PythonScript commandlet (``-run=pythonscript -script=<this file>``);
-imports only unreal, importlib, json, os, sys and time, and loads ``sethlans_preset_facts.py`` from ``scripts_dir``
-by file path, never through ``sys.path``. Job data comes only from the params file named by ``SETHLANS_UE_JOB_PARAMS``.
-Modes ``prepare`` (one frame) and ``prepare_pilot`` (one frame per shot). Writes ``result_path`` and, on failure,
-re-raises so the commandlet exits with -1.
+imports only unreal, importlib, json, os, sys and time, and loads ``sethlans_shots.py`` (required) and
+``sethlans_preset_facts.py`` from ``scripts_dir`` by file path, never through ``sys.path``. Job data comes only
+from the params file named by ``SETHLANS_UE_JOB_PARAMS``. Modes ``prepare`` (one frame) and ``prepare_pilot``
+(one frame per shot). Writes ``result_path`` and, on failure, re-raises so the commandlet exits with -1.
 """
 import importlib.util
 import json
@@ -21,6 +22,7 @@ T0 = time.time()
 RES = {"ok": False, "warnings": []}
 P = {}
 FACTS = "sethlans_preset_facts"
+SHOTS = "sethlans_shots"
 
 
 def fail(msg):
@@ -41,98 +43,15 @@ def bound(value):
     return b
 
 
-def rate(frame_rate):
-    return frame_rate.numerator / frame_rate.denominator
-
-
-def active(section):
-    try:
-        return section.is_active()
-    except Exception:
-        return True
-
-
-def shot_sections(seq):
-    """(start, end, sub, inner_start, offset, inner/outer rate ratio) of every enabled shot section.
-
-    Section bounds are edit display frames; the inner frame of edit frame f is
-    ``inner_start + offset + (f - start) * ratio`` (S1 mapping, FR-UE-8 step 5).
-    """
-    disp = rate(seq.get_display_rate())
-    out = []
-    for track in seq.get_tracks():
-        if not isinstance(track, (unreal.MovieSceneCinematicShotTrack, unreal.MovieSceneSubTrack)):
-            continue
-        for sec in track.get_sections():
-            sub = sec.get_sequence()
-            if sub is None or not active(sec):
-                continue
-            inner_rate = rate(sub.get_display_rate())
-            offset = 0.0
-            try:
-                offset = sec.parameters.start_frame_offset.value * inner_rate / rate(sub.get_tick_resolution())
-            except Exception:
-                pass
-            out.append((sec.get_start_frame(), sec.get_end_frame(), sub, sub.get_playback_start(), offset,
-                        inner_rate / disp))
-    return out
-
-
-def cuts_of(seq):
-    """Enabled camera-cut sections ``(start, end)`` of a sequence's own camera-cut track."""
-    cuts = []
-    for track in seq.get_tracks():
-        if isinstance(track, unreal.MovieSceneCameraCutTrack):
-            cuts += [(s.get_start_frame(), s.get_end_frame()) for s in track.get_sections() if active(s)]
-    return cuts
-
-
-def in_shot_cut(shot, frame):
-    start, end, sub, inner_start, offset, ratio = shot
-    inner = inner_start + offset + (frame - start) * ratio
-    return start <= frame < end and any(cs <= inner < ce for cs, ce in cuts_of(sub))
-
-
-def cut_starts(seq):
-    """Edit frames at which a camera cut begins (own cuts, else via the shots)."""
-    cuts = cuts_of(seq)
-    if cuts:
-        return sorted({s for s, _e in cuts})
-    starts = set()
-    for start, _end, sub, inner_start, offset, ratio in shot_sections(seq):
-        for cs, _ce in cuts_of(sub):
-            starts.add(int(round(max(start, start + (cs - inner_start - offset) / ratio))))
-    return sorted(starts)
-
-
-def frame_in_cut(seq, frame):
-    cuts = cuts_of(seq)
-    if cuts:
-        return any(s <= frame < e for s, e in cuts)
-    return any(in_shot_cut(shot, frame) for shot in shot_sections(seq))
-
-
-def pilot_frames(seq, first, last):
-    """FR-UE-25: the first qualifying frame of every cut/shot overlapping [first, last)."""
-    frames = set()
-    cuts = cuts_of(seq)
-    if cuts:
-        for s, e in cuts:
-            if e > first and s < last:
-                frames.add(max(s, first))
-        return sorted(frames)
-    for shot in shot_sections(seq):
-        start, end = shot[0], shot[1]
-        lo, hi = max(start, first), min(end, last)
-        steps = 0
-        for f in range(lo, hi):
-            steps += 1
-            if steps > 1000000:
-                break
-            if in_shot_cut(shot, f):
-                frames.add(f)
-                break
-    return sorted(frames)
+def load_shots():
+    """FR-SW-4: the shot and cut helpers; required, so a module that does not load fails the prep (class name only)."""
+    try:  # one fixed file; nothing is added to sys.path, so nothing else can be imported in its place
+        spec = importlib.util.spec_from_file_location(SHOTS, os.path.join(P["scripts_dir"], SHOTS + ".py"))
+        shots = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shots)
+    except Exception as exc:
+        fail(f"The shots module did not load ({type(exc).__name__}).")  # never the message: it can carry a path
+    return shots
 
 
 def read_facts(preset, kind):
@@ -222,9 +141,9 @@ def preset_kind(preset):
     fail(f"Preset class {preset.get_class().get_name()} is neither a Movie Render Graph nor an MRQ config.")
 
 
-def job_frames(seq, first, last):
+def job_frames(shots, seq, first, last):
     if P["mode"] == "prepare_pilot":
-        frames = pilot_frames(seq, first, last)
+        frames = shots.pilot_frames(seq, first, last)
         RES["pilot_frames"] = frames
         if not frames:
             fail(f"No camera cut found in {P['sequence']}; cannot measure.")
@@ -234,12 +153,13 @@ def job_frames(seq, first, last):
     frame = int(P["frame"])
     if not first <= frame < last:
         fail(f"Frame {frame} is outside the playback range [{first}, {last}).")
-    if not frame_in_cut(seq, frame):
+    if not shots.frame_in_cut(seq, frame):
         fail(f"Frame {frame} is not inside a camera cut of {P['sequence']}.")
     return [frame]
 
 
 def prepare():
+    shots = load_shots()
     eal = unreal.EditorAssetLibrary
     registry = unreal.AssetRegistryHelpers.get_asset_registry()
     registry.search_all_assets(True)
@@ -258,8 +178,8 @@ def prepare():
         fail(f"Sequence {P['sequence']} not found.")
     first, last = seq.get_playback_start(), seq.get_playback_end()
     RES["playback_range"] = [first, last]
-    RES["camera_cut_starts"] = cut_starts(seq)
-    frames = job_frames(seq, first, last)
+    RES["camera_cut_starts"] = shots.cut_starts(seq)
+    frames = job_frames(shots, seq, first, last)
     queue = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
         f"Q_Job{P['job_id']}", root, unreal.MoviePipelineQueue, None)
     for index, frame in enumerate(frames):

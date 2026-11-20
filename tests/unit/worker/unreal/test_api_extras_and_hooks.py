@@ -198,7 +198,7 @@ def test_worker_spec_bundles_the_ue_scripts_as_data():
     assert "'sethlans_worker_agent/unreal_executor/ue_scripts'" in spec
     assert "'sethlans_worker_agent.unreal_executor.executor'" in spec
     scripts = REPO / 'worker' / 'sethlans_worker_agent' / 'unreal_executor' / 'ue_scripts'
-    names = {'sethlans_prepare_queue.py', 'sethlans_warm_up.py', 'sethlans_preset_facts.py'}
+    names = {'sethlans_prepare_queue.py', 'sethlans_warm_up.py', 'sethlans_preset_facts.py', 'sethlans_shots.py'}
     assert {p.name for p in scripts.glob('*.py')} == names
     assert all(f"'{name}'" in spec for name in names)  # each one listed in the bundle (FR-GC-1)
     assert not (scripts / '__init__.py').exists()  # data, never collected as modules (they import unreal)

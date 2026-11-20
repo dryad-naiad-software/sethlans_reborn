@@ -25,7 +25,8 @@ from ..renderers import get_strategy
 from ..renderers.unreal_measured import (
     FAILED, JOB_KEY_REFS, MEASURED, NONE, PENDING, key_aliases, key_state_case,
 )
-from .unreal_pilot import Target, create_pilot, key_state_of
+from .unreal_pilot import create_pilot, key_state_of
+from .unreal_target import Target
 
 logger = logging.getLogger(__name__)
 

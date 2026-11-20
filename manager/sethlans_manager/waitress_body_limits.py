@@ -39,11 +39,16 @@ from waitress.parser import HTTPRequestParser
 from waitress.server import BaseWSGIServer
 from waitress.utilities import RequestEntityTooLarge
 
+from sethlans_manager import body_limits
 from sethlans_manager.body_limits import body_limit_for_path, SMALL_BODY_LIMIT
 
 # Fed to the parser at start: a Content-Length above the small limit
 # (and below the default upload ceiling) on a small path must end in 413.
 SELF_TEST_REQUEST = b"POST /api/enroll/ HTTP/1.1\r\nContent-Length: 999999999\r\n\r\n"
+
+
+def _post(path: str, length: int) -> bytes:
+    return b"POST %s HTTP/1.1\r\nContent-Length: %d\r\n\r\n" % (path.encode('ascii'), length)
 
 
 def _self_test_requests(ceiling: int) -> list:
@@ -52,10 +57,31 @@ def _self_test_requests(ceiling: int) -> list:
     limit at all)."""
     requests = [SELF_TEST_REQUEST]
     if ceiling > SMALL_BODY_LIMIT + 1:
-        requests.append(
-            b"POST /api/enroll/ HTTP/1.1\r\nContent-Length: %d\r\n\r\n" % (SMALL_BODY_LIMIT + 1)
-        )
+        requests.append(_post('/api/enroll/', SMALL_BODY_LIMIT + 1))
     return requests
+
+
+def class_probe_path(body_class) -> str:
+    """A request path in *body_class*: its first pattern, each ``*`` as ``1``."""
+    return body_class.paths[0].replace('*', '1')
+
+
+def _class_checks(ceiling: int) -> list:
+    """``(request, refused)`` pairs for each class whose limit is below *ceiling*.
+
+    One byte over the class's limit must be refused (by the hook, since
+    the ceiling is higher), and a body of exactly the limit must not be,
+    so the class's own limit applies rather than the small one.
+    """
+    checks = []
+    for body_class in body_limits.BODY_CLASSES:
+        # Upload paths get the listener ceiling itself, whatever it is.
+        if body_class is body_limits.UPLOAD_CLASS or body_class.limit + 1 >= ceiling:
+            continue
+        path = class_probe_path(body_class)
+        checks.append((_post(path, body_class.limit + 1), True))
+        checks.append((_post(path, body_class.limit), False))
+    return checks
 
 
 class _BodyLimitAdjustments:
@@ -120,15 +146,30 @@ def _check_internals(server) -> None:
         )
 
 
+def _refused(channel_class, adj, request) -> bool:
+    parser = channel_class.parser_class(adj)
+    parser.received(request)
+    return bool(parser.completed and isinstance(parser.error, RequestEntityTooLarge))
+
+
 def _self_test(channel_class, adj) -> None:
-    """Raise ``RuntimeError`` unless the parser refuses an oversized small-path body."""
-    for request in _self_test_requests(adj.max_request_body_size):
-        parser = channel_class.parser_class(adj)
-        parser.received(request)
-        if not (parser.completed and isinstance(parser.error, RequestEntityTooLarge)):
+    """Raise ``RuntimeError`` unless the parser refuses an oversized small-path
+    body and, on a listener that serves uploads, applies each class's limit."""
+    ceiling = adj.max_request_body_size
+    for request in _self_test_requests(ceiling):
+        if not _refused(channel_class, adj, request):
             raise RuntimeError(
                 "Waitress parser did not refuse an oversized body on a small "
                 "path; per-path body limits are not working."
+            )
+    if not channel_class.parser_class.allow_uploads:
+        return
+    for request, refuse in _class_checks(ceiling):
+        if _refused(channel_class, adj, request) != refuse:
+            outcome = "did not refuse a body over" if refuse else "refused a body within"
+            raise RuntimeError(
+                f"Waitress parser {outcome} the limit of a body class "
+                f"({request.split(b' ')[1].decode('ascii')}); per-path body limits are not working."
             )
 
 
@@ -139,8 +180,8 @@ def limit_request_bodies(server, *, allow_uploads: bool):
     internal-origin listener, which routes only ``urls_loopback``).
     Must be called before the server starts accepting connections.
     Fails closed: raises ``RuntimeError`` when the Waitress internals
-    this relies on changed or the parser does not refuse an oversized
-    body.
+    this relies on changed, the parser does not refuse an oversized
+    body, or (with ``allow_uploads``) a body class's limit does not apply.
     """
     _check_internals(server)
     channel_class = PathLimitedChannel if allow_uploads else SmallBodyChannel
