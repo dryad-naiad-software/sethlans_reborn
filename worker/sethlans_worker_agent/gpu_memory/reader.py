@@ -10,8 +10,9 @@ calls ``backend.sample(pids())``. It never raises: an exception is logged
 
 Selection: the candidates of ``[gpu_memory] source`` (``candidates``:
 ``auto`` is ``pdh`` then ``nvidia-smi`` on 64-bit Windows, ``nvidia-smi``
-on 32-bit Windows and Linux, none on macOS; a pinned name only that
-backend) are tried in order; one is chosen when ``open()``
+on 32-bit Windows, ``linux-drm`` then ``nvidia-smi`` on Linux, none on
+macOS; a pinned name only that backend, ``amdgpu-sysfs`` being
+``linux-drm`` on AMD cards only) are tried in order; one is chosen when ``open()``
 is True **and** its first sample has a card. A rejected candidate is
 closed (a failing ``close()`` is logged, never skips the next one). The
 chosen backend is kept for the life of the process; a failed sample gives
@@ -63,9 +64,15 @@ def _pdh_backend() -> Backend:
     return win_backend.PdhBackend()
 
 
+def _linux_backend(amd_only: bool) -> Backend:
+    from sethlans_worker_agent.gpu_memory import linux_backend  # imported only when linux-drm is tried
+    return linux_backend.LinuxDrmBackend(amd_only=amd_only)
+
+
 def _default_factories() -> Dict[str, Callable[[], Backend]]:
     from sethlans_worker_agent.gpu_memory import nvidia_smi
-    return {nvidia_smi.SOURCE: nvidia_smi.NvidiaSmiBackend, 'pdh': _pdh_backend}
+    return {nvidia_smi.SOURCE: nvidia_smi.NvidiaSmiBackend, 'pdh': _pdh_backend,
+            'linux-drm': lambda: _linux_backend(False), 'amdgpu-sysfs': lambda: _linux_backend(True)}
 
 
 def _configured_source() -> str:
@@ -84,7 +91,7 @@ def candidates(setting: str, platform: Optional[str] = None, is_64bit: Optional[
         is_64bit = sys.maxsize > 2 ** 32 if is_64bit is None else is_64bit
         return ('pdh', 'nvidia-smi') if is_64bit else ('nvidia-smi',)
     if platform.startswith('linux'):
-        return ('nvidia-smi',)
+        return ('linux-drm', 'nvidia-smi')  # nvidia-smi alone is reached when linux-drm cannot open
     return ()
 
 

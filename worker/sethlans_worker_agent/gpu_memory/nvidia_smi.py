@@ -18,21 +18,25 @@ gives ``None`` and never raises.
 
 Attribution ("where obtainable"; unknown is ``None``, never a guess):
 
-* **Windows: always ``None``.** ``--query-compute-apps`` is not a valid
-  source for D3D processes: under WDDM it lists them with ``[N/A]``, and
-  under TCC it does not cover D3D at all.
-* Elsewhere: ``--query-compute-apps`` per-process ``used_memory`` (CUDA,
-  i.e. Blender), summed over the worker's process tree. A card is
-  attributed only when every process listed on it has a number.
+* **Windows: always ``None``.** No ``nvidia-smi`` listing is a valid
+  source for D3D processes there (under WDDM they are listed with
+  ``[N/A]``); the ``pdh`` backend attributes on Windows.
+* Elsewhere: ``nvidia-smi -q -d PIDS``, which lists graphics (Vulkan) and
+  compute processes, parsed by ``nvidia_pids`` (pid and memory pairs inside
+  a bus-id block only; process names are never kept). Summed over the
+  worker's process tree, per card key. A card is attributed only when every
+  process listed on it has a number; a card the listing does not show is
+  not attributed.
 """
 import logging
 import os
 import subprocess
 import sys
 import time
-from typing import Callable, Dict, FrozenSet, List, Optional, Tuple
+from typing import Callable, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from sethlans_worker_agent.cards.identity import card_key, clean_name
+from sethlans_worker_agent.gpu_memory.nvidia_pids import parse_pids
 from sethlans_worker_agent.gpu_memory.types import MAX_REPORTED_GPUS, GpuMemoryReading, make_gpu
 
 logger = logging.getLogger(__name__)
@@ -42,9 +46,7 @@ NVIDIA_SMI_TIMEOUT_SECONDS = 10
 MAX_STDOUT_CHARS = 1024 * 1024  # larger output is a failed call, never parsed in part
 QUERY_GPU = ['nvidia-smi', '--query-gpu=index,pci.bus_id,memory.total,memory.used,name',
              '--format=csv,noheader,nounits']
-QUERY_UUIDS = ['nvidia-smi', '--query-gpu=index,uuid', '--format=csv,noheader,nounits']
-QUERY_APPS = ['nvidia-smi', '--query-compute-apps=gpu_uuid,pid,used_memory',
-              '--format=csv,noheader,nounits']
+QUERY_PIDS = ['nvidia-smi', '-q', '-d', 'PIDS']
 
 # (index, name, total_mb, used_mb, card_key)
 Row = Tuple[int, str, int, int, Optional[str]]
@@ -74,29 +76,6 @@ def parse_query_gpu(stdout: str) -> List[Row]:
             name = ''
         rows.append((index, clean_name(name), total, min(used, total), card_key(fields[1].strip())))
     return rows
-
-
-def parse_compute_apps(stdout: str) -> List[Tuple[str, int, Optional[int]]]:
-    """Rows ``(gpu_uuid, pid, used_mb or None for [N/A])``."""
-    rows = []
-    for line in stdout.splitlines():
-        fields = [field.strip() for field in line.split(',')]
-        if len(fields) != 3:
-            continue
-        pid = _int_field(fields[1])
-        if not fields[0] or pid is None:
-            continue
-        rows.append((fields[0], pid, _int_field(fields[2])))
-    return rows
-
-
-def parse_uuids(stdout: str) -> Dict[str, int]:
-    out = {}
-    for line in stdout.splitlines():
-        fields = [field.strip() for field in line.split(',')]
-        if len(fields) == 2 and _int_field(fields[0]) is not None and fields[1]:
-            out[fields[1]] = int(fields[0])
-    return out
 
 
 def _is_windows() -> bool:
@@ -146,37 +125,34 @@ def run_nvidia_smi(args: List[str]) -> Optional[str]:
     return _capped(result.stdout)
 
 
-def attribute(indices: List[int], ours: FrozenSet[int],
-              run: Callable = run_nvidia_smi) -> Dict[int, Optional[int]]:
-    """``{index: sethlans_used_mb or None}``; None when the source cannot attribute.
+def query_cards(run: Callable = run_nvidia_smi) -> Optional[List[Row]]:
+    """The card query's rows, or ``None`` when the call failed."""
+    out = _capped(run(QUERY_GPU))
+    return parse_query_gpu(out) if out is not None else None
 
-    Always None on Windows (compute-apps cannot see D3D memory; see module doc).
+
+def attribute(keys: Iterable[Optional[str]], ours: FrozenSet[int], run: Callable = run_nvidia_smi,
+              known_keys: Optional[Iterable[Optional[str]]] = None) -> Dict[str, Optional[int]]:
+    """``{card_key: sethlans_used_mb or None}`` for the given keys (``None`` keys skipped).
+
+    None when the source cannot attribute the card; always None on Windows
+    (see module doc). One ``nvidia-smi -q -d PIDS`` call. ``known_keys``
+    (default ``keys``): every key of the card query; a listing block outside
+    them distrusts the whole listing.
     """
-    unknown = {index: None for index in indices}
-    if _is_windows():
+    unknown: Dict[str, Optional[int]] = {key: None for key in keys if key is not None}
+    if _is_windows() or not unknown:
         return unknown
-    apps_out = _capped(run(QUERY_APPS))
-    if apps_out is None:
+    out = _capped(run(QUERY_PIDS))
+    if out is None:
         return unknown
-    apps = parse_compute_apps(apps_out)
-    if all(used is None for _uuid, _pid, used in apps):
-        return unknown  # nothing listed, or WDDM [N/A] everywhere
-    uuid_out = _capped(run(QUERY_UUIDS))
-    uuid_to_index = parse_uuids(uuid_out) if uuid_out is not None else {}
-    sums: Dict[int, int] = {}
-    blocked = set()
-    for uuid, pid, used in apps:
-        index = uuid_to_index.get(uuid)
-        if index not in unknown:
-            continue
-        if used is None:
-            blocked.add(index)
-            continue
-        sums[index] = sums.get(index, 0) + (used if pid in ours else 0)
+    known = unknown.keys() if known_keys is None else {key for key in known_keys if key is not None}
+    listed = parse_pids(out, known_keys=known)
     result = dict(unknown)
-    for index, total in sums.items():
-        if index not in blocked:
-            result[index] = total
+    for key in unknown:
+        pairs = listed.get(key)
+        if pairs is not None:
+            result[key] = sum(used for pid, used in pairs if pid in ours)
     return result
 
 
@@ -195,12 +171,13 @@ class NvidiaSmiBackend:
 
     def sample(self, pids: FrozenSet[int]) -> Optional[GpuMemoryReading]:
         taken_at = self._clock()
-        out = _capped(self._run(QUERY_GPU))
-        rows = parse_query_gpu(out)[:MAX_REPORTED_GPUS] if out is not None else []
+        every_row = query_cards(self._run) or []
+        rows = every_row[:MAX_REPORTED_GPUS]
         if not rows:
             return None
-        sethlans = attribute([row[0] for row in rows], pids, run=self._run)
-        gpus = tuple(make_gpu(index, name, total, used, sethlans.get(index), key)
+        sethlans = attribute([row[4] for row in rows], pids, run=self._run,
+                             known_keys=[row[4] for row in every_row])  # cards past the cap are still known
+        gpus = tuple(make_gpu(index, name, total, used, sethlans.get(key) if key else None, key)
                      for index, name, total, used, key in rows)
         return GpuMemoryReading(taken_at, SOURCE, gpus, measures_card=True,
                                 measures_process=all(gpu.sethlans_used_mb is not None for gpu in gpus))

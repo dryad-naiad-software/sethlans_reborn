@@ -18,7 +18,7 @@ READER_LOG = 'sethlans_worker_agent.gpu_memory.reader'
 class TestCandidates:
 
     @pytest.mark.parametrize('platform,expected', [
-        ('win32', ('pdh', 'nvidia-smi')), ('linux', ('nvidia-smi',)), ('linux2', ('nvidia-smi',)),
+        ('win32', ('pdh', 'nvidia-smi')), ('linux', ('linux-drm', 'nvidia-smi')), ('linux2', ('linux-drm', 'nvidia-smi')),
         ('darwin', ()), ('freebsd14', ())])
     def test_auto_per_platform(self, platform, expected):
         assert reader_module.candidates('auto', platform, is_64bit=True) == expected
@@ -45,10 +45,18 @@ class TestCandidates:
     def test_none_has_no_candidate(self, platform):
         assert reader_module.candidates('none', platform) == ()
 
-    def test_default_factories_offer_the_nvidia_smi_and_pdh_backends(self):
+    def test_default_factories_offer_every_backend(self):
         factories = reader_module._default_factories()
-        assert set(factories) == {'nvidia-smi', 'pdh'}
+        assert set(factories) == {'nvidia-smi', 'pdh', 'linux-drm', 'amdgpu-sysfs'}
         assert factories['nvidia-smi'] is nvidia_smi.NvidiaSmiBackend
+
+    @pytest.mark.parametrize('name,amd_only', [('linux-drm', False), ('amdgpu-sysfs', True)])
+    def test_the_linux_factories_build_the_linux_backend_without_opening_it(self, mocker, name, amd_only):
+        from sethlans_worker_agent.gpu_memory import linux_backend
+        probe = mocker.patch('sethlans_worker_agent.cards.os_probe_linux.probe')
+        backend = reader_module._default_factories()[name]()
+        assert isinstance(backend, linux_backend.LinuxDrmBackend) and backend.name == name
+        assert backend._amd_only is amd_only and not probe.called
 
     def test_the_pdh_factory_builds_the_windows_backend_without_opening_it(self):
         from sethlans_worker_agent.gpu_memory import win_backend
@@ -222,7 +230,8 @@ class TestRetry:
         caplog.set_level(logging.INFO, logger=READER_LOG)
         reader, _created = make_reader(FakeBackend('nvidia-smi', [], opens=False))
         reader.read(lambda: PIDS)
-        assert "No GPU memory source was chosen (tried: nvidia-smi); the next try is in 600 s." in caplog.messages
+        assert ("No GPU memory source was chosen (tried: linux-drm, nvidia-smi); the next try is in 600 s."
+                in caplog.messages)
 
 
 class TestFailingClose:
