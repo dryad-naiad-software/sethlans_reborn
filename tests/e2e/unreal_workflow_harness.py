@@ -132,12 +132,13 @@ def _get(session, url):
     return resp.json()
 
 
-def poll_sampling(session, url, timeout, sample, held_url=None):
+def poll_sampling(session, url, timeout, sample, held_url=None, terminal=_TERMINAL_STATUSES):
     """``poll_for_completion`` that calls ``sample()`` on every round.
 
     With ``held_url``, that job must stay QUEUED until ``url`` is terminal.
     It is read before ``url``, so a held job seen outside QUEUED while the
-    later read is still not terminal was released too early.
+    later read is still not terminal was released too early. ``terminal``
+    is the set of final statuses (a sequence version also ends PARTLY_DONE).
     """
     deadline = time.monotonic() + timeout
     data = {}
@@ -145,7 +146,7 @@ def poll_sampling(session, url, timeout, sample, held_url=None):
         sample()
         held = _get(session, held_url) if held_url else None
         data = _get(session, url)
-        if data["status"] in _TERMINAL_STATUSES:
+        if data["status"] in terminal:
             return data
         assert held is None or held["status"] == "QUEUED", (
             f"Held job left QUEUED ({held['status']}) while {url} was {data['status']}"

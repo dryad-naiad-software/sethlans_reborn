@@ -58,6 +58,34 @@ FRAME = 1000
 # upper bound is the measured card's own memory (``peak_upper_bound_mb``).
 MIN_PILOT_PEAK_MB = 6000
 
+# Sequence E2E (sequence rendering chunk 9). The PoC sequence runs at 24/1,
+# frames 0-1928, 23 shot-track shots; the two chosen shots are adjacent.
+# With piece_seconds 5 (T = 120, limit 180) and the default 1 s lead-in
+# (24 frames) the planner gives three pieces: the 212-frame shot splits in
+# two (a boundary inside a shot) and the 134-frame shot is the third (a
+# boundary at a cut). Every piece starts above frame 0, so each has a lead-in.
+SEQUENCE_FRAMES = (0, 1928)
+SEQUENCE_RATE = (24, 1)
+SEQUENCE_SHOT_COUNT = 23
+SEQUENCE_SHOTS = {"02_010_0055_Seq": (518, 730), "02_010_0060_Seq": (730, 864)}  # end exclusive
+PIECE_SECONDS = 5
+LEAD_IN_MS = 1000
+# (start, end inclusive, lead-in) of each piece, in edit order.
+SEQUENCE_PIECES = [(518, 623, 24), (624, 729, 24), (730, 863, 24)]
+# The audio job renders the run from r0 = 518 - 24 (FR-SP-5).
+SEQUENCE_AUDIO = (518, 863, 24)
+# First frames of the chosen shots and of shot 02_010_0052 (448-518), which
+# the first piece's lead-in and the audio lead-in reach into (OQ-2 (b)).
+SEQUENCE_PILOT_FRAMES = [448, 518, 730]
+SEQUENCE_SIZE = (640, 360)
+SEQUENCE_VIDEO = {"preset": "web_h264"}
+# U-9 on this sequence and preset: the sound leads the picture by 9,418
+# samples at 48 kHz (AC-50 tolerance).
+SOUND_OFFSET_SAMPLES = 9418
+SOUND_OFFSET_TOLERANCE = 32
+# FR-SA-5: the run's .wav is within 256 samples of its frames' length.
+WAV_LENGTH_TOLERANCE = 256
+
 
 def peak_upper_bound_mb(gpus, gpu_name, gpu_total_mb):
     """The measured card's total memory in MB, or ``None`` when unknown.
