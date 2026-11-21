@@ -15,7 +15,10 @@ recorded in one transaction: the job lock with ownership checked again,
 then the submission lock (Job -> SequenceSubmission -> SequenceShot, D22).
 There the run joins ``sound_runs`` with its correction (D24), the
 submission's warnings are updated (the worker's text cleaned of control
-characters and NUL), the job becomes DONE with the file as its
+characters and NUL): the run's offset warnings, then the audio job's own
+summary warnings (``sound_runs.summary_warnings``, #284), read from the
+same request's ``summary`` field and not from ``last_output``, which this
+record writes without line breaks.  The job becomes DONE with the file as its
 ``output_file``, and ``refresh_submission`` settles the sound items.  A
 rejected record removes the new file; a replaced run file is removed
 after commit.  Cutting the shots' sound is a work-queue task (FR-SV-7).
@@ -41,7 +44,7 @@ from ..parent_status import lock_parent
 from .row_locks import lock_own_rows
 from .sequence_frames import FrameRefused
 from .sequence_status import refresh_submission
-from .sound_runs import SILENT, merged_runs, merged_warnings, run_entry, run_warnings
+from .sound_runs import SILENT, merged_runs, merged_warnings, run_entry, run_warnings, with_summary_warnings
 from .worker_job_writes import run_with_lock_retry
 
 logger = logging.getLogger(__name__)
@@ -154,6 +157,7 @@ def _run_entry(job, submission, body, wav):
                                      _run_names(submission.pk, job), submission.preset)
     if silent:
         entry['warnings'].append(SILENT)
+    entry['warnings'] = with_summary_warnings(entry['warnings'], body.get('summary'), MAX_SUBMISSION_WARNINGS)
     return entry
 
 

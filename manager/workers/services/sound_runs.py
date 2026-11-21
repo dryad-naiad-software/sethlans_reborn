@@ -23,8 +23,19 @@ disagreement warning naming them.  Both rules are
 ``disagreeing_shots``), the ones the worker uses; shots are reported by
 index and named from the run's shots.  The worker's text is untrusted: it is
 cleaned of control characters and NUL, and every warning is capped.
+
+The audio job's own warnings (the sound export's among them, #284) come
+from the ``summary`` form field, the worker's summary text: one
+``[sethlans-unreal] key=value`` line per key, each warning a ``warning=``
+line (``unreal_executor/summary.py``; the worker replaces control
+characters in a value, so a warning never spans lines).  Only those lines
+are read, at most 64 distinct ones, each cleaned and cut to 512 characters;
+at most 16 of them follow the run's offset warnings, so one run cannot push
+the version's other warnings off, and the text is never interpreted.
 """
 
+from shared.unreal.shots_result import MAX_WARNINGS as SUMMARY_WARNINGS_MAX
+from shared.unreal.shots_result import WARNING_MAX_CHARS as SUMMARY_WARNING_CHARS
 from shared.unreal.shots_result import clean_text
 from shared.unreal.sound_result import MEASURED, applied_offset, disagreeing_shots
 
@@ -32,6 +43,8 @@ from ..constants_sequence import SOUND_APPLIED_SOURCES, SOUND_OFFSET_MS_MAX
 
 WARNING_MAX_CHARS = 1000
 NAMES_MAX = 16
+SUMMARY_WARNING = '[sethlans-unreal] warning='
+SUMMARY_WARNINGS_PER_RUN = 16      # the summary's share of a run's warnings on the version
 APPLIED_MEASURED, APPLIED_OVERRIDE, APPLIED_NONE = SOUND_APPLIED_SOURCES
 
 NOT_LINED_UP = "Sound for shots {first}–{last} could not be lined up automatically ({status}: {reason}); "
@@ -80,6 +93,29 @@ def run_warnings(offset, rate, source, applied_samples, run_names, preset):
     else:
         tail = NO_CORRECTION.format(preset=clean_text(preset))
     return [_cap(head + tail)]
+
+
+def summary_warnings(text):
+    """The ``warning=`` lines of the worker's summary ``text``: cleaned, cut, deduplicated, at most 64, in order."""
+    found = {}
+    for line in (text or '').split('\n'):
+        if len(found) >= SUMMARY_WARNINGS_MAX:
+            break
+        if line.startswith(SUMMARY_WARNING):
+            item = clean_text(line[len(SUMMARY_WARNING):]).strip()[:SUMMARY_WARNING_CHARS]
+            if item:
+                found.setdefault(item)
+    return list(found)
+
+
+def with_summary_warnings(warnings, summary, limit):
+    """The run's ``warnings`` first, then at most 16 new ones from the summary; deduplicated, at most ``limit``.
+
+    The summary's share is capped so one run cannot push the version's other warnings off (the cap of 64).
+    """
+    run = list(dict.fromkeys(warnings))
+    extra = [text for text in summary_warnings(summary) if text not in run][:SUMMARY_WARNINGS_PER_RUN]
+    return (run + extra)[:limit]
 
 
 def run_entry(job, offset, rate, override, extra):

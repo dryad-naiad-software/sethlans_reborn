@@ -25,22 +25,59 @@ names the step or the field (never a path, never an exception's message;
 a ``JobFailure`` text is the worker's own). A cancel, a shutdown and
 survivors propagate. ``audio_src\\`` is removed afterwards, whatever
 happened.
+
+The export's ``warnings`` (#284) join the job's summary warnings whenever
+its result file was read, whether the offset was measured, fell back, or
+the script itself failed (what it found before failing still holds). A
+launch that timed out, crashed or was refused leaves the result unread,
+so nothing is passed on. The field is untrusted: at most
+``shots_result.MAX_WARNINGS`` entries are read, each cleaned of control
+characters and cut to ``WARNING_MAX_CHARS`` like every other prep warning;
+entries that are not text are skipped, and a field that is not a list (or
+holds anything but text) adds the fixed ``INVALID_WARNINGS`` warning
+instead. A warning the summary already has is not added twice.
 """
 import contextlib
 import logging
 import wave
 from pathlib import Path
+from typing import Tuple
 
 from sethlans_worker_agent.project_archive import fs_safe
 from sethlans_worker_agent.unreal_executor import job_dir, queue_prep, render_check, sequence_prep, sound_mix
 from sethlans_worker_agent.unreal_executor import sound_offset
 from sethlans_worker_agent.unreal_executor.launch_flags import CommandError
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
+from shared.unreal import shots_result
 
 logger = logging.getLogger(__name__)
 
 EXPORT_PARAMS, EXPORT_RESULT, EXPORT_DIR = 'export_params.json', 'audio_sources.json', 'audio_src'
 EXPORT_PHASE, EXPORT_ATTEMPT = 'prep', 2
+INVALID_WARNINGS = "The sound export returned an invalid result (warnings); some of its warnings were not read."
+
+
+def export_warnings(data) -> Tuple[Tuple[str, ...], bool]:
+    """``(cleaned warnings, field valid)`` of an export result (``None`` or a dict); deduplicated, in order."""
+    raw = data.get('warnings', []) if isinstance(data, dict) else []
+    if not isinstance(raw, list):
+        return (), False
+    head = raw[:shots_result.MAX_WARNINGS]
+    texts = (queue_prep.sanitize(item, shots_result.WARNING_MAX_CHARS) for item in head if isinstance(item, str))
+    return tuple(dict.fromkeys(text for text in texts if text.strip())), all(isinstance(item, str) for item in head)
+
+
+def _forward(flow, data) -> None:
+    """Add the export's warnings to the job's summary, each once (#284)."""
+    texts, valid = export_warnings(data)
+    if not valid:
+        logger.warning("Audio job %s: the sound export's warnings field is invalid.", flow.params.job_id)
+        texts += (INVALID_WARNINGS,)
+    have = set(flow.summary.warnings())
+    for text in texts:
+        if text not in have:
+            flow.summary.warn(text)
+            have.add(text)
 
 
 def _why(exc) -> str:
@@ -95,6 +132,7 @@ def measure(flow, wav_path: Path, rate_fraction) -> dict:
         except (JobFailure, LocalConflict, CommandError, OSError) as exc:
             logger.warning("Audio job %s: the sound export failed (%s).", flow.params.job_id, exc)
             return sound_offset.unavailable(f"the export step failed ({_why(exc)})")
+        _forward(flow, data)
         if isinstance(data, dict) and data.get('ok') is False:
             text = queue_prep.sanitize(data.get('error') or 'no message', 300)
             return sound_offset.unavailable(f"the export step failed: {text}", export_s=export_s)

@@ -11,15 +11,21 @@ not measured names its first and last shot, the status, the cleaned reason
 and the correction used; a measured run whose shots 7 and 8 lie 2,000
 samples away names them (AC-45d) and an agreeing run has no warning; the
 ``sound_runs`` entry and its replacement on a repeat; the submission's
-warnings drop the run's stale ones and never lose a new one at the cap.
+warnings drop the run's stale ones and never lose a new one at the cap;
+the audio job's summary warnings (#284): only the worker's ``warning=``
+lines, cleaned, cut to 512 characters, deduplicated, at most 64 read and
+16 added after the run's own warnings (another run's warning survives), and
+the worker's real summary format parses.
 """
 
 from types import SimpleNamespace
 
 import pytest
+from sethlans_worker_agent.unreal_executor.summary import PREFIX, Summary
 
 from workers.services.sound_runs import (
-    applied, merged_runs, merged_warnings, override_ms, run_entry, run_warnings,
+    SUMMARY_WARNINGS_PER_RUN, applied, merged_runs, merged_warnings, override_ms, run_entry, run_warnings,
+    summary_warnings, with_summary_warnings,
 )
 
 RATE = 48_000
@@ -119,3 +125,48 @@ class TestRecords:
         existing = [f'w{n}' for n in range(64)]
         result = merged_warnings(existing, None, ['sound'], 64)
         assert len(result) == 64 and result[-1] == 'sound' and 'w63' not in result
+
+
+def _lines(*warnings):
+    return '\n'.join([f'{PREFIX} sound_offset=measured'] + [f'{PREFIX} warning={text}' for text in warnings])
+
+
+class TestSummaryWarnings:
+    """#284: the audio job's own warnings from the worker's summary text."""
+
+    def test_only_warning_lines_in_order(self):
+        text = _lines('b', 'a') + f'\n{PREFIX} note=warning=x\nwarning=y\n {PREFIX} warning=z'
+        assert summary_warnings(text) == ['b', 'a']
+
+    def test_cleaned_cut_and_blank_skipped(self):
+        text = _lines('a\x00b\x7f\x9f\r', ' ', 'c' * 600, 'n m')
+        assert summary_warnings(text) == ['ab', 'c' * 512, 'n m']
+
+    def test_deduplicated_and_capped_at_64(self):
+        text = _lines(*['same'] * 3, *[f'w{n}' for n in range(80)])
+        found = summary_warnings(text)
+        assert len(found) == 64 and found[:2] == ['same', 'w0'] and found[-1] == 'w62'
+
+    @pytest.mark.parametrize('text', ['', None, f'{PREFIX} sound_offset=measured'], ids=['empty', 'none', 'no-lines'])
+    def test_none(self, text):
+        assert summary_warnings(text) == []
+
+    def test_after_the_run_warnings_deduplicated_and_limited(self):
+        merged = with_summary_warnings(['offset', 'silent'], _lines('export', 'offset', 'more'), 3)
+        assert merged == ['offset', 'silent', 'export']
+
+    def test_summary_share_capped_at_16(self):
+        merged = with_summary_warnings(['offset'], _lines('offset', *[f'w{n}' for n in range(64)]), 64)
+        assert merged == ['offset'] + [f'w{n}' for n in range(SUMMARY_WARNINGS_PER_RUN)]
+        assert SUMMARY_WARNINGS_PER_RUN == 16
+
+    def test_another_runs_warning_survives_a_full_summary(self):
+        mine = with_summary_warnings([], _lines(*[f'w{n}' for n in range(64)]), 64)
+        assert merged_warnings(['other run'], None, mine, 64) == ['other run'] + mine
+
+    def test_the_workers_summary_format(self):
+        summary = Summary()
+        summary.update({'audio_samples': 1})
+        summary.warn('export: mute state unknown')
+        summary.warn('second\nline')
+        assert summary_warnings(summary.text()) == ['export: mute state unknown', 'second line']
