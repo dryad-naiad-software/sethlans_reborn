@@ -10,10 +10,12 @@ bases that have ``_declared_fields``, so a plain mixin's
 ``routing_note`` would be silently dropped.
 """
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from ..constants import UnrealKind
 from ..renderers import UnsupportedRendererError, get_strategy
+from .pilot_ram import UnrealRamSerializer
 from .renderer_checks import check_immutable_and_consistent, resolve_strategy
 
 _FEATURE_LABELS = {'tiled_job': 'Tiled jobs', 'animation': 'Animations'}
@@ -62,6 +64,13 @@ class JobRendererFieldsMixin(serializers.Serializer):
             "measurement key, or null while unmeasured. Null for Blender jobs and pilots."
         ),
     )
+    unreal_measured_ram = serializers.SerializerMethodField(
+        help_text=(
+            "Unreal normal jobs: the RAM figures of the record the measured peak comes from "
+            "(per-card spec FR-PC-MGR-2), or null when that record has none or while unmeasured. "
+            "Null for Blender jobs and pilots."
+        ),
+    )
 
     routing_note = serializers.SerializerMethodField(
         help_text=(
@@ -87,6 +96,16 @@ class JobRendererFieldsMixin(serializers.Serializer):
         # Imported here: the service imports the renderer registry.
         from ..services.unreal_pilot import cached_key_state
         return cached_key_state(obj).peak_mb
+
+    @extend_schema_field(UnrealRamSerializer(allow_null=True))
+    def get_unreal_measured_ram(self, obj):
+        """The list annotation, else the cached key state (one query shared with the peak)."""
+        if obj.unreal_kind != UnrealKind.RENDER or not obj.unreal_target_sha256:
+            return None
+        if hasattr(obj, '_unreal_ram'):
+            return obj._unreal_ram
+        from ..services.unreal_pilot import cached_key_state
+        return cached_key_state(obj).ram
 
     def validate_for_renderer(self, data):
         """Generic checks, then the strategy of the job's renderer.

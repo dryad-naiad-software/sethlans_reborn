@@ -27,6 +27,10 @@ Attribution ("where obtainable"; unknown is ``None``, never a guess):
   worker's process tree, per card key. A card is attributed only when every
   process listed on it has a number; a card the listing does not show is
   not attributed.
+* ``per_pid`` (render per card FR-PC-ATT-1, ``attribute_pids``): the same
+  listing per pid, card key -> pid -> MiB, for the given pids only and only
+  for attributed cards (a missing key is not attributed). ``None`` on Windows
+  (never 0) and when the call fails. The Linux backend leaves it ``None``.
 """
 import logging
 import os
@@ -131,29 +135,44 @@ def query_cards(run: Callable = run_nvidia_smi) -> Optional[List[Row]]:
     return parse_query_gpu(out) if out is not None else None
 
 
+PerPid = Dict[str, Dict[int, int]]
+
+
+def attribute_pids(keys: Iterable[Optional[str]], ours: FrozenSet[int], run: Callable = run_nvidia_smi,
+                   known_keys: Optional[Iterable[Optional[str]]] = None) -> Optional[PerPid]:
+    """``{card_key: {pid: MiB}}`` of the given pids on the given, attributable cards (``None`` keys skipped).
+
+    ``None`` when nothing can be attributed: on Windows (module doc), with no key, or when the call fails.
+    A card the listing cannot attribute is left out. One ``nvidia-smi -q -d PIDS`` call. ``known_keys``
+    (default ``keys``): every key of the card query; a listing block outside them distrusts the whole listing.
+    """
+    wanted = [key for key in keys if key is not None]
+    if _is_windows() or not wanted:
+        return None
+    out = _capped(run(QUERY_PIDS))
+    if out is None:
+        return None
+    known = set(wanted) if known_keys is None else {key for key in known_keys if key is not None}
+    listed = parse_pids(out, known_keys=known)
+    return {key: {pid: used for pid, used in listed[key] if pid in ours}
+            for key in wanted if listed.get(key) is not None}
+
+
+def sums(keys: Iterable[Optional[str]], per_pid: Optional[PerPid]) -> Dict[str, Optional[int]]:
+    """``{card_key: MiB of every listed pid, or None when not attributed}`` for the given keys."""
+    per_pid = per_pid or {}
+    return {key: (sum(per_pid[key].values()) if key in per_pid else None) for key in keys if key is not None}
+
+
 def attribute(keys: Iterable[Optional[str]], ours: FrozenSet[int], run: Callable = run_nvidia_smi,
               known_keys: Optional[Iterable[Optional[str]]] = None) -> Dict[str, Optional[int]]:
     """``{card_key: sethlans_used_mb or None}`` for the given keys (``None`` keys skipped).
 
     None when the source cannot attribute the card; always None on Windows
-    (see module doc). One ``nvidia-smi -q -d PIDS`` call. ``known_keys``
-    (default ``keys``): every key of the card query; a listing block outside
-    them distrusts the whole listing.
+    (see module doc). One ``nvidia-smi -q -d PIDS`` call (``attribute_pids``).
     """
-    unknown: Dict[str, Optional[int]] = {key: None for key in keys if key is not None}
-    if _is_windows() or not unknown:
-        return unknown
-    out = _capped(run(QUERY_PIDS))
-    if out is None:
-        return unknown
-    known = unknown.keys() if known_keys is None else {key for key in known_keys if key is not None}
-    listed = parse_pids(out, known_keys=known)
-    result = dict(unknown)
-    for key in unknown:
-        pairs = listed.get(key)
-        if pairs is not None:
-            result[key] = sum(used for pid, used in pairs if pid in ours)
-    return result
+    keys = list(keys)
+    return sums(keys, attribute_pids(keys, ours, run=run, known_keys=known_keys))
 
 
 class NvidiaSmiBackend:
@@ -175,12 +194,15 @@ class NvidiaSmiBackend:
         rows = every_row[:MAX_REPORTED_GPUS]
         if not rows:
             return None
-        sethlans = attribute([row[4] for row in rows], pids, run=self._run,
-                             known_keys=[row[4] for row in every_row])  # cards past the cap are still known
+        keys = [row[4] for row in rows]
+        per_pid = attribute_pids(keys, pids, run=self._run,
+                                 known_keys=[row[4] for row in every_row])  # cards past the cap are still known
+        sethlans = sums(keys, per_pid)
         gpus = tuple(make_gpu(index, name, total, used, sethlans.get(key) if key else None, key)
                      for index, name, total, used, key in rows)
         return GpuMemoryReading(taken_at, SOURCE, gpus, measures_card=True,
-                                measures_process=all(gpu.sethlans_used_mb is not None for gpu in gpus))
+                                measures_process=all(gpu.sethlans_used_mb is not None for gpu in gpus),
+                                per_pid=per_pid)
 
     def close(self) -> None:
         """Nothing is held between samples."""

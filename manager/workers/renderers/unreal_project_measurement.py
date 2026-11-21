@@ -39,11 +39,15 @@ _RECORD_FIELDS = (
     ('gpu_name', 'gpu_name'), ('gpu_total_mb', 'gpu_total_mb'), ('prep_s', 'prep_s'),
     ('warmup_s', 'warmup_s'), ('seconds_per_frame', 'seconds_per_frame'),
     ('pilot_job_id', 'pilot_job_id'),
+    # Per-card spec FR-PC-MGR-4.
+    ('ram', 'ram'), ('ram_process_commit_peak_mb', 'ram_process_commit_peak_mb'),
+    ('shared_machine', 'shared_machine'),
 )
 # Results that read ``null`` until the record is measured.
 _RESULT_KEYS = frozenset({
     'peak_mb', 'peak_source', 'measured_at', 'worker_hostname', 'gpu_name',
     'gpu_total_mb', 'prep_s', 'warmup_s', 'seconds_per_frame', 'game_overrides', 'texture_streaming',
+    'ram', 'ram_process_commit_peak_mb', 'shared_machine',
 })
 # Results stored as '' by records measured before migration 0026 (FR-GC-10): shown as null.
 _BLANK_AS_NULL = ('game_overrides', 'texture_streaming')

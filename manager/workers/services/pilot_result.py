@@ -41,7 +41,16 @@ _RESULT_FIELDS = (
     'frames', 'seconds_per_frame', 'csv_local_used_peak_mb',
     # What the pilot ran with (gpu-memory-reader FR-GC-8); stored, never part of the key.
     'game_overrides', 'texture_streaming',
+    # Stored as sent (per-card spec FR-PC-MGR-1); ``ram`` is written by ``_store``.
+    'ram_process_commit_peak_mb', 'shared_machine',
 )
+
+
+def _plain_ram(ram):
+    """The validated ``ram`` object as plain dicts for the JSON column (``None`` stays SQL NULL)."""
+    if ram is None:
+        return None
+    return {phase: None if figures is None else dict(figures) for phase, figures in ram.items()}
 
 
 def _gpu_matches(gpu_memory, gpu):
@@ -110,7 +119,7 @@ def _store(job, record, worker, data, now):
     gpu = data['gpu']
     UnrealMeasurement.objects.filter(pk=record.pk).update(
         **results,
-        per_shot=[dict(shot) for shot in data['per_shot']],
+        per_shot=[dict(shot) for shot in data['per_shot']], ram=_plain_ram(data['ram']),
         worker=worker, worker_hostname=worker.hostname, gpu_index=gpu['index'],
         gpu_name=gpu['name'], gpu_total_mb=gpu['total_mb'], measured_at=now,
     )

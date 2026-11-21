@@ -141,10 +141,23 @@ def key_state_case(prefix, blender=None):
     return Case(*whens, default=Value(FAILED), output_field=TextField())
 
 
+def _latest_success(refs):
+    """The key's successful records, latest first: the one record peak and RAM are read from."""
+    return _latest(key_records(*refs).filter(peak_mb__isnull=False))
+
+
 def key_peak(refs):
     """``peak_mb`` of the key's latest successful record."""
-    records = key_records(*refs).filter(peak_mb__isnull=False)
-    return Subquery(_latest(records).values('peak_mb')[:1])
+    return Subquery(_latest_success(refs).values('peak_mb')[:1])
+
+
+def key_ram(refs):
+    """``ram`` of exactly the record :func:`key_peak` reads (per-card spec FR-PC-MGR-2).
+
+    Never the latest record that has RAM figures: a later measurement
+    without them gives ``None``, not an older record's figures.
+    """
+    return Subquery(_latest_success(refs).values('ram')[:1])
 
 
 def key_reason(refs):
@@ -154,13 +167,14 @@ def key_reason(refs):
 
 
 def job_annotations(queryset):
-    """Add ``_unreal_peak_mb``, ``_unreal_key_state``, ``_unreal_key_reason`` (FR-PM-5).
+    """Add ``_unreal_peak_mb``, ``_unreal_ram``, ``_unreal_key_state``, ``_unreal_key_reason`` (FR-PM-5).
 
     Subqueries of the job query itself: a list adds no query.
     """
     blender = Q(unreal_target_sha256='')
     return queryset.alias(**key_aliases(JOB_KEY_REFS, '_umk_')).annotate(
         _unreal_peak_mb=key_peak(JOB_KEY_REFS),
+        _unreal_ram=key_ram(JOB_KEY_REFS),
         _unreal_key_state=key_state_case('_umk_', blender),
         _unreal_key_reason=key_reason(JOB_KEY_REFS),
     )
@@ -206,7 +220,7 @@ def claim_row(job):
         _fresh=_fresh(), _superseded=_superseded(),
     )
     return queryset.values(
-        '_unreal_key_state', '_unreal_key_reason', '_unreal_peak_mb',
+        '_unreal_key_state', '_unreal_key_reason', '_unreal_peak_mb', '_unreal_ram',
         '_fresh', '_superseded', 'asset__project_id',
     ).first()
 
@@ -239,6 +253,7 @@ def measured_claim_rejection(worker, job):
     job._unreal_key_state = row['_unreal_key_state']
     job._unreal_key_reason = row['_unreal_key_reason']
     job._unreal_peak_mb = row['_unreal_peak_mb']
+    job._unreal_ram = row['_unreal_ram']
     if is_pilot:
         if not row['_fresh']:
             return STALE_MESSAGE

@@ -17,12 +17,17 @@ the old positional constructors keep working. Sizes are MiB
 * ``measures_card``: ``used_mb`` is a live reading (False for the
   ``SETHLANS_UNREAL_VRAM_MB`` override).
 * ``measures_process``: every card has ``sethlans_used_mb``.
+* ``per_pid`` (render per card FR-PC-ATT-1): card key -> pid -> MiB, for the
+  pids the sample was given only. ``None`` when the backend cannot attribute
+  per process (NVIDIA on Windows, Linux AMD, the override). A card key that
+  is missing from the map is not attributed; an empty inner map means none of
+  the pids uses the card. Left out of the hash; not reported.
 
 ``problem(reading)`` names the first broken rule of a backend's reading
 ('' when it holds); the reader drops a reading that breaks one.
 """
-from dataclasses import dataclass
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Mapping, Optional, Tuple
 
 from sethlans_worker_agent.cards.identity import clean_name
 
@@ -51,6 +56,7 @@ class GpuMemoryReading:
     gpus: Tuple[GpuMem, ...]
     measures_card: bool = False
     measures_process: bool = False
+    per_pid: Optional[Mapping[str, Mapping[int, int]]] = field(default=None, hash=False)
 
 
 def make_gpu(index: int, name: str, total_mb: int, used_mb: int, sethlans_used_mb: Optional[int],

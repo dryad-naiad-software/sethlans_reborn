@@ -13,8 +13,8 @@ FR-PM-6, FR-PM-7).
   ``pilot-result/`` contract, used for validation and the OpenAPI schema.
 * ``MeasurementRetryRequestSerializer`` -- the retry body.
 
-The ``Strict*`` fields accept only real JSON types: an ``int`` that is not
-a ``bool``, a finite number that is not a string, a real ``bool``.
+The ``Strict*`` fields (``strict_fields.py``, re-exported here) accept only
+real JSON types; the ``ram`` object is ``pilot_ram.UnrealRamSerializer``.
 """
 
 import re
@@ -28,8 +28,9 @@ from shared.unreal.vram_gate import MAX_PEAK_MB, MIN_PLAUSIBLE_PEAK_MB
 from ..card_keys import is_pci_card_key
 from ..constants import UNREAL_GAME_OVERRIDES, UNREAL_TEXTURE_STREAMING
 from ..renderers import UnsupportedRendererError, get_strategy
-from ..strict_json import _int_in, is_number
+from .pilot_ram import UnrealRamSerializer, largest_commit_mb, ram_megabytes
 from .projects import ProjectSerializer
+from .strict_fields import StrictBooleanField, StrictCharField, StrictIntegerField, StrictNumberField
 
 MAX_SECONDS = 259_200
 MAX_FRAME = 2 ** 31 - 1
@@ -38,48 +39,6 @@ MAX_GPU_NAME = 128
 _SHA256 = re.compile(r'[0-9a-f]{64}', re.ASCII)
 # The heartbeat's GPU/CPU name charset (``heartbeat_validators._sanitize_cpu_name``).
 _NAME_CHARSET = re.compile(r'[\w\s\-().@,/#+]*', re.ASCII)
-
-
-class StrictIntegerField(serializers.IntegerField):
-    """An ``int`` (never ``bool``, a string or a float) in ``[min_value, max_value]``."""
-
-    def to_internal_value(self, data):
-        if not _int_in(data, self.min_value, self.max_value):
-            raise serializers.ValidationError(
-                f"Must be an integer between {self.min_value} and {self.max_value}.")
-        return data
-
-
-class StrictNumberField(serializers.FloatField):
-    """An ``int`` or a finite ``float`` (never ``bool`` or a string) in range."""
-
-    def to_internal_value(self, data):
-        if not is_number(data) or not self.min_value <= data <= self.max_value:
-            raise serializers.ValidationError(
-                f"Must be a finite number between {self.min_value} and {self.max_value}.")
-        return data
-
-
-class StrictCharField(serializers.CharField):
-    """A JSON string only (DRF's ``CharField`` would turn ``5`` into ``"5"``)."""
-
-    def __init__(self, **kwargs):
-        kwargs.setdefault('trim_whitespace', False)
-        super().__init__(**kwargs)
-
-    def to_internal_value(self, data):
-        if not isinstance(data, str):
-            raise serializers.ValidationError("Must be a string.")
-        return super().to_internal_value(data)
-
-
-class StrictBooleanField(serializers.BooleanField):
-    """A JSON ``true`` or ``false`` only."""
-
-    def to_internal_value(self, data):
-        if not isinstance(data, bool):
-            raise serializers.ValidationError("Must be a boolean.")
-        return data
 
 
 class PilotGpuSerializer(serializers.Serializer):
@@ -142,6 +101,12 @@ class PilotResultRequestSerializer(serializers.Serializer):
     # What the pilot ran with, from its preset (gpu-memory-reader FR-GC-8); stored, never keyed.
     game_overrides = serializers.ChoiceField(choices=UNREAL_GAME_OVERRIDES)
     texture_streaming = serializers.ChoiceField(choices=UNREAL_TEXTURE_STREAMING)
+    # RAM figures (per-card spec FR-PC-RAM-3, FR-PC-MGR-1): required, null when unknown.
+    ram = UnrealRamSerializer(allow_null=True)
+    ram_process_commit_peak_mb = ram_megabytes(allow_null=True)
+    shared_machine = StrictBooleanField(
+        help_text="Another job held the worker at some moment of the pilot (D10).",
+    )
 
     def validate_engine_build(self, value):
         if not re.fullmatch(BUILD_RE, value, re.ASCII):
@@ -159,7 +124,7 @@ class PilotResultRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        """The bounds that depend on ``gpu.total_mb``."""
+        """The bounds that depend on ``gpu.total_mb``, then the RAM process peak."""
         total = attrs['gpu']['total_mb']
         errors = {}
         for field in ('peak_mb', 'card_delta_peak_mb', 'baseline_used_mb', 'baseline_drift_mb',
@@ -167,6 +132,10 @@ class PilotResultRequestSerializer(serializers.Serializer):
             value = attrs.get(field)
             if value is not None and value > total:
                 errors[field] = [f"Must not exceed gpu.total_mb ({total})."]
+        # RAM figures are not GPU memory: never bounded by gpu.total_mb (FR-PC-MGR-1).
+        process, largest = attrs['ram_process_commit_peak_mb'], largest_commit_mb(attrs['ram'])
+        if process is not None and largest is not None and process > largest:
+            errors['ram_process_commit_peak_mb'] = [f"Must not exceed the largest ram commit_mb ({largest})."]
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
@@ -222,6 +191,13 @@ class LatestMeasurementSerializer(serializers.Serializer):
     warmup_s = serializers.FloatField(allow_null=True)
     seconds_per_frame = serializers.FloatField(allow_null=True)
     pilot_job_id = serializers.IntegerField(allow_null=True)
+    # Per-card spec FR-PC-MGR-4: null until measured and on records without RAM figures.
+    ram = UnrealRamSerializer(allow_null=True, read_only=True)
+    ram_process_commit_peak_mb = serializers.IntegerField(allow_null=True, read_only=True)
+    shared_machine = serializers.BooleanField(
+        allow_null=True, read_only=True,
+        help_text="The pilot ran while another job held the worker; null until measured.",
+    )
 
 
 class MeasurementSummarySerializer(serializers.Serializer):

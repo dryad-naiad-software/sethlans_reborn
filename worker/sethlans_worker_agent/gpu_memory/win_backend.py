@@ -21,6 +21,11 @@ Each sample is one ``PdhQuery.collect()`` over two wildcard counters:
   items of the given pids on the card's LUID, summed; 0 when there is none.
   When the process array cannot be read every card gets ``None`` and
   ``measures_process`` is False.
+* ``per_pid`` (render per card FR-PC-ATT-1): the same items per pid, card
+  key -> pid -> MiB (each pid's bytes summed over the card's ``phys_n``
+  items, then floored to MiB). Every card of the reading has an entry (empty
+  when none of the pids uses it); ``None`` when the process array cannot be
+  read.
 
 LUID changes: a collect with an adapter LUID never seen, or without a kept
 card's LUID, lists the cards again (at most every ``RELIST_SECONDS``). When
@@ -106,19 +111,42 @@ def adapter_usage(items: Iterable[win_pdh.Item]) -> Dict[int, int]:
     return used
 
 
-def process_usage(items: Iterable[win_pdh.Item], pids: FrozenSet[int]) -> Dict[int, int]:
-    """Bytes the given pids use per LUID."""
-    ours: Dict[int, int] = {}
+def process_usage_by_pid(items: Iterable[win_pdh.Item], pids: FrozenSet[int]) -> Dict[int, Dict[int, int]]:
+    """Bytes each of the given pids uses, per LUID: ``{luid: {pid: bytes}}``."""
+    per: Dict[int, Dict[int, int]] = {}
     for name, value in _valid(items):
         owner = process_owner(name)
         if owner is not None and owner[0] in pids:
-            ours[owner[1]] = ours.get(owner[1], 0) + value
-    return ours
+            pid, luid = owner
+            on_card = per.setdefault(luid, {})
+            on_card[pid] = on_card.get(pid, 0) + value
+    return per
+
+
+def luid_sums(by_pid: Dict[int, Dict[int, int]]) -> Dict[int, int]:
+    """Bytes per LUID over every pid of a ``process_usage_by_pid`` map."""
+    return {luid: sum(per.values()) for luid, per in by_pid.items()}
+
+
+def process_usage(items: Iterable[win_pdh.Item], pids: FrozenSet[int]) -> Dict[int, int]:
+    """Bytes the given pids use per LUID."""
+    return luid_sums(process_usage_by_pid(items, pids))
+
+
+def per_pid_map(cards: Tuple[Card, ...], by_pid: Optional[Dict[int, Dict[int, int]]]):
+    """``{card_key: {pid: MiB}}`` for the cards with a key, or ``None`` when the process array was not read."""
+    if by_pid is None:
+        return None
+    return {card.os_card.key: {pid: used // MIB for pid, used in by_pid.get(card.luid, {}).items()}
+            for card in cards if card.os_card.key is not None}
 
 
 def build_reading(cards: Tuple[Card, ...], used: Dict[int, int], ours: Optional[Dict[int, int]],
-                  taken_at: float) -> Optional[GpuMemoryReading]:
-    """The reading of ``cards``; ``None`` when there is no card or one has no adapter figure (partial)."""
+                  taken_at: float, by_pid: Optional[Dict[int, Dict[int, int]]] = None) -> Optional[GpuMemoryReading]:
+    """The reading of ``cards``; ``None`` when there is no card or one has no adapter figure (partial).
+
+    ``by_pid`` (``process_usage_by_pid``) fills ``per_pid``; ``None`` leaves it ``None``.
+    """
     gpus = []
     for card in cards:
         if card.luid not in used:
@@ -129,7 +157,8 @@ def build_reading(cards: Tuple[Card, ...], used: Dict[int, int], ours: Optional[
                              sethlans, os_card.key))
     if not gpus:
         return None
-    return GpuMemoryReading(taken_at, SOURCE, tuple(gpus), measures_card=True, measures_process=ours is not None)
+    return GpuMemoryReading(taken_at, SOURCE, tuple(gpus), measures_card=True, measures_process=ours is not None,
+                            per_pid=per_pid_map(cards, by_pid))
 
 
 def _default_cards():
@@ -190,8 +219,9 @@ class PdhBackend:
         if self._moved(used) and self._relisted(used):
             return None
         process = data.get(PROCESS_PATH)
-        ours = None if process is None else process_usage(process, pids)
-        reading = build_reading(self._cards, used, ours, taken_at)
+        by_pid = None if process is None else process_usage_by_pid(process, pids)
+        ours = None if by_pid is None else luid_sums(by_pid)
+        reading = build_reading(self._cards, used, ours, taken_at, by_pid)
         if reading is not None and self._check_state == _CHECK_WAITING:
             self._check_state = _CHECK_DUE
         return reading

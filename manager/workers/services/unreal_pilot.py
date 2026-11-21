@@ -32,7 +32,7 @@ from ..constants import PILOT_NAME_PREFIX, RenderDevice, UnrealKind
 from ..models import Job, JobStatus, Project, UnrealMeasurement
 from ..parent_status import take_write_lock
 from ..renderers.unreal_measured import (
-    MEASURED, NONE, PENDING, key_aliases, key_peak, key_reason, key_state_case,
+    MEASURED, NONE, PENDING, key_aliases, key_peak, key_ram, key_reason, key_state_case,
 )
 from ..renderers.unreal_settings import MAP, OUTPUT_FORMAT, PRESET, SEQUENCE
 from .row_locks import lock_own_rows
@@ -52,11 +52,18 @@ class ProjectLockMissing(RuntimeError):
 
 @dataclass(frozen=True)
 class KeyState:
-    """A key's state, the latest record's failure reason and the measured peak."""
+    """A key's state, the latest record's failure reason, and the measured peak and RAM.
+
+    ``peak_mb`` and ``ram`` come from the same record (per-card spec FR-PC-MGR-2).
+    """
 
     state: str | None
     reason: str | None
     peak_mb: int | None
+    ram: dict | None
+
+
+_UNKNOWN = KeyState(None, None, None, None)
 
 
 def key_state_of(project, asset_pk, overrides, target_hash):
@@ -65,28 +72,28 @@ def key_state_of(project, asset_pk, overrides, target_hash):
     row = Project.objects.filter(pk=project.pk).alias(
         **key_aliases(refs, '_ek_'),
     ).annotate(
-        _state=key_state_case('_ek_'), _reason=key_reason(refs), _peak=key_peak(refs),
-    ).values('_state', '_reason', '_peak').first()
+        _state=key_state_case('_ek_'), _reason=key_reason(refs), _peak=key_peak(refs), _ram=key_ram(refs),
+    ).values('_state', '_reason', '_peak', '_ram').first()
     if row is None:
         # The project is gone: no record of it can exist either.
-        return KeyState(NONE, None, None)
-    return KeyState(row['_state'], row['_reason'], row['_peak'])
+        return KeyState(NONE, None, None, None)
+    return KeyState(row['_state'], row['_reason'], row['_peak'], row['_ram'])
 
 
 def key_state(job):
     """The key state of a saved ``job`` in one statement (no annotations needed).
 
-    Blender jobs and pilots read ``KeyState(None, None, None)`` with no query.
+    Blender jobs and pilots read ``KeyState(None, None, None, None)`` with no query.
     """
     if job.unreal_kind != UnrealKind.RENDER or not job.unreal_target_sha256:
-        return KeyState(None, None, None)
+        return _UNKNOWN
     from ..renderers.unreal_measured import job_annotations
     row = job_annotations(Job.objects.filter(pk=job.pk)).values(
-        '_unreal_key_state', '_unreal_key_reason', '_unreal_peak_mb',
+        '_unreal_key_state', '_unreal_key_reason', '_unreal_peak_mb', '_unreal_ram',
     ).first()
     if row is None:
-        return KeyState(None, None, None)
-    return KeyState(row['_unreal_key_state'], row['_unreal_key_reason'], row['_unreal_peak_mb'])
+        return _UNKNOWN
+    return KeyState(row['_unreal_key_state'], row['_unreal_key_reason'], row['_unreal_peak_mb'], row['_unreal_ram'])
 
 
 class _LockToken:
@@ -123,13 +130,15 @@ def cached_key_state(job):
     """The job's key state from its annotations, else :func:`key_state` once.
 
     The result is stored on the instance as the list annotations are
-    (``_unreal_key_state``, ``_unreal_key_reason``, ``_unreal_peak_mb``),
-    so a single-object response reads it once and its fields agree.
+    (``_unreal_key_state``, ``_unreal_key_reason``, ``_unreal_peak_mb``,
+    ``_unreal_ram``), so a single-object response reads it once and its
+    fields agree.
     """
     if hasattr(job, '_unreal_key_state'):
-        return KeyState(job._unreal_key_state, job._unreal_key_reason, job._unreal_peak_mb)
+        return KeyState(job._unreal_key_state, job._unreal_key_reason, job._unreal_peak_mb, job._unreal_ram)
     found = key_state(job)
-    job._unreal_key_state, job._unreal_key_reason, job._unreal_peak_mb = found.state, found.reason, found.peak_mb
+    job._unreal_key_state, job._unreal_key_reason = found.state, found.reason
+    job._unreal_peak_mb, job._unreal_ram = found.peak_mb, found.ram
     return found
 
 

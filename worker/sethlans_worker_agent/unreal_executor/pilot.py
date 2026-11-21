@@ -171,8 +171,14 @@ def check_card(choice, reading):
 def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, render_s: float,
                 frames: int, engine_build: str, overrides_sha256: str, summary: str,
                 game_overrides: str = render_context.UNKNOWN,
-                texture_streaming: str = render_context.UNKNOWN) -> dict:
+                texture_streaming: str = render_context.UNKNOWN, ram: Optional[dict] = None,
+                ram_process_commit_peak_mb: Optional[int] = None, shared_machine: bool = False) -> dict:
     """The FR-PM-4 ``pilot-result/`` body (strict schema; ``per_shot`` is left empty).
+
+    ``ram``, ``ram_process_commit_peak_mb`` and ``shared_machine`` (per-card FR-PC-RAM-3) are always
+    sent: ``ram`` is ``{"prep": {"ws_mb", "commit_mb"}, "warmup": {"ws_mb", "commit_mb", "cold"} | None,
+    "render": {"ws_mb", "commit_mb"}}`` or ``None`` when any figure is unknown. Until the runner measures
+    them (after chunk 2) callers leave the defaults: unknown figures, not a shared machine.
 
     ``game_overrides`` and ``texture_streaming`` are the prep's allowlisted words (``queue_prep``,
     FR-GC-4); the manager requires both (FR-GC-8), so they are always sent, ``unknown`` included.
@@ -195,6 +201,7 @@ def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, r
         'engine_build': engine_build, 'csv_local_used_peak_mb': metrics.csv_local_used_peak_mb,
         'overrides_sha256': overrides_sha256, 'summary': report_limits.bounded_tail(summary, PILOT_SUMMARY_MAX_BYTES),
         'game_overrides': game_overrides, 'texture_streaming': texture_streaming,  # what it ran with (FR-GC-8)
+        'ram': ram, 'ram_process_commit_peak_mb': ram_process_commit_peak_mb, 'shared_machine': shared_machine,
     }
 
 

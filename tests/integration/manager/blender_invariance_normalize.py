@@ -47,6 +47,8 @@ NEW_KEYS_BY_KIND = {
     'job': frozenset({
         'renderer', 'engine_build', 'routing_note', 'unreal_kind',
         'unreal_measured_peak_mb',
+        # One Unreal render per card (FR-PC-MGR-2): the peak record's RAM figures.
+        'unreal_measured_ram',
         # Unreal sequence rendering (D2): pieces' submission and lead-in.
         'sequence_submission', 'unreal_lead_in_frames',
     }),

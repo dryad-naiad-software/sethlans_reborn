@@ -30,6 +30,7 @@ from rest_framework.response import Response
 from ..constants import UnrealKind
 from ..models import Job, JobStatus
 from ..renderers import UnsupportedRendererError, get_strategy
+from ..serializers.pilot_ram import UnrealRamSerializer
 from ..serializers.unreal_measurement import (
     PilotGpuSerializer, PilotResultRequestSerializer, PilotResultResponseSerializer,
     PilotShotSerializer,
@@ -63,7 +64,8 @@ def _unknown_body_keys(data):
     request_fields = PilotResultRequestSerializer().fields
     return unknown_keys(
         data, set(request_fields),
-        nested={'gpu': set(PilotGpuSerializer().fields)},
+        # ``ram``'s phase objects refuse extra keys in ``UnrealRamSerializer`` itself.
+        nested={'gpu': set(PilotGpuSerializer().fields), 'ram': set(UnrealRamSerializer().fields)},
         lists={'per_shot': set(PilotShotSerializer().fields)},
     )
 

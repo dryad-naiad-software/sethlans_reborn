@@ -14,6 +14,10 @@ One Windows Job Object per UE launch (Unreal foundation FR-UE-11; Conc H1).
   ``pids()`` (``JobObjectBasicProcessIdList``) enumerate members, which
   includes processes that are not UE's descendants (``crashpad_handler``,
   ``CrashReportClientEditor``, ``UnrealTraceServer``; S2).
+* ``peak_memory()`` (``JobObjectExtendedLimitInformation``) gives
+  ``(PeakJobMemoryUsed, PeakProcessMemoryUsed)`` in bytes, the job's and the
+  largest member's peak commit (render per card FR-PC-RAM-1). It is read
+  after the tree exits and before the handle closes (U-3).
 
 **Fail closed:** every failure raises ``JobObjectError``; the caller
 kills the process and refuses to run unconfined. The ctypes pattern
@@ -23,7 +27,7 @@ use, so the module imports on every platform; the Win32 layer
 (``Win32JobApi``) is a class so unit tests can pass a fake.
 """
 import threading
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 _JOB_BASIC_ACCOUNTING = 1
@@ -124,6 +128,15 @@ class Win32JobApi:
             raise self._fail('QueryInformationJobObject(BasicAccounting)')
         return int(info.ActiveProcesses)
 
+    def peak_memory(self, handle: int) -> Tuple[int, int]:
+        """``(PeakJobMemoryUsed, PeakProcessMemoryUsed)`` in bytes."""
+        ns = self._load()
+        ctypes, info = ns['ctypes'], ns['ExtendedLimit']()
+        if not ns['k32'].QueryInformationJobObject(handle, _JOB_EXTENDED_LIMIT, ctypes.byref(info),
+                                                   ctypes.sizeof(info), None):
+            raise self._fail('QueryInformationJobObject(ExtendedLimitInformation)')
+        return int(info.PeakJobMemoryUsed), int(info.PeakProcessMemoryUsed)
+
     def pids(self, handle: int) -> List[int]:
         ns = self._load()
         ctypes = ns['ctypes']
@@ -182,6 +195,9 @@ class JobObject:
 
     def pids(self) -> List[int]:
         return self._api.pids(self._require())
+
+    def peak_memory(self) -> Tuple[int, int]:
+        return self._api.peak_memory(self._require())
 
     def close(self) -> None:
         """Close the handle (KILL_ON_JOB_CLOSE kills anything left). Idempotent."""

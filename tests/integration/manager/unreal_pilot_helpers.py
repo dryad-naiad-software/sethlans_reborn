@@ -9,6 +9,8 @@ Not a test module: imported by the ``test_unreal_pilot*.py`` and
 ``test_unreal_measurement*.py`` files.
 """
 
+import copy
+
 from django.utils import timezone
 
 from shared.unreal.validation import overrides_sha256
@@ -99,9 +101,20 @@ def measure_key(job, peak_mb=8102):
     )
 
 
+# A pilot's RAM figures (per-card spec FR-PC-RAM-3): commit ~ working set + GPU memory (D8).
+PILOT_RAM = {
+    'prep': {'ws_mb': 5200, 'commit_mb': 9100},
+    'warmup': {'ws_mb': 9400, 'commit_mb': 24600, 'cold': True},
+    'render': {'ws_mb': 7100, 'commit_mb': 20700},
+}
+PILOT_RAM_PROCESS_COMMIT_PEAK_MB = 18900
+
+
 def pilot_body(**overrides):
     """A ``pilot-result/`` body that passes every rule for ``ready_worker``."""
     body = {
+        'ram': copy.deepcopy(PILOT_RAM), 'ram_process_commit_peak_mb': PILOT_RAM_PROCESS_COMMIT_PEAK_MB,
+        'shared_machine': False,
         'peak_mb': 8102, 'peak_source': 'csv', 'card_delta_peak_mb': 7930,
         'baseline_used_mb': 945, 'baseline_drift_mb': 12, 'peak_phase': 'render',
         'max_sample_gap_s': 1.2, 'prep_s': 24.1, 'warmup_s': 800.2, 'warmup_ran': True,

@@ -79,6 +79,12 @@ class UnrealMeasurement(models.Model):
     gpu_name = models.CharField(max_length=128, blank=True, default='')
     gpu_total_mb = models.IntegerField(null=True, blank=True)
     csv_local_used_peak_mb = models.IntegerField(null=True, blank=True)
+    # The pilot's RAM figures (per-card spec FR-PC-MGR-1, FR-PC-RAM-3): null
+    # until measured, on older records, and when the worker had any figure
+    # unknown.  No CHECK constraints (SQLite re-validates old rows on ADD COLUMN).
+    ram = models.JSONField(null=True, blank=True)
+    ram_process_commit_peak_mb = models.IntegerField(null=True, blank=True)
+    shared_machine = models.BooleanField(null=True, blank=True)
     measured_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):

@@ -14,7 +14,7 @@ from tests.unit.worker.unreal._executor_fakes import outcome, phase_run, reading
 PILOT_FIELDS = {'peak_mb', 'peak_source', 'card_delta_peak_mb', 'baseline_used_mb', 'baseline_drift_mb', 'peak_phase',
                 'max_sample_gap_s', 'prep_s', 'warmup_s', 'warmup_ran', 'render_s', 'frames', 'seconds_per_frame',
                 'per_shot', 'gpu', 'engine_build', 'csv_local_used_peak_mb', 'overrides_sha256', 'summary',
-                'game_overrides', 'texture_streaming'}
+                'game_overrides', 'texture_streaming', 'ram', 'ram_process_commit_peak_mb', 'shared_machine'}
 
 
 def runs():
