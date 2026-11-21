@@ -103,7 +103,7 @@ class ProcessRunner:
         self._confirmed: Optional[Tuple[Tuple[int, str], ...]] = None
         self._lock = threading.Lock()  # leaf lock: confirm_exit may run from execute()'s finally
         self.vram = VramTrace()
-        self.ram = RunnerRam(spec.ram_target, reader=ram_reader)
+        self.ram = RunnerRam(spec.ram_target, reader=ram_reader, phase=spec.phase)
         self._first_output = FirstOutput(spec.first_output_dir)
 
     # -- launch ---------------------------------------------------------
@@ -268,6 +268,7 @@ def run(spec: RunSpec, registry: 'RunnerRegistry', **runner_kwargs) -> RunOutcom
     runner = ProcessRunner(spec, **runner_kwargs)
     registry.add(runner)
     runner.ram.launch_started()
+    survivors = None
     try:
         try:
             runner.start()
@@ -275,7 +276,7 @@ def run(spec: RunSpec, registry: 'RunnerRegistry', **runner_kwargs) -> RunOutcom
         finally:
             survivors = runner.confirm_exit()
     finally:
-        runner.ram.launch_ended()
+        runner.ram.launch_ended(tree_exited=survivors is not None and not survivors)
     outcome.survivors, outcome.ram = survivors, runner.ram.result()
     return outcome
 

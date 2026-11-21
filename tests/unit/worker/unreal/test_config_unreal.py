@@ -114,3 +114,29 @@ class TestMalformedValuesFallBack:
         values = config_unreal.load()
         assert values['VRAM_SAMPLE_SECONDS'] == 30
         assert values['RESCAN_SECONDS'] == 120
+
+
+class TestRamSettings:
+    """Render per card FR-PC-RAM-7: the RAM gate's reserves and defaults (MB), measured with two 20 GB AMD cards."""
+
+    NAMES = ('ram_reserve_mb', 'commit_reserve_mb', 'ram_default_ws_mb', 'ram_default_commit_mb', 'ram_blender_mb')
+
+    def test_defaults(self):
+        values = config_unreal.load(getter({}))
+        assert [values[name.upper()] for name in self.NAMES] == [4096, 8192, 16384, 32768, 4096]
+        assert config_unreal.RAM_DEFAULT_COMMIT_MB == values['RAM_DEFAULT_COMMIT_MB']
+
+    @pytest.mark.parametrize('name', NAMES)
+    def test_bounds_and_bad_values_fall_back_with_a_warning(self, name, caplog):
+        default = config_unreal.load(getter({}))[name.upper()]
+        assert config_unreal.load(getter({name: '0'}))[name.upper()] == 0
+        assert config_unreal.load(getter({name: '1048576'}))[name.upper()] == 1048576
+        for raw in ('-1', '1048577', 'lots'):
+            caplog.clear()
+            assert config_unreal.load(getter({name: raw}))[name.upper()] == default
+            assert f'unreal.{name}' in caplog.text
+
+    @pytest.mark.parametrize('name', NAMES)
+    def test_the_env_var_names(self, name, monkeypatch):
+        monkeypatch.setenv(f'SETHLANS_UNREAL_{name.upper()}', '12000')
+        assert config_unreal.load()[name.upper()] == 12000

@@ -188,6 +188,18 @@ def _no_blender_slot(job, free_prefs, now: float) -> bool:
     return True
 
 
+def _blender_ram_blocked(job, capacity, now: float) -> bool:
+    """True (logged) for a Blender job while an Unreal job runs and RAM does not allow it (render per card D9)."""
+    renderer = job.get('renderer') or executors.DEFAULT_RENDERER
+    if capacity is None or renderer != executors.DEFAULT_RENDERER or not capacity.has_unreal_job():
+        return False
+    from sethlans_worker_agent import unreal_bridge
+    reason = unreal_bridge.blender_ram_block()
+    if reason:
+        _log_skip(job.get('id'), renderer, f"RAM beside the running Unreal job: {reason}", now)
+    return bool(reason)
+
+
 def _try_job(job, is_first: bool, now: float):
     """Return ``(selection, stop)`` for one job that passed the guards."""
     job_id = job.get('id')
@@ -220,8 +232,10 @@ def select_claimable_job(available_jobs: List[Dict[str, Any]],
     """Return the first eligible job of the poll response, or None.
 
     ``capacity`` is the worker's ``WorkerCapacity``; a Blender job whose
-    render device no free slot serves is skipped (C-27 b). Executors read
-    it through ``job_processor`` themselves.
+    render device no free slot serves is skipped (C-27 b), and so is one
+    the RAM beside a running Unreal job does not allow (render per card D9,
+    ``unreal_bridge.blender_ram_block``). Executors read it through
+    ``job_processor`` themselves.
     """
     from sethlans_worker_agent import job_processor  # circular at import time
     now = _clock()
@@ -233,7 +247,8 @@ def select_claimable_job(available_jobs: List[Dict[str, Any]],
     # guards, not to one skipped as unfinished or recently refused (F8).
     is_first = True
     for job in available_jobs:
-        if _guard_skips(job, now, unfinished) or _no_blender_slot(job, free_prefs, now):
+        if (_guard_skips(job, now, unfinished) or _no_blender_slot(job, free_prefs, now)
+                or _blender_ram_blocked(job, capacity, now)):
             continue
         selection, stop = _try_job(job, is_first, now)
         is_first = False

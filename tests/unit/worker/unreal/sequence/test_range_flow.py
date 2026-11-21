@@ -14,7 +14,7 @@ from typing import Optional
 
 import pytest
 
-from sethlans_worker_agent.unreal_executor import queue_prep, sequence_flow
+from sethlans_worker_agent.unreal_executor import disk_ledger, queue_prep, sequence_flow
 from sethlans_worker_agent.unreal_executor.adapter_choice import Choice
 from sethlans_worker_agent.unreal_executor.job_flow import FlowConfig
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
@@ -181,10 +181,13 @@ class TestDisk:
         assert sequence_flow.disk_need(piece, 'png') == 60 * 2560 * 1440 * 4
         assert sequence_flow.disk_need(piece, 'exr') == 60 * 2560 * 1440 * 8
         need = 60 * 2560 * 1440 * 8
-        assert sequence_flow.check_disk(piece, 'exr', tmp_path, 1, free_bytes=need + sequence_flow.GIB) == need
+
+        def target(free):
+            return disk_ledger.DiskTarget(disk_ledger.DiskLedger(free_bytes=lambda path: free), 'c1')
+        assert sequence_flow.check_disk(piece, 'exr', tmp_path, 1, target(need + sequence_flow.GIB)) == need
         with pytest.raises(LocalConflict):
-            sequence_flow.check_disk(piece, 'exr', tmp_path, 1, free_bytes=need + sequence_flow.GIB - 1)
-        assert sequence_flow.check_disk(piece_params(size=None).piece, 'png', tmp_path, 10 ** 9) is None
+            sequence_flow.check_disk(piece, 'exr', tmp_path, 1, target(need + sequence_flow.GIB - 1))
+        assert sequence_flow.check_disk(piece_params(size=None).piece, 'png', tmp_path, 10 ** 9, target(0)) is None
 
     def test_frames_other_job_folders_still_hold_count_as_free(self, tmp_path):
         """Review S9: a failed piece's frames wait for their cleanup after its card is freed."""
@@ -194,11 +197,27 @@ class TestDisk:
             for file_name, size in files.items():
                 (jobs / name / 'output' / file_name).write_bytes(b'x' * size)
         (jobs / '6-logs-only').mkdir()
-        assert sequence_flow.leftover_bytes(jobs, jobs / '9-own') == 1050
         piece = piece_params(start=0, end=0, lead=0, size=(10, 10)).piece  # 400 bytes as PNG
+
+        def target(free):
+            return disk_ledger.DiskTarget(disk_ledger.DiskLedger(free_bytes=lambda path: free), 'own')
         with pytest.raises(LocalConflict):
-            sequence_flow.check_disk(piece, 'png', tmp_path, 0, free_bytes=399)
-        assert sequence_flow.check_disk(piece, 'png', tmp_path, 0, free_bytes=0, leftover=400) == 400
+            sequence_flow.check_disk(piece, 'png', tmp_path, 0, target(399))  # no job folder: no leftovers
+        assert sequence_flow.check_disk(piece, 'png', tmp_path, 0, target(0), jobs / '9-own') == 400  # 1050 free
+        with pytest.raises(LocalConflict):
+            sequence_flow.check_disk(piece, 'png', tmp_path, 0, target(400 - 1050 - 1), jobs / '9-own')
+
+    def test_the_flow_checks_through_its_claims_disk_target(self, tmp_path):
+        """D12: ``job_run`` hands the flow the claim's target; a running piece's unwritten frames count."""
+        flow, runner, _job = _flow(tmp_path, piece_params(size=(10, 10)))
+        ledger = disk_ledger.DiskLedger(free_bytes=lambda path: 10 ** 12)
+        ledger.register('other')
+        ledger.check_and_register('other', tmp_path / 'other-job', 10 ** 12, tmp_path, 0)
+        ledger.register('mine')
+        flow.disk = disk_ledger.DiskTarget(ledger, 'mine')
+        with pytest.raises(LocalConflict):
+            flow.run()
+        assert runner.launches == [] and ledger.snapshot()['mine'].need == 0
 
 
 class TestWarmFrames:

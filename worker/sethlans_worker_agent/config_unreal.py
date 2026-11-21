@@ -56,6 +56,12 @@ _INT_SETTINGS = (
     ('QUIT_GRACE_SECONDS', 60, 10, 600),
     ('LOG_MAX_MB', 512, 16, 65536),
     ('LOG_FLOOD_MB_PER_MIN', 100, 10, 10000),
+    # Render per card FR-PC-RAM-7: the RAM gate's reserves and defaults (MB), measured on a machine with two 20 GB AMD cards.
+    ('RAM_RESERVE_MB', 4096, 0, 1048576),
+    ('COMMIT_RESERVE_MB', 8192, 0, 1048576),
+    ('RAM_DEFAULT_WS_MB', 16384, 0, 1048576),
+    ('RAM_DEFAULT_COMMIT_MB', 32768, 0, 1048576),
+    ('RAM_BLENDER_MB', 4096, 0, 1048576),
 )
 # FR-WC-2 / FR-UE-26: the farm-private zenserver's port; never UE's default 8558.
 # Render per card FR-PC-SLOT-4: slot n uses zen_port + n (n < ZEN_PORT_SLOTS), so the whole
@@ -201,3 +207,8 @@ QUIT_GRACE_SECONDS: int = _values['QUIT_GRACE_SECONDS']
 LOG_MAX_MB: int = _values['LOG_MAX_MB']
 LOG_FLOOD_MB_PER_MIN: int = _values['LOG_FLOOD_MB_PER_MIN']
 ZEN_PORT: int = _values['ZEN_PORT']
+RAM_RESERVE_MB: int = _values['RAM_RESERVE_MB']
+COMMIT_RESERVE_MB: int = _values['COMMIT_RESERVE_MB']
+RAM_DEFAULT_WS_MB: int = _values['RAM_DEFAULT_WS_MB']
+RAM_DEFAULT_COMMIT_MB: int = _values['RAM_DEFAULT_COMMIT_MB']
+RAM_BLENDER_MB: int = _values['RAM_BLENDER_MB']

@@ -61,7 +61,8 @@ class World:
         class Flow:
             def run(self):
                 return world.flow_action(job)
-        return Flow()
+        self.flow = Flow()  # job_run sets its ``disk`` (render per card FR-PC-DSK-1)
+        return self.flow
 
     def prepare(self, cache, request, **kwargs):
         if self.share_error:

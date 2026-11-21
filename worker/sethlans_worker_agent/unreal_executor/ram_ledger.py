@@ -12,6 +12,8 @@ Sizes are MB (MiB, bytes // 1,048,576), like the ``unreal.ram_*_mb`` settings an
   ``publish(claim_id, current_ws, current_commit)`` on every tick, ``mark_failed`` when a read
   fails, and ``launch_ended`` (current figures back to 0: no process runs between launches);
   ``unregister(claim_id)`` from the reservation's ``on_release`` and from ``retain_until_restart``.
+  ``set_need(claim_id, need_ws, need_commit)``: the runner lowers the need to the render phase's
+  figure once a warm-up's process tree has exited, and raises it back before a (retry) warm-up.
   A publish or mark for a claim that is not registered (a late tick after release) is ignored.
   A good publish, ``launch_started`` and ``launch_ended`` clear ``failed`` (a read that failed as
   the tree exited does not hold the gate shut until release). Publish times come from the ledger's
@@ -105,6 +107,10 @@ class RamLedger:
                   'published_at': self._clock()}
         return self._change(claim_id, **fields)
 
+    def set_need(self, claim_id: str, need_ws: int, need_commit: int) -> bool:
+        """The claim's need from now on; False when the claim is gone."""
+        return self._change(claim_id, need_ws=_size(need_ws), need_commit=_size(need_commit))
+
     def mark_failed(self, claim_id: str) -> bool:
         return self._change(claim_id, failed=True)
 
@@ -144,3 +150,10 @@ class RamLedger:
 
 
 ledger = RamLedger()
+
+
+def reset_for_tests() -> None:
+    """Empty the worker's ledger (test isolation only)."""
+    with ledger._lock:
+        ledger._claims.clear()
+        ledger._blender.clear()

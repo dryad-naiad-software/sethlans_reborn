@@ -20,8 +20,10 @@ with four hooks replaced:
   B`` bytes (``B`` 4 for PNG, 8 for EXR; ``[w, h]`` from
   ``unreal.output_size``) must fit in the cache drive's free space above
   ``MIN_FREE_GB``, else the piece is released (``local_conflict``) with a
-  message naming both figures; without an output size it is skipped;
-  frames other job directories still hold count as free (``leftover_bytes``);
+  message naming both figures; without an output size it is skipped; the
+  claim's ``disk_ledger`` (render per card D12, FR-PC-DSK-1) subtracts what
+  the other running pieces have not written yet and counts as free only the
+  frames of job folders no running claim owns;
 * the prep runs in mode ``prepare_range`` (one duplicate over ``[start -
   lead, end + 1)``); the preset's own draft CVars (``draft_conflicts``)
   become summary warnings (FR-SW-5);
@@ -35,24 +37,20 @@ with four hooks replaced:
   (``output.collect_range``), and records the per-shot timings
   (``frame_timing``) and the card the piece rendered on.
 """
-import shutil
 import time
+import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import List, Optional, Sequence
 
-from sethlans_worker_agent.project_archive import fs_safe
 from sethlans_worker_agent.unreal_executor import (
-    frame_timing, job_dir, output, pilot, queue_prep, render_check, sequence_prep)
+    disk_ledger, frame_timing, job_dir, output, pilot, queue_prep, render_check, sequence_prep)
+from sethlans_worker_agent.unreal_executor.disk_ledger import GIB
 from sethlans_worker_agent.unreal_executor.job_flow import FlowResult, UeFlow
-from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
+from sethlans_worker_agent.unreal_executor.outcomes import JobFailure
 
-GIB = 1024 ** 3
 MAX_WARM_FRAMES = 64
 DRAFT_CONFLICT = "The preset sets {name} itself; the draft could not change it."
 MOTION_BLUR_PATHS = ('samples1_pp_off',)
-DISK_MESSAGE = ("This piece needs up to {need:.1f} GB for its {frames} frames, but the cache drive has only "
-                "{free:.1f} GB free above the {reserve} GB reserve.")
 
 
 @dataclass
@@ -111,35 +109,16 @@ def disk_need(piece, ext: str) -> Optional[int]:
     return piece.rendered * width * height * (8 if ext == 'exr' else 4)
 
 
-def leftover_bytes(jobs_dir, own) -> int:
-    """Bytes in other job directories' ``output\\``: a finished job's frames wait for its post-report cleanup,
-    which runs after its card is freed, so the next piece would otherwise count them as used (they go soon)."""
-    total = 0
-    for entry in Path(jobs_dir).iterdir() if jobs_dir is not None else ():
-        out = entry / 'output'
-        if entry.name == Path(own).name or not out.is_dir():
-            continue
-        try:
-            total += sum(fs_safe.lstat(out / rel).st_size for rel in fs_safe.walk_tree(out).files)
-        except OSError:
-            continue  # unsafe or gone meanwhile: not counted
-    return total
-
-
-def check_disk(piece, ext: str, output_dir, reserve_gb: int, free_bytes=None, leftover: int = 0) -> Optional[int]:
+def check_disk(piece, ext: str, output_dir, reserve_gb: int, disk, job_root=None) -> Optional[int]:
     """Raise ``LocalConflict`` when the piece's frames do not fit above the reserve; returns the estimate.
 
-    One Unreal job runs per machine (the Unreal token), so no other piece writes frames meanwhile; a Blender job
-    on another card writes elsewhere and is not counted (an accepted gap)."""
+    ``disk`` is the claim's ``disk_ledger.DiskTarget``: the other running pieces' unwritten frames are
+    subtracted and only job folders of no running claim count as free (D12). ``job_root`` is the
+    claim's job folder (``None``: no folder, no leftovers looked for)."""
     need = disk_need(piece, ext)
     if need is None:
         return None
-    free = shutil.disk_usage(output_dir).free if free_bytes is None else free_bytes
-    available = free + leftover - reserve_gb * GIB
-    if need > available:
-        raise LocalConflict('local_conflict', DISK_MESSAGE.format(need=need / GIB, frames=piece.rendered,
-                                                                  free=max(available, 0) / GIB, reserve=reserve_gb))
-    return need
+    return disk.check(job_root, need, output_dir, reserve_gb, frames=piece.rendered)
 
 
 def card_of(choice, reading):
@@ -159,6 +138,7 @@ class RangeFlow(UeFlow):
     """A sequence piece: one Unreal launch over ``[start - lead, end]``; the lead-in frames are thrown away."""
     launched_at = 0.0
     reserve_gb = staticmethod(_reserve_gb)
+    disk = None  # the claim's disk_ledger.DiskTarget (job_run); None: a ledger of this piece alone
 
     @property
     def ext(self) -> str:
@@ -172,9 +152,9 @@ class RangeFlow(UeFlow):
         return warm_frames(self.params.piece, prep.camera_cut_starts)
 
     def prep(self) -> queue_prep.PrepResult:
-        piece, root = self.params.piece, getattr(self.job, 'root', None)
-        leftover = leftover_bytes(root.parent, root) if root is not None and piece.output_size else 0
-        need = check_disk(piece, self.ext, self.job.output, self.reserve_gb(), leftover=leftover)
+        piece = self.params.piece
+        disk = self.disk or disk_ledger.DiskTarget(disk_ledger.DiskLedger(), uuid.uuid4().hex)
+        need = check_disk(piece, self.ext, self.job.output, self.reserve_gb(), disk, getattr(self.job, 'root', None))
         self.summary.update({'piece': f"{piece.start}-{piece.end}", 'lead_in': piece.lead,
                              'output_format': self.params.output_format,
                              'disk_need_gb': '' if need is None else round(need / GIB, 1)})

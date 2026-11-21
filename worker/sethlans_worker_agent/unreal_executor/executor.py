@@ -32,7 +32,7 @@ from typing import Optional
 from sethlans_worker_agent import api_extras, api_sequence, config_unreal, unreal_share
 from sethlans_worker_agent.blender_job_stop import job_stop
 from sethlans_worker_agent.executors.base import ExecutionContext, RenderResult
-from sethlans_worker_agent.unreal_executor import adapter_choice, command, job_params, ram_ledger, reserve
+from sethlans_worker_agent.unreal_executor import adapter_choice, command, disk_ledger, job_params, ram_ledger, reserve
 from sethlans_worker_agent.unreal_executor.delivery import DeliveryDeps, result
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,13 @@ def _entry_ready(sha256: str) -> bool:
     return cache is not None and cache.state(sha256) == 'ready'
 
 
+def _entry_dir(sha256: str):
+    """The archive's ready cache entry (its warm-up markers, FR-PC-RAM-4); None when it has none."""
+    from sethlans_worker_agent.unreal_executor import startup_recovery
+    cache = startup_recovery.cache()
+    return cache.layout.entry_dir(sha256) if cache is not None and cache.state(sha256) == 'ready' else None
+
+
 def _unreal_card_keys() -> tuple:
     """The keys of the Unreal cards in use, from the heartbeat's card probe (C-27 b); () when undecided."""
     from sethlans_worker_agent.cards import unreal_cards
@@ -120,7 +127,8 @@ def default_reserve_deps() -> reserve.ReserveDeps:
         reachability=_Lazy.reachability, resolve=resolve_share_path,
         budget=lambda: ProbeBudget(config_unreal.POLL_PROBE_BUDGET_SECONDS), card_keys=_unreal_card_keys,
         ram=ram_ledger.ledger,  # the process's one RAM ledger: the runners publish into it (FR-PC-RAM-5)
-        capacity=_capacity, d8_key=adapter_choice.d8_key)
+        capacity=_capacity, d8_key=adapter_choice.d8_key,
+        disk=disk_ledger.ledger, entry_dir=_entry_dir)  # FR-PC-DSK-1; the warm-up markers (FR-PC-RAM-4)
 
 
 def _worker_id():

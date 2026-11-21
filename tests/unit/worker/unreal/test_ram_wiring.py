@@ -33,8 +33,9 @@ class TestRegistration:
         assert first.claim_id != second.claim_id and len(first.claim_id) == 32
         assert _registered(reserver) == {first.claim_id, second.claim_id}
         entry = reserver.ram.snapshot()[first.claim_id]
-        assert (entry.need_ws, entry.need_commit) == (0, 0)   # the RAM gate sets the need (chunk 5)
-        assert first.ram_target() == RamTarget(reserver.ram, first.claim_id)
+        # FR-PC-RAM-4: no measurement, so the defaults; commit = max(32768, 16384 + the 32607 MB card).
+        assert (entry.need_ws, entry.need_commit) == (16384, 16384 + 32607)
+        assert first.ram_target() == RamTarget(reserver.ram, first.claim_id, *((16384, 16384 + 32607), (16384, 16384 + 32607)))
 
     def test_a_declined_job_is_never_registered(self):
         reserver, _ = make(isolation_ok=lambda: False)
@@ -89,7 +90,8 @@ class TestEveryReleasePath:
 
     def test_the_runner_publishes_under_the_claim(self, run):
         run.execute()
-        assert run.world.runner.ram_target == RamTarget(run.reserver.ram, run.reservation.claim_id)
+        target = run.world.runner.ram_target
+        assert (target.ledger, target.claim_id) == (run.reserver.ram, run.reservation.claim_id)
 
 
 class _Phases:

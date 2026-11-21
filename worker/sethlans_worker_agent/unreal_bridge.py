@@ -151,3 +151,40 @@ def drift_check_allowed() -> bool:
     except Exception as exc:
         _log_failure_once('drift_check_allowed', exc)
         return True
+
+
+def note_blender_claim(job_id) -> None:
+    """A Blender job was claimed: it counts ``unreal.ram_blender_mb`` for 300 s in the RAM gate (D9, FR-PC-RAM-5).
+
+    Fallback: nothing recorded (logged once).
+    """
+    try:
+        from sethlans_worker_agent.unreal_executor import ram_ledger
+        ram_ledger.ledger.register_blender(job_id)
+    except Exception as exc:
+        _log_failure_once('note_blender_claim', exc)
+
+
+def forget_blender_claim(job_id) -> None:
+    """The Blender job was released (FR-PC-RAM-5); a no-op for any other job id. Fallback: nothing."""
+    try:
+        module = sys.modules.get('sethlans_worker_agent.unreal_executor.ram_ledger')
+        if module is not None:
+            module.ledger.unregister_blender(job_id)
+    except Exception as exc:
+        _log_failure_once('forget_blender_claim', exc)
+
+
+def blender_ram_block() -> str:
+    """D9's Blender side (FR-PC-RAM-6): ``''`` when a Blender job may start beside the running Unreal jobs.
+
+    Otherwise why not: the free physical RAM or the commit headroom above its reserve is below what the
+    running claims may still take, or a figure is not available (fail closed). Called only while an
+    Unreal job holds a card. Fallback: blocked (the one-Unreal-job-per-machine behaviour), logged once.
+    """
+    try:
+        from sethlans_worker_agent.unreal_executor import ram_ledger, reserve_local
+        return reserve_local.blender_fits(ram_ledger.ledger)
+    except Exception as exc:
+        _log_failure_once('blender_ram_block', exc)
+        return "the RAM check beside the running Unreal jobs failed."

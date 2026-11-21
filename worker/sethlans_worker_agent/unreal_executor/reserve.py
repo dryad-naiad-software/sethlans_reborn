@@ -25,16 +25,15 @@ not claimed):
    fits (render per card D4, FR-PC-SEL-1; ``reserve_card.free_now``);
 6a. the slot's farm Zen port is free or held by a farm zenserver;
 6b. the latest known-folder check passed within ``check_6b_max_age_s()``;
-7. one read of the worker's share state: a configured, reachable root,
-   copied into ``JobParams.share_root``; the archive/overlay paths resolve
-   inside it (string-only);
-8. the FR-PA-3 probes (archive unless a ``ready`` entry exists; overlay),
-   on the ``poll`` pool within the per-call probe budget;
+7. the share state and 8. the FR-PA-3 probes (``reserve_share``);
 9. the gate again on a ``fresh()`` reading (``used_mb`` read at reserve
    time) with its own short deadline, over the free cards read again; its
    card must be one of the Unreal cards in use read in step 4, and a
    pilot's card must have a card key (FR-GU-10). The reservation keeps that
    gate: the job's first launch is asked for its card (``gate.card_key``).
+9a. the RAM gate (``reserve_local.ram_gate``, render per card D9,
+   FR-PC-RAM-4, -6): the job's physical and commit need, checked only while
+   another job runs on the machine.
 
 A ``shots`` job (sequence rendering D3, FR-SD-3) skips only the memory gate
 (steps 6 and 9: no reading is needed); every other check runs.
@@ -49,11 +48,12 @@ returns, is the final check.
 slot is given back on every such path. The reservation's release gives it
 back; a retained reservation keeps it until restart.
 
-Each reservation has a ``claim_id`` (uuid4 hex, D16) and is registered in the
-RAM ledger (``ReserveDeps.ram``) as the last step, with a need of 0 until the
-RAM gate sets it (FR-PC-RAM-4, chunk 5). The entry is dropped by the release
-(before the slot is given back) and by ``retain_until_restart``, which keeps
-only the slot (FR-PC-RAM-5, FR-PC-SU-1). ``ProbePending`` is
+Each reservation has a ``claim_id`` (uuid4 hex, D16) and is registered, as the
+last step, in the RAM ledger (``ReserveDeps.ram``) with the need check 9a
+worked out (FR-PC-RAM-5) and in the disk ledger (``ReserveDeps.disk``) with a
+need of 0 (FR-PC-DSK-1). Both entries are dropped by the release (before the
+slot is given back) and by ``retain_until_restart``, which keeps only the slot
+(FR-PC-SU-1). ``ProbePending`` is
 raised only when the sole reason to decline is a probe still pending.
 """
 import logging
@@ -61,12 +61,14 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Dict, Optional
 
 from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.executors.base import ProbePending
 from sethlans_worker_agent.unreal_executor import job_params as jp
-from sethlans_worker_agent.unreal_executor import adapter_log, ram_ledger, reserve_card, vram_gate_check
+from sethlans_worker_agent.unreal_executor import (
+    adapter_log, disk_ledger, ram_ledger, reserve_card, reserve_local, reserve_share, vram_gate_check)
 from sethlans_worker_agent.unreal_executor.reservation import UnrealReservation
 from sethlans_worker_agent.unreal_executor.slot import SlotPool
 
@@ -97,6 +99,9 @@ class ReserveDeps:
     ram: Optional[ram_ledger.RamLedger] = None  # production: ram_ledger.ledger; None: a ledger of this Reserver
     capacity: Optional[Callable[[], object]] = None  # the WorkerCapacity (free keys, D14); None: not checked
     d8_key: Optional[Callable[[], Optional[str]]] = None  # D8's Unreal card now (override, D14)
+    disk: Optional[disk_ledger.DiskLedger] = None  # production: disk_ledger.ledger; None: one of this Reserver
+    entry_dir: Optional[Callable[[str], Optional[Path]]] = None  # the archive's cache entry (warm-up marker)
+    ram_readers: Optional[reserve_local.RamReaders] = None  # None: psutil and GetPerformanceInfo
 
 
 class Reserver:
@@ -105,6 +110,7 @@ class Reserver:
         self.deps = deps
         self.slots = SlotPool()
         self.ram = deps.ram if deps.ram is not None else ram_ledger.RamLedger()
+        self.disk = deps.disk if deps.disk is not None else disk_ledger.DiskLedger()
         self._warned: Dict[str, float] = {}
         self._warn_lock = threading.Lock()  # leaf lock
 
@@ -167,39 +173,6 @@ class Reserver:
             return False
         return True
 
-    def _share(self, params):
-        state = self.deps.share_state()
-        if state.root is None or not state.reachable:
-            self._skip(params.job_id, "the Sethlans share is not reachable.")
-            return None
-        params = params.with_share_root(state.root)
-        try:
-            self.deps.resolve(state.root, params.archive_path, 'file')
-            if params.overlay_path:
-                self.deps.resolve(state.root, params.overlay_path, 'dir')
-        except ValueError as exc:
-            self._skip(params.job_id, "share path rejected (%s).", exc)
-            return None
-        return params
-
-    def _probes(self, params) -> Optional[bool]:
-        """True, False, or None (pending)."""
-        reach, budget = self.deps.reachability(), self.deps.budget()
-        checks = []
-        if not self.deps.entry_ready(params.archive_sha256):
-            checks.append((params.archive_path, 'file'))
-        if params.overlay_path:
-            checks.append((params.overlay_path, 'dir'))
-        pending = False
-        for relpath, kind in checks:
-            result = reach.check(params.share_root, relpath, kind, job_id=params.job_id, pool='poll', budget=budget)
-            if result is None:
-                pending = True
-            elif not result:
-                self._skip(params.job_id, "%s is not reachable on the share.", relpath)
-                return False
-        return None if pending else True
-
     def _fresh_gate(self, params, card_keys: tuple):
         if params.is_shots:  # D3: no memory gate, no reading, no card choice; the card keys are still held
             return vram_gate_check.evaluate(params, None)
@@ -246,10 +219,10 @@ class Reserver:
             return None
         if not self._local_checks(params, slot):
             return None
-        params = self._share(params)
+        params = reserve_share.share(params, self.deps, self._skip)
         if params is None:
             return None
-        probes = self._probes(params)
+        probes = reserve_share.probes(params, self.deps, self._skip)
         if probes is None:
             raise ProbePending()
         if not probes:
@@ -258,17 +231,30 @@ class Reserver:
         if gate is None or not self._gated_card_ok(params, gate, card_keys):
             return None
         card_key, declined = reserve_card.choose(params, gate, card_keys, self.deps)
-        if declined:
-            self._skip(params.job_id, "%s", declined)
+        ram = reserve_local.ram_gate(params, gate, slot, self.deps, self.ram) if not declined else None
+        if declined or not ram.ok:
+            self._skip(params.job_id, "%s", declined or ram.message)
             return None
         claim_id = uuid.uuid4().hex
         return UnrealReservation(params, install, gate, on_release=lambda: self._release(claim_id, slot),
                                  card_keys=card_keys, slot=slot, claim_id=claim_id, ram=self.ram,
-                                 card_key=card_key)
+                                 card_key=card_key, disk=self.disk, ram_need=ram.need)
+
+    def _register(self, claimed: UnrealReservation) -> None:
+        need = claimed.ram_need
+        self.ram.register(claimed.claim_id, need.ws_mb, need.commit_mb)  # FR-PC-RAM-5
+        try:
+            self.disk.register(claimed.claim_id)  # need 0 until a piece's disk check (FR-PC-DSK-1)
+        except BaseException:
+            self.ram.unregister(claimed.claim_id)
+            raise
 
     def _release(self, claim_id: str, slot: int) -> None:
         try:
-            self.ram.unregister(claim_id)
+            try:
+                self.ram.unregister(claim_id)
+            finally:
+                self.disk.unregister(claim_id)
         finally:
             self.slots.give(slot)
 
@@ -283,7 +269,7 @@ class Reserver:
         try:
             claimed = self._after_slot(params, slot)
             if claimed is not None:
-                self.ram.register(claimed.claim_id, 0, 0)  # need 0 until the RAM gate (FR-PC-RAM-4)
+                self._register(claimed)
             reservation = claimed
             return reservation
         finally:

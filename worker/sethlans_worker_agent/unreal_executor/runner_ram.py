@@ -41,9 +41,16 @@ MB = 1024 * 1024
 
 @dataclass(frozen=True)
 class RamTarget:
-    """Where a launch publishes: the RAM ledger and the claim's id (D16)."""
+    """Where a launch publishes: the RAM ledger and the claim's id (D16).
+
+    ``full_need`` and ``render_need`` (``(ws_mb, commit_mb)``, ``None``: not changed) are the claim's
+    registered need and its render phase's figure: a warm-up launch raises the need to ``full_need``
+    as it starts and lowers it to ``render_need`` once its process tree has exited (FR-PC-RAM-4).
+    """
     ledger: object      # ram_ledger.RamLedger
     claim_id: str
+    full_need: Optional[Tuple[int, int]] = None
+    render_need: Optional[Tuple[int, int]] = None
 
 
 @dataclass(frozen=True)
@@ -63,8 +70,9 @@ class RunnerRam:
     """The RAM side of one ``ProcessRunner``; not thread-safe (the job thread only)."""
 
     def __init__(self, target: Optional[RamTarget] = None,
-                 reader: Optional[Callable[[int], Tuple[int, int]]] = None):
+                 reader: Optional[Callable[[int], Tuple[int, int]]] = None, phase: str = ''):
         self._target = target
+        self._warmup = phase == 'warmup'
         self._read = reader or process_memory.private_ws_and_commit
         self._peak_ws = 0
         self._measured = False
@@ -72,15 +80,23 @@ class RunnerRam:
         self._peaks: Optional[Tuple[int, int]] = None
         self._peak_failed = False
 
+    def _set_need(self, need: Optional[Tuple[int, int]]) -> None:
+        if self._warmup and self._target is not None and need is not None:
+            self._target.ledger.set_need(self._target.claim_id, *need)
+
     def launch_started(self) -> None:
         if self._target is not None:
+            self._set_need(self._target.full_need)  # a retry warm-up needs the warm-up figure again
             self._target.ledger.launch_started(self._target.claim_id)
 
-    def launch_ended(self) -> None:
+    def launch_ended(self, tree_exited: bool = False) -> None:
+        """``tree_exited``: every process of the launch's tree is gone (no survivors)."""
         if self._target is not None:
             self._target.ledger.launch_ended(self._target.claim_id)
             if self._peak_failed:
                 self._target.ledger.mark_failed(self._target.claim_id)
+            if tree_exited:
+                self._set_need(self._target.render_need)  # the warm-up is over: the render's figure
 
     def _mark_failed(self) -> None:
         if self._target is not None:

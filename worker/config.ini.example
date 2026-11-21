@@ -139,6 +139,19 @@ key_file =
 # keep_job_logs = 10
 # warmup_hold_seconds = 240
 # render_timeout_seconds = 14400
+# RAM gate (MB), applied only while another job runs on this worker: an
+# Unreal job starts when its peak private working set fits in the free
+# physical RAM above ram_reserve_mb and its commit fits in the commit
+# headroom (commit limit - commit in use, page-file growth not counted)
+# above commit_reserve_mb, after what the running jobs may still take. A
+# job without a measurement needs ram_default_ws_mb of RAM and the larger of
+# ram_default_commit_mb and ram_default_ws_mb + its card's memory of commit.
+# A Blender job claimed in the last 5 minutes counts ram_blender_mb.
+# ram_reserve_mb = 4096
+# commit_reserve_mb = 8192
+# ram_default_ws_mb = 16384
+# ram_default_commit_mb = 32768
+# ram_blender_mb = 4096
 
 [gpu_memory]
 # How the worker reads graphics card memory (used by Unreal rendering).

@@ -37,7 +37,9 @@ folders and port (``slot.slot_for``) and the warm-up marker; the summary
 names it (``slot=``) and the gated card (``card=``). The runner publishes its RAM
 figures under the claim (``reservation.ram_target()``, FR-PC-RAM-2); the summary
 carries them per phase and the job's own card memory (``job_memory``, FR-PC-RAM-3,
-FR-PC-ATT-2), ``''`` until a launch measured them.
+FR-PC-ATT-2), ``''`` until a launch measured them. The job folder is attached to
+the claim's disk ledger entry as soon as it exists, before any launch, and a
+piece's disk check goes through it (``reservation.disk_target()``, FR-PC-DSK-1).
 
 Any unexpected exception from the phases becomes an ``ERROR`` outcome, so
 exit confirmation, ``finish``, delivery and the post-report cleanup always
@@ -53,19 +55,17 @@ from typing import Callable, Optional
 from sethlans_worker_agent import config_unreal
 from sethlans_worker_agent.blender_job_stop import WORKER_HARDWARE_CHANGED, JobStop
 from sethlans_worker_agent.project_archive.abort import NEVER, Abort
-from sethlans_worker_agent.project_archive.errors import (
-    AbortedError, ArchiveError, CacheUnavailableError, ShareUnavailableError)
+from sethlans_worker_agent.project_archive.errors import CacheUnavailableError
 from sethlans_worker_agent.project_archive.workspace import ArchiveRequest
-from sethlans_worker_agent.unreal_executor import adapter_choice, adapter_log, job_dir, job_memory, user_state, warmup
+from sethlans_worker_agent.unreal_executor import adapter_choice, adapter_log, job_dir, job_memory, job_outcome
+from sethlans_worker_agent.unreal_executor import user_state, warmup
 from sethlans_worker_agent.unreal_executor import slot as slots
 from sethlans_worker_agent.unreal_executor.audio_flow import AudioFlow
 from sethlans_worker_agent.unreal_executor.cancel_watch import CancelCause, CancelWatcher
-from sethlans_worker_agent.unreal_executor.command import CommandError
 from sethlans_worker_agent.unreal_executor.delivery import Delivery, Outcome
 from sethlans_worker_agent.unreal_executor.job_flow import UeFlow
-from sethlans_worker_agent.unreal_executor.outcomes import Cancelled, JobFailure, LocalConflict, SurvivorsLeft
-from sethlans_worker_agent.unreal_executor.runner_types import (
-    SURVIVORS_DISABLED_REASON, SURVIVORS_MESSAGE, UnconfinedLaunchError)
+from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
+from sethlans_worker_agent.unreal_executor.runner_types import SURVIVORS_DISABLED_REASON, SURVIVORS_MESSAGE
 from sethlans_worker_agent.unreal_executor.sequence_flow import RangeFlow, ShotsFlow
 from sethlans_worker_agent.unreal_executor.summary import Summary
 
@@ -165,6 +165,9 @@ class JobRun:
         att8 = uuid.uuid4().hex[:8]
         self.summary.set('attempt', att8)
         self.job = job_dir.create(cache.layout, self.params.job_id, att8)
+        disk = self.reservation.disk_target()
+        if disk is not None:
+            disk.attach(self.job.root)  # D12: from now on its folder is never a leftover
         self._workspace(cache, att8)
         self._guard_and_counts()
         slot = slots.slot_for(cache.layout.root, config_unreal.ZEN_PORT, self.reservation.slot)
@@ -188,6 +191,7 @@ class JobRun:
                           self.summary, self.deps.builders, marker, self.ws.working_copy.uproject,
                           self.deps.flow_config(slot.profile), reading=gate.reading, choose=choose,
                           first_key=self.reservation.card_key)  # the held card (render per card D1, D14)
+        flow.disk = disk  # a piece's disk check counts the other running claims (FR-PC-DSK-1)
         try:
             return flow.run()
         finally:
@@ -206,32 +210,11 @@ class JobRun:
     def _attempt(self) -> Outcome:
         try:
             return Outcome('success', flow=self._body())
-        except (JobFailure, LocalConflict, Cancelled, AbortedError, ShareUnavailableError, ArchiveError,
-                SurvivorsLeft, UnconfinedLaunchError, CommandError, user_state.IsolationError) as exc:
-            return self._map(exc)
+        except job_outcome.EXPECTED as exc:
+            return job_outcome.outcome_for(exc, self.cause, self.summary, self.deps.disable_until_restart)
         except Exception as exc:  # noqa: BLE001 - a bug still gets delivery, cleanup and an ERROR report
             logger.exception("Unreal job %s failed unexpectedly.", self.params.job_id)
             return Outcome('error', f"Unreal job failed unexpectedly ({type(exc).__name__}).")
-
-    def _map(self, exc: Exception) -> Outcome:
-        """The ``Outcome`` of an expected failure (anything else propagates after the cleanup)."""
-        if isinstance(exc, JobFailure):
-            return Outcome('error', exc.message)
-        if isinstance(exc, LocalConflict):
-            return Outcome('release', exc.message, exc.reason)
-        if isinstance(exc, (Cancelled, AbortedError)):
-            return Outcome('cancel', reason=self.cause() or getattr(exc, 'cause', 'canceled'))
-        if isinstance(exc, ShareUnavailableError):
-            return Outcome('share', str(exc) or 'share unavailable')
-        if isinstance(exc, CacheUnavailableError):
-            self.deps.disable_until_restart(str(exc))
-        if isinstance(exc, SurvivorsLeft):
-            return Outcome('survivors', SURVIVORS_MESSAGE)
-        if isinstance(exc, UnconfinedLaunchError):
-            self.summary.set('job_object', 'failed')
-        if isinstance(exc, (CommandError, user_state.IsolationError)):
-            return Outcome('error', f"Unreal launch refused: {exc}")
-        return Outcome('error', str(exc))
 
     # -- outermost ------------------------------------------------------
     def _confirm_and_finish(self, outcome: Outcome) -> tuple:

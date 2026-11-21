@@ -25,7 +25,7 @@ import datetime
 import logging
 from typing import Any, Dict, Optional
 
-from sethlans_worker_agent import api_handler, blender_stop, job_selection
+from sethlans_worker_agent import api_handler, blender_stop, job_selection, unreal_bridge
 from sethlans_worker_agent.job_resources import ACTIVE_ENTRY, forget_job, release_reservations
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,8 @@ def _record_claim(job: Dict[str, Any], selection, slot) -> None:
         job_processor._unfinished_job_ids.add(job_id)
     # Its own stop event, removed in release_after_job (FR-CL-5; Unreal: C-24 m).
     blender_stop.register_card_stop(job)
+    if selection.capacity_mode != 'unreal_card':  # counted by the Unreal RAM gate for 300 s (FR-PC-RAM-5)
+        unreal_bridge.note_blender_claim(job_id)
 
 
 def claim_selected(selection, capacity, worker_id) -> Optional[Dict[str, Any]]:

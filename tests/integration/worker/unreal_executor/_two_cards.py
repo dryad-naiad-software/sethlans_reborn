@@ -28,7 +28,7 @@ from sethlans_worker_agent.cards.identity import key_address, key_sort_value
 from sethlans_worker_agent.executors.base import ExecutionContext
 from sethlans_worker_agent.gpu_memory.types import GpuMemoryReading, make_gpu
 from sethlans_worker_agent.project_archive.reachability import resolve_share_path
-from sethlans_worker_agent.unreal_executor import adapter_choice, executor, reserve, vram
+from sethlans_worker_agent.unreal_executor import adapter_choice, executor, reserve, reserve_local, vram
 from sethlans_worker_agent.unreal_executor.outcomes import LocalConflict
 from tests.integration.worker.project_archive._helpers import SHARE_ROOT, AlwaysReachable
 from tests.integration.worker.unreal_executor._harness import FakeSampler, Harness
@@ -124,7 +124,8 @@ class TwoCardHarness(Harness):
             sampler=lambda: self.sampler, port_ok=lambda slot: SimpleNamespace(ok=True, message=''),
             isolation_ok=lambda: True, share_state=lambda: SimpleNamespace(root=SHARE_ROOT, reachable=True),
             entry_ready=lambda sha: False, reachability=AlwaysReachable, resolve=resolve_share_path,
-            budget=lambda: None, card_keys=lambda: tuple(self.reserve_keys))
+            budget=lambda: None, card_keys=lambda: tuple(self.reserve_keys),
+            ram_readers=reserve_local.RamReaders(lambda: 1 << 20, lambda: 1 << 20))  # not the host's RAM (D9)
 
     def token_free(self) -> bool:
         """Every Unreal slot is free (the slot pool replaced the token, FR-PC-SLOT-1)."""

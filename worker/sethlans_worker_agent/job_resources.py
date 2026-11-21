@@ -54,6 +54,8 @@ def release_reservations(job_id, renderer_reservation, capacity,
         return False
     if capacity is not None:
         capacity.release_slot(job_id)
+    from sethlans_worker_agent import unreal_bridge
+    unreal_bridge.forget_blender_claim(job_id)  # a no-op unless a Blender claim was noted (FR-PC-RAM-5)
     return True
 
 
