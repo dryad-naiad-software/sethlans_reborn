@@ -30,7 +30,7 @@ def run(cache, first=True, folders=OK_FOLDERS, config=None, ports=zen_port.PortC
         calls.append('config')
         return config or ProfileConfigResult()
 
-    def port_check(port, cache_dir, worker_sid=None):
+    def port_check(port, cache_dir, worker_sid=None, slot=0):
         calls.append('port')
         return ports
     return prelaunch.check_before_launch(cache, 8668, ['r.a'], first, known_folders=known,
@@ -86,7 +86,7 @@ def test_loopback_watch_stops_after_a_passing_sighting():
                     zen_port.LoopbackCheck(seen=True, ok=True, addresses=('127.0.0.1',))])
     calls = []
 
-    def check(port, cache_dir, worker_sid=None):
+    def check(port, cache_dir, worker_sid=None, slot=0):
         calls.append(port)
         return next(results)
     watch = zen_port.LoopbackWatch(8668, r'D:\uecache', check=check)
@@ -95,7 +95,7 @@ def test_loopback_watch_stops_after_a_passing_sighting():
 
 
 def test_loopback_watch_reports_a_non_loopback_listener():
-    def check(port, cache_dir, worker_sid=None):
+    def check(port, cache_dir, worker_sid=None, slot=0):
         return zen_port.LoopbackCheck(seen=True, ok=False, addresses=('0.0.0.0', '127.0.0.1'))
     reason = zen_port.LoopbackWatch(8668, r'D:\uecache', check=check)()
     assert reason.startswith(zen_port.LOOPBACK_DISABLE_REASON) and '0.0.0.0' in reason

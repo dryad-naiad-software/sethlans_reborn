@@ -5,7 +5,8 @@
 Warm-up marker (Unreal foundation FR-UE-9, FR-UE-10, FR-UE-25; Dom U-5,
 U-6, N-12; Conc L4).
 
-The marker ``p/<key16>/warmup/<ov16>/<build>.json`` holds::
+The marker ``p/<key16>/warmup/<ov16>/<build>.json`` (slot 0; ``<build>-s<n>.json`` for
+slot ``n``, render per card D6) holds::
 
     {"warmed": [{"map": ..., "sequence": ...}], "farm_defaults_version": 2,
      "cvars_sha256": "...", "completed_at": ...}
@@ -32,7 +33,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from sethlans_worker_agent.project_archive import fs_safe
-from sethlans_worker_agent.unreal_executor import farm_defaults
+from sethlans_worker_agent.unreal_executor import farm_defaults, zen_private
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,15 @@ _locks_guard = threading.Lock()  # leaf lock over the dict below
 _locks: Dict[str, threading.Lock] = {}
 
 
-def marker_path(entry_dir, overlay_sha256: str, build: str) -> Path:
+def marker_path(entry_dir, overlay_sha256: str, build: str, slot: int = 0) -> Path:
+    """``warmup/<ov16>/<build>.json`` for slot 0 (today's marker), ``<build>-s<n>.json`` for slot ``n`` (D6).
+
+    A warm-up fills only its own slot's Zen DDC and driver shader cache, so each slot has its own marker.
+    """
     ov16 = overlay_sha256[:16] if overlay_sha256 else NO_OVERLAY_OV16
-    return Path(entry_dir) / 'warmup' / ov16 / f"{build}.json"
+    slot = zen_private.check_slot(slot)
+    name = f"{build}.json" if slot == 0 else f"{build}-s{slot}.json"
+    return Path(entry_dir) / 'warmup' / ov16 / name
 
 
 def _lock_for(path: Path) -> threading.Lock:

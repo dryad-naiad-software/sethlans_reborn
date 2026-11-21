@@ -15,12 +15,14 @@ function, ``_finish``, which appends, in this order and exactly once::
     [-csvCaptureFrames=5000000 -csvGpuStats]   pilot render only
                                                (an audio job's render has farm_defaults.AUDIO_FLAGS after
                                                RENDER_FLAGS, in its head; FR-SA-4)
-    *zen_private.zen_flags(CACHE_DIR, ZEN_PORT)
+    *zen_private.zen_flags(CACHE_DIR, port, slot)  the job's slot's Zen folders and port (D5)
     *user_state.isolation_args()               (-notraceserver)
     -DPCVars=<merged>                          always last
 
 and builds the environment as ``env_cleanup.clean_env_for_unreal(params)``
-plus ``user_state.isolation_env(P)``. No launch path can omit either.
+plus ``user_state.isolation_env(P)``, ``P`` the slot's farm profile. No
+launch path can omit either. Slot 0's launch is byte-identical to the
+single-slot launch (render per card AC-4).
 ``validate_args`` re-checks the result and raises ``CommandError``:
 
 * no token contains ``"``, NUL or a control character;
@@ -65,9 +67,10 @@ _PATH_PREFIXES = ('-abslog=', '-script=', '-zendatapath=', '-localdatacachepath=
 class LaunchContext:
     editor_cmd: str     # str(EngineInstall.editor_cmd), never job data
     cache_dir: str      # CACHE_DIR (validated by FR-WC-3)
-    zen_port: int       # config_unreal.ZEN_PORT
-    profile: str        # user_state.profile_dir(CACHE_DIR)
+    zen_port: int       # the slot's port: config_unreal.ZEN_PORT + slot (D5)
+    profile: str        # user_state.profile_dir(CACHE_DIR, slot)
     graphics_adapter: Optional[int] = None  # DXGI index of the chosen card (adapter_choice, FR-CU-1)
+    slot: int = 0       # the job's Unreal slot (FR-PC-SLOT-2): its Zen folders and farm profile
 
 
 @dataclass(frozen=True)
@@ -80,9 +83,15 @@ class UeLaunch:
     profile: str
 
 
-def context_for(editor_cmd, cache_dir, zen_port: int, graphics_adapter: Optional[int] = None) -> LaunchContext:
+def context_for(editor_cmd, cache_dir, zen_port: int, graphics_adapter: Optional[int] = None,
+                slot: int = 0) -> LaunchContext:
     return LaunchContext(str(editor_cmd), str(cache_dir), int(zen_port),
-                         str(user_state.profile_dir(cache_dir)), graphics_adapter)
+                         str(user_state.profile_dir(cache_dir, slot)), graphics_adapter, slot)
+
+
+def context_for_slot(editor_cmd, slot, graphics_adapter: Optional[int] = None) -> LaunchContext:
+    """The launch context of ``slot`` (a ``slot.Slot``): its cache, port, profile and number."""
+    return context_for(editor_cmd, slot.cache_dir, slot.zen_port, graphics_adapter, slot.n)
 
 
 def dpcvars_token(merged: Sequence[Tuple[str, str]]) -> str:
@@ -158,7 +167,7 @@ def _exactly_once(args: Sequence[str], value: str, prefix: Optional[str] = None)
 
 def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool, phase: Optional[str] = None,
                  audio: bool = False) -> None:
-    data, fs, shared, ini = zen_private.zen_flags(ctx.cache_dir, ctx.zen_port)
+    data, fs, shared, ini = zen_private.zen_flags(ctx.cache_dir, ctx.zen_port, ctx.slot)
     zen = [_exactly_once(args, data, '-zendatapath='), _exactly_once(args, fs, '-localdatacachepath='),
            _exactly_once(args, shared, '-shareddatacachepath='), _exactly_once(args, ini, '-ini:engine:')]
     trace = _exactly_once(args, user_state.NOTRACESERVER)
@@ -207,7 +216,7 @@ def _finish(ctx: LaunchContext, phase: str, head: Sequence[str], merged, params_
         args += adapter_flags(ctx.graphics_adapter)
     if pilot_launch:
         args += list(pilot.PILOT_CSV_FLAGS)
-    args += list(zen_private.zen_flags(ctx.cache_dir, ctx.zen_port))
+    args += list(zen_private.zen_flags(ctx.cache_dir, ctx.zen_port, ctx.slot))
     args += list(user_state.isolation_args())
     args.append(dpcvars_token(merged))
     validate_args(args, ctx, pilot_launch, phase, audio)

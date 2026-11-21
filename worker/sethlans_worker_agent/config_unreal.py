@@ -58,8 +58,12 @@ _INT_SETTINGS = (
     ('LOG_FLOOD_MB_PER_MIN', 100, 10, 10000),
 )
 # FR-WC-2 / FR-UE-26: the farm-private zenserver's port; never UE's default 8558.
+# Render per card FR-PC-SLOT-4: slot n uses zen_port + n (n < ZEN_PORT_SLOTS), so the whole
+# range [zen_port, zen_port + 15] must be valid ports and must not contain 8558.
 ZEN_PORT_DEFAULT = 8668
 ZEN_PORT_FORBIDDEN = 8558
+ZEN_PORT_SLOTS = 16
+ZEN_PORT_MAX = 65519  # FR-PC-SLOT-4: 1024..65519
 WORKCOPY_MODES = ('hardlink', 'copy')
 
 Getter = Callable[[str, str, Any], Any]
@@ -136,9 +140,10 @@ def _apply_cross_checks(values: Dict[str, Any]) -> None:
             "Config 'unreal.hang_seconds' (%d) must exceed warmup_hold_seconds + 60; using %d.",
             values['HANG_SECONDS'], floor + 1)
         values['HANG_SECONDS'] = floor + 1
-    if values['ZEN_PORT'] == ZEN_PORT_FORBIDDEN:
-        logger.warning("Config 'unreal.zen_port' must not be %d (an artist's editor uses it); using %d.",
-                       ZEN_PORT_FORBIDDEN, ZEN_PORT_DEFAULT)
+    if values['ZEN_PORT'] <= ZEN_PORT_FORBIDDEN < values['ZEN_PORT'] + ZEN_PORT_SLOTS:
+        logger.warning("Config 'unreal.zen_port' (%d) gives the Unreal slots ports %d-%d, which include %d "
+                       "(an artist's editor uses it); using %d.", values['ZEN_PORT'], values['ZEN_PORT'],
+                       values['ZEN_PORT'] + ZEN_PORT_SLOTS - 1, ZEN_PORT_FORBIDDEN, ZEN_PORT_DEFAULT)
         values['ZEN_PORT'] = ZEN_PORT_DEFAULT
     if values['WORKCOPY_MODE'] not in WORKCOPY_MODES:
         logger.warning("Config 'unreal.workcopy_mode' must be one of %s; using 'hardlink'.", WORKCOPY_MODES)
@@ -159,7 +164,7 @@ def load(get_value: Optional[Getter] = None) -> Dict[str, Any]:
     }
     for key, default, low, high in _INT_SETTINGS:
         values[key] = _as_int(get_value, key, default, low, high)
-    values['ZEN_PORT'] = _as_int(get_value, 'ZEN_PORT', ZEN_PORT_DEFAULT, 1024, 65535)
+    values['ZEN_PORT'] = _as_int(get_value, 'ZEN_PORT', ZEN_PORT_DEFAULT, 1024, ZEN_PORT_MAX)
     _apply_cross_checks(values)
     return values
 

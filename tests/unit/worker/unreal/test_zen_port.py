@@ -22,7 +22,7 @@ def conn(ip, port=8668, pid=FARM_PID, status=psutil.CONN_LISTEN):
 @pytest.fixture()
 def farm(monkeypatch):
     farm_pids = {FARM_PID}
-    monkeypatch.setattr(zen_port.zen_private, 'is_farm_zenserver', lambda proc, cache, worker_sid=None:
+    monkeypatch.setattr(zen_port.zen_private, 'is_farm_zenserver', lambda proc, cache, worker_sid=None, slot=None:
                         proc in farm_pids)
     return farm_pids
 

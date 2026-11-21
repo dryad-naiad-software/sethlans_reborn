@@ -12,7 +12,8 @@ not claimed):
 1. Unreal is enabled and the startup recovery succeeded;
 2. ``job_params.validate_job_data`` (before any share access); a project
    refused after an adapter mismatch (``adapter_log.refused``) is declined;
-3. the per-worker Unreal token (``BoundedSemaphore(1)``, non-blocking);
+3. a free Unreal slot (``slot.SlotPool``, the lowest free slot, non-blocking;
+   render per card FR-PC-SLOT-1), which replaced the per-worker token;
 4. a supported install of the job's ``engine_build``; then the Unreal
    cards in use (card selection C-27 b), which the exclusive reservation
    holds;
@@ -20,7 +21,7 @@ not claimed):
 6. the **static** VRAM gate on the sampler's latest reading (no wait):
    the relaxed pilot gate (``pilot_need_mb``, a reading that measures card
    memory) or the measured-peak gate (FR-UE-21), on the job's card (D22);
-6a. the farm Zen port is free or held by the farm zenserver;
+6a. the slot's farm Zen port is free or held by a farm zenserver;
 6b. the latest known-folder check passed within ``check_6b_max_age_s()``;
 7. one read of the worker's share state: a configured, reachable root,
    copied into ``JobParams.share_root``; the archive/overlay paths resolve
@@ -39,8 +40,9 @@ runs, and its reservation carries the Unreal cards in use (step 4), so the
 exclusive reservation can mark them.
 
 **No resource is held when this returns None or raises** (chunk 3 L2): the
-token is released on every such path. ``ProbePending`` is raised only when
-the sole reason to decline is a probe still pending.
+slot is given back on every such path. The reservation's release gives it
+back; a retained reservation keeps it until restart. ``ProbePending`` is
+raised only when the sole reason to decline is a probe still pending.
 """
 import logging
 import threading
@@ -52,6 +54,7 @@ from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.executors.base import ProbePending, RendererReservation
 from sethlans_worker_agent.unreal_executor import job_params as jp
 from sethlans_worker_agent.unreal_executor import adapter_log, vram_gate_check
+from sethlans_worker_agent.unreal_executor.slot import SlotPool
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +64,16 @@ VRAM_FRESH_DEADLINE_S = 2.0
 
 
 class UnrealReservation(RendererReservation):
-    """The token plus what ``execute`` needs from the checks."""
+    """The slot plus what ``execute`` needs from the checks."""
 
-    def __init__(self, params, install, gate, on_release: Callable[[], None], card_keys: tuple = ()):
+    def __init__(self, params, install, gate, on_release: Callable[[], None], card_keys: tuple = (),
+                 slot: int = 0):
         super().__init__(on_release=on_release)
         self.params = params
         self.install = install
         self.gate = gate
         self.card_keys = tuple(card_keys)  # held by the exclusive reservation (job_claim, C-27 b)
+        self.slot = slot  # the job's Unreal slot (FR-PC-SLOT-1); its release gives it back
 
 
 @dataclass
@@ -78,7 +83,7 @@ class ReserveDeps:
     status: Callable[[], tuple]           # (enabled, reason) incl. the recovery gate
     installs: Callable[[], tuple]
     sampler: Callable[[], object]
-    port_ok: Callable[[], object]         # zen_port.PortCheck
+    port_ok: Callable[[int], object]      # (slot) -> zen_port.PortCheck of that slot's port
     isolation_ok: Callable[[], bool]
     share_state: Callable[[], object]
     entry_ready: Callable[[str], bool]
@@ -93,7 +98,7 @@ class Reserver:
 
     def __init__(self, deps: ReserveDeps):
         self.deps = deps
-        self.token = threading.BoundedSemaphore(1)
+        self.slots = SlotPool()
         self._warned: Dict[str, float] = {}
         self._warn_lock = threading.Lock()  # leaf lock
 
@@ -145,8 +150,8 @@ class Reserver:
             self._skip(params.job_id, "%s", result.message)
         return result
 
-    def _local_checks(self, params) -> bool:
-        port = self.deps.port_ok()
+    def _local_checks(self, params, slot: int) -> bool:
+        port = self.deps.port_ok(slot)
         if not port.ok:
             self._warn_rate_limited('zen-port', "Unreal jobs skipped: %s", port.message)
             return False
@@ -223,7 +228,7 @@ class Reserver:
             return None
         return keys
 
-    def _after_token(self, params):
+    def _after_slot(self, params, slot: int):
         install = self._install(params)
         if install is None:
             return None
@@ -233,7 +238,7 @@ class Reserver:
         sampler = self.deps.sampler()
         if not self._gate(params, sampler.latest() if sampler is not None else None).ok:
             return None
-        if not self._local_checks(params):
+        if not self._local_checks(params, slot):
             return None
         params = self._share(params)
         if params is None:
@@ -246,18 +251,20 @@ class Reserver:
         gate = self._fresh_gate(params)
         if gate is None or not self._gated_card_ok(params, gate, card_keys):
             return None
-        return UnrealReservation(params, install, gate, on_release=self.token.release, card_keys=card_keys)
+        return UnrealReservation(params, install, gate, on_release=lambda: self.slots.give(slot),
+                                 card_keys=card_keys, slot=slot)
 
     def try_reserve(self, job_data: dict) -> Optional[UnrealReservation]:
         params = self._prechecks(job_data)
         if params is None:
             return None
-        if not self.token.acquire(blocking=False):
+        slot = self.slots.take()
+        if slot is None:
             return None
         reservation = None
         try:
-            reservation = self._after_token(params)
+            reservation = self._after_slot(params, slot)
             return reservation
         finally:
             if reservation is None:
-                self.token.release()
+                self.slots.give(slot)

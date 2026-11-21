@@ -76,6 +76,7 @@ class PhaseConfig:
     log_max_bytes: int
     log_flood_bytes_per_min: int
     excluded_images: frozenset = frozenset()
+    slot: int = 0       # the job's Unreal slot (FR-PC-SLOT-2); zen_port is that slot's port
 
 
 @dataclass
@@ -121,7 +122,7 @@ class PhaseRunner:
     def _prelaunch(self) -> None:
         cfg = self.config
         result = self.prelaunch(cfg.cache_dir, cfg.zen_port, cfg.merged_names, self.first_launch,
-                                worker_sid=cfg.worker_sid)
+                                worker_sid=cfg.worker_sid, slot=cfg.slot)
         if not result.ok:
             raise LocalConflict(result.release_reason, result.message)
         self.profile_reset += result.profile_reset
@@ -153,7 +154,7 @@ class PhaseRunner:
             fatal_rules=log_validation.fatal_rules(), success_marker=success_marker, success_check=success_check,
             cancel=self.cancel, shutdown_event=self.shutdown_event, excluded_images=cfg.excluded_images,
             vram_sample=(lambda timeout_s: _cut(sampled(timeout_s), key)) if sampled is not None else None,
-            tick_check=self.loopback_factory(cfg.zen_port, cfg.cache_dir, worker_sid=cfg.worker_sid),
+            tick_check=self.loopback_factory(cfg.zen_port, cfg.cache_dir, worker_sid=cfg.worker_sid, slot=cfg.slot),
             vram_baseline=baseline, expected_adapter=adapter.index if adapter is not None else None,
             expected_ids=adapter_log.ids_of(adapter))
 
@@ -192,7 +193,7 @@ class PhaseRunner:
             return True  # the flood message is the better error; the log may be too large to read
         cfg = self.config
         result = self.verify_zen(run.log_path, cfg.cache_dir, cfg.zen_port, run.phase,
-                                 max_bytes=cfg.log_max_bytes)
+                                 max_bytes=cfg.log_max_bytes, slot=cfg.slot)
         if not result.ok:
             logger.error("Zen log verification failed in %s: %s", run.phase, result.detail)
         return result.ok
@@ -207,10 +208,12 @@ def _cut(reading, key: Optional[str]):
     return reading if key is None else vram.only_card(reading, key)
 
 
-def default_config(cache_dir, worker_sid, merged_names, excluded_images=frozenset()) -> PhaseConfig:
+def default_config(slot, worker_sid, merged_names, excluded_images=frozenset()) -> PhaseConfig:
+    """The phases' settings for ``slot`` (a ``slot.Slot``: its cache, port and number)."""
     from sethlans_worker_agent import config_unreal as c
     return PhaseConfig(
-        cache_dir=str(cache_dir), zen_port=c.ZEN_PORT, worker_sid=worker_sid, merged_names=list(merged_names),
+        cache_dir=str(slot.cache_dir), zen_port=slot.zen_port, slot=slot.n, worker_sid=worker_sid,
+        merged_names=list(merged_names),
         timeouts={'prep': c.PREP_TIMEOUT_SECONDS, 'warmup': c.WARMUP_TIMEOUT_SECONDS,
                   'render': c.RENDER_TIMEOUT_SECONDS},
         hang_s=c.HANG_SECONDS, quit_grace_s=c.QUIT_GRACE_SECONDS, log_max_bytes=c.LOG_MAX_MB * MB,

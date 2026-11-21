@@ -14,10 +14,15 @@ warm-up, render, retry), in this order:
    (review S4); a foreign owner fails the launch. Then ``zen/data`` and
    ``zen/fs`` are created or checked (FR-UE-27, FR-UE-26);
 2. before the job's **first** launch only: the known-folder check
-   (``isolation_state.check_now``, one probe per job);
+   (``isolation_state.check_now(P)``, one probe per job);
 3. the farm-profile config check (``user_state.scan_farm_profile_config``),
    which resets contaminated layers and lets the launch proceed;
 4. the farm Zen port re-check (``zen_port.check_port``, any address).
+
+``P``, the Zen folders and the port are the job's slot's (render per card
+D5, FR-PC-SLOT-2, FR-PC-SLOT-5): slot 0 is ``CACHE_DIR\\ueprofile`` and
+``zen/``; slot ``n`` is ``ueprofile-s<n>`` and ``zen-s<n>/``, created
+owner-only on the slot's first launch with the same link and owner checks.
 
 A failure is a **local conflict**, never a job ERROR: the result names the
 release reason, ``dispatch_failed`` before the job's first launch and
@@ -52,26 +57,30 @@ def _fail(first_launch: bool, message: str) -> PreLaunch:
 
 def check_before_launch(cache_dir, port: int, merged_names: Iterable[str], first_launch: bool,
                         worker_sid: Optional[str] = None,
-                        known_folders: Callable = isolation_state.check_now,
+                        known_folders: Optional[Callable] = None,
                         config_check: Callable = user_state.scan_farm_profile_config,
-                        port_check: Callable = zen_port.check_port) -> PreLaunch:
-    """Run the shared pre-launch checks; never raises."""
-    profile = Path(user_state.profile_dir(cache_dir))
+                        port_check: Callable = zen_port.check_port, slot: int = 0) -> PreLaunch:
+    """Run the shared pre-launch checks for slot ``slot`` on ``port``; never raises.
+
+    ``known_folders`` (no arguments) replaces the known-folder check of the slot's profile
+    (``isolation_state.check_now(P)``) in tests.
+    """
+    profile = Path(user_state.profile_dir(cache_dir, slot))
     trash = Path(cache_dir) / 'trash'
     try:
         repaired = user_state.repair_profile(profile, trash)
-        zen_private.ensure_zen_dirs(cache_dir)
+        zen_private.ensure_zen_dirs(cache_dir, slot)
     except OSError as exc:
         return _fail(first_launch, f"The farm profile or Zen folders are unusable ({exc}).")
     if first_launch:
-        result = known_folders()
+        result = known_folders() if known_folders is not None else isolation_state.check_now(profile)
         if result is None or not result.ok:
             reason = result.reason if result is not None else "the known-folder check has not run"
             return _fail(True, reason)
     config = config_check(profile, trash, merged_names)
     if not config.ok:
         return _fail(first_launch, f"The farm profile's config could not be reset ({config.error}).")
-    ports = port_check(port, cache_dir, worker_sid=worker_sid)
+    ports = port_check(port, cache_dir, worker_sid=worker_sid, slot=slot)
     if not ports.ok:
         return _fail(first_launch, ports.message)
     return PreLaunch(ok=True, profile_reset=config.reset, profile_repaired=repaired, user_cvars=config.user_cvars,

@@ -18,9 +18,10 @@ render logs never contain it). The file is therefore found by, in order:
 1. the ``Writing CSV to file`` line when present (its path must lie in the
    farm CSV directory);
 2. otherwise the files **new** in that directory since the render launched
-   (a before/after listing of a directory only farm launches write, on a
-   machine the pilot holds exclusively); exactly one new ``.csv`` file is
-   accepted, more than one gives no CSV.
+   (a before/after listing of a directory only farm launches write, in a
+   farm profile the pilot's slot holds exclusively, render per card
+   FR-PC-SLOT-2); exactly one new ``.csv`` file is accepted, more than one
+   gives no CSV. ``P`` is the job's slot's profile (``FlowConfig.profile``).
 
 The chosen file must be a regular file (no reparse point), at most 256 MB,
 inside that directory; it is moved into ``j/<...>/logs/``. Any failure

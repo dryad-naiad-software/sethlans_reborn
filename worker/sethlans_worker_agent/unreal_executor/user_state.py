@@ -74,9 +74,13 @@ class IsolationError(ValueError):
     """A UE launch environment is not the FR-UE-27 isolation environment."""
 
 
-def profile_dir(cache_dir) -> str:
-    """``CACHE_DIR\\ueprofile`` as a string (wrap it in ``Path`` for file work)."""
-    return _join(cache_dir, PROFILE_DIRNAME)
+def profile_dir(cache_dir, slot: int = 0) -> str:
+    """``CACHE_DIR\\ueprofile`` (slot 0) or ``CACHE_DIR\\ueprofile-s<n>`` (slot ``n``, D5) as a string.
+
+    Wrap it in ``Path`` for file work. Raises ``ValueError`` for a slot outside ``0..15``.
+    """
+    slot = zen_private.check_slot(slot)
+    return _join(cache_dir, PROFILE_DIRNAME if slot == 0 else f"{PROFILE_DIRNAME}-s{slot}")
 
 
 def isolation_env(profile) -> Dict[str, str]:

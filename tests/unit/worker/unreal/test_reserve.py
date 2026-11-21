@@ -8,6 +8,7 @@ import pytest
 
 from sethlans_worker_agent.executors.base import ProbePending
 from sethlans_worker_agent.unreal_executor import reserve, vram_gate_check, zen_port
+from sethlans_worker_agent.unreal_executor.slot import SLOT_COUNT
 from tests._unreal_worker_state import install, reachable
 from tests.unit.worker.unreal._executor_fakes import job, params, reading
 
@@ -39,7 +40,7 @@ class Reach:
 def make(**overrides):
     calls = []
     state = dict(is_idle=lambda: True, status=lambda: (True, ''), installs=lambda: (install(),),
-                 sampler=lambda: Sampler(reading()), port_ok=lambda: zen_port.PortCheck(ok=True),
+                 sampler=lambda: Sampler(reading()), port_ok=lambda slot: zen_port.PortCheck(ok=True),
                  isolation_ok=lambda: True, share_state=lambda: reachable(), entry_ready=lambda sha: False,
                  reachability=Reach, resolve=lambda root, rel, kind: calls.append((rel, kind)), budget=lambda: None)
     state.update(overrides)
@@ -49,10 +50,8 @@ def make(**overrides):
 
 
 def token_free(reserver):
-    if reserver.token.acquire(blocking=False):
-        reserver.token.release()
-        return True
-    return False
+    """Every Unreal slot is free (the slot pool replaced the token, FR-PC-SLOT-1)."""
+    return reserver.slots.free() == tuple(range(SLOT_COUNT))
 
 
 def test_eligible_job_returns_a_reservation_with_validated_params():
@@ -70,7 +69,7 @@ def test_eligible_job_returns_a_reservation_with_validated_params():
     {'is_idle': lambda: False}, {'status': lambda: (False, 'no install')},
     {'installs': lambda: (install('5.8.4-1'),)},
     {'sampler': lambda: Sampler(reading(used=25000))}, {'sampler': lambda: None},
-    {'port_ok': lambda: zen_port.PortCheck(ok=False, error='x')}, {'isolation_ok': lambda: False},
+    {'port_ok': lambda slot: zen_port.PortCheck(ok=False, error='x')}, {'isolation_ok': lambda: False},
     {'share_state': lambda: reachable(ok=False)},
     {'resolve': lambda root, rel, kind: (_ for _ in ()).throw(ValueError('outside'))},
     {'reachability': lambda: Reach({'project-fixes': False})},
@@ -111,11 +110,17 @@ def test_ready_cache_entry_skips_the_archive_probe():
     assert reach.calls == [('project-fixes', 'dir', 'poll')]
 
 
-def test_token_is_exclusive():
+def test_slots_are_taken_lowest_first_and_given_back():
+    """FR-PC-SLOT-1: the slot pool replaced the one-token semaphore; check 0 keeps one job at a time here."""
     reserver, _reach = make()
-    first = reserver.try_reserve(job(job_id=1))
-    assert first is not None and reserver.try_reserve(job(job_id=2)) is None
+    first, second = reserver.try_reserve(job(job_id=1)), reserver.try_reserve(job(job_id=2))
+    assert (first.slot, second.slot) == (0, 1)
     first.release()
+    third = reserver.try_reserve(job(job_id=3))
+    assert third.slot == 0
+    second.release()
+    third.release()
+    assert token_free(reserver)
     assert reserver.try_reserve(job(job_id=2)) is not None
 
 

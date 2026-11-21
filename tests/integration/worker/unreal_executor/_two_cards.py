@@ -119,17 +119,14 @@ class TwoCardHarness(Harness):
     def reserve_deps(self) -> reserve.ReserveDeps:
         return reserve.ReserveDeps(
             is_idle=lambda: True, status=lambda: (True, ''), installs=lambda: (self.install,),
-            sampler=lambda: self.sampler, port_ok=lambda: SimpleNamespace(ok=True, message=''),
+            sampler=lambda: self.sampler, port_ok=lambda slot: SimpleNamespace(ok=True, message=''),
             isolation_ok=lambda: True, share_state=lambda: SimpleNamespace(root=SHARE_ROOT, reachable=True),
             entry_ready=lambda sha: False, reachability=AlwaysReachable, resolve=resolve_share_path,
             budget=lambda: None, card_keys=lambda: tuple(self.reserve_keys))
 
     def token_free(self) -> bool:
-        token = self.executor._reserver.token
-        if not token.acquire(blocking=False):
-            return False
-        token.release()
-        return True
+        """Every Unreal slot is free (the slot pool replaced the token, FR-PC-SLOT-1)."""
+        return self.executor._reserver.slots.free() == tuple(range(16))
 
     def run(self, job_data, reservation):
         job_data['_renderer_reservation'] = reservation

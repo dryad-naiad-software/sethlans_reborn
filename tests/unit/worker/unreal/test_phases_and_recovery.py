@@ -44,7 +44,7 @@ def runner(run_outcome=None, pre=None, zen_ok=True, **kwargs):
     calls = {'prelaunch': [], 'specs': [], 'disable': [], 'watches': []}
     pre = pre or PreLaunch(ok=True, profile_reset=1, user_cvars=0, user_cvar_collisions=('r.X',))
 
-    def prelaunch(cache_dir, port, names, first, worker_sid=None):
+    def prelaunch(cache_dir, port, names, first, worker_sid=None, slot=0):
         calls['prelaunch'].append(first)
         return pre
 
@@ -52,7 +52,7 @@ def runner(run_outcome=None, pre=None, zen_ok=True, **kwargs):
         calls['specs'].append(spec)
         return run_outcome or outcome()
 
-    def watch(port, cache_dir, worker_sid=None):
+    def watch(port, cache_dir, worker_sid=None, slot=0):
         calls['watches'].append(object())
         return calls['watches'][-1]
 

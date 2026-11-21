@@ -21,7 +21,10 @@ failed. Otherwise, exactly once per process:
 3. FR-PA-18 step 1b: a leftover ``userstate/`` goes to ``trash/``; the farm
    profile is repaired/created (``user_state.repair_profile``) and the
    farm Zen folders created; then ``isolation_state.register(P)`` runs the
-   first known-folder check, and the profile housekeeping runs.
+   first known-folder check, and the profile housekeeping runs, for slot
+   0's profile and for every other slot's profile that already exists
+   (render per card FR-PC-SLOT-2; a slot's folders are created on its
+   first launch, FR-PC-SLOT-5).
 
 A failed recovery (or ``CacheUnavailableError``) calls
 ``runtime.disable_until_restart``. ``ready()`` is True only after a
@@ -33,6 +36,7 @@ Locking: ``_lock`` is a leaf lock over the module state; recovery runs
 under ``_run_lock`` (startup only), never while another worker lock is held.
 """
 import logging
+import stat
 import sys
 import threading
 from pathlib import Path
@@ -96,6 +100,18 @@ def _step_1b(cache_dir: Path) -> None:
     zen_private.ensure_zen_dirs(cache_dir)
     isolation_state.register(profile)
     user_state.housekeeping(profile)
+    for n in range(1, zen_private.ZEN_SLOTS):
+        other = Path(user_state.profile_dir(cache_dir, n))
+        if _is_real_dir(other):  # a link is never followed (housekeeping checks below it)
+            user_state.housekeeping(other)
+
+
+def _is_real_dir(path: Path) -> bool:
+    try:
+        st = fs_safe.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISDIR(st.st_mode) and not fs_safe.is_reparse(st)
 
 
 def _set(state: str, cache: Optional[ArchiveCache] = None) -> None:

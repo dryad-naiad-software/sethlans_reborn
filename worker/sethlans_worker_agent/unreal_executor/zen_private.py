@@ -48,10 +48,15 @@ The comma form is supported: ``FConfigFile::OverrideFromCommandline``
 applies **every** ``-ini:Engine:`` token, not only the first. The
 per-phase listener check (``zen_port.check_loopback``) stays in any case.
 
-``is_farm_zenserver(proc, cache_dir)`` (FR-UE-23, Sec R3-W1) is True only
-when the image name is ``zenserver.exe``, the owner SID equals the
-worker's and the parsed ``--data-dir`` **equals** ``CACHE_DIR\\zen\\data``
-(both forms, quotes stripped, ``GetLongPathNameW``, ``normcase``). Anything
+**Slots (render per card D5, FR-PC-SLOT-2).** Slot 0 keeps
+``CACHE_DIR\\zen\\{data,fs}``; slot ``n >= 1`` uses ``CACHE_DIR\\zen-s<n>\\{data,fs}``
+(the ``slot`` argument below; ``slot.Slot`` pairs it with the slot's port).
+
+``is_farm_zenserver(proc, cache_dir)`` (FR-UE-23, Sec R3-W1, FR-PC-SLOT-3)
+is True only when the image name is ``zenserver.exe``, the owner SID equals
+the worker's and the parsed ``--data-dir`` **equals** one slot's data folder
+(``CACHE_DIR\\zen\\data`` or ``CACHE_DIR\\zen-s<n>\\data``, ``n`` 1-15; both
+forms, quotes stripped, ``GetLongPathNameW``, ``normcase``). Anything
 unreadable is not a farm zenserver.
 """
 import logging
@@ -62,6 +67,7 @@ from typing import Iterable, Optional, Sequence, Tuple
 
 import psutil
 
+from sethlans_worker_agent.config_unreal import ZEN_PORT_SLOTS as ZEN_SLOTS
 from sethlans_worker_agent.project_archive import fs_safe
 from sethlans_worker_agent.unreal_executor import win32_proc, winpath
 from shared import owner_only_acl
@@ -85,12 +91,24 @@ PROFILE_ZEN_RELPATH = ('Profile', 'AppData', 'Local', 'UnrealEngine', 'Common', 
                        ZEN_IMAGE_WINDOWS)
 
 
-def zen_data_dir(cache_dir) -> str:
-    return winpath.join(cache_dir, ZEN_DIR, ZEN_DATA)
+def check_slot(slot) -> int:
+    if isinstance(slot, bool) or not isinstance(slot, int) or not 0 <= slot < ZEN_SLOTS:
+        raise ValueError(f"an Unreal slot must be an integer in 0..{ZEN_SLOTS - 1} (got {slot!r})")
+    return slot
 
 
-def zen_fs_dir(cache_dir) -> str:
-    return winpath.join(cache_dir, ZEN_DIR, ZEN_FS)
+def zen_dir(cache_dir, slot: int = 0) -> str:
+    """``CACHE_DIR\\zen`` for slot 0, ``CACHE_DIR\\zen-s<n>`` for slot ``n`` (D5)."""
+    slot = check_slot(slot)
+    return winpath.join(cache_dir, ZEN_DIR if slot == 0 else f"{ZEN_DIR}-s{slot}")
+
+
+def zen_data_dir(cache_dir, slot: int = 0) -> str:
+    return winpath.join(zen_dir(cache_dir, slot), ZEN_DATA)
+
+
+def zen_fs_dir(cache_dir, slot: int = 0) -> str:
+    return winpath.join(zen_dir(cache_dir, slot), ZEN_FS)
 
 
 def zen_ini_token(port: int) -> str:
@@ -98,19 +116,19 @@ def zen_ini_token(port: int) -> str:
     return f"-ini:Engine:[Zen.AutoLaunch]:DesiredPort={int(port)},{ZEN_LOOPBACK_SETTING}"
 
 
-def zen_flags(cache_dir, port: int) -> Tuple[str, str, str, str]:
-    """``ZEN_FLAGS`` for ``cache_dir`` and ``port`` (FR-UE-6, FR-UE-26, review D3)."""
+def zen_flags(cache_dir, port: int, slot: int = 0) -> Tuple[str, str, str, str]:
+    """``ZEN_FLAGS`` for slot ``slot`` of ``cache_dir`` on ``port`` (FR-UE-6, FR-UE-26, review D3, D5)."""
     if int(port) == UE_DEFAULT_ZEN_PORT:
         raise ValueError(f"the farm Zen port must not be {UE_DEFAULT_ZEN_PORT}")
-    return (f"-ZenDataPath={zen_data_dir(cache_dir)}",
-            f"-LocalDataCachePath={zen_fs_dir(cache_dir)}",
+    return (f"-ZenDataPath={zen_data_dir(cache_dir, slot)}",
+            f"-LocalDataCachePath={zen_fs_dir(cache_dir, slot)}",
             SHARED_DDC_DISABLED,
             zen_ini_token(port))
 
 
-def ensure_zen_dirs(cache_dir) -> None:
-    """Create ``zen/``, ``zen/data`` and ``zen/fs`` owner-only, or check them (no links)."""
-    for path in (winpath.join(cache_dir, ZEN_DIR), zen_data_dir(cache_dir), zen_fs_dir(cache_dir)):
+def ensure_zen_dirs(cache_dir, slot: int = 0) -> None:
+    """Create the slot's ``zen[-s<n>]/``, ``data`` and ``fs`` owner-only, or check them (no links)."""
+    for path in (zen_dir(cache_dir, slot), zen_data_dir(cache_dir, slot), zen_fs_dir(cache_dir, slot)):
         fs_safe.ensure_owned_dir(Path(path))
 
 
@@ -157,13 +175,22 @@ def owned_by_worker(proc, worker_sid: Optional[str] = None) -> bool:
     return proc.uids().real == os.geteuid()
 
 
-def is_farm_zenserver(proc, cache_dir, worker_sid: Optional[str] = None) -> bool:
-    """True only for this worker's own farm zenserver (FR-UE-23, FR-UE-26)."""
+def farm_data_dirs(cache_dir) -> frozenset:
+    """Every slot's Zen data folder, normalized (FR-PC-SLOT-3)."""
+    return frozenset(normalize_path(zen_data_dir(cache_dir, n)) for n in range(ZEN_SLOTS))
+
+
+def is_farm_zenserver(proc, cache_dir, worker_sid: Optional[str] = None, slot: Optional[int] = None) -> bool:
+    """True only for this worker's own farm zenserver (FR-UE-23, FR-UE-26, FR-PC-SLOT-3).
+
+    ``slot=None`` (the orphan sweep) accepts any slot's data folder; ``slot=n`` (the port checks) only slot n's.
+    """
     try:
         if not _image_ok(proc):
             return False
         data_dir = parse_data_dir(proc.cmdline())
-        if not data_dir or normalize_path(data_dir) != normalize_path(zen_data_dir(cache_dir)):
+        wanted = farm_data_dirs(cache_dir) if slot is None else {normalize_path(zen_data_dir(cache_dir, slot))}
+        if not data_dir or normalize_path(data_dir) not in wanted:
             return False
         return owned_by_worker(proc, worker_sid)
     except (psutil.Error, OSError, ValueError, IndexError):

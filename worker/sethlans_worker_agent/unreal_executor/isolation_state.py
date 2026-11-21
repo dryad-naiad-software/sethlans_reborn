@@ -14,7 +14,8 @@ run for, and the latest ``KnownFolderResult``.
   the chunk-4 test fakes never call it).
 * ``refresh()``: re-runs the check when the last one is at least
   ``RESCAN_SECONDS`` old (``runtime.rescan`` calls it with the engine scan).
-* ``check_now()``: before each job's first UE launch.
+* ``check_now(P)``: before each job's first UE launch, for the job's slot's profile
+  (render per card FR-PC-SLOT-5; only the registered profile updates the node condition).
 * ``expect()``: called at worker start when Unreal is enabled, before
   recovery; from then until the first check ``reason()`` reports
   ``NOT_RUN_REASON`` (review L8).
@@ -78,17 +79,20 @@ def _record(result: user_state.KnownFolderResult) -> user_state.KnownFolderResul
     return result
 
 
-def _run(profile: Path) -> user_state.KnownFolderResult:
+def _probe(profile: Path) -> user_state.KnownFolderResult:
     try:
-        result = _check(profile, clock=_clock)
+        return _check(profile, clock=_clock)
     except Exception as exc:  # noqa: BLE001 - fail closed, never crash the caller
         logger.exception("Known-folder check failed.")
-        result = user_state.KnownFolderResult(
+        return user_state.KnownFolderResult(
             ok=False, folder='Local AppData', path=f'an error ({type(exc).__name__})',
             reason=user_state.REDIRECTED_REASON.format(folder='Local AppData',
                                                        path=f'an error ({type(exc).__name__})'),
             checked_at=_clock())
-    return _record(result)
+
+
+def _run(profile: Path) -> user_state.KnownFolderResult:
+    return _record(_probe(profile))
 
 
 def register(profile) -> user_state.KnownFolderResult:
@@ -115,14 +119,25 @@ def refresh(force: bool = False) -> Optional[user_state.KnownFolderResult]:
         _probe_lock.release()
 
 
-def check_now() -> Optional[user_state.KnownFolderResult]:
-    """One probe before a job's first UE launch; None when not registered."""
+def check_now(profile=None) -> Optional[user_state.KnownFolderResult]:
+    """One probe before a job's first UE launch, for the job's slot's ``profile``; None when not registered.
+
+    Render per card FR-PC-SLOT-5: the periodic node condition (check 6b) stays on the registered profile
+    (slot 0's). A probe of the registered profile updates it; a probe of another slot's profile is returned
+    to the caller (which refuses the launch on a failure) and logged, without changing the node condition.
+    """
     with _lock:
-        profile = _profile
-    if profile is None:
+        registered = _profile
+    if registered is None:
         return None
+    target = registered if profile is None else Path(profile)
     with _probe_lock:
-        return _run(profile)
+        if target == registered:
+            return _run(target)
+        result = _probe(target)
+    if not result.ok:
+        logger.warning("Known-folder check failed for the farm profile %s: %s", target, result.reason)
+    return result
 
 
 def expect() -> None:

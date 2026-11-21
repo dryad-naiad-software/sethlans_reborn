@@ -31,6 +31,11 @@ The job's own card stop (``ctx.shutdown_event`` is then a ``JobStop``;
 cause ``worker_hardware_changed``, C-24 m) ends the phases as a shutdown
 does, but ``finish`` runs as usual and the job is released (``delivery``).
 
+The reservation's slot (``reservation.slot``, render per card FR-PC-SLOT)
+decides the work copy (``ArchiveRequest.slot``), the farm profile, the Zen
+folders and port (``slot.slot_for``) and the warm-up marker; the summary
+names it (``slot=``) and the gated card (``card=``).
+
 Any unexpected exception from the phases becomes an ``ERROR`` outcome, so
 exit confirmation, ``finish``, delivery and the post-report cleanup always
 run (``BaseException`` still propagates after the outermost ``finally``).
@@ -41,12 +46,14 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from sethlans_worker_agent import config_unreal
 from sethlans_worker_agent.blender_job_stop import WORKER_HARDWARE_CHANGED, JobStop
 from sethlans_worker_agent.project_archive.abort import NEVER, Abort
 from sethlans_worker_agent.project_archive.errors import (
     AbortedError, ArchiveError, CacheUnavailableError, ShareUnavailableError)
 from sethlans_worker_agent.project_archive.workspace import ArchiveRequest
 from sethlans_worker_agent.unreal_executor import adapter_log, job_dir, user_state, warmup
+from sethlans_worker_agent.unreal_executor import slot as slots
 from sethlans_worker_agent.unreal_executor.audio_flow import AudioFlow
 from sethlans_worker_agent.unreal_executor.cancel_watch import CancelCause, CancelWatcher
 from sethlans_worker_agent.unreal_executor.command import CommandError
@@ -73,8 +80,8 @@ class RunDeps:
     sampler: Callable
     registry_factory: Callable
     phase_runner: Callable          # (config, registry, job, cancel, shutdown, sampler) -> PhaseRunner
-    phase_config: Callable          # (cache_dir, merged_names, install) -> PhaseConfig
-    launch_context: Callable        # (install, cache_dir) -> command.LaunchContext
+    phase_config: Callable          # (slot, merged_names, install) -> PhaseConfig; slot: slot.Slot
+    launch_context: Callable        # (install, slot) -> command.LaunchContext
     builders: object
     flow_config: Callable           # (profile) -> FlowConfig
     get_assignment: Callable
@@ -109,7 +116,9 @@ class JobRun:
 
     def _start_summary(self) -> None:
         p = self.params
+        # FR-PC-SLOT-8: card and slot; 'exclusive' stays while the hold is the whole machine (until FR-PC-CAP-3).
         self.summary.update({'engine': p.engine_build, 'kind': p.kind, 'exclusive': 1,
+                             'card': self.reservation.gate.card_key, 'slot': self.reservation.slot,
                              'user_state': user_state.SUMMARY.split('=', 1)[1], 'quit_forced': '',
                              'cvar_overridden': '', 'job_object': 'skipped'})
         self.summary.update(self.reservation.gate.summary)
@@ -119,7 +128,8 @@ class JobRun:
         p = self.params
         request = ArchiveRequest(job_id=p.job_id, attempt=att8, share_root=p.share_root, archive_relpath=p.archive_path,
                                  archive_sha256=p.archive_sha256, uproject_relpath=p.uproject_path,
-                                 overlay_relpath=p.overlay_path, overlay_sha256=p.overlay_sha256)
+                                 overlay_relpath=p.overlay_path, overlay_sha256=p.overlay_sha256,
+                                 slot=self.reservation.slot)  # FR-PC-SLOT-6: w/<key16><ov8>-s<n>
         abort = Abort(cancel=self.cancel, shutdown=self.ctx.shutdown_event,
                       deadline=time.monotonic() + self.deps.prep_timeout_s())
         self.ws = self.deps.prepare_workspace(cache, request, limits=self.deps.limits(),
@@ -152,23 +162,23 @@ class JobRun:
         self.job = job_dir.create(cache.layout, self.params.job_id, att8)
         self._workspace(cache, att8)
         self._guard_and_counts()
-        cache_dir = str(cache.layout.root)
+        slot = slots.slot_for(cache.layout.root, config_unreal.ZEN_PORT, self.reservation.slot)
         names = [name for name, _value in self.params.merged]
-        runner = self.deps.phase_runner(self.deps.phase_config(cache_dir, names, self.install), self.registry,
+        runner = self.deps.phase_runner(self.deps.phase_config(slot, names, self.install), self.registry,
                                         self.job, self.cause, self.ctx.shutdown_event, self.deps.sampler())
         self.runner = runner
         runner.project_dir, runner.zen_scan = self.ws.working_copy.project_dir, self.deps.zen_scan  # every phase
         runner.project = adapter_log.project_key(self.params)  # what a mismatch refuses (adapter_log)
         gate = self.reservation.gate
         runner.card_key = gate.card_key  # the gated card: the traces of a launch without a choice (D22)
-        marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build)
-        profile = user_state.profile_dir(cache_dir)
+        marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build,
+                                    slot.n)
         # FR-SD-4: shots run the prep only; a sequence piece renders a frame range (FR-SW-3); FR-SA: sound only.
         p = self.params
         flow_class = ShotsFlow if p.is_shots else RangeFlow if p.is_piece else AudioFlow if p.is_audio else UeFlow
-        flow = flow_class(self.params, self.deps.launch_context(self.install, cache_dir), self.job, runner,
+        flow = flow_class(self.params, self.deps.launch_context(self.install, slot), self.job, runner,
                           self.summary, self.deps.builders, marker, self.ws.working_copy.uproject,
-                          self.deps.flow_config(profile), reading=gate.reading, choose=self.deps.choose_adapter,
+                          self.deps.flow_config(slot.profile), reading=gate.reading, choose=self.deps.choose_adapter,
                           first_key=gate.card_key)
         try:
             return flow.run()

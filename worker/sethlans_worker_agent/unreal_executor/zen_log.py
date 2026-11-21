@@ -7,17 +7,18 @@ Zen log verification (Unreal foundation FR-UE-26 "Verification", Dom R3-8).
 Each phase log is scanned to EOF after exit confirmation:
 
 * every ``Found command line override ZenDataPath=<p>`` line must name
-  ``CACHE_DIR\\zen\\data``, and so must the ``data dir '...'`` and
-  ``--data-dir`` of zenserver's launch line;
+  the job's slot's data folder (``CACHE_DIR\\zen\\data`` for slot 0,
+  ``CACHE_DIR\\zen-s<n>\\data`` for slot ``n``; render per card D5), and so
+  must the ``data dir '...'`` and ``--data-dir`` of zenserver's launch line;
 * the ``Skipping command line override ZenDataPath=`` warning (UE refused
   the path) fails;
 * ``Found existing instance running on port <n> with different data
   directory`` (``:4210``) fails: the farm launch would shut that zenserver
   down (review D6);
 * every Zen line that names a port (``--port <n>`` on the launch line,
-  ``... on port <n> ...``) must name ``ZEN_PORT``;
+  ``... on port <n> ...``) must name the slot's port (``ZEN_PORT + n``);
 * when ``require`` is set, the log must contain the override line **and**
-  a launch or attach line on ``ZEN_PORT``.
+  a launch or attach line on that port.
 
 5.8.4 source lines (chunk 7 integration requirement 14), from
 ``Engine/Source/Developer/Zen/Private/ZenServerInterface.cpp``:
@@ -146,9 +147,9 @@ class _Scan:
             self._check_port(port, 'a Zen line')
 
 
-def verify_lines(lines: Iterable[str], cache_dir, port: int, require: bool = True) -> ZenLogResult:
-    """Apply the FR-UE-26 rules to an iterable of log lines."""
-    scan = _Scan(str(zen_private.zen_data_dir(cache_dir)), port)
+def verify_lines(lines: Iterable[str], cache_dir, port: int, require: bool = True, slot: int = 0) -> ZenLogResult:
+    """Apply the FR-UE-26 rules to an iterable of log lines, for slot ``slot`` on ``port``."""
+    scan = _Scan(str(zen_private.zen_data_dir(cache_dir, slot)), port)
     for text in lines:
         scan.line(text.rstrip('\r\n'))
     result = scan.result
@@ -160,7 +161,7 @@ def verify_lines(lines: Iterable[str], cache_dir, port: int, require: bool = Tru
 
 
 def verify_log(path, cache_dir, port: int, phase: str, require: Optional[bool] = None,
-               max_bytes: Optional[int] = None) -> ZenLogResult:
+               max_bytes: Optional[int] = None, slot: int = 0) -> ZenLogResult:
     """``verify_lines`` over a whole log (to EOF, bounded lines). A missing log fails when required.
 
     A log larger than ``max_bytes`` (default ``LOG_MAX_MB``) is not read and fails (log flood).
@@ -172,7 +173,7 @@ def verify_log(path, cache_dir, port: int, phase: str, require: Optional[bool] =
     try:
         if os.stat(path).st_size > max_bytes:
             return ZenLogResult(ok=False, detail=f"the {phase} log is larger than {max_bytes // MB} MB (log flood)")
-        return verify_lines(iter_log_lines(path), cache_dir, port, require=required)
+        return verify_lines(iter_log_lines(path), cache_dir, port, require=required, slot=slot)
     except OSError as exc:
         result = ZenLogResult()
         if required:

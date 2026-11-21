@@ -8,8 +8,9 @@ Sec R3-W1, R3-W2, R3-W3).
 * ``check_port(port, cache_dir)``: the port is usable when no TCP socket
   is in ``LISTEN`` state on it, on **any** local address (IPv4 or IPv6:
   ``0.0.0.0``, ``127.0.0.1``, a LAN address, ``::``, ``::1``), or when
-  every listener is this worker's own farm zenserver
-  (``zen_private.is_farm_zenserver``). A listener without an owner PID, an
+  every listener is this worker's own farm zenserver **of the job's slot**
+  (``zen_private.is_farm_zenserver(..., slot=n)``; render per card
+  FR-PC-SLOT-3: another slot's server on the port is foreign). A listener without an owner PID, an
   owner that cannot be read, or a listing that fails counts as foreign
   (fail closed). The caller repeats it at claim time and immediately
   before every UE launch.
@@ -87,29 +88,33 @@ def listeners(port: int, net_connections: Callable = psutil.net_connections) -> 
     return found
 
 
-def _is_farm(listener: Listener, cache_dir, worker_sid, process_factory) -> bool:
+def _is_farm(listener: Listener, cache_dir, worker_sid, process_factory, slot: int) -> bool:
     if not listener.pid:
         return False
     try:
         proc = process_factory(listener.pid)
     except (psutil.Error, OSError, ValueError):
         return False
-    return zen_private.is_farm_zenserver(proc, cache_dir, worker_sid=worker_sid)
+    return zen_private.is_farm_zenserver(proc, cache_dir, worker_sid=worker_sid, slot=slot)
 
 
-def _classify(port, cache_dir, worker_sid, net_connections, process_factory):
+def _classify(port, cache_dir, worker_sid, net_connections, process_factory, slot: int):
     found = listeners(port, net_connections)
-    farm = tuple(item for item in found if _is_farm(item, cache_dir, worker_sid, process_factory))
+    farm = tuple(item for item in found if _is_farm(item, cache_dir, worker_sid, process_factory, slot))
     foreign = tuple(item for item in found if item not in farm)
     return farm, foreign
 
 
 def check_port(port: int, cache_dir, worker_sid: Optional[str] = None,
                net_connections: Callable = psutil.net_connections,
-               process_factory: Callable = psutil.Process) -> PortCheck:
-    """Is ``port`` free or held only by the farm zenserver?"""
+               process_factory: Callable = psutil.Process, slot: int = 0) -> PortCheck:
+    """Is ``port`` free or held only by slot ``slot``'s own farm zenserver?
+
+    Another slot's farm zenserver on this port is a foreign holder (render per card FR-PC-SLOT-3): UE would
+    find a server with a different data directory there and shut the sibling's server down.
+    """
     try:
-        farm, foreign = _classify(port, cache_dir, worker_sid, net_connections, process_factory)
+        farm, foreign = _classify(port, cache_dir, worker_sid, net_connections, process_factory, slot)
     except (psutil.Error, OSError) as exc:
         return PortCheck(ok=False, error=f"{type(exc).__name__}: {exc}")
     return PortCheck(ok=not foreign, foreign=foreign, farm=farm)
@@ -126,14 +131,14 @@ def is_loopback(address: str) -> bool:
 
 def check_loopback(port: int, cache_dir, worker_sid: Optional[str] = None,
                    net_connections: Callable = psutil.net_connections,
-                   process_factory: Callable = psutil.Process) -> LoopbackCheck:
+                   process_factory: Callable = psutil.Process, slot: int = 0) -> LoopbackCheck:
     """Loopback-only rule for the farm zenserver's listening sockets (Sec R3-W3).
 
     A listing failure reads as "not seen yet": the next tick retries, and
     the port re-check before the next launch fails closed on its own.
     """
     try:
-        farm, _foreign = _classify(port, cache_dir, worker_sid, net_connections, process_factory)
+        farm, _foreign = _classify(port, cache_dir, worker_sid, net_connections, process_factory, slot)
     except (psutil.Error, OSError):
         return LoopbackCheck(seen=False, ok=True)
     if not farm:
@@ -154,8 +159,9 @@ class LoopbackWatch:
     nothing; foreign listeners are the pre-launch ``check_port``'s concern.
     """
 
-    def __init__(self, port: int, cache_dir, worker_sid: Optional[str] = None, check: Callable = None):
-        self._port, self._cache_dir, self._sid = port, cache_dir, worker_sid
+    def __init__(self, port: int, cache_dir, worker_sid: Optional[str] = None, check: Callable = None,
+                 slot: int = 0):
+        self._port, self._cache_dir, self._sid, self._slot = port, cache_dir, worker_sid, slot
         self._check = check or check_loopback
         self.seen = False
         self.addresses: Tuple[str, ...] = ()
@@ -163,7 +169,7 @@ class LoopbackWatch:
     def __call__(self) -> Optional[str]:
         if self.seen:
             return None
-        result = self._check(self._port, self._cache_dir, worker_sid=self._sid)
+        result = self._check(self._port, self._cache_dir, worker_sid=self._sid, slot=self._slot)
         if not result.seen:
             return None
         self.seen, self.addresses = True, result.addresses

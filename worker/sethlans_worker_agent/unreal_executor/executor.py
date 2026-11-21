@@ -56,12 +56,15 @@ def _cache_dir() -> Optional[str]:
     return None if cache is None else str(cache.layout.root)
 
 
-def _port_ok():
+def _port_ok(slot: int):
+    """Check 6a for the reserved slot's port (FR-PC-SLOT-2)."""
+    from sethlans_worker_agent.unreal_executor import slot as slots
     from sethlans_worker_agent.unreal_executor import startup_recovery, zen_port
     cache_dir = _cache_dir()
     if cache_dir is None:
         return zen_port.PortCheck(ok=False, error='no cache dir')
-    return zen_port.check_port(config_unreal.ZEN_PORT, cache_dir, worker_sid=startup_recovery.worker_sid())
+    port = slots.slot_for(cache_dir, config_unreal.ZEN_PORT, slot).zen_port
+    return zen_port.check_port(port, cache_dir, worker_sid=startup_recovery.worker_sid(), slot=slot)
 
 
 def _isolation_ok() -> bool:
@@ -109,10 +112,11 @@ def _worker_id():
     return system_monitor.WORKER_ID
 
 
-def _phase_config(cache_dir, merged_names, install):
-    from sethlans_worker_agent.unreal_executor import phases, startup_recovery, user_state, zen_private
-    images = zen_private.zenserver_images([install.root], user_state.profile_dir(cache_dir))
-    return phases.default_config(cache_dir, startup_recovery.worker_sid(), merged_names, images)
+def _phase_config(slot, merged_names, install):
+    """``slot`` is the job's ``slot.Slot``: its port, Zen folders and profile (the hang-CPU exclusion)."""
+    from sethlans_worker_agent.unreal_executor import phases, startup_recovery, zen_private
+    images = zen_private.zenserver_images([install.root], slot.profile)
+    return phases.default_config(slot, startup_recovery.worker_sid(), merged_names, images)
 
 
 def _phase_runner(config, registry, job, cancel, shutdown, sampler):
@@ -140,8 +144,7 @@ def default_run_deps():
         prepare_workspace=workspace.prepare_workspace, zen_scan=zen_guard.scan_project_config,
         engine_cvars=profile_config.count_engine_cvars, sampler=runtime.sampler,
         registry_factory=process_runner.RunnerRegistry, phase_runner=_phase_runner, phase_config=_phase_config,
-        launch_context=lambda install, cache_dir: command.context_for(install.editor_cmd, cache_dir,
-                                                                      config_unreal.ZEN_PORT),
+        launch_context=lambda install, slot: command.context_for_slot(install.editor_cmd, slot),
         builders=command, flow_config=_flow_config, get_assignment=api_extras.get_job_assignment,
         worker_id=_worker_id,
         delivery=DeliveryDeps(release_job=api_extras.release_job, mark_unreachable=unreal_share.mark_unreachable,
