@@ -84,7 +84,7 @@ class TestIdleOnlyUnreal:
         jobs = [unreal_job(1), blender_job(2)]
         selection = job_selection.select_claimable_job(jobs, install_capacity())
         assert selection.job is jobs[0]
-        assert selection.capacity_mode == 'exclusive'
+        assert selection.capacity_mode == 'unreal_card'
 
     def test_fully_idle_older_blender_wins(self, fake_unreal):
         jobs = [blender_job(1), unreal_job(2)]

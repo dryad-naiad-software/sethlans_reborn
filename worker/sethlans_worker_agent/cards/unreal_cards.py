@@ -18,6 +18,10 @@ cached probe is used then). Like the card GET it is display data only: no
 alert, no stop, no rebuild, never Blender (S1). ``None`` when the saved
 choice cannot be read (C-20) or no probe may run yet.
 
+``current_keys(cached_only)`` gives the keys of those cards, ``()`` when
+undecided; the poll path asks with ``cached_only`` (render per card
+FR-PC-CAP-5: no probe on the poll path).
+
 ``disabled_reason()`` feeds ``runtime.status``; when ``current()`` cannot
 decide, the last decided reason stands ('' until one was decided).
 ``_last_lock`` is a leaf lock.
@@ -65,6 +69,12 @@ def current(cached_only: bool = False) -> Optional[Tuple[tuple, str]]:
     probe = (cards_cache.cached_only_probe() if cached_only else
              cards_cache.report_probe(max_age, probe_allowed=unreal_bridge.drift_check_allowed()))
     return None if probe is None else evaluate(section, probe.inventory)
+
+
+def current_keys(cached_only: bool = True) -> tuple:
+    """The keys of the Unreal cards in use (``current``), in PCI address order; ``()`` when undecided."""
+    found = current(cached_only=cached_only)
+    return tuple(card.key for card in found[0]) if found is not None else ()
 
 
 def disabled_reason() -> str:

@@ -141,9 +141,11 @@ class TestJobRunHandOff:
         assert w.run().success
         assert w.first_key == IDLE_KEY and w.runner.card_key == IDLE_KEY
 
-    def test_the_override_hands_over_no_key(self, tmp_path, monkeypatch):
+    def test_the_override_hands_over_the_held_card(self, tmp_path, monkeypatch):
+        """Render per card D14: the launch is asked for the card the claim holds (D8's), so the two never differ."""
         w = World(tmp_path, monkeypatch)
         w.reading = reading(source='override')
+        w.card_key = IDLE_KEY
         w.flow_action = png_flow
         assert w.run().success
-        assert w.first_key is None and w.runner.card_key is None
+        assert w.first_key == IDLE_KEY and w.runner.card_key is None  # no gated card for the traces

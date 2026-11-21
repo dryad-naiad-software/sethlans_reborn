@@ -39,7 +39,7 @@ class Reach:
 
 def make(**overrides):
     calls = []
-    state = dict(is_idle=lambda: True, status=lambda: (True, ''), installs=lambda: (install(),),
+    state = dict(can_take=lambda: True, status=lambda: (True, ''), installs=lambda: (install(),),
                  sampler=lambda: Sampler(reading()), port_ok=lambda slot: zen_port.PortCheck(ok=True),
                  isolation_ok=lambda: True, share_state=lambda: reachable(), entry_ready=lambda sha: False,
                  reachability=Reach, resolve=lambda root, rel, kind: calls.append((rel, kind)), budget=lambda: None)
@@ -66,7 +66,7 @@ def test_eligible_job_returns_a_reservation_with_validated_params():
 
 
 @pytest.mark.parametrize('override', [
-    {'is_idle': lambda: False}, {'status': lambda: (False, 'no install')},
+    {'can_take': lambda: False}, {'status': lambda: (False, 'no install')},
     {'installs': lambda: (install('5.8.4-1'),)},
     {'sampler': lambda: Sampler(reading(used=25000))}, {'sampler': lambda: None},
     {'port_ok': lambda slot: zen_port.PortCheck(ok=False, error='x')}, {'isolation_ok': lambda: False},

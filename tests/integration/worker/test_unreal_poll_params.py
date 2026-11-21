@@ -6,15 +6,18 @@ Worker poll parameters with Unreal (Unreal foundation FR-WD-9, FR-WX-7,
 FR-WX-13, NF-6, AC-9, AC-21, AC-33; FR-T-7 ``test_unreal_poll_params.py``).
 
 Real ``job_processor._build_poll_params`` -> ``unreal_bridge`` ->
-capabilities -> share state, with a real ``WorkerCapacity``.
+capabilities -> share state, with a real ``WorkerCapacity``. Unreal is asked
+for while an Unreal card is free (render per card FR-PC-CAP-5); the Unreal
+cards in use (``unreal_cards.current_keys``) are the two fake cards.
 """
 import pytest
 
 from sethlans_worker_agent import config_unreal, job_processor
+from sethlans_worker_agent.cards import unreal_cards
 from tests._unreal_worker_state import (  # noqa: F401
     BUILD_58, enable_unreal, reachable, unreal_runtime_reset,
 )
-from tests.unit.worker.executors._fakes import install_capacity, reset_chunk3_state
+from tests.unit.worker.executors._fakes import install_capacity, key, reset_chunk3_state
 
 pytestmark = pytest.mark.usefixtures('unreal_runtime_reset')
 
@@ -24,6 +27,11 @@ TODAY = {
     'device_prefs': 'GPU,CPU,ANY', 'available_versions': '4.2.1,4.5.0',
 }
 SHARE = r'\\nas.lan\sethlans'
+
+
+@pytest.fixture(autouse=True)
+def _unreal_cards(monkeypatch):
+    monkeypatch.setattr(unreal_cards, 'current_keys', lambda cached_only=True: (key(0), key(1)))
 
 
 @pytest.fixture(autouse=True)
@@ -56,13 +64,26 @@ def test_enabled_idle_and_reachable_asks_for_unreal(monkeypatch):
     assert _params() == dict(TODAY, renderers='BLENDER,UNREAL', unreal_builds=BUILD_58)
 
 
-def test_enabled_but_busy_is_byte_identical(monkeypatch):
-    """Partially busy machine (2 GPUs, one rendering Blender): no UNREAL (D1c)."""
+def test_enabled_with_a_free_card_beside_blender_asks_for_unreal(monkeypatch):
+    """Render per card Q2: a Blender GPU job on one card leaves the other to Unreal."""
     enable_unreal(monkeypatch, share=SHARE, share_state=reachable(SHARE))
     cap = install_capacity(gpu_slot_count=2, cpu_slot_count=1)
     cap.reserve_for_job(41, 'GPU')
+    assert 'renderers' in _params()
+
+
+def test_enabled_but_no_free_card_or_a_cpu_job_is_byte_identical(monkeypatch):
+    """Every Unreal card held, or a Blender CPU job running (D2): no UNREAL."""
+    enable_unreal(monkeypatch, share=SHARE, share_state=reachable(SHARE))
+    cap = install_capacity(gpu_slot_count=2, cpu_slot_count=1)
+    cap.reserve_for_job(41, 'GPU')
+    cap.reserve_unreal_card(42, key(1))
     assert _params() == TODAY
     cap.release_slot(41)
+    cap.release_slot(42)
+    cap.reserve_for_job(43, 'CPU')
+    assert _params() == TODAY
+    cap.release_slot(43)
     assert 'renderers' in _params()
 
 

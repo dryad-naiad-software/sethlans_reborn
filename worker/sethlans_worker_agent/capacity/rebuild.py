@@ -6,23 +6,27 @@ Live slot rebuild (FR-CL-4, C1, C2).
 
 ``request_rebuild()`` (any thread, also before the capacity exists) counts a
 generation and marks a rebuild pending. While one is pending no GPU slot is
-free (``WorkerCapacity._gpu_free_locked``), so no GPU or Unreal job is
-claimed; the CPU slot is unaffected.
+free (``WorkerCapacity._gpu_free_locked``) and no Unreal card is held
+(``unreal_hold``), so no GPU or Unreal job is claimed; the CPU slot is
+unaffected.
 
 ``step(capacity)`` runs on the agent-loop thread on every
 ``job_processor.maybe_assert_gpu_list_unchanged`` call, before its rate
-limit, and only while a rebuild is pending; while a whole-machine (Unreal)
-reservation is held it does nothing, so no OS probe runs during an Unreal
-render (FR-CK-1). It reads the generation, builds
+limit, and only while a rebuild is pending, also while Unreal jobs run: its
+OS probe never starts Blender (render per card D15). It reads the
+generation, builds
 the new profile (``card_check.rebuild_profile``: ``store.snapshot()``, a
 fresh OS probe and the Blender list of the last check, with the
 level-triggered alerts) and calls ``try_rebuild``. Under
 ``WorkerCapacity._lock``, ``try_rebuild`` leaves the rebuild pending when the
-generation moved meanwhile, and waits while a held key that is not retained
-belongs to a card absent from the new profile, while the GPU mode changes
-and any such key is held, or while a whole-machine (Unreal) reservation is
-held. Otherwise it swaps the profile and clears the mark: jobs on cards that
-stay in use keep running, and keys retained until restart do not block.
+generation moved meanwhile, and waits while a key held by a running Blender
+job (not retained) belongs to a card absent from the new profile, or while
+the GPU mode changes and any such key is held. Unreal holds never block: an
+Unreal job does not use the Blender profile, its hold stays in the
+assignments across the swap, and a lost card stops it through
+``card_stops`` (render per card D15, D19, C-27 b). Otherwise it swaps the
+profile and clears the mark: jobs on cards that stay in use keep running,
+and keys retained until restart do not block.
 The CPU slot holder is kept.
 
 **Lock order:** ``_lock`` is the innermost lock of the worker. Code holding
@@ -84,13 +88,11 @@ def mark_built(built_from: int) -> None:
 
 def _blocked_locked(capacity, profile) -> bool:
     """Caller holds ``capacity._lock``: a running job keeps the current profile (FR-CL-4)."""
-    held = {key for key, owner in capacity._gpu_assignments.items() if owner >= 0}
+    held = {key for key, owner in capacity._gpu_assignments.items()
+            if owner >= 0 and owner not in capacity._unreal_jobs}  # Blender jobs only
     if not held:
         return False
-    if profile.gpu_mode != capacity._profile.gpu_mode or held - set(profile.card_keys):
-        return True
-    exclusive = capacity._exclusive_job_id  # may be stale; held only while it still owns a key
-    return exclusive is not None and exclusive >= 0 and exclusive in capacity._gpu_assignments.values()
+    return profile.gpu_mode != capacity._profile.gpu_mode or bool(held - set(profile.card_keys))
 
 
 def try_rebuild(capacity, profile, built_from: int) -> str:
@@ -115,14 +117,9 @@ def try_rebuild(capacity, profile, built_from: int) -> str:
 def step(capacity) -> Optional[str]:
     """One rebuild attempt while a rebuild is pending (agent-loop thread); the outcome or None."""
     global _last_wait
-    global _waiting
     built_from, is_pending = state()
     if not is_pending:
         return None
-    if capacity.has_exclusive_reservation():  # no OS probe during an Unreal render (FR-CK-1, FR-WX-14)
-        with _lock:
-            _waiting = True
-        return WAITING
     held = capacity.gpu_assignments_snapshot()
     if _last_wait == (built_from, held):
         return WAITING  # nothing changed since the last blocked attempt: no new probe

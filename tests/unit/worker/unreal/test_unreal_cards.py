@@ -161,7 +161,7 @@ class TestHeartbeat:
         monkeypatch.setattr(unreal_cards, 'current', lambda: ((), reason))
         report = capabilities.snapshot()
         assert report['enabled'] is False and report['disabled_reason'] == reason
-        assert capabilities.poll_params(node_idle=True) == {}
+        assert capabilities.poll_params(can_take=True) == {}
 
     def test_a_usable_card_leaves_the_other_reasons(self, monkeypatch):
         enable_unreal(monkeypatch, sampler=FakeSampler(never_succeeded=True))

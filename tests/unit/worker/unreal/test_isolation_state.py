@@ -107,14 +107,14 @@ def test_capabilities_report_the_condition(state, monkeypatch, unreal_runtime_re
     isolation_state.register(r'D:\uecache\ueprofile')
     report = capabilities.snapshot()
     assert report['enabled'] is False and report['disabled_reason'].startswith('Windows shell folders are')
-    assert capabilities.poll_params(node_idle=True) == {}
+    assert capabilities.poll_params(can_take=True) == {}
 
 
 def test_disabled_by_config_runs_no_probe(state, monkeypatch, unreal_runtime_reset):  # noqa: F811
     _clock, _results, calls = state
     monkeypatch.setattr(config_unreal, 'ENABLED', False)
     capabilities.snapshot()
-    capabilities.poll_params(node_idle=True)
+    capabilities.poll_params(can_take=True)
     assert calls == []
 
 

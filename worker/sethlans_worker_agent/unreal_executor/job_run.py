@@ -119,9 +119,9 @@ class JobRun:
 
     def _start_summary(self) -> None:
         p = self.params
-        # FR-PC-SLOT-8: card and slot; 'exclusive' stays while the hold is the whole machine (until FR-PC-CAP-3).
-        self.summary.update({'engine': p.engine_build, 'kind': p.kind, 'exclusive': 1,
-                             'card': self.reservation.gate.card_key, 'slot': self.reservation.slot,
+        # FR-PC-SLOT-8: the held card and the slot (no ``exclusive`` since the per-card hold).
+        self.summary.update({'engine': p.engine_build, 'kind': p.kind,
+                             'card': self.reservation.card_key, 'slot': self.reservation.slot,
                              'user_state': user_state.SUMMARY.split('=', 1)[1], 'quit_forced': '',
                              'cvar_overridden': '', 'job_object': 'skipped'})
         self.summary.update(self.reservation.gate.summary)
@@ -184,7 +184,7 @@ class JobRun:
         flow = flow_class(self.params, self.deps.launch_context(self.install, slot), self.job, runner,
                           self.summary, self.deps.builders, marker, self.ws.working_copy.uproject,
                           self.deps.flow_config(slot.profile), reading=gate.reading, choose=self.deps.choose_adapter,
-                          first_key=gate.card_key)
+                          first_key=self.reservation.card_key)  # the held card (render per card D1, D14)
         try:
             return flow.run()
         finally:

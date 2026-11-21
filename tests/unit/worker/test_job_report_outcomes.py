@@ -17,7 +17,7 @@ import logging
 from sethlans_worker_agent import blender_hand_back, job_processor, job_report
 from sethlans_worker_agent.api_conflict import NO_LONGER_ASSIGNED
 from sethlans_worker_agent.capacity import CapacityProfile, WorkerCapacity
-from sethlans_worker_agent.capacity.exclusive import retained_owner
+from sethlans_worker_agent.capacity.unreal_hold import retained_owner
 from tests.unit.worker.executors._fakes import make_result
 from tests.unit.worker.executors._fakes import fake_cards
 

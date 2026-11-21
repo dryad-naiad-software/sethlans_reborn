@@ -7,14 +7,15 @@ Executor dispatch through the real claim path and job thread
 
 A fake Unreal executor (the real one lands in spec chunk 7) is found by
 the real lazy import in ``executors.get_executor``. Each case polls,
-selects, reserves the whole machine, claims, starts the job thread via
-``get_and_claim_job`` and joins it, then checks the manager calls and
-that the token and the exclusive slots are released (or, when the
-reservation is retained, that both stay held).
+selects, holds the job's one card (render per card FR-PC-CAP), claims,
+starts the job thread via ``get_and_claim_job`` and joins it, then checks
+the manager calls and that the token and the card are released (or, when
+the reservation is retained, that both stay held).
 """
 import pytest
 
 from sethlans_worker_agent import api_handler, blender_executor, job_processor
+from sethlans_worker_agent.capacity.unreal_hold import retained_owner
 
 from tests.unit.worker.executors._fakes import (
     install_fake_unreal,
@@ -87,7 +88,7 @@ def test_released_result_sends_no_patch(worker):
     assert fake.token_free()
 
 
-def test_exclusive_hold_blocks_polling_until_release(worker):
+def test_the_unreal_job_holds_its_card_and_the_cpu_slot_rule_until_release(worker):
     fake, mocks = worker
     capacity = job_processor.get_worker_capacity()
     observed = {}
@@ -99,8 +100,8 @@ def test_exclusive_hold_blocks_polling_until_release(worker):
 
     fake.execute = execute
     _dispatch(mocks, unreal_job(33))
-    assert observed['prefs'] == []
-    assert observed['assignments'] == {'pci:0000:01:00.0': 33, 'pci:0000:02:00.0': 33}
+    assert observed['prefs'] == ['GPU', 'ANY']  # the other card is free; no Blender CPU job beside Unreal (D2)
+    assert observed['assignments'] == {'pci:0000:01:00.0': 33}
     assert capacity.has_no_reservations()
 
 
@@ -112,11 +113,12 @@ def test_retained_reservation_keeps_token_and_slots(worker):
 
     capacity = job_processor.get_worker_capacity()
     assert not fake.token_free()
-    assert capacity.is_full() and capacity.free_device_prefs() == []
+    assert capacity.holds_snapshot() == {'pci:0000:01:00.0': (retained_owner(34), 'UNREAL')}
+    assert capacity.free_device_prefs() == ['GPU', 'ANY']  # the retained hold keeps its card and the CPU rule
     assert job_processor.get_active_jobs_snapshot() == {}
-    mocks['poll'].reset_mock()
-    assert job_processor.get_and_claim_job(worker_id=1) is None
-    mocks['poll'].assert_not_called()
+    mocks['poll'].return_value = [unreal_job(35)]
+    assert job_processor.get_and_claim_job(worker_id=1) is None  # its card and the token stay held
+    assert capacity.holds_snapshot() == {'pci:0000:01:00.0': (retained_owner(34), 'UNREAL')}
 
 
 def test_pilot_results_through_the_lifecycle(worker):

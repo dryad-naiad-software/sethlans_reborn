@@ -7,8 +7,8 @@ The live slot rebuild (FR-CL-4, C1, C2, AC-8 unit shape, AC-42).
 - ``request_rebuild`` works before any capacity exists and takes only
   ``rebuild._lock``; while a rebuild is pending no GPU (or Unreal) slot is free.
 - ``try_rebuild`` stays pending when the generation moved, waits while a
-  running job holds a card that leaves use (or any card when the GPU mode
-  changes, or the whole machine), and otherwise swaps the profile: jobs on
+  running Blender job holds a card that leaves use (or any card when the
+  GPU mode changes; an Unreal hold never blocks), and otherwise swaps the profile: jobs on
   kept cards keep running and keys retained until restart do not block.
 - ``step`` builds the profile through ``card_check.rebuild_profile`` only
   while pending, and not again while nothing changed since a blocked attempt.
@@ -20,7 +20,7 @@ import pytest
 
 from sethlans_worker_agent import blender_stop, job_processor
 from sethlans_worker_agent.capacity import WorkerCapacity, card_check, rebuild
-from sethlans_worker_agent.capacity.exclusive import retained_owner
+from sethlans_worker_agent.capacity.unreal_hold import retained_owner
 from tests.unit.worker._card_check_env import CardEnv
 from tests.unit.worker.executors._fakes import blender_job, fake_cards, key, profile
 
@@ -47,7 +47,7 @@ class TestPendingMark:
         assert cap.free_device_prefs() == ['CPU', 'ANY']
         assert cap.reserve_for_job(1, 'GPU') is None
         assert cap.reserve_for_job(2, 'ANY').device_used == 'CPU'  # the CPU slot is unaffected
-        assert cap.reserve_exclusive(3) is None  # no Unreal claim either
+        assert cap.reserve_unreal_card(3, key(1)) is None  # no Unreal claim either
 
     def test_request_does_not_wait_for_the_capacity_lock(self):
         """Lock order: request_rebuild takes only rebuild._lock (innermost)."""
@@ -124,15 +124,14 @@ class TestTryRebuild:
         cap.release_slot(11)
         assert cap.try_rebuild(combined, rebuild.generation()) == rebuild.SWAPPED
 
-    def test_whole_machine_reservation_blocks(self):
+    def test_an_unreal_hold_never_blocks_and_survives_the_swap(self):
+        """Render per card D15, D19: Unreal does not use the Blender profile; its hold stays held."""
         cap = WorkerCapacity(profile(gpu_slot_count=1))
-        cap.reserve_exclusive(7)
+        cap.reserve_unreal_card(7, key(0))
         rebuild.request_rebuild()
-        more = profile(gpu_slot_count=2)
-
-        assert cap.try_rebuild(more, rebuild.generation()) == rebuild.WAITING
-        cap.release_slot(7)
-        assert cap.try_rebuild(more, rebuild.generation()) == rebuild.SWAPPED
+        none = profile(gpu_slot_count=0)
+        assert cap.try_rebuild(none, rebuild.generation()) == rebuild.SWAPPED
+        assert cap.profile is none and cap.holds_snapshot() == {key(0): (7, 'UNREAL')}
 
     def test_cpu_slot_holder_is_kept(self, cap):
         assert cap.reserve_for_job(5, 'CPU').device_used == 'CPU'

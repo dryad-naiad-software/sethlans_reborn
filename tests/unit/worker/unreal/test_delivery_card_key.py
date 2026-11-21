@@ -38,8 +38,8 @@ def calls():
     return []
 
 
-def _delivery(calls):
-    deps = DeliveryDeps(release_job=lambda job_id, reason: calls.append(('release', job_id, reason)),
+def _delivery(calls, **extra):
+    deps = DeliveryDeps(**extra, release_job=lambda job_id, reason: calls.append(('release', job_id, reason)),
                         mark_unreachable=lambda reason: calls.append(('unreachable', reason)),
                         upload=lambda *args: calls.append(('upload',)),
                         report_pilot=lambda job_id, body: (calls.append(('pilot', body)),
@@ -84,6 +84,28 @@ def test_the_report_names_the_flows_card_never_a_gate_reading_lookup(calls):
     [(_name, body)] = calls
     assert body['gpu'] == {'index': 1, 'name': 'Radeon Test 24G', 'total_mb': 24560,
                            'card_key': 'pci:0000:41:00.0'}
+
+
+@pytest.mark.parametrize('shared', [False, True])
+def test_shared_machine_is_the_capacitys_mark_for_this_job(calls, shared):
+    """Render per card D10, FR-PC-RAM-3: ``shared_machine`` is ``was_shared(job_id)``, read before the report."""
+    asked = []
+    deliver = _delivery(calls, was_shared=lambda job_id: asked.append(job_id) or shared)
+    deliver.deliver(Outcome('success', flow=_flow(KEY)), integrity_ok=True)
+    [(_name, body)] = calls
+    assert body['shared_machine'] is shared and asked == [42]
+
+
+def test_the_production_mark_reads_the_worker_capacity():
+    from sethlans_worker_agent import job_processor
+    from sethlans_worker_agent.unreal_executor import executor
+    from tests.unit.worker.executors._fakes import install_capacity, key
+    assert executor._was_shared(42) is False  # no capacity yet
+    cap = install_capacity(gpu_slot_count=2, cpu_slot_count=0)
+    cap.reserve_unreal_card(42, key(0))
+    cap.reserve_for_job(7, 'GPU')
+    cap.release_slot(7)  # a Blender job started and ended inside the pilot's lifetime
+    assert executor._was_shared(42) is True and job_processor.get_worker_capacity() is cap
 
 
 def test_no_card_fails_the_pilot_in_brand_neutral_words(calls):

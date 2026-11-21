@@ -46,16 +46,16 @@ def _fallback_snapshot(exc: BaseException) -> dict:
     }
 
 
-def poll_params(node_idle: bool) -> dict:
+def poll_params(can_take: bool) -> dict:
     """Extra poll parameters for Unreal jobs (FR-WD-9); fallback ``{}``.
 
     ``{}`` keeps the poll parameters byte-identical to a Blender-only
-    worker's. ``node_idle`` is ``capacity.has_no_reservations()``
-    (FR-WX-13): Unreal is asked for only on a fully idle machine.
+    worker's. ``can_take`` is ``can_take_unreal()`` (render per card
+    FR-PC-CAP-5): Unreal is asked for while an Unreal card is free.
     """
     try:
         from sethlans_worker_agent.unreal_executor import capabilities
-        return dict(capabilities.poll_params(node_idle=node_idle))
+        return dict(capabilities.poll_params(can_take=can_take))
     except Exception as exc:
         _log_failure_once('poll_params', exc)
         return {}
@@ -112,18 +112,37 @@ def unreal_card_in_use() -> Optional[Tuple[int, str]]:
         return None
 
 
+def can_take_unreal() -> bool:
+    """True when an Unreal job may be claimed now (render per card FR-PC-CAP-5); fallback ``False``.
+
+    A free Unreal card in use (``cards.unreal_cards.current_keys`` from the
+    cached card probe: no probe on the poll path), no Blender CPU job and
+    no pending rebuild (``WorkerCapacity.can_take_unreal``). The poll, the
+    polling gate and the reserver's check 0 all use it. Takes the card
+    store's lock, then ``WorkerCapacity._lock``, one after the other.
+    """
+    try:
+        from sethlans_worker_agent import job_processor
+        from sethlans_worker_agent.cards import unreal_cards
+        capacity = job_processor.get_worker_capacity()
+        return capacity is not None and capacity.can_take_unreal(unreal_cards.current_keys(cached_only=True))
+    except Exception as exc:
+        _log_failure_once('can_take_unreal', exc)
+        return False
+
+
 def drift_check_allowed() -> bool:
-    """False while an exclusive (Unreal) reservation is held (FR-WX-14).
+    """False while any Unreal job holds a card (FR-WX-14, render per card FR-PC-CAP-6, D15).
 
     The GPU drift check spawns a Blender ``detect_gpus.py`` subprocess
-    that enumerates CUDA/OptiX devices for 5-15 s; it must not run while
-    an Unreal render owns the machine. Fallback ``True`` (today's
-    behavior). Takes ``WorkerCapacity._lock`` briefly and nothing else.
+    that enumerates CUDA/OptiX devices on every card for 5-15 s; it must
+    not run beside an Unreal render. Fallback ``True`` (today's behavior).
+    Takes ``WorkerCapacity._lock`` briefly and nothing else.
     """
     try:
         from sethlans_worker_agent import job_processor
         capacity = job_processor.get_worker_capacity()
-        return capacity is None or not capacity.has_exclusive_reservation()
+        return capacity is None or not capacity.has_unreal_job()
     except Exception as exc:
         _log_failure_once('drift_check_allowed', exc)
         return True

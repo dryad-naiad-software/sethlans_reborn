@@ -118,7 +118,7 @@ class TwoCardHarness(Harness):
 
     def reserve_deps(self) -> reserve.ReserveDeps:
         return reserve.ReserveDeps(
-            is_idle=lambda: True, status=lambda: (True, ''), installs=lambda: (self.install,),
+            can_take=lambda: True, status=lambda: (True, ''), installs=lambda: (self.install,),
             sampler=lambda: self.sampler, port_ok=lambda slot: SimpleNamespace(ok=True, message=''),
             isolation_ok=lambda: True, share_state=lambda: SimpleNamespace(root=SHARE_ROOT, reachable=True),
             entry_ready=lambda sha: False, reachability=AlwaysReachable, resolve=resolve_share_path,

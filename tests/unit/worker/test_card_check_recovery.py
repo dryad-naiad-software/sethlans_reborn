@@ -16,7 +16,7 @@ Card check corner cases from the chunk 4 reviews (FR-CK-1, FR-CK-2, FR-CK-7, FR-
 import pytest
 
 from sethlans_worker_agent import job_processor, system_monitor
-from sethlans_worker_agent.capacity import WorkerCapacity, card_check, rebuild
+from sethlans_worker_agent.capacity import WorkerCapacity, rebuild
 from sethlans_worker_agent.cards import choice
 from sethlans_worker_agent.cards import warnings as card_warnings
 from tests.unit.worker._card_check_env import CardEnv
@@ -109,21 +109,19 @@ class TestRebuildOnFailedProbe:
         assert cap.profile.gpu_mode == 'split'
 
 
-class TestNoRebuildDuringUnreal:
+class TestRebuildDuringUnreal:
 
-    def test_exclusive_hold_skips_the_rebuild_and_its_probe(self, monkeypatch, mocker):
+    def test_an_unreal_hold_on_a_kept_card_lets_the_rebuild_swap_without_blender(self, monkeypatch):
+        """Render per card D15: the rebuild runs beside Unreal; its OS probe never starts Blender."""
         machine = CardEnv(monkeypatch, count=1)
         cap = WorkerCapacity(profile(gpu_slot_count=1))
-        cap.reserve_exclusive(5)
+        cap.reserve_unreal_card(5, key(0))
         rebuild.request_rebuild()
-        build = mocker.spy(card_check, 'rebuild_profile')
 
-        assert rebuild.step(cap) == rebuild.WAITING
+        assert rebuild.step(cap) == rebuild.SWAPPED
 
-        build.assert_not_called()
-        assert machine.probes == 0 and rebuild.rebuild_waiting() is True
-        cap.release_slot(5)
-        assert rebuild.step(cap) == rebuild.SWAPPED and machine.probes == 1
+        assert machine.probes == 1 and machine.detections == 0
+        assert cap.holds_snapshot() == {key(0): (5, 'UNREAL')}
 
 
 class TestHandEditedTexts:

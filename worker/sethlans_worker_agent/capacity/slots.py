@@ -10,13 +10,14 @@ the lock is acquired and released entirely within each public method and
 is never held across an API call or subprocess invocation (lock ordering
 rule). A GPU reservation copies its cards from the profile under the lock.
 The profile is replaced only by a rebuild (rebuild.py, FR-CL-4), under the
-lock; while one is pending no GPU slot is free.
+lock; while one is pending no GPU slot is free. An Unreal job holds one
+card key and nothing else (unreal_hold.py, render per card FR-PC-CAP).
 """
 import logging
 import threading
-from typing import Dict, Optional, Tuple
+from typing import Dict, Iterable, Optional, Set, Tuple
 
-from sethlans_worker_agent.capacity import exclusive, rebuild
+from sethlans_worker_agent.capacity import rebuild, unreal_hold
 from sethlans_worker_agent.capacity.profile import (
     CapacityProfile,
     SlotReservation,
@@ -37,8 +38,8 @@ class WorkerCapacity:
         self._lock = threading.Lock()
         self._gpu_assignments: Dict[str, int] = {}  # card key -> job_id
         self._cpu_slot_job_id: Optional[int] = None
-        # Job holding a whole-machine reservation (capacity/exclusive.py).
-        self._exclusive_job_id: Optional[int] = None
+        self._unreal_jobs: Dict[int, str] = {}  # Unreal owner -> the one card key it holds (unreal_hold.py)
+        self._shared: Set[int] = set()  # owners that saw another reservation held (D10)
 
     @property
     def profile(self) -> CapacityProfile:
@@ -70,14 +71,18 @@ class WorkerCapacity:
         lags slot reservation and MUST NOT be consulted here.
         """
         with self._lock:
-            cpu_full = self._cpu_slot_job_id is not None or self._profile.cpu_slot_count == 0
-            return not self._gpu_free_locked() and cpu_full
+            return not self._gpu_free_locked() and not self._cpu_free_locked()
+
+    def _cpu_free_locked(self) -> bool:
+        """The CPU slot is free: it exists, nobody holds it and no Unreal job runs (D2)."""
+        return (self._profile.cpu_slot_count > 0 and self._cpu_slot_job_id is None
+                and not unreal_hold.cpu_taken_by_unreal_locked(self))
 
     def free_device_prefs(self) -> list:
         """Return device preferences this worker can currently accept (FR-9)."""
         with self._lock:
             gpu_free = self._gpu_free_locked()
-            cpu_free = self._profile.cpu_slot_count > 0 and self._cpu_slot_job_id is None
+            cpu_free = self._cpu_free_locked()
         prefs = []
         if gpu_free:
             prefs.append('GPU')
@@ -117,39 +122,57 @@ class WorkerCapacity:
             profile = self._profile
             keys = self._reserve_gpu_locked(job_id) if device_pref in ('GPU', 'ANY') else None
             if keys is not None:
+                unreal_hold.mark_shared_locked(self, job_id)
                 # The copy is taken under the lock, from the profile the keys came from (C2).
                 return SlotReservation(
                     job_id=job_id, device_used='GPU', card_keys=keys, cards=profile.cards,
                     gpu_mode=profile.gpu_mode, ignored=profile.ignored, problem=profile.problem,
                 )
-            if (device_pref in ('CPU', 'ANY') and profile.cpu_slot_count > 0
-                    and self._cpu_slot_job_id is None):
+            if device_pref in ('CPU', 'ANY') and self._cpu_free_locked():
                 self._cpu_slot_job_id = job_id
+                unreal_hold.mark_shared_locked(self, job_id)
                 return SlotReservation(job_id=job_id, device_used='CPU', problem=profile.problem)
         return None
 
-    def reserve_exclusive(self, job_id: int, unreal_keys=()) -> Optional[SlotReservation]:
-        """Reserve every slot and the Unreal cards for one job (Unreal, FR-WX-10, C-27 b); see exclusive.py."""
-        return exclusive.reserve_exclusive(self, job_id, unreal_keys)
+    def reserve_unreal_card(self, job_id: int, key) -> Optional[SlotReservation]:
+        """Hold one card for an Unreal job, by PCI address (FR-PC-CAP-1); see unreal_hold.py."""
+        return unreal_hold.reserve_unreal_card(self, job_id, key)
+
+    def free_keys(self, keys: Iterable[str]) -> Tuple[str, ...]:
+        """The given keys whose address is readable and not held, in order; see unreal_hold.py."""
+        return unreal_hold.free_keys(self, keys)
+
+    def can_take_unreal(self, keys: Iterable[str]) -> bool:
+        """A free key among ``keys``, no Blender CPU job, no pending rebuild (FR-PC-CAP-5); see unreal_hold.py."""
+        return unreal_hold.can_take_unreal(self, keys)
+
+    def has_unreal_job(self) -> bool:
+        """True while any Unreal job holds a card (a retained one included); see unreal_hold.py."""
+        return unreal_hold.has_unreal_job(self)
+
+    def was_shared(self, job_id: int) -> bool:
+        """D10: another reservation was held while job_id's was; see unreal_hold.py."""
+        return unreal_hold.was_shared(self, job_id)
+
+    def holds_snapshot(self) -> Dict[str, Tuple[int, str]]:
+        """Held key -> (owner, 'BLENDER' | 'UNREAL') from one ``_lock`` snapshot; see unreal_hold.py."""
+        return unreal_hold.holds_snapshot(self)
 
     def has_no_reservations(self) -> bool:
-        """True when no slot holds any reservation (FR-WX-13)."""
-        return exclusive.has_no_reservations(self)
+        """True when no slot and no card holds any reservation."""
+        return unreal_hold.has_no_reservations(self)
 
     def retain_slots(self, job_id: int) -> None:
-        """Keep job_id's slots until restart, safe from a re-claim; see exclusive.py."""
-        exclusive.retain_slots(self, job_id)
-
-    def has_exclusive_reservation(self) -> bool:
-        """True while a whole-machine reservation is held (FR-WX-14)."""
-        return exclusive.has_exclusive_reservation(self)
+        """Keep job_id's slots and Unreal hold until restart, safe from a re-claim; see unreal_hold.py."""
+        unreal_hold.retain_slots(self, job_id)
 
     def release_slot(self, job_id: int) -> None:
         """Release whatever slot job_id holds. Idempotent.
 
         Contract (FR-13): acquires _lock, iterates _gpu_assignments.items()
-        to find and pop any entry whose value equals job_id, and clears
-        _cpu_slot_job_id if it equals job_id. Must NEVER raise. Silent
+        to find and pop any entry whose value equals job_id, clears
+        _cpu_slot_job_id if it equals job_id, and drops job_id from
+        _unreal_jobs and _shared. Must NEVER raise. Silent
         no-op (DEBUG log only) if job_id holds no slot.
         """
         try:
@@ -164,6 +187,7 @@ class WorkerCapacity:
                 if self._cpu_slot_job_id == job_id:
                     self._cpu_slot_job_id = None
                     released_cpu = True
+                unreal_hold.forget_locked(self, job_id)
             if released_keys or released_cpu:
                 logger.info(
                     "Released slot for job %s (gpu cards=%s cpu=%s).",

@@ -8,11 +8,12 @@ The compute method decides Blender only. When Unreal may take a job (its
 switch is on and a ticked card is usable: the Unreal poll parameters are
 not empty), the poll asks for GPU jobs even without a free Blender GPU slot;
 a Blender GPU job is then never claimed without one, and the Unreal job is
-claimed through the exclusive reservation of its cards.
+claimed through the hold of its one card (render per card FR-PC-CAP).
 """
 import pytest
 
 from sethlans_worker_agent import api_handler, config_unreal, job_processor, tool_manager, unreal_bridge
+from sethlans_worker_agent.cards import unreal_cards
 
 from ._fakes import blender_job, install_capacity, unreal_job
 
@@ -35,13 +36,14 @@ def manager(mocker):
 @pytest.fixture
 def unreal_on(monkeypatch, fake_unreal):
     """Unreal may take a job; the fake's reservation carries the Unreal card in use."""
-    monkeypatch.setattr(unreal_bridge, 'poll_params', lambda node_idle: dict(UNREAL_PARAMS) if node_idle else {})
+    monkeypatch.setattr(unreal_cards, 'current_keys', lambda cached_only=True: (CARD,))
+    monkeypatch.setattr(unreal_bridge, 'poll_params', lambda can_take: dict(UNREAL_PARAMS) if can_take else {})
     real = fake_unreal.try_reserve
 
     def with_card(job):
         reservation = real(job)
         if reservation is not None:
-            reservation.card_keys = (CARD,)
+            reservation.card_keys, reservation.card_key = (CARD,), CARD
         return reservation
     fake_unreal.try_reserve = with_card
     return fake_unreal
@@ -63,7 +65,8 @@ class TestCpuMethodWorker:
         assert job is not None and job['id'] == 2 and manager['claims'] == [2]
         assert set(manager['polls'][0]['device_prefs'].split(',')) == {'CPU', 'ANY', 'GPU'}
         assert manager['polls'][0]['renderers'] == 'BLENDER,UNREAL'
-        assert cap.gpu_assignments_snapshot() == {CARD: 2} and cap._cpu_slot_job_id == 2
+        assert cap.gpu_assignments_snapshot() == {CARD: 2} and cap._cpu_slot_job_id is None
+        assert cap.free_device_prefs() == [] and job_processor.capacity_is_full()  # D2: no CPU job beside it
         _forget(job)
 
     def test_a_blender_cpu_job_is_still_taken_before_a_later_unreal_job(self, manager, unreal_on):
@@ -74,7 +77,7 @@ class TestCpuMethodWorker:
         _forget(job)
 
     def test_without_unreal_no_gpu_job_is_asked_for(self, manager, monkeypatch, fake_unreal):
-        monkeypatch.setattr(unreal_bridge, 'poll_params', lambda node_idle: {})   # switch off, or no usable card
+        monkeypatch.setattr(unreal_bridge, 'poll_params', lambda can_take: {})   # switch off, or no usable card
         install_capacity(gpu_slot_count=0, cpu_slot_count=1)
         manager['jobs'] = [blender_job(1, device='GPU')]
         assert job_processor.poll_and_claim_job(worker_id=1) is None
@@ -94,7 +97,7 @@ class TestPendingRebuild:
         """Concurrency review: the exclusive reservation would refuse it; no try_reserve runs for nothing."""
         from sethlans_worker_agent.capacity import rebuild
         asked = []
-        monkeypatch.setattr(unreal_bridge, 'poll_params', lambda node_idle: asked.append(node_idle) or {})
+        monkeypatch.setattr(unreal_bridge, 'poll_params', lambda can_take: asked.append(can_take) or {})
         install_capacity(gpu_slot_count=1, cpu_slot_count=1)
         rebuild.request_rebuild()
         job_processor.poll_and_claim_job(worker_id=1)
@@ -110,11 +113,11 @@ class TestNoSlotAtAll:
         manager['jobs'] = [unreal_job(4)]
         job = job_processor.poll_and_claim_job(worker_id=1)
         assert job['id'] == 4 and manager['polls'][0]['device_prefs'] == 'GPU'
-        assert cap.has_exclusive_reservation()
+        assert cap.has_unreal_job()
         _forget(job)
 
     def test_nothing_is_polled_without_unreal(self, manager, monkeypatch, fake_unreal):
-        monkeypatch.setattr(unreal_bridge, 'poll_params', lambda node_idle: {})
+        monkeypatch.setattr(unreal_bridge, 'poll_params', lambda can_take: {})
         install_capacity(gpu_slot_count=0, cpu_slot_count=0)
         assert job_processor.poll_and_claim_job(worker_id=1) is None and manager['polls'] == []
 

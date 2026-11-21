@@ -22,7 +22,7 @@ import pytest
 
 from sethlans_worker_agent import blender_stop, job_processor, system_monitor, unreal_bridge
 from sethlans_worker_agent.capacity import WorkerCapacity, rebuild
-from sethlans_worker_agent.capacity.exclusive import retained_owner
+from sethlans_worker_agent.capacity.unreal_hold import retained_owner
 from sethlans_worker_agent.cards import choice, matching, startup_log, store
 from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 from tests.unit.worker._card_check_env import CardEnv
@@ -71,14 +71,14 @@ class TestJobsOnUnusableCards:
     def test_unreal_job_by_the_state_of_the_card_it_chose(self, monkeypatch, state, stopped):
         """C-24 m, D19: only the Unreal job's own card counts, and Unreal may keep a ``blender_lost`` card."""
         cap = WorkerCapacity(profile(gpu_slot_count=2))
-        assert cap.reserve_exclusive(7) is not None
+        assert cap.reserve_unreal_card(7, key(1)) is not None
         monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: (7, key(1)))
         assert cap.jobs_on_unusable_cards({key(0): matching.OK, key(1): state}) == stopped
 
-    def test_unreal_marks_on_other_cards_stop_nothing(self, monkeypatch):
-        """C-24 m: the whole-machine marks on the Blender slots are not the card Unreal renders on."""
+    def test_another_card_lost_stops_no_unreal_job(self, monkeypatch):
+        """C-24 m: only the card the Unreal job renders on counts (render per card: it holds that card only)."""
         cap = WorkerCapacity(profile(gpu_slot_count=2))
-        cap.reserve_exclusive(7)
+        cap.reserve_unreal_card(7, key(0))
         monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: (7, key(0)))
         assert cap.jobs_on_unusable_cards({key(0): matching.OK, key(1): matching.LOST}) == []
         monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: None)  # before its first launch

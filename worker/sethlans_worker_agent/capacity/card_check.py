@@ -17,12 +17,13 @@ The card checks at start, periodically and for a rebuild (FR-CK-1, FR-CK-3, FR-C
   on a card that is no longer usable for its renderer gets its own stop
   (``card_stops``) and a rebuild is requested when the cards in use differ
   from the profile.
-- ``check_during_unreal(capacity, now)``: while an Unreal render holds the
-  machine ``check`` never runs (FR-CK-1, FR-WX-14). Instead, once per
+- ``check_during_unreal(capacity, now)``: while any Unreal job holds a card
+  ``check`` never runs (FR-CK-1, render per card D15). Instead, once per
   heartbeat interval, the OS list alone (DXGI and D3DKMT reads; no device is
   created, Blender is never started) with the known Blender list: the same
-  alerts, the stop of the Unreal job whose card is lost, changed or held
-  (C-24 m), and a rebuild request that waits for the hold to end.
+  alerts, the stop of the jobs whose card is lost, changed or held (C-24 m),
+  and a rebuild request (it waits only while a running job holds a card the
+  new profile drops).
 
 Every check also reads the screen marks (``cards.screens.marked``: DXGI
 outputs or DRM connector files, no device created, so also during an Unreal

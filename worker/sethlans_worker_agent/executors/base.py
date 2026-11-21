@@ -20,7 +20,7 @@ from typing import Any, Callable, Literal, Optional, Protocol
 
 logger = logging.getLogger(__name__)
 
-CapacityMode = Literal['shared', 'exclusive']
+CapacityMode = Literal['shared', 'unreal_card']
 
 
 class UnsupportedRendererError(Exception):
@@ -156,7 +156,7 @@ class RenderExecutor(Protocol):
     """What the claim path and the lifecycle need from a renderer."""
     renderer: str
     # 'shared': one capacity slot per job (Blender).
-    # 'exclusive': the whole machine (Unreal, D1).
+    # 'unreal_card': one card key per job, the reservation's ``card_key`` (Unreal, render per card D1).
     capacity_mode: CapacityMode
 
     def try_reserve(self, job_data: dict) -> Optional[RendererReservation]:

@@ -5,7 +5,8 @@
 The Unreal job's reservation (Unreal foundation FR-UE-1; render per card FR-PC-SLOT-1, D16,
 FR-PC-RAM-5), handed out by ``reserve.Reserver.try_reserve`` (re-exported there).
 
-It carries what ``execute`` needs from the checks, the job's slot, and its ``claim_id`` (uuid4
+It carries what ``execute`` needs from the checks, the job's slot, the card it holds
+(``card_key``, D1: ``job_claim`` holds it; default the gate's card) and its ``claim_id`` (uuid4
 hex, D16: the ledgers' key, never the job id). ``ram`` is the RAM ledger the claim is registered
 in (``None``: not registered); ``ram_target()`` is where the runner publishes the claim's figures.
 ``on_release`` drops the ledger entry and gives the slot back; ``retain_until_restart`` drops the
@@ -22,12 +23,13 @@ class UnrealReservation(RendererReservation):
     """The slot plus what ``execute`` needs from the checks."""
 
     def __init__(self, params, install, gate, on_release: Callable[[], None], card_keys: tuple = (),
-                 slot: int = 0, claim_id: str = '', ram=None):
+                 slot: int = 0, claim_id: str = '', ram=None, card_key: Optional[str] = None):
         super().__init__(on_release=on_release)
         self.params = params
         self.install = install
         self.gate = gate
-        self.card_keys = tuple(card_keys)  # held by the exclusive reservation (job_claim, C-27 b)
+        self.card_keys = tuple(card_keys)  # the Unreal cards in use at reserve time (C-27 b)
+        self.card_key = card_key if card_key is not None else getattr(gate, 'card_key', None)  # the held card (D1)
         self.slot = slot  # the job's Unreal slot (FR-PC-SLOT-1); its release gives it back
         self.claim_id = claim_id or uuid.uuid4().hex  # D16: the ledgers' key, never the job id
         self.ram = ram  # the RAM ledger the claim is registered in (None: not registered)

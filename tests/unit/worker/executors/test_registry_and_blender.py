@@ -51,7 +51,7 @@ class TestRegistry:
         before = {t.ident for t in threading.enumerate()}
         executor = executors.get_executor('UNREAL')
         assert type(executor).__module__ == UNREAL_MODULE
-        assert executor.renderer == 'UNREAL' and executor.capacity_mode == 'exclusive'
+        assert executor.renderer == 'UNREAL' and executor.capacity_mode == 'unreal_card'
         assert executors.get_executor('UNREAL') is executor
         assert {t.ident for t in threading.enumerate()} <= before
 

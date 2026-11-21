@@ -151,13 +151,13 @@ class TestStartupRecovery:
 
     def test_success_order_and_poll_gate(self, monkeypatch, tmp_path):
         calls = self._enable(monkeypatch, tmp_path)
-        assert capabilities.poll_params(node_idle=True) == {}  # not before recover() succeeded
+        assert capabilities.poll_params(can_take=True) == {}  # not before recover() succeeded
         startup_recovery.run_once()
         startup_recovery.run_once()  # exactly once
         assert calls == ['expect', ('recover', config_unreal.KEEP_JOB_LOGS), ('sweep', 'S-1'), 'repair', 'zen',
                          ('register', 'ueprofile'), 'housekeeping']
         assert startup_recovery.ready() and startup_recovery.cache() == 'CACHE'
-        assert capabilities.poll_params(node_idle=True)['renderers'] == 'BLENDER,UNREAL'
+        assert capabilities.poll_params(can_take=True)['renderers'] == 'BLENDER,UNREAL'
 
     def test_failed_recovery_disables_and_keeps_unreal_out_of_polls(self, monkeypatch, tmp_path):
         calls = self._enable(monkeypatch, tmp_path, reason='could not clear Unreal working directories')

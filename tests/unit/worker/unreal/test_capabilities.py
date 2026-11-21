@@ -44,7 +44,7 @@ class TestDisabledByConfig:
             monkeypatch.setattr(target, name, _boom)
         capabilities.startup()
         assert capabilities.snapshot() == DISABLED
-        assert capabilities.poll_params(node_idle=True) == {}
+        assert capabilities.poll_params(can_take=True) == {}
         assert capabilities.gpu_memory_payload() is None
 
     def test_no_threads_started(self, monkeypatch):
@@ -52,7 +52,7 @@ class TestDisabledByConfig:
         monkeypatch.setattr(config_unreal, 'ENABLED', False)
         before = {t.name for t in threading.enumerate()}
         capabilities.snapshot()
-        capabilities.poll_params(node_idle=True)
+        capabilities.poll_params(can_take=True)
         after = {t.name for t in threading.enumerate()}
         assert not {name for name in after - before if name.startswith('unreal-')}
 
@@ -75,7 +75,7 @@ class TestEnabled:
         calls = enable_unreal(monkeypatch)
         for _ in range(3):
             capabilities.snapshot()
-            capabilities.poll_params(node_idle=True)
+            capabilities.poll_params(can_take=True)
         assert calls['prepare'] == 1 and calls['lock'] == 1 and calls['threads'] == 1
 
     def test_installs_without_build_are_not_reported(self, monkeypatch):
@@ -118,7 +118,7 @@ class TestDisabledReasons:
         calls = enable_unreal(monkeypatch, **kwargs)
         snap = capabilities.snapshot()
         assert snap['enabled'] is False and reason in snap['disabled_reason']
-        assert capabilities.poll_params(node_idle=True) == {}
+        assert capabilities.poll_params(can_take=True) == {}
         if 'installs' not in kwargs:
             assert calls['threads'] == 0
             assert capabilities.gpu_memory_payload() is None
@@ -132,7 +132,7 @@ class TestDisabledReasons:
         enable_unreal(monkeypatch, share='')
         snap = capabilities.snapshot()
         assert snap['enabled'] is True and snap['share'] == '' and snap['share_reachable'] is False
-        assert capabilities.poll_params(node_idle=True) == {}
+        assert capabilities.poll_params(can_take=True) == {}
 
     def test_disable_until_restart(self, monkeypatch):
         enable_unreal(monkeypatch)
@@ -240,13 +240,13 @@ class TestVramReason:
                       sampler=FakeSampler(None, never_succeeded=True))
         snap = capabilities.snapshot()
         assert snap['enabled'] is False and snap['disabled_reason'] == runtime.NO_VRAM_REASON
-        assert capabilities.poll_params(node_idle=True) == {}
+        assert capabilities.poll_params(can_take=True) == {}
 
     def test_an_earlier_success_keeps_unreal_enabled(self, monkeypatch):
         enable_unreal(monkeypatch, share=SHARE, share_state=reachable(),
                       sampler=FakeSampler(None, never_succeeded=False))
         assert capabilities.snapshot()['enabled'] is True
-        assert 'renderers' in capabilities.poll_params(node_idle=True)
+        assert 'renderers' in capabilities.poll_params(can_take=True)
 
 
 class TestPollParams:
@@ -255,20 +255,20 @@ class TestPollParams:
         enable_unreal(monkeypatch, installs=(install(), install('5.8.1-1000', source='config'),
                                              install(BUILD_57, False)),
                       share=r'\\nas.lan\sethlans', share_state=reachable())
-        assert capabilities.poll_params(node_idle=True) == {
+        assert capabilities.poll_params(can_take=True) == {
             'renderers': 'BLENDER,UNREAL', 'unreal_builds': f'5.8.1-1000,{BUILD_58}'}
 
-    @pytest.mark.parametrize('node_idle,state', [
+    @pytest.mark.parametrize('can_take,state', [
         (False, reachable()), (True, reachable(ok=False)), (True, unreal_share.NOT_CONFIGURED),
     ])
-    def test_omitted(self, monkeypatch, node_idle, state):
+    def test_omitted(self, monkeypatch, can_take, state):
         enable_unreal(monkeypatch, share=r'\\nas.lan\sethlans', share_state=state)
-        assert capabilities.poll_params(node_idle=node_idle) == {}
+        assert capabilities.poll_params(can_take=can_take) == {}
 
     def test_at_most_ten_builds(self, monkeypatch):
         many = tuple(install(f'5.8.{n}-{100 + n}') for n in range(12))
         enable_unreal(monkeypatch, installs=many, share=r'\\nas.lan\s', share_state=reachable())
-        assert len(capabilities.poll_params(node_idle=True)['unreal_builds'].split(',')) == 10
+        assert len(capabilities.poll_params(can_take=True)['unreal_builds'].split(',')) == 10
 
 
 class TestGpuMemoryPayload:

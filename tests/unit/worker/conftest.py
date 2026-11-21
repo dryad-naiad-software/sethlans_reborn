@@ -81,7 +81,7 @@ def _reset_unreal_card_state():
     """
     import sys
     from sethlans_worker_agent.cards import unreal_cards
-    for name in ('adapter_choice', 'adapter_log'):  # the card choice; the projects refused after a mismatch
+    for name in ('adapter_choice', 'adapter_log', 'reserve_card'):  # the card choice; refused projects; D14 log
         module = sys.modules.get(f'sethlans_worker_agent.unreal_executor.{name}')
         if module is not None:
             module.reset_for_tests()

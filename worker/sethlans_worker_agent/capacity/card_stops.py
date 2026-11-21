@@ -11,9 +11,11 @@ The alerts and per-job stops of one card evaluation (FR-CK-3, FR-CL-5, C5; C-24 
   that is ``lost``, ``changed``, ``held`` or ``blender_lost``; the Unreal job
   when the card it chose at its latest launch (``unreal_bridge.
   unreal_card_in_use``) is ``lost``, ``changed`` or ``held`` (D19: Unreal may
-  keep a ``blender_lost`` card). The Unreal job's whole-machine marks on the
-  Blender slots stop nothing by themselves: only its own card counts.
-  Retained (negative) owners and unticked or ``unknown`` cards stop nothing.
+  keep a ``blender_lost`` card). The Blender loop skips every owner in
+  ``_unreal_jobs``, read in the same ``_lock`` snapshot as the assignments
+  (render per card FR-PC-SEL-4), so an Unreal job's held card never stops it
+  as if it were Blender's. Retained (negative) owners and unticked or
+  ``unknown`` cards stop nothing.
 - ``stop_jobs``: each one through ``blender_stop.request_card_stop`` (its own
   event; the Unreal executor joins it with the shutdown event and releases
   the job, ``worker_hardware_changed``). The worker's shutdown event is not set.
@@ -49,9 +51,9 @@ def jobs_on_unusable_cards(capacity, states) -> list:
     from sethlans_worker_agent import unreal_bridge
     with capacity._lock:
         held = list(capacity._gpu_assignments.items())
-        exclusive = capacity._exclusive_job_id
+        unreal_owners = frozenset(capacity._unreal_jobs)
     stopped = {owner for key, owner in held
-               if owner >= 0 and owner != exclusive and states.get(key) in STOPPED_FOR_BLENDER}
+               if owner >= 0 and owner not in unreal_owners and states.get(key) in STOPPED_FOR_BLENDER}
     unreal = unreal_bridge.unreal_card_in_use()
     if unreal is not None and unreal[0] >= 0 and states.get(unreal[1]) in STOPPED_FOR_BOTH:
         stopped.add(unreal[0])

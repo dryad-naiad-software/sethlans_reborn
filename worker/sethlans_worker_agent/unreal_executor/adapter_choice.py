@@ -98,6 +98,20 @@ def choose(job_id, key: Optional[str] = None) -> Choice:
     return choice
 
 
+def d8_key() -> Optional[str]:
+    """D8's card among the Unreal cards in use now, screen marks read (the reading override, render per card D14).
+
+    The claim holds it and the first launch is asked for it (``choose(key=)``),
+    so the held card is the card the job renders on. ``None`` when the saved
+    choice cannot be read or there is no Unreal card. No alert is raised.
+    """
+    section = store.snapshot()
+    if section.read_failed:
+        return None
+    cards, _reason = _cards_now(section, with_screens=True)
+    return pick(cards).key if cards else None
+
+
 def current() -> Optional[Choice]:
     """The latest choice of the running Unreal job, or ``None``."""
     with _lock:

@@ -5,10 +5,11 @@
 Shared fakes for the executor-interface tests (Unreal foundation chunk 3).
 
 The real Unreal executor lands in chunk 7. ``FakeUnrealExecutor`` has the
-shape the spec gives it: ``capacity_mode='exclusive'``, a
+shape the spec gives it: ``capacity_mode='unreal_card'``, a
 ``BoundedSemaphore(1)`` token acquired non-blocking in ``try_reserve``,
-and a ``try_reserve`` that rejects unless the machine is fully idle
-(FR-UE-1 check 0). ``install_fake_unreal`` makes the real lazy import in
+and a ``try_reserve`` that rejects unless its card may be held (check 0,
+render per card FR-PC-CAP-5); the reservation's ``card_key`` is
+``FAKE_UNREAL_CARD`` (fake card 0). ``install_fake_unreal`` makes the real lazy import in
 ``executors.get_executor('UNREAL')`` find it.
 
 Module name starts with an underscore so pytest does not collect it.
@@ -23,6 +24,7 @@ from sethlans_worker_agent.cards.in_use import CardInUse
 from sethlans_worker_agent.executors import ProbePending, RendererReservation, RenderResult
 
 UNREAL_MODULE = 'sethlans_worker_agent.unreal_executor.executor'
+FAKE_UNREAL_CARD = 'pci:0000:01:00.0'  # key(0)
 
 
 def make_result(**overrides):
@@ -38,7 +40,7 @@ def make_result(**overrides):
 
 class FakeUnrealExecutor:
     renderer = 'UNREAL'
-    capacity_mode = 'exclusive'
+    capacity_mode = 'unreal_card'
 
     def __init__(self):
         self.token = threading.BoundedSemaphore(1)
@@ -54,11 +56,13 @@ class FakeUnrealExecutor:
         if not self.eligible:
             return None
         capacity = job_processor.get_worker_capacity()
-        if capacity is not None and not capacity.has_no_reservations():
+        if capacity is not None and not capacity.can_take_unreal((FAKE_UNREAL_CARD,)):
             return None
         if not self.token.acquire(blocking=False):
             return None
-        return RendererReservation(on_release=self._release_token)
+        reservation = RendererReservation(on_release=self._release_token)
+        reservation.card_key = FAKE_UNREAL_CARD
+        return reservation
 
     def _release_token(self):
         self.events.append('token_released')

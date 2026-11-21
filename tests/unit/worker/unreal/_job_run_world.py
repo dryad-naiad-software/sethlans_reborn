@@ -46,6 +46,7 @@ class World:
         self.retained = False
         self.params = params(kind=kind)
         self.reading = reading()
+        self.card_key = None  # the held card (render per card D1); None: the gate's card
         monkeypatch.setattr(job_run, 'UeFlow', self._flow_factory)
 
     # -- fakes ----------------------------------------------------------
@@ -121,7 +122,8 @@ class World:
 
     def run(self, shutdown=None):
         gate = vram_gate_check.evaluate(self.params, self.reading)
-        reservation = reserve.UnrealReservation(self.params, install(), gate, on_release=lambda: None)
+        reservation = reserve.UnrealReservation(self.params, install(), gate, on_release=lambda: None,
+                                                card_key=self.card_key)
         original = reservation.retain_until_restart
         reservation.retain_until_restart = lambda: (self.calls.append(('retain',)), original())[1]
         ex = executor.UnrealExecutor(reserve_deps=executor.default_reserve_deps(), run_deps=self.deps())

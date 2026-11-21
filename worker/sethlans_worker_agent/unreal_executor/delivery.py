@@ -70,6 +70,7 @@ class DeliveryDeps:
     upload_frame: Callable                # (job_id, frame, handle, filename) -> PilotReport (frames/, FR-SW-10)
     report_piece: Callable                # (job_id, body) -> PilotReport (piece-result/, FR-SW-10)
     upload_sound: Callable                # (job_id, handle, offset, skipped, render_s, summary, cause=) (FR-SA-6)
+    was_shared: Callable[[int], bool] = lambda job_id: False  # D10: capacity.was_shared (the pilot's shared_machine)
 
 
 def result(*, success=False, canceled=False, stdout='', error='', released=False, render_time=None,
@@ -168,7 +169,7 @@ class Delivery:
                                  summary=self._text(), game_overrides=flow.prep.game_overrides,
                                  texture_streaming=flow.prep.texture_streaming, ram=flow.ram,
                                  ram_process_commit_peak_mb=flow.ram_process_commit_peak_mb,
-                                 shared_machine=False)  # capacity.was_shared(job_id) from chunk 4a (FR-PC-CAP)
+                                 shared_machine=bool(self.deps.was_shared(self.params.job_id)))  # read before
         report = self.deps.report_pilot(self.params.job_id, body)
         if report.outcome == 'rejected':
             return self.failed(f"Pilot result rejected by the manager: {report.detail}"[:1000], prefix=False)

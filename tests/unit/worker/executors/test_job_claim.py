@@ -38,10 +38,10 @@ def _assert_everything_free(cap, fake_unreal):
 
 class TestLeakPaths:
 
-    def test_reserve_exclusive_none_releases_token(self, mocker, fake_unreal):
+    def test_card_hold_none_releases_token(self, mocker, fake_unreal):
         cap = install_capacity()
         _poll_returns(mocker, [unreal_job(1)])
-        mocker.patch.object(cap, 'reserve_exclusive', return_value=None)
+        mocker.patch.object(cap, 'reserve_unreal_card', return_value=None)
         claim = mocker.patch('sethlans_worker_agent.api_handler.claim_job')
         assert job_processor.poll_and_claim_job(worker_id=1) is None
         claim.assert_not_called()
@@ -89,14 +89,14 @@ class TestShutdownRace:
         _poll_returns(mocker, [unreal_job(1)])
         claim = mocker.patch('sethlans_worker_agent.api_handler.claim_job')
         stopping = threading.Event()
-        real_reserve = cap.reserve_exclusive
+        real_reserve = cap.reserve_unreal_card
 
-        def reserve_then_sigterm(job_id, unreal_keys=()):
-            slot = real_reserve(job_id, unreal_keys)
+        def reserve_then_sigterm(job_id, card_key):
+            slot = real_reserve(job_id, card_key)
             stopping.set()
             return slot
 
-        mocker.patch.object(cap, 'reserve_exclusive', side_effect=reserve_then_sigterm)
+        mocker.patch.object(cap, 'reserve_unreal_card', side_effect=reserve_then_sigterm)
         mocker.patch.object(agent, '_shutdown_event', stopping)
         assert job_processor.poll_and_claim_job(worker_id=1) is None
         claim.assert_not_called()
@@ -110,11 +110,11 @@ class TestSuccess:
         _poll_returns(mocker, [unreal_job(7)])
         mocker.patch('sethlans_worker_agent.api_handler.claim_job', return_value=True)
         job = job_processor.poll_and_claim_job(worker_id=1)
-        assert job['_reservation'].card_keys == ()
+        assert job['_reservation'].card_keys == (key(0),)  # one card held (render per card D1)
         assert job['_renderer_reservation'] is not None
-        assert cap.free_device_prefs() == []
+        assert cap.free_device_prefs() == ['GPU', 'ANY']  # the other card; no CPU job beside Unreal (D2)
         entry = job_processor.get_active_jobs_snapshot()[7]
-        assert entry['renderer'] == 'UNREAL' and entry['exclusive'] is True
+        assert entry['renderer'] == 'UNREAL' and 'exclusive' not in entry and entry['gpu_cards'] == key(0)
         assert job_processor.get_unfinished_job_ids() == [7]
 
     def test_blender_claim_entry_shape(self, mocker):
@@ -124,7 +124,7 @@ class TestSuccess:
         job = job_processor.poll_and_claim_job(worker_id=1)
         assert job['_reservation'].card_keys == (key(0),)
         entry = job_processor.get_active_jobs_snapshot()[3]
-        assert entry['renderer'] == 'BLENDER' and entry['exclusive'] is False
+        assert entry['renderer'] == 'BLENDER' and 'exclusive' not in entry
         assert entry['device_used'] == 'GPU' and entry['gpu_cards'] == key(0)
         assert job_processor.get_unfinished_job_ids() == [3]
 

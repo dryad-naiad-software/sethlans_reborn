@@ -89,12 +89,13 @@ def get_worker_capacity() -> Optional[capacity_module.WorkerCapacity]:
 def capacity_is_full() -> bool:
     """Polling gate source of truth (FR-6). Delegates to WorkerCapacity.
 
-    A fully idle machine is never full: with no Blender slot at all it may
-    still take an Unreal job (C-27 b); ``poll_and_claim_job`` decides.
+    Not full while an Unreal job may be claimed (a free Unreal card, render
+    per card FR-PC-CAP-5), even with no Blender slot at all (C-27 b);
+    ``poll_and_claim_job`` decides.
     """
     if _capacity is None:
         return False
-    return _capacity.is_full() and not _capacity.has_no_reservations()
+    return _capacity.is_full() and not unreal_bridge.can_take_unreal()
 
 
 def maybe_assert_gpu_list_unchanged() -> None:
@@ -139,16 +140,15 @@ def _build_poll_params(free_prefs, unreal_params=None):
         params['available_versions'] = ','.join(
             b['version'] for b in installed
         )
-    if unreal_params is None:  # Unreal only on a fully idle machine (FR-WX-13); {} when disabled.
+    if unreal_params is None:  # Unreal while an Unreal card is free (FR-PC-CAP-5); {} when disabled.
         unreal_params = _unreal_poll_params()
     params.update(unreal_params)
     return params
 
 
 def _unreal_poll_params() -> Dict[str, str]:
-    # A pending rebuild refuses the exclusive reservation: asking for Unreal jobs then would only run try_reserve.
-    node_idle = _capacity is not None and _capacity.has_no_reservations() and not rebuild.pending()
-    return unreal_bridge.poll_params(node_idle=node_idle)
+    # A pending rebuild, a Blender CPU job or no free Unreal card refuses the hold: no try_reserve for nothing.
+    return unreal_bridge.poll_params(can_take=unreal_bridge.can_take_unreal())
 
 
 def _device_prefs(free_prefs, unreal_params) -> list:

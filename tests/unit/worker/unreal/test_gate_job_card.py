@@ -89,6 +89,7 @@ class TestGatedCardHandOff:
         reserver = _reserver((BUSY, IDLE), (BUSY_KEY, IDLE_KEY))
         reservation = reserver.try_reserve(job())
         assert reservation.gate.card_key == IDLE_KEY and reservation.card_keys == (BUSY_KEY, IDLE_KEY)
+        assert reservation.card_key == IDLE_KEY  # the card job_claim holds (render per card FR-PC-CAP-3)
         reservation.release()
 
     def test_a_gated_card_no_longer_in_use_skips_the_job_and_frees_the_token(self, caplog):
@@ -102,6 +103,7 @@ class TestGatedCardHandOff:
     def test_keys_compare_as_address_integers(self, in_use):
         reservation = _reserver((BUSY, IDLE), (in_use,)).try_reserve(job())
         assert reservation is not None and reservation.gate.card_key == IDLE_KEY
+        assert reservation.card_key == in_use  # the hold uses the inventory's spelling of that address
         reservation.release()
 
     @pytest.mark.parametrize('gated,in_use', [('pci:bogus', ('pci:other',)), ('pci:bogus', (IDLE_KEY,)),
@@ -128,6 +130,7 @@ class TestGatedCardHandOff:
         reserver, _ = make(sampler=lambda: Sampler(reading(source='override')), card_keys=lambda: (IDLE_KEY,))
         reservation = reserver.try_reserve(job())
         assert reservation is not None and reservation.gate.card_key is None
+        assert reservation.card_key == IDLE_KEY  # no gated card: the first Unreal card in use is held
         reservation.release()
 
     def test_the_fresh_gate_card_is_the_one_checked(self):

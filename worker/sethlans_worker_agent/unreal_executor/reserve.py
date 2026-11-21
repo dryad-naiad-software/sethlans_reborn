@@ -8,15 +8,16 @@ FR-UE-26 check 6a, FR-UE-27 check 6b; Conc R2-M2, chunk 3 L2 contract).
 Checks, in order; the first failure returns ``None`` (the job is skipped,
 not claimed):
 
-0. the machine is fully idle (``capacity.has_no_reservations()``);
+0. an Unreal job may be claimed now (``unreal_bridge.can_take_unreal``: a
+   free Unreal card, no Blender CPU job, no pending rebuild; render per
+   card FR-PC-CAP-5);
 1. Unreal is enabled and the startup recovery succeeded;
 2. ``job_params.validate_job_data`` (before any share access); a project
    refused after an adapter mismatch (``adapter_log.refused``) is declined;
 3. a free Unreal slot (``slot.SlotPool``, the lowest free slot, non-blocking;
    render per card FR-PC-SLOT-1), which replaced the per-worker token;
 4. a supported install of the job's ``engine_build``; then the Unreal
-   cards in use (card selection C-27 b), which the exclusive reservation
-   holds;
+   cards in use (card selection C-27 b);
 5. ``source_type == 'shared_project'`` (part of 2; logged explicitly);
 6. the **static** VRAM gate on the sampler's latest reading (no wait):
    the relaxed pilot gate (``pilot_need_mb``, a reading that measures card
@@ -35,9 +36,13 @@ not claimed):
    asked for its card (``gate.card_key``).
 
 A ``shots`` job (sequence rendering D3, FR-SD-3) skips only the memory gate
-(steps 6 and 9: no reading is needed, no card is chosen); every other check
-runs, and its reservation carries the Unreal cards in use (step 4), so the
-exclusive reservation can mark them.
+(steps 6 and 9: no reading is needed); every other check runs.
+
+The reservation's ``card_key`` is the card ``job_claim`` holds and the
+first launch is asked for (``reserve_card.choose``, render per card D4,
+D14, FR-PC-CAP-3); a job whose card is not free is declined, so the claim
+walk moves on. The hold, taken under ``WorkerCapacity._lock`` after this
+returns, is the final check.
 
 **No resource is held when this returns None or raises** (chunk 3 L2): the
 slot is given back on every such path. The reservation's release gives it
@@ -60,7 +65,7 @@ from typing import Callable, Dict, Optional
 from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.executors.base import ProbePending
 from sethlans_worker_agent.unreal_executor import job_params as jp
-from sethlans_worker_agent.unreal_executor import adapter_log, ram_ledger, vram_gate_check
+from sethlans_worker_agent.unreal_executor import adapter_log, ram_ledger, reserve_card, vram_gate_check
 from sethlans_worker_agent.unreal_executor.reservation import UnrealReservation
 from sethlans_worker_agent.unreal_executor.slot import SlotPool
 
@@ -75,7 +80,7 @@ VRAM_FRESH_DEADLINE_S = 2.0
 @dataclass
 class ReserveDeps:
     """The checks' inputs (production values in ``executor.default_deps``)."""
-    is_idle: Callable[[], bool]
+    can_take: Callable[[], bool]          # check 0 (FR-PC-CAP-5)
     status: Callable[[], tuple]           # (enabled, reason) incl. the recovery gate
     installs: Callable[[], tuple]
     sampler: Callable[[], object]
@@ -89,6 +94,8 @@ class ReserveDeps:
     clock: Callable[[], float] = time.monotonic
     card_keys: Optional[Callable[[], tuple]] = None  # the Unreal cards in use (C-27 b); None: not checked
     ram: Optional[ram_ledger.RamLedger] = None  # production: ram_ledger.ledger; None: a ledger of this Reserver
+    capacity: Optional[Callable[[], object]] = None  # the WorkerCapacity (free keys, D14); None: not checked
+    d8_key: Optional[Callable[[], Optional[str]]] = None  # D8's Unreal card now (override, D14)
 
 
 class Reserver:
@@ -118,7 +125,7 @@ class Reserver:
 
     # -- checks ---------------------------------------------------------
     def _prechecks(self, job_data: dict):
-        if not self.deps.is_idle():
+        if not self.deps.can_take():
             return None
         enabled, reason = self.deps.status()
         if not enabled:
@@ -249,9 +256,14 @@ class Reserver:
         gate = self._fresh_gate(params)
         if gate is None or not self._gated_card_ok(params, gate, card_keys):
             return None
+        card_key, declined = reserve_card.choose(params, gate, card_keys, self.deps)
+        if declined:
+            self._skip(params.job_id, "%s", declined)
+            return None
         claim_id = uuid.uuid4().hex
         return UnrealReservation(params, install, gate, on_release=lambda: self._release(claim_id, slot),
-                                 card_keys=card_keys, slot=slot, claim_id=claim_id, ram=self.ram)
+                                 card_keys=card_keys, slot=slot, claim_id=claim_id, ram=self.ram,
+                                 card_key=card_key)
 
     def _release(self, claim_id: str, slot: int) -> None:
         try:

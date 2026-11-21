@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Card check and exclusive holds (Unreal foundation FR-WX-14; FR-T-5 "GPU drift").
+Card check and Unreal holds (Unreal foundation FR-WX-14; FR-T-5 "GPU drift"; render per card D15).
 
-The check never enumerates GPUs through Blender while an Unreal render
-holds the machine. A lost card no longer ends the worker or sets the
+The check never enumerates GPUs through Blender while an Unreal job holds
+a card. A lost card no longer ends the worker or sets the
 shutdown event (FR-CL-6): it stops only the Blender jobs on that card.
 """
 from sethlans_worker_agent import agent_shutdown, blender_stop, job_processor
@@ -35,7 +35,7 @@ class TestDriftSkippedDuringExclusiveHold:
         mocker.patch('sethlans_worker_agent.config.HEARTBEAT_INTERVAL_SECONDS', 30)
         job_processor._last_drift_check_ts = 0.0
         spawn = _drift_spawn_spy(mocker, monkeypatch, tmp_path)
-        cap.reserve_exclusive(5)
+        cap.reserve_unreal_card(5, key(0))
 
         job_processor.maybe_assert_gpu_list_unchanged()
         spawn.assert_not_called()
@@ -53,7 +53,7 @@ class TestDriftSkippedDuringExclusiveHold:
         mocker.patch('sethlans_worker_agent.job_processor.time.monotonic', return_value=1000.0)
         job_processor._last_drift_check_ts = 1000.0  # interval not due
         _drift_spawn_spy(mocker, monkeypatch, tmp_path)
-        cap.reserve_exclusive(5)
+        cap.reserve_unreal_card(5, key(0))
         capacity_module.request_gpu_list_recheck()
 
         job_processor.maybe_assert_gpu_list_unchanged()

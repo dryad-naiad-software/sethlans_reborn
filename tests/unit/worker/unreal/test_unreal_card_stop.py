@@ -4,8 +4,8 @@
 """
 An Unreal job on a card that is lost, changed or held is stopped (card selection FR-CK-3, C-24 m).
 
-While an Unreal render holds the machine the periodic card check does not
-run (FR-CK-1, FR-WX-14). Once per heartbeat interval the OS list alone is
+While an Unreal job holds a card the periodic card check does not run
+(FR-CK-1, render per card D15). Once per heartbeat interval the OS list alone is
 read instead (no Blender): the red alert is raised and the Unreal job whose
 chosen card is gone gets its own stop, which the executor sees wherever it
 sees a shutdown; the job is released, ``finish`` runs, and the worker's
@@ -28,11 +28,11 @@ from tests.unit.worker.unreal._job_run_world import World
 
 @pytest.fixture
 def held(monkeypatch):
-    """Two ticked cards, an Unreal job 5 holding the machine and rendering on card 1."""
+    """Two ticked cards, an Unreal job 5 holding card 1 and rendering on it."""
     monkeypatch.setattr(config, 'HEARTBEAT_INTERVAL_SECONDS', 30)
     machine = CardEnv(monkeypatch, count=2)
     cap = install_capacity(gpu_slot_count=2, cpu_slot_count=1)
-    assert cap.reserve_exclusive(5) is not None
+    assert cap.reserve_unreal_card(5, key(1)) is not None
     machine.job = unreal_job(5)
     blender_stop.register_card_stop(machine.job)
     monkeypatch.setattr(adapter_choice, '_current', adapter_choice.Choice(5, key(1), 'GPU 1', 1))
@@ -53,8 +53,9 @@ class TestCheckDuringTheHold:
         assert _stopped(held) and held.alert_keys() == [('card_lost', key(1))]
         assert held.probes == 1 and held.detections == 0          # the OS list only, never Blender
         assert agent_shutdown._shutdown_event.is_set() is False
-        assert rebuild.pending() is True                           # it waits for the hold to end
-        assert rebuild.step(held.cap) == rebuild.WAITING
+        assert rebuild.pending() is True
+        assert rebuild.step(held.cap) == rebuild.SWAPPED           # an Unreal hold never blocks it (D15)
+        assert held.cap.holds_snapshot() == {key(1): (5, 'UNREAL')}  # held until the stopped job ends
 
     @pytest.mark.parametrize('change', ['changed', 'held'])
     def test_a_changed_or_held_card_stops_it_too(self, held, change):

@@ -196,7 +196,7 @@ class TestNf6:
         monkeypatch.setattr(config_unreal, 'ENABLED', False)
         capabilities.startup()
         capabilities.snapshot()
-        capabilities.poll_params(node_idle=True)
+        capabilities.poll_params(can_take=True)
         assert capabilities.gpu_memory_payload() is None
         assert no_reader.calls == [] and gpu_reader._reader is None
         assert runtime.sampler() is None

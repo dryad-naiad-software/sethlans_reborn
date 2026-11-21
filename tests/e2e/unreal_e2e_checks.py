@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 # Summary keys every Unreal render, pilot or sound job reports (FR-UE-14, FR-T-8).
 COMMON_SUMMARY = {
     "engine": ENGINE_BUILD,
-    "exclusive": "1",
     "user_state": "isolated",
     "user_cvars": "0",
     "zen": "private:8668",

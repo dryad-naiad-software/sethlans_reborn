@@ -13,7 +13,7 @@ import pytest
 from sethlans_worker_agent import job_processor, unreal_bridge
 from sethlans_worker_agent.job_lifecycle import process_claimed_job
 
-from ..executors._fakes import blender_job, fail_imports, install_capacity
+from ..executors._fakes import blender_job, fail_imports, install_capacity, key
 
 FAILING_IMPORTS = [
     'sethlans_worker_agent.unreal_executor',
@@ -25,8 +25,8 @@ FAILING_IMPORTS = [
 class TestDefaults:
 
     def test_disabled_values(self):
-        assert unreal_bridge.poll_params(node_idle=True) == {}
-        assert unreal_bridge.poll_params(node_idle=False) == {}
+        assert unreal_bridge.poll_params(can_take=True) == {}
+        assert unreal_bridge.poll_params(can_take=False) == {}
         assert unreal_bridge.gpu_memory_payload() is None
         snap = unreal_bridge.snapshot()
         assert snap == {
@@ -34,13 +34,13 @@ class TestDefaults:
             'installs': [], 'share': '', 'share_reachable': False,
         }
 
-    def test_drift_allowed_without_capacity_or_exclusive(self):
+    def test_drift_allowed_without_capacity_or_unreal_job(self):
         assert unreal_bridge.drift_check_allowed() is True
         cap = install_capacity()
         cap.reserve_for_job(1, 'GPU')
         assert unreal_bridge.drift_check_allowed() is True
         cap.release_slot(1)
-        cap.reserve_exclusive(2)
+        cap.reserve_unreal_card(2, key(0))
         assert unreal_bridge.drift_check_allowed() is False
 
 
@@ -50,7 +50,7 @@ class TestFallbacks:
         caplog.set_level('ERROR', logger='sethlans_worker_agent.unreal_bridge')
         fail_imports(monkeypatch, 'sethlans_worker_agent.unreal_executor')
         for _ in range(3):
-            assert unreal_bridge.poll_params(node_idle=True) == {}
+            assert unreal_bridge.poll_params(can_take=True) == {}
             assert unreal_bridge.gpu_memory_payload() is None
             snap = unreal_bridge.snapshot()
         assert snap['enabled'] is False
@@ -73,11 +73,11 @@ class TestFallbacks:
     def test_underlying_exception_is_contained(self, monkeypatch):
         from sethlans_worker_agent.unreal_executor import capabilities
 
-        def broken(node_idle):
+        def broken(can_take):
             raise OSError('share')
 
         monkeypatch.setattr(capabilities, 'poll_params', broken)
-        assert unreal_bridge.poll_params(node_idle=True) == {}
+        assert unreal_bridge.poll_params(can_take=True) == {}
 
 
 @pytest.mark.parametrize('target', FAILING_IMPORTS)

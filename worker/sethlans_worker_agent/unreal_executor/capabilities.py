@@ -91,15 +91,16 @@ def supported_builds() -> List[str]:
     return sorted({install.build for install in runtime.installs() if install.supported})
 
 
-def poll_params(node_idle: bool) -> dict:
+def poll_params(can_take: bool) -> dict:
     """Extra poll parameters asking for Unreal jobs (FR-WD-9).
 
     Non-empty only when Unreal is enabled with a supported install, this
-    worker's configured share is reachable, and the machine is fully idle
-    (FR-WX-13). Otherwise ``{}``: the poll parameters stay byte-identical
+    worker's configured share is reachable, and an Unreal job may be
+    claimed now (``can_take``: a free Unreal card, render per card
+    FR-PC-CAP-5). Otherwise ``{}``: the poll parameters stay byte-identical
     to a Blender-only worker's. Never adds an ``ordering`` key.
     """
-    if not config_unreal.ENABLED or not node_idle:
+    if not config_unreal.ENABLED or not can_take:
         return {}
     runtime.startup()
     current = runtime.installs()

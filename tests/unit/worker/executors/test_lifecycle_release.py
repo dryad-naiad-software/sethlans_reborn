@@ -67,11 +67,13 @@ class TestUnreal:
         assert job_processor.get_unfinished_job_ids() == []
 
     def test_retained_reservation_keeps_token_and_slots(self, api, fake_unreal):
-        cap = install_capacity(gpu_slot_count=2, cpu_slot_count=1)
+        from sethlans_worker_agent.capacity.unreal_hold import retained_owner
+        cap = install_capacity(gpu_slot_count=1, cpu_slot_count=1)
         fake_unreal.retain = True
         fake_unreal.result = make_result(success=False, error_message='survivors')
         process_claimed_job(_claim(api, unreal_job(4)))
         assert not fake_unreal.token_free()
+        assert cap.holds_snapshot() == {key(0): (retained_owner(4), 'UNREAL')}  # the card and the CPU rule stay
         assert cap.free_device_prefs() == [] and cap.is_full()
         assert job_processor.get_active_jobs_snapshot() == {}
         assert job_processor.get_unfinished_job_ids() == []

@@ -5,7 +5,9 @@
 The Unreal executor (Unreal foundation FR-WX-1, FR-UE-1, FR-UE-2; D1).
 
 Registered through ``executors.get_executor('UNREAL')`` (lazy import).
-``capacity_mode = 'exclusive'``: an Unreal job holds the whole machine.
+``capacity_mode = 'unreal_card'``: an Unreal job holds one card (its
+reservation's ``card_key``, render per card D1); Blender GPU jobs may run on
+the other cards, Blender CPU jobs never beside it (D2).
 
 **``__init__`` is lock-free and starts no threads** (chunk 3 L3 contract:
 it runs under the registry's ``_unreal_lock``): it only builds plain
@@ -36,10 +38,22 @@ from sethlans_worker_agent.unreal_executor.delivery import DeliveryDeps, result
 logger = logging.getLogger(__name__)
 
 
-def _capacity_idle() -> bool:
+def _capacity_can_take() -> bool:
+    """Check 0: the poll's rule (render per card FR-PC-CAP-5), a free Unreal card from the cached card probe."""
+    from sethlans_worker_agent import unreal_bridge
+    return unreal_bridge.can_take_unreal()
+
+
+def _was_shared(job_id) -> bool:
+    """D10: another reservation was held on the machine while this job's was (the pilot's ``shared_machine``)."""
     from sethlans_worker_agent import job_processor
     capacity = job_processor.get_worker_capacity()
-    return capacity is not None and capacity.has_no_reservations()
+    return capacity is not None and capacity.was_shared(job_id)
+
+
+def _capacity():
+    from sethlans_worker_agent import job_processor
+    return job_processor.get_worker_capacity()
 
 
 def _status():
@@ -101,11 +115,12 @@ def default_reserve_deps() -> reserve.ReserveDeps:
     from sethlans_worker_agent.project_archive.reachability import ProbeBudget, resolve_share_path
     from sethlans_worker_agent.unreal_executor import runtime
     return reserve.ReserveDeps(
-        is_idle=_capacity_idle, status=_status, installs=runtime.installs, sampler=runtime.sampler,
+        can_take=_capacity_can_take, status=_status, installs=runtime.installs, sampler=runtime.sampler,
         port_ok=_port_ok, isolation_ok=_isolation_ok, share_state=unreal_share.state, entry_ready=_entry_ready,
         reachability=_Lazy.reachability, resolve=resolve_share_path,
         budget=lambda: ProbeBudget(config_unreal.POLL_PROBE_BUDGET_SECONDS), card_keys=_unreal_card_keys,
-        ram=ram_ledger.ledger)  # the process's one RAM ledger: the runners publish into it (FR-PC-RAM-5)
+        ram=ram_ledger.ledger,  # the process's one RAM ledger: the runners publish into it (FR-PC-RAM-5)
+        capacity=_capacity, d8_key=adapter_choice.d8_key)
 
 
 def _worker_id():
@@ -151,7 +166,8 @@ def default_run_deps():
         delivery=DeliveryDeps(release_job=api_extras.release_job, mark_unreachable=unreal_share.mark_unreachable,
                               upload=api_extras.upload_output_handle, report_pilot=api_extras.report_pilot_result,
                               report_shots=api_sequence.report_shots_result, upload_frame=api_sequence.upload_frame,
-                              report_piece=api_sequence.report_piece_result, upload_sound=api_sequence.upload_sound),
+                              report_piece=api_sequence.report_piece_result, upload_sound=api_sequence.upload_sound,
+                              was_shared=_was_shared),
         disable_until_restart=runtime.disable_until_restart, keep_job_logs=lambda: config_unreal.KEEP_JOB_LOGS,
         prep_timeout_s=lambda: config_unreal.PREP_TIMEOUT_SECONDS,
         cancel_poll_s=lambda: config_unreal.CANCEL_POLL_SECONDS, choose_adapter=adapter_choice.choose)
@@ -159,7 +175,7 @@ def default_run_deps():
 
 class UnrealExecutor:
     renderer = 'UNREAL'
-    capacity_mode = 'exclusive'
+    capacity_mode = 'unreal_card'
 
     def __init__(self, reserve_deps: Optional[reserve.ReserveDeps] = None, run_deps=None):
         # Lock-free, no threads: only plain objects (BoundedSemaphore creation acquires nothing).

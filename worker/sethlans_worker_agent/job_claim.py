@@ -41,10 +41,10 @@ def _shutdown_requested() -> bool:
 
 
 def _reserve_slot(selection, capacity):
+    """The hold is the final check (render per card FR-PC-CAP-3): it refuses a card taken since ``try_reserve``."""
     job = selection.job
-    if selection.capacity_mode == 'exclusive':  # the Unreal cards in use come with the renderer reservation (C-27 b)
-        keys = tuple(getattr(selection.renderer_reservation, 'card_keys', ()) or ())
-        return capacity.reserve_exclusive(job.get('id'), unreal_keys=keys)
+    if selection.capacity_mode == 'unreal_card':  # the card comes with the renderer reservation
+        return capacity.reserve_unreal_card(job.get('id'), getattr(selection.renderer_reservation, 'card_key', None))
     return capacity.reserve_for_job(job.get('id'), job.get('render_device'))
 
 
@@ -64,7 +64,6 @@ def _record_claim(job: Dict[str, Any], selection, slot) -> None:
         'start_time': datetime.datetime.now(
             datetime.timezone.utc).isoformat(),
         'renderer': job.get('renderer') or 'BLENDER',
-        'exclusive': selection.capacity_mode == 'exclusive',
     }
     # Lets this claim's releases pop only its own entry (job_resources).
     job[ACTIVE_ENTRY] = entry

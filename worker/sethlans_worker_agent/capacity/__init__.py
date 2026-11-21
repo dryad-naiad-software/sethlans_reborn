@@ -33,8 +33,9 @@ Package layout:
                      floor) after a failed GPU device check.
     gpu_list.py   -- (device id, backend) pairs of a GPU list (#239).
     slots.py      -- WorkerCapacity stateful slot tracker.
-    exclusive.py  -- whole-machine (Unreal) reservation helpers used by
-                     WorkerCapacity.reserve_exclusive / has_no_reservations.
+    unreal_hold.py -- the per-card Unreal hold (one card key per Unreal job,
+                     by PCI address; the CPU rule and the shared mark),
+                     used by WorkerCapacity.reserve_unreal_card and friends.
 """
 from sethlans_worker_agent.capacity.profile import (  # noqa: F401
     CapacityProfile,

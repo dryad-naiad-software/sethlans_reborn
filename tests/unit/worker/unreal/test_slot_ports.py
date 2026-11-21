@@ -1,14 +1,15 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""A slot's Zen port belongs to its own zenserver only, and one Unreal job at a time through the real
-capacity check (render per card FR-PC-SLOT-1, FR-PC-SLOT-3; chunk 2 review fixes)."""
+"""A slot's Zen port belongs to its own zenserver only, and one Unreal job per card through the real
+capacity check (render per card FR-PC-SLOT-1, FR-PC-SLOT-3, FR-PC-CAP-5; chunk 2 review fixes)."""
 from types import SimpleNamespace
 
 import pytest
 
 from sethlans_worker_agent import job_processor
 from sethlans_worker_agent.capacity import WorkerCapacity
+from sethlans_worker_agent.cards import unreal_cards
 from sethlans_worker_agent.unreal_executor import executor, zen_port, zen_private
 from tests.unit.worker.executors._fakes import profile
 from tests.unit.worker.unreal._executor_fakes import job
@@ -56,14 +57,15 @@ class TestSlotPortHolder:
         assert not zen_private.is_farm_zenserver(proc, CACHE, slot=(n + 1) % 16)
 
 
-def test_a_second_reservation_is_refused_while_the_first_job_holds_the_machine(monkeypatch):
-    """Check 0 through the real ``executor._capacity_idle`` keeps one Unreal job at a time in chunk 2."""
+def test_a_second_reservation_is_refused_while_the_first_job_holds_the_only_unreal_card(monkeypatch):
+    """Check 0 through the real ``executor._capacity_can_take``: no free Unreal card, no reservation."""
     cap = WorkerCapacity(profile(gpu_slot_count=2, cpu_slot_count=1))
     monkeypatch.setattr(job_processor, '_capacity', cap)
-    reserver, _reach = make(is_idle=executor._capacity_idle)
+    monkeypatch.setattr(unreal_cards, 'current_keys', lambda cached_only=True: ('pci:0000:01:00.0',))
+    reserver, _reach = make(can_take=executor._capacity_can_take)
     first = reserver.try_reserve(job(job_id=1))
     assert first.slot == 0
-    assert cap.reserve_exclusive(1) is not None  # what job_claim does next
+    assert cap.reserve_unreal_card(1, 'pci:0000:01:00.0') is not None  # what job_claim does next
     assert reserver.try_reserve(job(job_id=2)) is None
     assert reserver.slots.free() == tuple(range(1, 16))
     cap.release_slot(1)
