@@ -17,7 +17,8 @@ FR-UE-26, FR-UE-27; chunk 7 integration requirements 10, 11, 15).
    ``local_conflict``);
 2. a pre-launch GPU reading when the phase samples GPU memory (every pilot
    phase, and every render);
-3. ``process_runner.run(spec, registry)`` with a **fresh**
+3. ``process_runner.run(spec, registry)`` (publishing RAM figures to the
+   claim's ``ram_target``; a render's output folder for FR-PC-ATT-2) with a **fresh**
    ``zen_port.LoopbackWatch`` as ``tick_check`` and
    ``phase_vram_sample(sampler)``. Every reading of the launch (pre-launch,
    per tick, post-exit) is cut to the launch's card (D22, FR-GU-11,
@@ -102,6 +103,7 @@ class PhaseRunner:
     add_alert: Optional[Callable] = None    # store.add_alert (adapter_log's default when None)
     project: str = ''                       # archive sha256 (set by job_run): an adapter mismatch refuses it
     card_key: Optional[str] = None          # the gated card (set by job_run): traces of a launch without a choice
+    ram_target: Optional[object] = None     # runner_ram.RamTarget of the claim (set by job_run, FR-PC-RAM-2)
 
     def _stop_requested(self) -> None:
         """No launch once a cancel cause or the shutdown is known (review L2)."""
@@ -156,7 +158,8 @@ class PhaseRunner:
             vram_sample=(lambda timeout_s: _cut(sampled(timeout_s), key)) if sampled is not None else None,
             tick_check=self.loopback_factory(cfg.zen_port, cfg.cache_dir, worker_sid=cfg.worker_sid, slot=cfg.slot),
             vram_baseline=baseline, expected_adapter=adapter.index if adapter is not None else None,
-            expected_ids=adapter_log.ids_of(adapter))
+            expected_ids=adapter_log.ids_of(adapter), ram_target=self.ram_target,
+            first_output_dir=self.job_dir.output if phase == 'render' else None)
 
     def launch(self, phase: str, attempt: int, launch, *, success_marker=None, success_check=None,
                sample: bool = False, adapter=None) -> PhaseRun:

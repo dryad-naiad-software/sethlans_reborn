@@ -20,8 +20,9 @@ that card alone:
   = the largest ``|pre - post|``;
 * ``peak_mb = max(card_delta_peak_mb, csv_local_used_peak_mb or 0)``,
   ``peak_source`` the larger (``card`` on a tie);
-* ``process_peak_mb``: the largest attributed worker-tree memory on the
-  peak's GPU (summary ``pilot_process_peak_mb`` only, never reported).
+* ``process_peak_mb``: the largest memory of the job's own Job Object
+  members on the peak's GPU (``VramTrace.max_job``, render per card
+  FR-PC-ATT-2; summary ``pilot_process_peak_mb`` only, never reported).
 
 Rejections: saturation (any sample ``>= floor(total * 0.93)``; the reason
 names the card size), an implausible peak (< ``MIN_PLAUSIBLE_PEAK_MB``)
@@ -76,11 +77,11 @@ class PilotMetrics:
     peak_phase: str
     gpu_index: int
     max_sample_gap_s: float
-    process_peak_mb: Optional[int] = None  # largest attributed worker-tree memory on the peak's GPU (summary only)
+    process_peak_mb: Optional[int] = None  # largest memory of the job's own processes on the peak's GPU (summary only)
 
 
 def _process_peak(runs: Sequence, index: int) -> Optional[int]:
-    values = [getattr(run.outcome.vram, 'max_sethlans', {}).get(index) for run in runs]
+    values = [getattr(run.outcome.vram, 'max_job', {}).get(index) for run in runs]
     values = [value for value in values if value is not None]
     return max(values) if values else None
 
@@ -177,8 +178,8 @@ def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, r
 
     ``ram``, ``ram_process_commit_peak_mb`` and ``shared_machine`` (per-card FR-PC-RAM-3) are always
     sent: ``ram`` is ``{"prep": {"ws_mb", "commit_mb"}, "warmup": {"ws_mb", "commit_mb", "cold"} | None,
-    "render": {"ws_mb", "commit_mb"}}`` or ``None`` when any figure is unknown. Until the runner measures
-    them (after chunk 2) callers leave the defaults: unknown figures, not a shared machine.
+    "render": {"ws_mb", "commit_mb"}}`` or ``None`` when any figure is unknown (``job_memory.pilot_ram``
+    over the runner's figures). ``shared_machine`` stays False until the per-card hold (chunk 4a).
 
     ``game_overrides`` and ``texture_streaming`` are the prep's allowlisted words (``queue_prep``,
     FR-GC-4); the manager requires both (FR-GC-8), so they are always sent, ``unknown`` included.

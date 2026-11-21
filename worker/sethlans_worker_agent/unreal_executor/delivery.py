@@ -166,7 +166,9 @@ class Delivery:
                                  engine_build=self.params.engine_build,
                                  overrides_sha256=overrides_sha256(dict(self.params.cvar_overrides)),
                                  summary=self._text(), game_overrides=flow.prep.game_overrides,
-                                 texture_streaming=flow.prep.texture_streaming)
+                                 texture_streaming=flow.prep.texture_streaming, ram=flow.ram,
+                                 ram_process_commit_peak_mb=flow.ram_process_commit_peak_mb,
+                                 shared_machine=False)  # capacity.was_shared(job_id) from chunk 4a (FR-PC-CAP)
         report = self.deps.report_pilot(self.params.job_id, body)
         if report.outcome == 'rejected':
             return self.failed(f"Pilot result rejected by the manager: {report.detail}"[:1000], prefix=False)

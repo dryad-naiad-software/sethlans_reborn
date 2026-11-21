@@ -55,10 +55,10 @@ def trace(max_used=None, min_used=None, total=32607, samples=5, gap=2.0):
 
 
 def outcome(reason='exited', exit_code=0, survivors=(), vram=None, wall_s=30.0, marker=True, quit_forced=False,
-            fatal_rule='', detail='', job_object='ok', peak=None):
+            fatal_rule='', detail='', job_object='ok', peak=None, ram=None):
     return RunOutcome(exit_code=exit_code, reason=reason, rule_counts={}, wall_s=wall_s, survivors=tuple(survivors),
                       vram_peak_mb=peak, phase='render', success_marker_seen=marker, quit_forced=quit_forced,
-                      fatal_rule=fatal_rule, detail=detail, job_object=job_object, vram=vram or VramTrace())
+                      fatal_rule=fatal_rule, detail=detail, job_object=job_object, vram=vram or VramTrace(), ram=ram)
 
 
 def phase_run(phase='render', pre=None, post=None, vram=None, wall_s=30.0):

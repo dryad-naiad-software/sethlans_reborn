@@ -29,6 +29,7 @@ class Job:
         return Path(f'{phase}.{n}.stdout.txt')
 
     ledger = Path('procs.json')
+    output = Path('output')
 
 
 class Sampler:

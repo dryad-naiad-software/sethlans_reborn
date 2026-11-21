@@ -28,8 +28,9 @@ import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Optional, Pattern, Tuple
+from typing import Callable, Dict, FrozenSet, Optional, Pattern, Tuple
 
+from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.unreal_executor.command import UeLaunch
 from sethlans_worker_agent.unreal_executor.log_validation import LogRule
 
@@ -82,6 +83,9 @@ class RunSpec:
     vram_baseline: Optional[Dict[int, int]] = None    # per-GPU used_mb before the launch
     expected_adapter: Optional[int] = None            # -graphicsadapter=N of a warm-up or render (FR-CU-3)
     expected_ids: Optional[Tuple] = None              # (vendor, device, revision) of the chosen card
+    ram_target: Optional[object] = None               # runner_ram.RamTarget: publish to the RAM ledger (FR-PC-RAM-2)
+    first_output_dir: Optional[Path] = None           # a render's output folder: the job's card figures from its
+    #                                                   first file on (FR-PC-ATT-2)
 
     @property
     def phase(self) -> str:
@@ -98,9 +102,18 @@ class VramTrace:
     max_sethlans: Dict[int, int] = field(default_factory=dict)  # largest attributed sethlans_used_mb per GPU
     max_gap_s: float = 0.0
     last_sample_at: Optional[float] = None
+    # The launch's own Job Object members (FR-PC-ATT-2), from the reading's per-pid map:
+    max_job: Dict[int, int] = field(default_factory=dict)  # their largest MiB per GPU of the reading
+    job_peak_mb: Optional[int] = None         # on the launch's card, from the first output file on
+    job_other_cards_mb: Optional[int] = None  # the largest on any other card, from the first output file on
+    job_unknown: bool = False                 # a sample in that window could not be attributed
 
-    def add(self, reading) -> None:
-        """Add one reading, timed by its own ``taken_at``; a reading already added is skipped."""
+    def add(self, reading, own_pids: Optional[FrozenSet[int]] = None, window: bool = False) -> None:
+        """Add one reading, timed by its own ``taken_at``; a reading already added is skipped.
+
+        ``own_pids``: the launch's members at this tick (``None``: no per-job attribution); ``window``: the
+        render has written its first output file.
+        """
         if reading is None or reading.taken_at == self.last_sample_at:
             return
         if self.last_sample_at is not None:
@@ -114,6 +127,27 @@ class VramTrace:
             ours = getattr(gpu, 'sethlans_used_mb', None)
             if ours is not None:
                 self.max_sethlans[gpu.index] = max(self.max_sethlans.get(gpu.index, 0), ours)
+        if own_pids is not None:
+            self._attribute(reading, own_pids, window)
+
+    def _attribute(self, reading, own_pids: FrozenSet[int], window: bool) -> None:
+        """The members' MiB per card; ``per_pid`` holds every card of the machine, ``gpus`` the launch's own."""
+        per_pid = reading.per_pid
+        mine = {key_address(gpu.card_key): gpu.index for gpu in reading.gpus}
+        if per_pid is None or not set(mine) <= {key_address(key) for key in per_pid}:
+            self.job_unknown = self.job_unknown or window
+            return
+        for key, by_pid in per_pid.items():
+            used = sum(mib for pid, mib in by_pid.items() if pid in own_pids)
+            index = mine.get(key_address(key))
+            if index is not None:
+                self.max_job[index] = max(self.max_job.get(index, 0), used)
+                if window:
+                    self.job_peak_mb = max(self.job_peak_mb or 0, used)
+            elif window:
+                self.job_other_cards_mb = max(self.job_other_cards_mb or 0, used)
+        if window and self.job_other_cards_mb is None:
+            self.job_other_cards_mb = 0  # no other card on the machine
 
     def peak_over(self, baseline: Dict[int, int]) -> Optional[int]:
         """Largest ``max_used - baseline`` over GPUs (at least 0), or None without samples."""
@@ -140,3 +174,5 @@ class RunOutcome:
     adapter_chosen: Optional[int] = None   # the "Chosen D3D12 Adapter Id" of the log (expected launches only)
     adapter_found: bool = False            # the log has "Found D3D12 adapter" lines
     adapter_problem: str = ''              # what the log chose instead of the expected card ('' when it matched)
+    ram: Optional[object] = None           # runner_ram.PhaseRam, set after the exit is confirmed (FR-PC-RAM-2)
+    shader_workers: bool = False           # a ShaderCompileWorker was a member: the launch compiled shaders (D8)

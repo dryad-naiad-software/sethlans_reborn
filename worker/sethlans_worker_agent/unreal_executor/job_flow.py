@@ -31,8 +31,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from sethlans_worker_agent.unreal_executor import (
-    adapter_choice, cvars, job_dir, log_summary, log_validation, output, pilot, pilot_csv, queue_prep, render_check,
-    warmup)
+    adapter_choice, cvars, job_dir, job_memory, log_summary, log_validation, output, pilot, pilot_csv, queue_prep,
+    render_check, warmup)
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
 from sethlans_worker_agent.unreal_executor.runner_types import RENDER_SUCCESS, WARMUP_SUCCESS
 
@@ -67,6 +67,8 @@ class FlowResult:
     card: object = None           # pilot: the reading's GpuMem of the card it rendered on (FR-GU-4)
     piece: object = None          # a sequence piece: sequence_flow.PieceOutput (frames, timings, card)
     sound: object = None          # an audio job: audio_flow.SoundOutput (the .wav, its facts, the offset)
+    ram: Optional[dict] = None    # pilot: the body's RAM figures per phase (FR-PC-RAM-3); None when unknown
+    ram_process_commit_peak_mb: Optional[int] = None
 
 
 class UeFlow:
@@ -223,6 +225,7 @@ class UeFlow:
         result.card = pilot.check_card(self.choice, self.reading)
         csv_peak = pilot_csv.collect(run.log_path, self.config.profile, before, self.job.logs)
         result.metrics = pilot.measure(self.runner.runs, csv_peak)
+        result.ram, result.ram_process_commit_peak_mb = job_memory.pilot_ram(self.runner.runs)
         self.summary.update(pilot.summary_values(result.metrics, list(prep.pilot_frames), result.adapter,
                                                  self.cvars_sha))
         return result

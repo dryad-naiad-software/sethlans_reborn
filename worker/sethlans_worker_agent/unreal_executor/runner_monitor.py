@@ -13,7 +13,11 @@ Monitor helpers for the UE process runner (Unreal foundation FR-UE-11).
 * ``FloodTracker``: the size cap and the growth-rate rule (any 60 s window)
   over the UE log and the stdout file (S3).
 * ``Members``: the processes to watch: the Job Object's members (Windows)
-  or the root and its descendants (fallback). A cached ``psutil.Process``
+  or the root and its descendants (fallback). ``listed`` keeps the Job
+  Object's own member list (the RAM reads use it, so a member psutil cannot
+  open is still read, render per card FR-PC-RAM-2); ``shader_workers`` says
+  whether a ``ShaderCompileWorker.exe`` was ever a member (the warm-up's
+  cold flag, D8). A cached ``psutil.Process``
   is reused only while ``is_running()`` (psutil checks the create time),
   so a reused PID is never attributed to the old process (Conc L1).
   ``procs.json`` lists ``(pid, create_time, exe)``; it is cumulative across
@@ -37,6 +41,7 @@ from sethlans_worker_agent.unreal_executor.runner_types import FLOOD_WINDOW_SECO
 
 logger = logging.getLogger(__name__)
 
+SHADER_WORKER_IMAGE = 'shadercompileworker.exe'  # lower-case image name, as ``orphans.UE_IMAGES`` matches it
 MAX_LEDGER_ENTRIES = 10000
 MAX_LEDGER_BYTES = 4 * MB
 
@@ -44,6 +49,13 @@ MAX_LEDGER_BYTES = 4 * MB
 def _image(proc) -> str:
     try:
         return winpath.normcase(proc.exe() or '')
+    except (psutil.Error, OSError):
+        return ''
+
+
+def _name(proc) -> str:
+    try:
+        return proc.name().lower()
     except (psutil.Error, OSError):
         return ''
 
@@ -122,6 +134,8 @@ class Members:
         self._cache: Dict[int, object] = {}
         self._ledger: Optional[Dict[Tuple[int, float], dict]] = None
         self._dirty = False
+        self.listed: List[int] = []         # the Job Object's own member list at the last tick (Windows)
+        self.shader_workers = False         # a ShaderCompileWorker was a member at some tick
 
     def _proc(self, pid: int):
         proc = self._cache.get(pid)
@@ -134,7 +148,7 @@ class Members:
         """Live member processes (Job Object list, or root + descendants)."""
         procs = []
         if self._job is not None:
-            pids = self._job.pids()
+            pids = self.listed = self._job.pids()
             for pid in [cached for cached in self._cache if cached not in pids]:
                 del self._cache[pid]
             for pid in pids:
@@ -142,6 +156,7 @@ class Members:
                     procs.append(self._proc(pid))
                 except (psutil.Error, OSError):
                     continue
+            self.shader_workers = self.shader_workers or any(_name(proc) == SHADER_WORKER_IMAGE for proc in procs)
             return procs
         try:
             root = self._proc(self._root_pid)

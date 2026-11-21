@@ -25,7 +25,7 @@ from sethlans_worker_agent.unreal_executor.outcomes import LocalConflict, Surviv
 from sethlans_worker_agent.unreal_executor.prelaunch import PreLaunch
 from sethlans_worker_agent.unreal_executor.zen_log import ZenLogResult
 from tests.unit.worker.unreal._executor_fakes import outcome
-from tests.unit.worker.unreal.test_process_runner import World
+from tests.unit.worker.unreal._process_runner_world import World
 
 FOUND = '[x][  0]LogD3D12RHI: Found D3D12 adapter 1: AMD Radeon RX 7900 XT (VendorId: 1002, DeviceId: 744c)'
 CHOSEN = '[x][  0]LogD3D12RHI: Chosen D3D12 Adapter Id = {}'
@@ -167,7 +167,7 @@ def _runner(run_outcome, add_alert, project=PROJECT_A):
                                 log_max_bytes=10, log_flood_bytes_per_min=10)
     runner = phases.PhaseRunner(
         config=config, registry=object(), job_dir=SimpleNamespace(log=lambda p, n: f'{p}.log', stdout=lambda p, n: 's',
-                                                                  ledger='l'),
+                                                                  ledger='l', output='o'),
         cancel=lambda: None, shutdown_event=None, sampler=None,
         run=lambda spec, registry: (calls['specs'].append(spec), run_outcome)[1],
         prelaunch=lambda *a, **k: PreLaunch(ok=True), verify_zen=lambda *a, **k: ZenLogResult(ok=True),

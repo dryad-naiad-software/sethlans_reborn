@@ -57,12 +57,13 @@ import psutil
 
 from sethlans_worker_agent.project_archive import fs_safe
 from sethlans_worker_agent.unreal_executor import winpath, zen_private
+from sethlans_worker_agent.unreal_executor.runner_monitor import SHADER_WORKER_IMAGE
 
 logger = logging.getLogger(__name__)
 
 LEDGER_NAME = 'procs.json'
 MAX_LEDGER_BYTES = 4 * 1024 * 1024
-UE_IMAGES = frozenset({'unrealeditor-cmd.exe', 'unrealeditor.exe', 'shadercompileworker.exe'})
+UE_IMAGES = frozenset({'unrealeditor-cmd.exe', 'unrealeditor.exe', SHADER_WORKER_IMAGE})
 UE_ROOT_IMAGES = frozenset({'unrealeditor-cmd.exe', 'unrealeditor.exe'})
 ZEN_IMAGES = (zen_private.ZEN_IMAGE_WINDOWS, zen_private.ZEN_IMAGE_POSIX)
 CRASH_REPORTER_PREFIX = 'crashreportclient'

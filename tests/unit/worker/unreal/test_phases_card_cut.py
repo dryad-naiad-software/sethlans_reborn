@@ -33,9 +33,19 @@ def other(used, ours=None):
     return GpuMem(0, 'GeForce Test 16G', 16303, used, ours, None, OTHER_KEY)
 
 
+JOB_PID = 4242                   # the launch's one Job Object member
+
+
+def _per_pid(gpus):
+    """Each card's ``ours`` as the job's own pid (FR-PC-ATT-1); ``None`` when no card is attributed."""
+    if all(gpu.sethlans_used_mb is None for gpu in gpus):
+        return None
+    return {gpu.card_key: {} if gpu.sethlans_used_mb is None else {JOB_PID: gpu.sethlans_used_mb} for gpu in gpus}
+
+
 def script(*rows):
     """One reading per row (pre, ticks..., post), ``taken_at`` 1, 2, 3, ..."""
-    return [GpuMemoryReading(float(n), 'test-backend', tuple(gpus), measures_card=True)
+    return [GpuMemoryReading(float(n), 'test-backend', tuple(gpus), measures_card=True, per_pid=_per_pid(gpus))
             for n, gpus in enumerate(rows, start=1)]
 
 
@@ -49,6 +59,7 @@ class Sampler:
 
 class Job:
     ledger = Path('procs.json')
+    output = Path('output')
 
     def log(self, phase, n):
         return Path(f'{phase}.{n}.log')
@@ -65,7 +76,7 @@ def runner(readings, card_key=None):
         specs.append(spec)
         trace = VramTrace()
         for _ in range(len(readings) - 2):
-            trace.add(spec.vram_sample(1.0))
+            trace.add(spec.vram_sample(1.0), frozenset({JOB_PID}))
         return outcome(vram=trace)
 
     config = phases.PhaseConfig(cache_dir='D:\\c', zen_port=8668, worker_sid=None, merged_names=[],

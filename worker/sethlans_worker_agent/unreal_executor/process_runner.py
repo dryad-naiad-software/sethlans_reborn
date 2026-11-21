@@ -21,9 +21,17 @@ UE process runner (Unreal foundation FR-UE-11; Conc H1, M4, M10, R2-M1).
   and the hang rule.
 * **Exit confirmation** runs in ``finally`` on every path (including an
   exception mid-monitor): terminate the Job Object, wait for
-  ``ActiveProcesses == 0`` (30 s), record the survivors. It is idempotent,
-  and ``RunnerRegistry.confirm_all`` repeats it for any runner still open
-  (``execute()``'s outermost ``finally``, FR-UE-2).
+  ``ActiveProcesses == 0`` (30 s), record the survivors, read the Job
+  Object's memory peak, close it. It is idempotent, and
+  ``RunnerRegistry.confirm_all`` (``runner_registry``) repeats it for any
+  runner still open (``execute()``'s outermost ``finally``, FR-UE-2).
+* **RAM and the job's own card memory** (render per card FR-PC-RAM-2,
+  FR-PC-ATT-2): every tick sums the members' RAM (``runner_ram``) and
+  publishes it to ``ram_ledger`` under ``spec.ram_target``; the GPU memory
+  sample records the members' memory per card (``VramTrace``), a render's
+  from its first output file on (``output_watch``). ``launch_started`` and
+  ``launch_ended`` wrap the launch in ``try``/``finally``;
+  ``RunOutcome.ram`` holds the launch's figures.
 
 Everything runs in the caller's (job) thread; no thread is started.
 
@@ -55,7 +63,10 @@ import psutil
 
 from sethlans_worker_agent.unreal_executor import process_tree, user_state
 from sethlans_worker_agent.unreal_executor.job_object import JobObject, JobObjectError
+from sethlans_worker_agent.unreal_executor.output_watch import FirstOutput
 from sethlans_worker_agent.unreal_executor.runner_monitor import LogTail, Members
+from sethlans_worker_agent.unreal_executor.runner_ram import RunnerRam
+from sethlans_worker_agent.unreal_executor.runner_registry import UNKNOWN_SURVIVOR, RunnerRegistry
 from sethlans_worker_agent.unreal_executor.runner_state import MonitorState
 from sethlans_worker_agent.unreal_executor.runner_types import (
     EXIT_WAIT_SECONDS, TICK_SECONDS, UNCONFINED_MESSAGE, VRAM_SAMPLE_TIMEOUT_S, VRAM_TICK_SECONDS, RunOutcome,
@@ -65,7 +76,7 @@ logger = logging.getLogger(__name__)
 
 CREATE_SUSPENDED = 0x00000004
 FINAL_DRAIN_SECONDS = 2.0  # bounded drain of the tail after exit; validation re-reads the whole log anyway
-UNKNOWN_SURVIVOR = ((0, 'unknown (exit confirmation failed)'),)
+__all__ = ['ProcessRunner', 'RunnerRegistry', 'UNKNOWN_SURVIVOR', 'phase_vram_sample', 'run']
 
 
 def _is_windows() -> bool:
@@ -77,7 +88,7 @@ class ProcessRunner:
     def __init__(self, spec: RunSpec, job_api=None, popen: Callable = subprocess.Popen,
                  clock: Callable[[], float] = time.monotonic, windows: Optional[bool] = None,
                  process_factory: Callable = psutil.Process, process_iter: Callable = psutil.process_iter,
-                 exit_wait_s: float = EXIT_WAIT_SECONDS):
+                 exit_wait_s: float = EXIT_WAIT_SECONDS, ram_reader: Optional[Callable] = None):
         self.spec = spec
         self._exit_wait_s = exit_wait_s
         self._process_iter = process_iter
@@ -92,6 +103,8 @@ class ProcessRunner:
         self._confirmed: Optional[Tuple[Tuple[int, str], ...]] = None
         self._lock = threading.Lock()  # leaf lock: confirm_exit may run from execute()'s finally
         self.vram = VramTrace()
+        self.ram = RunnerRam(spec.ram_target, reader=ram_reader)
+        self._first_output = FirstOutput(spec.first_output_dir)
 
     # -- launch ---------------------------------------------------------
     def start(self) -> None:
@@ -168,7 +181,9 @@ class ProcessRunner:
                 self._drain(tail, state)
         finally:
             tail.close()
-        return self._outcome(state, reason)
+        outcome = self._outcome(state, reason)
+        outcome.shader_workers = members.shader_workers
+        return outcome
 
     def _drain(self, tail: LogTail, state: MonitorState) -> None:
         """Read what the tail has not seen yet, for at most ``FINAL_DRAIN_SECONDS`` (Conc L6)."""
@@ -185,8 +200,10 @@ class ProcessRunner:
             self._snapshot = procs or self._snapshot
         members.write_ledger(procs)
         state.cpu.update(procs, now)
+        own = frozenset(members.listed) if self.job is not None else None  # the Job Object's own list
+        self.ram.tick(self.job, members.listed)
         if self.spec.vram_sample is not None:
-            self.vram.add(self.spec.vram_sample(VRAM_SAMPLE_TIMEOUT_S))
+            self.vram.add(self.spec.vram_sample(VRAM_SAMPLE_TIMEOUT_S), own, self._first_output.seen(now))
         return state.decide(now)
 
     def _terminate(self) -> None:
@@ -234,7 +251,10 @@ class ProcessRunner:
             finally:
                 job, self.job = self.job, None
                 if job is not None:
-                    job.close()
+                    try:
+                        self.ram.read_peak(job)  # the tree exited; the peak lives until the handle closes
+                    finally:
+                        job.close()
                 self._confirmed = survivors
             if survivors:
                 logger.error("Unreal processes did not exit: %s", survivors)
@@ -247,37 +267,17 @@ def run(spec: RunSpec, registry: 'RunnerRegistry', **runner_kwargs) -> RunOutcom
         raise ValueError("process_runner.run needs the execute()'s RunnerRegistry")
     runner = ProcessRunner(spec, **runner_kwargs)
     registry.add(runner)
+    runner.ram.launch_started()
     try:
-        runner.start()
-        outcome = runner.monitor()
+        try:
+            runner.start()
+            outcome = runner.monitor()
+        finally:
+            survivors = runner.confirm_exit()
     finally:
-        survivors = runner.confirm_exit()
-    outcome.survivors = survivors
+        runner.ram.launch_ended()
+    outcome.survivors, outcome.ram = survivors, runner.ram.result()
     return outcome
-
-
-class RunnerRegistry:
-    """Every runner of one ``execute()``; ``confirm_all`` is its outermost ``finally``."""
-
-    def __init__(self):
-        self._lock = threading.Lock()  # leaf lock
-        self._runners: List[ProcessRunner] = []
-
-    def add(self, runner: ProcessRunner) -> None:
-        with self._lock:
-            self._runners.append(runner)
-
-    def confirm_all(self) -> Tuple[Tuple[int, str], ...]:
-        with self._lock:
-            runners = list(self._runners)
-        survivors = []
-        for runner in runners:
-            try:
-                survivors.extend(runner.confirm_exit())
-            except Exception:  # noqa: BLE001 - keep confirming the others; fail closed
-                logger.exception("Exit confirmation failed.")
-                survivors.extend(UNKNOWN_SURVIVOR)
-        return tuple(survivors)
 
 
 def phase_vram_sample(sampler) -> Callable:

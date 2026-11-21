@@ -41,39 +41,35 @@ exclusive reservation can mark them.
 
 **No resource is held when this returns None or raises** (chunk 3 L2): the
 slot is given back on every such path. The reservation's release gives it
-back; a retained reservation keeps it until restart. ``ProbePending`` is
+back; a retained reservation keeps it until restart.
+
+Each reservation has a ``claim_id`` (uuid4 hex, D16) and is registered in the
+RAM ledger (``ReserveDeps.ram``) as the last step, with a need of 0 until the
+RAM gate sets it (FR-PC-RAM-4, chunk 5). The entry is dropped by the release
+(before the slot is given back) and by ``retain_until_restart``, which keeps
+only the slot (FR-PC-RAM-5, FR-PC-SU-1). ``ProbePending`` is
 raised only when the sole reason to decline is a probe still pending.
 """
 import logging
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
 from sethlans_worker_agent.cards.identity import key_address
-from sethlans_worker_agent.executors.base import ProbePending, RendererReservation
+from sethlans_worker_agent.executors.base import ProbePending
 from sethlans_worker_agent.unreal_executor import job_params as jp
-from sethlans_worker_agent.unreal_executor import adapter_log, vram_gate_check
+from sethlans_worker_agent.unreal_executor import adapter_log, ram_ledger, vram_gate_check
+from sethlans_worker_agent.unreal_executor.reservation import UnrealReservation
 from sethlans_worker_agent.unreal_executor.slot import SlotPool
 
 logger = logging.getLogger(__name__)
+__all__ = ['ReserveDeps', 'Reserver', 'UnrealReservation']
 
 WARN_INTERVAL_SECONDS = 600.0
 VRAM_FRESH_MAX_AGE_S = 5.0
 VRAM_FRESH_DEADLINE_S = 2.0
-
-
-class UnrealReservation(RendererReservation):
-    """The slot plus what ``execute`` needs from the checks."""
-
-    def __init__(self, params, install, gate, on_release: Callable[[], None], card_keys: tuple = (),
-                 slot: int = 0):
-        super().__init__(on_release=on_release)
-        self.params = params
-        self.install = install
-        self.gate = gate
-        self.card_keys = tuple(card_keys)  # held by the exclusive reservation (job_claim, C-27 b)
-        self.slot = slot  # the job's Unreal slot (FR-PC-SLOT-1); its release gives it back
 
 
 @dataclass
@@ -92,6 +88,7 @@ class ReserveDeps:
     budget: Callable[[], object]
     clock: Callable[[], float] = time.monotonic
     card_keys: Optional[Callable[[], tuple]] = None  # the Unreal cards in use (C-27 b); None: not checked
+    ram: Optional[ram_ledger.RamLedger] = None  # production: ram_ledger.ledger; None: a ledger of this Reserver
 
 
 class Reserver:
@@ -99,6 +96,7 @@ class Reserver:
     def __init__(self, deps: ReserveDeps):
         self.deps = deps
         self.slots = SlotPool()
+        self.ram = deps.ram if deps.ram is not None else ram_ledger.RamLedger()
         self._warned: Dict[str, float] = {}
         self._warn_lock = threading.Lock()  # leaf lock
 
@@ -251,8 +249,15 @@ class Reserver:
         gate = self._fresh_gate(params)
         if gate is None or not self._gated_card_ok(params, gate, card_keys):
             return None
-        return UnrealReservation(params, install, gate, on_release=lambda: self.slots.give(slot),
-                                 card_keys=card_keys, slot=slot)
+        claim_id = uuid.uuid4().hex
+        return UnrealReservation(params, install, gate, on_release=lambda: self._release(claim_id, slot),
+                                 card_keys=card_keys, slot=slot, claim_id=claim_id, ram=self.ram)
+
+    def _release(self, claim_id: str, slot: int) -> None:
+        try:
+            self.ram.unregister(claim_id)
+        finally:
+            self.slots.give(slot)
 
     def try_reserve(self, job_data: dict) -> Optional[UnrealReservation]:
         params = self._prechecks(job_data)
@@ -263,7 +268,10 @@ class Reserver:
             return None
         reservation = None
         try:
-            reservation = self._after_slot(params, slot)
+            claimed = self._after_slot(params, slot)
+            if claimed is not None:
+                self.ram.register(claimed.claim_id, 0, 0)  # need 0 until the RAM gate (FR-PC-RAM-4)
+            reservation = claimed
             return reservation
         finally:
             if reservation is None:

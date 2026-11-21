@@ -96,7 +96,7 @@ class TestProcessPeak:
         runs = []
         for phase, ours in sethlans_by_phase:
             t = trace({0: 9000, 1: 2000}, {0: 1000, 1: 1000}, total=16384)
-            t.max_sethlans.update(ours)
+            t.max_job.update(ours)  # the job's own members (FR-PC-ATT-2)
             runs.append(phase_run(phase, {0: 1000, 1: 1000}, {0: 1000, 1: 1000}, t))
         return runs
 
@@ -112,7 +112,7 @@ class TestPilotReport:
 
     def _metrics(self, ours):
         t = trace({0: 9000}, {0: 1000}, total=16384)
-        t.max_sethlans.update(ours)
+        t.max_job.update(ours)
         return pilot.measure([phase_run('render', {0: 1000}, {0: 1000}, t)], None)
 
     @pytest.mark.parametrize('ours,expected', [({0: 7000}, 7000), ({}, '')])

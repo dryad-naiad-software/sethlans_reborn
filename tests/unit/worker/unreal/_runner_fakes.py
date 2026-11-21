@@ -85,8 +85,11 @@ class FakePs:
 
 
 class FakeJobApi:
-    def __init__(self, procs, fail=()):
+    """A fake of ``job_object.Win32JobApi``; ``memory`` (pid -> (private ws, commit) bytes) is the RAM reader's."""
+
+    def __init__(self, procs, fail=(), peak=(3 << 30, 2 << 30)):
         self.procs, self.fail, self.calls, self.active_override = procs, set(fail), [], None
+        self.peak, self.memory, self.memory_fail = peak, {}, set()
 
     def _maybe(self, name):
         self.calls.append(name)
@@ -118,8 +121,19 @@ class FakeJobApi:
         self._maybe('pids')
         return [pid for pid, proc in self.procs.items() if proc.alive]
 
+    def peak_memory(self, handle):
+        self._maybe('peak')
+        return self.peak
+
     def close(self, handle):
         self.calls.append('close')
+
+    def read_memory(self, pid):
+        """``RunnerRam``'s reader (``process_memory.private_ws_and_commit``) for the fake processes."""
+        from sethlans_worker_agent.unreal_executor.process_memory import ProcessMemoryError
+        if pid in self.memory_fail or pid not in self.procs or not self.procs[pid].alive:
+            raise ProcessMemoryError(87, f'OpenProcess({pid}) failed')
+        return self.memory.get(pid, (100 << 20, 150 << 20))
 
 
 class FakePopen:
