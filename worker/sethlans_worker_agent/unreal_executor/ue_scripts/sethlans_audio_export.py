@@ -4,10 +4,10 @@
 """Sethlans sound-source export (sequence rendering D23, FR-SA-9): the raw sources of an audio run.
 
 Runs in UE 5.8's embedded Python (3.11) as the PythonScript commandlet (``-run=pythonscript -script=<this file>``,
-no GPU); imports only unreal, importlib, json, math, os, sys and time; loads ``sethlans_shots.py`` from
-``scripts_dir`` by file path, never through ``sys.path``. Job data comes only from the params file named by
-``SETHLANS_UE_JOB_PARAMS`` (mode ``export_audio``). It **reads and exports only**: it never sets a property and
-never saves an asset.
+no GPU); imports only unreal, importlib, json, math, os, sys and time; loads ``sethlans_shots.py`` and
+``sethlans_sound_rules.py`` from ``scripts_dir`` by file path, never through ``sys.path``. Job data comes only
+from the params file named by ``SETHLANS_UE_JOB_PARAMS`` (mode ``export_audio``). It **reads and exports
+only**: it never sets a property and never saves an asset.
 
 For every enabled audio section of the sequence's top-level audio tracks, and of the audio tracks inside its shot
 and sub sequences (mapped to edit frames with the shot's time mapping and clipped to the shot section), that
@@ -15,8 +15,10 @@ overlaps ``range`` ``[r0, end + 1)``, ``result_path`` gets one row: ``start`` an
 between two frames is rounded up and the difference added to the start offset), ``start_offset_samples`` (in
 samples of the source wave at its own rate), ``volume`` (the constant one), ``looping``, ``wav`` (``src_<n>.wav``
 in ``export_dir``, each wave exported once with ``SoundExporterWAV``: its raw imported PCM) and ``sample_rate``.
-A section set to play until finished (5.8, ``MovieSceneAudioSection.cpp:523-551``) and not looping ends where its
-wave ends (its ``duration``), when that is later than the section's end; an unreadable duration is unsupported.
+``looping`` and how long a one-shot sound plays on follow UE 5.8.4 (``sethlans_sound_rules``): a section whose
+sound plays on past its end ends where its wave ends (its ``duration``), when that is later; an unknown When
+Finished mode is unsupported. Every Unreal name is UE 5.8.4's Python name and
+nothing falls back silently (#283).
 A section the worker cannot mix is a row ``{"unsupported": reason}`` (a keyed volume, a pitch other than 1, an
 open range, a sound cue, a MetaSound or another non-wave source, a sound attached to an object). More than
 ``max_sections`` rows, or exports above ``max_export_bytes``, fail the step. Errors carry fixed text or a class
@@ -37,6 +39,8 @@ P = {}
 SHOTS = "sethlans_shots"
 WAVE = "SoundWave"
 MUTE_WARNING = "Mute state of audio tracks is not read; muted sounds are mixed."
+RULES = "sethlans_sound_rules"  # how long and how often a sound plays in UE 5.8.4
+PROP_MISSING = "Unreal has no property {name} on {cls}; the sound sources were not read."
 
 
 class ExportFailure(RuntimeError):
@@ -54,28 +58,31 @@ def error_text(exc):
     """Text Sethlans composed is reported; anything else only by its class name (its message can carry a path)."""
     if isinstance(exc, tuple(SAFE)):
         return str(exc)[:2048]
+    if isinstance(exc, AttributeError) and isinstance(exc.name, str) and exc.name.isidentifier():
+        return f"The sound export failed (AttributeError: no {exc.name})."  # the missing name only (#283)
     return f"The sound export failed ({type(exc).__name__})."
 
 
-def load_shots():
+def load(name, what, error):
+    """One helper module from ``scripts_dir`` (the shots, the sound rules); one that does not load fails."""
     try:  # one fixed file; nothing is added to sys.path, so nothing else can be imported in its place
-        spec = importlib.util.spec_from_file_location(SHOTS, os.path.join(P["scripts_dir"], SHOTS + ".py"))
+        spec = importlib.util.spec_from_file_location(name, os.path.join(P["scripts_dir"], name + ".py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
     except Exception as exc:
-        fail(f"The shots module did not load ({type(exc).__name__}).")
-    SAFE.append(getattr(module, "ShotsError", ExportFailure))
+        fail(f"The {what} module did not load ({type(exc).__name__}).")
+    SAFE.append(getattr(module, error, ExportFailure))
     return module
 
 
 def channel(sec, prefix):
-    """``(constant value, keyed)`` of the section's channel whose name starts with ``prefix``; ``(1.0, False)``."""
+    """``(constant value, keyed)`` of the section's channel whose name starts with ``prefix``; ``(1.0, False)``.
+
+    UE 5.8.4's ``get_default()`` gives 0.0 for a channel with no default (``MovieSceneScriptingFloat.h``), so the
+    default is read only when ``has_default()``; with none the channel sets nothing and the sound plays at 1."""
     for ch in sec.get_all_channels():
         if str(ch.get_name()).startswith(prefix):
-            try:
-                value = float(ch.get_default())
-            except Exception:
-                value = 1.0
+            value = float(ch.get_default()) if ch.has_default() else 1.0
             return value, len(ch.get_keys()) > 0
     return 1.0, False
 
@@ -97,15 +104,21 @@ def reason_of(sec, sound):
     return ""
 
 
+def prop(obj, name):
+    """An editor property; one the class does not have fails with fixed text naming it (never a guess, #283)."""
+    try:
+        return obj.get_editor_property(name)
+    except Exception:
+        raise ExportFailure(PROP_MISSING.format(name=name, cls=type(obj).__name__)) from None
+
+
 def wave_rate(sound):
+    """The wave's imported rate (editor data, the raw PCM's rate); a wave without one (0) gives its playback rate."""
     for name in ("imported_sample_rate", "sample_rate"):
-        try:
-            value = int(sound.get_editor_property(name))
-        except Exception:
-            continue
+        value = int(prop(sound, name))
         if value > 0:
             return value
-    fail("A sound wave has no readable sample rate.")
+    fail("A sound wave has no sample rate.")
 
 
 class Exports:
@@ -139,60 +152,58 @@ def audio_sections(seq, shots):
     return out
 
 
-def played_until(sec, sound, owner, lo, hi, base):
-    """The section's end in the owner's frames: past ``hi`` while a play-until-finished wave still plays.
-
-    ``None`` when the wave's length cannot be read."""
-    try:
-        until = bool(sec.get_play_until_finished())
-    except Exception:
-        return hi
-    if not until or bool(sec.get_editor_property("looping")):
-        return hi
-    try:
-        duration = float(sound.get_editor_property("duration"))
-    except Exception:
-        return None
+def section_end(rules, sec, sound, owner, lo, base):
+    """The section's end in the owner's frames, past its own end while a one-shot wave plays on (``rules``:
+    ``sethlans_sound_rules``); a text when UE's behaviour is not known (the row is then unsupported)."""
+    hi = float(sec.get_end_frame())
+    keeps = rules.keeps_playing(sec, owner, RES["warnings"])
+    if isinstance(keeps, str) or not keeps:
+        return keeps if isinstance(keeps, str) else hi
     rate = owner.get_display_rate()
-    return max(hi, lo + (duration - base) * rate.numerator / rate.denominator)
+    return max(hi, lo + (float(prop(sound, "duration")) - base) * rate.numerator / rate.denominator)
 
 
-def row_of(sec, owner, mapping, spf, exports):
+def _span(rules, sec, sound, owner, base, reason):
+    """``(lo, hi, looped)`` in the owner's frames; ``hi`` is the unsupported reason when UE's end is not known."""
+    lo, looped = float(sec.get_start_frame()), False if reason else rules.loops(sec, sound)
+    hi = float(sec.get_end_frame()) if reason or looped else section_end(rules, sec, sound, owner, lo, base)
+    return lo, hi, looped
+
+
+def row_of(rules, sec, owner, mapping, spf, exports):
     """One row, or ``None`` outside the range; ``mapping``: ``(start, end, inner_start, offset, ratio)`` or None."""
-    sound = sec.get_editor_property("sound")
+    sound = prop(sec, "sound")
     reason = reason_of(sec, sound)
     if reason == "an open range":
         return {"unsupported": reason}
     if reason == "no sound":
         return None
     ticks = owner.get_tick_resolution()
-    base = sec.get_editor_property("start_frame_offset").value * ticks.denominator / ticks.numerator
-    lo = float(sec.get_start_frame())
-    hi = played_until(sec, sound, owner, lo, float(sec.get_end_frame()), base) if not reason else float(sec.get_end_frame())
-    if hi is None:
-        return {"unsupported": "a play-until-finished sound of unknown length"}
+    base = prop(sec, "start_frame_offset").value * ticks.denominator / ticks.numerator
+    lo, hi, looped = _span(rules, sec, sound, owner, base, reason)
+    if isinstance(hi, str):
+        return {"unsupported": hi}
     window = (-math.inf, math.inf)
     if mapping is not None:
         start, end, inner_start, offset, ratio = mapping
         lo, hi = start + (lo - inner_start - offset) / ratio, start + (hi - inner_start - offset) / ratio
         window = (start, end)
     first, last = math.ceil(max(lo, window[0])), math.ceil(min(hi, window[1]))
-    r0, stop = int(P["range"][0]), int(P["range"][1])
-    if first >= last or first >= stop or last <= r0:
+    if first >= last or first >= int(P["range"][1]) or last <= int(P["range"][0]):
         return None
     if reason:
         return {"unsupported": reason}
     rate = wave_rate(sound)
     volume = channel(sec, "Volume")[0]
     return {"start": first, "end": last, "start_offset_samples": max(0, round((base + (first - lo) * spf) * rate)),
-            "volume": min(max(volume, 0.0), 4.0), "looping": bool(sec.get_editor_property("looping")),
-            "wav": exports.name_of(sound), "sample_rate": rate}
+            "volume": min(max(volume, 0.0), 4.0), "looping": looped, "wav": exports.name_of(sound),
+            "sample_rate": rate}
 
 
 def bound_sections(seq):
     """Audio sections attached to objects (spatialised): counted, never mixed."""
     rows = []
-    for binding in getattr(seq, "get_bindings", lambda: [])():
+    for binding in seq.get_bindings():
         for track in binding.get_tracks():
             if isinstance(track, unreal.MovieSceneAudioTrack):
                 rows += [{"unsupported": "a sound attached to an object"} for _sec in track.get_sections()]
@@ -200,7 +211,7 @@ def bound_sections(seq):
 
 
 def export():
-    shots = load_shots()
+    shots, rules = load(SHOTS, "shots", "ShotsError"), load(RULES, "sound rules", "SoundRulesError")
     unreal.AssetRegistryHelpers.get_asset_registry().search_all_assets(True)
     seq = unreal.load_asset(P["sequence"])
     if seq is None:
@@ -212,7 +223,7 @@ def export():
     for start, end, sub, inner_start, offset, ratio in shots.shot_sections(seq):
         pairs += [(sec, sub, (start, end, inner_start, offset, ratio)) for sec in audio_sections(sub, shots)]
     for sec, owner, mapping in pairs:
-        row = row_of(sec, owner, mapping, spf, exports)
+        row = row_of(rules, sec, owner, mapping, spf, exports)
         if row is not None:
             rows.append(row)
         if len(rows) > int(P["max_sections"]):

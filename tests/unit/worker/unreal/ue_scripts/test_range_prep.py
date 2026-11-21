@@ -175,26 +175,38 @@ class TestSizeAndDraft:
 
 class TestDraftConflicts:
 
-    def test_graph_console_variable_nodes(self, tmp_path, monkeypatch):
-        node = ue.MovieGraphConsoleVariableNode(entries=[('r.screenpercentage', 75.0, True), ('r.Other.Thing', 1, True),
-                                                         ('r.RayTracing.Shadows', 1.0, False)])
+    def test_graph_set_console_variable_nodes(self, tmp_path, monkeypatch):
+        """UE 5.8.4's graph names a CVar only on a Set Console Variable node (``MovieGraphSetCVarValueNode``, #283)."""
+        nodes = [ue.MovieGraphSetCVarValueNode(override_name=True, name='r.screenpercentage', override_value=True),
+                 ue.MovieGraphSetCVarValueNode(override_name=True, name='r.Other.Thing'),
+                 ue.MovieGraphSetCVarValueNode(override_name=True, name='r.RayTracing.Shadows', disabled=True),
+                 ue.MovieGraphSetCVarValueNode(override_name=False, name='r.RayTracing.Shadows')]
         draft = {'screen_percentage': 50, 'ray_traced_shadows': False}
+        result, error, _world = run(tmp_path, monkeypatch, ue.graph(overrides=nodes), piece_params(draft=draft))
+        _ok(result, error)
+        assert result['draft_conflicts'] == ['r.ScreenPercentage'] and result['warnings'] == []
+
+    def test_a_graph_cvar_preset_warns(self, tmp_path, monkeypatch):
+        node = ue.MovieGraphApplyCVarPresetNode(override_console_variable_preset=True, console_variable_preset='p')
+        draft = {'screen_percentage': 50}
         result, error, _world = run(tmp_path, monkeypatch, ue.graph(overrides=[node]), piece_params(draft=draft))
         _ok(result, error)
-        assert result['draft_conflicts'] == ['r.ScreenPercentage']  # the disabled entry does not count
+        assert result['draft_conflicts'] == [] and result['warnings'] == [
+            "The preset uses console variable presets; a draft value they set is not detected."]
 
     def test_legacy_setting_and_an_unreadable_one(self, tmp_path, monkeypatch):
         draft = {'ray_traced_reflections': False}
-        cv = ue.MoviePipelineConsoleVariableSetting(entries=[('r.Lumen.Reflections.HardwareRayTracing', 1.0, True)])
+        cv = ue.MoviePipelineConsoleVariableSetting(entries=[('r.Lumen.Reflections.HardwareRayTracing', 1.0, True),
+                                                             ('r.ScreenPercentage', 50.0, False)])
         result, error, _world = run(tmp_path, monkeypatch, legacy(cv), piece_params(draft=draft))
         _ok(result, error)
         assert result['draft_conflicts'] == ['r.Lumen.Reflections.HardwareRayTracing']
-        broken = ue.MovieGraphConsoleVariableNode(broken=True)
-        result, error, _world = run(tmp_path, monkeypatch, ue.graph(overrides=[broken]), piece_params(draft=draft))
-        _ok(result, error)
-        assert result['draft_conflicts'] == []
-        assert result['warnings'] == ["The preset's console variables were not read (RuntimeError); a draft value it "
-                                      "sets itself is not detected."]
+        broken = ue.MoviePipelineConsoleVariableSetting()
+        del broken.props['console_variable_presets']  # no silent fallback (#283): a missing property fails the prep
+        result, error, _world = run(tmp_path, monkeypatch, legacy(broken), piece_params(draft=draft))
+        assert error is not None and result['error'] == ("Unreal has no property console_variable_presets on "
+                                                         "MoviePipelineConsoleVariableSetting; Sethlans needs UE "
+                                                         "5.8.4's property names.")
 
 
 class MultiLayerExr(ue.MovieGraphImageSequenceOutputNode_EXR):

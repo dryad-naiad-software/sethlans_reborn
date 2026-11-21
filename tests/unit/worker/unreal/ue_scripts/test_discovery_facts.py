@@ -13,7 +13,7 @@ import pytest
 
 from sethlans_worker_agent.unreal_executor import job_dir, sequence_prep
 from shared.unreal import shots_result
-from tests.unit.worker.unreal import _ue_stub as ue
+from tests.unit.worker.unreal import _ue_stub as ue, _ue_stub_seq
 from tests.unit.worker.unreal.ue_scripts._discovery import PRESET, run_list
 
 SEQ = ue.Sequence(0, 240, [ue.MovieSceneCameraCutTrack([ue.Section(0, 240)])], rate=(30000, 1001))
@@ -50,14 +50,14 @@ class TestGraph:
 
     def test_overridden_output_settings_samples_and_outputs(self, tmp_path, monkeypatch):
         node = output_node(override_output_resolution=True,
-                           output_resolution=ue.types.SimpleNamespace(resolution=ue.size(3840, 2160)),
+                           output_resolution=ue.MovieGraphNamedResolution('Custom', ue.size(3840, 2160)),
                            override_output_frame_rate=True, output_frame_rate=ue.FrameRate(25),
                            override_zero_pad_frame_numbers=True, zero_pad_frame_numbers=6,
                            override_handle_frame_count=True, handle_frame_count=5,
                            override_frame_number_offset=True, frame_number_offset=100)
         sampling = ue.MovieGraphSamplingMethodNode(override_temporal_sample_count=True, temporal_sample_count=8)
         unset = ue.MovieGraphSamplingMethodNode(override_temporal_sample_count=False, temporal_sample_count=64)
-        pass_node = ue.MovieGraphRenderPassNode(override_spatial_sample_count=True, spatial_sample_count=4)
+        pass_node = ue.MovieGraphDeferredRenderPassNode(override_spatial_sample_count=True, spatial_sample_count=4)
         preset = graph_with([node, sampling, unset], [ue.MovieGraphImageSequenceOutputNode_EXR(disabled=True),
                                                       ue.MovieGraphAudioOutputNode()], passes=0)
         preset.branches['DefaultLayer'].append(pass_node)
@@ -97,6 +97,60 @@ class TestGraph:
         else:
             assert result['error'] == (f"The preset's Global Output Settings expose {refused} as a pin or variable; "
                                        "Sethlans cannot read the value that renders.")
+
+
+class TestRenderedSize:
+    """Issue #283: UE renders a known profile's size, not the size stored beside it."""
+
+    def _resolution(self, tmp_path, monkeypatch, named):
+        node = output_node(override_output_resolution=True, output_resolution=named)
+        return facts_of(tmp_path, monkeypatch, graph_with([node]))['resolution']
+
+    def test_a_known_profile_wins_over_a_stale_stored_size(self, tmp_path, monkeypatch):
+        named = ue.MovieGraphNamedResolution('1080p (FHD)', ue.size(128, 72))
+        assert ue.resolved_size(named) == (1920, 1080)
+        assert self._resolution(tmp_path, monkeypatch, named) == [1920, 1080]
+
+    def test_another_known_profile_and_an_unknown_name(self, tmp_path, monkeypatch):
+        assert self._resolution(tmp_path, monkeypatch, ue.MovieGraphNamedResolution('720p (HD)', ue.size(64, 64))) \
+            == [1280, 720]
+        assert self._resolution(tmp_path, monkeypatch, ue.MovieGraphNamedResolution('Studio', ue.size(2048, 858))) \
+            == [2048, 858]
+
+    def test_without_the_library_the_discovery_fails_loudly(self, tmp_path, monkeypatch):
+        """No silent fallback (#283): a missing ``unreal.MovieGraphLibrary`` fails with its name, never a guess."""
+        monkeypatch.setattr(_ue_stub_seq, 'size_library', lambda: ue.types.SimpleNamespace())
+        node = output_node(override_output_resolution=True,
+                           output_resolution=ue.MovieGraphNamedResolution('Custom', ue.size(640, 360)))
+        result, error, _world = run_list(tmp_path, monkeypatch, graph_with([node]), copy.deepcopy(SEQ))
+        assert error is not None and result['error'] == ("The preset's output settings were not read (AttributeError: "
+                                                         "no is_named_resolution_valid).")
+
+    def test_a_missing_property_names_itself(self, tmp_path, monkeypatch):
+        node = output_node()
+        del node.props['override_zero_pad_frame_numbers']
+        result, error, _world = run_list(tmp_path, monkeypatch, graph_with([node]), copy.deepcopy(SEQ))
+        assert error is not None and result['error'] == ("Unreal has no property override_zero_pad_frame_numbers on "
+                                                         "MovieGraphGlobalOutputSettingNode; the preset's output "
+                                                         "settings were not read.")
+
+
+ADAPT = ("The preset adapts its output resolution to the camera; a shot whose camera constrains its aspect ratio "
+         "renders at another size than the one set, which Sethlans then refuses.")
+
+
+@pytest.mark.parametrize('nodes,warned', [
+    ([], False),  # the class default: Disabled
+    ([{'override_adapt_resolution': True, 'adapt_resolution': 'AUTOMATIC'}], True),
+    ([{'override_adapt_resolution': False, 'adapt_resolution': 'AUTOMATIC'}], False),  # not overridden: Disabled
+    ([{'override_adapt_resolution': True, 'adapt_resolution': 'AUTOMATIC', 'disabled': True}], False),
+])
+def test_an_adapted_resolution_warns_in_discovery(tmp_path, monkeypatch, nodes, warned):
+    """#283 review: UE resizes the output to a constrained camera's aspect ratio unless adapting is Disabled."""
+    preset = graph_with([output_node(**props) for props in nodes])
+    result, error, _world = run_list(tmp_path, monkeypatch, preset, copy.deepcopy(SEQ))
+    assert error is None and (ADAPT in result['warnings']) is warned
+    assert result['preset_facts']['resolution'] == [1920, 1080]
 
 
 class TestErrorText:

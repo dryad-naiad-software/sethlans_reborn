@@ -9,7 +9,7 @@ sound's path to the bytes its export writes; ``world['export_fails']`` makes eve
 """
 import types
 
-from tests.unit.worker.unreal._ue_stub_mrq import MoviePipelineOutputBase, _Strict
+from tests.unit.worker.unreal._ue_stub_mrq import MoviePipelineOutputBase, Struct, _Strict
 
 
 class MoviePipelineWaveOutput(_Strict, MoviePipelineOutputBase):
@@ -17,14 +17,19 @@ class MoviePipelineWaveOutput(_Strict, MoviePipelineOutputBase):
 
 
 class Channel:
+    """A scripting channel; ``default=None`` is one with no default, which UE 5.8.4's ``get_default()`` reads as 0."""
+
     def __init__(self, name, default=1.0, keys=0):
         self.name, self.default, self.keys = name, default, keys
 
     def get_name(self):
         return self.name
 
+    def has_default(self):
+        return self.default is not None
+
     def get_default(self):
-        return self.default
+        return 0.0 if self.default is None else self.default
 
     def get_keys(self):
         return [object()] * self.keys
@@ -33,8 +38,8 @@ class Channel:
 class Sound:
     """A sound asset; ``cls`` is its UE class name (``SoundWave``, ``SoundCue``, ``MetaSoundSource``)."""
 
-    def __init__(self, path, cls='SoundWave', rate=48_000, duration=None):
-        self.path, self.cls, self.rate, self.duration = path, cls, rate, duration
+    def __init__(self, path, cls='SoundWave', rate=48_000, duration=None, looping=False):
+        self.path, self.cls, self.rate, self.duration, self.looping = path, cls, rate, duration, looping
 
     def get_class(self):
         return types.SimpleNamespace(get_name=lambda: self.cls)
@@ -47,15 +52,18 @@ class Sound:
             return self.rate
         if name == 'duration' and self.duration is not None:
             return self.duration
+        if name == 'looping':  # SoundWave.bLooping: a looping wave is not one-shot (USoundBase::IsOneShot)
+            return self.looping
         raise AttributeError(name)
 
 
 class AudioSection:
     def __init__(self, start, end, sound, offset_ticks=0, looping=False, volume=1.0, volume_keys=0, pitch=1.0,
-                 pitch_keys=0, active=True, open_range=False, until=False):
+                 pitch_keys=0, active=True, open_range=False, until=False, repeating=False, completion='PROJECT_DEFAULT'):
         self.start, self.end, self.active, self.open_range, self.until = start, end, active, open_range, until
-        self.props = {'sound': sound, 'looping': looping,
-                      'start_frame_offset': types.SimpleNamespace(value=offset_ticks)}
+        self.completion = completion
+        self.props = {'sound': sound, 'looping': looping, 'repeating': repeating,
+                      'start_frame_offset': Struct(value=offset_ticks)}
         self.channels = [Channel('Volume_1', volume, volume_keys), Channel('Pitch_1', pitch, pitch_keys),
                          Channel('AttachActor_1', None)]
 
@@ -64,6 +72,10 @@ class AudioSection:
 
     def get_play_until_finished(self):
         return self.until
+
+    def get_completion_mode(self):
+        """``MovieSceneSection.GetCompletionMode``: a new audio section's is Project Default (cpp:148-152)."""
+        return self.completion
 
     def get_all_channels(self):
         return self.channels
@@ -106,8 +118,8 @@ def install(module, world):
     module.MoviePipelineWaveOutput = MoviePipelineWaveOutput
     module.MovieSceneAudioTrack = MovieSceneAudioTrack
     module.SoundExporterWAV = lambda: 'SoundExporterWAV'
-    module.AssetExportTask = lambda: types.SimpleNamespace(object=None, filename='', exporter=None, automated=False,
-                                                           prompt=True, replace_identical=False, errors=[])
+    module.AssetExportTask = lambda: Struct(object=None, filename='', exporter=None, automated=False, prompt=True,
+                                            replace_identical=False)
 
     def run_asset_export_task(task):
         if world.get('export_fails'):

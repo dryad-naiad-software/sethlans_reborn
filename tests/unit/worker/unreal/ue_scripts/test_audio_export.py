@@ -57,7 +57,7 @@ def run(tmp_path, monkeypatch, seq, **params):
 
 
 def test_rows_for_the_sections_that_overlap_the_run(tmp_path, monkeypatch):
-    seq = _sequence(ue.AudioSection(0, 500, MUSIC, offset_ticks=12_000, looping=True, volume=0.5),
+    seq = _sequence(ue.AudioSection(0, 500, MUSIC, offset_ticks=12_000, repeating=True, volume=0.5),
                     ue.AudioSection(300, 400, MUSIC), ue.AudioSection(100, 200, CUE),
                     ue.AudioSection(120, 200, MUSIC, volume_keys=2), ue.AudioSection(150, 260, FX44, pitch=1.5),
                     ue.AudioSection(150, 260, FX44), ue.AudioSection(10, 50, MUSIC),
@@ -127,18 +127,26 @@ def test_it_reads_and_exports_only():
         assert call not in text, call
     assert not [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == 'path'
                 and isinstance(n.value, ast.Name) and n.value.id == 'sys']  # never sys.path
-    assert 'importlib.util.spec_from_file_location(SHOTS, os.path.join(P["scripts_dir"], SHOTS + ".py"))' in text
+    assert 'importlib.util.spec_from_file_location(name, os.path.join(P["scripts_dir"], name + ".py"))' in text
+    assert 'load(SHOTS, "shots", "ShotsError"), load(RULES, "sound rules", "SoundRulesError")' in text
 
 
-def test_a_play_until_finished_wave_ends_where_it_ends(tmp_path, monkeypatch):
-    """5.8: the sound outlasts its section; a 5 s wave from frame 100 (24 fps) after a 1 s start offset ends at 196."""
+@pytest.mark.parametrize('cvar,ends', [('1', [196, 150]), ('0', [150, 150])])
+def test_a_play_until_finished_wave_ends_where_it_ends(tmp_path, monkeypatch, cvar, ends):
+    """5.8.4: the sound outlasts its section only with ``Sequencer.Audio.UsePlayUntilFinished`` on (off by default,
+    ``IsPlayUntilFinishedActive``); a 5 s wave from frame 100 (24 fps) after a 1 s start offset then ends at 196."""
     long_wave = ue.Sound('/Game/A/Long.Long', duration=5.0)
-    unknown = ue.Sound('/Game/A/Odd.Odd')
     seq = _sequence(ue.AudioSection(100, 150, long_wave, offset_ticks=24_000, until=True),
-                    ue.AudioSection(100, 150, long_wave, until=True, looping=True),
-                    ue.AudioSection(100, 150, unknown, until=True))
-    result, error, _world = run(tmp_path, monkeypatch, seq, world={'exports': {long_wave.path: b'RIFF'}})
+                    ue.AudioSection(100, 150, long_wave, until=True, repeating=True))  # repeating: never extended
+    world = {'exports': {long_wave.path: b'RIFF'}, 'cvars': {'Sequencer.Audio.UsePlayUntilFinished': cvar}}
+    result, error, _world = run(tmp_path, monkeypatch, seq, world=world)
     assert error is None, result
-    ends = [row.get('end') for row in result['sections']]
-    assert ends == [196, 150, None]
-    assert result['sections'][2] == {'unsupported': 'a play-until-finished sound of unknown length'}
+    assert [row.get('end') for row in result['sections']] == ends
+
+
+def test_a_channel_without_a_default_plays_at_1(tmp_path, monkeypatch):
+    """UE 5.8.4's ``get_default()`` reads 0.0 when a channel has no default (#283): only ``has_default()`` counts."""
+    section = ue.AudioSection(100, 200, MUSIC)
+    section.channels[0].default = None  # the volume channel: no default, no keys
+    result, error, _world = run(tmp_path, monkeypatch, _sequence(section))
+    assert error is None and result['sections'][0]['volume'] == 1.0, result

@@ -10,35 +10,40 @@ and records what the script did. The legacy preset and the base pieces live
 in ``_ue_stub_mrq`` and are re-exported here.
 """
 import copy
+import os
 import types
+from pathlib import Path
 
 from tests.unit.worker.unreal import _ue_stub_audio, _ue_stub_seq
 from tests.unit.worker.unreal._ue_stub_mrq import (  # noqa: F401 - re-exported for the tests
-    LEGACY_CLASSES, FrameRate, MoviePipelineAntiAliasingSetting, MoviePipelineGameOverrideSetting,
+    LEGACY_CLASSES, FrameRate, MovieGraphNode, MoviePipelineAntiAliasingSetting, MoviePipelineGameOverrideSetting,
     MoviePipelineImageSequenceOutput_PNG, MoviePipelineOutputBase, MoviePipelineOutputSetting,
-    MoviePipelinePrimaryConfig, MoviePipelineRenderPass, MoviePipelineTextureStreamingMethod, _Props, _Strict, size)
+    MoviePipelinePrimaryConfig, MoviePipelineRenderPass, MoviePipelineTextureStreamingMethod, Struct, _Props, _Strict,
+    size)
 from tests.unit.worker.unreal._ue_stub_audio import (  # noqa: F401 - re-exported for the tests
     AudioSection, Binding, MoviePipelineWaveOutput, MovieSceneAudioTrack, Sound)
 from tests.unit.worker.unreal._ue_stub_seq import (  # noqa: F401 - re-exported for the tests
-    SEQ_LEGACY_CLASSES, MoviePipelineCameraSetting, MoviePipelineConsoleVariableSetting,
-    MoviePipelineImageSequenceOutput_EXR)
+    SEQ_LEGACY_CLASSES, MovieGraphApplyCVarPresetNode, MovieGraphNamedResolution, MovieGraphSetCVarValueNode,
+    MoviePipelineCameraSetting, MoviePipelineConsoleVariableSetting, MoviePipelineImageSequenceOutput_EXR, resolved_size)
 
 
-class MovieGraphNode(_Props):
-    pass
+CONFIG_DIR = Path(__file__).resolve().parents[3] / 'assets' / 'unreal_config'  # BaseEngine.ini's sequence default
+# UE 5.8.4's defaults of the CVars the scripts read (MovieSceneAudioSection.cpp:30, :50); ``world['cvars']`` wins.
+CVAR_DEFAULTS = {'Sequencer.Audio.UseRepeating': '1', 'Sequencer.Audio.UsePlayUntilFinished': '0'}
 
 
 class MovieGraphGlobalOutputSettingNode(_Strict, MovieGraphNode):
     """UE 5.8.4's graph node, as far as discovery reads it: no frame-step property (reported absent, U-1)."""
-    DEFAULTS = {'output_resolution': types.SimpleNamespace(profile_name='Custom', resolution=size(1920, 1080)),
+    DEFAULTS = {'output_resolution': MovieGraphNamedResolution(),  # the 1080p (FHD) profile, as UE builds it
                 'override_output_resolution': False, 'output_frame_rate': FrameRate(24),
                 'override_output_frame_rate': False, 'zero_pad_frame_numbers': 4,
                 'override_zero_pad_frame_numbers': False, 'frame_number_offset': 0,
-                'override_frame_number_offset': False, 'handle_frame_count': 0, 'override_handle_frame_count': False}
+                'override_frame_number_offset': False, 'handle_frame_count': 0, 'override_handle_frame_count': False,
+                'adapt_resolution': 'DISABLED', 'override_adapt_resolution': False}
 
 
-class MovieGraphSamplingMethodNode(MovieGraphNode):
-    pass
+class MovieGraphSamplingMethodNode(_Strict, MovieGraphNode):
+    DEFAULTS = {'override_temporal_sample_count': False, 'temporal_sample_count': 1}
 
 
 class MovieGraphGlobalGameOverridesNode(MovieGraphNode):
@@ -69,25 +74,21 @@ class MovieGraphRenderLayerNode(MovieGraphNode):
     pass
 
 
-class MovieGraphImagePassBaseNode(MovieGraphNode):
+class MovieGraphRenderPassNode(MovieGraphNode):
     pass
 
 
-class MovieGraphRenderPassNode(MovieGraphImagePassBaseNode):
-    pass
+class MovieGraphImagePassBaseNode(_Strict, MovieGraphRenderPassNode):
+    """UE 5.8.4: every image pass node (deferred, path tracer, panoramic, object ID) has the spatial samples."""
+    DEFAULTS = {'override_spatial_sample_count': False, 'spatial_sample_count': 1}
 
 
-class MovieGraphDeferredRenderPassNode(MovieGraphRenderPassNode):
+class MovieGraphDeferredRenderPassNode(MovieGraphImagePassBaseNode):
     pass
 
 
 class MovieGraphCameraSettingNode(_Strict, MovieGraphNode):
     DEFAULTS = {'override_shutter_timing': False, 'shutter_timing': 'FRAME_CENTER'}  # 5.8.4: no shutter angle
-
-
-class MovieGraphConsoleVariableNode(MovieGraphNode):
-    def get_console_variables(self):
-        return _ue_stub_seq.cvar_entries(self.props)
 
 
 class MovieGraphConfig:
@@ -120,16 +121,10 @@ class TimeWarp:
         return 1.0 if self.curve else self.play_rate
 
 
-class _Struct(types.SimpleNamespace):
-    def get_editor_property(self, name):
-        return getattr(self, name)
-
-
 class Section:
     def __init__(self, start, end, sequence=None, offset_ticks=0, active=True, row=0, time_scale=None):
         self.start, self.end, self.sequence, self.active, self.row = start, end, sequence, active, row
-        self.parameters = _Struct(start_frame_offset=types.SimpleNamespace(value=offset_ticks),
-                                  time_scale=time_scale or TimeWarp())
+        self.parameters = Struct(start_frame_offset=Struct(value=offset_ticks), time_scale=time_scale or TimeWarp())
 
     def get_editor_property(self, name):
         return getattr(self, name)
@@ -173,8 +168,15 @@ class MovieSceneSubTrack(Track):
 
 
 class Sequence:
-    def __init__(self, start, end, tracks=(), rate=24, ticks=24000, name='Seq'):
+    def __init__(self, start, end, tracks=(), rate=24, ticks=24000, name='Seq', bindings=(), cls='LevelSequence'):
         self.start, self.end, self.tracks, self.rate, self.ticks, self.name = start, end, list(tracks), rate, ticks, name
+        self.bindings, self.cls = list(bindings), cls
+
+    def get_class(self):
+        return types.SimpleNamespace(get_name=lambda: self.cls)
+
+    def get_bindings(self):
+        return self.bindings
 
     def get_display_rate(self):
         return FrameRate(*self.rate) if isinstance(self.rate, tuple) else FrameRate(self.rate)
@@ -218,8 +220,7 @@ def make_unreal(world):
                 MovieGraphRenderPassNode, MovieGraphConfig, MovieSceneCameraCutTrack, MovieSceneCinematicShotTrack,
                 MovieSceneSubTrack, MovieGraphSubgraphNode, MovieGraphImageSequenceOutputNode_EXR,
                 MovieGraphAudioOutputNode, MovieGraphSamplingMethodNode, MovieGraphImagePassBaseNode,
-                MovieGraphDeferredRenderPassNode, MovieGraphCameraSettingNode,
-                MovieGraphConsoleVariableNode) + LEGACY_CLASSES + SEQ_LEGACY_CLASSES:
+                MovieGraphDeferredRenderPassNode, MovieGraphCameraSettingNode) + LEGACY_CLASSES + SEQ_LEGACY_CLASSES:
         setattr(module, cls.__name__, cls)
     _ue_stub_seq.install(module)
     _ue_stub_audio.install(module, world)
@@ -227,8 +228,15 @@ def make_unreal(world):
     module.MoviePipelineTextureStreamingMethod = MoviePipelineTextureStreamingMethod
     module.log = world['logs'].append
     module.MovieGraphSequenceRangeType = types.SimpleNamespace(CUSTOM='custom')
-    module.MovieGraphSequencePlaybackRangeBound = lambda: types.SimpleNamespace(type=None, value=None)
-    module.DirectoryPath = lambda path: types.SimpleNamespace(path=path)
+    module.MovieSceneCompletionMode = types.SimpleNamespace(
+        KEEP_STATE='KEEP_STATE', RESTORE_STATE='RESTORE_STATE', PROJECT_DEFAULT='PROJECT_DEFAULT')
+    module.MovieGraphAspectRatioAdaptBehavior = types.SimpleNamespace(DISABLED='DISABLED', AUTOMATIC='AUTOMATIC')
+    module.Paths = types.SimpleNamespace(  # UBlueprintPathsLibrary (ScriptName Paths): the config folders UE reads
+        project_config_dir=lambda: world.get('project_config', str(CONFIG_DIR / 'project')),
+        engine_config_dir=lambda: world.get('engine_config', str(CONFIG_DIR / 'engine')),
+        convert_relative_path_to_full=lambda path, base='': os.path.abspath(os.path.join(base, path)))
+    module.MovieGraphSequencePlaybackRangeBound = lambda: Struct(type=None, value=None)
+    module.DirectoryPath = lambda path: Struct(path=path)
     module.SoftObjectPath = lambda path: path
     module.MoviePipelineQueue = Queue
     module.MoviePipelineExecutorJob = object
@@ -253,7 +261,8 @@ def make_unreal(world):
     module.AssetToolsHelpers = types.SimpleNamespace(
         get_asset_tools=lambda: types.SimpleNamespace(create_asset=create_asset))
     module.SystemLibrary = types.SimpleNamespace(
-        get_console_variable_string_value=lambda name: world.get('cvars', {}).get(name, ''))
+        get_console_variable_string_value=lambda name: str(world.get('cvars', {}).get(name, '')),
+        get_console_variable_bool_value=lambda name: bool(int(world.get('cvars', {}).get(name, CVAR_DEFAULTS.get(name, 0)))))
     return module
 
 

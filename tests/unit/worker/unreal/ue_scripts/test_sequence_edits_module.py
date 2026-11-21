@@ -69,6 +69,21 @@ def test_an_edits_error_is_reported_with_its_own_text(tmp_path, monkeypatch):
     assert error is not None and result['error'] == 'Preset does not output PNG; phase 1 does not add outputs.'
 
 
+def test_a_missing_unreal_name_fails_the_prep_naming_it(tmp_path, monkeypatch):
+    """No silent fallback (#283): a class this Unreal lacks fails the prep with the missing name only."""
+    from tests.unit.worker.unreal import _ue_stub
+    make = _ue_stub.make_unreal
+
+    def without_layers(world):
+        module = make(world)
+        del module.MovieGraphRenderLayerNode
+        return module
+    monkeypatch.setattr(_ue_stub, 'make_unreal', without_layers)
+    result, error, _world = run(tmp_path, monkeypatch, poc_assets())
+    assert isinstance(error, AttributeError)
+    assert result['error'] == 'Unreal prep pass failed (AttributeError: no MovieGraphRenderLayerNode).'
+
+
 def test_a_sethlans_sequence_edits_on_sys_path_is_never_imported(tmp_path, monkeypatch):
     planted = tmp_path / 'planted'
     planted.mkdir()

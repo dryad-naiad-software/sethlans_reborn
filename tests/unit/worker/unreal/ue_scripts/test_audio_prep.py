@@ -93,6 +93,31 @@ class TestGraph:
         assert error is not None and result['error'] == message and DUP not in world['saved']
 
 
+SETS = ("The preset sets {name}, which changes how sounds end and repeat; the sound job cannot see the preset's "
+        "value. Remove it from the preset to render sound.")
+
+
+class TestSoundCvars:
+    """#283 review: the export reads these CVars before the render; a preset that sets them itself is refused."""
+
+    @pytest.mark.parametrize('name', ['Sequencer.Audio.UsePlayUntilFinished', 'sequencer.audio.userepeating'])
+    def test_a_set_console_variable_node_refuses_the_audio_job(self, tmp_path, monkeypatch, name):
+        node = ue.MovieGraphSetCVarValueNode(override_name=True, name=name, override_value=True, value=0.0)
+        preset = audio_graph()
+        preset.branches['Globals'].append(node)
+        result, error, world = run(tmp_path, monkeypatch, preset)
+        wanted = 'Sequencer.Audio.UsePlayUntilFinished' if 'Finished' in name else 'Sequencer.Audio.UseRepeating'
+        assert error is not None and result['error'] == SETS.format(name=wanted) and DUP not in world['saved']
+
+    def test_a_legacy_console_variable_refuses_and_a_disabled_one_does_not(self, tmp_path, monkeypatch):
+        cv = ue.MoviePipelineConsoleVariableSetting(entries=[('Sequencer.Audio.UseRepeating', 0.0, True)])
+        result, error, _world = run(tmp_path, monkeypatch, legacy(cv))
+        assert error is not None and result['error'] == SETS.format(name='Sequencer.Audio.UseRepeating')
+        off = ue.MoviePipelineConsoleVariableSetting(entries=[('Sequencer.Audio.UseRepeating', 0.0, False)])
+        result, error, _world = run(tmp_path, monkeypatch, legacy(off))
+        assert error is None and result['ok'] is True, result
+
+
 class TestLegacy:
 
     def test_the_wave_output_is_added_and_every_image_output_disabled(self, tmp_path, monkeypatch):

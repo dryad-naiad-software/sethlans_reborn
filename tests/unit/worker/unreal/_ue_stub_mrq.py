@@ -36,6 +36,13 @@ class _Props:
         self.disabled = value
 
 
+class MovieGraphNode(_Props):
+    """The graph node base; ``get_exposed_properties`` is UE 5.8.4's ``UMovieGraphNode`` call (none exposed)."""
+
+    def get_exposed_properties(self):
+        return []
+
+
 class _Strict(_Props):
     """Properties are the class's ``DEFAULTS`` plus what is set; reading another one raises, as UE does."""
     DEFAULTS = {}
@@ -49,8 +56,20 @@ class _Strict(_Props):
         return self.props[name]
 
 
+class Struct(types.SimpleNamespace):
+    """A UE struct: its fields read as attributes and as editor properties (a missing one raises, as UE does)."""
+
+    def get_editor_property(self, name):
+        if not hasattr(self, name):
+            raise AttributeError(f"no property {name}")
+        return getattr(self, name)
+
+    def set_editor_property(self, name, value):
+        setattr(self, name, value)
+
+
 def size(x, y):
-    return types.SimpleNamespace(x=x, y=y)
+    return Struct(x=x, y=y)
 
 
 class _Setting(_Props):

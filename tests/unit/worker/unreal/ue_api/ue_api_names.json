@@ -1,0 +1,1772 @@
+{
+ "schema": 1,
+ "ue": "5.8.4",
+ "names": {
+  "unreal": {
+   "AssetExportTask": {
+    "source": "UAssetExportTask Source/Runtime/Engine/Public/AssetExportTask.h:13",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "AssetRegistryHelpers": {
+    "source": "UAssetRegistryHelpers Source/Runtime/AssetRegistry/Public/AssetRegistry/AssetRegistryHelpers.h:59",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetRegistryHelpers",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "AssetToolsHelpers": {
+    "source": "UAssetToolsHelpers Source/Developer/AssetTools/Public/IAssetTools.h:891",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetToolsHelpers",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "DirectoryPath": {
+    "source": "FDirectoryPath Source/Runtime/CoreUObject/Public/UObject/SoftObjectPath.h:758",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: DirectoryPath",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "EditorAssetLibrary": {
+    "source": "UEditorAssetLibrary Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorAssetLibrary.h:25",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: EditorAssetLibrary",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "Exporter": {
+    "source": "UExporter Source/Runtime/Engine/Classes/Exporters/Exporter.h:21",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: Exporter",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "FrameNumber": {
+    "source": "FFrameNumber Source/Runtime/CoreUObject/Public/UObject/NoExportTypes.h:2164",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: FrameNumber",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "FrameRate": {
+    "source": "FFrameRate Source/Runtime/CoreUObject/Public/UObject/NoExportTypes.h:2175",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: FrameRate",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "FrameTime": {
+    "source": "FFrameTime Source/Runtime/CoreUObject/Public/UObject/NoExportTypes.h:2192",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: FrameTime",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "IntPoint": {
+    "source": "FIntPoint Source/Runtime/CoreUObject/Public/UObject/NoExportTypes.h:1008",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: IntPoint",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "LevelEditorSubsystem": {
+    "source": "ULevelEditorSubsystem Source/Editor/LevelEditor/Public/LevelEditorSubsystem.h:37",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelEditorSubsystem",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "LevelSequenceEditorBlueprintLibrary": {
+    "source": "ULevelSequenceEditorBlueprintLibrary Plugins/MovieScene/LevelSequenceEditor/Source/LevelSequenceEditor/Public/LevelSequenceEditorBlueprintLibrary.h:25",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelSequenceEditorBlueprintLibrary",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "MovieGraphApplyCVarPresetNode": {
+    "source": "UMovieGraphApplyCVarPresetNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphApplyCVarPresetNode.h:14",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphApplyCVarPresetNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphAspectRatioAdaptBehavior": {
+    "source": "EMovieGraphAspectRatioAdaptBehavior Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:70",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphAspectRatioAdaptBehavior",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphAudioOutputNode": {
+    "source": "UMovieGraphAudioOutputNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphAudioOutputNode.h:15",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphAudioOutputNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphCameraSettingNode": {
+    "source": "UMovieGraphCameraSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphCameraNode.h:12",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphCameraSettingNode",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "MovieGraphConfig": {
+    "source": "UMovieGraphConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphConfig.h:640",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphConfig",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphDeferredRenderPassNode": {
+    "source": "UMovieGraphDeferredRenderPassNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/Graph/Nodes/MovieGraphDeferredPassNode.h:22",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphDeferredRenderPassNode",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "MovieGraphFileOutputNode": {
+    "source": "UMovieGraphFileOutputNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphFileOutputNode.h:18",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphFileOutputNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphGlobalGameOverridesNode": {
+    "source": "UMovieGraphGlobalGameOverridesNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalGameOverrides.h:24",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalGameOverridesNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphGlobalOutputSettingNode": {
+    "source": "UMovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:113",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphImagePassBaseNode": {
+    "source": "UMovieGraphImagePassBaseNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/Graph/Nodes/MovieGraphImagePassBaseNode.h:26",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphImagePassBaseNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphImageSequenceOutputNode_EXR": {
+    "source": "UMovieGraphImageSequenceOutputNode_EXR Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/MovieGraphImageSequenceOutputNode.h:98",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphImageSequenceOutputNode_EXR",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphImageSequenceOutputNode_PNG": {
+    "source": "UMovieGraphImageSequenceOutputNode_PNG Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/MovieGraphImageSequenceOutputNode.h:560",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphImageSequenceOutputNode_PNG",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphLibrary": {
+    "source": "UMovieGraphBlueprintLibrary Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphBlueprintLibrary.h:18",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphLibrary",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphNamedResolution": {
+    "source": "FMovieGraphNamedResolution Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphNamedResolution.h:11",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphNamedResolution",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "MovieGraphNode": {
+    "source": "UMovieGraphNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphNode.h:129",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphRenderLayerNode": {
+    "source": "UMovieGraphRenderLayerNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphRenderLayerNode.h:10",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphRenderLayerNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphRenderPassNode": {
+    "source": "UMovieGraphRenderPassNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphRenderPassNode.h:26",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphRenderPassNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphSamplingMethodNode": {
+    "source": "UMovieGraphSamplingMethodNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphSamplingMethodNode.h:12",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSamplingMethodNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphSequencePlaybackRangeBound": {
+    "source": "FMovieGraphSequencePlaybackRangeBound Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:44",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSequencePlaybackRangeBound",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphSequenceRangeType": {
+    "source": "EMovieGraphSequenceRangeType Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:35",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSequenceRangeType",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphSetCVarValueNode": {
+    "source": "UMovieGraphSetCVarValueNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphSetCVarValueNode.h:12",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSetCVarValueNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphSubgraphNode": {
+    "source": "UMovieGraphSubgraphNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphSubgraphNode.h:17",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSubgraphNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineAntiAliasingSetting": {
+    "source": "UMoviePipelineAntiAliasingSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineAntiAliasingSetting.h:12",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineAntiAliasingSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineCameraSetting": {
+    "source": "UMoviePipelineCameraSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineCameraSetting.h:11",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineCameraSetting",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "MoviePipelineConsoleVariableSetting": {
+    "source": "UMoviePipelineConsoleVariableSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineSettings/Public/MoviePipelineConsoleVariableSetting.h:17",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineConsoleVariableSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineExecutorJob": {
+    "source": "UMoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:362",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineExecutorJob",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineGameOverrideSetting": {
+    "source": "UMoviePipelineGameOverrideSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineGameOverrideSetting.h:24",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineGameOverrideSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineImageSequenceOutput_EXR": {
+    "source": "UMoviePipelineImageSequenceOutput_EXR Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/MoviePipelineEXROutput.h:201",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineImageSequenceOutput_EXR",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineImageSequenceOutput_PNG": {
+    "source": "UMoviePipelineImageSequenceOutput_PNG Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/MoviePipelineImageSequenceOutput.h:83",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineImageSequenceOutput_PNG",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineOutputBase": {
+    "source": "UMoviePipelineOutputBase Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputBase.h:17",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineOutputBase",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineOutputSetting": {
+    "source": "UMoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:13",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelinePrimaryConfig": {
+    "source": "UMoviePipelinePrimaryConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelinePrimaryConfig.h:30",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelinePrimaryConfig",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineQueue": {
+    "source": "UMoviePipelineQueue Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:788",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineQueue",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineRenderPass": {
+    "source": "UMoviePipelineRenderPass Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineRenderPass.h:10",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineRenderPass",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineTextureStreamingMethod": {
+    "source": "EMoviePipelineTextureStreamingMethod Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineGameOverrideSetting.h:13",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineTextureStreamingMethod",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineWaveOutput": {
+    "source": "UMoviePipelineWaveOutput Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/MoviePipelineWaveOutput.h:10",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineWaveOutput",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieSceneAudioTrack": {
+    "source": "UMovieSceneAudioTrack Source/Runtime/MovieSceneTracks/Public/Tracks/MovieSceneAudioTrack.h:21",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneAudioTrack",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieSceneCameraCutTrack": {
+    "source": "UMovieSceneCameraCutTrack Source/Runtime/MovieSceneTracks/Public/Tracks/MovieSceneCameraCutTrack.h:28",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCameraCutTrack",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieSceneCinematicShotTrack": {
+    "source": "UMovieSceneCinematicShotTrack Source/Runtime/MovieSceneTracks/Public/Tracks/MovieSceneCinematicShotTrack.h:29",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotTrack",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieSceneCompletionMode": {
+    "source": "EMovieSceneCompletionMode Source/Runtime/MovieScene/Public/Evaluation/MovieSceneCompletionMode.h:8",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCompletionMode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieScenePositionType": {
+    "source": "EMovieScenePositionType Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:82",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieScenePositionType",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "MovieSceneSequencePlaybackParams": {
+    "source": "FMovieSceneSequencePlaybackParams Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:91",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneSequencePlaybackParams",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "MovieSceneSubTrack": {
+    "source": "UMovieSceneSubTrack Source/Runtime/MovieScene/Public/Tracks/MovieSceneSubTrack.h:28",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneSubTrack",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieSceneTimeUnit": {
+    "source": "EMovieSceneTimeUnit Source/Runtime/MovieScene/Public/MovieSceneTimeUnit.h:11",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneTimeUnit",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "Paths": {
+    "source": "UBlueprintPathsLibrary Source/Runtime/Engine/Classes/Kismet/BlueprintPathsLibrary.h:16",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: Paths",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "SoftObjectPath": {
+    "source": "FSoftObjectPath Source/Runtime/CoreUObject/Public/UObject/SoftObjectPath.h:54",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: SoftObjectPath",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "SoundExporterWAV": {
+    "source": "USoundExporterWAV Source/Editor/UnrealEd/Classes/Exporters/SoundExporterWAV.h:11",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: SoundExporterWAV",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "SystemLibrary": {
+    "source": "UKismetSystemLibrary Source/Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h:101",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: SystemLibrary",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "TopLevelAssetPath": {
+    "source": "FTopLevelAssetPath Source/Runtime/CoreUObject/Public/UObject/TopLevelAssetPath.h:36",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: TopLevelAssetPath",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "UpdatePositionMethod": {
+    "source": "EUpdatePositionMethod Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:38",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: UpdatePositionMethod",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "get_default_object": {
+    "source": "Python function Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyCore.cpp:2080",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_editor_subsystem": {
+    "source": "Python function Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyEditor.cpp:206",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "load_asset": {
+    "source": "Python function Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyCore.cpp:2077",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "log": {
+    "source": "Python function Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyCore.cpp:2066",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "log_error": {
+    "source": "Python function Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyCore.cpp:2068",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "log_warning": {
+    "source": "Python function Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyCore.cpp:2067",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "register_slate_post_tick_callback": {
+    "source": "Python function Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PySlate.cpp:200",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "unregister_slate_post_tick_callback": {
+    "source": "Python function Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PySlate.cpp:201",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method",
+    "used_by": [
+     "scripts"
+    ]
+   }
+  },
+  "static": {
+   "AssetRegistryHelpers.get_asset_registry": {
+    "source": "function on AssetRegistryHelpers Source/Runtime/AssetRegistry/Public/AssetRegistry/AssetRegistryHelpers.h:65",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "AssetToolsHelpers.get_asset_tools": {
+    "source": "function on AssetToolsHelpers Source/Developer/AssetTools/Public/IAssetTools.h:897",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "EditorAssetLibrary.does_directory_exist": {
+    "source": "function on EditorAssetLibrary Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorAssetLibrary.h:300",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "EditorAssetLibrary.duplicate_asset": {
+    "source": "function on EditorAssetLibrary Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorAssetLibrary.h:174",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "EditorAssetLibrary.list_assets": {
+    "source": "function on EditorAssetLibrary Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorAssetLibrary.h:327",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "EditorAssetLibrary.save_loaded_asset": {
+    "source": "function on EditorAssetLibrary Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorAssetLibrary.h:261",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "Exporter.run_asset_export_task": {
+    "source": "function on Exporter Source/Runtime/Engine/Classes/Exporters/Exporter.h:254",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "LevelSequenceEditorBlueprintLibrary.open_level_sequence": {
+    "source": "function on LevelSequenceEditorBlueprintLibrary Plugins/MovieScene/LevelSequenceEditor/Source/LevelSequenceEditor/Public/LevelSequenceEditorBlueprintLibrary.h:35",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "LevelSequenceEditorBlueprintLibrary.set_global_position": {
+    "source": "function on LevelSequenceEditorBlueprintLibrary Plugins/MovieScene/LevelSequenceEditor/Source/LevelSequenceEditor/Public/LevelSequenceEditorBlueprintLibrary.h:107",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "MovieGraphAspectRatioAdaptBehavior.AUTOMATIC": {
+    "source": "enum value on MovieGraphAspectRatioAdaptBehavior Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:88",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphAspectRatioAdaptBehavior",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "MovieGraphAspectRatioAdaptBehavior.DISABLED": {
+    "source": "enum value on MovieGraphAspectRatioAdaptBehavior Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:77",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphAspectRatioAdaptBehavior",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphLibrary.is_named_resolution_valid": {
+    "source": "function on MovieGraphLibrary Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphBlueprintLibrary.h:278",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphLibrary.named_resolution_from_profile": {
+    "source": "function on MovieGraphLibrary Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphBlueprintLibrary.h:271",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphLibrary.named_resolution_from_size": {
+    "source": "function on MovieGraphLibrary Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphBlueprintLibrary.h:284",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieGraphSequenceRangeType.CUSTOM": {
+    "source": "enum value on MovieGraphSequenceRangeType Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:41",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSequenceRangeType",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineTextureStreamingMethod.DISABLED": {
+    "source": "enum value on MoviePipelineTextureStreamingMethod Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineGameOverrideSetting.h:19",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineTextureStreamingMethod",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineTextureStreamingMethod.FULLY_LOAD": {
+    "source": "enum value on MoviePipelineTextureStreamingMethod Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineGameOverrideSetting.h:21",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineTextureStreamingMethod",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MoviePipelineTextureStreamingMethod.NONE": {
+    "source": "enum value on MoviePipelineTextureStreamingMethod Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineGameOverrideSetting.h:17",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineTextureStreamingMethod",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieSceneCompletionMode.KEEP_STATE": {
+    "source": "enum value on MovieSceneCompletionMode Source/Runtime/MovieScene/Public/Evaluation/MovieSceneCompletionMode.h:11",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCompletionMode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieSceneCompletionMode.PROJECT_DEFAULT": {
+    "source": "enum value on MovieSceneCompletionMode Source/Runtime/MovieScene/Public/Evaluation/MovieSceneCompletionMode.h:15",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCompletionMode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieSceneCompletionMode.RESTORE_STATE": {
+    "source": "enum value on MovieSceneCompletionMode Source/Runtime/MovieScene/Public/Evaluation/MovieSceneCompletionMode.h:13",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCompletionMode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "MovieScenePositionType.FRAME": {
+    "source": "enum value on MovieScenePositionType Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:85",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieScenePositionType",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "MovieSceneTimeUnit.DISPLAY_RATE": {
+    "source": "enum value on MovieSceneTimeUnit Source/Runtime/MovieScene/Public/MovieSceneTimeUnit.h:15",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneTimeUnit",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "Paths.convert_relative_path_to_full": {
+    "source": "function on Paths Source/Runtime/Engine/Classes/Kismet/BlueprintPathsLibrary.h:518",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "Paths.engine_config_dir": {
+    "source": "function on Paths Source/Runtime/Engine/Classes/Kismet/BlueprintPathsLibrary.h:73",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "Paths.project_config_dir": {
+    "source": "function on Paths Source/Runtime/Engine/Classes/Kismet/BlueprintPathsLibrary.h:164",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "SystemLibrary.execute_console_command": {
+    "source": "function on SystemLibrary Source/Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h:603",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "SystemLibrary.get_console_variable_bool_value": {
+    "source": "function on SystemLibrary Source/Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h:639",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "SystemLibrary.get_console_variable_string_value": {
+    "source": "function on SystemLibrary Source/Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h:612",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "SystemLibrary.quit_editor": {
+    "source": "function on SystemLibrary Source/Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h:655",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: builtin_function_or_method_with_closure",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "UpdatePositionMethod.SCRUB": {
+    "source": "enum value on UpdatePositionMethod Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:46",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: UpdatePositionMethod",
+    "used_by": [
+     "scripts"
+    ]
+   }
+  },
+  "properties": {
+   "adapt_resolution": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:207",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "console_variable_preset": {
+    "source": "property on MovieGraphApplyCVarPresetNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphApplyCVarPresetNode.h:54",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphApplyCVarPresetNode",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "console_variable_presets": {
+    "source": "property on MoviePipelineConsoleVariableSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineSettings/Public/MoviePipelineConsoleVariableSetting.h:63",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineConsoleVariableSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "custom_end_frame": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:148; property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:89; property on MovieGraphQuickRenderModeSettings Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphQuickRenderSettings.h:181",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "custom_playback_range_end": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:250",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "custom_playback_range_start": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:242",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "custom_start_frame": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:144; property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:85; property on MovieGraphQuickRenderModeSettings Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphQuickRenderSettings.h:177",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "disable_texture_streaming": {
+    "source": "property on MovieGraphGlobalGameOverridesNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalGameOverrides.h:135",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalGameOverridesNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "duration": {
+    "source": "property on MovieSceneScalingAnchor Source/Runtime/MovieScene/Public/Decorations/MovieSceneScalingAnchors.h:29; property on MovieSceneTimeWarpLoop Source/Runtime/MovieScene/Public/Variants/MovieSceneTimeWarpVariantPayloads.h:73; property on MovieSceneTimeWarpLoopFloat Source/Runtime/MovieScene/Public/Variants/MovieSceneTimeWarpVariantPayloads.h:113",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: SoundWave",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "file_name_format": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:132; property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:42; property on MovieGraphOutputBurnInNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphBurnInNode.h:157",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphAudioOutputNode, MovieGraphFileOutputNode, MovieGraphImageSequenceOutputNode_EXR",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "file_name_format_override": {
+    "source": "property on MoviePipelineWaveOutput Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/MoviePipelineWaveOutput.h:34; property on MoviePipelineCommandLineEncoder Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineCommandLineEncoder.h:61; property on MoviePipelineFCPXMLExporter Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineFCPXMLExporterSetting.h:39",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineWaveOutput",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "frame_number_offset": {
+    "source": "property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:114; property on MovieGraphFilenameResolveParams Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphFilenameResolveParams.h:176; property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:226",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode, MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "handle_frame_count": {
+    "source": "property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:73; property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:235",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode, MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "imported_sample_rate": {
+    "source": "property on SoundWave Source/Runtime/Engine/Classes/Sound/SoundWave.h:821",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: SoundWave",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "is_enabled": {
+    "source": "function on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:489; function on MoviePipelineSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineSetting.h:151; property on MoviePipelineConsoleVariableEntry Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MovieRenderPipelineDataTypes.h:168",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineConsoleVariableEntry",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "looping": {
+    "source": "property on MovieSceneAudioSection Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneAudioSection.h:349; property on SoundNodeDialoguePlayer Source/Runtime/Engine/Classes/Sound/SoundNodeDialoguePlayer.h:31; property on SoundNodeWavePlayer Source/Runtime/Engine/Classes/Sound/SoundNodeWavePlayer.h:40",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneAudioSection, SoundWave, MovieSceneMediaSection",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "name": {
+    "source": "property on MoviePipelinePostProcessPass Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/MoviePipelineDeferredPasses.h:33; property on MoviePipelineSidecarCamera Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:39; property on MoviePipelinePassIdentifier Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MovieRenderPipelineDataTypes.h:139",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSetCVarValueNode, MovieGraphPropertyInfo, MoviePipelineConsoleVariableEntry",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "output_directory": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:128; property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:38; property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:199",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode, MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "output_frame_rate": {
+    "source": "property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:55; property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:211",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode, MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "output_frame_step": {
+    "source": "property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:77",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "output_resolution": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:136; property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:46; property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:203",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode, MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_adapt_resolution": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:154",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_console_variable_preset": {
+    "source": "property on MovieGraphApplyCVarPresetNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphApplyCVarPresetNode.h:50",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphApplyCVarPresetNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_custom_playback_range_end": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:183",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "override_custom_playback_range_start": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:180",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "override_disable_texture_streaming": {
+    "source": "property on MovieGraphGlobalGameOverridesNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalGameOverrides.h:76",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalGameOverridesNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "override_file_name_format": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:79; property on MovieGraphOutputBurnInNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphBurnInNode.h:136; property on MovieGraphCommandLineEncoderNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphCommandLineEncoderNode.h:50",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphAudioOutputNode, MovieGraphFileOutputNode, MovieGraphImageSequenceOutputNode_EXR",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "override_frame_number_offset": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:166",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_handle_frame_count": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:169",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_name": {
+    "source": "property on MovieGraphSetCVarValueNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphSetCVarValueNode.h:37",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSetCVarValueNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_output_directory": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:76; property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:148",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "override_output_frame_rate": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:157",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_output_resolution": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:82; property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:151",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_scalability_quality_level": {
+    "source": "property on MovieGraphGlobalGameOverridesNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalGameOverrides.h:73",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalGameOverridesNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "override_shutter_timing": {
+    "source": "property on MovieGraphCameraSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphCameraNode.h:35",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphCameraSettingNode",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "override_spatial_sample_count": {
+    "source": "property on MovieGraphDeferredPanoramicNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/Graph/Nodes/MovieGraphDeferredPanoramicPassNode.h:77; property on MovieGraphDeferredRenderPassNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/Graph/Nodes/MovieGraphDeferredPassNode.h:106; property on MovieGraphPathTracerRenderPassNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/Graph/Nodes/MovieGraphPathTracerPassNode.h:88",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphDeferredRenderPassNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_temporal_sample_count": {
+    "source": "property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:119; property on MovieGraphSamplingMethodNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphSamplingMethodNode.h:36",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSamplingMethodNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "override_value": {
+    "source": "property on MovieGraphSetCVarValueNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphSetCVarValueNode.h:40; property on HLODModifierScalarParameter Source/Runtime/Engine/Public/WorldPartition/HLOD/MaterialParameterCollectionHLODModifier.h:27",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSetCVarValueNode",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "override_zero_pad_frame_numbers": {
+    "source": "property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:163",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "overscan_percentage": {
+    "source": "property on MoviePipelineCameraSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineCameraSetting.h:77; property on MovieGraphCameraSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphCameraNode.h:86",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphCameraSettingNode, MoviePipelineCameraSetting",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "parameters": {
+    "source": "property on MovieSceneSubSection Source/Runtime/MovieScene/Public/Sections/MovieSceneSubSection.h:261; property on EventPayload Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneEventSection.h:135; property on IOSLaunchDaemonLaunchApp Source/Runtime/IOS/LaunchDaemonMessages/Classes/IOSMessageProtocol.h:91",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneSubSection",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "repeating": {
+    "source": "property on MovieSceneAudioSection Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneAudioSection.h:354",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneAudioSection",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "sample_rate": {
+    "source": "property on SoundWave Source/Runtime/Engine/Classes/Sound/SoundWave.h:816; property on AudioCookOutputs Source/Runtime/Engine/Public/AudioDerivedData.h:64; property on AnimCurveCompressionCodec_UniformlySampled Source/Runtime/Engine/Classes/Animation/AnimCurveCompressionCodec_UniformlySampled.h:24",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: SoundWave",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "scalability_quality_level": {
+    "source": "property on MovieGraphGlobalGameOverridesNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalGameOverrides.h:126",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalGameOverridesNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "shutter_timing": {
+    "source": "property on MoviePipelineCameraSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineCameraSetting.h:56; property on MovieGraphCameraSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphCameraNode.h:69",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphCameraSettingNode, MoviePipelineCameraSetting",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "sound": {
+    "source": "property on MovieSceneAudioSection Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneAudioSection.h:302; property on SoundDebugEntry Source/Runtime/Engine/Classes/Sound/AudioSettings.h:108; property on AudioComponent Source/Runtime/Engine/Classes/Components/AudioComponent.h:172",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneAudioSection",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "spatial_sample_count": {
+    "source": "property on MovieGraphDeferredPanoramicNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/Graph/Nodes/MovieGraphDeferredPanoramicPassNode.h:130; property on MovieGraphDeferredRenderPassNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/Graph/Nodes/MovieGraphDeferredPassNode.h:154; property on MovieGraphPathTracerRenderPassNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/Graph/Nodes/MovieGraphPathTracerPassNode.h:166",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphDeferredRenderPassNode, MoviePipelineAntiAliasingSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "start_frame_offset": {
+    "source": "property on MovieSceneSectionParameters Source/Runtime/MovieScene/Public/Evaluation/MovieSceneSectionParameters.h:75; property on MovieSceneAudioSection Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneAudioSection.h:306; property on MovieSceneBaseCacheParams Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneBaseCacheSection.h:28",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneSectionParameters, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "temporal_sample_count": {
+    "source": "property on MoviePipelineAntiAliasingSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineAntiAliasingSetting.h:58; property on MoviePipelineBasicConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineBasicConfig.h:180; property on MovieGraphTimeStepData Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphTimeStepData.h:86",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSamplingMethodNode, MoviePipelineAntiAliasingSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "texture_streaming": {
+    "source": "property on MoviePipelineGameOverrideSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineGameOverrideSetting.h:90",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineGameOverrideSetting",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "time_scale": {
+    "source": "property on MovieSceneSectionParameters Source/Runtime/MovieScene/Public/Evaluation/MovieSceneSectionParameters.h:91; property on MovieSceneInverseNestedSequenceTransform Source/Runtime/MovieScene/Public/Evaluation/MovieSceneSequenceTransform.h:354; property on MovieSceneNestedSequenceTransform Source/Runtime/MovieScene/Public/Evaluation/MovieSceneSequenceTransform.h:562",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneSectionParameters",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "use_custom_frame_rate": {
+    "source": "property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:51; property on LevelSequenceAnimSequenceLinkItem Source/Runtime/LevelSequence/Public/LevelSequenceAnimSequenceLink.h:86; property on AnimSeqExportOption Source/Editor/UnrealEd/Classes/Exporters/AnimSeqExportOption.h:113",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "use_custom_playback_range": {
+    "source": "property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:81",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "value": {
+    "source": "property on MovieJobVariableAssignmentContainer Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MovieJobVariableAssignmentContainer.h:279; property on MoviePipelineConsoleVariableEntry Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MovieRenderPipelineDataTypes.h:164; property on MovieGraphValueContainer Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphValueContainer.h:240",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: FrameNumber, MovieGraphSequencePlaybackRangeBound, MovieGraphSetCVarValueNode",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "zero_pad_frame_numbers": {
+    "source": "property on MoviePipelineOutputSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineOutputSetting.h:107; property on MovieGraphGlobalOutputSettingNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:219; property on MovieSceneCaptureSettings Source/Runtime/MovieSceneCapture/Public/MovieSceneCaptureSettings.h:81",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphGlobalOutputSettingNode, MoviePipelineOutputSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   }
+  },
+  "members": {
+   "allocate_new_job": {
+    "source": "function on MoviePipelineQueue Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:803",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineQueue, MoviePipelineQueue",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "author": {
+    "source": "property on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:699; property on MovieSceneMetaData Source/Runtime/MovieScene/Public/MovieSceneMetaData.h:111; property on SwarmReview Source/Developer/SubmitToolCore/Public/Models/SwarmReview.h:44",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineExecutorJob, MoviePipelineExecutorJob",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "automated": {
+    "source": "property on AssetExportTask Source/Runtime/Engine/Public/AssetExportTask.h:44; property on AssetImportTask Source/Editor/UnrealEd/Public/AssetImportTask.h:55",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "create_asset": {
+    "source": "enum value on AssetClassAction Source/Developer/AssetTools/Public/IAssetTools.h:53; function on MigrationOptions Source/Developer/AssetTools/Public/IAssetTools.h:348",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetTools",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "denominator": {
+    "source": "property on FrameRate Source/Runtime/CoreUObject/Public/UObject/NoExportTypes.h:2183",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: FrameRate, FrameRate",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "duplicate_asset": {
+    "source": "function on MigrationOptions Source/Developer/AssetTools/Public/IAssetTools.h:450; function on EditorAssetLibrary Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorAssetLibrary.h:174; function on EditorAssetSubsystem Source/Editor/UnrealEd/Public/Subsystems/EditorAssetSubsystem.h:184",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: EditorAssetLibrary, EditorAssetLibrary, AssetTools",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "exporter": {
+    "source": "property on AssetExportTask Source/Runtime/Engine/Public/AssetExportTask.h:24",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "filename": {
+    "source": "property on AutomationExecutionEntry Source/Runtime/CoreUObject/Public/UObject/NoExportTypes.h:2598; property on AssetExportTask Source/Runtime/Engine/Public/AssetExportTask.h:28; property on FileManifestData Source/Runtime/Online/BuildPatchServices/Private/Data/ManifestUObject.h:102",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "find_or_add_setting_by_class": {
+    "source": "function on MoviePipelineConfigBase Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineConfigBase.h:144",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelinePrimaryConfig, MoviePipelinePrimaryConfig",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "find_setting_by_class": {
+    "source": "function on MoviePipelineConfigBase Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineConfigBase.h:124",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelinePrimaryConfig, MoviePipelinePrimaryConfig",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "frame": {
+    "source": "enum value on MovieScenePositionType Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:85; property on MovieSceneSequencePlaybackParams Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:140; property on WidgetPurposeNameColumn Source/Runtime/TypedElementFramework/Public/Elements/Columns/WidgetPurposeColumns.h:34",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneSequencePlaybackParams, MovieSceneSequencePlaybackParams",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "get_all_channels": {
+    "source": "function on MovieSceneSectionExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSectionExtensions.h:219",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_all_contained_subgraphs": {
+    "source": "function on MovieGraphConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphConfig.h:923",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphConfig, MovieGraphConfig",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_all_settings": {
+    "source": "function on MoviePipelinePrimaryConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelinePrimaryConfig.h:54",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelinePrimaryConfig, MoviePipelinePrimaryConfig",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_asset": {
+    "source": "function on AssetRegistryHelpers Source/Runtime/AssetRegistry/Public/AssetRegistry/AssetRegistryHelpers.h:101; function on DataLayerInstance Source/Runtime/Engine/Public/WorldPartition/DataLayer/DataLayerInstance.h:184",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetRegistryHelpers, AssetRegistryHelpers, AssetData",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "get_assets_by_class": {
+    "source": "function on AssetRegistryDependencyOptions Source/Runtime/AssetRegistry/Public/AssetRegistry/IAssetRegistry.h:334",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetRegistry",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "get_bindings": {
+    "source": "function on MovieSceneSequenceExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSequenceExtensions.h:382",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelSequence",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_branch_names": {
+    "source": "function on MovieGraphEvaluatedConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphConfig.h:461; function on MovieGraphConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphConfig.h:743",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphConfig, MovieGraphConfig",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_class": {
+    "source": "Python method Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyWrapperObject.cpp:1119; function on AssetRegistryHelpers Source/Runtime/AssetRegistry/Public/AssetRegistry/AssetRegistryHelpers.h:97; function on None Source/Runtime/Engine/Public/Audio/SoundEffectPresetWidgetInterface.h:29",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask, AssetRegistryHelpers",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_completion_mode": {
+    "source": "function on MovieSceneSection Source/Runtime/MovieScene/Public/MovieSceneSection.h:423",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_console_variables": {
+    "source": "function on MoviePipelineConsoleVariableSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineSettings/Public/MoviePipelineConsoleVariableSetting.h:85",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineConsoleVariableSetting, MoviePipelineConsoleVariableSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_default": {
+    "source": "function on MovieSceneScriptingActorReferenceChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingActorReference.h:135; function on MovieSceneScriptingBoolChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingBool.h:161; function on MovieSceneScriptingByteChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingByte.h:133",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneScriptingFloatChannel, MovieSceneScriptingActorReferenceChannel",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_display_rate": {
+    "source": "function on MovieSceneSequenceExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSequenceExtensions.h:97",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelSequence",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_editor_property": {
+    "source": "Python method Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyWrapperObject.cpp:1132; function on SystemLibrary Source/Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h:2093",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask, AssetRegistryHelpers",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_end_frame": {
+    "source": "function on MovieSceneSectionExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSectionExtensions.h:71; function on SequencerScriptingRangeExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/SequencerScriptingRangeExtensions.h:98",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_exposed_properties": {
+    "source": "function on MovieGraphNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphNode.h:232",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphApplyCVarPresetNode, MovieGraphApplyCVarPresetNode, MovieGraphAudioOutputNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_keys": {
+    "source": "function on MovieSceneScriptingActorReferenceChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingActorReference.h:102; function on MovieSceneScriptingBoolChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingBool.h:98; function on MovieSceneScriptingByteChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingByte.h:101",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneScriptingFloatChannel, MovieSceneScriptingActorReferenceChannel",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_name": {
+    "source": "Python method Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyWrapperObject.cpp:1125; function on MovieSceneBindingExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneBindingExtensions.h:70; function on AnimationCurveIdentifierExtensions Source/Runtime/Engine/Classes/Animation/AnimData/CurveIdentifier.h:128",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask, AssetRegistryHelpers",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_nodes_for_branch": {
+    "source": "function on MovieGraphConfig Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphConfig.h:775",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphConfig, MovieGraphConfig",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_path_name": {
+    "source": "Python method Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyWrapperObject.cpp:1128; function on SystemLibrary Source/Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h:139",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask, AssetRegistryHelpers",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_play_until_finished": {
+    "source": "function on MovieSceneAudioSection Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneAudioSection.h:125",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneAudioSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_playback_end": {
+    "source": "function on MovieSceneSequenceExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSequenceExtensions.h:191",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelSequence",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_playback_start": {
+    "source": "function on MovieSceneSequenceExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSequenceExtensions.h:173",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelSequence",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_row_index": {
+    "source": "function on MovieSceneSection Source/Runtime/MovieScene/Public/MovieSceneSection.h:545",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "stubs"
+    ]
+   },
+   "get_sections": {
+    "source": "function on MovieSceneTrackExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneTrackExtensions.h:80; function on SequencerModuleOutlinerScriptingObject Source/Editor/Sequencer/Private/Scripting/SequencerModuleOutlinerScriptingObject.h:25",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneAudioTrack, MovieSceneAudioTrack, MovieSceneCameraCutTrack",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_sequence": {
+    "source": "function on MovieSceneSequencePlayer Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:478; function on MovieSceneSubSection Source/Runtime/MovieScene/Public/Sections/MovieSceneSubSection.h:110; function on LevelSequenceActor Source/Runtime/LevelSequence/Public/LevelSequenceActor.h:131",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneSubSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_start_frame": {
+    "source": "function on MovieSceneSectionExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSectionExtensions.h:44; function on SequencerScriptingRangeExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/SequencerScriptingRangeExtensions.h:90",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_tick_resolution": {
+    "source": "function on MovieSceneSequenceExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSequenceExtensions.h:115",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelSequence",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "get_tracks": {
+    "source": "function on MovieSceneBindingExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneBindingExtensions.h:106; function on MovieSceneSequenceExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSequenceExtensions.h:48",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelSequence",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "has_default": {
+    "source": "function on MovieSceneScriptingActorReferenceChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingActorReference.h:184; function on MovieSceneScriptingBoolChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingBool.h:180; function on MovieSceneScriptingByteChannel Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Private/KeysAndChannels/MovieSceneScriptingByte.h:152",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneScriptingFloatChannel, MovieSceneScriptingActorReferenceChannel",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "has_end_frame": {
+    "source": "function on MovieSceneSectionExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSectionExtensions.h:62",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "has_start_frame": {
+    "source": "function on MovieSceneSectionExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneSectionExtensions.h:35",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "is_active": {
+    "source": "function on MovieSceneSection Source/Runtime/MovieScene/Public/MovieSceneSection.h:596; property on MovieSceneSection Source/Runtime/MovieScene/Public/MovieSceneSection.h:827; enum value on ChaosVDMidPhaseFlags Source/Runtime/Experimental/ChaosVisualDebugger/Public/DataWrappers/ChaosVDCollisionDataWrappers.h:316",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneAudioSection, MovieSceneMediaSection",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "is_disabled": {
+    "source": "function on MovieGraphNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphNode.h:342; property on MovieGraphNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphNode.h:478; function on CameraModifier Source/Runtime/Engine/Classes/Camera/CameraModifier.h:122",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphApplyCVarPresetNode, MovieGraphApplyCVarPresetNode, MovieGraphAudioOutputNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "is_enabled": {
+    "source": "function on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:489; function on MoviePipelineSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineSetting.h:151; property on MoviePipelineConsoleVariableEntry Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MovieRenderPipelineDataTypes.h:168",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineAntiAliasingSetting, MoviePipelineAntiAliasingSetting, MoviePipelineCameraSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "is_named_resolution_valid": {
+    "source": "function on MovieGraphLibrary Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphBlueprintLibrary.h:278",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphLibrary, MovieGraphLibrary",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "job_name": {
+    "source": "property on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:687",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineExecutorJob, MoviePipelineExecutorJob",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "load_level": {
+    "source": "function on EditorLevelLibrary Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorLevelLibrary.h:277; function on LevelEditorSubsystem Source/Editor/LevelEditor/Public/LevelEditorSubsystem.h:166",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: LevelEditorSubsystem, LevelEditorSubsystem",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "map": {
+    "source": "property on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:695; enum value on MovieGraphContainerType Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphCommon.h:51; enum value on PropertyBagContainerType Source/Runtime/CoreUObject/Public/StructUtils/PropertyBag.h:52",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineExecutorJob, MoviePipelineExecutorJob",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "name": {
+    "source": "property on MoviePipelinePostProcessPass Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineRenderPasses/Public/MoviePipelineDeferredPasses.h:33; property on MoviePipelineSidecarCamera Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:39; property on MoviePipelinePassIdentifier Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MovieRenderPipelineDataTypes.h:139",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphAspectRatioAdaptBehavior, MovieGraphSequenceRangeType, MovieGraphSetCVarValueNode",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "named_resolution_from_size": {
+    "source": "function on MovieGraphLibrary Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphBlueprintLibrary.h:284",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphLibrary, MovieGraphLibrary",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "numerator": {
+    "source": "property on FrameRate Source/Runtime/CoreUObject/Public/UObject/NoExportTypes.h:2179",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: FrameRate, FrameRate",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "object": {
+    "source": "enum value on MovieGraphValueType Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphCommon.h:27; property on MovieSceneBindingOverrideData Source/Runtime/MovieScene/Public/MovieSceneBindingOverrides.h:40; property on MovieSceneDynamicBindingResolveResult Source/Runtime/MovieScene/Public/MovieSceneDynamicBinding.h:98",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "package_name": {
+    "source": "property on AssetData Source/Runtime/CoreUObject/Public/AssetRegistry/AssetData.h:189; property on TopLevelAssetPath Source/Runtime/CoreUObject/Public/UObject/TopLevelAssetPath.h:181; property on WorldPartitionRuntimeCellPropertyOverride Source/Runtime/Engine/Public/WorldPartition/WorldPartitionRuntimeCell.h:63",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: TopLevelAssetPath, TopLevelAssetPath, AssetData",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "parameters": {
+    "source": "property on MovieSceneSubSection Source/Runtime/MovieScene/Public/Sections/MovieSceneSubSection.h:261; property on EventPayload Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneEventSection.h:135; property on IOSLaunchDaemonLaunchApp Source/Runtime/IOS/LaunchDaemonMessages/Classes/IOSMessageProtocol.h:91",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneCinematicShotSection, MovieSceneSubSection",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "position_type": {
+    "source": "property on MovieSceneSequencePlaybackParams Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:152; property on FieldSystemMetaDataFilter Source/Runtime/Experimental/FieldSystem/Source/FieldSystemEngine/Public/Field/FieldSystemObjects.h:117",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneSequencePlaybackParams, MovieSceneSequencePlaybackParams",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "profile_name": {
+    "source": "property on MovieGraphNamedResolution Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphNamedResolution.h:29; property on PlayScreenResolution Source/Editor/UnrealEd/Classes/Settings/LevelEditorPlaySettings.h:184; property on NetworkEmulationProfileDescription Source/Runtime/Engine/Classes/Engine/NetworkSettings.h:17",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphNamedResolution, MovieGraphNamedResolution",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "prompt": {
+    "source": "property on MigrationOptions Source/Developer/AssetTools/Public/IAssetTools.h:246; property on AssetExportTask Source/Runtime/Engine/Public/AssetExportTask.h:40",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "replace_identical": {
+    "source": "property on AssetExportTask Source/Runtime/Engine/Public/AssetExportTask.h:36",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "resolution": {
+    "source": "property on MovieGraphNamedResolution Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphNamedResolution.h:33; property on SlatePostSettings Source/Runtime/SlateRHIRenderer/Public/SlateRHIRendererSettings.h:56; property on MovieSceneCaptureSettings Source/Runtime/MovieSceneCapture/Public/MovieSceneCaptureSettings.h:97",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphNamedResolution, MovieGraphNamedResolution",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "save_loaded_asset": {
+    "source": "function on EditorAssetLibrary Plugins/Editor/EditorScriptingUtilities/Source/EditorScriptingUtilities/Public/EditorAssetLibrary.h:261; function on EditorAssetSubsystem Source/Editor/UnrealEd/Public/Subsystems/EditorAssetSubsystem.h:276",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: EditorAssetLibrary, EditorAssetLibrary",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "search_all_assets": {
+    "source": "function on AssetRegistryDependencyOptions Source/Runtime/AssetRegistry/Public/AssetRegistry/IAssetRegistry.h:808",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetRegistry",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "sequence": {
+    "source": "property on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:691; property on SequencerExportFBXParams Plugins/MovieScene/SequencerScripting/Source/SequencerScriptingEditor/Public/SequencerTools.h:94; property on MovieSceneBindingProxy Source/Runtime/MovieScene/Public/MovieSceneBindingProxy.h:55",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineExecutorJob, MoviePipelineExecutorJob",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "set_disabled": {
+    "source": "function on MovieGraphNode Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphNode.h:338",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphApplyCVarPresetNode, MovieGraphApplyCVarPresetNode, MovieGraphAudioOutputNode",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "set_editor_property": {
+    "source": "Python method Plugins/Experimental/PythonScriptPlugin/Source/PythonScriptPlugin/Private/PyWrapperObject.cpp:1133; function on SystemLibrary Source/Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h:2108",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetExportTask, AssetExportTask, AssetRegistryHelpers",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "set_graph_preset": {
+    "source": "function on MoviePipelineExecutorShot Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:195; function on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:613",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineExecutorJob, MoviePipelineExecutorJob",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "set_is_enabled": {
+    "source": "function on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:477; function on MoviePipelineSetting Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineSetting.h:153; function on Widget Source/Runtime/UMG/Public/Components/Widget.h:544",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineAntiAliasingSetting, MoviePipelineAntiAliasingSetting, MoviePipelineCameraSetting",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "set_preset_origin": {
+    "source": "function on MoviePipelineExecutorJob Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MoviePipelineQueue.h:504",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MoviePipelineExecutorJob, MoviePipelineExecutorJob",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "start_frame_offset": {
+    "source": "property on MovieSceneSectionParameters Source/Runtime/MovieScene/Public/Evaluation/MovieSceneSectionParameters.h:75; property on MovieSceneAudioSection Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneAudioSection.h:306; property on MovieSceneBaseCacheParams Source/Runtime/MovieSceneTracks/Public/Sections/MovieSceneBaseCacheSection.h:28",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneSectionParameters, MovieSceneMediaSection",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "to_fixed_play_rate": {
+    "source": "function on MovieSceneTimeWarpExtensions Plugins/MovieScene/SequencerScripting/Source/SequencerScripting/Public/ExtensionLibraries/MovieSceneTimeWarpExtensions.h:37",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneTimeWarpVariant",
+    "used_by": [
+     "scripts",
+     "stubs"
+    ]
+   },
+   "type": {
+    "source": "property on MovieGraphPinProperties Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphPin.h:48; property on MovieGraphSequencePlaybackRangeBound Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/Nodes/MovieGraphGlobalOutputSettingNode.h:59; property on MovieSceneBuiltInEasingFunction Source/Runtime/MovieScene/Public/Generators/MovieSceneEasingCurves.h:58",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieGraphSequencePlaybackRangeBound, MovieGraphSequencePlaybackRangeBound",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "update_method": {
+    "source": "property on MovieSceneSequencePlaybackParams Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h:155; property on ParticleModuleCameraOffset Source/Runtime/Engine/Classes/Particles/Camera/ParticleModuleCameraOffset.h:48",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: MovieSceneSequencePlaybackParams, MovieSceneSequencePlaybackParams",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "value": {
+    "source": "property on MovieJobVariableAssignmentContainer Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MovieJobVariableAssignmentContainer.h:279; property on MoviePipelineConsoleVariableEntry Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/MovieRenderPipelineDataTypes.h:164; property on MovieGraphValueContainer Plugins/MovieScene/MovieRenderPipeline/Source/MovieRenderPipelineCore/Public/Graph/MovieGraphValueContainer.h:240",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: FrameNumber, FrameNumber, MovieGraphAspectRatioAdaptBehavior",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "wait_for_completion": {
+    "source": "function on AssetRegistryDependencyOptions Source/Runtime/AssetRegistry/Public/AssetRegistry/IAssetRegistry.h:829",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: AssetRegistry",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "x": {
+    "source": "enum value on MovieScene3DPathSection_Axis Source/Runtime/MovieSceneTracks/Public/Sections/MovieScene3DPathSection.h:20; property on TestInstanceDataObjectPoint Source/Runtime/CoreUObject/Tests/UObject/PropertyStateTrackingTest.h:151; property on TestPayloadStruct Source/Runtime/CoreUObject/Public/UObject/DynamicDelegateTestObject.h:17",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: IntPoint, IntPoint",
+    "used_by": [
+     "scripts"
+    ]
+   },
+   "y": {
+    "source": "enum value on MovieScene3DPathSection_Axis Source/Runtime/MovieSceneTracks/Public/Sections/MovieScene3DPathSection.h:21; property on TestInstanceDataObjectPoint Source/Runtime/CoreUObject/Tests/UObject/PropertyStateTrackingTest.h:154; property on TestPayloadStruct Source/Runtime/CoreUObject/Public/UObject/DynamicDelegateTestObject.h:20",
+    "unreal": "UE 5.8.4-58902052+++UE5+Release-5.8: IntPoint, IntPoint",
+    "used_by": [
+     "scripts"
+    ]
+   }
+  }
+ }
+}

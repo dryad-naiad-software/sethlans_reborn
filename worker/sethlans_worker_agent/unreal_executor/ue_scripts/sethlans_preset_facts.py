@@ -34,7 +34,11 @@ message (it can name local or asset paths and is sent to the manager).
 Output settings (U-1): legacy ``MoviePipelineOutputSetting`` (the class
 default object when the preset has none); graph: the enabled Global Output
 Settings nodes that override a value give it, else the node class default.
-A property the 5.8.4 class does not have is reported as ``None`` (absent).
+The graph node's frame step, which UE 5.8.4's class does not have (U-1),
+is reported as ``None`` (absent); any other missing property fails with
+fixed text naming it (#283: no silent default). A graph's resolution is the
+size UE renders: a profile name Project Settings knows wins over the stored
+size (``unreal.MovieGraphLibrary``).
 A custom frame rate counts only when it is switched on (legacy
 ``use_custom_frame_rate``, graph ``override_output_frame_rate``). A graph
 whose enabled node exposes one of these values as a pin or variable fails
@@ -64,6 +68,10 @@ _OUTPUT_INTS = (("frame_step", "output_frame_step"), ("handle_frames", "handle_f
 EXPOSED = ("The preset's Global Output Settings expose {name} as a pin or variable; Sethlans cannot read the value "
            "that renders.")
 _D5B_PROPS = ("output_resolution", "output_frame_rate") + tuple(name for _key, name in _OUTPUT_INTS)
+_GRAPH_INTS = _OUTPUT_INTS[1:]  # UE 5.8.4's MovieGraphGlobalOutputSettingNode has no frame step (U-1): absent
+PROP_MISSING = "Unreal has no property {name} on {cls}; the preset's output settings were not read."
+ADAPT_WARNING = ("The preset adapts its output resolution to the camera; a shot whose camera constrains its aspect "
+                 "ratio renders at another size than the one set, which Sethlans then refuses.")
 
 
 class _Conflict(Exception):
@@ -146,20 +154,28 @@ def game_overrides(preset, kind, warnings):
 
 
 def _prop(obj, name):
-    """The property's value, or ``None`` when the class has no such property (U-1: reported as absent)."""
+    """The property's value; one the class does not have fails with fixed text (never a silent default, #283)."""
     try:
         return obj.get_editor_property(name)
     except Exception:
-        return None
+        raise FactsError(PROP_MISSING.format(name=name, cls=type(obj).__name__)) from None
 
 
 def _rate(value):
     return [int(value.numerator), int(value.denominator)]
 
 
-def _size(value):
-    value = getattr(value, "resolution", value)  # graph: a named resolution that holds the size
-    return [int(value.x), int(value.y)]
+def _size(point):
+    return [int(point.x), int(point.y)]
+
+
+def _rendered_size(named):
+    """The size UE 5.8.4 renders a graph's named resolution at (``GetDesiredOutputResolution``): a profile name
+    Project Settings knows gives that profile's size, whatever size is stored; any other name the stored size."""
+    library = unreal.MovieGraphLibrary  # UMovieGraphBlueprintLibrary's Python name (ScriptName)
+    if library.is_named_resolution_valid(named.profile_name):
+        named = library.named_resolution_from_profile(named.profile_name)
+    return _size(named.resolution)
 
 
 def _int(value):
@@ -170,25 +186,23 @@ def _legacy_output(preset):
     out = preset.find_setting_by_class(unreal.MoviePipelineOutputSetting)
     if out is None:  # MRQ then uses the class defaults
         out = unreal.get_default_object(unreal.MoviePipelineOutputSetting)
-    custom = _rate(out.get_editor_property("output_frame_rate")) if _prop(out, "use_custom_frame_rate") else None
-    facts = {"resolution": _size(out.get_editor_property("output_resolution")), "custom_frame_rate": custom}
+    custom = _rate(_prop(out, "output_frame_rate")) if _prop(out, "use_custom_frame_rate") else None
+    facts = {"resolution": _size(_prop(out, "output_resolution")), "custom_frame_rate": custom}
     facts.update((key, _int(_prop(out, name))) for key, name in _OUTPUT_INTS)
     return facts
 
 
 def _overriding(nodes, name, convert):
     """The values of ``name`` on the enabled nodes that override it; nodes that disagree raise."""
-    values = [convert(node.get_editor_property(name)) for node in nodes if _prop(node, "override_" + name)]
+    values = [convert(_prop(node, name)) for node in nodes if _prop(node, "override_" + name)]
     if any(value != values[0] for value in values):
         raise _Conflict(OUTPUT_CONFLICT.format(name=name))
     return values
 
 
 def _graph_value(nodes, cdo, name, convert):
-    if _prop(cdo, name) is None:
-        return None  # the class has no such property: absent, and the duplicate leaves it (U-1)
     values = _overriding(nodes, name, convert)
-    return values[0] if values else convert(cdo.get_editor_property(name))
+    return values[0] if values else convert(_prop(cdo, name))
 
 
 def _flat(name):
@@ -199,11 +213,9 @@ def _refuse_exposed(nodes):
     """A D5b value promoted to a pin or variable renders with what feeds it, not the stored value: refused."""
     wanted = {_flat(name): name for name in _D5B_PROPS}
     for node in nodes:
-        read = getattr(node, "get_exposed_properties", None)
-        for info in read() if read is not None else ():
-            name = getattr(info, "name", None)
-            if _flat(name) in wanted:
-                raise _Conflict(EXPOSED.format(name=wanted[_flat(name)]))
+        for info in node.get_exposed_properties():
+            if _flat(info.name) in wanted:
+                raise _Conflict(EXPOSED.format(name=wanted[_flat(info.name)]))
 
 
 def _graph_output(graph):
@@ -211,18 +223,16 @@ def _graph_output(graph):
     nodes = [node for node in _all_nodes(graph, cls) if not node.is_disabled()]
     _refuse_exposed(nodes)
     cdo = unreal.get_default_object(cls)
-    rates = _overriding(nodes, "output_frame_rate", _rate) if _prop(cdo, "output_frame_rate") is not None else []
-    facts = {"resolution": _graph_value(nodes, cdo, "output_resolution", _size),
-             "custom_frame_rate": rates[0] if rates else None}
-    facts.update((key, _graph_value(nodes, cdo, name, int)) for key, name in _OUTPUT_INTS)
+    rates = _overriding(nodes, "output_frame_rate", _rate)
+    facts = {"resolution": _graph_value(nodes, cdo, "output_resolution", _rendered_size),
+             "custom_frame_rate": rates[0] if rates else None, "frame_step": None}  # absent: the duplicate leaves it
+    facts.update((key, _graph_value(nodes, cdo, name, int)) for key, name in _GRAPH_INTS)
     return facts
 
 
 def _max_override(graph, cls, name):
     """The largest overridden ``name`` on the enabled nodes of ``cls``; 1 when none sets it."""
-    if cls is None:
-        return 1
-    values = [int(node.get_editor_property(name)) for node in _all_nodes(graph, cls)
+    values = [int(_prop(node, name)) for node in _all_nodes(graph, cls)
               if not node.is_disabled() and _prop(node, "override_" + name)]
     return max(values, default=1)
 
@@ -233,10 +243,10 @@ def _samples(preset, kind):
         if aa is None:
             return 1, 1
         # Bound first: returned tuples hold no strings (a contract test reads their strings as the module's words).
-        temporal, spatial = aa.get_editor_property("temporal_sample_count"), aa.get_editor_property("spatial_sample_count")
+        temporal, spatial = _prop(aa, "temporal_sample_count"), _prop(aa, "spatial_sample_count")
         return int(temporal), int(spatial)
-    temporal = _max_override(preset, getattr(unreal, "MovieGraphSamplingMethodNode", None), "temporal_sample_count")
-    spatial = _max_override(preset, getattr(unreal, "MovieGraphImagePassBaseNode", None), "spatial_sample_count")
+    temporal = _max_override(preset, unreal.MovieGraphSamplingMethodNode, "temporal_sample_count")
+    spatial = _max_override(preset, unreal.MovieGraphImagePassBaseNode, "spatial_sample_count")  # every image pass
     return temporal, spatial
 
 
@@ -246,10 +256,23 @@ def _outputs(preset, kind):
         png = any(isinstance(s, unreal.MoviePipelineImageSequenceOutput_PNG) for s in preset.get_all_settings())
         return {"can_png": png, "can_exr": True, "can_sound": True}
     nodes = _all_nodes(preset, unreal.MovieGraphNode)
-    audio = getattr(unreal, "MovieGraphAudioOutputNode", None)
     return {"can_png": any(isinstance(n, unreal.MovieGraphImageSequenceOutputNode_PNG) for n in nodes),
             "can_exr": any(type(n) is unreal.MovieGraphImageSequenceOutputNode_EXR for n in nodes),  # not multilayer
-            "can_sound": audio is not None and any(isinstance(n, audio) for n in nodes)}
+            "can_sound": any(isinstance(n, unreal.MovieGraphAudioOutputNode) for n in nodes)}
+
+
+def output_warnings(preset, kind):
+    """D8: a graph whose Global Output Settings adapt the resolution (``adapt_resolution`` not Disabled) renders a
+    constrained camera's aspect ratio (``GetDesiredOutputResolution``, MovieGraphBlueprintLibrary.cpp:653-701). The
+    cameras are not read here (the prep loads no level), so it is a warning whenever adapting is on."""
+    if kind != "graph":
+        return []
+    cls = unreal.MovieGraphGlobalOutputSettingNode
+    nodes = [node for node in _all_nodes(preset, cls) if not node.is_disabled()]
+    values = [_prop(node, "adapt_resolution") for node in nodes if _prop(node, "override_adapt_resolution")]
+    values = values or [_prop(unreal.get_default_object(cls), "adapt_resolution")]
+    disabled = unreal.MovieGraphAspectRatioAdaptBehavior.DISABLED
+    return [ADAPT_WARNING] if any(value != disabled for value in values) else []
 
 
 def output_facts(preset, kind):
@@ -258,8 +281,11 @@ def output_facts(preset, kind):
         facts = (_legacy_output if kind == "legacy" else _graph_output)(preset)
         facts["temporal_samples"], facts["spatial_samples"] = _samples(preset, kind)
         facts.update(_outputs(preset, kind))
-    except _Conflict as exc:
+    except (_Conflict, FactsError) as exc:
         raise FactsError(str(exc)) from None
+    except AttributeError as exc:  # a missing Unreal name: only the name, never the message (#283)
+        name = exc.name if isinstance(exc.name, str) and exc.name.isidentifier() else None
+        raise FactsError(OUTPUT_FAILED.format(cls=f"AttributeError: no {name}" if name else "AttributeError")) from None
     except Exception as exc:
         raise FactsError(OUTPUT_FAILED.format(cls=type(exc).__name__)) from None
     return facts

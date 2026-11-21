@@ -11,7 +11,10 @@ imports only ``unreal``, and uses the edits module's public helpers
 
 It edits **only the duplicate** the prep made; it never saves an asset, so
 the artist's preset is never changed. ``apply(dup, kind, params, warnings,
-edits)``, the research's audio-only recipe:
+edits)``, the research's audio-only recipe, after one check: a preset that
+sets ``Sequencer.Audio.UsePlayUntilFinished`` or ``Sequencer.Audio.UseRepeating``
+itself (console variable setting or Set Console Variable node) is refused, as
+the sound export reads them before the render and cannot see that value.
 
 1. **Outputs** (D7): every image and video output is disabled and the sound
    output kept, writing the farm's file name format. Legacy: the wave output
@@ -35,6 +38,11 @@ WIDTH, HEIGHT, TEMPORAL = 128, 72, 2
 NO_AUDIO = "The preset has no audio output node; add one to render sound."
 AUDIO_SEVERAL = "The preset has {n} audio output nodes that could render; keep exactly one enabled to render sound."
 NO_SAMPLING = "The preset has no enabled sampling node to set 2 temporal samples; add one to render sound."
+# The sound export reads these before the render and cannot see a value the preset sets (MovieSceneAudioSection.cpp).
+SOUND_CVARS = ("Sequencer.Audio.UsePlayUntilFinished", "Sequencer.Audio.UseRepeating")
+SETS_SOUND_CVAR = ("The preset sets {name}, which changes how sounds end and repeat; the sound job cannot see the "
+                   "preset's value. Remove it from the preset to render sound.")
+CVAR_PRESETS = "The preset uses console variable presets; a sound setting they change is not detected."
 
 
 class AudioEditsError(RuntimeError):
@@ -63,7 +71,7 @@ def _graph(dup, params, edits):
     globals_ = edits.graph_nodes(dup, unreal.MovieGraphGlobalOutputSettingNode)
     edits.normalise_graph(globals_)
     for node in globals_:
-        edits.override(node, "output_resolution", edits.named_resolution(WIDTH, HEIGHT))
+        edits.set_size(node, WIDTH, HEIGHT)
     sampling = [n for n in edits.graph_nodes(dup, unreal.MovieGraphSamplingMethodNode) if not n.is_disabled()]
     if not sampling:
         raise AudioEditsError(NO_SAMPLING)
@@ -74,8 +82,8 @@ def _graph(dup, params, edits):
 def _legacy(dup, edits):
     wave = dup.find_or_add_setting_by_class(unreal.MoviePipelineWaveOutput, True)
     wave.set_is_enabled(True)
-    if edits.prop(wave, "file_name_format_override") is not None:
-        wave.set_editor_property("file_name_format_override", "")
+    edits.prop(wave, "file_name_format_override")  # present on UE 5.8.4's wave output; a missing one fails here
+    wave.set_editor_property("file_name_format_override", "")
     for setting in dup.get_all_settings():
         if isinstance(setting, unreal.MoviePipelineOutputBase) and not isinstance(setting, unreal.MoviePipelineWaveOutput):
             setting.set_is_enabled(False)
@@ -89,8 +97,20 @@ def _legacy(dup, edits):
     aa.set_editor_property("temporal_sample_count", TEMPORAL)
 
 
+def _refuse_sound_cvars(dup, kind, warnings, edits):
+    """The preset's own console variable setting or Set Console Variable nodes must not set ``SOUND_CVARS``."""
+    names, uses_presets = edits.preset_cvars(dup, kind)
+    for name in names:
+        for wanted in SOUND_CVARS:
+            if name.casefold() == wanted.casefold():
+                raise AudioEditsError(SETS_SOUND_CVAR.format(name=wanted))
+    if uses_presets:
+        warnings.append(CVAR_PRESETS)
+
+
 def apply(dup, kind, params, warnings, edits):
     """FR-SA-2 on the duplicate ``dup`` of kind ``graph`` or ``legacy``; ``AudioEditsError`` when it cannot be made."""
+    _refuse_sound_cvars(dup, kind, warnings, edits)
     if kind == "graph":
         _graph(dup, params, edits)
     else:

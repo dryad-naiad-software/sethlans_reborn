@@ -48,6 +48,8 @@ def error_text(exc):
     """Text Sethlans composed is reported; anything else only by its class name (its message can carry a path)."""
     if isinstance(exc, tuple(SAFE)):
         return str(exc)[:2048]
+    if isinstance(exc, AttributeError) and isinstance(exc.name, str) and exc.name.isidentifier():
+        return f"Unreal prep pass failed (AttributeError: no {exc.name})."  # the missing name only (#283)
     return f"Unreal prep pass failed ({type(exc).__name__})."
 
 
@@ -256,6 +258,7 @@ def discover():
         fail(f"Sequence has {len(found)} shots; at most {P['max_shots']} are supported.")
     RES["shot_source"], RES["shots"] = source, found
     out = facts.output_facts(preset, kind)  # FactsError with fixed text when unreadable
+    RES["warnings"] += facts.output_warnings(preset, kind)  # D8: an adapted resolution (#283)
     out["layers_ok"] = graph_layers(preset) == 1 if kind == "graph" else legacy_passes(preset) <= 1
     out["game_overrides"], out["texture_streaming"] = RES["game_overrides"], RES["texture_streaming"]
     RES["preset_facts"] = out

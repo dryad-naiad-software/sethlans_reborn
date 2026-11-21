@@ -11,13 +11,14 @@ params file named by ``SETHLANS_UE_JOB_PARAMS`` (mode ``warmup``).
 1. sets the preset's scalability **explicitly** (``Scalability <n>`` and every
    ``sg.*`` group): under the farm profile the editor starts at Epic (3),
    while the render uses the preset's level (Cinematic, 4, for the PoC);
-2. loads every ``/Script/OptimusCore.OptimusDeformer`` asset (a missing class
-   means zero deformers);
+2. loads every ``/Script/OptimusCore.OptimusDeformer`` asset (a class the
+   project does not have finds none: zero deformers);
 3. loads the map, opens the sequence and visits every ``step_frames`` stride
    frame, the first frame of every camera cut and the job's own frame(s)
    (a sequence piece, ``only_frames``: its own frames alone, at most 64),
    holding each ``step_seconds`` (time is set with ``set_global_position``,
-   the 5.8 replacement of the deprecated ``set_current_time``);
+   the 5.8 replacement of the deprecated ``set_current_time``, which is
+   never used: a missing name fails the warm-up, #283);
 4. holds ``hold_seconds``, logs ``[Warm] done, quitting`` (the success
    marker), writes ``result_path`` and quits the editor (``quit_editor`` in a
    ``finally``).
@@ -57,12 +58,8 @@ def set_scalability(level):
 def load_deformers():
     registry = unreal.AssetRegistryHelpers.get_asset_registry()
     registry.wait_for_completion()
-    try:
-        path = unreal.TopLevelAssetPath("/Script/OptimusCore", "OptimusDeformer")
-        found = registry.get_assets_by_class(path, True)
-    except Exception:
-        found = []
-    for data in found:
+    path = unreal.TopLevelAssetPath("/Script/OptimusCore", "OptimusDeformer")
+    for data in registry.get_assets_by_class(path, True):  # an unknown class finds nothing: zero deformers
         keep.append(data.get_asset())
         warm_log(f"loaded {data.package_name}")
     warm_log(f"{len(keep)} deformers loaded")
@@ -80,15 +77,12 @@ def visit_list(first, last):
 
 
 def set_time(frame):
-    lib = unreal.LevelSequenceEditorBlueprintLibrary
-    try:
-        params = unreal.MovieSceneSequencePlaybackParams()
-        params.frame = unreal.FrameTime(unreal.FrameNumber(int(frame)))
-        params.position_type = unreal.MovieScenePositionType.FRAME
-        params.update_method = unreal.UpdatePositionMethod.SCRUB
-        lib.set_global_position(params, unreal.MovieSceneTimeUnit.DISPLAY_RATE)
-    except AttributeError:
-        lib.set_current_time(int(frame))
+    """UE 5.8's ``set_global_position`` only: the deprecated ``set_current_time`` is never a silent fallback."""
+    params = unreal.MovieSceneSequencePlaybackParams()
+    params.frame = unreal.FrameTime(unreal.FrameNumber(int(frame)))
+    params.position_type = unreal.MovieScenePositionType.FRAME
+    params.update_method = unreal.UpdatePositionMethod.SCRUB
+    unreal.LevelSequenceEditorBlueprintLibrary.set_global_position(params, unreal.MovieSceneTimeUnit.DISPLAY_RATE)
 
 
 def write_result(ok, error=""):

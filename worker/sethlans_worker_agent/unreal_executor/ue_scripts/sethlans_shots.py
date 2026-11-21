@@ -29,19 +29,12 @@ def rate(frame_rate):
 
 
 def active(section):
-    try:
-        return section.is_active()
-    except Exception:
-        return True
+    return section.is_active()  # MovieSceneSection.IsActive; never assumed (#283: no silent default)
 
 
 def _mapped(sec, sub, disp):
     inner_rate = rate(sub.get_display_rate())
-    offset = 0.0
-    try:
-        offset = sec.parameters.start_frame_offset.value * inner_rate / rate(sub.get_tick_resolution())
-    except Exception:
-        pass
+    offset = sec.parameters.start_frame_offset.value * inner_rate / rate(sub.get_tick_resolution())
     return sec.get_start_frame(), sec.get_end_frame(), sub, sub.get_playback_start(), offset, inner_rate / disp
 
 
@@ -126,10 +119,7 @@ def clean(text):
 
 
 def _name_of(sub):
-    try:
-        return clean(sub.get_name())
-    except Exception:
-        return ""  # the worker names it shot_<nnn>
+    return clean(sub.get_name())  # an empty name: the worker names it shot_<nnn>
 
 
 def _first_at(start, base, ratio, bound):
@@ -159,7 +149,7 @@ def _merge(spans):
 
 
 def _play_rate(sec):
-    """The section's fixed play rate, or None when unreadable.
+    """The section's fixed play rate, or None when unreadable (the caller then fails the discovery loudly).
 
     UE 5.8.4: ``parameters.time_scale`` is a ``MovieSceneTimeWarpVariant``; ``to_fixed_play_rate()`` reads it
     (probe on 5.8.4). The variant offers no "is fixed" check, and a curve warp reads as 1.0 (the engine logs an
