@@ -13,12 +13,15 @@ actions (FR-SQ-10).  The progress counts come from the view's subquery
 annotations (``shots_total`` ...), never from a query per row.
 """
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from shared.unreal.shots_result import FRAME_MAX, SHOT_NAME_MAX
 
-from ..constants_sequence import MAX_SUBMISSION_SHOTS, RESOLUTION_MAX, RESOLUTION_MIN, FrameFormat
+from ..constants_sequence import MAX_SUBMISSION_SHOTS, RESOLUTION_MAX, RESOLUTION_MIN, FrameFormat, ShotStatus
+from ..constants_video import VideoStatus
 from ..models import SequenceShot, SequenceSubmission
+from ..services.sequence_routing import routing_note
 from .sequence_discovery import CREATE_KEYS as DISCOVERY_KEYS, SequenceDiscoveryCreateSerializer
 from .sequence_validation import request_errors
 from .unreal_measurement import StrictBooleanField, StrictCharField, StrictIntegerField
@@ -86,19 +89,40 @@ class SequenceSubmissionCreateSerializer(SequenceDiscoveryCreateSerializer):
         return attrs
 
 
+class DownloadsSerializer(serializers.Serializer):
+    """FR-SL-4: which downloads are available (by status; a missing file still answers 404)."""
+
+    video = serializers.BooleanField(help_text="download-video/")
+    video_sound = serializers.BooleanField(help_text="download-video/?sound=1")
+    sound = serializers.BooleanField(help_text="download-sound/")
+    frames = serializers.BooleanField(help_text="download-frames/")
+
+
+def _downloads(row, frames):
+    return {
+        'video': row.video_status == VideoStatus.DONE, 'video_sound': row.sound_video_status == VideoStatus.DONE,
+        'sound': row.sound_status == VideoStatus.DONE, 'frames': bool(frames),
+    }
+
+
 class SequenceShotSerializer(serializers.ModelSerializer):
     """One shot of a submission (FR-SS-1); ``end_frame`` is exclusive."""
 
     timings = serializers.JSONField(read_only=True, help_text="R7 timings, newest last (at most 50).")
+    downloads = serializers.SerializerMethodField()
 
     class Meta:
         model = SequenceShot
         fields = [
             'index', 'name', 'start_frame', 'end_frame', 'status', 'error_message', 'render_time_seconds',
             'timings', 'video_status', 'video_error', 'sound_status', 'sound_error', 'sound_video_status',
-            'sound_video_error',
+            'sound_video_error', 'downloads',
         ]
         read_only_fields = fields
+
+    @extend_schema_field(DownloadsSerializer)
+    def get_downloads(self, obj):
+        return _downloads(obj, obj.status == ShotStatus.DONE)
 
 
 COUNT_FIELDS = ('shots_total', 'shots_done', 'shots_error', 'pieces_total', 'pieces_done')
@@ -116,6 +140,9 @@ class SequenceSubmissionSerializer(serializers.ModelSerializer):
     video_settings = serializers.JSONField(read_only=True)
     draft = serializers.JSONField(read_only=True)
     warnings = serializers.ListField(child=serializers.CharField(), read_only=True)
+    routing_note = serializers.SerializerMethodField(
+        help_text="Why the version's next job is not picked up (FR-SR-3), or null.")
+    downloads = serializers.SerializerMethodField()
 
     class Meta:
         model = SequenceSubmission
@@ -125,10 +152,18 @@ class SequenceSubmissionSerializer(serializers.ModelSerializer):
             'video_settings', 'sound', 'merge_sound', 'draft', 'piece_seconds', 'lead_in_ms', 'sound_offset_ms',
             'status', 'cancel_requested', 'error_message', 'warnings', 'submitted_at', 'completed_at',
             'total_render_time_seconds', 'video_status', 'video_error', 'sound_status', 'sound_error',
-            'sound_video_status', 'sound_video_error',
+            'sound_video_status', 'sound_video_error', 'routing_note', 'downloads',
             *COUNT_FIELDS,
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_routing_note(self, obj):
+        return routing_note(obj, self.context)
+
+    @extend_schema_field(DownloadsSerializer)
+    def get_downloads(self, obj):
+        return _downloads(obj, getattr(obj, 'shots_done', 0))
 
 
 class SequenceSubmissionDetailSerializer(SequenceSubmissionSerializer):

@@ -212,7 +212,9 @@ class TestVramNote:
         pilot = pilots()[0]
         _online_worker('vram-12', 12282)
         assert admin_client.get(f'{JOBS}{pilot.pk}/').data['routing_note'] == (
-            f"No online worker with Unreal Engine build {BUILD} has enough GPU memory (needs 12478 MB).")
+            f"No online worker with Unreal Engine build {BUILD} has enough GPU memory: this render needs 12478 MB "
+            "at the preset's size; the largest card online has 12282 MB. "
+            "A card with more memory or a smaller output size is needed.")
         _online_worker('vram-16', 16303)
         assert admin_client.get(f'{JOBS}{pilot.pk}/').data['routing_note'] is None
 
@@ -225,7 +227,9 @@ class TestVramNote:
         measure(record_of(pilots()[0]), peak_mb=7930)
         _online_worker('vram-11', 11264)  # need 9120 fits 10475, caps 11048 do not
         note = admin_client.get(f'{JOBS}{job.pk}/').data['routing_note']
-        assert note == f"No online worker with Unreal Engine build {BUILD} has enough GPU memory (needs 9120 MB)."
+        assert note == (f"No online worker with Unreal Engine build {BUILD} has enough GPU memory: this render needs "
+                        "9120 MB at the preset's size; the largest card online has 11264 MB. "
+                        "A card with more memory or a smaller output size is needed.")
         _online_worker('vram-12', 12282)
         assert admin_client.get(f'{JOBS}{job.pk}/').data['routing_note'] is None
 

@@ -31,8 +31,10 @@ NO_REACH = (f"No online worker with Unreal Engine build {BUILD} is configured "
             "with the manager's Sethlans share and reports it reachable.")
 
 
-def _no_vram(need):
-    return f"No online worker with Unreal Engine build {BUILD} has enough GPU memory (needs {need} MB)."
+def _no_vram(need, largest):
+    return (f"No online worker with Unreal Engine build {BUILD} has enough GPU memory: this render needs "
+            f"{need} MB at the preset's size; the largest card online has {largest} MB. "
+            "A card with more memory or a smaller output size is needed.")
 
 
 def _worker(hostname, capabilities, memory=None, online=True):
@@ -83,7 +85,7 @@ class TestMessages:
         set_share(SHARE)
         _worker('note-16', caps(), gpu_memory(16303))
         _worker('note-mixed', caps(), gpu_memory(16303, 12282))
-        assert _note(admin_client, job) == _no_vram(16100)
+        assert _note(admin_client, job) == _no_vram(16100, 16303)
 
     def test_enough_memory_on_the_largest_gpu(self, admin_client, job):
         set_share(SHARE)
@@ -103,7 +105,7 @@ class TestMessages:
         job = Job.objects.create(name='NoteDefault', asset=unreal_asset(name='A2'), output_file_pattern='//r/f.png',
                                  unreal_kind='pilot')
         _worker('note-12', caps(), gpu_memory(12282))
-        assert _note(admin_client, job) == _no_vram(12478)
+        assert _note(admin_client, job) == _no_vram(12478, 12282)
 
 
 def _without_total(memory, index):
@@ -125,9 +127,9 @@ class TestLargestCardDecides:
     def test_largest_of_mixed_cards_too_small(self, admin_client, job):
         set_share(SHARE)
         _worker('note-mixed', caps(), gpu_memory(8188, 12282))
-        assert _note(admin_client, job) == _no_vram(16100)
+        assert _note(admin_client, job) == _no_vram(16100, 12282)
 
-    @pytest.mark.parametrize('total, expected', [(16303, _no_vram(16100)), (32607, None)])
+    @pytest.mark.parametrize('total, expected', [(16303, _no_vram(16100, 16303)), (32607, None)])
     def test_one_card(self, admin_client, job, total, expected):
         set_share(SHARE)
         _worker('note-one', caps(), gpu_memory(total))
@@ -136,7 +138,7 @@ class TestLargestCardDecides:
     def test_entry_without_total_is_skipped(self, admin_client, job):
         set_share(SHARE)
         _worker('note-partial', caps(), _without_total(gpu_memory(12282), 1))
-        assert _note(admin_client, job) == _no_vram(16100)
+        assert _note(admin_client, job) == _no_vram(16100, 12282)
 
     @pytest.mark.parametrize('make_memory', [lambda: _without_total(gpu_memory(), 0), gpu_memory],
                              ids=['no-totals', 'empty-reading'])

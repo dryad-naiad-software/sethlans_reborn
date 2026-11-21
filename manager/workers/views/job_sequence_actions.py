@@ -121,7 +121,7 @@ class JobSequenceActionsMixin:
         """Store one kept frame of a piece (FR-SS-2b); idempotent per (shot, frame).
 
         Returns:
-            200 ``{"frame": n, "shot": index, "replaced": bool}``; 400 for a
+            200 ``{"frame": n, "shot": index, "replaced": bool, "kept_newer": bool}``; 400 for a
             frame outside the kept range or the piece's shots, or a bad
             file; 404 for an unknown job; 409 when the job is not a piece
             rendering on this worker; 413 for a file over 512 MiB.

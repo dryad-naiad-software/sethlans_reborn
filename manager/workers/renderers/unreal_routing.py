@@ -31,7 +31,7 @@ from ..services.sethlans_share import configured_share
 from .unreal_measured import (
     MEASURED, held_message, measured_claim_rejection, measures_card, poll_measured_q,
 )
-from .unreal_sequence import skips_measured_gate
+from .unreal_sequence import CANCELED_VERSION_MESSAGE, output_size_text, skips_measured_gate, version_canceled
 
 MAX_POLL_BUILDS = 10
 SHARE_UNSET_MESSAGE = "The Sethlans share is not configured."
@@ -102,6 +102,8 @@ def unreal_claim_rejection(worker, job):
         return SHARE_MISMATCH_MESSAGE
     if not reports_share_reachable(caps, share):
         return SHARE_UNREACHABLE_MESSAGE
+    if version_canceled(job):
+        return CANCELED_VERSION_MESSAGE
     if skips_measured_gate(job):
         return None
     return measured_claim_rejection(worker, job)
@@ -153,9 +155,9 @@ def _online_unreal():
 
 
 def _vram_need(job, peak):
-    """``(need, caps_sum)``: the pilot need, or the measured need plus the caps (FR-RT-9 note 4)."""
+    """``(need, caps_sum)``: the pilot need (pilots, audio jobs: FR-SR-5), or the measured need plus the caps."""
     cvars = job.asset.project.unreal_cvar_overrides or {}
-    if job.unreal_kind == UnrealKind.PILOT:
+    if job.unreal_kind in (UnrealKind.PILOT, UnrealKind.AUDIO):
         return pilot_need_mb(cvars), None
     return measured_need_mb(peak), caps_sum_mb(cvars)
 
@@ -172,8 +174,9 @@ def _vram_note(job, totals, peak):
         if need <= usable_mb(total, 0) and (caps_sum is None or caps_within_budget(caps_sum, total)):
             return None
     return (
-        f"No online worker with Unreal Engine build {job.engine_build} "
-        f"has enough GPU memory (needs {need} MB)."
+        f"No online worker with Unreal Engine build {job.engine_build} has enough GPU memory: "
+        f"this render needs {need} MB {output_size_text(job)}; the largest card online has {max(totals)} MB. "
+        "A card with more memory or a smaller output size is needed."
     )
 
 
@@ -207,14 +210,19 @@ def unreal_routing_note(job, context):
             f"No online worker with Unreal Engine build {build} is configured "
             "with the manager's Sethlans share and reports it reachable."
         )
-    if skips_measured_gate(job):
+    return _memory_note(job, reachable[build])
+
+
+def _memory_note(job, totals):
+    """The key and memory part: none for ``shots``; the pilot need for pilots and audio (FR-SR-5)."""
+    if job.unreal_kind == UnrealKind.SHOTS:
         return None
     peak = None
-    if job.unreal_kind != UnrealKind.PILOT:
+    if job.unreal_kind != UnrealKind.PILOT and not skips_measured_gate(job):
         state, reason, peak = _key_state(job)
         if state != MEASURED:
             return held_message(state, reason, job.asset.project_id)
-    return _vram_note(job, reachable[build], peak)
+    return _vram_note(job, totals, peak)
 
 
 def _key_state(job):

@@ -131,7 +131,7 @@ class TestStorage:
         _worker, client = worker_with_token
         submission, piece = first_piece
         resp = upload_frame(client, piece, 0, png_file(name='../../evil name.png'))
-        assert resp.data == {'frame': 0, 'shot': 1, 'replaced': False}
+        assert resp.data == {'frame': 0, 'shot': 1, 'replaced': False, 'kept_newer': False}
         row = SequenceFrame.objects.get()
         assert row.file.name == f'sequences/{asset.project_id}/{submission.pk}/shots/0001/0000000.png'
         assert (row.job_id, row.shot.index, row.frame_number) == (piece.pk, 1, 0)

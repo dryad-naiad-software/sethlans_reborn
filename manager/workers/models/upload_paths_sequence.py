@@ -15,6 +15,7 @@ refuses one that would resolve outside ``MEDIA_ROOT``.
 import os
 
 from django.conf import settings
+from django.core.exceptions import SuspiciousFileOperation
 
 
 def submission_dir(project_id, submission_id):
@@ -77,7 +78,10 @@ def checked_path(storage, name):
         ValueError: the path resolves outside ``MEDIA_ROOT``.
     """
     root = os.path.realpath(settings.MEDIA_ROOT)
-    path = os.path.realpath(storage.path(name))
+    try:
+        path = os.path.realpath(storage.path(name))
+    except SuspiciousFileOperation:
+        raise ValueError(f"Storage path outside MEDIA_ROOT: {name!r}") from None
     if os.path.commonpath([root, path]) != root:
         raise ValueError(f"Storage path outside MEDIA_ROOT: {name!r}")
     return path

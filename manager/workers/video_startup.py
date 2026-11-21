@@ -18,7 +18,9 @@ for management commands, tests and the reloader's parent.  It:
    (``sequence_discovery.settle_open_discoveries``);
 4. starts the queue's thread;
 5. queues every PENDING item, through ``sequence_assembly.advance`` of each
-   submission that has one.
+   submission that has one;
+6. removes the storage folders of deleted versions that a delete could not
+   remove at the time (``sequence_delete.remove_orphan_folders``).
 
 Each step logs and swallows its own failure, so the server still starts.
 The manager runs one serving process; several would need a lease.
@@ -88,12 +90,14 @@ def on_server_start():
     """D16 start hook of the serving process; returns the boot id (the running one when called again)."""
     if video_queue.is_accepting():
         return video_queue.boot_id()
+    from .services.sequence_delete import remove_orphan_folders
     from .services.sequence_discovery import settle_open_discoveries
     boot = str(uuid.uuid4())
     reset = _step("resetting interrupted builds", reset_stale, boot)
     settled = _step("settling shot discoveries", settle_open_discoveries)
     video_queue.start(boot)
     queued = _step("queuing pending builds", queue_pending)
-    logger.info("Build queue ready: %s builds reset, %s discoveries settled, %s versions queued.",
-                reset, settled, queued)
+    removed = _step("removing the files of deleted versions", remove_orphan_folders)
+    logger.info("Build queue ready: %s builds reset, %s discoveries settled, %s versions queued, "
+                "%s deleted versions' folders removed.", reset, settled, queued, removed)
     return boot

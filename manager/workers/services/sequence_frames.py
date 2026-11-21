@@ -15,12 +15,20 @@ under the job lock with the ownership checked again (Job ->
 SequenceFrame).  A repeat upload of a frame replaces the row's file; the
 old file is removed after commit.  A rejected attach removes the new file
 unless a row references it.
+
+The frame clash (chunk 7): once a shot is rendered again beside a piece
+still running, the same frame can arrive from two jobs, and two inserts
+can race on the unique (shot, frame) key.  The losing insert re-reads the
+winner's row; **the frame of the job that started later is kept**.  An
+upload from the older job is dropped (its file removed after commit) and
+answered 200 with ``kept_newer`` true, so the worker goes on with its
+other frames; ``piece-result/`` still finds the frame stored.
 """
 
 import logging
 import os
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from PIL import Image
 
 from sethlans_manager.body_limits import FRAME_FILE_CAP
@@ -118,22 +126,64 @@ def _discard(storage, name):
         logger.exception("Could not remove rejected frame file %s.", name)
 
 
+def _order(started_at, pk):
+    """Sort key of a render: its claim time, then its id (an unstarted job sorts first)."""
+    return (started_at is not None, started_at or 0, pk)
+
+
+def holder_is_newer(holder_id, job):
+    """Whether the frame's current job ``holder_id`` started after ``job`` (FR-SS-2, the frame clash).
+
+    A deleted holder (``None``) or ``job`` itself is never newer.  The holder's
+    row is read without a lock: D22 locks Job rows only in ascending id, and
+    a holder requeued meanwhile has no claim time, so it reads as older.
+    """
+    if holder_id is None or holder_id == job.pk:
+        return False
+    started = Job.objects.filter(pk=holder_id).values_list('started_at', flat=True).first()
+    if started is None:
+        return False
+    return _order(started, holder_id) > _order(job.started_at, job.pk)
+
+
+def _insert(shot_pk, job_pk, frame, stored):
+    """Insert the row; ``None`` when another job inserted the same frame first (the unique clash)."""
+    try:
+        with transaction.atomic():
+            SequenceFrame.objects.create(shot_id=shot_pk, job_id=job_pk, frame_number=frame, file=stored)
+        return 'stored'
+    except IntegrityError:
+        return None
+
+
 def _attach(job_pk, worker, shot_pk, frame, stored, storage):
-    """Under the job lock: re-check ownership, then insert or replace the frame row."""
+    """Under the job lock: re-check ownership, then insert or replace the frame row.
+
+    Returns ``'stored'``, ``'replaced'`` or ``'kept_newer'`` (the frame from a
+    job that started later is kept and this upload is dropped).
+    """
     with transaction.atomic():
         locked = lock_own_rows(Job.objects).filter(pk=job_pk).first()
         if locked is None:
             raise Job.DoesNotExist
         owned_piece(locked, worker)
-        row = lock_own_rows(SequenceFrame.objects).filter(shot_id=shot_pk, frame_number=frame).first()
+        rows = lock_own_rows(SequenceFrame.objects).filter(shot_id=shot_pk, frame_number=frame)
+        row = rows.first()
         if row is None:
-            SequenceFrame.objects.create(shot_id=shot_pk, job_id=job_pk, frame_number=frame, file=stored)
-            return False
+            outcome = _insert(shot_pk, job_pk, frame, stored)
+            if outcome:
+                return outcome
+            row = rows.first()  # the other job's row, committed meanwhile
+            if row is None:
+                raise IntegrityError(f"Frame {frame} of shot {shot_pk} could not be stored.")
+        if holder_is_newer(row.job_id, locked):
+            transaction.on_commit(lambda: _discard(storage, stored), robust=True)
+            return 'kept_newer'
         old = row.file.name
         SequenceFrame.objects.filter(pk=row.pk).update(file=stored, job_id=job_pk)
         if old and old != stored:
             transaction.on_commit(lambda: _discard(storage, old), robust=True)
-        return True
+        return 'replaced'
 
 
 def store_frame(job_pk, worker, frame, file_obj):
@@ -163,8 +213,9 @@ def store_frame(job_pk, worker, frame, file_obj):
     stored = storage.save(name, file_obj)
     try:
         checked_path(storage, stored)
-        replaced = run_with_lock_retry(lambda: _attach(job_pk, worker, shot['pk'], frame, stored, storage), job_pk)
+        outcome = run_with_lock_retry(lambda: _attach(job_pk, worker, shot['pk'], frame, stored, storage), job_pk)
     except BaseException:
         _discard(storage, stored)
         raise
-    return {'frame': frame, 'shot': index, 'replaced': replaced}
+    # A dropped upload still answers 200: the worker treats 409 as "not my job" and stops (FR-SW-10).
+    return {'frame': frame, 'shot': index, 'replaced': outcome == 'replaced', 'kept_newer': outcome == 'kept_newer'}

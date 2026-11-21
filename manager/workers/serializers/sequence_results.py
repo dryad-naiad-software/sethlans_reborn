@@ -149,3 +149,6 @@ class FrameUploadResponseSerializer(serializers.Serializer):
     frame = serializers.IntegerField()
     shot = serializers.IntegerField(help_text="The shot index the frame belongs to.")
     replaced = serializers.BooleanField(help_text="True when an earlier upload of the frame was replaced.")
+    kept_newer = serializers.BooleanField(
+        help_text="True when a job that started later already stored this frame; this upload was dropped.",
+    )
