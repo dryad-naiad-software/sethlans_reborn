@@ -12,6 +12,7 @@ No model import here: ``models/jobs.py`` reads the key names.
 from django.db import models
 
 from shared.unreal.shots_result import SHOT_SOURCES
+from shared.unreal.sound_result import RUN_SHOTS_KEY
 
 
 class DiscoveryStatus(models.TextChoices):
@@ -64,7 +65,8 @@ SHOT_SOURCE_CHOICES = tuple((value, value) for value in SHOT_SOURCES)
 # Manager-only ``render_settings`` keys of pieces and pilots (D8, FR-SW-2).
 RESOLUTION_KEY = 'unreal.resolution'
 SHOT_SET_KEY = 'unreal.shot_set_sha256'
-PIECE_SHOTS_KEY = 'unreal.piece_shots'
+# One key for a piece's and an audio job's shots; the worker reads it from the shared module.
+PIECE_SHOTS_KEY = RUN_SHOTS_KEY
 OUTPUT_SIZE_KEY = 'unreal.output_size'
 PILOT_FRAMES_KEY = 'unreal.pilot_frames'
 DRAFT_KEY = 'unreal.draft'
@@ -95,6 +97,15 @@ SHOTS_JOB_DELETED = "The shots job was deleted."
 SHOTS_JOB_DONE_WITHOUT_RESULT = "The shots job finished without a result."
 SHOTS_JOB_FAILED = "The shots job failed."
 
+# FR-SA-11, D24: where a run's applied correction came from; the form flag's values (FR-SA-6).
+SOUND_APPLIED_SOURCES = ('measured', 'override', 'none')
+SOUND_FLAG_VALUES = ('true', 'false')
+
+# FR-SA-8: a failed audio job's sound items; the prefix marks an item the sound render failed.
+SOUND_RENDER_PREFIX = "The sound render "
+SOUND_RENDER_FAILED = SOUND_RENDER_PREFIX + "failed: {reason}."
+SOUND_RENDER_CANCELED = SOUND_RENDER_PREFIX + "was canceled."
+
 
 def shots_job_name(discovery_id):
     """D20: ``sethlans-seq-shots-<discovery id>`` (at most 40 characters)."""
@@ -104,3 +115,8 @@ def shots_job_name(discovery_id):
 def piece_job_name(submission_id, number):
     """D20: ``sethlans-seq-<submission id>-p<n>``, ``n`` from 1."""
     return f'{SEQUENCE_NAME_PREFIX}{submission_id}-p{number}'
+
+
+def audio_job_name(submission_id, number):
+    """D20: ``sethlans-seq-<submission id>-a<n>``, ``n`` from 1."""
+    return f'{SEQUENCE_NAME_PREFIX}{submission_id}-a{number}'

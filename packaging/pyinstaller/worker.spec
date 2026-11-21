@@ -94,7 +94,8 @@ if WEB_UI_STATIC.exists():
 # them from ``<package>/unreal_executor/ue_scripts`` into each job directory.
 UE_SCRIPTS = WORKER_DIR / 'sethlans_worker_agent' / 'unreal_executor' / 'ue_scripts'
 for _ue_script in ('sethlans_prepare_queue.py', 'sethlans_warm_up.py', 'sethlans_preset_facts.py',
-                   'sethlans_shots.py', 'sethlans_sequence_edits.py'):
+                   'sethlans_shots.py', 'sethlans_sequence_edits.py', 'sethlans_audio_edits.py',
+                   'sethlans_audio_export.py'):
     if not (UE_SCRIPTS / _ue_script).is_file():
         raise SystemExit(f"Unreal script missing: {UE_SCRIPTS / _ue_script}")
     datas.append((str(UE_SCRIPTS / _ue_script), 'sethlans_worker_agent/unreal_executor/ue_scripts'))

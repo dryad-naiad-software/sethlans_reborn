@@ -6,11 +6,14 @@ sequence rendering FR-SW-4).
 
 Runs in UE 5.8's embedded Python (3.11) as the PythonScript commandlet (``-run=pythonscript -script=<this file>``);
 imports only unreal, importlib, json, os, sys and time; loads ``sethlans_shots.py``, ``sethlans_sequence_edits.py``
-(both required) and ``sethlans_preset_facts.py`` from ``scripts_dir`` by file path, never through ``sys.path``.
+(both required), ``sethlans_audio_edits.py`` (mode ``prepare_audio``, required there) and ``sethlans_preset_facts.py``
+from ``scripts_dir`` by file path, never through ``sys.path``.
 Job data comes only from the params file named by ``SETHLANS_UE_JOB_PARAMS``. Modes ``prepare`` (one frame),
 ``prepare_pilot`` (one frame per shot, or the manager's ``pilot_frames``), ``prepare_range`` (a piece: one
-duplicate over ``range``, FR-SW-3; every duplicate gets the edits module's changes) and ``list_shots`` (FR-SD-4,
-FR-SD-5: shots, rate, preset facts; no queue asset, nothing saved). Writes ``result_path``; on failure re-raises.
+duplicate over ``range``, FR-SW-3; every duplicate gets the edits module's changes), ``prepare_audio`` (an audio
+job: the same over ``range`` with the audio edits instead, FR-SA-2) and ``list_shots`` (FR-SD-4, FR-SD-5: shots,
+rate, preset facts; no queue asset, nothing saved). Every result has ``playback_range`` and ``frame_rate``. Writes
+``result_path``; on failure re-raises.
 """
 import importlib.util
 import json
@@ -26,6 +29,8 @@ P = {}
 FACTS = "sethlans_preset_facts"
 SHOTS = "sethlans_shots"
 EDITS = "sethlans_sequence_edits"
+AUDIO = "sethlans_audio_edits"
+RANGE_MODES = ("prepare_range", "prepare_audio")
 
 
 class PrepFailure(RuntimeError):
@@ -122,13 +127,13 @@ def override_legacy(dup, start, end):
     out.set_editor_property("file_name_format", P["file_name_format"])
 
 
-def duplicate(eal, edits, kind, index, start, end):
-    """One farm duplicate over ``[start, end)``: range and directory here, then the edits module (FR-SW-3)."""
+def duplicate(eal, edit, kind, index, start, end):
+    """One farm duplicate over ``[start, end)``: range and directory here, then ``edit`` (FR-SW-3, FR-SA-2)."""
     dup = eal.duplicate_asset(P["preset"], f"{P['package_root']}/MRG_Job{P['job_id']}_{index}")
     if dup is None:
         fail("Could not duplicate the preset.")
     (override_graph if kind == "graph" else override_legacy)(dup, start, end)
-    RES.update(edits.apply(dup, kind, P, RES["warnings"]))  # format, D5b, size, draft; never the original
+    RES.update(edit(dup, kind, P, RES["warnings"]))  # format (or sound), D5b, size, draft; never the original
     layers = graph_layers(dup) if kind == "graph" else legacy_passes(dup)
     if layers != 1 and (kind == "graph" or layers > 1):
         fail(f"Preset renders {layers} layers; phase 1 supports one.")
@@ -155,7 +160,7 @@ def in_cut(shots, seq, frame, first, last, what="Frame"):
 
 def job_ranges(shots, seq, first, last):
     """The ``[start, end)`` of each queue job: one frame each (pilot: one per shot, FR-UE-25), or a piece's range."""
-    if P["mode"] == "prepare_range":  # FR-SW-3: the first kept frame lies in a shot or camera cut
+    if P["mode"] in RANGE_MODES:  # FR-SW-3, FR-SA-2: the first kept frame lies in a shot or camera cut
         lo, hi = int(P["range"][0]), int(P["range"][1])
         if not first <= lo < hi <= last:
             fail(f"Frames {lo}-{hi - 1} are outside the playback range [{first}, {last}).")
@@ -181,6 +186,13 @@ def search_assets():
     registry.wait_for_completion()
 
 
+def playback(seq):
+    """The playback range ``[first, last)``; the result also gets the display rate (FR-SD-5, FR-SA-5)."""
+    first, last, rate = seq.get_playback_start(), seq.get_playback_end(), seq.get_display_rate()
+    RES["playback_range"], RES["frame_rate"] = [first, last], [int(rate.numerator), int(rate.denominator)]
+    return first, last
+
+
 def load(what, path):
     asset = unreal.load_asset(path)
     if asset is None:
@@ -191,6 +203,10 @@ def load(what, path):
 def prepare():
     shots = load_required(SHOTS, "shots", "ShotsError")
     edits = load_required(EDITS, "edits", "EditsError")
+    if P["mode"] == "prepare_audio":  # FR-SA-2: the sound-only duplicate; it uses the edits module's helpers
+        edit = load_required(AUDIO, "audio edits", "AudioEditsError").using(edits)
+    else:
+        edit = edits.apply
     eal = unreal.EditorAssetLibrary
     search_assets()
     root = P["package_root"]
@@ -201,8 +217,7 @@ def prepare():
     RES["preset_kind"] = kind
     read_facts(preset, kind)
     seq = load("Sequence", P["sequence"])
-    first, last = seq.get_playback_start(), seq.get_playback_end()
-    RES["playback_range"] = [first, last]
+    first, last = playback(seq)
     RES["camera_cut_starts"] = shots.cut_starts(seq)
     ranges = job_ranges(shots, seq, first, last)
     if P.get("draft_cvars"):  # D11: draft CVars the preset's own console variables set again at render time
@@ -210,7 +225,7 @@ def prepare():
     queue = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
         f"Q_Job{P['job_id']}", root, unreal.MoviePipelineQueue, None)
     for index, (start, end) in enumerate(ranges):
-        dup = duplicate(eal, edits, kind, index, start, end)
+        dup = duplicate(eal, edit, kind, index, start, end)
         job = queue.allocate_new_job(unreal.MoviePipelineExecutorJob)
         job.job_name = f"sethlans_{P['job_id']}_{start}"
         job.author = "Sethlans"  # EXR metadata unreal/jobAuthor; else the OS user name reaches the frames
@@ -235,9 +250,7 @@ def discover():
     if facts is None:
         fail("The preset facts module did not load.")
     seq = load("Sequence", P["sequence"])
-    first, last = seq.get_playback_start(), seq.get_playback_end()
-    rate = seq.get_display_rate()
-    RES["playback_range"], RES["frame_rate"] = [first, last], [int(rate.numerator), int(rate.denominator)]
+    first, last = playback(seq)
     source, found = shots.list_shots(seq, first, last, RES["warnings"])
     if len(found) > int(P["max_shots"]):  # the list is not written: the result stays small
         fail(f"Sequence has {len(found)} shots; at most {P['max_shots']} are supported.")

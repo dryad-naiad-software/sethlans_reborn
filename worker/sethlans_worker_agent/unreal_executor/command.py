@@ -13,6 +13,8 @@ function, ``_finish``, which appends, in this order and exactly once::
     -UDPMESSAGING_TRANSPORT_ENABLE=0           every launch (no UdpMessaging listener, #233)
     -dx12 -graphicsadapter=<N>                 warm-up and render: DX12 on the chosen card (FR-CU-2, B5)
     [-csvCaptureFrames=5000000 -csvGpuStats]   pilot render only
+                                               (an audio job's render has farm_defaults.AUDIO_FLAGS after
+                                               RENDER_FLAGS, in its head; FR-SA-4)
     *zen_private.zen_flags(CACHE_DIR, ZEN_PORT)
     *user_state.isolation_args()               (-notraceserver)
     -DPCVars=<merged>                          always last
@@ -31,7 +33,7 @@ plus ``user_state.isolation_env(P)``. No launch path can omit either.
 * the Zen tokens, ``-notraceserver``, (warm-up and render) ``-dx12`` and
   ``-graphicsadapter=N`` with ``N`` 0-63, and (pilot) the CSV tokens appear
   exactly once each, in the order above; the prep carries neither adapter
-  token; no other ``-ini:Engine:``,
+  token; the audio flags only on an audio render; no other ``-ini:Engine:``,
   ``-ZenDataPath=``, ``-LocalDataCachePath=`` or ``-csv`` token appears;
 * ``-DPCVars=`` is the last token.
 
@@ -47,7 +49,7 @@ from sethlans_worker_agent import env_cleanup
 from sethlans_worker_agent.unreal_executor import farm_defaults, pilot, user_state, zen_private
 from sethlans_worker_agent.unreal_executor.cache_dir import ALLOWLIST
 from sethlans_worker_agent.unreal_executor.launch_flags import (  # CommandError is part of this module's API
-    ADAPTER_PHASES, CommandError, adapter_flags, check_phase_flags, positions)
+    ADAPTER_PHASES, CommandError, adapter_flags, check_audio_flags, check_phase_flags, positions)
 from shared.unreal import validation
 
 PHASES = ('prep', 'warmup', 'render')
@@ -154,7 +156,8 @@ def _exactly_once(args: Sequence[str], value: str, prefix: Optional[str] = None)
     return found[0]
 
 
-def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool, phase: Optional[str] = None) -> None:
+def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool, phase: Optional[str] = None,
+                 audio: bool = False) -> None:
     data, fs, shared, ini = zen_private.zen_flags(ctx.cache_dir, ctx.zen_port)
     zen = [_exactly_once(args, data, '-zendatapath='), _exactly_once(args, fs, '-localdatacachepath='),
            _exactly_once(args, shared, '-shareddatacachepath='), _exactly_once(args, ini, '-ini:engine:')]
@@ -172,10 +175,11 @@ def _check_order(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool, ph
     elif csv:
         raise CommandError("only a pilot render may carry -csv tokens")
     check_phase_flags(args, phase, min(zen))
+    check_audio_flags(args, audio, min(zen))
 
 
 def validate_args(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool = False,
-                  phase: Optional[str] = None) -> None:
+                  phase: Optional[str] = None, audio: bool = False) -> None:
     """FR-UE-7 rules on a complete UE command line (``phase`` adds the headless and adapter rules, ``launch_flags``).
 
     Raises ``CommandError``.
@@ -187,11 +191,11 @@ def validate_args(args: Sequence[str], ctx: LaunchContext, pilot_launch: bool = 
     _require_abs(args[1], "the .uproject path")
     if not args[1].lower().endswith('.uproject'):
         raise CommandError("args[1] must be the .uproject path")
-    _check_order(args, ctx, pilot_launch, phase)
+    _check_order(args, ctx, pilot_launch, phase, audio)
 
 
 def _finish(ctx: LaunchContext, phase: str, head: Sequence[str], merged, params_path,
-            pilot_launch: bool = False) -> UeLaunch:
+            pilot_launch: bool = False, audio: bool = False) -> UeLaunch:
     """The single place every UE launch's tail and environment are built (req. 10, 11)."""
     if phase not in PHASES:
         raise CommandError(f"unknown phase {phase!r}")
@@ -206,7 +210,7 @@ def _finish(ctx: LaunchContext, phase: str, head: Sequence[str], merged, params_
     args += list(zen_private.zen_flags(ctx.cache_dir, ctx.zen_port))
     args += list(user_state.isolation_args())
     args.append(dpcvars_token(merged))
-    validate_args(args, ctx, pilot_launch, phase)
+    validate_args(args, ctx, pilot_launch, phase, audio)
     if params_path is not None:
         _require_abs(str(params_path), env_cleanup.UNREAL_PARAMS_VAR)
     env = env_cleanup.clean_env_for_unreal(None if params_path is None else str(params_path))
@@ -231,8 +235,8 @@ def build_warmup(ctx: LaunchContext, uproject, script, log_path, params_path, me
 
 
 def build_render(ctx: LaunchContext, uproject, map_path: str, queue_asset: str, log_path, merged,
-                 pilot_launch: bool = False) -> UeLaunch:
-    """FR-UE-6: bench.ps1's render line (no audio, CSV only for a pilot)."""
+                 pilot_launch: bool = False, audio: bool = False) -> UeLaunch:
+    """FR-UE-6: bench.ps1's render line (CSV only for a pilot; the audio flags only for an audio job, FR-SA-4)."""
     for value, what in ((map_path, 'map'), (queue_asset, 'queue asset')):
         try:
             validation.validate_object_path(value)
@@ -241,5 +245,5 @@ def build_render(ctx: LaunchContext, uproject, map_path: str, queue_asset: str, 
     if map_path.startswith('-'):
         raise CommandError("the map must not start with '-'")
     head = [ctx.editor_cmd, str(uproject), map_path, '-game', f'-MoviePipelineConfig={queue_asset}',
-            *farm_defaults.RENDER_FLAGS, f'-abslog={log_path}']
-    return _finish(ctx, 'render', head, merged, None, pilot_launch=pilot_launch)
+            *farm_defaults.RENDER_FLAGS, *(farm_defaults.AUDIO_FLAGS if audio else ()), f'-abslog={log_path}']
+    return _finish(ctx, 'render', head, merged, None, pilot_launch=pilot_launch, audio=audio)

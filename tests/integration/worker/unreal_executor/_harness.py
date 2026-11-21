@@ -5,7 +5,7 @@
 Harness for the executor integration tests: a real cache under ``tmp_path``,
 a local directory standing in for the share, the fake engine, a fake GPU
 sampler and a fake manager (cancel watcher, release, upload, pilot-result,
-shots-result). ``sampler = None`` runs a job with no GPU memory reading at all.
+shots-result, frames, piece-result, sound-result). ``sampler = None`` runs a job with no GPU memory reading at all.
 """
 import functools
 import json
@@ -74,17 +74,26 @@ class FakeManager:
     shots_bodies: list = field(default_factory=list)
     frames: list = field(default_factory=list)
     piece_bodies: list = field(default_factory=list)
+    sounds: list = field(default_factory=list)
     status: str = 'RENDERING'
     pilot_report: object = None
     shots_report: object = None
     frame_sink: object = None
     piece_sink: object = None
+    sound_sink: object = None
 
     def deps(self) -> DeliveryDeps:
         return DeliveryDeps(release_job=lambda job_id, reason: self.releases.append((job_id, reason)) or True,
                             mark_unreachable=lambda reason: None, upload=self.upload, report_pilot=self.report,
                             report_shots=self.report_shots, upload_frame=self.upload_frame,
-                            report_piece=self.report_piece)
+                            report_piece=self.report_piece, upload_sound=self.upload_sound)
+
+    def upload_sound(self, job_id, handle, offset, skipped, render_s, summary, cause=None):
+        """``sound-result/`` (FR-SA-6); ``sound_sink`` (a callable) replaces it, e.g. the real endpoint."""
+        if self.sound_sink is not None:
+            return self.sound_sink(job_id, handle, offset, skipped, render_s, summary)
+        self.sounds.append((job_id, handle.read(), offset, skipped))
+        return api_extras.PilotReport('done', 200)
 
     def report_shots(self, job_id, body):
         self.shots_bodies.append((job_id, body))
@@ -152,6 +161,15 @@ class Harness:
         data['render_settings'].update(settings or {'unreal.output_format': fmt, 'unreal.shot_set_sha256': 'c' * 64,
                                                     'unreal.piece_shots': [[1, start, end + 1]]})
         data['render_settings'].update(extra)
+        return data
+
+    def audio(self, job_id, start=0, end=299, lead=0, shots=None, submission=7):
+        """An audio job (FR-SA-1): the run ``start..end`` after ``lead`` frames, its shot parts (100 frames each)."""
+        data = self.job(job_id, kind='audio', frame=start)
+        data.update(end_frame=end, unreal_lead_in_frames=lead, sequence_submission=submission)
+        del data['render_settings']['unreal.output_format']
+        data['render_settings']['unreal.piece_shots'] = shots or [
+            [i + 1, s, min(s + 100, end + 1)] for i, s in enumerate(range(start, end + 1, 100))]
         return data
 
     def run_deps(self):

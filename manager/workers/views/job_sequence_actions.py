@@ -46,8 +46,9 @@ _VALIDATION = OpenApiResponse(
     response=inline_serializer('SequenceResultValidationError', {'detail': serializers.CharField(required=False)}),
     description='{"detail": "Unknown keys: ..."}, or {"<field>": ["<message>"]}.',
 )
-# Actions whose multipart body must go to temporary files (D21, FR-BL-3).
-TEMP_FILE_ACTIONS = frozenset({'frames'})
+# Actions whose multipart body must go to temporary files (D21, FR-BL-3); ``sound_result``
+# is ``job_sound_actions``.
+TEMP_FILE_ACTIONS = frozenset({'frames', 'sound_result'})
 
 
 def _job_pk(pk):
@@ -77,7 +78,7 @@ class JobSequenceActionsMixin:
     """Adds the worker's ``shots_result``, ``frames`` and ``piece_result`` actions to ``JobViewSet``."""
 
     def initialize_request(self, request, *args, **kwargs):
-        """Frame uploads go to temporary files only, set before anything reads the body (FR-BL-3)."""
+        """Frame and sound uploads go to temporary files only, set before anything reads the body (FR-BL-3)."""
         drf_request = super().initialize_request(request, *args, **kwargs)
         if getattr(self, 'action', None) in TEMP_FILE_ACTIONS:
             request.upload_handlers = [TemporaryFileUploadHandler(request)]

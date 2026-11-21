@@ -120,11 +120,12 @@ class TestBodyClassSelfTest:
     """The start check also proves each class below the ceiling gets its own
     limit (spec D21), with the D21 table installed."""
 
-    def test_live_table_checks_the_frame_and_result_classes(self):
+    def test_live_table_checks_the_frame_sound_and_result_classes(self):
         """The upload class is capped by the ceiling, so it is not probed;
-        the live frame and result classes (chunk 3) are, both ways."""
+        the live frame, sound and result classes (chunk 5) are, both ways."""
         expected = []
-        for path, limit in ((b'/api/jobs/1/frames/', FRAME_CLASS.limit), (b'/api/jobs/1/shots-result/', RESULT_BODY_LIMIT)):
+        for path, limit in ((b'/api/jobs/1/frames/', FRAME_CLASS.limit), (b'/api/jobs/1/sound-result/', SOUND_CLASS.limit),
+                            (b'/api/jobs/1/shots-result/', RESULT_BODY_LIMIT)):
             expected += [
                 (b'POST %s HTTP/1.1\r\nContent-Length: %d\r\n\r\n' % (path, limit + 1), True),
                 (b'POST %s HTTP/1.1\r\nContent-Length: %d\r\n\r\n' % (path, limit), False),

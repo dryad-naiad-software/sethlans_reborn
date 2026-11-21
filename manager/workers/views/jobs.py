@@ -20,6 +20,7 @@ from .job_pause_actions import JobPauseActionsMixin
 from .job_pilot_actions import JobPilotActionsMixin, pilot_requeue_refusal
 from .job_release_actions import JobReleaseActionsMixin
 from .job_sequence_actions import JobSequenceActionsMixin
+from .job_sound_actions import JobSoundActionsMixin
 from .job_poll_filters import (
     LIST_PARAMETERS, apply_device_prefs_filter, apply_worker_poll_filters,
 )
@@ -48,6 +49,7 @@ logger = logging.getLogger(__name__)
 class JobViewSet(
     JobPilotActionsMixin,
     JobSequenceActionsMixin,
+    JobSoundActionsMixin,
     JobReleaseActionsMixin,
     JobYieldActionsMixin,
     JobPauseActionsMixin,
@@ -73,7 +75,7 @@ class JobViewSet(
 
     def get_permissions(self):
         if self.action in ('claim', 'upload_output', 'yield_requeue', 'release', 'pilot_result', 'shots_result',
-                           'frames', 'piece_result'):
+                           'frames', 'piece_result', 'sound_result'):
             return [IsWorker()]
         elif self.action in ('list', 'retrieve'):
             return [(IsAdmin | IsWorker)()]

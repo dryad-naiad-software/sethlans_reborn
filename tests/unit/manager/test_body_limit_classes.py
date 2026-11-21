@@ -9,10 +9,10 @@ FR-BL-2, FR-BL-4).
 Covers:
 
 - The D21 sizes and the class table's validation.
-- The live table has the upload class, the frame class (``frames/``) and
-  the result class with every D21 result path (chunk 3); ``sound-result/``
-  still gets the small limit, and the static Docker Caddyfile carries the
-  live classes.
+- The live table is the whole D21 table since chunk 5: the upload class,
+  the frame class (``frames/``), the sound class (``sound-result/``) and
+  the result class with every D21 result path; the static Docker
+  Caddyfile carries the live classes.
 - With the D21 table installed: ``body_limit_for_path`` for every
   sequence path and near-miss paths, the listener ceiling, and that no
   two classes share a path.
@@ -107,21 +107,12 @@ class TestSizes:
             assert SMALL_BODY_LIMIT < body_class.limit < UPLOAD_BODY_LIMIT
 
 
-LIVE_PATHS = [
-    ('/api/jobs/7/frames/', FRAME_BODY_LIMIT),
-    ('/api/jobs/2147483647/frames/', FRAME_BODY_LIMIT),
-    ('/api/jobs/7/shots-result/', RESULT_BODY_LIMIT),
-    ('/api/jobs/7/piece-result/', RESULT_BODY_LIMIT),
-    ('/api/sequence-submissions/', RESULT_BODY_LIMIT),
-]
-
-
 class TestLiveTable:
-    """Chunk 3: the frame class (``frames/``) and the whole result class are
-    live; ``sound-result/`` keeps the small limit until its endpoint lands."""
+    """Chunk 5: every D21 class is live, ``sound-result/`` in the sound class."""
 
-    def test_upload_frame_and_result_classes(self):
-        assert body_limits.BODY_CLASSES == (UPLOAD_CLASS, body_limits.FRAME_CLASS, body_limits.RESULT_CLASS)
+    def test_live_table_is_the_d21_table(self):
+        assert body_limits.BODY_CLASSES == D21_CLASSES
+        assert body_limits.SOUND_CLASS == SOUND_CLASS
         assert UPLOAD_CLASS.paths is UPLOAD_PATHS
         assert UPLOAD_CLASS.limit == UPLOAD_BODY_LIMIT
         assert body_limits.RESULT_CLASS.name == RESULT_CLASS.name == 'result'
@@ -131,30 +122,28 @@ class TestLiveTable:
     def test_live_result_paths_equal_d21(self):
         assert set(body_limits.RESULT_PATHS) == set(RESULT_CLASS.paths)
 
-    @pytest.mark.parametrize('path, limit', LIVE_PATHS)
+    @pytest.mark.parametrize('path, limit', SEQUENCE_PATHS)
     def test_live_sequence_path_gets_its_class(self, path, limit):
         assert body_class_for_path(path).limit == limit
         assert body_limit_for_path(path) == limit
-
-    @pytest.mark.parametrize('path, _limit', [p for p in SEQUENCE_PATHS if p not in LIVE_PATHS])
-    def test_other_sequence_paths_are_small_until_their_endpoints_land(self, path, _limit):
-        assert body_class_for_path(path) is None
-        assert body_limit_for_path(path) == SMALL_BODY_LIMIT
 
     @pytest.mark.parametrize('path', NEAR_MISSES)
     def test_near_miss_is_small(self, path):
         assert body_limit_for_path(path) == SMALL_BODY_LIMIT
 
-    def test_static_caddyfile_carries_the_frame_and_result_classes(self):
+    def test_static_caddyfile_carries_the_frame_sound_and_result_classes(self):
         docker_text = _docker_caddyfile_text(REPO_ROOT)
         public = docker_text[:docker_text.index('http://127.0.0.1:')]
         assert '    @frame_body {\n        path /api/jobs/*/frames/\n    }\n' in public
         assert ('    @result_body {\n        path /api/jobs/*/shots-result/ /api/jobs/*/piece-result/ '
                 '/api/sequence-submissions/\n    }\n') in public
         assert f'    request_body @frame_body {{\n        max_size {FRAME_BODY_LIMIT}\n    }}\n' in public
+        assert '    @sound_body {\n        path /api/jobs/*/sound-result/\n    }\n' in public
+        assert f'    request_body @sound_body {{\n        max_size {SOUND_BODY_LIMIT}\n    }}\n' in public
         assert f'    request_body @result_body {{\n        max_size {RESULT_BODY_LIMIT}\n    }}\n' in public
         small = public[public.index('@small_body {'):]
-        for path in ('/api/jobs/*/frames/', '/api/jobs/*/piece-result/', '/api/sequence-submissions/'):
+        for path in ('/api/jobs/*/frames/', '/api/jobs/*/sound-result/', '/api/jobs/*/piece-result/',
+                     '/api/sequence-submissions/'):
             assert path in small
 
 

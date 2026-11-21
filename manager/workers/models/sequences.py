@@ -150,6 +150,7 @@ class SequenceSubmission(models.Model):
     video_error = models.TextField(blank=True, default='')
     sound_status = _item_status()
     sound_file = _result_file()
+    sound_error = models.TextField(blank=True, default='')
     sound_video_status = _item_status()
     sound_video_file = _result_file()
     sound_runs = models.JSONField(default=list, blank=True)

@@ -21,7 +21,7 @@ Runs **after** exit confirmation and the FR-PA-16 integrity check:
   backstop: the reserver already refuses such a pilot, FR-GU-10);
 * success, sequence kinds: ``sequence_delivery`` (``shots``: ``shots-result/``,
   FR-SD-8; a piece: ``frames/`` per kept frame, then ``piece-result/``,
-  FR-SW-10);
+  FR-SW-10; an audio job: ``sound-result/``, FR-SA-6);
 * failure -> ``ERROR`` (pilot: ``"Pilot render failed: <reason>"``);
 * local conflict -> ``release/`` with its reason; share failure ->
   ``release/`` with ``share_unavailable`` and ``mark_unreachable``;
@@ -69,6 +69,7 @@ class DeliveryDeps:
     report_shots: Callable                # (job_id, body) -> PilotReport (shots-result/, FR-SD-8)
     upload_frame: Callable                # (job_id, frame, handle, filename) -> PilotReport (frames/, FR-SW-10)
     report_piece: Callable                # (job_id, body) -> PilotReport (piece-result/, FR-SW-10)
+    upload_sound: Callable                # (job_id, handle, offset, skipped, render_s, summary, cause=) (FR-SA-6)
 
 
 def result(*, success=False, canceled=False, stdout='', error='', released=False, render_time=None,
@@ -126,6 +127,8 @@ class Delivery:
             return sequence_delivery.deliver_shots(self, flow)
         if self.params.is_piece:
             return sequence_delivery.deliver_piece(self, flow)
+        if self.params.is_audio:
+            return sequence_delivery.deliver_sound(self, flow)
         return self._pilot(flow) if self.params.is_pilot else self._upload(flow)
 
     def _upload(self, flow) -> RenderResult:

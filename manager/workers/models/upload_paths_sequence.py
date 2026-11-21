@@ -30,6 +30,11 @@ def frame_name(project_id, submission_id, index, frame_number, extension):
     return f'{shot_dir(project_id, submission_id, index)}/{int(frame_number):07d}.{extension}'
 
 
+def run_sound_name(project_id, submission_id, job_id):
+    """``.../runs/<job id>.wav``: an audio job's rendered run (FR-SA-6), never the worker's name."""
+    return f'{submission_dir(project_id, submission_id)}/runs/{int(job_id)}.wav'
+
+
 def _basename(filename):
     return os.path.basename(str(filename)) or 'file'
 

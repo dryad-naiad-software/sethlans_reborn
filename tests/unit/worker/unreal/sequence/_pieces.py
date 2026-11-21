@@ -27,3 +27,19 @@ def piece_data(start=100, end=129, lead=30, fmt='PNG', shots=None, size=(1920, 1
 
 def piece_params(**kwargs):
     return job_params.validate_job_data(piece_data(**kwargs)).with_share_root(SHARE_ROOT)
+
+
+def audio_data(start=100, end=279, lead=8, shots=None, **changes):
+    """An audio job's poll payload (FR-SA-1): the run ``start..end`` after ``lead`` audio lead-in frames, its shot
+    parts as ``unreal.piece_shots`` (two by default), map, sequence and preset only."""
+    settings = {key: SETTINGS[key] for key in ('unreal.map', 'unreal.sequence', 'unreal.preset')}
+    middle = (start + end + 1) // 2
+    settings['unreal.piece_shots'] = [[3, start, middle], [4, middle, end + 1]] if shots is None else shots
+    data = job(kind='audio', frame=start, render_settings=settings)
+    data.update(end_frame=end, unreal_lead_in_frames=lead, sequence_submission=7)
+    data.update(changes)
+    return data
+
+
+def audio_params(**kwargs):
+    return job_params.validate_job_data(audio_data(**kwargs)).with_share_root(SHARE_ROOT)

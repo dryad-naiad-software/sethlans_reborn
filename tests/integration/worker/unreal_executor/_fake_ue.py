@@ -40,6 +40,14 @@ EXR magic and filler); ``skip_frame`` leaves one out, ``frame_sleep`` waits
 between frames, ``draft_conflicts`` is the prep's list, and
 ``loads_in_flight`` ends the render on UE's audio streaming assertion
 (critical error, exit 3) after every frame is written (FR-SW-8).
+
+An audio job (``prepare_audio``, FR-SA) renders one stereo 48 kHz ``.wav`` of
+the params' ``range`` at 30 fps (the prep reports ``frame_rate`` [30, 1]),
+holding a seeded noise source ``audio_lag`` samples ahead (default 4,800);
+the render fails like a crashed UE without the four audio flags, and
+``audio_fault`` logs a ``seektable`` line. The export commandlet
+(``export_audio``) writes that source as ``src_000.wav`` with one section,
+or ``export_error`` as its error.
 """
 import glob
 import shutil
@@ -82,6 +90,33 @@ def png(path, w=1, h=1):
     with open(path, 'wb') as f:
         f.write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
                 + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+
+def noise(n, seed=5):
+    import random
+    rnd, out, level = random.Random(seed), [], 0.3
+    for i in range(n):
+        if i % 4800 == 0:
+            level = rnd.uniform(0.02, 0.5)
+        out.append(level * (rnd.random() * 2 - 1))
+    return out
+
+
+def write_wav(path, samples):
+    import array, wave
+    with wave.open(path, 'wb') as w:
+        w.setnchannels(2), w.setsampwidth(2), w.setframerate(48000)
+        w.writeframes(array.array('h', [int(v * 30000) for v in samples for _ in (0, 1)]).tobytes())
+
+
+def export_audio(params):
+    end = params['range'][1]
+    if OPTS.get('export_error'):
+        return {'ok': False, 'error': OPTS['export_error'], 'sections': []}
+    write_wav(os.path.join(params['export_dir'], 'src_000.wav'), noise((end + 60) * 1600))
+    return {'ok': True, 'warnings': [], 'sections': [
+        {'start': 0, 'end': end + 60, 'start_offset_samples': 0, 'volume': 1.0, 'looping': False,
+         'wav': 'src_000.wav', 'sample_rate': 48000}, {'unsupported': 'a sound cue'}]}
 
 
 def frame_file(path, ext):
@@ -157,6 +192,11 @@ def shots_result(params):
 
 if '-run=pythonscript' in args:
     params = json.load(open(os.environ['SETHLANS_UE_JOB_PARAMS'], encoding='utf-8'))
+    if params['mode'] == 'export_audio':
+        json.dump(export_audio(params), open(params['result_path'], 'w', encoding='utf-8'))
+        say('[SethlansAudioExport] wrote result')
+        log.close()
+        sys.exit(0)
     pilot = params['mode'] == 'prepare_pilot'
     frames = (params.get('pilot_frames') or OPTS.get('pilot_frames', [0, 99, 202])) if pilot else [params.get('frame')]
     result = {'ok': True, 'queue_asset': params.get('package_root', '') + '/Q_Job' + str(params['job_id']),
@@ -166,8 +206,8 @@ if '-run=pythonscript' in args:
               'texture_streaming': OPTS.get('texture_streaming', 'off')}
     if pilot:
         result['pilot_frames'] = frames
-    if params['mode'] == 'prepare_range':
-        result.update(queue_jobs=1, draft_conflicts=OPTS.get('draft_conflicts', []))
+    if params['mode'] in ('prepare_range', 'prepare_audio'):
+        result.update(queue_jobs=1, draft_conflicts=OPTS.get('draft_conflicts', []), frame_rate=[30, 1])
     if params['mode'] == 'list_shots':
         result = shots_result(params)
     if OPTS.get('prep_error'):
@@ -195,6 +235,18 @@ if params['mode'] == 'prepare_range':
     frames, ext, jobs = list(range(*params['range'])), params['output_format'].lower(), 1
 d3d12_lines('render')
 time.sleep(float(OPTS.get('render_sleep', 0.5)))
+audio_flags = ['-deterministicaudio', '-audiomixer', '-AudioCallbackBufferFrameSize=32', '-AudioNumBuffersToEnqueue=2']
+if (params['mode'] == 'prepare_audio') != all(flag in args for flag in audio_flags):
+    say('LogWindows: Error: === Critical error: === the audio flags belong to an audio job only')
+    sys.exit(3)
+if params['mode'] == 'prepare_audio':
+    first, end = params['range']
+    lag, src = int(OPTS.get('audio_lag', 4800)), noise((end + 60) * 1600)
+    write_wav(os.path.join(job_dir, 'output', 'sethlans_' + str(params['job_id']) + '.MasterSubmixDefault.wav'),
+              [src[first * 1600 + p + lag] for p in range((end - first) * 1600)])
+    frames = []
+    if OPTS.get('audio_fault'):
+        say('LogAudio: Error: seektable is corrupt')
 for f in frames:
     if f != OPTS.get('skip_frame'):
         frame_file(os.path.join(job_dir, 'output', 'sethlans_' + str(params['job_id']) + '.' + '%04d' % f + '.' + ext), ext)

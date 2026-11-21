@@ -114,7 +114,8 @@ class World:
                                                                      self.shots_report)[1],
                                   upload_frame=self.upload_frame,
                                   report_piece=lambda job_id, body: (self.calls.append(('piece', job_id, body)),
-                                                                     self.piece_report)[1]),
+                                                                     self.piece_report)[1],
+                                  upload_sound=lambda *args, **kw: None),
             disable_until_restart=lambda reason: self.calls.append(('disable', reason)),
             keep_job_logs=lambda: 10, prep_timeout_s=lambda: 60, cancel_poll_s=lambda: 60)
 

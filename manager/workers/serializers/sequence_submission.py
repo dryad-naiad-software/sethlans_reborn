@@ -95,7 +95,7 @@ class SequenceShotSerializer(serializers.ModelSerializer):
         model = SequenceShot
         fields = [
             'index', 'name', 'start_frame', 'end_frame', 'status', 'error_message', 'render_time_seconds',
-            'timings', 'video_status', 'video_error', 'sound_status', 'sound_video_status',
+            'timings', 'video_status', 'video_error', 'sound_status', 'sound_error', 'sound_video_status',
         ]
         read_only_fields = fields
 
@@ -123,17 +123,25 @@ class SequenceSubmissionSerializer(serializers.ModelSerializer):
             'selected_shots', 'frame_start', 'frame_end', 'resolution_x', 'resolution_y', 'frame_format',
             'video_settings', 'sound', 'merge_sound', 'draft', 'piece_seconds', 'lead_in_ms', 'sound_offset_ms',
             'status', 'cancel_requested', 'error_message', 'warnings', 'submitted_at', 'completed_at',
-            'total_render_time_seconds', 'video_status', 'sound_status', 'sound_video_status', *COUNT_FIELDS,
+            'total_render_time_seconds', 'video_status', 'sound_status', 'sound_error', 'sound_video_status',
+            *COUNT_FIELDS,
         ]
         read_only_fields = fields
 
 
 class SequenceSubmissionDetailSerializer(SequenceSubmissionSerializer):
-    """One submission with its shots and its pilot frames."""
+    """One submission with its shots, its pilot frames and its sound runs."""
 
     shots = SequenceShotSerializer(many=True, read_only=True)
     pilot_frames = serializers.ListField(child=serializers.IntegerField(), read_only=True)
+    sound_runs = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "One entry per audio job (FR-SA-11): job, start, end (exclusive), r0, rate, the measured "
+            "offset object, applied_samples and applied_source (measured, override or none)."
+        ),
+    )
 
     class Meta(SequenceSubmissionSerializer.Meta):
-        fields = SequenceSubmissionSerializer.Meta.fields + ['pilot_frames', 'shots']
+        fields = SequenceSubmissionSerializer.Meta.fields + ['pilot_frames', 'sound_runs', 'shots']
         read_only_fields = fields

@@ -10,12 +10,12 @@ Order: cancel watcher -> ``j/<id>-<att8>/`` -> ``prepare_workspace``
 (cache, overlay, working copy) -> ``zen_guard.scan_project_config`` ->
 ``UeFlow`` (prep, warm-up, render, retry; each launch through the
 pre-launch check; a ``shots`` job runs ``ShotsFlow``, the prep alone,
-FR-SD-4; a sequence piece ``RangeFlow``, FR-SW-3) -> **outermost**
+FR-SD-4; a sequence piece ``RangeFlow``, FR-SW-3; an audio job ``AudioFlow``, FR-SA) -> **outermost**
 ``finally``: ``registry.confirm_all()`` (no UE process outlives
 ``execute``), survivors handling, then ``JobWorkspace.finish(survivors=...,
 abort=NEVER)`` -> delivery (upload from the checked handle, or
-``pilot-result/``, ``shots-result/``, ``frames/`` and ``piece-result/``, or
-release).
+``pilot-result/``, ``shots-result/``, ``frames/`` and ``piece-result/``,
+``sound-result/``, or release).
 
 Survivors (from a phase or ``confirm_all``): ``reservation.retain_until_
 restart()`` -> ``runtime.disable_until_restart(SURVIVORS_DISABLED_REASON)``
@@ -47,6 +47,7 @@ from sethlans_worker_agent.project_archive.errors import (
     AbortedError, ArchiveError, CacheUnavailableError, ShareUnavailableError)
 from sethlans_worker_agent.project_archive.workspace import ArchiveRequest
 from sethlans_worker_agent.unreal_executor import adapter_log, job_dir, user_state, warmup
+from sethlans_worker_agent.unreal_executor.audio_flow import AudioFlow
 from sethlans_worker_agent.unreal_executor.cancel_watch import CancelCause, CancelWatcher
 from sethlans_worker_agent.unreal_executor.command import CommandError
 from sethlans_worker_agent.unreal_executor.delivery import Delivery, Outcome
@@ -162,8 +163,9 @@ class JobRun:
         runner.card_key = gate.card_key  # the gated card: the traces of a launch without a choice (D22)
         marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build)
         profile = user_state.profile_dir(cache_dir)
-        # FR-SD-4: shots run the prep only; a sequence piece renders a frame range (FR-SW-3).
-        flow_class = ShotsFlow if self.params.is_shots else RangeFlow if self.params.is_piece else UeFlow
+        # FR-SD-4: shots run the prep only; a sequence piece renders a frame range (FR-SW-3); FR-SA: sound only.
+        p = self.params
+        flow_class = ShotsFlow if p.is_shots else RangeFlow if p.is_piece else AudioFlow if p.is_audio else UeFlow
         flow = flow_class(self.params, self.deps.launch_context(self.install, cache_dir), self.job, runner,
                           self.summary, self.deps.builders, marker, self.ws.working_copy.uproject,
                           self.deps.flow_config(profile), reading=gate.reading, choose=self.deps.choose_adapter,

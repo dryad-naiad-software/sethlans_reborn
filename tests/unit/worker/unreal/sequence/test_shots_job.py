@@ -32,7 +32,7 @@ class TestPayload:
     @pytest.mark.parametrize('changes,field', [
         ({'start_frame': 5, 'end_frame': 5}, 'start_frame'), ({'end_frame': 1}, 'start_frame'),
         ({'start_frame': None}, 'start_frame'), ({'unreal_measured_peak_mb': 4000}, 'unreal_measured_peak_mb'),
-        ({'unreal_kind': 'audio'}, 'unreal_kind'),
+        ({'unreal_kind': 'sound'}, 'unreal_kind'),
     ])
     def test_bad_shots_payloads(self, changes, field):
         with pytest.raises(job_params.JobDataError) as caught:

@@ -5,7 +5,8 @@
 End-to-end manager flow of one sequence submission (Unreal sequence spec
 FR-SQ-4, FR-SP-8, FR-SR-1, FR-SS-2b, FR-SS-3, FR-SS-4, D8): read the
 shots, submit, plan pieces and a pilot, measure, claim a piece, upload its
-frames, finish it, and see the shots and the submission follow.
+frames, finish it, and see the shots and the submission follow.  The
+flow submits without sound; the audio jobs have their own tests.
 """
 
 import pytest
@@ -40,7 +41,7 @@ class TestFlow:
 
     def test_piece_to_done(self, admin_client, asset, worker_with_token):
         worker, client = worker_with_token
-        submission, piece = claimed_piece(admin_client, asset, worker, client)
+        submission, piece = claimed_piece(admin_client, asset, worker, client, sound=False)
         submission.refresh_from_db()
         assert submission.status == 'RENDERING'
         upload_all(client, piece)

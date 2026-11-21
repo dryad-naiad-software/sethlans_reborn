@@ -170,7 +170,7 @@ def _delivery(tmp_path, cause):
     deps = DeliveryDeps(release_job=lambda job_id, reason: calls.append(('release', reason)),
                         mark_unreachable=lambda reason: None, upload=None, report_pilot=None, report_shots=None,
                         upload_frame=lambda *args: (calls.append(('frame',)), done)[1],
-                        report_piece=lambda job_id, body: (calls.append(('piece',)), done)[1])
+                        report_piece=lambda job_id, body: (calls.append(('piece',)), done)[1], upload_sound=None)
     return calls, Delivery(piece_params(start=100, end=101, lead=0), deps, Summary(), None, cause=cause)
 
 
@@ -229,6 +229,6 @@ def test_production_wiring_and_the_piece_calls_are_required():
     from sethlans_worker_agent.unreal_executor import executor
     deps = executor.default_run_deps().delivery
     assert deps.upload_frame is api_sequence.upload_frame and deps.report_piece is api_sequence.report_piece_result
-    for name in ('upload_frame', 'report_piece'):
+    for name in ('upload_frame', 'report_piece', 'upload_sound'):
         field, = [f for f in dataclasses.fields(DeliveryDeps) if f.name == name]
         assert field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING

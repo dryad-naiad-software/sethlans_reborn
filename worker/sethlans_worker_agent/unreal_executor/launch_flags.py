@@ -17,7 +17,10 @@ through ``check_phase_flags``; each must come before the Zen tokens:
   Windows, so a project whose default RHI is DX11 or Vulkan renders with
   DX12 on the farm and logs the D3D12 adapter it chose;
 * no other token may contain ``graphicsadapter=`` or ``gpupreference=``
-  (UE finds both anywhere in its command line).
+  (UE finds both anywhere in its command line);
+* ``farm_defaults.AUDIO_FLAGS`` (sequence rendering FR-SA-4): an audio
+  job's render exactly once each, as given, before the Zen tokens; no other
+  launch carries any of them (``check_audio_flags``).
 
 ``CommandError`` lives here so both modules raise the same type; ``command``
 re-exports it.
@@ -34,6 +37,7 @@ ADAPTER_PREFIX = '-graphicsadapter'
 MAX_ADAPTER = 63
 _ADAPTER = re.compile(r'-graphicsadapter=(0|[1-9][0-9]?)', re.ASCII)
 STEERING = ('graphicsadapter=', 'gpupreference=')
+AUDIO_NAMES = tuple(flag.split('=', 1)[0].lower() for flag in farm_defaults.AUDIO_FLAGS)
 
 
 class CommandError(ValueError):
@@ -90,6 +94,20 @@ def _check_steering(args: Sequence[str]) -> None:
         lowered = token.lower() if isinstance(token, str) else ''
         if any(word in lowered for word in STEERING) and not _ADAPTER.fullmatch(token):
             raise CommandError(f"token {index} must not choose a graphics adapter")
+
+
+def check_audio_flags(args: Sequence[str], audio: bool, first_zen: int) -> None:
+    """FR-SA-4: the audio flags on an audio render only, each exactly once, before the Zen tokens."""
+    found = positions(args, lambda t: isinstance(t, str) and t.split('=', 1)[0].lower() in AUDIO_NAMES)
+    if not audio:
+        if found:
+            raise CommandError("only an audio job's render may carry the audio flags")
+        return
+    for flag in farm_defaults.AUDIO_FLAGS:
+        name = flag.split('=', 1)[0].lower()
+        hits = [i for i in found if args[i].split('=', 1)[0].lower() == name]
+        if len(hits) != 1 or args[hits[0]] != flag or not hits[0] < first_zen:
+            raise CommandError(f"an audio render must carry {flag} exactly once, before the Zen tokens")
 
 
 def check_phase_flags(args: Sequence[str], phase: Optional[str], first_zen: int) -> None:

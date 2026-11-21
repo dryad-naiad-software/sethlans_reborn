@@ -30,7 +30,10 @@ def test_create_copies_the_ue_scripts(tmp_path):
     # FR-SW-4: so do the shots module and the duplicate's edits module.
     assert 'def cut_starts(' in job.script(job_dir.SHOTS_SCRIPT).read_text(encoding='utf-8')
     assert 'def apply(' in job.script(job_dir.EDITS_SCRIPT).read_text(encoding='utf-8')
-    assert sorted(p.name for p in job.scripts.iterdir()) == sorted(job_dir.UE_SCRIPTS) and len(job_dir.UE_SCRIPTS) == 5
+    # FR-SA-2, FR-SA-9: an audio job's edits module and its export commandlet.
+    assert 'def using(' in job.script(job_dir.AUDIO_EDITS_SCRIPT).read_text(encoding='utf-8')
+    assert 'SoundExporterWAV' in job.script(job_dir.EXPORT_SCRIPT).read_text(encoding='utf-8')
+    assert sorted(p.name for p in job.scripts.iterdir()) == sorted(job_dir.UE_SCRIPTS) and len(job_dir.UE_SCRIPTS) == 7
     assert job.log('render', 2).name == 'render.2.log' and job.stdout('prep', 1).name == 'prep.1.stdout.txt'
 
 

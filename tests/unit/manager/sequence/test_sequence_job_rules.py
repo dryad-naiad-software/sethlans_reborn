@@ -59,13 +59,15 @@ class TestJobKindRules:
 
 
 class TestUngatedKinds:
-    def test_only_shots_skip_the_gate(self):
-        assert skips_measured_gate(_job(UnrealKind.SHOTS))
-        for kind in (UnrealKind.RENDER, UnrealKind.PILOT, UnrealKind.AUDIO):
+    def test_shots_and_audio_skip_the_gate(self):
+        """Chunk 5: an audio job is gated on the worker's card only (FR-SR-5)."""
+        for kind in (UnrealKind.SHOTS, UnrealKind.AUDIO):
+            assert skips_measured_gate(_job(kind))
+        for kind in (UnrealKind.RENDER, UnrealKind.PILOT):
             assert not skips_measured_gate(_job(kind))
 
-    def test_poll_q_names_the_shots_kind(self):
-        assert ungated_poll_q().children == [('unreal_kind__in', (UnrealKind.SHOTS,))]
+    def test_poll_q_names_the_shots_and_audio_kinds(self):
+        assert ungated_poll_q().children == [('unreal_kind__in', (UnrealKind.SHOTS, UnrealKind.AUDIO))]
 
 
 class TestNames:

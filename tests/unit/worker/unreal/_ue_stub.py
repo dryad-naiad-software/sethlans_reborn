@@ -12,11 +12,13 @@ in ``_ue_stub_mrq`` and are re-exported here.
 import copy
 import types
 
-from tests.unit.worker.unreal import _ue_stub_seq
+from tests.unit.worker.unreal import _ue_stub_audio, _ue_stub_seq
 from tests.unit.worker.unreal._ue_stub_mrq import (  # noqa: F401 - re-exported for the tests
     LEGACY_CLASSES, FrameRate, MoviePipelineAntiAliasingSetting, MoviePipelineGameOverrideSetting,
     MoviePipelineImageSequenceOutput_PNG, MoviePipelineOutputBase, MoviePipelineOutputSetting,
     MoviePipelinePrimaryConfig, MoviePipelineRenderPass, MoviePipelineTextureStreamingMethod, _Props, _Strict, size)
+from tests.unit.worker.unreal._ue_stub_audio import (  # noqa: F401 - re-exported for the tests
+    AudioSection, Binding, MoviePipelineWaveOutput, MovieSceneAudioTrack, Sound)
 from tests.unit.worker.unreal._ue_stub_seq import (  # noqa: F401 - re-exported for the tests
     SEQ_LEGACY_CLASSES, MoviePipelineCameraSetting, MoviePipelineConsoleVariableSetting,
     MoviePipelineImageSequenceOutput_EXR)
@@ -39,15 +41,15 @@ class MovieGraphSamplingMethodNode(MovieGraphNode):
     pass
 
 
-class MovieGraphAudioOutputNode(MovieGraphNode):
-    pass
-
-
 class MovieGraphGlobalGameOverridesNode(MovieGraphNode):
     pass
 
 
 class MovieGraphFileOutputNode(MovieGraphNode):
+    pass
+
+
+class MovieGraphAudioOutputNode(MovieGraphFileOutputNode):  # UE 5.8.4: a file output node (MovieGraphAudioOutputNode.h)
     pass
 
 
@@ -220,6 +222,7 @@ def make_unreal(world):
                 MovieGraphConsoleVariableNode) + LEGACY_CLASSES + SEQ_LEGACY_CLASSES:
         setattr(module, cls.__name__, cls)
     _ue_stub_seq.install(module)
+    _ue_stub_audio.install(module, world)
     module.get_default_object = lambda cls: cls()  # a fresh instance holds the class defaults
     module.MoviePipelineTextureStreamingMethod = MoviePipelineTextureStreamingMethod
     module.log = world['logs'].append

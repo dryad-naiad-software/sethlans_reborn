@@ -10,9 +10,10 @@ once when its shots are known (QUEUED), else DISCOVERING until the
 discovery finishes.  ``GET`` lists versions newest first, filtered by
 ``project`` and ``asset``, with progress counts as one correlated subquery
 per count (never several ``Count`` over joins, and no query per row); the
-detail adds the shots.  A submission is read-only through the API: no
-``PUT`` or ``PATCH`` (FR-SQ-10).  Cancel, re-render, delete and downloads
-arrive with chunk 7.
+detail adds the shots and the sound runs.  A submission is read-only
+through the API: no ``PUT`` or ``PATCH`` (FR-SQ-10).  ``retry-sound/``
+requeues its failed audio jobs (FR-SV-8).  Cancel, re-render, delete and
+downloads arrive with chunk 7.
 """
 
 from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
@@ -20,6 +21,7 @@ from django.db.models.functions import Coalesce
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view, inline_serializer
 from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
@@ -31,10 +33,12 @@ from ..serializers.sequence_submission import (
     CREATE_KEYS, SequenceSubmissionCreateSerializer, SequenceSubmissionDetailSerializer,
     SequenceSubmissionSerializer,
 )
+from ..services.sequence_sound import RetryRefused, retry_sound
 from ..services.sequence_submit import create_submission
 from ..strict_json import unknown_keys
 
 _TAGS = ['Management UI']
+_ERROR = inline_serializer('SequenceSubmissionActionError', {'error': serializers.CharField()})
 
 
 class SubmissionPagination(PageNumberPagination):
@@ -110,3 +114,27 @@ class SequenceSubmissionViewSet(
         submission = create_submission(body.validated_data)
         created = self.get_queryset().prefetch_related('shots').get(pk=submission.pk)
         return Response(SequenceSubmissionDetailSerializer(created).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        tags=_TAGS, request=None,
+        responses={
+            200: inline_serializer('SequenceRetrySound', {'requeued': serializers.IntegerField()}),
+            404: _ERROR, 409: _ERROR,
+        },
+    )
+    @action(detail=True, methods=['post'], url_path='retry-sound')
+    def retry_sound(self, request, pk=None):
+        """Requeue the version's failed or canceled audio jobs and clear their sound items (FR-SV-8).
+
+        Returns:
+            200 ``{"requeued": n}``; 404 for an unknown version; 409 when the
+            version was canceled or no sound render of it failed.
+        """
+        submission = self.get_object()
+        try:
+            count = retry_sound(submission.pk)
+        except SequenceSubmission.DoesNotExist:
+            return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        except RetryRefused as exc:
+            return Response({'error': exc.message}, status=exc.status)
+        return Response({'requeued': count}, status=status.HTTP_200_OK)

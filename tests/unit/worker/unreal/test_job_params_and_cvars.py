@@ -33,7 +33,7 @@ class TestValidateJobData:
 
     @pytest.mark.parametrize('change,field', [
         ({'id': 0}, 'id'), ({'id': True}, 'id'), ({'renderer': 'BLENDER'}, 'renderer'),
-        ({'unreal_kind': 'audio'}, 'unreal_kind'), ({'unreal_measured_peak_mb': None}, 'unreal_measured_peak_mb'),
+        ({'unreal_kind': 'sound'}, 'unreal_kind'), ({'unreal_measured_peak_mb': None}, 'unreal_measured_peak_mb'),
         ({'unreal_measured_peak_mb': True}, 'unreal_measured_peak_mb'),
         ({'unreal_measured_peak_mb': 1048577}, 'unreal_measured_peak_mb'),
         ({'end_frame': 1001}, 'end_frame'), ({'start_frame': '1000'}, 'start_frame'),

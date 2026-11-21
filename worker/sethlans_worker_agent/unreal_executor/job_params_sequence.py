@@ -15,6 +15,11 @@ apart so ``job_params`` stays small. ``job_params`` passes its own
   rendered frames, PNG or EXR, and ``unreal.piece_shots``: 1-2,000
   ``[index, start, end]`` rows (end exclusive) that cover the kept frames
   in order without a gap, indexes increasing.
+* ``audio`` (a sound run, FR-SA-1): a ``sequence_submission``, the run
+  ``start_frame..end_frame`` and its audio lead-in as a piece has them, no
+  measured peak, PNG (no other format applies), and the run's shot parts
+  as ``unreal.piece_shots`` (``shared.unreal.sound_result.RUN_SHOTS_KEY``);
+  no other manager-only key.
 * The manager-only keys a job may carry (FR-SW-2): a piece
   ``unreal.resolution``, ``unreal.shot_set_sha256``, ``unreal.piece_shots``,
   ``unreal.output_size`` and ``unreal.draft``; a pilot ``unreal.resolution``,
@@ -34,13 +39,13 @@ from typing import Any, Callable, Optional, Tuple
 
 from sethlans_worker_agent.unreal_executor.cvars import DRAFT_CVARS
 
-SHOTS = 'shots'
-KINDS = (SHOTS,)
+SHOTS, AUDIO = 'shots', 'audio'
+KINDS = (SHOTS, AUDIO)
 RESOLUTION, SHOT_SET, PIECE_SHOTS = 'unreal.resolution', 'unreal.shot_set_sha256', 'unreal.piece_shots'
 OUTPUT_SIZE, PILOT_FRAMES, DRAFT = 'unreal.output_size', 'unreal.pilot_frames', 'unreal.draft'
 EXTRA_KEYS = frozenset({RESOLUTION, SHOT_SET, PIECE_SHOTS, OUTPUT_SIZE, PILOT_FRAMES, DRAFT})
 _ALLOWED = {'piece': {RESOLUTION, SHOT_SET, PIECE_SHOTS, OUTPUT_SIZE, DRAFT},
-            'pilot': {RESOLUTION, SHOT_SET, PILOT_FRAMES}, 'render': {RESOLUTION}, SHOTS: set()}
+            'pilot': {RESOLUTION, SHOT_SET, PILOT_FRAMES}, 'render': {RESOLUTION}, SHOTS: set(), AUDIO: {PIECE_SHOTS}}
 FRAME_MAX = 10_000_000
 MAX_SHOTS, MAX_PILOT_FRAMES, MAX_PIECE_FRAMES = 2_000, 256, 200_000
 RES_MIN, SIZE_MAX, SAMPLES_MAX = 64, 16_384, 1_024
@@ -78,6 +83,7 @@ class SequenceSettings:
     pilot_frames: Tuple[int, ...] = ()
     draft: Tuple[Tuple[str, Any], ...] = ()
     piece: Optional[Piece] = None
+    audio: Optional[Piece] = None    # an audio job's run: its frames, audio lead-in and shot parts (FR-SA-1)
 
     @property
     def draft_cvars(self) -> Tuple[Tuple[str, str], ...]:
@@ -95,11 +101,11 @@ def _is_int(value: Any) -> bool:
 
 
 def check(kind: str, job_data: dict, require: Require) -> Optional[int]:
-    """FR-SD-3: a ``shots`` job carries frame 0 only and is held by no measurement key."""
+    """FR-SD-3, D3: no measurement key holds a ``shots`` or ``audio`` job; a ``shots`` job carries frame 0 only."""
     require(job_data.get('unreal_measured_peak_mb') is None, 'unreal_measured_peak_mb',
             f"must be null for a {kind} job")
     start, end = job_data.get('start_frame'), job_data.get('end_frame')
-    require(_is_int(start) and _is_int(end) and start == end == 0, 'start_frame',
+    require(kind != SHOTS or (_is_int(start) and _is_int(end) and start == end == 0), 'start_frame',
             f"a {kind} job has start_frame == end_frame == 0")
     return None
 
@@ -177,17 +183,19 @@ def _piece(job_data: dict, raw: dict, submission: int, require: Require) -> Piec
 
 def settings(kind: str, job_data: dict, raw: dict, output_format: str, require: Require) -> SequenceSettings:
     """FR-SW-1, FR-SW-2: the sequence settings of a job whose base settings ``job_params`` checked."""
-    submission = submission_of(job_data, require) if kind == 'render' else None
-    role = 'piece' if submission is not None else kind
+    submission = submission_of(job_data, require) if kind in ('render', AUDIO) else None
+    role = 'piece' if kind == 'render' and submission is not None else kind
+    require(role != AUDIO or submission is not None, 'sequence_submission', "an audio job belongs to a submission")
     refused = sorted((set(raw) & EXTRA_KEYS) - _ALLOWED.get(role, set()))
     require(not refused, 'render_settings', f"{refused} are set by sequence renders only")
     require(output_format == 'PNG' or (role == 'piece' and output_format == 'EXR'),
             'render_settings.unreal.output_format', 'PNG, or EXR for a sequence piece')
-    if role != 'piece':
+    if role not in ('piece', AUDIO):
         require(job_data.get('unreal_lead_in_frames') in (None, 0), 'unreal_lead_in_frames', "only a piece has one")
     sha = raw.get(SHOT_SET, '')
     require(sha == '' or (isinstance(sha, str) and _SHA.fullmatch(sha) is not None), f'render_settings.{SHOT_SET}',
             "must be 64 lowercase hex characters")
     return SequenceSettings(resolution=_size(raw, RESOLUTION, RES_MIN, require), shot_set_sha256=sha,
                             pilot_frames=_pilot_frames(raw, require), draft=_draft(raw, require),
-                            piece=_piece(job_data, raw, submission, require) if role == 'piece' else None)
+                            piece=_piece(job_data, raw, submission, require) if role == 'piece' else None,
+                            audio=_piece(job_data, raw, submission, require) if role == AUDIO else None)

@@ -11,7 +11,8 @@ other piece is DONE; every piece failed gives ERROR; canceled pieces give
 CANCELED; ``refresh_submission`` recomputes only the shots it is given;
 and the D22 order Project -> Job -> SequenceDiscovery ->
 SequenceSubmission -> SequenceFrame on submission create, ``shots-result/``
-planning, ``frames/``, ``piece-result/`` and a worker status PATCH.
+planning, ``frames/``, ``piece-result/`` and a worker status PATCH.  The
+piece states are checked without sound (audio jobs: ``test_sound_state``).
 """
 
 from unittest import mock
@@ -57,7 +58,7 @@ class TestStates:
 
     def test_failed_piece_then_partly_done(self, admin_client, asset, worker_with_token):
         worker, client = worker_with_token
-        submission, piece = claimed_piece(admin_client, asset, worker, client)
+        submission, piece = claimed_piece(admin_client, asset, worker, client, sound=False)
         resp = client.patch(f'{JOBS}{piece.pk}/', {'status': 'ERROR', 'error_message': 'GPU lost'}, format='json')
         assert resp.status_code == 200, resp.data
         shots = shots_of(submission)
@@ -74,7 +75,7 @@ class TestStates:
     def test_every_piece_failed_is_error(self, admin_client, asset, worker_with_token):
         worker, client = worker_with_token
         done_discovery(admin_client, asset, worker, client)
-        submission, _ = submit(admin_client, asset)
+        submission, _ = submit(admin_client, asset, sound=False)
         for piece in pieces_of(submission):
             _fail(piece, 'Render crashed')
         submission.refresh_from_db()
@@ -84,7 +85,7 @@ class TestStates:
     def test_canceled_pieces_cancel_the_submission(self, admin_client, asset, worker_with_token):
         worker, client = worker_with_token
         done_discovery(admin_client, asset, worker, client)
-        submission, _ = submit(admin_client, asset)
+        submission, _ = submit(admin_client, asset, sound=False)
         for piece in pieces_of(submission):
             assert admin_client.post(f'{JOBS}{piece.pk}/cancel/').status_code == 200
         submission.refresh_from_db()

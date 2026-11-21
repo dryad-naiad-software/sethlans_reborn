@@ -33,7 +33,9 @@ WARMUP_SCRIPT = 'sethlans_warm_up.py'
 FACTS_SCRIPT = 'sethlans_preset_facts.py'  # loaded by the prep script from scripts\ by file path (FR-GC-3)
 SHOTS_SCRIPT = 'sethlans_shots.py'  # the shot and cut helpers, loaded the same way (FR-SW-4)
 EDITS_SCRIPT = 'sethlans_sequence_edits.py'  # the edits on the farm's duplicate, loaded the same way (FR-SW-4)
-UE_SCRIPTS = (PREP_SCRIPT, WARMUP_SCRIPT, FACTS_SCRIPT, SHOTS_SCRIPT, EDITS_SCRIPT)
+AUDIO_EDITS_SCRIPT = 'sethlans_audio_edits.py'  # an audio job's duplicate, loaded the same way (FR-SA-2)
+EXPORT_SCRIPT = 'sethlans_audio_export.py'  # an audio job's sound-source export commandlet (D23, FR-SA-9)
+UE_SCRIPTS = (PREP_SCRIPT, WARMUP_SCRIPT, FACTS_SCRIPT, SHOTS_SCRIPT, EDITS_SCRIPT, AUDIO_EDITS_SCRIPT, EXPORT_SCRIPT)
 
 _active_lock = threading.Lock()  # leaf lock
 _active: Set[str] = set()        # names of j/ dirs a job still uses (never pruned)

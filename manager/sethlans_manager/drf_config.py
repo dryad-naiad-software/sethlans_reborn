@@ -51,6 +51,9 @@ SPECTACULAR_SETTINGS = {
         'SequenceSubmissionStatusEnum': 'workers.constants_sequence.SequenceStatus',
         'SequenceShotStatusEnum': 'workers.constants_sequence.ShotStatus',
         'SequenceFrameFormatEnum': 'workers.constants_sequence.FrameFormat',
+        # Audio job results (FR-SA-6, FR-SA-11).
+        'SoundAppliedSourceEnum': 'workers.constants_sequence.SOUND_APPLIED_SOURCES',
+        'SoundLatencySkippedEnum': 'workers.constants_sequence.SOUND_FLAG_VALUES',
         # Animation videos and the sequence result items (FR-SV-2) share one set.
         'VideoStatusEnum': 'workers.constants_video.VideoStatus',
     },

@@ -24,13 +24,14 @@ offending field. Checks:
   range and a lead-in, ``job_params_sequence``);
 * ``engine_build`` matches ``BUILD_RE`` and is supported;
 * ``unreal_kind`` is ``'render'`` (also when missing), ``'pilot'`` or a
-  sequence kind (``job_params_sequence``: ``'shots'``); a normal job needs
+  sequence kind (``job_params_sequence``: ``'shots'``, ``'audio'``); a normal job needs
   an ``int`` ``unreal_measured_peak_mb`` in ``[1, 1048576]``, a pilot must
   have none (D2);
 * ``asset.project_details.unreal_cvar_overrides`` passes ``validate_cvars``.
 
 The merged CVar list (FR-UE-5) is computed here once, so every later use
-(gate, command line, marker hash, pilot report) sees the same list.
+(gate, command line, marker hash, pilot report) sees the same list; an
+audio job's farm tier also holds ``farm_defaults.AUDIO_CVARS`` (FR-SA-4).
 """
 import dataclasses
 from dataclasses import dataclass
@@ -90,6 +91,14 @@ class JobParams:
     @property
     def is_piece(self) -> bool:
         return self.seq.piece is not None
+
+    @property
+    def is_audio(self) -> bool:
+        return self.kind == sequence.AUDIO
+
+    @property
+    def audio(self) -> Optional[sequence.Piece]:
+        return self.seq.audio
 
     @property
     def piece(self) -> Optional[sequence.Piece]:
@@ -204,7 +213,8 @@ def validate_job_data(job_data: dict) -> JobParams:
     frame = _frame(job_data) if kind == 'render' and seq.piece is None else None
     overrides = _overrides(asset_raw)
     try:
-        merged = tuple(cvars.merge(overrides=dict(overrides), draft=dict(seq.draft_cvars)))
+        merged = tuple(cvars.merge(farm=cvars.farm_tier(audio=kind == sequence.AUDIO), overrides=dict(overrides),
+                                   draft=dict(seq.draft_cvars)))
     except ValueError as exc:
         raise JobDataError('asset.project_details.unreal_cvar_overrides', str(exc)) from None
     return JobParams(job_id=job_id, kind=kind, engine_build=build, map=map_path, sequence=sequence_path,

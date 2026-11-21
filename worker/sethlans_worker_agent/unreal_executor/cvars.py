@@ -5,7 +5,8 @@
 CVar merge and the effective-CVar check (Unreal foundation FR-UE-5,
 FR-UE-8 step 4a; R10; v4.1: S1).
 
-* ``merge(farm, overrides, critical, draft)``: farm defaults < project overrides < a piece's draft CVars
+* ``merge(farm, overrides, critical, draft)``: farm defaults (``farm_tier``: an audio job adds
+  ``AUDIO_CVARS``, FR-SA-4) < project overrides < a piece's draft CVars
   (sequence D11, R10; a draft value only ever lowers, ``draft_tier``) < farm-critical, names compared
   case-insensitively (UE treats them as one). Farm keys first in declared order, then the rest sorted; every
   name and value re-validated with ``shared.unreal.validation``.
@@ -29,8 +30,15 @@ _CONTROL = re.compile(r'[\x00-\x1f\x7f]')
 DRAFT_CVARS = {'screen_percentage': 'r.ScreenPercentage', 'ray_traced_shadows': 'r.RayTracing.Shadows',
                'ray_traced_reflections': 'r.Lumen.Reflections.HardwareRayTracing', 'motion_blur': 'r.MotionBlurQuality'}
 # Shader-neutral, so left out of the warm-up key; the ray-tracing and Lumen switches change shaders and stay in.
-WARMUP_NEUTRAL = frozenset({'r.screenpercentage', 'r.motionblurquality'})
+# The audio CVars only keep the non-realtime mixer audible, so an audio job shares its pieces' warm-up.
+WARMUP_NEUTRAL = frozenset({'r.screenpercentage', 'r.motionblurquality'}
+                           | {name.casefold() for name in farm_defaults.AUDIO_CVARS})
 _NAME = re.compile(validation.CVAR_NAME_RE, re.ASCII)
+
+
+def farm_tier(audio: bool = False) -> Optional[dict]:
+    """The farm tier of a job: ``None`` (the farm defaults), or with ``AUDIO_CVARS`` for an audio job (R10)."""
+    return {**farm_defaults.FARM_CVARS, **farm_defaults.AUDIO_CVARS} if audio else None
 
 
 def merge(farm: Optional[dict] = None, overrides: Optional[dict] = None,

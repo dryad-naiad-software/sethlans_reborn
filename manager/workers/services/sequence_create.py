@@ -21,7 +21,14 @@ Every piece carries in its own row what it renders (FR-SW-2): the lead-in
 the piece), ``unreal.output_size``, ``unreal.shot_set_sha256``,
 ``unreal.resolution``, ``unreal.output_format`` and ``unreal.draft``.  The
 key fields are therefore read by every later ``save()`` and by
-``Target.of`` (D8).  Audio jobs join with chunk 5.
+``Target.of`` (D8).
+
+With sound, one ``audio`` job per run (Q7, FR-SA-1, FR-SP-5) is created
+first, so the poll order gives it out early: the run as its frames, the
+audio lead-in (``run start - r0``) as ``unreal_lead_in_frames``, and only
+the map, sequence, preset and the run's shot parts
+(``shared.unreal.sound_result.RUN_SHOTS_KEY``, the piece key's shape) as
+settings; resolution and draft never apply to it.
 """
 
 import logging
@@ -29,12 +36,13 @@ import logging
 from django.db import transaction
 from django.utils import timezone
 
+from shared.unreal.sound_result import RUN_SHOTS_KEY
 from shared.unreal.validation import shot_set_sha256
 
 from ..constants import RenderDevice, Renderer, UnrealKind
 from ..constants_sequence import (
     DRAFT_KEY, FRAME_EXTENSIONS, MAX_SUBMISSION_WARNINGS, OUTPUT_SIZE_KEY, PIECE_SHOTS_KEY, RESOLUTION_KEY,
-    SHOT_SET_KEY, SequenceStatus, ShotStatus, piece_job_name,
+    SHOT_SET_KEY, SequenceStatus, ShotStatus, audio_job_name, piece_job_name,
 )
 from ..models import Job, JobStatus, SequenceShot, SequenceSubmission
 from ..renderers.unreal_settings import MAP, OUTPUT_FORMAT, PRESET, SEQUENCE
@@ -93,6 +101,28 @@ def _piece_jobs(submission, result, settings, now):
             render_device=RenderDevice.GPU, start_frame=piece.start, end_frame=piece.end - 1,
             unreal_lead_in_frames=piece.lead, sequence_submission_id=submission.pk, status=JobStatus.QUEUED,
             submitted_at=now, render_settings=dict(settings, **{PIECE_SHOTS_KEY: piece.piece_shots()}),
+        )
+        job.unreal_target_sha256 = job.compute_target_sha256()
+        jobs.append(job)
+    Job.objects.bulk_create(jobs, batch_size=500)
+    return jobs
+
+
+def _audio_jobs(submission, result, now):
+    """FR-SA-1: one audio job per run, rendered from the run's ``r0``."""
+    jobs = []
+    for number, (run, audio) in enumerate(zip(result.runs, result.audio), start=1):
+        name = audio_job_name(submission.pk, number)
+        settings = {
+            MAP: submission.map, SEQUENCE: submission.sequence, PRESET: submission.preset,
+            RUN_SHOTS_KEY: [[part.index, part.start, part.end] for part in run],
+        }
+        job = Job(
+            name=name, asset_id=submission.asset_id, output_file_pattern=f'//sethlans_seq/{name}.wav',
+            renderer=Renderer.UNREAL, engine_build=submission.engine_build, unreal_kind=UnrealKind.AUDIO,
+            render_device=RenderDevice.GPU, start_frame=audio.start, end_frame=audio.end - 1,
+            unreal_lead_in_frames=audio.start - audio.r0, sequence_submission_id=submission.pk,
+            status=JobStatus.QUEUED, submitted_at=now, render_settings=settings,
         )
         job.unreal_target_sha256 = job.compute_target_sha256()
         jobs.append(job)
@@ -159,7 +189,10 @@ def plan_submission(submission, discovery):
     if total > len(frames):
         warnings.append(SAMPLED_PILOT.format(kept=len(frames), total=total))
     _shot_rows(locked, result)
-    _piece_jobs(locked, result, _base_settings(locked, discovery, shot_set), timezone.now())
+    now = timezone.now()
+    if locked.sound:
+        _audio_jobs(locked, result, now)
+    _piece_jobs(locked, result, _base_settings(locked, discovery, shot_set), now)
     SequenceSubmission.objects.filter(pk=locked.pk, status=SequenceStatus.DISCOVERING).update(
         status=SequenceStatus.QUEUED, shot_set_sha256=shot_set, pilot_frames=frames,
         sound_offset_ms=_sound_offset(locked, discovery), warnings=warnings[:MAX_SUBMISSION_WARNINGS],

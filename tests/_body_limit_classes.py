@@ -4,10 +4,11 @@
 """
 The Unreal sequence request size classes of spec D21, for tests.
 
-Chunk 1 adds the class table with no new path; each class joins
-``body_limits.BODY_CLASSES`` with its endpoint. Until then the tests
-install this table (``use_d21_classes``) to check that every layer
-applies a class from the table alone.
+Chunk 1 added the class table with no new path; each class joined
+``body_limits.BODY_CLASSES`` with its endpoint, the sound class last (chunk
+5), so the live table now equals this one. The tests still install it
+(``use_d21_classes``) to check that every layer applies a class from the
+table alone.
 """
 
 from __future__ import annotations

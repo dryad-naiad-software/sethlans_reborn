@@ -190,7 +190,7 @@ def _superseded():
 
 
 def poll_measured_q(include_pilots):
-    """FR-MS-5: normal jobs of measured keys; fresh, unsuperseded pilots; ``shots`` jobs (D3)."""
+    """FR-MS-5: normal jobs of measured keys; fresh, unsuperseded pilots; ``shots`` and ``audio`` jobs (D3)."""
     normal = (Q(unreal_kind=UnrealKind.RENDER) & Exists(
         key_records(*JOB_KEY_REFS).filter(peak_mb__isnull=False),
     )) | ungated_poll_q()

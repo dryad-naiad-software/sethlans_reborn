@@ -32,6 +32,10 @@ is never changed. ``apply(dup, kind, params, warnings)``, in this order:
    returns that path (``motion_blur_off``). Screen percentage and
    ray-traced effects are CVars (worker side), never set here.
 
+The helpers ``graph_nodes``, ``prop``, ``override``, ``named_resolution``,
+``normalise_legacy`` and ``normalise_graph`` are public: the audio edits
+module (``sethlans_audio_edits.py``, FR-SA-2) uses them on its duplicate.
+
 ``draft_conflicts(preset, kind, names, warnings)``: the draft CVar names
 the preset's own console-variable setting (legacy) or enabled nodes
 (graph) also set (D11); unreadable gives a warning and none.
@@ -61,14 +65,14 @@ class EditsError(RuntimeError):
     """An edit that cannot be made; the text is fixed: safe to report."""
 
 
-def _nodes(graph, cls):
+def graph_nodes(graph, cls):
     out = []
     for branch in graph.get_branch_names():
         out += [n for n in graph.get_nodes_for_branch(cls, branch, False) if n not in out]
     return out
 
 
-def _prop(obj, name):
+def prop(obj, name):
     """The property's value, or ``None`` when the class has no such property."""
     try:
         return obj.get_editor_property(name)
@@ -76,7 +80,7 @@ def _prop(obj, name):
         return None
 
 
-def _override(node, name, value):
+def override(node, name, value):
     node.set_editor_property("override_" + name, True)
     node.set_editor_property(name, value)
 
@@ -94,7 +98,7 @@ def _exr_node(nodes):
 
 
 def _graph_outputs(dup, fmt, file_name_format):
-    nodes = _nodes(dup, unreal.MovieGraphNode)
+    nodes = graph_nodes(dup, unreal.MovieGraphNode)
     if fmt == "EXR":
         keep = [_exr_node(nodes)]
         keep[0].set_disabled(False)
@@ -104,7 +108,7 @@ def _graph_outputs(dup, fmt, file_name_format):
         raise EditsError(PNG_MISSING)
     for node in nodes:
         if any(node is k for k in keep):
-            _override(node, "file_name_format", file_name_format)
+            override(node, "file_name_format", file_name_format)
         elif isinstance(node, unreal.MovieGraphFileOutputNode) and not node.is_disabled():
             node.set_disabled(True)
 
@@ -123,27 +127,27 @@ def _legacy_outputs(dup, fmt):
         raise EditsError(PNG_MISSING)
 
 
-def _normalise_legacy(out):
+def normalise_legacy(out):
     for name, value in NORMALISED:
-        if _prop(out, name) is not None:
+        if prop(out, name) is not None:
             out.set_editor_property(name, value)
-    pad = _prop(out, ZERO_PAD)
+    pad = prop(out, ZERO_PAD)
     if pad is not None:
         out.set_editor_property(ZERO_PAD, min(MAX_ZERO_PAD, max(MIN_ZERO_PAD, int(pad))))
 
 
-def _normalise_graph(nodes):
+def normalise_graph(nodes):
     cdo = unreal.get_default_object(unreal.MovieGraphGlobalOutputSettingNode)
     for node in nodes:
         for name, value in NORMALISED:
-            if _prop(cdo, name) is not None:  # absent in 5.8.4 (U-1): left
-                _override(node, name, value)
-        if _prop(cdo, ZERO_PAD) is not None:
-            pad = node.get_editor_property(ZERO_PAD) if _prop(node, "override_" + ZERO_PAD) else _prop(cdo, ZERO_PAD)
-            _override(node, ZERO_PAD, min(MAX_ZERO_PAD, max(MIN_ZERO_PAD, int(pad))))
+            if prop(cdo, name) is not None:  # absent in 5.8.4 (U-1): left
+                override(node, name, value)
+        if prop(cdo, ZERO_PAD) is not None:
+            pad = node.get_editor_property(ZERO_PAD) if prop(node, "override_" + ZERO_PAD) else prop(cdo, ZERO_PAD)
+            override(node, ZERO_PAD, min(MAX_ZERO_PAD, max(MIN_ZERO_PAD, int(pad))))
 
 
-def _named_resolution(width, height):
+def named_resolution(width, height):
     make = getattr(getattr(unreal, "MovieGraphBlueprintLibrary", None), "named_resolution_from_size", None)
     if make is not None:
         return make(width, height)
@@ -153,7 +157,7 @@ def _named_resolution(width, height):
 
 
 def _lower(obj, name, value):
-    if _prop(obj, name) is not None:
+    if prop(obj, name) is not None:
         obj.set_editor_property(name, min(int(obj.get_editor_property(name)), int(value)))
 
 
@@ -169,9 +173,9 @@ def _draft_graph(dup, draft):
     """Sample counts only ever lowered, on the enabled nodes that override them (others use the default, 1)."""
     for key, class_names, name in SAMPLES:
         classes = [getattr(unreal, c) for c in class_names if hasattr(unreal, c)]
-        nodes = [n for cls in classes for n in _nodes(dup, cls)]
+        nodes = [n for cls in classes for n in graph_nodes(dup, cls)]
         for node in [n for i, n in enumerate(nodes) if n not in nodes[:i]] if key in draft else ():
-            if not node.is_disabled() and _prop(node, "override_" + name):
+            if not node.is_disabled() and prop(node, "override_" + name):
                 _lower(node, name, draft[key])
 
 
@@ -187,15 +191,15 @@ def apply(dup, kind, params, warnings):
         draft["temporal_samples"] = 1
     if kind == "graph":
         _graph_outputs(dup, fmt, params["file_name_format"])
-        nodes = _nodes(dup, unreal.MovieGraphGlobalOutputSettingNode)
-        _normalise_graph(nodes)
+        nodes = graph_nodes(dup, unreal.MovieGraphGlobalOutputSettingNode)
+        normalise_graph(nodes)
         for node in nodes if size else ():
-            _override(node, "output_resolution", _named_resolution(int(size[0]), int(size[1])))
+            override(node, "output_resolution", named_resolution(int(size[0]), int(size[1])))
         _draft_graph(dup, draft)
     else:
         _legacy_outputs(dup, fmt)
         out = dup.find_or_add_setting_by_class(unreal.MoviePipelineOutputSetting)
-        _normalise_legacy(out)
+        normalise_legacy(out)
         if size:
             out.set_editor_property("output_resolution", unreal.IntPoint(int(size[0]), int(size[1])))
         _draft_legacy(dup, draft)
@@ -219,7 +223,7 @@ def _cvar_sources(preset, kind):
         setting = preset.find_setting_by_class(unreal.MoviePipelineConsoleVariableSetting)
         return [setting] if setting is not None else []
     cls = getattr(unreal, "MovieGraphConsoleVariableNode", None)
-    return [n for n in _nodes(preset, cls) if not n.is_disabled()] if cls is not None else []
+    return [n for n in graph_nodes(preset, cls) if not n.is_disabled()] if cls is not None else []
 
 
 def draft_conflicts(preset, kind, names, warnings):
@@ -230,7 +234,7 @@ def draft_conflicts(preset, kind, names, warnings):
     found = []
     try:
         for source in _cvar_sources(preset, kind):
-            if _prop(source, "console_variable_presets"):
+            if prop(source, "console_variable_presets"):
                 warnings.append(CVAR_PRESETS)
             found += [str(_field(e, "name", "")) for e in _entries(source) if _field(e, "is_enabled", True)]
     except Exception as exc:

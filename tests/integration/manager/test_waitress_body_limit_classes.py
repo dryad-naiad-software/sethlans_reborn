@@ -5,10 +5,10 @@
 Integration tests for the request size classes (Unreal sequence spec
 D21, FR-BL-2, FR-BL-4) on real Waitress listeners.
 
-``sound-result/`` does not exist yet, so most tests install the D21 class
-table (``tests._body_limit_classes``) and start a manager-style listener
-with a 2 MiB ceiling, as the issue #260 tests do; the live table (the
-frame and result classes since chunk 3) is checked without it. Covers:
+Most tests install the D21 class table (``tests._body_limit_classes``)
+and start a manager-style listener with a 2 MiB ceiling, as the issue #260
+tests do; the live table (every D21 class since chunk 5) is checked
+without it. Covers:
 
 - A JSON result of 1 MiB + 1 on each result path gets 413 from the
   headers, and the app never runs; exactly 1 MiB is accepted.
@@ -117,8 +117,8 @@ def serve_live():
 
 
 class TestLiveResultClass:
-    """Chunk 3: every D21 result path is in the live result class (1 MiB),
-    ``frames/`` in the live frame class; ``sound-result/`` is still small."""
+    """Every D21 result path is in the live result class (1 MiB), ``frames/``
+    in the live frame class and ``sound-result/`` in the live sound class."""
 
     @pytest.mark.parametrize('path', RESULT_PATHS)
     def test_one_byte_over_refused(self, serve_live, path):
@@ -132,14 +132,15 @@ class TestLiveResultClass:
         assert base._post_with_length(port, path, RESULT_BODY_LIMIT, RESULT_BODY_LIMIT) == 200
         assert app.calls == [(path, RESULT_BODY_LIMIT)]
 
-    def test_frame_body_above_the_small_limit_accepted(self, serve_live):
+    @pytest.mark.parametrize('path', FILE_PATHS)
+    def test_file_body_above_the_small_limit_accepted(self, serve_live, path):
         port, app = serve_live()
-        assert base._post_with_length(port, '/api/jobs/7/frames/', LARGE, LARGE) == 200
-        assert app.calls == [('/api/jobs/7/frames/', LARGE)]
+        assert base._post_with_length(port, path, LARGE, LARGE) == 200
+        assert app.calls == [(path, LARGE)]
 
-    def test_sound_result_still_small(self, serve_live):
+    def test_sound_result_capped_by_the_ceiling(self, serve_live):
         port, app = serve_live()
-        assert base._post_with_length(port, '/api/jobs/7/sound-result/', LARGE, 1024) == 413
+        assert base._post_with_length(port, '/api/jobs/7/sound-result/', CEILING + 1, 0) == 413
         assert app.calls == []
 
 

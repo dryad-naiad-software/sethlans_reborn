@@ -54,17 +54,23 @@
     @frame_body {
         path /api/jobs/*/frames/
     }
+    @sound_body {
+        path /api/jobs/*/sound-result/
+    }
     @result_body {
         path /api/jobs/*/shots-result/ /api/jobs/*/piece-result/ /api/sequence-submissions/
     }
     @small_body {
-        not path /api/assets/* /api/jobs/*/upload_output/ /admin/workers/asset/add/ /admin/workers/asset/*/change/ /api/jobs/*/frames/ /api/jobs/*/shots-result/ /api/jobs/*/piece-result/ /api/sequence-submissions/
+        not path /api/assets/* /api/jobs/*/upload_output/ /admin/workers/asset/add/ /admin/workers/asset/*/change/ /api/jobs/*/frames/ /api/jobs/*/sound-result/ /api/jobs/*/shots-result/ /api/jobs/*/piece-result/ /api/sequence-submissions/
     }
     request_body @upload_body {
         max_size 10739515392
     }
     request_body @frame_body {
         max_size 538968064
+    }
+    request_body @sound_body {
+        max_size 4297064448
     }
     request_body @result_body {
         max_size 1048576

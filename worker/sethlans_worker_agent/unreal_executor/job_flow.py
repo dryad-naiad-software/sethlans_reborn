@@ -15,7 +15,8 @@ by card key (``pilot.check_card``, FR-GU-4), is released when a warm-up or
 render log lacks UE's ``Chosen`` adapter line (``require_adapter_lines``;
 normal jobs keep ``adapter_log``'s rule), collects the CSV capture and
 computes its metrics (``pilot.measure``) over **every** phase it ran.
-A sequence piece (``sequence_flow.RangeFlow``) replaces four hooks.
+A sequence piece (``sequence_flow.RangeFlow``) and an audio job
+(``audio_flow.AudioFlow``, whose render also gets ``_render_extra``) replace four hooks.
 
 Every launch goes through ``PhaseRunner.launch`` (pre-launch checks, Zen
 verification) and every command through the builders in ``command``. Each
@@ -65,9 +66,11 @@ class FlowResult:
     gate_reading: object = None
     card: object = None           # pilot: the reading's GpuMem of the card it rendered on (FR-GU-4)
     piece: object = None          # a sequence piece: sequence_flow.PieceOutput (frames, timings, card)
+    sound: object = None          # an audio job: audio_flow.SoundOutput (the .wav, its facts, the offset)
 
 
 class UeFlow:
+    _render_extra: dict = {}      # extra build_render keywords (an audio job: the audio flags)
 
     def __init__(self, params, launch_ctx, job, runner, summary, builders, marker_path, uproject, config: FlowConfig,
                  reading=None, choose=None, first_key=None):
@@ -149,7 +152,8 @@ class UeFlow:
     def render(self, prep, attempt: int):
         params, job = self.params, self.job
         launch = self.builders.build_render(self._adapter_ctx(), self.uproject, params.map, prep.queue_asset,
-                                            job.log('render', attempt), params.merged, pilot_launch=params.is_pilot)
+                                            job.log('render', attempt), params.merged, pilot_launch=params.is_pilot,
+                                            **self._render_extra)
         before = pilot_csv.listing(self.config.profile) if params.is_pilot else frozenset()
         run = self.runner.launch('render', attempt, launch, success_marker=RENDER_SUCCESS, sample=True,
                                  adapter=self.choice)

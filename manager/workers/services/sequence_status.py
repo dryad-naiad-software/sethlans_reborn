@@ -17,8 +17,11 @@ all when ``None``) from one query of the overlapping pieces, appends the
 R7 timings of a finished piece under the submission lock, then derives
 the submission from aggregate counts (``sequence_status_rules``).  Writes
 are ``QuerySet.update()``, skipped when nothing changed; no ``save()``,
-so no signal recursion.  Result items (videos, sound) are set PENDING and
-queued by the work queue's chunk; this refresh only reads them.
+so no signal recursion.  For an audio job's change (and for a full
+refresh) the sound items follow the audio jobs (``sequence_sound``,
+FR-SA-8), so a failed sound render leaves them final.  Result items are
+set PENDING and queued by the work queue (FR-SV-7); this refresh only
+reads them.
 """
 
 from bisect import bisect_right
@@ -34,6 +37,7 @@ from ..constants_sequence import (
 from ..models import Job, JobStatus, SequenceShot, SequenceSubmission
 from ..parent_status import lock_parent
 from .job_kind_rules import is_piece
+from .sequence_sound import settle_sound
 from .sequence_status_rules import (
     ACTIVE_JOB_STATUSES, OPEN_ITEM_STATUSES, STARTED_JOB_STATUSES, SubmissionCounts, failure_message,
     shot_state, submission_state,
@@ -140,12 +144,14 @@ def _refresh_whole(submission):
     return state
 
 
-def refresh_submission(submission_id, shot_indexes=None, timings=None):
+def refresh_submission(submission_id, shot_indexes=None, timings=None, audio_jobs=None):
     """FR-SS-3: recompute the changed shots, then the submission; returns its status (or ``None``).
 
     Args:
-        shot_indexes: the shot indexes the change covers; ``None`` for all, empty for none.
+        shot_indexes: the shot indexes the change covers; ``None`` for all (every audio job too),
+            empty for none.
         timings: ``{shot index: R7 entry}`` to append under the submission lock (FR-SS-4).
+        audio_jobs: ids of audio jobs whose change the sound items follow (FR-SA-8).
     """
     with transaction.atomic():
         submission = lock_parent(SequenceSubmission, submission_id)
@@ -154,6 +160,8 @@ def refresh_submission(submission_id, shot_indexes=None, timings=None):
         _refresh_shots(submission, shot_indexes)
         if timings:
             _append_timings(submission, timings)
+        if shot_indexes is None or audio_jobs:
+            settle_sound(submission, None if shot_indexes is None else audio_jobs)
         return _refresh_whole(submission)
 
 
@@ -167,4 +175,5 @@ def covered_indexes(job):
 
 def refresh_for_job(job):
     """``post_save`` of a piece or audio job: refresh its submission for the shots it covers."""
-    return refresh_submission(job.sequence_submission_id, covered_indexes(job))
+    audio = [job.pk] if job.unreal_kind == UnrealKind.AUDIO else None
+    return refresh_submission(job.sequence_submission_id, covered_indexes(job), audio_jobs=audio)

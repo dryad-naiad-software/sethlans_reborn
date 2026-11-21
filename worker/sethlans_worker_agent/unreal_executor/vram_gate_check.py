@@ -20,6 +20,9 @@ job's first launch renders on:
   caps_sum_mb(merged), total, used)``, i.e. ``measured_need_mb(peak) + used
   <= floor(total * 0.93)`` and the caps sanity bound.
 
+* **audio** (sequence rendering D3, FR-SR-5): the pilot's need rule on the
+  job's card, without ``measures_card`` (the override's reading is enough)
+  and without the caps bound (gate ``audio``);
 * **shots** (sequence rendering D3, FR-SD-3): never gated; the prep
   commandlet uses no GPU, so no reading is needed (gate ``skipped``, no
   card key). The reservation still holds the Unreal cards in use.
@@ -39,7 +42,7 @@ from shared.unreal import vram_gate
 @dataclass(frozen=True)
 class GateResult:
     ok: bool
-    gate: str                     # 'pilot' | 'measured' | 'skipped'
+    gate: str                     # 'pilot' | 'audio' | 'measured' | 'skipped'
     message: str = ''
     need_mb: Optional[int] = None
     summary: Dict[str, object] = field(default_factory=dict)
@@ -54,7 +57,7 @@ def job_card(reading):
 
 def _need(params) -> int:
     merged = params.merged_dict
-    if params.is_pilot:
+    if params.is_pilot or params.is_audio:
         return vram_gate.pilot_need_mb(merged)
     return vram_gate.measured_need_mb(params.measured_peak_mb)
 
@@ -62,7 +65,7 @@ def _need(params) -> int:
 def _summary(params, gate: str, need: int, gpu, source: str) -> Dict[str, object]:
     values = {'vram_gate': gate, 'vram_source': source, 'vram_mb': gpu.total_mb, 'vram_used_mb': gpu.used_mb,
               'vram_need_mb': need, 'vram_usable_mb': vram_gate.usable_mb(gpu.total_mb, gpu.used_mb)}
-    if not params.is_pilot:
+    if gate == 'measured':
         values['vram_measured_peak_mb'] = params.measured_peak_mb
     return values
 
@@ -70,7 +73,7 @@ def _summary(params, gate: str, need: int, gpu, source: str) -> Dict[str, object
 def evaluate(params, reading) -> GateResult:
     if params.is_shots:  # D3: no memory gate and no card reading
         return GateResult(True, 'skipped', summary={'vram_gate': 'skipped'})
-    gate = 'pilot' if params.is_pilot else 'measured'
+    gate = 'pilot' if params.is_pilot else 'audio' if params.is_audio else 'measured'
     if reading is None or not reading.gpus:
         return GateResult(False, gate, "no usable GPU memory reading.")
     source = reading.source
@@ -87,7 +90,7 @@ def evaluate(params, reading) -> GateResult:
     if need > usable:
         return GateResult(False, gate, f"needs {need} MB; {usable} MB usable on a {gpu.total_mb} MB GPU "
                                        f"({gpu.used_mb} MB in use).", need, summary, card_key=key)
-    if not params.is_pilot and not vram_gate.caps_within_budget(caps, gpu.total_mb):
+    if gate == 'measured' and not vram_gate.caps_within_budget(caps, gpu.total_mb):
         limit = vram_gate.usable_mb(gpu.total_mb, 0)  # floor(total * fraction), shared arithmetic
         return GateResult(False, gate, f"pool caps {caps} MB exceed the {limit} MB budget of a "
                                        f"{gpu.total_mb} MB GPU.", need, summary, card_key=key)

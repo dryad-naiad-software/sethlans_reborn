@@ -21,7 +21,7 @@ FARM_CVARS = {"gc.TimeBetweenPurgingPendingKillObjects": "4"}
 # The top precedence tier (FR-UE-5); empty in phase 1.
 FARM_CRITICAL_CVARS: dict = {}
 
-# Unused in phase 1 except by spike S5 (audio, phase 3).
+# Audio-only jobs only (sequence rendering FR-SA-4, R10): the farm tier of their CVars and their render flags.
 AUDIO_CVARS = {"au.NeverMuteNonRealtimeAudioDevices": "1", "au.NeverDisableSubmixes": "1"}
 AUDIO_FLAGS = ["-deterministicaudio", "-audiomixer", "-AudioCallbackBufferFrameSize=32",
                "-AudioNumBuffersToEnqueue=2"]

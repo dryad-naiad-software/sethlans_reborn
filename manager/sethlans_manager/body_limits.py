@@ -142,12 +142,13 @@ def check_disjoint(classes) -> None:
 
 UPLOAD_CLASS = BodyClass('upload', UPLOAD_BODY_LIMIT, UPLOAD_PATHS)
 
-# D21's classes; each sequence path joins with its endpoint (the sound
-# class with ``sound-result/``).
+# D21's classes.
 FRAME_PATHS = (
     '/api/jobs/*/frames/',
 )
 FRAME_CLASS = BodyClass('frame', FRAME_BODY_LIMIT, FRAME_PATHS)
+SOUND_PATHS = ('/api/jobs/*/sound-result/',)
+SOUND_CLASS = BodyClass('sound', SOUND_BODY_LIMIT, SOUND_PATHS)
 RESULT_PATHS = (
     '/api/jobs/*/shots-result/',
     '/api/jobs/*/piece-result/',
@@ -156,7 +157,7 @@ RESULT_PATHS = (
 RESULT_CLASS = BodyClass('result', RESULT_BODY_LIMIT, RESULT_PATHS)
 
 # Every class but the small one. Read at call time by every layer.
-BODY_CLASSES = (UPLOAD_CLASS, FRAME_CLASS, RESULT_CLASS)
+BODY_CLASSES = (UPLOAD_CLASS, FRAME_CLASS, SOUND_CLASS, RESULT_CLASS)
 check_disjoint(BODY_CLASSES)
 
 

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 Success delivery of sequence rendering's job kinds (FR-SD-8, FR-SW-10,
-FR-SS-4; sound comes later). Failure, release, cancel and share outcomes
+FR-SS-4, FR-SA-6). Failure, release, cancel and share outcomes
 stay in ``delivery``. The manager sets these jobs DONE itself (a worker
 PATCH to DONE is refused, D12), so the lifecycle reports nothing more
 (``released=True``), as for a pilot.
@@ -19,6 +19,11 @@ and is delivered as that outcome (a shutdown releases the job), so a long
 EXR piece never holds the job thread past the shutdown budget. A lost card
 (``worker_hardware_changed``) does not stop them: the frames are on disk.
 
+An **audio job**: the run's ``.wav`` is opened with
+``fs_safe.open_output_file``, checked again from that handle
+(``wav_check.check_handle``: the bytes sent are the bytes checked) and
+streamed to ``sound-result/`` with the ``offset`` object, then deleted.
+
 For every call:
 
 * 200 -> on; 409/404 -> stop, nothing more is sent (the job is no longer
@@ -32,12 +37,15 @@ import logging
 import os
 
 from sethlans_worker_agent.project_archive import fs_safe
+from sethlans_worker_agent.unreal_executor import wav_check
+from sethlans_worker_agent.unreal_executor.outcomes import JobFailure
 
 logger = logging.getLogger(__name__)
 
 REJECTED = "Shot discovery result rejected by the manager: {detail}"
 FRAME_REJECTED = "Frame {frame} rejected by the manager: {detail}"
 PIECE_REJECTED = "Piece result rejected by the manager: {detail}"
+SOUND_REJECTED = "Sound result rejected by the manager: {detail}"
 MAX_WARNINGS, MAX_WARNING_CHARS = 32, 512
 
 
@@ -53,7 +61,7 @@ def _interrupted(delivery):
     cause = delivery.cause()
     if not cause or cause == WORKER_HARDWARE_CHANGED:
         return None
-    logger.warning("Uploads of piece %s stopped (%s).", delivery.params.job_id, cause)
+    logger.warning("Uploads of job %s stopped (%s).", delivery.params.job_id, cause)
     return delivery.deliver(Outcome('cancel', reason=cause), True)
 
 
@@ -137,4 +145,44 @@ def deliver_piece(delivery, flow):
     if stopped is not None:
         return stopped
     logger.info("Piece %s DONE: %d frames uploaded.", delivery.params.job_id, len(flow.outputs))
+    return _done(delivery)
+
+
+def _upload_cause(delivery) -> str:
+    """The job's cause, without a lost card: the ``.wav`` is on disk, so it still goes up (as a piece's frames)."""
+    from sethlans_worker_agent.blender_job_stop import WORKER_HARDWARE_CHANGED
+    cause = delivery.cause()
+    return '' if cause == WORKER_HARDWARE_CHANGED else cause
+
+
+def deliver_sound(delivery, flow):
+    """FR-SA-6: the run's ``.wav`` and its offset; ``flow``: a ``FlowResult`` with ``sound`` set."""
+    sound, job_id = flow.sound, delivery.params.job_id
+    stopped = _interrupted(delivery)
+    if stopped is not None:
+        return stopped
+    try:
+        handle = fs_safe.open_output_file(sound.path, sound.path.parent)
+    except OSError as exc:
+        logger.error("The sound of job %s failed the output safety checks: %s", job_id, exc)
+        return delivery.failed(f"The sound file failed the output safety checks ({type(exc).__name__}); not uploaded.")
+    try:
+        wav_check.check_handle(handle, sound.frames, sound.rate_fraction, sound.latency_skipped)
+        report = delivery.deps.upload_sound(job_id, handle, sound.offset, sound.latency_skipped, flow.render_s,
+                                            delivery.summary.text(), cause=lambda: _upload_cause(delivery))
+    except JobFailure as exc:
+        return delivery.failed(exc.message)
+    finally:
+        handle.close()
+    if report.outcome == 'stopped':  # a shutdown, cancel or reassignment arrived during the upload
+        return _interrupted(delivery) or _done(delivery)
+    stopped = _stopped(delivery, report, 'sound-result/', SOUND_REJECTED)
+    if stopped is not None:
+        return stopped
+    try:
+        os.remove(fs_safe.long_path(sound.path))
+    except OSError as exc:
+        logger.warning("Could not delete the uploaded sound %s: %s", sound.path, exc)
+    logger.info("Audio job %s DONE: sound offset %s (%s).", job_id, sound.offset['offset_samples'],
+                sound.offset['status'])
     return _done(delivery)
