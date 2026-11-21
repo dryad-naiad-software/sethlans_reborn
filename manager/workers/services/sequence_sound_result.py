@@ -17,15 +17,17 @@ There the run joins ``sound_runs`` with its correction (D24), the
 submission's warnings are updated (the worker's text cleaned of control
 characters and NUL): the run's offset warnings, then the audio job's own
 summary warnings (``sound_runs.summary_warnings``, #284), read from the
-same request's ``summary`` field and not from ``last_output``, which this
-record writes without line breaks.  The job becomes DONE with the file as its
-``output_file``, and ``refresh_submission`` settles the sound items.  A
-rejected record removes the new file; a replaced run file is removed
-after commit.  Cutting the shots' sound is a work-queue task (FR-SV-7).
+same request's ``summary`` field and not from ``last_output``.  The job's
+``last_output`` is the ``audio_samples=... audio_rate=... audio_channels=...``
+line, then the summary's lines, each cleaned, whole lines only (#285).
+The job becomes DONE with the file as its ``output_file``, and
+``refresh_submission`` settles the sound items.  A rejected record
+removes the new file; a replaced run file is removed after commit.  Cutting the shots' sound is a work-queue task (FR-SV-7).
 """
 
 import contextlib
 import logging
+import re
 import threading
 import wave
 
@@ -56,6 +58,7 @@ UPLOAD_IN_PROGRESS = "A sound upload for this job is already in progress."
 _IN_FLIGHT = set()
 _IN_FLIGHT_LOCK = threading.Lock()
 SUMMARY_KEEP = 32 * 1024
+_LINE_BREAK = re.compile(r'\r\n|\r|\n')
 
 
 def owned_audio(job, worker):
@@ -142,9 +145,27 @@ def _run_names(submission_id, job):
     ).order_by('start_frame').values_list('index', 'name'))
 
 
+def _summary_lines(text):
+    """The lines of ``text``, each cleaned, blank ones dropped, whole lines only, together at most ``SUMMARY_KEEP``.
+
+    A line that does not fit ends the list, so no half line is kept that could be misread as a key.
+    """
+    kept, size = [], 0
+    for line in _LINE_BREAK.split(text):
+        line = clean_text(line)
+        if not line.strip():
+            continue
+        size += len(line) + (1 if kept else 0)
+        if size > SUMMARY_KEEP:
+            break
+        kept.append(line)
+    return kept
+
+
 def _summary(body, rate, channels, samples):
-    text = clean_text(body.get('summary') or '')[:SUMMARY_KEEP]
-    return f"audio_samples={samples} audio_rate={rate} audio_channels={channels}" + (f" {text}" if text else '')
+    """``last_output``: the audio header line, then the worker's summary lines (#285)."""
+    header = f"audio_samples={samples} audio_rate={rate} audio_channels={channels}"
+    return '\n'.join([header] + _summary_lines(body.get('summary') or ''))
 
 
 def _run_entry(job, submission, body, wav):
