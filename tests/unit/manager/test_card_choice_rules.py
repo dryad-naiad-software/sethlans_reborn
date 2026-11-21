@@ -13,6 +13,7 @@ from django.http import QueryDict
 
 from tests.unit.manager.card_report_helpers import KEY, KEY_2, alert, card, stored
 from workers.services import card_choice_rules as rules
+from workers.services.card_brand import MIXED_BRANDS_TEXT
 
 NV = {'vendor_id': 0x10DE, 'device_id': 0x2B85}
 AMD = {'vendor_id': 0x1002, 'device_id': 0x164E}
@@ -30,6 +31,9 @@ def _keys(count):
 
 
 TWO = [{'key': KEY, **NV}, {'key': KEY_2, **AMD}]
+# Two cards of one brand (Unreal render per card FR-PC-BR-5).
+NV_2 = {'vendor_id': 0x10DE, 'device_id': 0x2684}
+TWO_NV = [{'key': KEY, **NV}, {'key': KEY_2, **NV_2}]
 
 
 class TestShape:
@@ -137,6 +141,7 @@ def _status(cards, alerts=()):
 
 
 AMD_CARD = card(key=KEY_2, name='AMD', ticked=False, backend='HIP', **AMD)
+NV_CARD_2 = card(key=KEY_2, name='NVIDIA 2', ticked=False, backend='OPTIX', **NV_2)
 
 
 class TestReport:
@@ -156,33 +161,46 @@ class TestReport:
         nulls = {'vendor_id': None, 'device_id': None}
         assert rules.report_error(_body(cards=[{'key': KEY, **nulls}]), _status([card(**nulls), AMD_CARD])) is None
 
-    def test_combined_needs_one_family(self):
+    def test_combined_of_two_brands_is_refused_as_mixed_brands_first(self):
+        """The brand check (FR-PC-BR-5) comes before the one-family rule."""
         error = rules.report_error(_body(gpu_mode='combined', cards=TWO), _status([card(), AMD_CARD]))
-        assert error == rules.ONE_FAMILY
+        assert error == MIXED_BRANDS_TEXT.format(brands='AMD, NVIDIA')
 
     def test_combined_with_a_null_backend_is_refused(self):
         """AC-34: one CUDA card and one card Blender does not drive."""
-        cards = [card(backend='CUDA'), card(key=KEY_2, ticked=False, backend=None, blender=False, **AMD)]
-        assert rules.report_error(_body(gpu_mode='combined', cards=TWO), _status(cards)) == rules.ONE_FAMILY
+        cards = [card(backend='CUDA'), card(key=KEY_2, ticked=False, backend=None, blender=False, **NV_2)]
+        assert rules.report_error(_body(gpu_mode='combined', cards=TWO_NV), _status(cards)) == rules.ONE_FAMILY
 
     def test_combined_of_one_family_passes(self):
-        cards = [card(backend='CUDA'), card(key=KEY_2, ticked=False, backend='OPTIX', **AMD)]
-        assert rules.report_error(_body(gpu_mode='combined', cards=TWO), _status(cards)) is None
+        cards = [card(backend='CUDA'), card(key=KEY_2, ticked=False, backend='OPTIX', **NV_2)]
+        assert rules.report_error(_body(gpu_mode='combined', cards=TWO_NV), _status(cards)) is None
 
     @pytest.mark.parametrize('state', ['lost', 'changed', 'held', 'blender_lost'])
     def test_newly_ticking_a_held_state_is_refused(self, state):
-        cards = [card(), card(key=KEY_2, ticked=False, state=state, **AMD)]
-        error = rules.report_error(_body(cards=TWO), _status(cards))
+        cards = [card(), card(key=KEY_2, ticked=False, state=state, **NV_2)]
+        error = rules.report_error(_body(cards=TWO_NV), _status(cards))
         assert error == rules.HELD.format(key=KEY_2)
 
     @pytest.mark.parametrize('kind', ['card_lost', 'card_changed', 'card_lost_blender'])
     def test_newly_ticking_a_card_named_by_a_holding_alert_is_refused(self, kind):
-        error = rules.report_error(_body(cards=TWO), _status([card(), AMD_CARD], [alert(key=KEY_2, kind=kind)]))
+        error = rules.report_error(_body(cards=TWO_NV), _status([card(), NV_CARD_2], [alert(key=KEY_2, kind=kind)]))
         assert error == rules.HELD.format(key=KEY_2)
 
     def test_adapter_mismatch_holds_nothing(self):
-        status = _status([card(), AMD_CARD], [alert(key=KEY_2, kind='adapter_mismatch')])
-        assert rules.report_error(_body(cards=TWO), status) is None
+        status = _status([card(), NV_CARD_2], [alert(key=KEY_2, kind='adapter_mismatch')])
+        assert rules.report_error(_body(cards=TWO_NV), status) is None
+
+    def test_split_of_two_brands_is_refused(self):
+        error = rules.report_error(_body(cards=TWO), _status([card(), AMD_CARD]))
+        assert error == MIXED_BRANDS_TEXT.format(brands='AMD, NVIDIA')
+
+    def test_mixed_brands_comes_after_the_ids_check(self):
+        cards = [{'key': KEY, 'vendor_id': 0x10DE, 'device_id': 1}, {'key': KEY_2, **AMD}]
+        assert rules.report_error(_body(cards=cards), _status([card(), AMD_CARD])) == rules.IDS_DIFFER.format(key=KEY)
+
+    def test_mixed_brands_comes_before_the_held_check(self):
+        status = _status([card(), AMD_CARD], [alert(key=KEY_2, kind='card_lost')])
+        assert rules.report_error(_body(cards=TWO), status) == MIXED_BRANDS_TEXT.format(brands='AMD, NVIDIA')
 
     def test_keeping_a_ticked_held_card_ticked_is_accepted(self):
         """AC-26: the card stays held on the worker; only a new tick is refused."""

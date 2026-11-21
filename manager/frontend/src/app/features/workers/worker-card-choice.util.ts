@@ -13,7 +13,9 @@ import {
   CardAlertKind, CardBackend, CardChoiceBody, CardChoiceOutcome, CardChoiceRequest, CardGpuMode,
   CardMethod, CardState, CardStatus,
 } from '../../core/services/worker-cards.model';
-import { alertsOf, cardName, cardsOf, hasCardStatus, oneFamily } from './worker-cards.util';
+import {
+  alertsOf, brandNote, cardBrand, cardName, cardsOf, hasCardStatus, oneFamily,
+} from './worker-cards.util';
 
 export const METHOD_OPTIONS: readonly { value: CardMethod; label: string }[] = [
   { value: 'cpu', label: 'CPU' },
@@ -118,14 +120,30 @@ export function shownCards(snapshot: ChoiceSnapshot): SnapshotCard[] {
   return snapshot.cards.filter(c => c.state !== 'lost');
 }
 
+export const HELD_NOTE = 'Dismiss its alert first';
+
 /**
- * False for a card that is not ticked yet and is `changed`, `held`,
- * `blender_lost` or named by a holding alert (D19); a ticked card can
- * always stay ticked or be unticked.
+ * Why a card cannot be ticked now, or `null` when it can. `tickedNow` is
+ * the cards ticked in the form at this moment; a card among them can
+ * always be unticked. A card ticked when the form opened may be ticked
+ * again despite its alert (D19). Beside other ticked cards, a card must
+ * share their one known brand (D7, FR-PC-BR-5); a lone card is never
+ * refused for its brand.
  */
-export function canNewlyTick(card: SnapshotCard, holding: readonly string[]): boolean {
-  if (card.ticked) return true;
-  return !HELD_STATES.includes(card.state) && !holding.includes(card.key);
+export function tickBlockNote(
+  card: SnapshotCard, holding: readonly string[], tickedNow: readonly SnapshotCard[] = [],
+): string | null {
+  const others = tickedNow.filter(c => c.key !== card.key);
+  if (others.length < tickedNow.length) return null;
+  if (!card.ticked && (HELD_STATES.includes(card.state) || holding.includes(card.key))) return HELD_NOTE;
+  return brandNote(cardBrand(card), others.map(c => cardBrand(c)));
+}
+
+/** True when `tickBlockNote` has no reason against ticking the card. */
+export function canNewlyTick(
+  card: SnapshotCard, holding: readonly string[], tickedNow: readonly SnapshotCard[] = [],
+): boolean {
+  return tickBlockNote(card, holding, tickedNow) === null;
 }
 
 /**

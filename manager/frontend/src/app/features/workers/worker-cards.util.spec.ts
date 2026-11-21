@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-import { CardEntry, CardState, CardStatus } from '../../core/services/worker-cards.model';
+import { CARD_OUTCOME_CODES, CardEntry, CardState, CardStatus } from '../../core/services/worker-cards.model';
 import {
-  actionErrorText, addressLabel, alertCount, cardName, gpuColumnText, hasCardStatus,
+  actionErrorText, addressLabel, alertCount, brandNote, cardBrand, cardName, gpuColumnText, hasCardStatus,
   noticeText, oneFamily, screenLabels, shortAddress, stateLabel, stateTone, validTime,
 } from './worker-cards.util';
 import { makeAlert, makeCard, makeStatus } from './worker-cards.fixtures';
@@ -137,5 +137,39 @@ describe('worker-cards.util', () => {
     expect(actionErrorText(500, { detail: '' })).toBe('The request failed (HTTP 500).');
     expect(actionErrorText(502, '<html>bad gateway</html>')).toBe('The request failed (HTTP 502).');
     expect(actionErrorText(0, null)).toBe('The request failed (HTTP 0).');
+  });
+
+  it('cardBrand names the PCI vendor, else the backend family, else null (D7)', () => {
+    expect(cardBrand({ vendor_id: 0x10de, backend: null })).toBe('NVIDIA');
+    expect(cardBrand({ vendor_id: 0x1002, backend: 'CUDA' })).toBe('AMD');
+    expect(cardBrand({ vendor_id: 0x8086 })).toBe('Intel');
+    expect(cardBrand({ vendor_id: 0x1af4, backend: 'HIP' })).toBe('PCI 1af4');
+    expect(cardBrand({ vendor_id: 0x5, backend: null })).toBe('PCI 0005');
+    const families = { CUDA: 'NVIDIA', OPTIX: 'NVIDIA', HIP: 'AMD', ONEAPI: 'Intel', METAL: 'Apple' } as const;
+    for (const [backend, brand] of Object.entries(families)) {
+      expect(cardBrand({ vendor_id: null, backend: backend as keyof typeof families })).withContext(backend).toBe(brand);
+    }
+    expect(cardBrand({ vendor_id: null, backend: null })).toBeNull();
+    expect(cardBrand({})).toBeNull();
+    expect(cardBrand({ vendor_id: 1.5, backend: 'toString' as never })).toBeNull();
+    expect(cardBrand({ vendor_id: 0x10000, backend: null })).toBeNull();
+  });
+
+  it('brandNote words the note as the worker pages do (FR-PC-BR-5)', () => {
+    expect(brandNote('AMD', [])).toBeNull();
+    expect(brandNote(null, [])).toBeNull();
+    expect(brandNote('NVIDIA', ['NVIDIA', 'NVIDIA'])).toBeNull();
+    expect(brandNote('AMD', ['NVIDIA'])).toBe('Not supported together with NVIDIA cards.');
+    expect(brandNote('NVIDIA', ['NVIDIA', 'PCI 1af4'])).toBe('Not supported together with PCI 1af4 cards.');
+    expect(brandNote(null, ['NVIDIA'])).toBe('Not supported together with other cards.');
+    expect(brandNote('NVIDIA', [null])).toBe('Not supported together with other cards.');
+    expect(brandNote('NVIDIA', ['AMD', null])).toBe('Not supported together with other cards.');
+  });
+
+  it('lists the outcome codes of the manager, mixed_brands included (FR-PC-BR-5)', () => {
+    expect([...CARD_OUTCOME_CODES]).toEqual([
+      'applied', 'invalid', 'env_override', 'not_allowed', 'probe_failed',
+      'identity_mismatch', 'mixed_brands', 'stale_revision', 'card_held', 'save_failed',
+    ]);
   });
 });

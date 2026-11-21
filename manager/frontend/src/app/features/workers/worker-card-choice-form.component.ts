@@ -14,8 +14,8 @@ import { WorkerService, Worker } from '../../core/services/worker.service';
 import { CardChoiceSendResponse, CardMethod } from '../../core/services/worker-cards.model';
 import { actionErrorText, addressLabel, oneFamily, screenLabels } from './worker-cards.util';
 import {
-  ChoiceSnapshot, METHOD_OPTIONS, SnapshotCard, buildChoiceBody, canNewlyTick, hasPending, includesGpu,
-  isMethod, revisionOf, shownCards, takeSnapshot,
+  ChoiceSnapshot, METHOD_OPTIONS, SnapshotCard, buildChoiceBody, hasPending, includesGpu,
+  isMethod, revisionOf, shownCards, takeSnapshot, tickBlockNote,
 } from './worker-card-choice.util';
 
 export const STALE_TEXT = 'The worker\'s choice changed since you opened this form.';
@@ -58,8 +58,8 @@ export const STALE_TEXT = 'The worker\'s choice changed since you opened this fo
             @for (label of marks(card); track label) {
               <span class="screen-mark">{{ label }}</span>
             }
-            @if (!canTick(card)) {
-              <span class="held-note" [id]="heldId($index)">Dismiss its alert first</span>
+            @if (blockNote(card); as note) {
+              <span class="held-note" [id]="heldId($index)">{{ note }}</span>
             }
           </li>
         } @empty {
@@ -169,7 +169,12 @@ export class WorkerCardChoiceFormComponent implements OnInit {
 
   get sendDisabled(): boolean { return this.stale || this.sending || this.needsTick; }
 
-  canTick(card: SnapshotCard): boolean { return canNewlyTick(card, this.snapshot.holding); }
+  canTick(card: SnapshotCard): boolean { return this.blockNote(card) === null; }
+
+  /** Why the card cannot be ticked now (an alert, or another brand is ticked), else `null`. */
+  blockNote(card: SnapshotCard): string | null {
+    return tickBlockNote(card, this.snapshot.holding, this.cards.filter(c => this.ticked.has(c.key)));
+  }
 
   address(card: SnapshotCard): string { return addressLabel(card.key); }
 

@@ -33,6 +33,7 @@ from sethlans_worker_agent import capacity as capacity_module
 from sethlans_worker_agent import job_claim, job_resources, job_selection
 from sethlans_worker_agent import system_monitor, unreal_bridge
 from sethlans_worker_agent.capacity import card_check, card_profile, rebuild
+from sethlans_worker_agent.cards import env_brands as cards_env_brands
 from sethlans_worker_agent.cards import startup_log as cards_startup_log
 from sethlans_worker_agent.cards import store as cards_store
 from sethlans_worker_agent.job_lifecycle import process_claimed_job
@@ -71,7 +72,9 @@ def init_capacity() -> capacity_module.WorkerCapacity:
     cards_startup_log.log_once_at_start()  # log the OS/Blender card list once
     generation = rebuild.generation()
     section = cards_store.snapshot()
-    profile = card_profile.profile_for(section, card_check.start_check(section))
+    selection = card_check.start_check(section)
+    section = cards_env_brands.applied(section)  # the start check may find two brands named (FR-PC-BR-3)
+    profile = card_profile.profile_for(section, selection)
     card_profile.log_profile(profile)
     _capacity = capacity_module.WorkerCapacity(profile)
     rebuild.mark_built(generation)

@@ -8,9 +8,11 @@ The worker's compute choice: the ``compute`` section of ``config.json`` (FR-CC-1
 (comma-separated PCI addresses) and ``_ALLOW_MANAGER_CHANGES``, each replacing its own key; ``env_override`` is
 true when any of the first three is set. The default method is ``cpu``, as in the original Sethlans. An invalid
 value (file or environment) is logged at ERROR once, naming the key, and the worker runs with ``method = cpu``,
-never a GPU guess; an invalid switch means ``false``. Only ``cards.store`` writes the section; reads take no lock.
-An unreadable ``config.json`` (C-20) gives defaults marked ``read_failed`` (checks and GETs skip their pass);
-``load(strict=True)`` raises ``config_store.ConfigReadError`` instead (the writers).
+never a GPU guess; an invalid switch means ``false``. ``SETHLANS_COMPUTE_CARDS`` naming cards of more than one
+brand is invalid too, once an inventory showed it (``cards.env_brands``, FR-PC-BR-3). Only ``cards.store``
+writes the section; reads take no lock. An unreadable ``config.json`` (C-20) gives defaults marked
+``read_failed`` (checks and GETs skip their pass); ``load(strict=True)`` raises ``config_store.ConfigReadError``
+instead (the writers).
 """
 import dataclasses
 import logging
@@ -18,6 +20,7 @@ import os
 from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_store
+from sethlans_worker_agent.cards import env_brands
 from sethlans_worker_agent.cards.alert_records import distinct_alerts, valid_alert
 from sethlans_worker_agent.cards.identity import is_card_key, parse_key_list
 from sethlans_worker_agent.cards.os_probe import log_once
@@ -131,6 +134,8 @@ def parse(raw, environ) -> ComputeSection:
     if raw is not None and not isinstance(raw, dict):
         invalid.append('compute')
     values = _apply_env(_from_file(raw if isinstance(raw, dict) else {}, invalid), environ, invalid)
+    if values['env_cards'] and ENV_CARDS not in invalid and env_brands.seen_mixed() is not None:
+        invalid.append(ENV_CARDS)  # FR-PC-BR-3: the named cards are of more than one brand
     for name in invalid:
         effect = "the manager may not change the card choice" if name in (ENV_ALLOW, _ALLOW_KEY) \
             else "this worker renders on the CPU only"

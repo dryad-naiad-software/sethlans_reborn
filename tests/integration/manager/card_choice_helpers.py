@@ -12,8 +12,11 @@ from workers.models import Worker
 
 HB = '/api/heartbeat/'
 NVIDIA = {'vendor_id': 0x10DE, 'device_id': 0x2B85}
+NVIDIA_2 = {'vendor_id': 0x10DE, 'device_id': 0x2684}
 AMD = {'vendor_id': 0x1002, 'device_id': 0x164E}
 SECOND_CARD = card(key=KEY_2, name='AMD Radeon(TM) Graphics', ticked=False, backend='HIP', **AMD)
+# A second card of the first card's brand, for two ticked cards (Unreal render per card FR-PC-BR-5).
+SECOND_NVIDIA = card(key=KEY_2, name='NVIDIA GeForce RTX 4090', ticked=False, backend='OPTIX', **NVIDIA_2)
 
 
 def url(pk):
@@ -21,7 +24,7 @@ def url(pk):
 
 
 def two_cards(**overrides):
-    """The stored report: KEY ticked (OptiX), KEY_2 unticked (HIP), no alerts, revision 3."""
+    """The stored report: KEY ticked (NVIDIA, OptiX), KEY_2 unticked (AMD, HIP), no alerts, revision 3."""
     values = {'cards': [card(), SECOND_CARD], 'alerts': [], 'notices': [], 'warnings': []}
     values.update(overrides)
     return stored(**values)

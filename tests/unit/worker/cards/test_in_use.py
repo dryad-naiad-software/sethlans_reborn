@@ -246,12 +246,14 @@ class TestStartSelection:
         assert swapped.cards == ()
         assert swapped.problem == NONE_USABLE_TEXT
 
-    def test_env_combined_over_two_families_gives_the_problem_text(self, machine):
+    def test_env_combined_over_two_families_is_two_brands_and_cpu_only(self, machine):
+        """unreal-render-per-card FR-PC-BR-3: CUDA beside HIP is NVIDIA beside AMD, an invalid value (CPU only)."""
         machine['os'] = machine['os'] + (os_card('pci:0000:41:00.0', 'NVIDIA', 0x10DE, 0x2704),)
         machine['blender'].append(blender('CUDA_NVIDIA GeForce RTX 4080_0000:41:00', 'CUDA', 'RTX 4080'))
-        sect = config_compute.parse({}, {config_compute.ENV_METHOD: 'gpu', config_compute.ENV_GPU_MODE: 'combined',
-                                         config_compute.ENV_CARDS: '0000:03:00.0,0000:41:00.0'})
+        env = {config_compute.ENV_METHOD: 'gpu', config_compute.ENV_GPU_MODE: 'combined',
+               config_compute.ENV_CARDS: '0000:03:00.0,0000:41:00.0'}
 
-        result = card_check.start_check(sect)
+        result = card_check.start_check(config_compute.parse({}, env))
 
-        assert (result.cards, result.problem) == ((), COMBINE_PROBLEM_TEXT)
+        assert (result.cards, result.problem) == ((), '')
+        assert config_compute.parse({}, env).method == 'cpu'

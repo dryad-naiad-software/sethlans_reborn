@@ -465,7 +465,7 @@
   var NOTICE_TEXT = { card_new: 'New card found: ', card_gone: 'Card no longer present: ' };
   // dirty: the person changed the form since the saved choice was loaded; busy: a save or dismissal is in
   // flight; full: a full load is in flight; seq: only the newest GET is applied; sig: what is drawn now.
-  var cards = { data: null, shown: [], ticked: {}, timer: null, dirty: false, busy: false, full: false, seq: 0, sig: {} };
+  var cards = { data: null, shown: [], ticked: {}, timer: null, dirty: false, busy: false, full: false, seq: 0, sig: {}, rows: [] };
 
   function byId(id) { return document.getElementById(id); }
   function show(id, on) { byId(id).style.display = on ? '' : 'none'; }
@@ -484,6 +484,27 @@
   function setUnrealResult(text, cls) { setMsg('gc-unreal-result', text, cls); }
   function localTime(iso) { var t = new Date(iso); return isNaN(t.getTime()) ? String(iso || '') : t.toLocaleString(); }
   function changed() { cards.dirty = true; refreshCards(); }
+
+  // Brand rule (D7): the PCI vendor id, else the Blender backend family; null when neither is known.
+  var VENDOR_BRAND = { 0x10de: 'NVIDIA', 0x1002: 'AMD', 0x8086: 'Intel' };
+  var BACKEND_BRAND = { CUDA: 'NVIDIA', OPTIX: 'NVIDIA', HIP: 'AMD', ONEAPI: 'Intel', METAL: 'Apple' };
+  function brandOf(c) {
+    if (typeof c.vendor_id === 'number') return VENDOR_BRAND[c.vendor_id] || 'PCI ' + ('000' + c.vendor_id.toString(16)).slice(-4);
+    return BACKEND_BRAND[c.backend] || null;
+  }
+  // Why an unticked card cannot be ticked now, or null. A ticked card is never blocked, so it can always be
+  // unticked; a card of unknown brand may be ticked only on its own (FR-PC-BR-4).
+  function brandBlock(c, ticked) {
+    if (cards.ticked[c.address] || ticked.length === 0) return null;
+    var own = brandOf(c);
+    var unknown = own === null || ticked.some(function(t) { return brandOf(t) === null; });
+    if (unknown) return 'Not supported together with other cards.';
+    for (var i = 0; i < ticked.length; i++) {
+      var b = brandOf(ticked[i]);
+      if (b !== own) return 'Not supported together with ' + b + ' cards.';
+    }
+    return null;
+  }
 
   // One-family rule: two or more ticked cards with a Blender family, all the same family.
   function oneFamily(list) {
@@ -576,13 +597,14 @@
   // Redrawn only when something in it changed, so the slow poll does not take the keyboard focus away.
   function renderRows(d, locked) {
     var sig = JSON.stringify([locked, Object.keys(cards.ticked).sort(), d.cards.map(function(c) {
-      return [c.address, c.name, c.pci, c.note, c.family, c.state, c.screen, c.primary_screen];
+      return [c.address, c.name, c.pci, c.note, c.family, c.state, c.screen, c.primary_screen, c.vendor_id, c.backend];
     })]);
     if (sig === cards.sig.rows) return;
     cards.sig.rows = sig;
     var items = byId('gc-items'), focused = document.activeElement;
     var focusAt = focused && items.contains(focused) ? focused.getAttribute('data-address') : null;
     clearChildren(items);
+    cards.rows = [];
     d.cards.forEach(function(c) {
       var row = createEl('label', null, 'gc-opt' + (STATE_CLASS[c.state] ? ' ' + STATE_CLASS[c.state] : ''));
       var box = document.createElement('input');
@@ -597,6 +619,10 @@
       if (STATE_TEXT[c.state]) row.appendChild(createEl('span', STATE_TEXT[c.state], 'gc-state'));
       screenMarks(c).forEach(function(t) { row.appendChild(createEl('span', t, 'gc-screen')); });
       if (c.note) row.appendChild(createEl('span', c.note, 'gc-note'));
+      var clash = createEl('span', null, 'gc-note gc-brand');
+      clash.style.display = 'none';
+      row.appendChild(clash);
+      cards.rows.push({ card: c, box: box, clash: clash, locked: locked });
       items.appendChild(row);
       if (focusAt === c.address) box.focus();
     });
@@ -640,6 +666,12 @@
   function refreshCards() {
     var d = cards.data, gpu = hasGpu(byId('gc-method').value), ticked = tickedCards();
     show('gc-list', d.cards.length > 0 || (d.missing || []).length > 0);
+    cards.rows.forEach(function(r) {
+      var why = brandBlock(r.card, ticked);
+      r.box.disabled = r.locked || why !== null;
+      r.clash.textContent = why || '';
+      r.clash.style.display = why === null ? 'none' : '';
+    });
     var family = gpu && oneFamily(ticked);
     if (!family) byId('gc-combine').checked = false;
     show('gc-combine-row', family);

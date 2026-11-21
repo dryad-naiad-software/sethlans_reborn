@@ -7,8 +7,9 @@ The cards Unreal may render on now, and why Unreal is off when there is none (FR
 ``evaluate(section, inv)`` is pure: the Unreal cards in use (ticked, state
 ``ok`` or ``blender_lost``, a DXGI index; whatever the compute method, C-23)
 in PCI address order, and when there is none the FR-CU-6 reason, checked in
-this order: no ticked card; the OS probe failed (the inventory came from
-Blender, FR-CI-6); ticked cards, none usable.
+this order: no ticked card; ``SETHLANS_COMPUTE_CARDS`` names cards of more
+than one brand (``env_brands``, FR-PC-BR-3); the OS probe failed (the
+inventory came from Blender, FR-CI-6); ticked cards, none usable.
 
 ``current()`` evaluates the saved choice against the probe of the heartbeat's
 card report (``web_ui.cards_cache.report_probe``): at most one OS probe per
@@ -24,7 +25,7 @@ decide, the last decided reason stands ('' until one was decided).
 import threading
 from typing import Optional, Tuple
 
-from sethlans_worker_agent.cards import matching
+from sethlans_worker_agent.cards import env_brands, matching
 from sethlans_worker_agent.cards.identity import key_address
 
 NO_TICK_REASON = "no graphics card is ticked for rendering (worker settings)"
@@ -39,6 +40,8 @@ def evaluate(section, inv) -> Tuple[tuple, str]:
     """``(Unreal cards in use, FR-CU-6 reason)``; the reason is '' when there is a card."""
     if not section.cards:
         return (), NO_TICK_REASON
+    if env_brands.check(section, inv) is not None:
+        return (), env_brands.MIXED_ENV_REASON
     if inv.os_probe_failed:
         return (), PROBE_FAILED_REASON
     cards = matching.evaluate(section, inv).unreal_cards

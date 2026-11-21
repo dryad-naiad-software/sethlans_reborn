@@ -18,9 +18,16 @@ export type CardBackend = 'CUDA' | 'OPTIX' | 'HIP' | 'ONEAPI' | 'METAL';
 export type CardAlertKind =
   'card_lost' | 'card_changed' | 'card_lost_blender' | 'adapter_mismatch';
 export type CardNoticeKind = 'card_new' | 'card_gone';
-export type CardOutcomeCode =
-  'applied' | 'invalid' | 'env_override' | 'not_allowed' | 'probe_failed'
-  | 'identity_mismatch' | 'stale_revision' | 'card_held' | 'save_failed';
+/**
+ * The outcome codes, in the order of the manager's `CARD_OUTCOME_CODES`
+ * (`manager/workers/serializers/worker_card_schemas.py`); `mixed_brands` is
+ * check 6b of Unreal render per card FR-PC-BR-5.
+ */
+export const CARD_OUTCOME_CODES = [
+  'applied', 'invalid', 'env_override', 'not_allowed', 'probe_failed',
+  'identity_mismatch', 'mixed_brands', 'stale_revision', 'card_held', 'save_failed',
+] as const;
+export type CardOutcomeCode = typeof CARD_OUTCOME_CODES[number];
 
 /** One card of the report. The manager drops entries without `key` or `state`. */
 export interface CardEntry {

@@ -4,7 +4,7 @@
 
 import { CardChoiceOutcome, CardChoiceRequest, CardStatus } from '../../core/services/worker-cards.model';
 import {
-  READ_ONLY_ENV, READ_ONLY_NO_STATUS, READ_ONLY_NOT_ALLOWED, ageText, buildChoiceBody, canNewlyTick,
+  HELD_NOTE, READ_ONLY_ENV, READ_ONLY_NO_STATUS, READ_ONLY_NOT_ALLOWED, ageText, buildChoiceBody, canNewlyTick, tickBlockNote,
   hasOutcome, hasPending, outcomeLine, readOnlyReason, withdrawnEnds, revisionOf, shownCards, takeSnapshot,
 } from './worker-card-choice.util';
 import { makeAlert, makeCard, makeOutcome, makeRequest, makeStatus } from './worker-cards.fixtures';
@@ -87,6 +87,42 @@ describe('worker card choice helpers', () => {
     expect(canNewlyTick({ ...free, state: 'unknown' }, [])).toBeTrue();
   });
 
+  describe('canNewlyTick brand rule (D7, FR-PC-BR-5)', () => {
+    const snap = takeSnapshot(makeStatus({ cards: [
+      makeCard({ key: KEY1, ticked: true }),
+      makeCard({ key: KEY2, ticked: false, state: 'unticked', vendor_id: 0x10de, backend: 'CUDA' }),
+      makeCard({ key: KEY3, ticked: false, state: 'unticked', vendor_id: 0x1002, backend: 'HIP' }),
+    ] }));
+    const [nvidia, nvidia2, amd] = snap.cards;
+    const unknown = { ...amd, vendor_id: null, backend: null };
+
+    it('allows a card of the ticked brand and refuses another brand with the note', () => {
+      expect(canNewlyTick(nvidia2, [], [nvidia])).toBeTrue();
+      expect(canNewlyTick(amd, [], [nvidia])).toBeFalse();
+      expect(tickBlockNote(amd, [], [nvidia])).toBe('Not supported together with NVIDIA cards.');
+      expect(tickBlockNote(nvidia2, [], [amd])).toBe('Not supported together with AMD cards.');
+    });
+
+    it('uses the backend family when the vendor id is missing', () => {
+      expect(canNewlyTick({ ...amd, vendor_id: null }, [], [nvidia])).toBeFalse();
+      expect(canNewlyTick({ ...nvidia2, vendor_id: null, backend: 'OPTIX' }, [], [nvidia])).toBeTrue();
+    });
+
+    it('allows an unknown-brand card alone only', () => {
+      expect(canNewlyTick(unknown, [], [])).toBeTrue();
+      expect(tickBlockNote(unknown, [], [nvidia])).toBe('Not supported together with other cards.');
+      expect(tickBlockNote(nvidia2, [], [unknown])).toBe('Not supported together with other cards.');
+      expect(canNewlyTick(unknown, [], [{ ...unknown, key: 'pci:0000:04:00.0' }])).toBeFalse();
+    });
+
+    it('lets a card ticked in the form be unticked, puts the alert note first, and checks a card unticked in the form', () => {
+      expect(canNewlyTick(amd, [], [nvidia, amd])).toBeTrue();
+      expect(canNewlyTick(nvidia, [], [nvidia, amd])).toBeTrue();
+      expect(tickBlockNote(amd, [KEY3], [nvidia])).toBe(HELD_NOTE);
+      expect(canNewlyTick(nvidia, [], [amd])).toBeFalse();
+    });
+  });
+
   describe('buildChoiceBody', () => {
     const snapshot = takeSnapshot(makeStatus({
       revision: 7,
@@ -131,6 +167,9 @@ describe('worker card choice helpers', () => {
     expect(outcomeLine(makeOutcome(), ' at T')).toBe('Applied at T');
     expect(outcomeLine(makeOutcome({ result: 'refused', code: 'invalid', reason: 'bad' }), '')).toBe('Refused: bad');
     expect(outcomeLine(makeOutcome({ result: 'refused', code: 'invalid', reason: '' }), ' at T')).toBe('Refused at T');
+    const mixed = 'the requested cards are of more than one brand (not supported)';
+    expect(outcomeLine(makeOutcome({ result: 'refused', code: 'mixed_brands', reason: mixed }), ''))
+      .toBe(`Refused: ${mixed}`);
   });
 
   it('withdrawnEnds only for another request or a new outcome', () => {

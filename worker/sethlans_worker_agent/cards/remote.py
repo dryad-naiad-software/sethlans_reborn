@@ -16,6 +16,8 @@ Otherwise the checks of FR-CM-5 run in order and the first failing one decides:
 2. ``env_override``; 3. the switch (``not_allowed``);
 4. a fresh OS probe only (no screen read, no Blender run) -> ``probe_failed`` when it or the inventory failed;
 5. every ticked card present with the same ``vendor_id`` and ``device_id`` -> ``identity_mismatch``;
+   then check 6b (unreal-render-per-card FR-PC-BR-5): the ticked cards of one known brand, an unknown brand
+   only on its own (``cards.brand``) -> ``mixed_brands``;
 6. ``choice.save_choice(..., manager_request=True)`` (the worker pages' own path, FR-CM-6), which re-checks
    env override, the switch and the revision under the section lock: ``env_override``, ``not_allowed``,
    ``stale_revision``, ``card_held``, ``invalid`` or ``save_failed`` (lock timeout, write error); ``applied`` when
@@ -33,6 +35,7 @@ from typing import Optional
 
 from sethlans_worker_agent import config_compute, config_store, unreal_bridge
 from sethlans_worker_agent.cards import choice, inventory, os_probe, store, store_requests
+from sethlans_worker_agent.cards.brand import mixed_brands
 from sethlans_worker_agent.cards.identity import is_card_key
 from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 
@@ -52,6 +55,7 @@ NOT_ALLOWED_TEXT = "this worker does not allow the manager to change its graphic
 PROBE_TEXT = "the worker could not list its graphics cards; nothing was changed"
 STALE_TEXT = "the choice was changed on the worker (revision {current}) after the manager's view (revision {base})"
 SAVE_FAILED_TEXT = "the worker could not save the choice"
+MIXED_BRANDS_REASON = "the requested cards are of more than one brand (not supported)"
 
 _warn_lock = threading.Lock()  # leaf
 _no_id_warned = False          # under _warn_lock
@@ -154,6 +158,15 @@ def identity_mismatch(cards, inv) -> Optional[str]:
     return None
 
 
+def brands_mixed(cards, inv) -> bool:
+    """Check 6b (unreal-render-per-card FR-PC-BR-5): the requested cards break the one-brand rule (``cards.brand``).
+
+    Runs after check 6, so every requested key is in ``inv``; the brands are those of the probed cards.
+    """
+    by_key = {card.key: card for card in inv.cards}
+    return mixed_brands(by_key[wanted['key']] for wanted in cards) is not None
+
+
 def _save(request_id: str, request: dict, inv, revision: int) -> None:
     """Checks 7-10 through ``choice.save_choice``; the applied outcome goes into the same write."""
     base = request['base_revision']
@@ -195,6 +208,8 @@ def _evaluate(request_id: str, request: dict, section) -> None:
     mismatch = identity_mismatch(request['cards'], inv)
     if mismatch is not None:
         return _refuse(request_id, request, 'identity_mismatch', mismatch, section.revision)
+    if brands_mixed(request['cards'], inv):
+        return _refuse(request_id, request, 'mixed_brands', MIXED_BRANDS_REASON, section.revision)
     return _save(request_id, request, inv, section.revision)
 
 

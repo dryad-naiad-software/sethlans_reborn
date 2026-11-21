@@ -25,12 +25,15 @@ changes nothing: ``evaluate`` returns ``failed=True`` and the caller raises
 no alert, stops no job and requests no rebuild (AC-11).
 
 Pure apart from once-only log lines and the process-wide records of
-``SETHLANS_COMPUTE_CARDS`` keys (``in_use.env_records``); holds no lock.
+``SETHLANS_COMPUTE_CARDS`` keys (``in_use.env_records``) and their brand
+finding (``env_brands``: two brands named gives ``method = cpu`` and no
+Unreal card, FR-PC-BR-3); holds no lock.
 """
 import dataclasses
 import logging
 from typing import Dict, Iterable, NamedTuple, Optional, Tuple
 
+from sethlans_worker_agent.cards import env_brands
 from sethlans_worker_agent.cards.identity import has_ids, key_sort_value, same_model
 from sethlans_worker_agent.cards.os_probe import log_once
 
@@ -164,10 +167,13 @@ def evaluate(section, inventory, blender_fresh: Optional[bool] = False,
     if inventory is None or blender_fresh is None:
         return Evaluation(failed=True, section=section)
     from sethlans_worker_agent.cards import in_use  # in_use imports this module
+    mixed = False
     if section.env_cards:
+        section = env_brands.applied(section, inventory)  # FR-PC-BR-3: two brands named -> CPU, no Unreal card
+        mixed = env_brands.seen_mixed() is not None
         section = dataclasses.replace(section, cards=in_use.env_records(section.ticked_keys, inventory))
     states = card_states(section, inventory, profile_keys=profile_keys, blender_fresh=blender_fresh)
     cards, problem = _blender_cards(section, inventory, states, in_use)
     return Evaluation(section=section, states=states, unusable=unusable(section, inventory, states),
                       notices=notices(section, inventory), problem=problem, blender_cards=cards,
-                      unreal_cards=in_use.unreal_cards_in_use(inventory, section, states=states))
+                      unreal_cards=() if mixed else in_use.unreal_cards_in_use(inventory, section, states=states))

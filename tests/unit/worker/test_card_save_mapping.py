@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-How a card save maps to HTTP (FR-CW-4) and the one-family rule over the POST.
+How a card save maps to HTTP (FR-CW-4) and the one-family and one-brand rules over the POST.
 
 ``TestSaveMapping`` replaces ``choice.save_choice`` and checks each refusal's
 status and exact text. ``TestRealStore`` and ``TestCombine`` save through the
@@ -25,6 +25,8 @@ STALE_TEXT = "The card choice was changed meanwhile (on this page or from the ma
 NOT_SAVED = "The card choice could not be saved; see the worker log."
 COMBINE = ("Combine GPUs needs two or more cards that Blender drives the same way (CUDA/OptiX, HIP, "
            "oneAPI or Metal).")
+MIXED = ("Graphics cards of more than one brand (AMD, NVIDIA) cannot be ticked together on one machine; this is not "
+         "supported. Tick the cards of one brand only.")
 FIELDS = {'method': 'gpu', 'gpu_mode': 'split', 'cards': ('pci:0000:23:00.0',),
           'shown': ('pci:0000:03:00.0', 'pci:0000:23:00.0'), 'revision': 0}
 
@@ -158,14 +160,12 @@ class TestCombine:
         assert self.saved[0]['compute']['gpu_mode'] == 'combined'
         assert [record['key'] for record in self.saved[0]['compute']['cards']] == [KEY_RTX_A, KEY_RTX_B]
 
-    def test_cuda_and_hip_combined_is_400(self):
-        status, answer = self._post(inv(rtx_a(), XT_02), gpu_mode='combined', cards=TWO, shown=TWO)
-        assert (status, answer) == (400, {'error': COMBINE})
+    @pytest.mark.parametrize('gpu_mode', ['combined', 'split'])
+    def test_cuda_and_hip_are_two_brands_and_400(self, gpu_mode):
+        """unreal-render-per-card FR-PC-BR-2: an NVIDIA and an AMD card are not ticked together, in either mode."""
+        status, answer = self._post(inv(rtx_a(), XT_02), gpu_mode=gpu_mode, cards=TWO, shown=TWO)
+        assert (status, answer) == (400, {'error': MIXED})
         assert self.saved[1] == []
-
-    def test_cuda_and_hip_split_is_saved(self):
-        status, _answer = self._post(inv(rtx_a(), XT_02), gpu_mode='split', cards=TWO, shown=TWO)
-        assert status == 200 and self.saved[0]['compute']['gpu_mode'] == 'split'
 
     def test_one_card_combined_is_stored_as_split(self, caplog):
         with caplog.at_level(logging.INFO, logger=cards_view.__name__):

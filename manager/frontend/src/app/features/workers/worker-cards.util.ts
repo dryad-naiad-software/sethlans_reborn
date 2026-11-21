@@ -130,6 +130,39 @@ export function oneFamily(cards: Pick<CardEntry, 'backend'>[]): boolean {
   return families.length >= 2 && families.every(f => f === families[0]);
 }
 
+/** D7: brand names of the known PCI vendor ids. */
+const VENDOR_BRANDS: Record<number, string> = { 0x10de: 'NVIDIA', 0x1002: 'AMD', 0x8086: 'Intel' };
+
+/** D7: the brand of a Blender backend family, used only when the card has no vendor id. */
+const BACKEND_BRANDS: Record<CardBackend, string> = {
+  CUDA: 'NVIDIA', OPTIX: 'NVIDIA', HIP: 'AMD', ONEAPI: 'Intel', METAL: 'Apple',
+};
+
+/**
+ * The card's brand per D7: its PCI vendor id (`PCI <vvvv>` for another
+ * vendor), else its Blender backend family, else `null` (unknown).
+ */
+export function cardBrand(card: Pick<CardEntry, 'vendor_id' | 'backend'>): string | null {
+  const vendor = card.vendor_id;
+  if (typeof vendor === 'number' && Number.isInteger(vendor) && vendor >= 0 && vendor <= 0xffff) {
+    return Object.hasOwn(VENDOR_BRANDS, vendor)
+      ? VENDOR_BRANDS[vendor] : `PCI ${vendor.toString(16).padStart(4, '0')}`;
+  }
+  return lookup<string | null>(BACKEND_BRANDS, card.backend, null);
+}
+
+/**
+ * FR-PC-BR-5, worded as on the worker pages: the note of a card of brand
+ * `own` beside ticked cards of `tickedBrands`, or `null` when they match.
+ * Any unknown brand gives "other cards"; else the first differing ticked brand is named.
+ */
+export function brandNote(own: string | null, tickedBrands: readonly (string | null)[]): string | null {
+  if (tickedBrands.length === 0) return null;
+  if (own === null || tickedBrands.includes(null)) return 'Not supported together with other cards.';
+  const other = tickedBrands.find(b => b !== own);
+  return other === undefined ? null : `Not supported together with ${other} cards.`;
+}
+
 /** The time text for `DatePipe`, or `null` when absent or not a date (the pipe would throw). */
 export function validTime(value: string | null | undefined): string | null {
   return typeof value === 'string' && value !== '' && !Number.isNaN(Date.parse(value))

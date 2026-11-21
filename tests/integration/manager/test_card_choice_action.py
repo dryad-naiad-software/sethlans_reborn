@@ -14,12 +14,14 @@ import pytest
 from rest_framework.test import APIClient
 
 from tests.unit.manager.card_report_helpers import KEY, KEY_2, alert, card
-from workers.services import card_choice, card_choice_rules as rules
+from workers.services import card_brand, card_choice, card_choice_rules as rules
 
-from .card_choice_helpers import AMD, NVIDIA, SECOND_CARD, body, reported, row, url
+from .card_choice_helpers import AMD, NVIDIA, NVIDIA_2, SECOND_CARD, SECOND_NVIDIA, body, reported, row, url
 from .token_admin_helpers import session_client
 
 TWO = [{'key': KEY, **NVIDIA}, {'key': KEY_2, **AMD}]
+# Two cards of one brand (Unreal render per card FR-PC-BR-5); the report needs SECOND_NVIDIA.
+TWO_NVIDIA = [{'key': KEY, **NVIDIA}, {'key': KEY_2, **NVIDIA_2}]
 
 
 def _nothing_stored(worker):
@@ -79,7 +81,6 @@ class TestAccepted:
     @pytest.mark.parametrize('overrides', [
         {'method': 'cpu', 'cards': [], 'shown': []},
         {'method': 'cpu', 'cards': [{'key': KEY, **NVIDIA}]},
-        {'cards': TWO},
         {'cards': [{'key': KEY, **NVIDIA}], 'shown': [KEY]},
     ])
     def test_other_valid_bodies(self, admin_client, worker, overrides):
@@ -87,8 +88,8 @@ class TestAccepted:
 
     def test_combined_of_one_family(self, admin_client, make_worker_client):
         worker, _client = reported(make_worker_client, 'combined', cards=[
-            card(backend='CUDA'), card(key=KEY_2, ticked=False, backend='OPTIX', **AMD)])
-        resp = admin_client.post(url(worker.pk), body(gpu_mode='combined', cards=TWO), format='json')
+            card(backend='CUDA'), card(key=KEY_2, ticked=False, backend='OPTIX', **NVIDIA_2)])
+        resp = admin_client.post(url(worker.pk), body(gpu_mode='combined', cards=TWO_NVIDIA), format='json')
         assert resp.status_code == 202
 
     def test_keeping_a_held_ticked_card_is_accepted(self, admin_client, make_worker_client):
@@ -240,7 +241,8 @@ class TestOrder:
     @pytest.mark.parametrize('overrides, detail', [
         ({'shown': [KEY, 'pci:0000:99:00.0']}, rules.NOT_REPORTED.format(key='pci:0000:99:00.0')),
         ({'cards': [{'key': KEY, 'vendor_id': 0x10DE, 'device_id': 1}]}, rules.IDS_DIFFER.format(key=KEY)),
-        ({'gpu_mode': 'combined', 'cards': TWO}, rules.ONE_FAMILY),
+        # The brand check (FR-PC-BR-5) comes before the one-family rule.
+        ({'gpu_mode': 'combined', 'cards': TWO}, card_brand.MIXED_BRANDS_TEXT.format(brands='AMD, NVIDIA')),
     ])
     def test_report_400s(self, admin_client, worker, overrides, detail):
         _refused(admin_client.post(url(worker.pk), body(**overrides), format='json'), 400, detail)
@@ -249,15 +251,17 @@ class TestOrder:
     def test_combined_with_a_null_backend_is_400(self, admin_client, make_worker_client):
         """AC-34: one CUDA card and one card with a null backend."""
         worker, _client = reported(make_worker_client, 'null-backend', cards=[
-            card(backend='CUDA'), card(key=KEY_2, ticked=False, backend=None, blender=False, **AMD)])
-        resp = admin_client.post(url(worker.pk), body(gpu_mode='combined', cards=TWO), format='json')
+            card(backend='CUDA'), card(key=KEY_2, ticked=False, backend=None, blender=False, **NVIDIA_2)])
+        resp = admin_client.post(url(worker.pk), body(gpu_mode='combined', cards=TWO_NVIDIA), format='json')
         _refused(resp, 400, rules.ONE_FAMILY)
 
     @pytest.mark.parametrize('kind', ['card_lost', 'card_changed', 'card_lost_blender'])
     def test_newly_ticking_a_held_card_is_400(self, admin_client, make_worker_client, kind):
         """AC-26."""
-        worker, _client = reported(make_worker_client, f'held-{kind}', alerts=[alert(key=KEY_2, kind=kind)])
-        _refused(admin_client.post(url(worker.pk), body(cards=TWO), format='json'), 400, rules.HELD.format(key=KEY_2))
+        worker, _client = reported(make_worker_client, f'held-{kind}', cards=[card(), SECOND_NVIDIA],
+                                   alerts=[alert(key=KEY_2, kind=kind)])
+        resp = admin_client.post(url(worker.pk), body(cards=TWO_NVIDIA), format='json')
+        _refused(resp, 400, rules.HELD.format(key=KEY_2))
 
     def test_failed_post_keeps_the_pending_request(self, admin_client, worker):
         first = admin_client.post(url(worker.pk), body(), format='json').data['card_choice_request']

@@ -200,7 +200,8 @@ def save(method: str, gpu_mode: str, ticked_keys, shown_keys, inventory, base_re
     ``ManagerChangesOff`` (``manager_request`` and the switch is not on, FR-CM-1),
     ``StaleRevision``, ``CardHeld`` (alerts in memory count, C-21), then
     ``ValueError`` (ticked key not in ``inventory`` or not shown, GPU with no
-    tick, Combine GPUs against the one-family rule). ``combined`` with fewer
+    tick, ticked cards of more than one brand with ``cards.brand.MIXED_BRANDS_TEXT``
+    (FR-PC-BR-2), Combine GPUs against the one-family rule). ``combined`` with fewer
     than two ticked cards is saved as ``split``. ``last_request`` goes into the
     same write with the recent request ids (``request_pairs``).
     """
@@ -212,6 +213,7 @@ def save(method: str, gpu_mode: str, ticked_keys, shown_keys, inventory, base_re
         store_rules.check_source(section, base_revision, manager_request)
         store_rules.check_held(ticked, by_key, section)
         store_rules.check_values(method, gpu_mode, ticked, shown, by_key)
+        store_rules.check_brands(ticked, by_key)
         mode = gpu_mode if len(ticked) >= 2 else 'split'
         if mode == 'combined' and not one_family(by_key[key].blender[1] if by_key[key].blender else None
                                                  for key in ticked):

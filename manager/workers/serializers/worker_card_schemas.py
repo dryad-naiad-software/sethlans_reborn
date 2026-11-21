@@ -100,11 +100,12 @@ def card_alert_dismissals_field():
 
 
 # A card change from the manager (FR-CM-4, FR-CM-7, FR-CM-14).  The outcome
-# codes are the worker's FR-CM-5 set; ``applied`` exactly when ``result`` is.
+# codes are the worker's FR-CM-5 set, with check 6b ``mixed_brands`` (Unreal
+# render per card FR-PC-BR-5); ``applied`` exactly when ``result`` is.
 CARD_OUTCOME_RESULTS = ('applied', 'refused')
 CARD_OUTCOME_CODES = (
     'applied', 'invalid', 'env_override', 'not_allowed', 'probe_failed',
-    'identity_mismatch', 'stale_revision', 'card_held', 'save_failed',
+    'identity_mismatch', 'mixed_brands', 'stale_revision', 'card_held', 'save_failed',
 )
 
 

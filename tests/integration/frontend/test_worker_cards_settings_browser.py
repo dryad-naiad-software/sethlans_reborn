@@ -100,13 +100,13 @@ def test_settings_cpu_shows_cards_and_saves_the_ticks(page, worker_ui):
     assert page.input_value('#gc-method') == 'cpu'
     assert page.locator('#gc-list').is_visible() and page.inner_text('#gc-help') == ui.SETTINGS_HELP_TEXT
     assert page.is_enabled('#gc-save')
-    _tick(page, CUDA_1, NO_FAMILY)
+    _tick(page, NO_FAMILY, XSS_CARD)
     assert not page.locator('#gc-combine-row').is_visible()
     page.click('#gc-save')
     _wait_result(page, 'Saved')
     compute = ui.compute_section(data_dir)
     assert (compute['method'], compute['gpu_mode']) == ('cpu', 'split')
-    assert ui.ticked_keys(compute) == [ui.key_of(CUDA_1), ui.key_of(NO_FAMILY)]
+    assert ui.ticked_keys(compute) == [ui.key_of(NO_FAMILY), ui.key_of(XSS_CARD)]
     assert errors == []
 
 
@@ -197,8 +197,9 @@ def test_settings_shows_screen_marks_and_one_warning_per_ticked_screen_card(page
         text = ui.screen_warning(index, main)
         assert warnings.count(text) == 1
         assert text not in page.inner_text('#gc-items')
+    # The AMD cards are ticked; the other brands' boxes are disabled (FR-PC-BR-4).
     ticked = [i in (HIP_1, HIP_2) for i in range(len(ui.CARDS))]
-    assert ui.boxes_state(page, 'gc-items') == [[t, True] for t in ticked]
+    assert ui.boxes_state(page, 'gc-items') == [[t, t] for t in ticked]
     assert errors == []
 
 

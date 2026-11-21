@@ -86,8 +86,11 @@ def env_records(keys, inv) -> Tuple[dict, ...]:
 
 
 def reset_env_records_for_tests() -> None:
+    """Forget the records and the brand finding (``env_brands``) of ``SETHLANS_COMPUTE_CARDS``. Test-only hook."""
+    from sethlans_worker_agent.cards import env_brands
     with _env_lock:
         _env_records.clear()
+    env_brands.reset_for_tests()
 
 
 _NOT_USED = {

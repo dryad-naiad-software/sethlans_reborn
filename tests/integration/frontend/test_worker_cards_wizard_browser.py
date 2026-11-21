@@ -82,11 +82,13 @@ def test_gpu_needs_a_ticked_card_and_combine_needs_two_of_one_family(page, worke
     assert _combine_shown(page)
     _tick(page, HIP_1, HIP_2, on=False)
     assert not _next_enabled(page)  # CPU and GPU also needs a card
-    _tick(page, CUDA_1, NO_FAMILY)
+    _tick(page, NO_FAMILY, XSS_CARD)
     assert _next_enabled(page)
-    assert not _combine_shown(page)  # a CUDA card and a card Blender does not drive
-    _tick(page, HIP_1)
-    assert not _combine_shown(page)  # CUDA and HIP are two families
+    assert not _combine_shown(page)  # two cards of one brand that Blender does not drive
+    _tick(page, NO_FAMILY, XSS_CARD, on=False)
+    _tick(page, CUDA_1)
+    assert not _combine_shown(page)  # one card; a HIP card cannot join it (brand rule, FR-PC-BR-4)
+    assert not ui.card_box(page, 'cards-items', HIP_1).is_enabled()
     assert ui.compute_section(data_dir) is None  # ticking saves nothing
     assert errors == []
 
@@ -101,13 +103,13 @@ def test_cpu_shows_cards_and_help_and_saves_the_ticks(page, worker_ui):
     assert page.inner_text('#cards-help') == ui.WIZARD_HELP_TEXT
     assert page.locator('#cards-help').is_visible()
     assert _next_enabled(page)
-    _tick(page, CUDA_1, NO_FAMILY)
+    _tick(page, HIP_1, HIP_2)
     assert not _combine_shown(page)
     page.click('#btn-cards-next')
     page.wait_for_selector('#step-verify.active')
     compute = ui.compute_section(data_dir)
     assert (compute['method'], compute['gpu_mode']) == ('cpu', 'split')
-    assert ui.ticked_keys(compute) == [ui.key_of(CUDA_1), ui.key_of(NO_FAMILY)]
+    assert ui.ticked_keys(compute) == [ui.key_of(HIP_1), ui.key_of(HIP_2)]
     assert errors == []
 
 
@@ -242,7 +244,8 @@ def test_wizard_shows_screen_marks_and_one_warning_per_ticked_screen_card(page, 
         text = ui.screen_warning(index, main)
         assert warnings.count(text) == 1
         assert text not in page.inner_text('#cards-items')
+    # The AMD cards are ticked; the other brands' boxes are disabled (FR-PC-BR-4).
     ticked = [i in (HIP_1, HIP_2) for i in range(len(ui.CARDS))]
-    assert ui.boxes_state(page, 'cards-items') == [[t, True] for t in ticked]
+    assert ui.boxes_state(page, 'cards-items') == [[t, t] for t in ticked]
     assert _next_enabled(page)
     assert errors == []

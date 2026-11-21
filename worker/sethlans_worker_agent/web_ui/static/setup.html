@@ -484,7 +484,7 @@
   }
 
   // --- Graphics cards (every server text goes in with textContent) ---
-  var cards = { data: null, shown: [], ticked: {}, timer: null };
+  var cards = { data: null, shown: [], ticked: {}, timer: null, rows: [] };
   // Labels for the states that are not ok (FR-CK-2); a ticked card is ok or unticked otherwise.
   var CARD_STATE = { changed: 'a different card is in this slot', held: 'held until its alert is dismissed',
     blender_lost: 'Blender no longer offers it (Unreal may still use it)', unknown: 'cannot be checked right now' };
@@ -498,6 +498,27 @@
     if (c.screen === null) return ['screen: unknown'];
     if (c.screen !== true) return [];
     return c.primary_screen === true ? ['drives a screen', 'main screen'] : ['drives a screen'];
+  }
+
+  // Brand rule (D7): the PCI vendor id, else the Blender backend family; null when neither is known.
+  var VENDOR_BRAND = { 0x10de: 'NVIDIA', 0x1002: 'AMD', 0x8086: 'Intel' };
+  var BACKEND_BRAND = { CUDA: 'NVIDIA', OPTIX: 'NVIDIA', HIP: 'AMD', ONEAPI: 'Intel', METAL: 'Apple' };
+  function brandOf(c) {
+    if (typeof c.vendor_id === 'number') return VENDOR_BRAND[c.vendor_id] || 'PCI ' + ('000' + c.vendor_id.toString(16)).slice(-4);
+    return BACKEND_BRAND[c.backend] || null;
+  }
+  // Why an unticked card cannot be ticked now, or null. A ticked card is never blocked, so it can always be
+  // unticked; a card of unknown brand may be ticked only on its own (FR-PC-BR-4).
+  function brandBlock(c, ticked) {
+    if (cards.ticked[c.address] || ticked.length === 0) return null;
+    var own = brandOf(c);
+    var unknown = own === null || ticked.some(function(t) { return brandOf(t) === null; });
+    if (unknown) return 'Not supported together with other cards.';
+    for (var i = 0; i < ticked.length; i++) {
+      var b = brandOf(ticked[i]);
+      if (b !== own) return 'Not supported together with ' + b + ' cards.';
+    }
+    return null;
   }
 
   // One-family rule: two or more ticked cards with a Blender family, all the same family.
@@ -557,6 +578,7 @@
     show('cards-checking', d.blender_check === 'running');
     var items = $('cards-items');
     items.textContent = '';
+    cards.rows = [];
     d.cards.forEach(function(c) {
       var row = document.createElement('label');
       row.className = 'card-opt';
@@ -579,6 +601,10 @@
         var mark = document.createElement('span'); mark.className = 'card-screen'; mark.textContent = t; row.appendChild(mark);
       });
       if (c.note) { var note = document.createElement('span'); note.className = 'card-note'; note.textContent = c.note; row.appendChild(note); }
+      var clash = document.createElement('span');
+      clash.className = 'card-note card-brand'; clash.style.display = 'none';
+      row.appendChild(clash);
+      cards.rows.push({ card: c, box: box, clash: clash });
       items.appendChild(row);
     });
     var warns = $('cards-warnings');
@@ -592,6 +618,12 @@
   function refreshCards() {
     var d = cards.data, gpu = hasGpu($('cards-method').value), ticked = tickedCards();
     show('cards-list', d.cards.length > 0);
+    cards.rows.forEach(function(r) {
+      var why = brandBlock(r.card, ticked);
+      r.box.disabled = d.env_override || why !== null;
+      r.clash.textContent = why || '';
+      r.clash.style.display = why === null ? 'none' : '';
+    });
     var family = gpu && oneFamily(ticked);
     if (!family) $('cards-combine').checked = false;
     show('cards-combine-row', family);

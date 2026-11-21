@@ -136,19 +136,19 @@ class TestOneFamily:
         store.save('gpu', 'combined', [KEY_RTX_A, cuda.key], [KEY_RTX_A, cuda.key], inv(rtx_a(), cuda), 0)
         assert saved.state['compute']['gpu_mode'] == 'combined'
 
-    @pytest.mark.parametrize('ticked', [
-        [KEY_RTX_A, KEY_XT_03],                   # CUDA/OptiX and HIP
-        [KEY_XT_03, KEY_NO_BLENDER],              # only one card counted
-    ])
-    def test_combined_is_refused(self, saved, full, ticked):
+    def test_combined_is_refused(self, saved, full):
+        ticked = [KEY_XT_03, KEY_NO_BLENDER]      # only one card counted
         with pytest.raises(ValueError) as caught:
             store.save('gpu', 'combined', ticked, ticked, full, 0)
         assert str(caught.value) == COMBINE_TEXT
         assert saved.writes == []
 
-    def test_split_over_two_families_is_fine(self, saved, full):
-        store.save('gpu', 'split', [KEY_RTX_A, KEY_XT_03], [KEY_RTX_A, KEY_XT_03], full, 0)
-        assert saved.state['compute']['gpu_mode'] == 'split'
+    @pytest.mark.parametrize('gpu_mode', ['split', 'combined'])
+    def test_two_families_are_two_brands_and_refused(self, saved, full, gpu_mode):
+        """unreal-render-per-card FR-PC-BR-2 narrows FR-CC-4: CUDA/OptiX beside HIP is NVIDIA beside AMD."""
+        with pytest.raises(ValueError, match=r'^Graphics cards of more than one brand \(AMD, NVIDIA\)'):
+            store.save('gpu', gpu_mode, [KEY_RTX_A, KEY_XT_03], [KEY_RTX_A, KEY_XT_03], full, 0)
+        assert saved.writes == []
 
 
 class TestRefused:

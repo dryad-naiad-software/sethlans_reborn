@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-The refusals of ``cards.store.save`` and the checks behind them (FR-CC-4, D19, FR-CM-1).
+The refusals of ``cards.store.save`` and the checks behind them (FR-CC-4, D19, FR-CM-1, FR-PC-BR-2).
 
 Pure functions over a section read by ``store`` under its ``_section_lock``; this module holds no lock and no
 state. ``store`` re-exports the exception classes, so callers keep naming them ``store.EnvOverride`` and so on.
@@ -10,6 +10,7 @@ state. ``store`` re-exports the exception classes, so callers keep naming them `
 from typing import Iterable, List
 
 from sethlans_worker_agent import config_compute
+from sethlans_worker_agent.cards.brand import mixed_brands, mixed_text
 from sethlans_worker_agent.cards.matching import BLENDER_HOLDING_KINDS
 
 
@@ -81,3 +82,13 @@ def check_values(method, gpu_mode, ticked, shown, by_key) -> None:
             raise ValueError(f"The graphics card {key} was ticked but not shown.")
     if method in ('gpu', 'cpu_gpu') and not ticked:
         raise ValueError("GPU rendering needs at least one ticked graphics card.")
+
+
+def check_brands(ticked, by_key) -> None:
+    """The one-brand rule (unreal-render-per-card FR-PC-BR-2): ``ValueError(MIXED_BRANDS_TEXT)`` when it fails.
+
+    Whatever the method: Unreal renders on the ticked cards with method ``cpu`` too (C-23).
+    """
+    labels = mixed_brands(by_key[key] for key in ticked)
+    if labels is not None:
+        raise ValueError(mixed_text(labels))

@@ -12,6 +12,7 @@ stored report (400) last, since they need a usable report.
 from ..card_keys import is_card_key
 from ..strict_json import _int_in
 from ..views.heartbeat_cards import GPU_MODES, MAX_ENTRIES, MAX_PCI_ID, MAX_REVISION, METHODS
+from .card_brand import brand, mixed_brands
 
 BODY_KEYS = ('method', 'gpu_mode', 'cards', 'shown', 'base_revision')
 CARD_KEYS = ('key', 'vendor_id', 'device_id')
@@ -118,7 +119,10 @@ def report_error(body, card_status):
     """Step 5: the 400 sentence for a rule against the stored report, or ``None``.
 
     A card the worker reports as ticked with the same ids may stay ticked
-    while held (AC-26); only a newly ticked one is refused (D19).
+    while held (AC-26); only a newly ticked one is refused (D19).  The
+    ticked cards must be of one brand (Unreal render per card FR-PC-BR-5),
+    from the reported ``vendor_id`` and ``backend``; that check follows the
+    ids check, as the worker's check 6b follows its check 6.
     """
     reported = card_status.get('cards')
     stored = {entry['key']: entry for entry in (reported if isinstance(reported, list) else [])
@@ -131,6 +135,9 @@ def report_error(body, card_status):
                     if (entry.get('vendor_id'), entry.get('device_id')) != (card['vendor_id'], card['device_id']))
     if differ is not None:
         return IDS_DIFFER.format(key=differ)
+    mixed = mixed_brands(brand(entry.get('vendor_id'), entry.get('backend')) for _card, entry in ticked)
+    if mixed is not None:
+        return mixed
     if body['gpu_mode'] == 'combined' and not one_family([entry.get('backend') for _card, entry in ticked]):
         return ONE_FAMILY
     held = _held_keys(card_status)
