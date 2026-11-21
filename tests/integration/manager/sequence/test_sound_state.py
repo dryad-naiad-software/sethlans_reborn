@@ -27,6 +27,7 @@ from workers.services.row_locks import lock_own_rows
 
 from ..unreal_helpers import unreal_asset
 from ..unreal_pilot_helpers import JOBS, claim, ready_worker
+from .build_helpers import build_all, manual_queue
 from .sound_helpers import audio_jobs_of, claimed_audio, post_sound
 from .submission_helpers import (
     SUBMISSIONS, VIDEO, ffmpeg_ready, measure_submission, piece_body, pieces_of, post_piece, shots_of, upload_all,
@@ -135,7 +136,8 @@ class TestRetrySound:
         assert (resp.status_code, resp.data) == (409, {'error': "This version was canceled."})
         assert {j.status for j in audio_jobs_of(submission)} == {'CANCELED'}
 
-    def test_done_version_without_a_failed_sound_item_is_409(self, admin_client, asset, worker_with_token):
+    def test_done_version_without_a_failed_sound_item_is_409(self, admin_client, asset, worker_with_token,
+                                                             django_capture_on_commit_callbacks):
         """Review item 4: retry-sound reopens a version only for a sound item a failed render left ERROR."""
         worker, client = worker_with_token
         submission, job = claimed_audio(admin_client, asset, worker, client)
@@ -147,7 +149,11 @@ class TestRetrySound:
         assert post_sound(client, other).status_code == 200
         _finish_pieces(client, worker, submission)
         submission.refresh_from_db()
-        assert submission.status == 'DONE'
+        assert submission.status == 'ASSEMBLING'  # the sound cuts wait for the build queue (chunk 6)
+        with manual_queue():
+            build_all(django_capture_on_commit_callbacks, submission.pk)
+        submission.refresh_from_db()
+        assert (submission.status, submission.sound_status) == ('DONE', 'DONE')
         assert admin_client.post(self._url(submission)).data == {'error': "No sound render of this version failed."}
         # A failed audio row that left no sound item ERROR does not reopen it either.
         Job.objects.filter(pk=job.pk).update(status='ERROR')

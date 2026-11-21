@@ -52,3 +52,20 @@ CONTAINER_CONTENT_TYPES = {
 
 # Image formats compatible with video assembly (excludes HDR formats).
 VIDEO_COMPATIBLE_FORMATS = frozenset({'PNG', 'JPEG', 'TIFF', 'BMP', 'TARGA'})
+
+# The audio codec arguments of a merged video, by container (Unreal
+# sequences, FR-SV-6): a fixed map, never a client value.
+VIDEO_AUDIO_CODECS = {
+    'mp4': ('aac', '-b:a', '192k'),
+    'webm': ('libopus', '-b:a', '192k'),
+    'mov': ('pcm_s16le',),
+}
+
+# The MP4 and MOV track timescale for a rate num/den (D13): the smallest
+# multiple k x num of at least 90000, so every frame lasts exactly k x den
+# ticks (24000/1001: 96000, 4004 ticks; 30000/1001: 90000, 3003; 60000/1001:
+# 120000, 2002; 24: 90000, 3750).  Every frame then has the same duration
+# (constant frame rate) and shot videos join by stream copy.  WebM has a
+# fixed 1 ms timebase.
+TRACK_TIMESCALE_BASE = 90000
+TIMESCALE_CONTAINERS = frozenset({'mp4', 'mov'})

@@ -202,6 +202,9 @@ def launch(
     )
     _threads.extend([public_thread, internal_thread])
 
+    # D16: the build queue starts in the serving process only, once.
+    from workers.video_startup import on_server_start
+    on_server_start()
     public_thread.start()
     internal_thread.start()
 

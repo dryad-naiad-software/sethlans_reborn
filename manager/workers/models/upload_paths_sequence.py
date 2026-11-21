@@ -35,6 +35,20 @@ def run_sound_name(project_id, submission_id, job_id):
     return f'{submission_dir(project_id, submission_id)}/runs/{int(job_id)}.wav'
 
 
+# Built results (FR-SV-3..6): the file stem of each item; the extension is a container or ``wav``.
+RESULT_STEMS = {'video': 'video', 'sound': 'sound', 'sound_video': 'video_sound'}
+RESULT_EXTENSIONS = frozenset({'mp4', 'webm', 'mov', 'wav'})
+
+
+def result_name(project_id, submission_id, index, item, extension):
+    """``.../shots/<index>/<stem>.<ext>`` for a shot (``index``), ``.../whole/<stem>.<ext>`` for ``None``."""
+    if item not in RESULT_STEMS or extension not in RESULT_EXTENSIONS:
+        raise ValueError(f"Unknown result {item!r}.{extension!r}.")
+    folder = (f'{submission_dir(project_id, submission_id)}/whole' if index is None
+              else shot_dir(project_id, submission_id, index))
+    return f'{folder}/{RESULT_STEMS[item]}.{extension}'
+
+
 def _basename(filename):
     return os.path.basename(str(filename)) or 'file'
 

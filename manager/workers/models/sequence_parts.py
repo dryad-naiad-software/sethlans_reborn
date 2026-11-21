@@ -51,6 +51,9 @@ class SequenceShot(models.Model):
     sound_error = models.TextField(blank=True, default='')
     sound_video_status = _item_status()
     sound_video_file = _shot_file()
+    sound_video_error = models.TextField(blank=True, default='')
+    # D16: the boot id of the serving process whose task last claimed one of this shot's items.
+    assembly_boot = models.CharField(max_length=36, blank=True, default='')
 
     class Meta:
         ordering = ['submission', 'index']

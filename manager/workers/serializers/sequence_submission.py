@@ -96,6 +96,7 @@ class SequenceShotSerializer(serializers.ModelSerializer):
         fields = [
             'index', 'name', 'start_frame', 'end_frame', 'status', 'error_message', 'render_time_seconds',
             'timings', 'video_status', 'video_error', 'sound_status', 'sound_error', 'sound_video_status',
+            'sound_video_error',
         ]
         read_only_fields = fields
 
@@ -123,7 +124,8 @@ class SequenceSubmissionSerializer(serializers.ModelSerializer):
             'selected_shots', 'frame_start', 'frame_end', 'resolution_x', 'resolution_y', 'frame_format',
             'video_settings', 'sound', 'merge_sound', 'draft', 'piece_seconds', 'lead_in_ms', 'sound_offset_ms',
             'status', 'cancel_requested', 'error_message', 'warnings', 'submitted_at', 'completed_at',
-            'total_render_time_seconds', 'video_status', 'sound_status', 'sound_error', 'sound_video_status',
+            'total_render_time_seconds', 'video_status', 'video_error', 'sound_status', 'sound_error',
+            'sound_video_status', 'sound_video_error',
             *COUNT_FIELDS,
         ]
         read_only_fields = fields

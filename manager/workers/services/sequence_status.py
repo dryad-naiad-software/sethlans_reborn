@@ -19,9 +19,10 @@ the submission from aggregate counts (``sequence_status_rules``).  Writes
 are ``QuerySet.update()``, skipped when nothing changed; no ``save()``,
 so no signal recursion.  For an audio job's change (and for a full
 refresh) the sound items follow the audio jobs (``sequence_sound``,
-FR-SA-8), so a failed sound render leaves them final.  Result items are
-set PENDING and queued by the work queue (FR-SV-7); this refresh only
-reads them.
+FR-SA-8), so a failed sound render leaves them final.  Then the result
+items that became possible are marked PENDING and queued after commit
+(``sequence_items.open_items``, FR-SV-7 (a) and (b)); this refresh never
+calls ``sequence_assembly.advance``, so there is no recursion.
 """
 
 from bisect import bisect_right
@@ -37,6 +38,7 @@ from ..constants_sequence import (
 from ..models import Job, JobStatus, SequenceShot, SequenceSubmission
 from ..parent_status import lock_parent
 from .job_kind_rules import is_piece
+from .sequence_items import open_items
 from .sequence_sound import settle_sound
 from .sequence_status_rules import (
     ACTIVE_JOB_STATUSES, OPEN_ITEM_STATUSES, STARTED_JOB_STATUSES, SubmissionCounts, failure_message,
@@ -162,6 +164,7 @@ def refresh_submission(submission_id, shot_indexes=None, timings=None, audio_job
             _append_timings(submission, timings)
         if shot_indexes is None or audio_jobs:
             settle_sound(submission, None if shot_indexes is None else audio_jobs)
+        open_items(submission)
         return _refresh_whole(submission)
 
 

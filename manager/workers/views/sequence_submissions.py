@@ -12,8 +12,9 @@ discovery finishes.  ``GET`` lists versions newest first, filtered by
 per count (never several ``Count`` over joins, and no query per row); the
 detail adds the shots and the sound runs.  A submission is read-only
 through the API: no ``PUT`` or ``PATCH`` (FR-SQ-10).  ``retry-sound/``
-requeues its failed audio jobs (FR-SV-8).  Cancel, re-render, delete and
-downloads arrive with chunk 7.
+requeues its failed audio jobs, ``retry-video/`` rebuilds its failed video
+and sound files (FR-SV-8) and ``merge-sound/`` asks for the merged copies
+(FR-SV-6).  Cancel, re-render, delete and downloads arrive with chunk 7.
 """
 
 from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
@@ -33,6 +34,7 @@ from ..serializers.sequence_submission import (
     CREATE_KEYS, SequenceSubmissionCreateSerializer, SequenceSubmissionDetailSerializer,
     SequenceSubmissionSerializer,
 )
+from ..services.sequence_assembly import merge_sound, retry_video
 from ..services.sequence_sound import RetryRefused, retry_sound
 from ..services.sequence_submit import create_submission
 from ..strict_json import unknown_keys
@@ -138,3 +140,47 @@ class SequenceSubmissionViewSet(
         except RetryRefused as exc:
             return Response({'error': exc.message}, status=exc.status)
         return Response({'requeued': count}, status=status.HTTP_200_OK)
+
+    def _act(self, function, ok):
+        submission = self.get_object()
+        try:
+            value = function(submission.pk)
+        except SequenceSubmission.DoesNotExist:
+            return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        except RetryRefused as exc:
+            return Response({'error': exc.message}, status=exc.status)
+        return Response(ok(value), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        tags=_TAGS, request=None,
+        responses={
+            200: inline_serializer('SequenceRetryVideo', {'reset': serializers.IntegerField()}),
+            404: _ERROR, 409: _ERROR,
+        },
+    )
+    @action(detail=True, methods=['post'], url_path='retry-video')
+    def retry_video(self, request, pk=None):
+        """Build the version's failed videos, sound cuts and merged copies again (FR-SV-8).
+
+        Returns:
+            200 ``{"reset": n}``; 404 for an unknown version; 409 when the
+            version was canceled or no build of it failed.
+        """
+        return self._act(retry_video, lambda count: {'reset': count})
+
+    @extend_schema(
+        tags=_TAGS, request=None,
+        responses={
+            200: inline_serializer('SequenceMergeSound', {'status': serializers.CharField()}),
+            400: _ERROR, 404: _ERROR, 409: _ERROR,
+        },
+    )
+    @action(detail=True, methods=['post'], url_path='merge-sound')
+    def merge_sound(self, request, pk=None):
+        """Merge the sound into the shot videos and the whole video (FR-SV-6).
+
+        Returns:
+            200 ``{"status": <version status>}``; 400 for a version without
+            video or sound; 404 for an unknown version; 409 when it was canceled.
+        """
+        return self._act(merge_sound, lambda state: {'status': state})

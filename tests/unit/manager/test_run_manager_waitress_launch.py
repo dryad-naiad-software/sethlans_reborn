@@ -32,6 +32,9 @@ class TestLaunchDualListeners:
         self.limit_bodies = mocker.patch.object(
             waitress_launcher, "limit_request_bodies",
         )
+        # The build queue's start hook needs the database (D16); it is
+        # covered by the sequence video integration tests.
+        self.start_hook = mocker.patch("workers.video_startup.on_server_start")
 
     def setup_method(self):
         waitress_launcher._servers.clear()
@@ -218,3 +221,22 @@ class TestLaunchDualListeners:
             mocker.call(srv_a, allow_uploads=True),
             mocker.call(srv_b, allow_uploads=False),
         ]
+
+    def test_build_queue_start_hook_runs_once_before_the_listeners(self, mocker, tmp_path):
+        """Sequence D16: the serving process starts the build queue, once, before serving."""
+        events = []
+        mocker.patch.object(
+            waitress_launcher.waitress, "create_server",
+            side_effect=lambda *a, **k: mocker.MagicMock(),
+        )
+        mocker.patch.object(waitress_launcher, "get_waitress_tuning", return_value={})
+        mocker.patch("sethlans_manager.wsgi.application", new=object())
+        thread = mocker.MagicMock()
+        thread.start.side_effect = lambda: events.append("listener")
+        mocker.patch.object(waitress_launcher.threading, "Thread", return_value=thread)
+        mocker.patch.object(waitress_launcher, "_install_signal_handlers")
+        self.start_hook.side_effect = lambda: events.append("hook")
+        waitress_launcher._shutdown_event.set()
+
+        waitress_launcher.launch(public_port=8090, internal_port=8088, ini_path=tmp_path / "manager.ini")
+        assert events == ["hook", "listener", "listener"]
