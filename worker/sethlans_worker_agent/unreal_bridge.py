@@ -96,20 +96,20 @@ def startup() -> None:
         _log_failure_once('startup', exc)
 
 
-def unreal_card_in_use() -> Optional[Tuple[int, str]]:
-    """``(job id, card key)`` of the card the running Unreal job chose at its latest launch (C-24 m).
+def unreal_cards_in_use() -> Tuple[Tuple[int, str], ...]:
+    """``(job id, card key)`` of the card each running Unreal claim chose at its latest launch (C-24 m).
 
-    ``None`` when no Unreal job has chosen a card; the module is looked up,
-    never imported here, so a worker that never ran Unreal imports nothing.
-    Fallback ``None``.
+    One pair per claim (render per card FR-PC-SEL-3, -4), sorted; ``()`` when
+    no Unreal job has chosen a card. The module is looked up, never imported
+    here, so a worker that never ran Unreal imports nothing. Fallback ``()``.
     """
     try:
         module = sys.modules.get('sethlans_worker_agent.unreal_executor.adapter_choice')
-        choice = module.current() if module is not None else None
-        return None if choice is None else (choice.job_id, choice.key)
+        choices = module.all_current() if module is not None else ()
+        return tuple(sorted((choice.job_id, choice.key) for choice in choices))
     except Exception as exc:
-        _log_failure_once('unreal_card_in_use', exc)
-        return None
+        _log_failure_once('unreal_cards_in_use', exc)
+        return ()
 
 
 def can_take_unreal() -> bool:
@@ -117,15 +117,20 @@ def can_take_unreal() -> bool:
 
     A free Unreal card in use (``cards.unreal_cards.current_keys`` from the
     cached card probe: no probe on the poll path), no Blender CPU job and
-    no pending rebuild (``WorkerCapacity.can_take_unreal``). The poll, the
-    polling gate and the reserver's check 0 all use it. Takes the card
-    store's lock, then ``WorkerCapacity._lock``, one after the other.
+    no pending rebuild (``WorkerCapacity.can_take_unreal``); with the
+    reading override set, no Unreal job holding a card (D14, FR-PC-SEL-5,
+    ``reserve_card.override_blocks``). The poll, the polling gate and the
+    reserver's check 0 all use it. Takes the card store's lock, then
+    ``WorkerCapacity._lock``, one after the other.
     """
     try:
         from sethlans_worker_agent import job_processor
         from sethlans_worker_agent.cards import unreal_cards
         capacity = job_processor.get_worker_capacity()
-        return capacity is not None and capacity.can_take_unreal(unreal_cards.current_keys(cached_only=True))
+        if capacity is None or not capacity.can_take_unreal(unreal_cards.current_keys(cached_only=True)):
+            return False
+        from sethlans_worker_agent.unreal_executor import reserve_card
+        return not reserve_card.override_blocks(capacity)
     except Exception as exc:
         _log_failure_once('can_take_unreal', exc)
         return False

@@ -84,10 +84,13 @@ def test_each_failed_check_declines_and_holds_nothing(override):
 
 
 def test_the_reservation_carries_the_unreal_cards_in_use():
-    """C-27 b: the exclusive reservation holds these cards (job_claim)."""
-    reserver, _reach = make(card_keys=lambda: ('pci:0000:23:00.0',))
+    """C-27 b: the Unreal cards in use stay on the reservation; it holds the gated one (render per card D1)."""
+    from sethlans_worker_agent.unreal_executor.vram import GpuMem
+    keyed = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None, 'pci:0000:23:00.0'),))
+    reserver, _reach = make(card_keys=lambda: ('pci:0000:23:00.0', 'pci:0000:24:00.0'), sampler=lambda: Sampler(keyed))
     reservation = reserver.try_reserve(job())
-    assert reservation.card_keys == ('pci:0000:23:00.0',)
+    assert reservation.card_keys == ('pci:0000:23:00.0', 'pci:0000:24:00.0')
+    assert reservation.card_key == 'pci:0000:23:00.0'
     reservation.release()
 
 
@@ -152,8 +155,8 @@ class TestGate:
         result = vram_gate_check.evaluate(params(peak=7930), reading(total=total))
         assert result.ok is ok and result.message == text and result.need_mb == 9120
 
-    def test_only_the_job_card_is_checked_and_named_in_the_summary(self):
-        """D22, FR-GU-10: the largest card is gated; a busy smaller card does not refuse the job."""
+    def test_the_first_card_that_fits_is_gated_and_named_in_the_summary(self):
+        """Render per card D4 (D22, FR-GU-10): the largest card first; a busy one gives way to the next that fits."""
         from sethlans_worker_agent.unreal_executor.vram import GpuMem
         two = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None, 'pci:0000:01:00.0'),
                             GpuMem(1, 'b', 16303, 9000, None, None, 'pci:0000:02:00.0')))
@@ -162,7 +165,8 @@ class TestGate:
         assert result.card_key == 'pci:0000:01:00.0'
         busy = reading(gpus=(GpuMem(0, 'a', 32607, 30000, None, None, 'pci:0000:01:00.0'),
                              GpuMem(1, 'b', 16303, 1000, None, None, 'pci:0000:02:00.0')))
-        assert not vram_gate_check.evaluate(params(peak=7930), busy).ok
+        result = vram_gate_check.evaluate(params(peak=7930), busy)
+        assert result.ok and result.card_key == 'pci:0000:02:00.0' and result.summary['vram_mb'] == 16303
 
     def test_no_reading(self):
         assert not vram_gate_check.evaluate(params(), None).ok

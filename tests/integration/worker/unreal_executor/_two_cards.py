@@ -5,10 +5,12 @@
 Two-card harness for the "Unreal on its card" tests (gpu-memory-reader
 chunk 7: D22, FR-GU-4, FR-GU-10, FR-GU-11).
 
-Two made-up cards of different brands and sizes. The reading index and the
-DXGI index differ on purpose (FR-GN-5), and the fake engine logs each card
-at its own DXGI index with its own ids, so ``adapter_log`` checks the ids
-of the card the launch was given. The real ``Reserver`` runs over local
+Two made-up identical cards of one brand (the brand rule, render per card
+D7; identical cards are the case only the card key tells apart). D8 orders
+equal cards by PCI address, so ``FIRST`` (the lower address) comes first.
+The reading index and the DXGI index differ on purpose (FR-GN-5), and the
+fake engine logs each card at its own DXGI index, so ``adapter_log`` checks
+the card the launch was given. The real ``Reserver`` runs over local
 deps, so the gate-to-launch hand-off goes through ``try_reserve``.
 
 The sampler raises the job's card (the card of the latest ``choose``) by
@@ -48,9 +50,9 @@ class Card:
         return [self.name, f'{self.vendor_id:04x}', f'{self.device_id:04x}', f'{self.revision_id:04x}']
 
 
-BIG = Card('pci:0000:2c:00.0', 'Example AMD-like Graphics 24G', 24560, 1000, 1, 1, 0x1002, 0x744C, 0xC8)
-SMALL = Card('pci:0000:0a:00.0', 'Example NV-like Graphics 16G', 16303, 500, 0, 3, 0x10DE, 0x2D04, 0xA1)
-CARDS = (SMALL, BIG)   # reading order
+FIRST = Card('pci:0000:0a:00.0', 'Example Graphics 20G', 20464, 1000, 1, 3, 0x1002, 0x7448, 0x00)  # D8's card
+SECOND = Card('pci:0000:2c:00.0', 'Example Graphics 20G', 20464, 500, 0, 1, 0x1002, 0x7448, 0x00)
+CARDS = (SECOND, FIRST)   # reading order
 JOB_DELTA_MB = 2000
 NOISE_MB = 6000
 ADAPTERS = {str(card.dxgi_index): card.adapter_line() for card in CARDS}
@@ -93,7 +95,7 @@ class TwoCardSampler(FakeSampler):
 class TwoCardHarness(Harness):
     """``ticked``: the Unreal cards ``choose`` may use; ``reserve_keys``: what the card code reports at reserve."""
 
-    def __init__(self, tmp_path, monkeypatch, ticked=(BIG, SMALL), cut_to=(BIG.key, SMALL.key), keyless=(),
+    def __init__(self, tmp_path, monkeypatch, ticked=(FIRST, SECOND), cut_to=(FIRST.key, SECOND.key), keyless=(),
                  opts=None):
         super().__init__(tmp_path, monkeypatch, dict(opts or {}, adapters=ADAPTERS))
         self.ticked = tuple(ticked)
@@ -106,7 +108,7 @@ class TwoCardHarness(Harness):
         """The card the fake UE loads: the latest choice; before one (a pilot's sampled prep), the gated card."""
         return self.choices[-1][2] if self.choices else self.gated_key
 
-    def choose_adapter(self, job_id, key=None):
+    def choose_adapter(self, job_id, key=None, claim_id=None):
         """``adapter_choice.choose`` over the ticked cards: D8, or the ``key`` card only; ``LocalConflict`` else."""
         cards = [card for card in self.ticked if key is None or card.key == key]
         if not cards:

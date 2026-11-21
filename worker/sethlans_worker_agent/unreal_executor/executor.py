@@ -19,8 +19,8 @@ objects; every dependency is resolved at call time.
   claim recorded in ``job_data['_renderer_reservation']``; the validated
   ``JobParams`` come from that reservation, never from the raw dict. The
   job's own card stop (``blender_job_stop``, registered at claim) is joined
-  with ``ctx.shutdown_event``; the job's card choice is forgotten when
-  ``execute`` returns (``adapter_choice``, C-24 m).
+  with ``ctx.shutdown_event``; the claim's card choice is forgotten when
+  ``execute`` returns (``adapter_choice``, keyed by ``claim_id``; C-24 m, D16).
 
 ``default_reserve_deps`` / ``default_run_deps`` wire the production
 modules; tests pass their own.
@@ -201,4 +201,4 @@ class UnrealExecutor:
         try:
             return job_run.JobRun(reservation, ctx, deps).run()
         finally:
-            adapter_choice.forget(reservation.params.job_id)
+            adapter_choice.forget(reservation.claim_id)  # this claim's choice only (D16)

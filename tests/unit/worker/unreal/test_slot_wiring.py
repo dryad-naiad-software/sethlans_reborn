@@ -32,6 +32,11 @@ def _boom():
     raise RuntimeError('a bug in a check')
 
 
+def _two_keyed():
+    from sethlans_worker_agent.unreal_executor.vram import GpuMem
+    return reading(gpus=tuple(GpuMem(i, 'a', 32607, 1000, None, None, f'pci:0000:2{3 + i}:00.0') for i in range(2)))
+
+
 class TestReserverSlot:
 
     @pytest.mark.parametrize('kind', ['port', 'install', 'gate', 'fresh_gate', 'share', 'cards', 'pending',
@@ -48,7 +53,8 @@ class TestReserverSlot:
             'gate': dict(sampler=lambda: Sampler(reading(used=25000) if on['fail'] else reading())),
             'fresh_gate': dict(sampler=lambda: Sampler(reading(), fresh=fresh())),
             'share': dict(share_state=lambda: reachable(ok=not on['fail'])),
-            'cards': dict(card_keys=lambda: () if on['fail'] else ('pci:0000:23:00.0',)),
+            'cards': dict(card_keys=lambda: () if on['fail'] else ('pci:0000:23:00.0', 'pci:0000:24:00.0'),
+                          sampler=lambda: Sampler(_two_keyed())),
             'pending': dict(reachability=lambda: reach),
             'raises': dict(installs=lambda: _boom() if on['fail'] else (install(),)),
         }[kind]

@@ -187,7 +187,7 @@ class Harness:
         deps.choose_adapter = self.choose_adapter  # no real DXGI probe or saved card choice in these tests
         return deps
 
-    def choose_adapter(self, job_id, key=None):
+    def choose_adapter(self, job_id, key=None, claim_id=None):
         self.choices.append((job_id, key))
         return adapter_choice.Choice(job_id, CARD_KEY, GPU, ADAPTER_INDEX, 0x10DE, 0x2B85, 0xA1)
 

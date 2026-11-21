@@ -9,16 +9,22 @@ the agent-loop thread, after the fresh gate. It returns ``(key, '')`` or
 ``(None, reason)``; with a reason the reserver declines the job, so the claim
 walk moves on to the next job instead of stopping on a card it cannot hold.
 
+- ``free_now(card_keys, deps)``: the free Unreal cards in use, which the
+  static and the fresh gate each read at their step; the gate takes the
+  first of them, in D8 order, on which the job fits (D4, FR-PC-SEL-1).
 - A gated job holds the Unreal card in use at the gated card's address (the
   inventory's key, so every hold of one card has one spelling); it is
-  declined when that card is held (chunk 4a: the gate still checks D8's card
-  of all cards; choosing among free cards is chunk 4b).
+  declined if that card was taken since the fresh gate read the free cards.
 - A ``shots`` job (no memory gate, D3) holds the first free Unreal card in use.
 - The reading override (``SETHLANS_UNREAL_VRAM_MB``, no card key, D14) allows
   one Unreal job at a time: declined while any Unreal job holds a card;
   otherwise it holds D8's card of the Unreal cards in use
   (``ReserveDeps.d8_key``, ``adapter_choice.d8_key``), the card its first
   launch is then asked for, so the held card is the card it renders on.
+
+``override_blocks(capacity)`` is the poll's side of D14 (FR-PC-SEL-5,
+through ``unreal_bridge.can_take_unreal``): no Unreal job is asked for while
+one holds a card. The INFO line is logged once per process.
 
 ``free_keys`` and ``has_unreal_job`` come from ``ReserveDeps.capacity`` (the
 worker's ``WorkerCapacity``). The hold in ``job_claim`` stays the final check.
@@ -46,6 +52,23 @@ def _log_override_once() -> None:
             return
         _override_logged = True
     logger.info("The GPU memory override is set: this worker runs one Unreal job at a time (D14).")
+
+
+def free_now(card_keys: tuple, deps) -> Optional[Tuple[str, ...]]:
+    """The free keys among the Unreal cards in use; ``None`` (every card free) without card keys or capacity."""
+    if not card_keys:
+        return None
+    capacity = deps.capacity() if deps.capacity is not None else None
+    return tuple(card_keys) if capacity is None else capacity.free_keys(card_keys)
+
+
+def override_blocks(capacity) -> bool:
+    """D14, FR-PC-SEL-5: the reading override is set and an Unreal job holds a card, so none is asked for."""
+    from sethlans_worker_agent import config_unreal
+    if config_unreal.VRAM_MB <= 0:
+        return False
+    _log_override_once()
+    return capacity.has_unreal_job()
 
 
 def _inventory_key(gated: str, card_keys: tuple) -> str:

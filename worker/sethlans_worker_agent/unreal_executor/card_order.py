@@ -12,7 +12,7 @@ screen, so without screen marks the order is exactly the lowest card key.
 Then the lowest card key (``identity.key_sort_value``: address integers, a
 keyless or unreadable key last).
 
-The memory gate (``vram_gate_check.job_card``) and the launch's choice
+The memory gate (``vram_gate_check``: its candidate order, ``job_card``) and the launch's choice
 (``adapter_choice.pick``) both sort by ``sort_key``, so the gated card is
 the card the job renders on. Unreal only; Blender's device use does not
 read it.

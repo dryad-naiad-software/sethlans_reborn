@@ -22,6 +22,7 @@ from tests.unit.worker.unreal._executor_fakes import params, phase_run, trace
 
 LOW, HIGH = 'pci:0000:03:00.0', 'pci:0000:23:00.0'   # two identical cards; LOW drives the display
 A03, A23 = '0000:03:00.0', '0000:23:00.0'
+CLAIM = 'c' * 32
 
 
 @pytest.fixture(autouse=True)
@@ -148,20 +149,20 @@ class TestChoose:
     def test_two_equal_cards_without_a_key_render_on_the_one_without_a_screen(self, monkeypatch):
         CardMachine(monkeypatch, [adapter(0, A03, gib=20), adapter(1, A23, gib=20)], ticked=[A03, A23])
         _marks(monkeypatch, {key(A03): (True, True), key(A23): (False, False)})
-        assert adapter_choice.choose(1)[:4] == (1, key(A23), 'Card 1', 1)
+        assert adapter_choice.choose(1, claim_id=CLAIM)[:4] == (1, key(A23), 'Card 1', 1)
 
     def test_unknown_marks_keep_the_lowest_address(self, monkeypatch):
         CardMachine(monkeypatch, [adapter(0, A23, gib=20), adapter(1, A03, gib=20)], ticked=[A23, A03])
         _marks(monkeypatch, None)
-        assert adapter_choice.choose(1).key == key(A03)
+        assert adapter_choice.choose(1, claim_id=CLAIM).key == key(A03)
 
     def test_a_larger_card_with_a_screen_still_wins(self, monkeypatch):
         CardMachine(monkeypatch, [adapter(0, A03, gib=24), adapter(1, A23, gib=16)], ticked=[A03, A23])
         _marks(monkeypatch, {key(A03): (True, True), key(A23): (False, False)})
-        assert adapter_choice.choose(1).key == key(A03)
+        assert adapter_choice.choose(1, claim_id=CLAIM).key == key(A03)
 
     def test_with_a_key_no_screen_is_read(self, monkeypatch):
         """The gate chose already; later launches keep that card, so no screen read is needed."""
         CardMachine(monkeypatch, [adapter(0, A03, gib=20), adapter(1, A23, gib=20)], ticked=[A03, A23])
         calls = _marks(monkeypatch, {key(A03): (True, True), key(A23): (False, False)})
-        assert adapter_choice.choose(1, key=key(A03)).key == key(A03) and calls == []
+        assert adapter_choice.choose(1, key=key(A03), claim_id=CLAIM).key == key(A03) and calls == []

@@ -21,7 +21,8 @@ not claimed):
 5. ``source_type == 'shared_project'`` (part of 2; logged explicitly);
 6. the **static** VRAM gate on the sampler's latest reading (no wait):
    the relaxed pilot gate (``pilot_need_mb``, a reading that measures card
-   memory) or the measured-peak gate (FR-UE-21), on the job's card (D22);
+   memory) or the measured-peak gate (FR-UE-21), on the first free card it
+   fits (render per card D4, FR-PC-SEL-1; ``reserve_card.free_now``);
 6a. the slot's farm Zen port is free or held by a farm zenserver;
 6b. the latest known-folder check passed within ``check_6b_max_age_s()``;
 7. one read of the worker's share state: a configured, reachable root,
@@ -30,18 +31,18 @@ not claimed):
 8. the FR-PA-3 probes (archive unless a ``ready`` entry exists; overlay),
    on the ``poll`` pool within the per-call probe budget;
 9. the gate again on a ``fresh()`` reading (``used_mb`` read at reserve
-   time) with its own short deadline; its card must be one of the Unreal
-   cards in use read in step 4, and a pilot's card must have a card key
-   (FR-GU-10). The reservation keeps that gate: the job's first launch is
-   asked for its card (``gate.card_key``).
+   time) with its own short deadline, over the free cards read again; its
+   card must be one of the Unreal cards in use read in step 4, and a
+   pilot's card must have a card key (FR-GU-10). The reservation keeps that
+   gate: the job's first launch is asked for its card (``gate.card_key``).
 
 A ``shots`` job (sequence rendering D3, FR-SD-3) skips only the memory gate
 (steps 6 and 9: no reading is needed); every other check runs.
 
 The reservation's ``card_key`` is the card ``job_claim`` holds and the
 first launch is asked for (``reserve_card.choose``, render per card D4,
-D14, FR-PC-CAP-3); a job whose card is not free is declined, so the claim
-walk moves on. The hold, taken under ``WorkerCapacity._lock`` after this
+D14, FR-PC-CAP-3); a job with no free card it fits is declined, so the
+claim walk moves on. The hold, taken under ``WorkerCapacity._lock`` after this
 returns, is the final check.
 
 **No resource is held when this returns None or raises** (chunk 3 L2): the
@@ -149,8 +150,8 @@ class Reserver:
         self._skip(params.job_id, "no supported install of build %s.", params.engine_build)
         return None
 
-    def _gate(self, params, reading):
-        result = vram_gate_check.evaluate(params, reading)
+    def _gate(self, params, reading, card_keys: tuple):
+        result = vram_gate_check.evaluate(params, reading, reserve_card.free_now(card_keys, self.deps))
         if not result.ok:
             self._skip(params.job_id, "%s", result.message)
         return result
@@ -199,7 +200,7 @@ class Reserver:
                 return False
         return None if pending else True
 
-    def _fresh_gate(self, params):
+    def _fresh_gate(self, params, card_keys: tuple):
         if params.is_shots:  # D3: no memory gate, no reading, no card choice; the card keys are still held
             return vram_gate_check.evaluate(params, None)
         sampler = self.deps.sampler()
@@ -207,7 +208,7 @@ class Reserver:
             self._skip(params.job_id, "no GPU memory reading.")
             return None
         reading = sampler.fresh(max_age_s=VRAM_FRESH_MAX_AGE_S, deadline=time.monotonic() + VRAM_FRESH_DEADLINE_S)
-        gate = self._gate(params, reading)
+        gate = self._gate(params, reading, card_keys)
         return gate if gate.ok else None
 
     def _gated_card_ok(self, params, gate, card_keys: tuple) -> bool:
@@ -241,7 +242,7 @@ class Reserver:
         if card_keys is None:
             return None
         sampler = self.deps.sampler()
-        if not self._gate(params, sampler.latest() if sampler is not None else None).ok:
+        if not self._gate(params, sampler.latest() if sampler is not None else None, card_keys).ok:
             return None
         if not self._local_checks(params, slot):
             return None
@@ -253,7 +254,7 @@ class Reserver:
             raise ProbePending()
         if not probes:
             return None
-        gate = self._fresh_gate(params)
+        gate = self._fresh_gate(params, card_keys)
         if gate is None or not self._gated_card_ok(params, gate, card_keys):
             return None
         card_key, declined = reserve_card.choose(params, gate, card_keys, self.deps)

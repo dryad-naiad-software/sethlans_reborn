@@ -16,12 +16,10 @@ import pytest
 from sethlans_worker_agent.unreal_executor import reserve
 from tests.integration.worker.unreal_executor._harness import OVERRIDES, summary
 from tests.integration.worker.unreal_executor._two_cards import (
-    BIG, JOB_DELTA_MB, SMALL, TwoCardHarness, raw_reading)
+    FIRST, JOB_DELTA_MB, SECOND, TwoCardHarness, raw_reading)
 
 pytestmark = pytest.mark.skipif(sys.platform != 'win32', reason='Job Objects, Windows command lines')
 
-UNTICKED = "the card the memory gate checked is no longer an Unreal card in use."
-KEYLESS = "the card the memory gate checked has no PCI address, so a pilot could not be reported."
 PILOT_OPTS = {'render_sleep': 4, 'phase_sleep': 4}
 
 
@@ -87,24 +85,24 @@ def _skipped(caplog, message):
 
 
 @pytest.mark.django_db
-def test_larger_card_is_gated_handed_to_the_first_launch_and_reported(tmp_path, monkeypatch, manager_pilot):
+def test_d8s_card_is_gated_handed_to_the_first_launch_and_reported(tmp_path, monkeypatch, manager_pilot):
     from tests.integration.manager.unreal_pilot_helpers import post_result, record_of
     manager_job, client = manager_pilot
     h = TwoCardHarness(tmp_path, monkeypatch, opts=PILOT_OPTS)
     job = h.job(77, kind='pilot')
     reservation = h.executor.try_reserve(job)
-    assert reservation is not None and reservation.gate.card_key == BIG.key
-    assert reservation.card_keys == (BIG.key, SMALL.key)
+    assert reservation is not None and reservation.gate.card_key == FIRST.key
+    assert reservation.card_keys == (FIRST.key, SECOND.key)
     result = h.run(job, reservation)
     # FR-GU-10: the first choose gets the gated key; the render keeps that card (D8).
-    assert h.choices == [(77, BIG.key, BIG.key), (77, BIG.key, BIG.key)]
-    _launched_on(h, BIG)
-    body = _pilot_on(h, BIG, result)
+    assert h.choices == [(77, FIRST.key, FIRST.key), (77, FIRST.key, FIRST.key)]
+    _launched_on(h, FIRST)
+    body = _pilot_on(h, FIRST, result)
     resp = post_result(client, manager_job.pk, body)
     assert resp.status_code == 200, resp.data
     assert resp.data['status'] == 'DONE' and resp.data['peak_mb'] == JOB_DELTA_MB
     record = record_of(manager_job)
-    assert (record.gpu_index, record.gpu_name, record.gpu_total_mb) == (BIG.reading_index, BIG.name, BIG.total_mb)
+    assert (record.gpu_index, record.gpu_name, record.gpu_total_mb) == (FIRST.reading_index, FIRST.name, FIRST.total_mb)
     assert h.token_free()
 
 
@@ -112,49 +110,52 @@ def test_render_job_runs_on_the_gated_card(tmp_path, monkeypatch):
     h = TwoCardHarness(tmp_path, monkeypatch)
     job = h.job(78)
     reservation = h.executor.try_reserve(job)
-    assert reservation is not None and reservation.gate.card_key == BIG.key
+    assert reservation is not None and reservation.gate.card_key == FIRST.key
     result = h.run(job, reservation)
     assert result.success and not result.released, result.error_message
-    assert [key for _job, key, _card in h.choices][:1] == [BIG.key] and {c for *_rest, c in h.choices} == {BIG.key}
-    _launched_on(h, BIG)
+    assert [key for _job, key, _card in h.choices][:1] == [FIRST.key] and {c for *_rest, c in h.choices} == {FIRST.key}
+    _launched_on(h, FIRST)
     s = summary(result)
-    assert s['vram_gate'] == 'measured' and s['vram_mb'] == str(BIG.total_mb)
+    assert s['vram_gate'] == 'measured' and s['vram_mb'] == str(FIRST.total_mb)
     assert h.manager.uploads and h.token_free()
 
 
 @pytest.mark.parametrize('kind', ['pilot', 'render'])
-def test_gated_card_unticked_before_reserve_skips_before_any_prep(tmp_path, monkeypatch, caplog, kind):
-    """The reading still holds the big card (the cut set is up to 5 s old); the card code no longer has it."""
+def test_a_card_unticked_before_reserve_is_never_gated(tmp_path, monkeypatch, caplog, kind):
+    """The reading still holds D8's card (the cut set is up to 5 s old); the card code no longer has it, so the
+    gate takes the ticked card (render per card D4: only free Unreal cards in use are candidates)."""
     h = TwoCardHarness(tmp_path, monkeypatch)
-    h.reserve_keys = [SMALL.key]
+    h.reserve_keys = [SECOND.key]
     job = h.job(80, kind=kind)
-    assert h.executor.try_reserve(job) is None
-    assert _skipped(caplog, UNTICKED)
-    assert h.choices == [] and h.nothing_prepared() and h.token_free()
-    h.reserve_keys = [BIG.key, SMALL.key]   # ticked again: the token was free, the key check was the only cause
     reservation = h.executor.try_reserve(job)
-    assert reservation is not None and reservation.gate.card_key == BIG.key
+    assert reservation is not None and reservation.gate.card_key == SECOND.key == reservation.card_key
+    assert h.choices == [] and h.nothing_prepared()
+    assert reservation.release() and h.token_free()
+    h.reserve_keys = [FIRST.key, SECOND.key]   # ticked again: D8's card is gated first again
+    reservation = h.executor.try_reserve(job)
+    assert reservation is not None and reservation.gate.card_key == FIRST.key
     assert reservation.release() and h.token_free()
 
 
-def test_pilot_on_a_keyless_gated_card_is_skipped_before_the_render(tmp_path, monkeypatch, caplog):
-    h = TwoCardHarness(tmp_path, monkeypatch, cut_to=None, keyless=(BIG.key,))
+def test_a_keyless_card_is_never_gated_so_a_pilot_takes_the_keyed_one(tmp_path, monkeypatch, caplog):
+    """D4: a reading card without a readable address is never free, so it is skipped before any prep."""
+    h = TwoCardHarness(tmp_path, monkeypatch, cut_to=None, keyless=(FIRST.key,))
     job = h.job(81, kind='pilot')
-    assert h.executor.try_reserve(job) is None
-    assert _skipped(caplog, KEYLESS) and not _skipped(caplog, UNTICKED)
-    assert h.choices == [] and h.nothing_prepared() and h.token_free()
-    assert not h.manager.pilot_bodies and not h.manager.releases
+    reservation = h.executor.try_reserve(job)
+    assert reservation is not None and reservation.gate.card_key == SECOND.key
+    assert h.choices == [] and h.nothing_prepared() and not _skipped(caplog, 'no PCI address')
+    assert reservation.release() and h.token_free()
 
 
 def test_one_card_ticked_of_two_is_the_only_card_gated_or_used(tmp_path, monkeypatch):
-    """The smaller card is the Unreal card: the bigger one never reaches the gate, a launch or a trace."""
-    h = TwoCardHarness(tmp_path, monkeypatch, ticked=(SMALL,), cut_to=(SMALL.key,), opts=PILOT_OPTS)
+    """The second card is the only Unreal card: D8's card never reaches the gate, a launch or a trace."""
+    h = TwoCardHarness(tmp_path, monkeypatch, ticked=(SECOND,), cut_to=(SECOND.key,), opts=PILOT_OPTS)
     job = h.job(82, kind='pilot')
     reservation = h.executor.try_reserve(job)
-    assert reservation is not None and reservation.gate.card_key == SMALL.key
-    assert reservation.card_keys == (SMALL.key,)
+    assert reservation is not None and reservation.gate.card_key == SECOND.key
+    assert reservation.card_keys == (SECOND.key,)
     result = h.run(job, reservation)
-    assert h.choices == [(82, SMALL.key, SMALL.key), (82, SMALL.key, SMALL.key)]
-    _launched_on(h, SMALL)
-    _pilot_on(h, SMALL, result)
-    assert h.sampler.seen == {SMALL.key} and h.token_free()
+    assert h.choices == [(82, SECOND.key, SECOND.key), (82, SECOND.key, SECOND.key)]
+    _launched_on(h, SECOND)
+    _pilot_on(h, SECOND, result)
+    assert h.sampler.seen == {SECOND.key} and h.token_free()

@@ -72,16 +72,35 @@ class TestJobsOnUnusableCards:
         """C-24 m, D19: only the Unreal job's own card counts, and Unreal may keep a ``blender_lost`` card."""
         cap = WorkerCapacity(profile(gpu_slot_count=2))
         assert cap.reserve_unreal_card(7, key(1)) is not None
-        monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: (7, key(1)))
+        monkeypatch.setattr(unreal_bridge, 'unreal_cards_in_use', lambda: ((7, key(1)),))
         assert cap.jobs_on_unusable_cards({key(0): matching.OK, key(1): state}) == stopped
 
     def test_another_card_lost_stops_no_unreal_job(self, monkeypatch):
         """C-24 m: only the card the Unreal job renders on counts (render per card: it holds that card only)."""
         cap = WorkerCapacity(profile(gpu_slot_count=2))
         cap.reserve_unreal_card(7, key(0))
-        monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: (7, key(0)))
+        monkeypatch.setattr(unreal_bridge, 'unreal_cards_in_use', lambda: ((7, key(0)),))
         assert cap.jobs_on_unusable_cards({key(0): matching.OK, key(1): matching.LOST}) == []
-        monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: None)  # before its first launch
+        monkeypatch.setattr(unreal_bridge, 'unreal_cards_in_use', lambda: ())  # before its first launch
+        assert cap.jobs_on_unusable_cards({key(0): matching.LOST, key(1): matching.LOST}) == []
+
+    def test_of_two_unreal_jobs_only_the_one_on_the_unusable_card_is_stopped(self, monkeypatch):
+        """Render per card FR-PC-SEL-4: per-job stops; ``blender_lost`` never stops either Unreal job (D19)."""
+        cap = WorkerCapacity(profile(gpu_slot_count=2))
+        assert cap.reserve_unreal_card(7, key(0)) and cap.reserve_unreal_card(8, key(1))
+        monkeypatch.setattr(unreal_bridge, 'unreal_cards_in_use', lambda: ((7, key(0)), (8, key(1))))
+        assert cap.jobs_on_unusable_cards({key(0): matching.OK, key(1): matching.LOST}) == [8]
+        assert cap.jobs_on_unusable_cards({key(0): matching.HELD, key(1): matching.OK}) == [7]
+        assert cap.jobs_on_unusable_cards({key(0): matching.BLENDER_LOST, key(1): matching.BLENDER_LOST}) == []
+
+    def test_a_later_claim_of_the_same_job_is_not_stopped_for_an_earlier_claims_card(self, monkeypatch):
+        """Concurrency review: an earlier claim's choice (card 0) is still listed; job 7 now holds card 1 only."""
+        cap = WorkerCapacity(profile(gpu_slot_count=2))
+        assert cap.reserve_unreal_card(7, key(1)) is not None
+        monkeypatch.setattr(unreal_bridge, 'unreal_cards_in_use', lambda: ((7, key(0)), (7, key(1))))
+        assert cap.jobs_on_unusable_cards({key(0): matching.LOST, key(1): matching.OK}) == []
+        assert cap.jobs_on_unusable_cards({key(0): matching.OK, key(1): matching.LOST}) == [7]
+        cap.release_slot(7)  # no hold at all: no choice stops it
         assert cap.jobs_on_unusable_cards({key(0): matching.LOST, key(1): matching.LOST}) == []
 
     def test_retained_owner_is_never_stopped(self, two_jobs):

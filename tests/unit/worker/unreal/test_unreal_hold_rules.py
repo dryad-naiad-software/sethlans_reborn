@@ -184,13 +184,13 @@ class TestCardStopsAndDrift:
         cap = install_capacity(gpu_slot_count=2, cpu_slot_count=0)
         cap.reserve_unreal_card(7, key(0))
         cap.reserve_for_job(10, 'GPU')
-        monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: None)  # before its first launch
+        monkeypatch.setattr(unreal_bridge, 'unreal_cards_in_use', lambda: ())  # before its first launch
         assert cap.jobs_on_unusable_cards({key(0): state, key(1): matching.BLENDER_LOST}) == [10]
 
     def test_the_unreal_loop_stops_it_for_its_own_card(self, monkeypatch):
         cap = install_capacity(gpu_slot_count=2, cpu_slot_count=0)
         cap.reserve_unreal_card(7, key(0))
-        monkeypatch.setattr(unreal_bridge, 'unreal_card_in_use', lambda: (7, key(0)))
+        monkeypatch.setattr(unreal_bridge, 'unreal_cards_in_use', lambda: ((7, key(0)),))
         assert cap.jobs_on_unusable_cards({key(0): matching.LOST}) == [7]
         assert cap.jobs_on_unusable_cards({key(0): matching.BLENDER_LOST}) == []
 

@@ -8,10 +8,15 @@ The alerts and per-job stops of one card evaluation (FR-CK-3, FR-CL-5, C5; C-24 
   CRITICAL only for a newly added one. A failed write is kept in memory by
   the store and does not stop the caller (C5).
 - ``jobs_on_unusable_cards(capacity, states)``: a Blender job holding a card
-  that is ``lost``, ``changed``, ``held`` or ``blender_lost``; the Unreal job
-  when the card it chose at its latest launch (``unreal_bridge.
-  unreal_card_in_use``) is ``lost``, ``changed`` or ``held`` (D19: Unreal may
-  keep a ``blender_lost`` card). The Blender loop skips every owner in
+  that is ``lost``, ``changed``, ``held`` or ``blender_lost``; each Unreal job
+  whose card, the one it chose at its latest launch (``unreal_bridge.
+  unreal_cards_in_use``, one per claim), is ``lost``, ``changed`` or ``held``
+  (D19: Unreal may keep a ``blender_lost`` card). Only that job is stopped:
+  another Unreal job on a usable card runs on (render per card FR-PC-SEL-4).
+  A choice counts only while its card's address is the card that job id
+  holds now (``_unreal_jobs``, same snapshot), so a later claim of the same
+  job id on another card is never stopped for an earlier claim's card.
+  The Blender loop skips every owner in
   ``_unreal_jobs``, read in the same ``_lock`` snapshot as the assignments
   (render per card FR-PC-SEL-4), so an Unreal job's held card never stops it
   as if it were Blender's. Retained (negative) owners and unticked or
@@ -26,6 +31,7 @@ the assignments, and the store's lock only inside ``add_alert``, never both.
 import logging
 
 from sethlans_worker_agent.cards import matching, store
+from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -51,13 +57,18 @@ def jobs_on_unusable_cards(capacity, states) -> list:
     from sethlans_worker_agent import unreal_bridge
     with capacity._lock:
         held = list(capacity._gpu_assignments.items())
-        unreal_owners = frozenset(capacity._unreal_jobs)
+        unreal_holds = dict(capacity._unreal_jobs)
     stopped = {owner for key, owner in held
-               if owner >= 0 and owner not in unreal_owners and states.get(key) in STOPPED_FOR_BLENDER}
-    unreal = unreal_bridge.unreal_card_in_use()
-    if unreal is not None and unreal[0] >= 0 and states.get(unreal[1]) in STOPPED_FOR_BOTH:
-        stopped.add(unreal[0])
+               if owner >= 0 and owner not in unreal_holds and states.get(key) in STOPPED_FOR_BLENDER}
+    stopped.update(job_id for job_id, key in unreal_bridge.unreal_cards_in_use()
+                   if job_id >= 0 and _holds(unreal_holds, job_id, key) and states.get(key) in STOPPED_FOR_BOTH)
     return sorted(stopped)
+
+
+def _holds(unreal_holds: dict, job_id: int, key: str) -> bool:
+    """The job id holds the chosen card now (by address; an unreadable address matches nothing)."""
+    address = key_address(key)
+    return address is not None and key_address(unreal_holds.get(job_id)) == address
 
 
 def stop_jobs(capacity, states) -> None:

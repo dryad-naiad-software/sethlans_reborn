@@ -43,6 +43,7 @@ Any unexpected exception from the phases becomes an ``ERROR`` outcome, so
 exit confirmation, ``finish``, delivery and the post-report cleanup always
 run (``BaseException`` still propagates after the outermost ``finally``).
 """
+import functools
 import logging
 import time
 import uuid
@@ -55,7 +56,7 @@ from sethlans_worker_agent.project_archive.abort import NEVER, Abort
 from sethlans_worker_agent.project_archive.errors import (
     AbortedError, ArchiveError, CacheUnavailableError, ShareUnavailableError)
 from sethlans_worker_agent.project_archive.workspace import ArchiveRequest
-from sethlans_worker_agent.unreal_executor import adapter_log, job_dir, job_memory, user_state, warmup
+from sethlans_worker_agent.unreal_executor import adapter_choice, adapter_log, job_dir, job_memory, user_state, warmup
 from sethlans_worker_agent.unreal_executor import slot as slots
 from sethlans_worker_agent.unreal_executor.audio_flow import AudioFlow
 from sethlans_worker_agent.unreal_executor.cancel_watch import CancelCause, CancelWatcher
@@ -94,7 +95,7 @@ class RunDeps:
     keep_job_logs: Callable[[], int]
     prep_timeout_s: Callable[[], float]
     cancel_poll_s: Callable[[], float]
-    choose_adapter: Optional[Callable] = None  # (job_id, key=) -> adapter_choice.Choice; None: adapter_choice.choose
+    choose_adapter: Optional[Callable] = None  # (job_id, key=, claim_id=) -> adapter_choice.Choice; None: choose
 
 
 class JobRun:
@@ -181,9 +182,11 @@ class JobRun:
         # FR-SD-4: shots run the prep only; a sequence piece renders a frame range (FR-SW-3); FR-SA: sound only.
         p = self.params
         flow_class = ShotsFlow if p.is_shots else RangeFlow if p.is_piece else AudioFlow if p.is_audio else UeFlow
+        choose = functools.partial(self.deps.choose_adapter or adapter_choice.choose,  # kept per claim (D16)
+                                   claim_id=self.reservation.claim_id)
         flow = flow_class(self.params, self.deps.launch_context(self.install, slot), self.job, runner,
                           self.summary, self.deps.builders, marker, self.ws.working_copy.uproject,
-                          self.deps.flow_config(slot.profile), reading=gate.reading, choose=self.deps.choose_adapter,
+                          self.deps.flow_config(slot.profile), reading=gate.reading, choose=choose,
                           first_key=self.reservation.card_key)  # the held card (render per card D1, D14)
         try:
             return flow.run()

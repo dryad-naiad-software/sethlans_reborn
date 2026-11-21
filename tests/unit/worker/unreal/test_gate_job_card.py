@@ -72,6 +72,14 @@ class TestJobCard:
         result = vram_gate_check.evaluate(params(peak=7930), reading(total=total, source='override'))
         assert result.card_key is None and result.ok is (total == 32607)
 
+    def test_no_free_key_and_no_reading_of_a_free_key_are_told_apart(self):
+        """Render per card D4: every card held, versus a free card the reading has no keyed figures for."""
+        keyless = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, None)
+        held = vram_gate_check.evaluate(params(peak=7930), two_cards(), free_keys=())
+        unread = vram_gate_check.evaluate(params(peak=7930), two_cards(BUSY, keyless), free_keys=(IDLE_KEY,))
+        assert (held.ok, held.message, held.card_key) == (False, vram_gate_check.NO_FREE_CARD, None)
+        assert (unread.ok, unread.message, unread.card_key) == (False, vram_gate_check.NO_FREE_READING, None)
+
     def test_messages_name_no_vendor_tool(self):
         texts = [vram_gate_check.evaluate(params(kind='pilot'), reading(source='override')).message,
                  vram_gate_check.evaluate(params(peak=7930), None).message]
@@ -92,17 +100,18 @@ class TestGatedCardHandOff:
         assert reservation.card_key == IDLE_KEY  # the card job_claim holds (render per card FR-PC-CAP-3)
         reservation.release()
 
-    def test_a_gated_card_no_longer_in_use_skips_the_job_and_frees_the_token(self, caplog):
+    def test_a_card_no_longer_in_use_is_never_gated(self, caplog):
+        """Render per card D4: only the Unreal cards in use are candidates; the busy one cannot hold the job."""
         reserver = _reserver((BUSY, IDLE), (BUSY_KEY,))
         with caplog.at_level(logging.WARNING, logger=LOGGER):
             assert reserver.try_reserve(job()) is None
         assert token_free(reserver)
-        assert 'the card the memory gate checked is no longer an Unreal card in use' in caplog.text
+        assert 'needs 9120 MB; 3161 MB usable on a 16303 MB GPU (12000 MB in use).' in caplog.text
 
     @pytest.mark.parametrize('in_use', ['pci:00000000:41:00.0', 'pci:000000:41:00.0'])
     def test_keys_compare_as_address_integers(self, in_use):
         reservation = _reserver((BUSY, IDLE), (in_use,)).try_reserve(job())
-        assert reservation is not None and reservation.gate.card_key == IDLE_KEY
+        assert reservation is not None and reservation.gate.card_key == in_use  # the inventory's spelling (D4)
         assert reservation.card_key == in_use  # the hold uses the inventory's spelling of that address
         reservation.release()
 
@@ -114,9 +123,18 @@ class TestGatedCardHandOff:
         reserver = _reserver((card,), in_use)
         assert reserver.try_reserve(job()) is None and token_free(reserver)
 
-    def test_a_keyless_pilot_card_is_skipped_before_the_render(self, caplog):
+    def test_a_keyless_card_is_never_free(self, caplog):
+        """Render per card D4: a reading card without a readable address matches no Unreal card in use."""
         keyless = GpuMem(1, 'Arc Test 24G', 24560, 300, None, None, None)
         reserver = _reserver((keyless,), (IDLE_KEY,))
+        with caplog.at_level(logging.WARNING, logger=LOGGER):
+            assert reserver.try_reserve(job(kind='pilot')) is None
+        assert token_free(reserver) and vram_gate_check.NO_FREE_READING in caplog.text
+
+    def test_a_keyless_pilot_card_is_skipped_before_the_render(self, caplog):
+        """Without card keys to check against, every reading card is a candidate; a pilot still needs a key."""
+        keyless = GpuMem(1, 'Arc Test 24G', 24560, 300, None, None, None)
+        reserver = make(sampler=lambda: Sampler(reading(gpus=(keyless,))))[0]
         with caplog.at_level(logging.WARNING, logger=LOGGER):
             assert reserver.try_reserve(job(kind='pilot')) is None
         assert token_free(reserver) and 'has no PCI address, so a pilot could not be reported' in caplog.text
@@ -134,11 +152,30 @@ class TestGatedCardHandOff:
         reservation.release()
 
     def test_the_fresh_gate_card_is_the_one_checked(self):
-        """The static gate saw the card in use; the fresh reading's largest card is not: skip."""
+        """The fresh reading's largest card is not in use, so it is no candidate: the card in use is gated."""
         big = GpuMem(2, 'Radeon Test 32G', 32607, 0, None, None, 'pci:0000:83:00.0')
         sampler = Sampler(reading(gpus=(IDLE,)), fresh=reading(gpus=(IDLE, big)))
         reserver, _ = make(sampler=lambda: sampler, card_keys=lambda: (IDLE_KEY,))
-        assert reserver.try_reserve(job()) is None and sampler.fresh_calls == 1 and token_free(reserver)
+        reservation = reserver.try_reserve(job())
+        assert reservation.gate.card_key == IDLE_KEY and sampler.fresh_calls == 1
+        reservation.release()
+
+    def test_the_fresh_gate_reads_the_free_cards_again(self):
+        """FR-PC-SEL-1: a card taken between the static and the fresh gate is skipped by the fresh one."""
+        from sethlans_worker_agent.capacity import WorkerCapacity
+        from tests.unit.worker.executors._fakes import profile
+        cap = WorkerCapacity(profile(gpu_slot_count=0))
+        roomy = GpuMem(0, 'GeForce Test 16G', 16303, 300, None, None, BUSY_KEY)
+
+        class Taking(Sampler):
+            def fresh(self, max_age_s, deadline):
+                cap.reserve_unreal_card(1, IDLE_KEY)  # another claim took the larger card meanwhile
+                return super().fresh(max_age_s, deadline)
+        reserver = make(sampler=lambda: Taking(reading(gpus=(roomy, IDLE))), card_keys=lambda: (BUSY_KEY, IDLE_KEY),
+                        capacity=lambda: cap)[0]
+        reservation = reserver.try_reserve(job())
+        assert reservation.gate.card_key == BUSY_KEY and reservation.card_key == BUSY_KEY
+        reservation.release()
 
 
 class TestProductionDeps:

@@ -48,9 +48,9 @@ class TestReserveFailurePaths:
         ('render', dict(sampler=lambda: Sampler(reading(), fresh=None)), 'no usable GPU memory reading'),
         ('render', dict(reachability=lambda: Reach({'project-fixes': False})), 'not reachable on the share'),
         ('render', dict(sampler=lambda: Sampler(_keyed()), card_keys=lambda: ('pci:0000:99:00.0',)),
-         'no longer an Unreal card in use'),
+         vram_gate_check.NO_FREE_READING),  # the free card has no reading; card 01 is not in use (D4)
         ('pilot', {}, 'no PCI address'),
-    ], ids=['isolation', 'share-path', 'no-fresh-reading', 'unreachable', 'gated-card-gone', 'pilot-no-key'])
+    ], ids=['isolation', 'share-path', 'no-fresh-reading', 'unreachable', 'card-not-in-use', 'pilot-no-key'])
     def test_a_decline_after_the_slot_gives_it_back(self, caplog, kind, overrides, why):
         reserver, _reach = make(**overrides)
         held = reserver.slots.take()

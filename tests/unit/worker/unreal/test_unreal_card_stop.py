@@ -35,7 +35,7 @@ def held(monkeypatch):
     assert cap.reserve_unreal_card(5, key(1)) is not None
     machine.job = unreal_job(5)
     blender_stop.register_card_stop(machine.job)
-    monkeypatch.setattr(adapter_choice, '_current', adapter_choice.Choice(5, key(1), 'GPU 1', 1))
+    monkeypatch.setitem(adapter_choice._current, 'a' * 32, adapter_choice.Choice(5, key(1), 'GPU 1', 1))
     machine.cap = cap
     return machine
 
@@ -72,6 +72,17 @@ class TestCheckDuringTheHold:
                                    'detail': '', 'raised_at': None}]
         card_check.check_during_unreal(held.cap, 1000.0)
         assert not _stopped(held)
+
+    def test_one_of_two_unreal_jobs_is_stopped_and_the_other_runs_on(self, held, monkeypatch):
+        """Render per card FR-PC-SEL-4: only the job on the lost card gets its stop; job 6 on card 0 keeps going."""
+        assert held.cap.reserve_unreal_card(6, key(0)) is not None
+        other = unreal_job(6)
+        blender_stop.register_card_stop(other)
+        monkeypatch.setitem(adapter_choice._current, 'b' * 32, adapter_choice.Choice(6, key(0), 'GPU 0', 0))
+        held.lose(1)
+        card_check.check_during_unreal(held.cap, 1000.0)
+        assert _stopped(held) and not other[blender_stop.CARD_STOP_KEY].is_set()
+        assert held.cap.holds_snapshot() == {key(0): (6, 'UNREAL'), key(1): (5, 'UNREAL')}
 
     def test_another_lost_card_alerts_but_does_not_stop_it(self, held):
         held.lose(0)
@@ -210,9 +221,16 @@ class TestExecutorHandBack:
         result = w.run(shutdown)
         assert result.released and 'quarantine' in w.names() and 'finish' not in w.names()
 
-    def test_the_choice_is_forgotten_when_execute_returns(self, tmp_path, monkeypatch):
+    def test_the_claims_choice_is_forgotten_when_execute_returns(self, tmp_path, monkeypatch):
+        """D16: only this claim's entry goes; another claim of the same job id keeps its own."""
         w = World(tmp_path, monkeypatch)
-        monkeypatch.setattr(adapter_choice, '_current', adapter_choice.Choice(w.params.job_id, key(0), 'GPU 0', 0))
-        w.flow_action = lambda job: (_ for _ in ()).throw(Cancelled('canceled'))
+        kept = adapter_choice.Choice(w.params.job_id, key(1), 'GPU 1', 1)
+        monkeypatch.setitem(adapter_choice._current, 'f' * 32, kept)
+
+        def flow(job):
+            assert w.choose.keywords == {'claim_id': w.reservation.claim_id}  # the flow's choices go under the claim
+            adapter_choice._current[w.reservation.claim_id] = adapter_choice.Choice(w.params.job_id, key(0), 'GPU 0', 0)
+            raise Cancelled('canceled')
+        w.flow_action = flow
         w.run()
-        assert adapter_choice.current() is None
+        assert adapter_choice.all_current() == (kept,)

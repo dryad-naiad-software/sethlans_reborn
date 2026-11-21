@@ -21,14 +21,17 @@ without ``IDXGIFactory6``), counting the software and virtual adapters: the
 index UE 5.8 reads ``-graphicsadapter`` by. No card: ``LocalConflict
 ('local_conflict', <FR-CU-6 reason>)`` before any launch.
 
-The latest choice of the running Unreal job is kept (``current()``) so the
-card check can stop that job when its card is lost, changed or held while it
-renders (FR-CK-3, C-24 m); ``forget(job_id)`` clears it when the job ends.
+The latest choice of each running Unreal claim is kept, keyed by the
+reservation's ``claim_id`` (render per card D16, FR-PC-SEL-3), so the card
+check can stop the job on a card that is lost, changed or held while it
+renders, and only that job (FR-CK-3, C-24 m, FR-PC-SEL-4): ``all_current()``
+lists them; ``forget(claim_id)`` drops one when its job ends. Two claims of
+one job id (a retained claim and a re-claim) never overwrite each other.
 ``_lock`` is a leaf lock.
 """
 import logging
 import threading
-from typing import NamedTuple, Optional
+from typing import Dict, NamedTuple, Optional, Tuple
 
 from sethlans_worker_agent.cards import inventory, os_probe, screens, store, unreal_cards
 from sethlans_worker_agent.cards.identity import key_address
@@ -52,7 +55,7 @@ class Choice(NamedTuple):
 
 
 _lock = threading.Lock()
-_current: Optional[Choice] = None
+_current: Dict[str, Choice] = {}   # claim_id -> the claim's latest choice
 
 
 def pick(cards):
@@ -70,14 +73,16 @@ def _cards_now(section, with_screens: bool):
     return unreal_cards.evaluate(section, screens.marked(inv) if with_screens else inv)
 
 
-def choose(job_id, key: Optional[str] = None) -> Choice:
+def choose(job_id, key: Optional[str] = None, *, claim_id: str) -> Choice:
     """The card for this launch and its DXGI index; ``LocalConflict`` when Unreal has no card now.
 
-    ``key``: the card of the job's first launch. D8 gives a job one card,
-    so later launches only re-resolve that card's index, and fail when it
-    can no longer be used (warm-up and render never land on two cards).
+    ``key``: the card of the job's first launch (the held card). D8 gives a
+    job one card, so later launches only re-resolve that card's index, and
+    fail when it can no longer be used (warm-up and render never land on two
+    cards). ``claim_id``: the reservation's (D16), the key the choice is kept by.
     """
-    global _current
+    if not claim_id:
+        raise ValueError("adapter_choice.choose needs the reservation's claim_id (D16).")
     section = store.snapshot()
     if section.read_failed:
         raise LocalConflict('local_conflict', READ_FAILED_REASON)
@@ -92,7 +97,7 @@ def choose(job_id, key: Optional[str] = None) -> Choice:
     card = pick(cards)
     choice = Choice(job_id, card.key, card.name, card.dxgi_index, card.vendor_id, card.device_id, card.revision_id)
     with _lock:
-        _current = choice
+        _current[claim_id] = choice
     logger.info("Unreal job %s renders on %s (%s), DXGI adapter %d.", job_id, ascii(card.name), card.key,
                 card.dxgi_index)
     return choice
@@ -112,21 +117,18 @@ def d8_key() -> Optional[str]:
     return pick(cards).key if cards else None
 
 
-def current() -> Optional[Choice]:
-    """The latest choice of the running Unreal job, or ``None``."""
+def all_current() -> Tuple[Choice, ...]:
+    """The latest choice of every running Unreal claim (FR-PC-SEL-3), in no particular order."""
     with _lock:
-        return _current
+        return tuple(_current.values())
 
 
-def forget(job_id) -> None:
-    """The job ended: its choice no longer names a running render."""
-    global _current
+def forget(claim_id: str) -> None:
+    """The claim's job ended: its choice no longer names a running render. Other claims keep theirs."""
     with _lock:
-        if _current is not None and _current.job_id == job_id:
-            _current = None
+        _current.pop(claim_id, None)
 
 
 def reset_for_tests() -> None:
-    global _current
     with _lock:
-        _current = None
+        _current.clear()
