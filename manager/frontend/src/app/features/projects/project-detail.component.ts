@@ -19,6 +19,8 @@ import { JobCreateFormComponent } from './job-create-form.component';
 import { JobCreateDialogData, JobPrefillData } from './job-create-form.types';
 import { ProjectJobsTableComponent } from './project-jobs-table.component';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
+import { SequenceSubmitDialogComponent, SequenceSubmitDialogData } from './sequence-submit-dialog.component';
+import { SequenceShotRequest, SequenceVersionsComponent } from './sequence-versions.component';
 
 @Component({
   selector: 'app-project-detail',
@@ -26,7 +28,7 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
   imports: [
     DatePipe, RouterLink, MatButtonModule, MatIconModule,
     MatDividerModule, MatProgressSpinnerModule, MatSnackBarModule,
-    MatDialogModule, ProjectJobsTableComponent,
+    MatDialogModule, ProjectJobsTableComponent, SequenceVersionsComponent,
   ],
   template: `
     @if (loading) {
@@ -71,15 +73,22 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
             <mat-icon>cancel</mat-icon> Cancel All
           </button>
           @if (project.renderer === 'UNREAL') {
-            <span class="hint" id="unreal-job-hint">Unreal jobs are submitted through the API in this version.</span>
+            <button mat-raised-button color="primary" class="render-sequence" (click)="openSequenceSubmit()"
+                    [disabled]="!asset">
+              <mat-icon>movie</mat-icon> Render sequence
+            </button>
           }
           <button mat-raised-button color="primary" (click)="openCreateRender()"
-                  [disabled]="!asset || project.renderer === 'UNREAL'"
-                  [attr.aria-describedby]="project.renderer === 'UNREAL' ? 'unreal-job-hint' : null">
+                  [disabled]="!asset || project.renderer === 'UNREAL'">
             <mat-icon>add</mat-icon> Create Job
           </button>
         </div>
       </div>
+      @if (project.renderer === 'UNREAL') {
+        <app-sequence-versions #versions [projectId]="project.id"
+          (newShotVersion)="openSequenceSubmit($event)" />
+        <mat-divider />
+      }
       <app-project-jobs-table #jobsTable [projectId]="project.id"
         (activeJobCount)="activeJobCount = $event"
         (rerender)="openCreateRender($event)" />
@@ -102,11 +111,11 @@ import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-
     }
     .jobs-header h2 { margin: 0; }
     .jobs-actions { display: flex; gap: 8px; }
-    .hint { align-self: center; color: rgba(0,0,0,0.6); font-size: 13px; }
   `],
 })
 export class ProjectDetailComponent implements OnInit, OnDestroy {
   @ViewChild('jobsTable') jobsTable?: ProjectJobsTableComponent;
+  @ViewChild('versions') versions?: SequenceVersionsComponent;
 
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -119,6 +128,7 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
 
   project: Project | null = null;
   asset: Asset | null = null;
+  assets: Asset[] = [];
   loading = true;
   showDeleteConfirm = false;
   deleting = false;
@@ -188,10 +198,22 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
     this.dialog.open(JobCreateFormComponent, { width: '700px', data });
   }
 
+  /** FR-SU-1: the sequence submit dialog; from a shot row, only that shot ticked. */
+  openSequenceSubmit(request?: SequenceShotRequest): void {
+    if (!this.project || !this.asset || this.project.renderer !== 'UNREAL') return;
+    const data: SequenceSubmitDialogData = { project: this.project, assets: this.assets };
+    if (request) {
+      const v = request.version;
+      data.prefill = { asset: v.asset, map: v.map, sequence: v.sequence, preset: v.preset, shots: [request.shot] };
+    }
+    this.dialog.open(SequenceSubmitDialogComponent, { width: '700px', data }).afterClosed()
+      .subscribe(() => this.versions?.refresh());
+  }
+
   private fetchAsset(projectId: string): void {
     this.assetSub?.unsubscribe();
     this.assetSub = this.assetService.list({ project: projectId }).subscribe({
-      next: (assets) => { this.asset = assets.length > 0 ? assets[0] : null; },
+      next: (assets) => { this.assets = assets; this.asset = assets.length > 0 ? assets[0] : null; },
       error: () => {
         this.snackBar.open('Failed to load asset', 'Dismiss', { duration: 5000 });
       },

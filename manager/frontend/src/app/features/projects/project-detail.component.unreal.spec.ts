@@ -16,18 +16,21 @@ import { AssetService, Asset } from '../../core/services/asset.service';
 import { JobService, Job } from '../../core/services/job.service';
 import { TiledJobService } from '../../core/services/tiled-job.service';
 import { AnimationService } from '../../core/services/animation.service';
+import { SequenceService } from '../../core/services/sequence.service';
+import { SequenceSubmitDialogComponent } from './sequence-submit-dialog.component';
+import { SequenceVersionsComponent } from './sequence-versions.component';
 
 /**
  * Unreal foundation spec FR-FE-1 / FR-FE-3 / FR-FE-4 (AC-25, AC-39).
  *
  * An Unreal project (null `blender_version_details`) renders without error,
  * shows its engine build, and offers no Blender job form: Create Job is
- * disabled with an inline hint and Re-render does not open the dialog.
- * The Blender cases pin today's behaviour (button enabled iff an asset
- * exists, no hint). Fixtures mirror the API shape checked by FR-T-12.
+ * disabled and Re-render does not open the dialog. Sequence rendering
+ * FR-SU-1 replaced the "API only" hint with a "Render sequence" button and
+ * the versions list. The Blender cases pin today's behaviour (button
+ * enabled iff an asset exists, no sequence UI). Fixtures mirror the API
+ * shape checked by FR-T-12.
  */
-
-const HINT = 'Unreal jobs are submitted through the API in this version.';
 
 const UNREAL_PROJECT: Project = {
   id: 'unreal-uuid', name: 'Unreal Project', renderer: 'UNREAL',
@@ -89,6 +92,9 @@ describe('ProjectDetailComponent renderer handling', () => {
     tiled.list.and.returnValue(of([]));
     anims.pollList.and.returnValue(of([]));
     anims.list.and.returnValue(of([]));
+    const sequences = jasmine.createSpyObj<SequenceService>('SequenceService', ['pollList', 'list']);
+    sequences.pollList.and.returnValue(of([]));
+    sequences.list.and.returnValue(of([]));
 
     await TestBed.configureTestingModule({
       imports: [ProjectDetailComponent, NoopAnimationsModule],
@@ -103,6 +109,7 @@ describe('ProjectDetailComponent renderer handling', () => {
         { provide: JobService, useValue: jobService },
         { provide: TiledJobService, useValue: tiled },
         { provide: AnimationService, useValue: anims },
+        { provide: SequenceService, useValue: sequences },
       ],
     }).compileComponents();
     consoleError = spyOn(console, 'error');
@@ -121,8 +128,12 @@ describe('ProjectDetailComponent renderer handling', () => {
     return buttons.find(b => text(b).includes('Create Job'));
   }
 
-  function hint(): Element | null {
-    return fixture.nativeElement.querySelector('.hint');
+  function renderSequenceButton(): HTMLButtonElement | null {
+    return fixture.nativeElement.querySelector('button.render-sequence');
+  }
+
+  function versionsList(): unknown {
+    return fixture.debugElement.query(By.directive(SequenceVersionsComponent));
   }
 
   describe('Unreal project', () => {
@@ -141,9 +152,20 @@ describe('ProjectDetailComponent renderer handling', () => {
       expect(consoleError).not.toHaveBeenCalled();
     });
 
-    it('disables Create Job and shows the inline hint', () => {
+    it('disables Create Job and offers Render sequence with the versions list instead of the hint', () => {
       expect(createJobButton()?.disabled).toBeTrue();
-      expect(text(hint())).toBe(HINT);
+      expect(fixture.nativeElement.querySelector('.hint')).toBeNull();
+      expect(renderSequenceButton()?.disabled).toBeFalse();
+      expect(versionsList()).toBeTruthy();
+    });
+
+    it('opens the sequence submit dialog with the project and its assets', () => {
+      const dialog = fixture.debugElement.injector.get(MatDialog);
+      const open = spyOn(dialog, 'open').and.returnValue({ afterClosed: () => of(undefined) } as never);
+      renderSequenceButton()!.click();
+      expect(open).toHaveBeenCalledWith(SequenceSubmitDialogComponent, {
+        width: '700px', data: { project: UNREAL_PROJECT, assets: [UNREAL_ASSET] },
+      });
     });
 
     it('does not open the Blender form from Create Job or Re-render', () => {
@@ -158,17 +180,18 @@ describe('ProjectDetailComponent renderer handling', () => {
   });
 
   describe('Blender project (unchanged behaviour)', () => {
-    it('shows the Blender version, enables Create Job and shows no hint', () => {
+    it('shows the Blender version, enables Create Job and shows no sequence UI', () => {
       render(BLENDER_PROJECT, [assetFor(BLENDER_PROJECT, '/media/scene.blend')]);
       expect(text(fixture.nativeElement.querySelector('.subtitle'))).toContain('Blender 4.2 (4.2.1)');
       expect(createJobButton()?.disabled).toBeFalse();
-      expect(hint()).toBeNull();
+      expect(renderSequenceButton()).toBeNull();
+      expect(versionsList()).toBeNull();
     });
 
-    it('disables Create Job without a hint when there is no asset', () => {
+    it('disables Create Job when there is no asset', () => {
       render(BLENDER_PROJECT, []);
       expect(createJobButton()?.disabled).toBeTrue();
-      expect(hint()).toBeNull();
+      expect(renderSequenceButton()).toBeNull();
     });
 
     it('opens the job form from Re-render', () => {

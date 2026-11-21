@@ -19,6 +19,8 @@ export interface Project {
   blender_version_details: SupportedVersion | null;
   /** Unreal Engine build, e.g. '5.8.4-58902052'; '' for Blender projects. */
   engine_build: string;
+  /** Unreal: render sound by default in a sequence submission (remembered per project). */
+  unreal_sound?: boolean;
   created_at: string;
 }
 
