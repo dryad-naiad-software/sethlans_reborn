@@ -19,6 +19,7 @@ The sampler raises the job's card (the card of the latest ``choose``) by
 ``vram.take_reading`` cut to ``cut_to`` (the Unreal cards in use), unless
 ``cut_to`` is ``None``.
 """
+import dataclasses
 import threading
 import time
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from sethlans_worker_agent.project_archive.reachability import resolve_share_pat
 from sethlans_worker_agent.unreal_executor import adapter_choice, executor, reserve, reserve_local, vram
 from sethlans_worker_agent.unreal_executor.outcomes import LocalConflict
 from tests.integration.worker.project_archive._helpers import SHARE_ROOT, AlwaysReachable
+from shared.unreal.card_kind import card_kind
 from tests.integration.worker.unreal_executor._harness import FakeSampler, Harness
 
 
@@ -49,6 +51,10 @@ class Card:
     def adapter_line(self) -> list:
         return [self.name, f'{self.vendor_id:04x}', f'{self.device_id:04x}', f'{self.revision_id:04x}']
 
+    @property
+    def kind(self) -> str:
+        return card_kind(self.vendor_id, self.device_id, self.revision_id)
+
 
 FIRST = Card('pci:0000:0a:00.0', 'Example Graphics 20G', 20464, 1000, 1, 3, 0x1002, 0x7448, 0x00)  # D8's card
 SECOND = Card('pci:0000:2c:00.0', 'Example Graphics 20G', 20464, 500, 0, 1, 0x1002, 0x7448, 0x00)
@@ -65,6 +71,15 @@ def raw_reading(used=None, keyless=(), taken_at=None) -> GpuMemoryReading:
                           card_key=None if card.key in keyless else card.key) for card in CARDS)
     return GpuMemoryReading(time.monotonic() if taken_at is None else taken_at, 'pdh', gpus,
                             measures_card=True, measures_process=False)
+
+
+def with_kinds(reading):
+    """The kinds ``vram`` gives the Unreal cards in use from the card inventory (D1), here from ``CARDS``."""
+    if reading is None:
+        return None
+    kinds = {key_address(card.key): card.kind for card in CARDS}
+    return dataclasses.replace(reading, gpus=tuple(dataclasses.replace(gpu, card_kind=kinds.get(key_address(gpu.card_key)))
+                                                   for gpu in reading.gpus))
 
 
 class TwoCardSampler(FakeSampler):
@@ -87,6 +102,7 @@ class TwoCardSampler(FakeSampler):
         if self.cut_to is not None:
             addresses = frozenset(key_address(key) for key in self.cut_to)
             out = vram.take_reading(0, read=lambda pids: raw, cards=lambda: addresses)
+        out = with_kinds(out)  # a keyless card gets no kind (as in vram: kinds are by address)
         with self._lock:
             self.seen.update(gpu.card_key for gpu in (out.gpus if out is not None else ()))
         return out
@@ -99,6 +115,7 @@ class TwoCardHarness(Harness):
                  opts=None):
         super().__init__(tmp_path, monkeypatch, dict(opts or {}, adapters=ADAPTERS))
         self.ticked = tuple(ticked)
+        self.kind = FIRST.kind  # both cards are one kind: one machine result serves both (AC-2)
         self.reserve_keys = [card.key for card in self.ticked]
         self.gated_key = None
         self.sampler = TwoCardSampler(self.exe, self.job_key, cut_to, keyless)

@@ -13,7 +13,7 @@ from sethlans_worker_agent.gpu_memory import nvidia_smi
 from sethlans_worker_agent.unreal_executor import pilot, vram, vram_gate_check
 from sethlans_worker_agent.unreal_executor.runner_types import VramTrace
 from sethlans_worker_agent.unreal_executor.vram import GpuMem, GpuMemoryReading
-from tests.unit.worker.unreal._executor_fakes import params, phase_run, trace
+from tests.unit.worker.unreal._executor_fakes import KIND, params, phase_run, trace
 
 CARD_KEY = re.compile(r'pci:[0-9a-f]{4,8}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]')
 
@@ -65,13 +65,15 @@ class TestPilotGate:
         assert not result.ok and result.message == "a pilot needs a live GPU memory reading (source nvidia-smi)."
 
     def test_any_source_that_measures_the_card_passes(self):
-        reading = GpuMemoryReading(1.0, 'fake-a', (GpuMem(0, 'Test Card A', 32768, 0, None, None),), True)
+        reading = GpuMemoryReading(1.0, 'fake-a', (GpuMem(0, 'Test Card A', 32768, 0, None, None, card_kind=KIND),),
+                                   True)
         result = vram_gate_check.evaluate(params(kind='pilot'), reading)
         assert result.ok and result.summary['vram_source'] == 'fake-a'
 
-    def test_the_measured_gate_accepts_the_override_and_names_its_source(self):
+    def test_the_measured_gate_refuses_the_override(self):
+        """Per-machine memory test D14: the override's one GPU has no card kind, so no result applies to it."""
         result = vram_gate_check.evaluate(params(kind='render', peak=4000), vram.take_reading(32768))
-        assert result.ok and result.summary['vram_source'] == 'override'
+        assert not result.ok and result.message == vram_gate_check.NO_RESULT_CARD
 
 
 def _sample(used, ours, taken_at, index=0):
@@ -123,7 +125,8 @@ class TestPilotReport:
     def test_the_pilot_result_body_has_the_card_key_but_no_process_peak(self):
         gpu = GpuMem(0, 'Test Card A', 16384, 1000, None, None, 'pci:0000:0a:00.0')
         body = pilot.report_body(self._metrics({0: 7000}), gpu, prep_s=1, warmup_s=1, render_s=1, frames=1,
-                                 engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s')
+                                 engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s',
+                                 card_kind=KIND, driver_version=None)
         assert body['gpu'] == {'index': 0, 'name': 'Test Card A', 'total_mb': 16384, 'card_key': 'pci:0000:0a:00.0'}
         assert 'process_peak_mb' not in body
         assert not any('process_peak' in key for key in body)

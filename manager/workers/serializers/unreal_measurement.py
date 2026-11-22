@@ -28,6 +28,8 @@ from shared.unreal.vram_gate import MAX_PEAK_MB, MIN_PLAUSIBLE_PEAK_MB
 from ..card_keys import is_pci_card_key
 from ..constants import UNREAL_GAME_OVERRIDES, UNREAL_TEXTURE_STREAMING
 from ..renderers import UnsupportedRendererError, get_strategy
+from ..renderers.unreal_machine import DOES_NOT_FIT, FITS
+from .machine_report_fields import CardKindField, DriverVersionField
 from .pilot_ram import UnrealRamSerializer, largest_commit_mb, ram_megabytes
 from .projects import ProjectSerializer
 from .strict_fields import StrictBooleanField, StrictCharField, StrictIntegerField, StrictNumberField
@@ -37,6 +39,8 @@ MAX_FRAME = 2 ** 31 - 1
 MAX_WORKER_ID = 2 ** 31 - 1  # a worker primary key (signed 32-bit)
 MAX_SUMMARY_BYTES = 32 * 1024
 MAX_GPU_NAME = 128
+# D6 verdicts a pilot reports (``MeasurementVerdictEnum`` in the schema, drf_config).
+PILOT_VERDICTS = (FITS, DOES_NOT_FIT)
 _SHA256 = re.compile(r'[0-9a-f]{64}', re.ASCII)
 # The heartbeat's GPU/CPU name charset (``heartbeat_validators._sanitize_cpu_name``).
 _NAME_CHARSET = re.compile(r'[\w\s\-().@,/#+]*', re.ASCII)
@@ -77,6 +81,15 @@ def _megabytes(**kwargs):
     return StrictIntegerField(min_value=0, max_value=MAX_PEAK_MB, **kwargs)
 
 
+def _lower_bound_errors(attrs, errors):
+    """D6: ``lower_bound_mb`` is ``peak_mb`` exactly for ``does_not_fit`` and null for ``fits``."""
+    bound = attrs['lower_bound_mb']
+    if attrs['verdict'] == DOES_NOT_FIT and bound != attrs['peak_mb']:
+        errors['lower_bound_mb'] = ["Must equal peak_mb for does_not_fit."]
+    elif attrs['verdict'] == FITS and bound is not None:
+        errors['lower_bound_mb'] = ["Must be null for fits."]
+
+
 class PilotResultRequestSerializer(serializers.Serializer):
     """Body of ``POST /api/jobs/{id}/pilot-result/`` (job-independent rules only)."""
 
@@ -108,6 +121,15 @@ class PilotResultRequestSerializer(serializers.Serializer):
     shared_machine = StrictBooleanField(
         help_text="Another job held the worker at some moment of the pilot (D10).",
     )
+    # Per-machine memory test FR-MT-V-3: the card kind it ran on, the driver and D6's verdict.
+    card_kind = CardKindField()
+    driver_version = DriverVersionField()
+    verdict = serializers.ChoiceField(choices=PILOT_VERDICTS)
+    shared_peak_mb = _megabytes(
+        allow_null=True, help_text="Largest shared GPU memory of the pilot's processes on its card (D9).")
+    lower_bound_mb = StrictIntegerField(
+        min_value=MIN_PLAUSIBLE_PEAK_MB, max_value=MAX_PEAK_MB, allow_null=True,
+        help_text="peak_mb for does_not_fit (a lower bound of the need), null for fits (D6).")
 
     def validate_engine_build(self, value):
         if not re.fullmatch(BUILD_RE, value, re.ASCII):
@@ -137,6 +159,7 @@ class PilotResultRequestSerializer(serializers.Serializer):
         process, largest = attrs['ram_process_commit_peak_mb'], largest_commit_mb(attrs['ram'])
         if process is not None and largest is not None and process > largest:
             errors['ram_process_commit_peak_mb'] = [f"Must not exceed the largest ram commit_mb ({largest})."]
+        _lower_bound_errors(attrs, errors)
         if errors:
             raise serializers.ValidationError(errors)
         return attrs
@@ -145,7 +168,6 @@ class PilotResultRequestSerializer(serializers.Serializer):
 class PilotResultResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=['DONE'])
     peak_mb = serializers.IntegerField()
-    gate_need_mb = serializers.IntegerField()
 
 
 class MeasurementRetryRequestSerializer(serializers.Serializer):
@@ -185,7 +207,6 @@ class LatestMeasurementSerializer(serializers.Serializer):
         choices=UNREAL_TEXTURE_STREAMING, allow_null=True, read_only=True,
         help_text="The preset's texture streaming mode as the pilot ran (FR-GC-10); null until measured.",
     )
-    gate_need_mb = serializers.IntegerField(allow_null=True)
     measured_at = serializers.DateTimeField(allow_null=True)
     worker_hostname = serializers.CharField(allow_null=True)
     gpu_name = serializers.CharField(allow_null=True)

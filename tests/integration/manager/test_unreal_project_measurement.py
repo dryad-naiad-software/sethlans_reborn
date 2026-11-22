@@ -10,8 +10,6 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from shared.unreal.vram_gate import measured_need_mb
-
 from workers.models import Job
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS, unreal_asset, unreal_project
@@ -65,7 +63,7 @@ class TestProjectField:
         latest = data['latest']
         assert (latest['status'], latest['reason'], latest['pilot_job_id']) == ('failed', 'boom', pilots()[-1].pk)
         assert latest['sequence'] == OTHER_SEQUENCE
-        assert latest['peak_mb'] is None and latest['gate_need_mb'] is None and latest['measured_at'] is None
+        assert latest['peak_mb'] is None and 'gate_need_mb' not in latest and latest['measured_at'] is None
 
     def test_measured(self, admin_client, asset, worker_with_token):
         worker, _client = worker_with_token
@@ -77,7 +75,7 @@ class TestProjectField:
         latest = data['latest']
         assert latest['measurement_id'] == record.pk
         assert (latest['status'], latest['reason'], latest['remeasure']) == ('measured', None, False)
-        assert (latest['peak_mb'], latest['gate_need_mb']) == (8102, measured_need_mb(8102))
+        assert latest['peak_mb'] == 8102 and 'gate_need_mb' not in latest
         assert (latest['asset_id'], latest['engine_build'], latest['worker_hostname']) == (
             asset.pk, BUILD, worker.hostname)
         assert latest['measured_at'].endswith('Z')

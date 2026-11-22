@@ -27,6 +27,11 @@ NV_NAME = 'Example NV-like Graphics 16G'
 AMD_NAME = 'Example AMD-like Graphics 20G'
 NV_TOTAL = 16303
 AMD_TOTAL = 20464
+# Card kinds (per-machine memory test D1): NV_KIND is ``card_report_helpers.card()``'s ids.
+NV_KIND = '10de:2b85:00a1'
+AMD_KIND = '1002:744c:00c8'
+AMD_IDS = {'vendor_id': 0x1002, 'device_id': 0x744C, 'revision_id': 0xC8}
+DRIVER = '32.0.16.1692'
 
 
 def nv_gpu(index=0, card_key=NV_KEY, total_mb=NV_TOTAL):
@@ -70,9 +75,10 @@ def metrics():
         max_sample_gap_s=1.2, process_peak_mb=6144)
 
 
-def report(gpu):
-    """The worker's own pilot-result body for a pilot that ran on ``gpu``."""
+def report(gpu, card_kind=NV_KIND, driver_version=DRIVER):
+    """The worker's own pilot-result body for a pilot that ran on ``gpu`` (a card of ``card_kind``)."""
     return wire(pilot.report_body(
         metrics(), gpu, prep_s=24.1, warmup_s=800.2, render_s=1380.5, frames=23,
         engine_build=BUILD, overrides_sha256=overrides_sha256({}), summary='pilot_frames=23',
+        card_kind=card_kind, driver_version=driver_version,
         game_overrides='preset', texture_streaming='fully_load'))

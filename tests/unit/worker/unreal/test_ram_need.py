@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 An Unreal job's RAM need (render per card FR-PC-RAM-4, D9; AC-5): the measured figures from the poll
-payload, the defaults where a part is not measured, and the warm-up a cold **or stale** slot plans.
+payload (a machine result's ``ram``, per-machine memory test D11), the defaults where a part is not measured,
+and the warm-up a cold **or stale** slot plans.
 """
 import pytest
 
 from sethlans_worker_agent.unreal_executor import cvars, farm_defaults, job_params, job_ram, reserve_local, warmup
-from tests.unit.worker.unreal._executor_fakes import job, params
+from tests.unit.worker.unreal._executor_fakes import job, machine_result, params
 
 RAM = {'prep': {'ws_mb': 4000, 'commit_mb': 10500},
        'warmup': {'ws_mb': 12000, 'commit_mb': 30000, 'cold': True},
@@ -42,16 +43,16 @@ class TestParse:
             job_ram.parse_measured(raw)
 
     def test_job_params_carries_it_for_a_normal_job(self):
-        assert params(unreal_measured_ram=RAM).measured_ram == measured()
-        assert params().measured_ram is None   # absent: no measurement
+        assert params(unreal_machine_results=[machine_result(ram=RAM)]).machine_results[0].ram == measured()
+        assert params().machine_results[0].ram is None   # null: no measurement
 
     def test_job_params_names_the_field_of_a_bad_value(self):
-        with pytest.raises(job_params.JobDataError, match='unreal_measured_ram'):
-            job_params.validate_job_data(job(unreal_measured_ram=dict(RAM, extra=1)))
+        with pytest.raises(job_params.JobDataError, match='unreal_machine_results'):
+            job_params.validate_job_data(job(unreal_machine_results=[machine_result(ram=dict(RAM, extra=1))]))
 
     def test_a_pilot_must_not_carry_one(self):
-        with pytest.raises(job_params.JobDataError, match='unreal_measured_ram'):
-            job_params.validate_job_data(job(kind='pilot', unreal_measured_ram=RAM))
+        with pytest.raises(job_params.JobDataError, match='unreal_machine_results'):
+            job_params.validate_job_data(job(kind='pilot', unreal_machine_results=[machine_result(ram=RAM)]))
 
 
 class TestNeed:

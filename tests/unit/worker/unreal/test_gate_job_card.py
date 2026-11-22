@@ -12,13 +12,13 @@ import pytest
 
 from sethlans_worker_agent.unreal_executor import executor, vram_gate_check
 from sethlans_worker_agent.unreal_executor.vram import GpuMem
-from tests.unit.worker.unreal._executor_fakes import job, params, reading
+from tests.unit.worker.unreal._executor_fakes import KIND, job, params, reading
 from tests.unit.worker.unreal.test_reserve import Sampler, make, token_free
 
 IDLE_KEY = 'pci:0000:41:00.0'
 BUSY_KEY = 'pci:0000:0a:00.0'
-BUSY = GpuMem(0, 'GeForce Test 16G', 16303, 12000, None, None, BUSY_KEY)
-IDLE = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, IDLE_KEY)
+BUSY = GpuMem(0, 'GeForce Test 16G', 16303, 12000, None, None, BUSY_KEY, card_kind=KIND)
+IDLE = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, IDLE_KEY, card_kind=KIND)
 LOGGER = 'sethlans_worker_agent.unreal_executor.reserve'
 
 
@@ -29,9 +29,9 @@ def two_cards(*gpus):
 class TestJobCard:
 
     def test_ac21_a_job_that_fits_the_idle_card_passes_on_it(self):
-        """The busy card (lower key, listed first) cannot hold the 9,120 MB need; the gate checks the idle one."""
+        """The busy card (lower key, listed first) cannot hold the 7,930 MB result peak; the gate checks the idle one."""
         result = vram_gate_check.evaluate(params(peak=7930), two_cards())
-        assert result.ok and result.card_key == IDLE_KEY and result.need_mb == 9120
+        assert result.ok and result.card_key == IDLE_KEY and result.need_mb == 7930
         assert result.summary['vram_mb'] == 24560 and result.summary['vram_used_mb'] == 300
         assert result.reading.gpus == (BUSY, IDLE)
 
@@ -40,32 +40,34 @@ class TestJobCard:
         assert result.ok and result.card_key == IDLE_KEY and result.gate == 'pilot'
 
     def test_ac21_two_equal_cards_gate_the_lower_key(self):
-        twin_a = GpuMem(0, 'Radeon Test 20G', 20464, 500, None, None, 'pci:0000:62:00.0')
-        twin_b = GpuMem(1, 'Arc Test 20G', 20464, 9000, None, None, 'pci:0000:03:00.0')
+        twin_a = GpuMem(0, 'Radeon Test 20G', 20464, 500, None, None, 'pci:0000:62:00.0', card_kind=KIND)
+        twin_b = GpuMem(1, 'Arc Test 20G', 20464, 9000, None, None, 'pci:0000:03:00.0', card_kind=KIND)
         result = vram_gate_check.evaluate(params(peak=7930), two_cards(twin_a, twin_b))
         assert result.card_key == 'pci:0000:03:00.0' and result.summary['vram_used_mb'] == 9000
 
     def test_equal_cards_compare_keys_as_integers_not_text(self):
         """'pci:00000000:ff:...' sorts first as text; bus 0x01 is the lower address."""
-        wide = GpuMem(0, 'Radeon Test 20G', 20464, 500, None, None, 'pci:00000000:ff:00.0')
-        narrow = GpuMem(1, 'GeForce Test 20G', 20464, 500, None, None, 'pci:0000:01:00.0')
+        wide = GpuMem(0, 'Radeon Test 20G', 20464, 500, None, None, 'pci:00000000:ff:00.0', card_kind=KIND)
+        narrow = GpuMem(1, 'GeForce Test 20G', 20464, 500, None, None, 'pci:0000:01:00.0', card_kind=KIND)
         assert vram_gate_check.evaluate(params(peak=7930), two_cards(wide, narrow)).card_key == 'pci:0000:01:00.0'
 
     def test_a_keyless_card_loses_a_tie(self):
-        keyless = GpuMem(0, 'Arc Test 20G', 20464, 500, None, None, None)
-        keyed = GpuMem(1, 'Radeon Test 20G', 20464, 500, None, None, 'pci:0000:c1:00.0')
+        keyless = GpuMem(0, 'Arc Test 20G', 20464, 500, None, None, None, card_kind=KIND)
+        keyed = GpuMem(1, 'Radeon Test 20G', 20464, 500, None, None, 'pci:0000:c1:00.0', card_kind=KIND)
         assert vram_gate_check.job_card(two_cards(keyless, keyed)) is keyed
 
     def test_need_failure_names_the_checked_card(self):
-        full = GpuMem(1, 'Radeon Test 24G', 24560, 20000, None, None, IDLE_KEY)
+        full = GpuMem(1, 'Radeon Test 24G', 24560, 20000, None, None, IDLE_KEY, card_kind=KIND)
         result = vram_gate_check.evaluate(params(peak=7930), two_cards(BUSY, full))
         assert not result.ok and result.card_key == IDLE_KEY
-        assert result.message == 'needs 9120 MB; 2840 MB usable on a 24560 MB GPU (20000 MB in use).'
+        assert result.message == ("needs 7930 MB (this machine's test); 2840 MB usable on a 24560 MB GPU "
+                                  "(20000 MB in use).")
 
-    def test_caps_failure_names_the_checked_card(self):
-        small = GpuMem(3, 'Arc Test 11G', 11264, 0, None, None, 'pci:0000:05:00.0')
+    def test_no_pool_caps_bound_any_more(self):
+        """Per-machine memory test D7, OQ-2: pool caps 9,000 + 2,048 above the 10,475 MB line no longer decline."""
+        small = GpuMem(3, 'Arc Test 11G', 11264, 0, None, None, 'pci:0000:05:00.0', card_kind=KIND)
         result = vram_gate_check.evaluate(params(peak=7930), two_cards(small))
-        assert not result.ok and result.card_key == 'pci:0000:05:00.0' and 'pool caps' in result.message
+        assert result.ok and result.card_key == 'pci:0000:05:00.0'
 
     @pytest.mark.parametrize('total', [32607, 8192])
     def test_the_override_has_no_card_key(self, total):
@@ -74,7 +76,7 @@ class TestJobCard:
 
     def test_no_free_key_and_no_reading_of_a_free_key_are_told_apart(self):
         """Render per card D4: every card held, versus a free card the reading has no keyed figures for."""
-        keyless = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, None)
+        keyless = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, None, card_kind=KIND)
         held = vram_gate_check.evaluate(params(peak=7930), two_cards(), free_keys=())
         unread = vram_gate_check.evaluate(params(peak=7930), two_cards(BUSY, keyless), free_keys=(IDLE_KEY,))
         assert (held.ok, held.message, held.card_key) == (False, vram_gate_check.NO_FREE_CARD, None)
@@ -106,7 +108,7 @@ class TestGatedCardHandOff:
         with caplog.at_level(logging.WARNING, logger=LOGGER):
             assert reserver.try_reserve(job()) is None
         assert token_free(reserver)
-        assert 'needs 9120 MB; 3161 MB usable on a 16303 MB GPU (12000 MB in use).' in caplog.text
+        assert "needs 7930 MB (this machine's test); 3161 MB usable on a 16303 MB GPU (12000 MB in use)." in caplog.text
 
     @pytest.mark.parametrize('in_use', ['pci:00000000:41:00.0', 'pci:000000:41:00.0'])
     def test_keys_compare_as_address_integers(self, in_use):
@@ -125,7 +127,7 @@ class TestGatedCardHandOff:
 
     def test_a_keyless_card_is_never_free(self, caplog):
         """Render per card D4: a reading card without a readable address matches no Unreal card in use."""
-        keyless = GpuMem(1, 'Arc Test 24G', 24560, 300, None, None, None)
+        keyless = GpuMem(1, 'Arc Test 24G', 24560, 300, None, None, None, card_kind=KIND)
         reserver = _reserver((keyless,), (IDLE_KEY,))
         with caplog.at_level(logging.WARNING, logger=LOGGER):
             assert reserver.try_reserve(job(kind='pilot')) is None
@@ -133,7 +135,7 @@ class TestGatedCardHandOff:
 
     def test_a_keyless_pilot_card_is_skipped_before_the_render(self, caplog):
         """Without card keys to check against, every reading card is a candidate; a pilot still needs a key."""
-        keyless = GpuMem(1, 'Arc Test 24G', 24560, 300, None, None, None)
+        keyless = GpuMem(1, 'Arc Test 24G', 24560, 300, None, None, None, card_kind=KIND)
         reserver = make(sampler=lambda: Sampler(reading(gpus=(keyless,))))[0]
         with caplog.at_level(logging.WARNING, logger=LOGGER):
             assert reserver.try_reserve(job(kind='pilot')) is None
@@ -153,7 +155,7 @@ class TestGatedCardHandOff:
 
     def test_the_fresh_gate_card_is_the_one_checked(self):
         """The fresh reading's largest card is not in use, so it is no candidate: the card in use is gated."""
-        big = GpuMem(2, 'Radeon Test 32G', 32607, 0, None, None, 'pci:0000:83:00.0')
+        big = GpuMem(2, 'Radeon Test 32G', 32607, 0, None, None, 'pci:0000:83:00.0', card_kind=KIND)
         sampler = Sampler(reading(gpus=(IDLE,)), fresh=reading(gpus=(IDLE, big)))
         reserver, _ = make(sampler=lambda: sampler, card_keys=lambda: (IDLE_KEY,))
         reservation = reserver.try_reserve(job())
@@ -165,7 +167,7 @@ class TestGatedCardHandOff:
         from sethlans_worker_agent.capacity import WorkerCapacity
         from tests.unit.worker.executors._fakes import profile
         cap = WorkerCapacity(profile(gpu_slot_count=0))
-        roomy = GpuMem(0, 'GeForce Test 16G', 16303, 300, None, None, BUSY_KEY)
+        roomy = GpuMem(0, 'GeForce Test 16G', 16303, 300, None, None, BUSY_KEY, card_kind=KIND)
 
         class Taking(Sampler):
             def fresh(self, max_age_s, deadline):

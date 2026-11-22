@@ -19,7 +19,7 @@ function makeLatest(overrides: Partial<UnrealLatestMeasurement> = {}): UnrealLat
     measurement_id: 7, status: 'measured', reason: null, remeasure: false, asset_id: 5,
     engine_build: '5.8.4-58902052', map: '/Game/Maps/Main', sequence: '/Game/Seq/Shot', preset: '/Game/Preset',
     peak_mb: 14000, peak_source: 'card', game_overrides: 'off', texture_streaming: 'on',
-    gate_need_mb: 15400, measured_at: '2026-11-21T10:00:00Z', worker_hostname: 'render-01',
+    measured_at: '2026-11-21T10:00:00Z', worker_hostname: 'render-01',
     gpu_name: 'RX 7900 XTX', gpu_total_mb: 24560, prep_s: 30, warmup_s: 12, seconds_per_frame: 4,
     pilot_job_id: 41, ram: RAM, ram_process_commit_peak_mb: 11000, shared_machine: false,
     ...overrides,

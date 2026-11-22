@@ -27,11 +27,11 @@ class TestPayload:
 
     def test_a_shots_job_is_valid_with_frame_0_and_no_peak(self):
         p = params(kind='shots', frame=0)
-        assert p.kind == 'shots' and p.is_shots and not p.is_pilot and p.frame is None and p.measured_peak_mb is None
+        assert p.kind == 'shots' and p.is_shots and not p.is_pilot and p.frame is None and p.machine_results == ()
 
     @pytest.mark.parametrize('changes,field', [
         ({'start_frame': 5, 'end_frame': 5}, 'start_frame'), ({'end_frame': 1}, 'start_frame'),
-        ({'start_frame': None}, 'start_frame'), ({'unreal_measured_peak_mb': 4000}, 'unreal_measured_peak_mb'),
+        ({'start_frame': None}, 'start_frame'), ({'unreal_machine_results': [{}]}, 'unreal_machine_results'),
         ({'unreal_kind': 'sound'}, 'unreal_kind'),
     ])
     def test_bad_shots_payloads(self, changes, field):

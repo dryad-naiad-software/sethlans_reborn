@@ -28,6 +28,8 @@ def _body(**overrides):
         'engine_build': '5.8.4-58902052', 'csv_local_used_peak_mb': 8102,
         'overrides_sha256': SHA, 'summary': '', 'game_overrides': 'preset', 'texture_streaming': 'off',
         'ram': None, 'ram_process_commit_peak_mb': None, 'shared_machine': False,
+        'card_kind': '10de:2b85:00a1', 'driver_version': None, 'verdict': 'fits', 'shared_peak_mb': None,
+        'lower_bound_mb': None,
     }
     body.update(overrides)
     return body

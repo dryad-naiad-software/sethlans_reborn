@@ -18,7 +18,10 @@ Runs **after** exit confirmation and the FR-PA-16 integrity check:
   ``"Pilot result rejected by the manager: <detail>"``; a measured card
   without a card key is not reported (the manager could not match it):
   ``release/`` with ``local_conflict``, never a project failure (a
-  backstop: the reserver already refuses such a pilot, FR-GU-10);
+  backstop: the reserver already refuses such a pilot, FR-GU-10); likewise
+  a measured card whose kind is not the job's ``unreal.card_kind`` (a
+  backstop: the gate only picks a card of that kind, FR-MT-V-2). The body
+  carries the card's kind and the driver version (FR-MT-V-3);
 * success, sequence kinds: ``sequence_delivery`` (``shots``: ``shots-result/``,
   FR-SD-8; a piece: ``frames/`` per kept frame, then ``piece-result/``,
   FR-SW-10; an audio job: ``sound-result/``, FR-SA-6);
@@ -50,6 +53,8 @@ UPLOAD_MESSAGE = "Unreal output upload failed."
 HARDWARE_MESSAGE = "the graphics card it renders on can no longer be used"
 NO_CARD_KEY_MESSAGE = ("the measured graphics card has no PCI address in this worker's GPU memory reading, so the "
                        "manager cannot match it; the pilot result is not sent and the job goes back to the queue.")
+WRONG_KIND_MESSAGE = ("the measured graphics card ({found}) is not of the kind this memory test is for ({wanted}); the "
+                      "pilot result is not sent and the job goes back to the queue.")
 
 
 @dataclass
@@ -162,9 +167,13 @@ class Delivery:
             return self.failed("the card of the measured peak is not in the GPU memory reading.")
         if gpu.card_key is None:  # backstop (the reserver refuses a keyless pilot): this worker's fault, requeue
             return self.released('local_conflict', NO_CARD_KEY_MESSAGE)
+        if gpu.card_kind is None or gpu.card_kind != self.params.card_kind:  # backstop: the gate picks the kind
+            return self.released('local_conflict', WRONG_KIND_MESSAGE.format(found=gpu.card_kind or 'no kind',
+                                                                             wanted=self.params.card_kind))
         body = pilot.report_body(flow.metrics, gpu, prep_s=flow.prep_s, warmup_s=flow.warmup_s,
                                  render_s=flow.render_s, frames=len(flow.prep.pilot_frames),
-                                 engine_build=self.params.engine_build,
+                                 engine_build=self.params.engine_build, card_kind=gpu.card_kind,
+                                 driver_version=flow.driver_version,
                                  overrides_sha256=overrides_sha256(dict(self.params.cvar_overrides)),
                                  summary=self._text(), game_overrides=flow.prep.game_overrides,
                                  texture_streaming=flow.prep.texture_streaming, ram=flow.ram,
@@ -180,6 +189,6 @@ class Delivery:
             logger.info("pilot-result/ for job %s answered %s; nothing more is sent.", self.params.job_id,
                         report.status_code)
         else:
-            logger.info("Pilot job %s measured: peak %s MB (%s).", self.params.job_id, flow.metrics.peak_mb,
-                        flow.metrics.peak_source)
+            logger.info("Pilot job %s measured: peak %s MB (%s), %s.", self.params.job_id, flow.metrics.peak_mb,
+                        flow.metrics.peak_source, flow.metrics.verdict)
         return result(success=True, released=True, stdout=self._text(), after_report=self.after)

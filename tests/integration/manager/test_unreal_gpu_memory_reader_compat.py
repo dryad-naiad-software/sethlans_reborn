@@ -28,7 +28,7 @@ from tests.unit.manager.card_report_helpers import card, stored
 from workers.models import Worker
 
 from .unreal_helpers import BUILD, SHARE, caps, set_share, unreal_asset
-from .unreal_pilot_helpers import JOBS, POLL, claim, created_job, pilots, post_result, record_of
+from .unreal_pilot_helpers import DRIVER, JOBS, KIND, POLL, claim, created_job, pilots, post_result, record_of
 
 HB = '/api/heartbeat/'
 CARD_KEY = 'pci:0000:0a:00.0'
@@ -67,7 +67,8 @@ def _pilot_body(metrics):
     summary.update(pilot.summary_values(metrics, list(range(23)), CARD_NAME, 'ef' * 32))
     body = pilot.report_body(metrics, _reading().gpus[0], prep_s=24.1, warmup_s=800.2, render_s=1380.5,
                              frames=23, engine_build=BUILD, overrides_sha256=overrides_sha256({}),
-                             summary=summary.text(), game_overrides='implicit', texture_streaming='off')
+                             summary=summary.text(), card_kind=KIND, driver_version=DRIVER,
+                             game_overrides='implicit', texture_streaming='off')
     body = _wire(body)
     # Guard: the worker sends what the pilot ran with (gpu-memory-reader FR-GC-8).
     assert (body['game_overrides'], body['texture_streaming']) == ('implicit', 'off')
@@ -118,7 +119,7 @@ class TestUnrealGpuMemoryReaderCompatIntegration:
         assert claim(client, job, worker).status_code == 200
         body = _pilot_body(_metrics())
         resp = post_result(client, job.pk, body)
-        assert (resp.status_code, resp.data) == (200, {'status': 'DONE', 'peak_mb': 8102, 'gate_need_mb': 9318})
+        assert (resp.status_code, resp.data) == (200, {'status': 'DONE', 'peak_mb': 8102})
         job.refresh_from_db()
         assert (job.status, job.last_output) == ('DONE', body['summary'])
         record = record_of(job)

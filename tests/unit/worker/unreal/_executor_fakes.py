@@ -19,11 +19,21 @@ SETTINGS = {'unreal.map': '/Game/Maps/Main', 'unreal.sequence': '/Game/Seq/Edit'
             'unreal.preset': '/Game/Presets/MRG', 'unreal.output_format': 'PNG'}
 OVERRIDES = {'Constraints.NewEvaluation': '1', 'r.Streaming.PoolSize': '9000',
              'r.RayTracing.ResidentGeometryMemoryPoolSizeInMB': '2048'}
+KIND = '10de:2b85:00a1'  # the card kind (D1) of the fake reading's card and of the default machine result
+
+
+def machine_result(peak=7930, kind=KIND, measurement_id=1, ram=None, shared_peak_mb=None, driver_version=None):
+    """One ``unreal_machine_results`` entry (per-machine memory test FR-MT-G-1)."""
+    return {'measurement_id': measurement_id, 'card_kind': kind, 'peak_mb': peak, 'ram': ram,
+            'shared_peak_mb': shared_peak_mb, 'driver_version': driver_version}
 
 
 def job(job_id=42, kind='render', peak=7930, frame=1000, overlay=True, **changes):
+    """A poll payload. A render or audio job gets one machine result of ``KIND`` with ``peak``; a pilot whose
+    ``render_settings`` lack ``unreal.card_kind`` gets ``KIND`` (pass ``unreal.card_kind: None`` to leave it out)."""
+    results = [machine_result(peak)] if kind in ('render', 'audio') else None
     data = {'id': job_id, 'renderer': 'UNREAL', 'unreal_kind': kind,
-            'unreal_measured_peak_mb': peak if kind == 'render' else None, 'engine_build': BUILD,
+            'unreal_machine_results': results, 'engine_build': BUILD,
             'start_frame': frame, 'end_frame': frame, 'render_settings': dict(SETTINGS),
             'asset': {'source_type': 'shared_project', 'archive_path': 'incoming/Demo.zip',
                       'uproject_path': 'Demo/Demo.uproject', 'archive_sha256': SHA,
@@ -31,7 +41,12 @@ def job(job_id=42, kind='render', peak=7930, frame=1000, overlay=True, **changes
                       'overlay_sha256': OVERLAY_SHA if overlay else None,
                       'project_details': {'unreal_cvar_overrides': dict(OVERRIDES)}}}
     data = copy.deepcopy(data)
-    data.update(changes)
+    data.update(copy.deepcopy(changes))
+    settings = data.get('render_settings')
+    if kind == 'pilot' and isinstance(settings, dict):
+        settings.setdefault('unreal.card_kind', KIND)
+        if settings['unreal.card_kind'] is None:
+            del settings['unreal.card_kind']
     return data
 
 
@@ -39,8 +54,8 @@ def params(**kwargs):
     return job_params.validate_job_data(job(**kwargs)).with_share_root(SHARE_ROOT)
 
 
-def reading(used=1000, total=32607, source='nvidia-smi', taken_at=0.0, name=GPU_NAME, gpus=None):
-    gpus = gpus or (GpuMem(0, name, total, used, None, None),)
+def reading(used=1000, total=32607, source='nvidia-smi', taken_at=0.0, name=GPU_NAME, gpus=None, kind=KIND):
+    gpus = gpus or (GpuMem(0, name, total, used, None, None, card_kind=kind),)
     return GpuMemoryReading(taken_at, source, tuple(gpus), measures_card=source != 'override')
 
 

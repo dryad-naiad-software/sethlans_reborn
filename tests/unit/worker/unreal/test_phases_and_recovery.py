@@ -206,6 +206,28 @@ def test_the_zen_guard_runs_again_before_every_launch():
     assert scans == [Path('Demo')] and len(calls['specs']) == 1
 
 
+def test_isolation_failures_are_isolation_failures_and_still_errors():
+    """Per-machine memory test D6: the Zen/ini guard and ``zen=FAILED`` are never a pilot's measurement."""
+    from sethlans_worker_agent.unreal_executor import job_outcome, zen_log
+    from sethlans_worker_agent.unreal_executor.delivery import Outcome
+    from sethlans_worker_agent.unreal_executor.outcomes import IsolationFailure
+    from sethlans_worker_agent.unreal_executor.summary import Summary
+    from sethlans_worker_agent.unreal_executor.zen_guard import GuardHit, ZenGuardResult
+    r, calls = runner()
+    r.project_dir = Path('Demo')
+    r.zen_scan = lambda path: ZenGuardResult(hits=(GuardHit('Saved/Config/x.ini', 'Zen.AutoLaunch', 'DataPath'),))
+    with pytest.raises(IsolationFailure) as guard:
+        r.launch('prep', 1, SimpleNamespace())
+    assert calls['specs'] == [] and 'Saved/Config/x.ini' in guard.value.message
+    r, _ = runner(zen_ok=False)
+    with pytest.raises(IsolationFailure) as zen:
+        r.launch('render', 1, SimpleNamespace())
+    assert zen.value.message == zen_log.FAILED_MESSAGE and len(r.runs) == 1   # the launch ran: its samples exist
+    for exc in (guard.value, zen.value):
+        assert isinstance(exc, JobFailure) and isinstance(exc, job_outcome.EXPECTED)
+        assert job_outcome.outcome_for(exc, lambda: '', Summary(), pytest.fail) == Outcome('error', exc.message)
+
+
 def test_sweep_survivors_raise_so_recovery_deletes_nothing(monkeypatch, tmp_path):
     from sethlans_worker_agent.project_archive import owner_lock, recovery
     disabled = []

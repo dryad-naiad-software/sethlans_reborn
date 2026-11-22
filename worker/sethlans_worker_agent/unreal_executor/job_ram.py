@@ -4,9 +4,9 @@
 """
 An Unreal job's RAM need (render per card FR-PC-RAM-4, D8, D9).
 
-``parse_measured(raw)`` checks the poll payload's ``unreal_measured_ram`` (FR-PC-MGR-2: the
-``ram`` of the record the job's measured peak comes from, or null), the shape the manager's
-``UnrealRamSerializer`` stores::
+``parse_measured(raw)`` checks one ``unreal_machine_results[].ram`` of the poll payload (per-machine
+memory test D11: the ``ram`` of this machine's result for one card kind, or null), the shape the
+manager's ``UnrealRamSerializer`` stores::
 
     {"prep":   {"ws_mb": n, "commit_mb": n},
      "warmup": {"ws_mb": n, "commit_mb": n, "cold": bool} | null,
@@ -17,8 +17,9 @@ Exactly those keys, every figure a strict integer ``1..MAX_PEAK_MB``; anything e
 
 ``need(measured, warmup_planned, card_total_mb, default_ws_mb, default_commit_mb)`` is the
 maximum, per kind, over the phases the job will run: prep and render, plus the warm-up when one is
-planned (its slot's marker is absent or stale, ``warmup.decide``). Parts with no measurement use the
-defaults: no measurement at all (pilots, ``audio``, ``shots``, unmeasured keys), or a planned warm-up
+planned (its slot's marker is absent or stale, ``warmup.decide``). ``measured`` is the chosen card's
+result ``ram`` (FR-MT-G-3, ``reserve_local.measured_ram``). Parts with no measurement use the
+defaults: no measurement at all (pilots, ``shots``, a result without RAM figures), or a planned warm-up
 whose measured warm-up was not cold (or did not run). Default working set ``default_ws_mb``;
 default commit the larger of ``default_commit_mb`` and ``default_ws_mb + card_total_mb`` (commit is
 about the working set plus the process's GPU memory, D8, so a larger card needs more commit).
@@ -80,7 +81,7 @@ def _phase(raw, where: str, keys: frozenset = PHASE_KEYS) -> PhaseRam:
 
 
 def parse_measured(raw) -> Optional[MeasuredRam]:
-    """The checked ``unreal_measured_ram``, or ``None`` (null or absent); raises ``ValueError``."""
+    """The checked RAM figures of one result, or ``None`` (null); raises ``ValueError``."""
     if raw is None:
         return None
     raw = _keys(raw, RAM_KEYS, 'ram')

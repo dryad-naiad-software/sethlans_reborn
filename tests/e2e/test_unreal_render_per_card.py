@@ -29,7 +29,8 @@ memory is known and other cards hold at most 256 MB (U-4); overlapping
 pieces have different cards, slots and Zen ports; each log passes the
 slot's Zen rules with no invalid-lock or zenserver shut-down line; every
 editor and ShaderCompileWorker ran with its own slot's TEMP; the RAM
-figures are stored (pilot record and each piece's ``unreal_measured_ram``),
+figures are stored (pilot record, and the worker's own
+``unreal_machine_results`` entry for each piece's card kind),
 ``shared_machine`` matches what the cards showed, and the pilot's farm
 tree never exceeded its stored figures; frames have the size and count;
 one claim per job; isolation as found; no processes left.
@@ -151,7 +152,7 @@ class TestUnrealRenderPerCard(UnrealChecks):
         """AC-E6: measured, RAM figures stored, shared mark as the cards showed, tree within the figures."""
         summary = parse_summary(pilot["last_output"])
         assert pilot["status"] == "DONE", f"Pilot {pilot['status']}: {pilot.get('error_message')}"
-        assert_summary(summary, {"kind": "pilot", "vram_gate": "pilot"}, "Pilot")
+        assert_summary(summary, {"kind": "pilot", "vram_gate": "pilot", "pilot_verdict": "fits"}, "Pilot")
         peak, csv_peak = int(summary["pilot_peak_mb"]), _int(summary.get("pilot_csv_peak_mb"))
         assert csv_peak and abs(peak - csv_peak) <= peak * 0.10, f"CSV peak {csv_peak} MB against {peak} MB"
         self._assert_measurement(pilot["id"])
@@ -212,15 +213,18 @@ class TestUnrealRenderPerCard(UnrealChecks):
         return problems + ue_logs.check_job(self.cache_dir, job, summary, dxgi, pcc.BASE_ZEN_PORT + slot,
                                             self.wall_start)
 
-    @staticmethod
-    def _check_pieces(pieces, summaries, latest):
-        """Each piece rendered on the measured gate, kept its own frames and got the pilot's RAM figures."""
+    def _check_pieces(self, pieces, summaries, latest):
+        """Each piece kept its own frames, gated by this machine's result (the pilot's record) with its RAM figures."""
         for job in pieces:
             kept = job["end_frame"] - job["start_frame"] + 1
+            summary = summaries[job["id"]]
             expected = {"kind": "render", "vram_gate": "measured", "output": f"{kept} PNG frames",
-                        "lead_in_deleted": str(job["unreal_lead_in_frames"])}
-            assert_summary(summaries[job["id"]], expected, job["name"])
-            assert job["unreal_measured_ram"] == latest["ram"], (job["name"], job["unreal_measured_ram"], latest)
+                        "lead_in_deleted": str(job["unreal_lead_in_frames"]),
+                        "vram_measurement_id": str(latest["measurement_id"])}
+            assert_summary(summary, expected, job["name"])
+            entry = self._machine_result(job["id"], summary.get("vram_card_kind"))
+            assert entry["measurement_id"] == latest["measurement_id"], (job["name"], entry, latest)
+            assert entry["ram"] == latest["ram"], (job["name"], entry["ram"], latest)
 
     def _check_frames(self, version, pieces):
         """AC-E7: every frame of both shots, at the requested size; the first of each piece not black."""

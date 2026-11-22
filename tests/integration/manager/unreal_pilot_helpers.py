@@ -26,6 +26,8 @@ POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true',
 OTHER_SEQUENCE = '/Game/Cinematics/Other.Other'
 # The card kind ``ready_worker`` gives (per-machine memory test D1): card_report_helpers.card().
 KIND = '10de:2b85:00a1'
+# A driver version as UE logs it (``internal:`` value of the Driver Version line).
+DRIVER = '32.0.16.1692'
 
 
 def settings(**overrides):
@@ -155,6 +157,9 @@ def pilot_body(**overrides):
         'engine_build': BUILD, 'csv_local_used_peak_mb': 8102,
         'overrides_sha256': overrides_sha256({}), 'summary': 'pilot_frames=23',
         'game_overrides': 'implicit', 'texture_streaming': 'off',
+        # Per-machine memory test FR-MT-V-3: the pilot's card kind, driver and D6 verdict.
+        'card_kind': KIND, 'driver_version': DRIVER, 'verdict': 'fits', 'shared_peak_mb': None,
+        'lower_bound_mb': None,
     }
     body.update(overrides)
     return body

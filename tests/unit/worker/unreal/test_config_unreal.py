@@ -140,3 +140,44 @@ class TestRamSettings:
     def test_the_env_var_names(self, name, monkeypatch):
         monkeypatch.setenv(f'SETHLANS_UNREAL_{name.upper()}', '12000')
         assert config_unreal.load()[name.upper()] == 12000
+
+
+class TestSpillMargin:
+    """Per-machine memory test FR-MT-S-2 / Q10: ``unreal.spill_margin_mb``, 0-65536, default 256."""
+
+    def test_the_default(self):
+        assert config_unreal.load(getter({}))['SPILL_MARGIN_MB'] == 256
+        assert isinstance(config_unreal.SPILL_MARGIN_MB, int)
+
+    @pytest.mark.parametrize('raw,expected', [('0', 0), ('65536', 65536), (512, 512), (' 300 ', 300)])
+    def test_values_in_range(self, raw, expected):
+        assert config_unreal.load(getter({'spill_margin_mb': raw}))['SPILL_MARGIN_MB'] == expected
+
+    @pytest.mark.parametrize('raw', ['-1', '65537', 'lots', '1.5', True])
+    def test_out_of_range_or_non_integer_warns_and_uses_256(self, raw, caplog):
+        assert config_unreal.load(getter({'spill_margin_mb': raw}))['SPILL_MARGIN_MB'] == 256
+        assert [r for r in caplog.records if r.levelname == 'WARNING' and 'unreal.spill_margin_mb' in r.getMessage()]
+
+    def test_the_env_var(self, monkeypatch):
+        monkeypatch.setenv('SETHLANS_UNREAL_SPILL_MARGIN_MB', '1024')
+        assert config_unreal.load()['SPILL_MARGIN_MB'] == 1024
+
+    def test_a_bad_env_var_warns_and_uses_256(self, monkeypatch, caplog):
+        monkeypatch.setenv('SETHLANS_UNREAL_SPILL_MARGIN_MB', '70000')
+        assert config_unreal.load()['SPILL_MARGIN_MB'] == 256 and 'unreal.spill_margin_mb' in caplog.text
+
+    def test_the_config_ini_value(self, monkeypatch):
+        import configparser
+
+        from sethlans_worker_agent import config
+        parser = configparser.ConfigParser()
+        parser.read_string('[unreal]\nspill_margin_mb = 640\n')
+        monkeypatch.delenv('SETHLANS_UNREAL_SPILL_MARGIN_MB', raising=False)
+        monkeypatch.setattr(config, '_json_config', {})
+        monkeypatch.setattr(config, 'config_parser', parser)
+        assert config_unreal.load()['SPILL_MARGIN_MB'] == 640
+
+    def test_the_example_ini_documents_it(self):
+        from pathlib import Path
+        example = Path(config_unreal.__file__).resolve().parents[1] / 'config.ini.example'
+        assert '# spill_margin_mb = 256' in example.read_text(encoding='utf-8')

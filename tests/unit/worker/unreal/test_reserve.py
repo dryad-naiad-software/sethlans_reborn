@@ -10,7 +10,7 @@ from sethlans_worker_agent.executors.base import ProbePending
 from sethlans_worker_agent.unreal_executor import reserve, vram_gate_check, zen_port
 from sethlans_worker_agent.unreal_executor.slot import SLOT_COUNT
 from tests._unreal_worker_state import install, reachable
-from tests.unit.worker.unreal._executor_fakes import job, params, reading
+from tests.unit.worker.unreal._executor_fakes import KIND, job, params, reading
 
 
 _SAME = object()
@@ -86,7 +86,7 @@ def test_each_failed_check_declines_and_holds_nothing(override):
 def test_the_reservation_carries_the_unreal_cards_in_use():
     """C-27 b: the Unreal cards in use stay on the reservation; it holds the gated one (render per card D1)."""
     from sethlans_worker_agent.unreal_executor.vram import GpuMem
-    keyed = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None, 'pci:0000:23:00.0'),))
+    keyed = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None, 'pci:0000:23:00.0', card_kind=KIND),))
     reserver, _reach = make(card_keys=lambda: ('pci:0000:23:00.0', 'pci:0000:24:00.0'), sampler=lambda: Sampler(keyed))
     reservation = reserver.try_reserve(job())
     assert reservation.card_keys == ('pci:0000:23:00.0', 'pci:0000:24:00.0')
@@ -135,36 +135,37 @@ def test_the_static_gate_runs_before_the_share_and_the_fresh_reading_after_the_p
 
 
 class TestGate:
-    """FR-UE-21 worked examples (PoC caps 9,000 + 2,048; 1,000 MB in use)."""
+    """FR-UE-21 worked examples (PoC caps 9,000 + 2,048; 1,000 MB in use), per-machine memory test D7."""
 
-    @pytest.mark.parametrize('total,ok', [(32607, True), (20464, True), (16303, True), (12282, False)])
-    def test_pilot_relaxed_gate(self, total, ok):
+    @pytest.mark.parametrize('total', [32607, 20464, 16303, 12282])
+    def test_pilot_has_no_memory_need(self, total):
+        """D7, S2: the 12,478 MB pilot minimum is gone; a card of the pilot's kind is enough."""
         result = vram_gate_check.evaluate(params(kind='pilot'), reading(total=total))
-        assert result.ok is ok and result.need_mb == 12478 and result.gate == 'pilot'
+        assert result.ok and result.need_mb is None and result.gate == 'pilot'
 
     def test_pilot_needs_a_reading_that_measures_the_card(self):
         result = vram_gate_check.evaluate(params(kind='pilot'), reading(source='override'))
         assert not result.ok and result.message == "a pilot needs a live GPU memory reading (source override)."
 
     @pytest.mark.parametrize('total,ok,text', [
-        (32607, True, ''), (16303, True, ''), (12282, True, ''),
-        (11264, False, 'pool caps 11048 MB exceed the 10475 MB budget of a 11264 MB GPU.'),
-        (10240, False, 'needs 9120 MB; 8523 MB usable on a 10240 MB GPU (1000 MB in use).'),
+        (32607, True, ''), (16303, True, ''), (12282, True, ''), (11264, True, ''),
+        (9600, False, "needs 7930 MB (this machine's test); 7928 MB usable on a 9600 MB GPU (1000 MB in use)."),
     ])
     def test_measured_gate(self, total, ok, text):
+        """D7: the result peak against floor(total * 0.93) - used, no margin and no pool-caps bound."""
         result = vram_gate_check.evaluate(params(peak=7930), reading(total=total))
-        assert result.ok is ok and result.message == text and result.need_mb == 9120
+        assert result.ok is ok and result.message == text and result.need_mb == 7930
 
     def test_the_first_card_that_fits_is_gated_and_named_in_the_summary(self):
         """Render per card D4 (D22, FR-GU-10): the largest card first; a busy one gives way to the next that fits."""
         from sethlans_worker_agent.unreal_executor.vram import GpuMem
-        two = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None, 'pci:0000:01:00.0'),
-                            GpuMem(1, 'b', 16303, 9000, None, None, 'pci:0000:02:00.0')))
+        two = reading(gpus=(GpuMem(0, 'a', 32607, 1000, None, None, 'pci:0000:01:00.0', card_kind=KIND),
+                            GpuMem(1, 'b', 16303, 9000, None, None, 'pci:0000:02:00.0', card_kind=KIND)))
         result = vram_gate_check.evaluate(params(peak=7930), two)
-        assert result.ok and result.summary['vram_mb'] == 32607 and result.summary['vram_measured_peak_mb'] == 7930
+        assert result.ok and result.summary['vram_mb'] == 32607 and result.summary['vram_need_mb'] == 7930
         assert result.card_key == 'pci:0000:01:00.0'
-        busy = reading(gpus=(GpuMem(0, 'a', 32607, 30000, None, None, 'pci:0000:01:00.0'),
-                             GpuMem(1, 'b', 16303, 1000, None, None, 'pci:0000:02:00.0')))
+        busy = reading(gpus=(GpuMem(0, 'a', 32607, 30000, None, None, 'pci:0000:01:00.0', card_kind=KIND),
+                             GpuMem(1, 'b', 16303, 1000, None, None, 'pci:0000:02:00.0', card_kind=KIND)))
         result = vram_gate_check.evaluate(params(peak=7930), busy)
         assert result.ok and result.card_key == 'pci:0000:02:00.0' and result.summary['vram_mb'] == 16303
 

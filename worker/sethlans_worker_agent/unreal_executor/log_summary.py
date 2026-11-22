@@ -11,13 +11,16 @@ FR-UE-14, FR-UE-11 VRAM peak, FR-UE-21; OQ-7).
   merged ``-DPCVars`` set (each also a ``cvar_collision=<name>`` warning);
 * ``streaming_pool_mb`` / ``rt_pool_mb``: the value ``cvar_priority_ignored``
   reports as held, else the merged value;
-* ``vram_peak_ratio_pct`` and ``vram_peak_over_measurement`` for a normal
-  job (FR-UE-11, FR-UE-14).
+* ``vram_peak_ratio_pct`` and ``vram_peak_over_result`` for a render or
+  audio job gated on this machine's result (FR-UE-11, FR-UE-14; per-machine
+  memory test FR-MT-G-4): the job's own peak (``vram_peak_mb``, its card's
+  rise over the launch's baseline, the figure the pilot's card delta
+  measures) against the result peak the gate used; ``vram_peak_over_result``
+  is ``1`` when the job's peak is larger.
 """
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from sethlans_worker_agent.unreal_executor import cvars
-from shared.unreal import vram_gate
 
 POOL_SUMMARY = (('r.Streaming.PoolSize', 'streaming_pool_mb'),
                 ('r.RayTracing.ResidentGeometryMemoryPoolSizeInMB', 'rt_pool_mb'))
@@ -60,11 +63,12 @@ def render_values(scan, merged: Sequence[Tuple[str, str]]) -> Tuple[Dict[str, ob
     return values, warnings
 
 
-def vram_values(params, peak_mb) -> Dict[str, object]:
+def vram_values(params, peak_mb, result_peak_mb: Optional[int] = None) -> Dict[str, object]:
+    """``result_peak_mb``: the peak of the result the gate chose (``None``: a pilot, ``shots``, no result)."""
     values: Dict[str, object] = {'vram_peak_mb': '' if peak_mb is None else peak_mb, 'vram_peak_source': 'card'}
-    if params.is_pilot or peak_mb is None or not params.measured_peak_mb:
+    if params.is_pilot or peak_mb is None or not result_peak_mb:
         return values
-    values['vram_peak_ratio_pct'] = round(100 * peak_mb / params.measured_peak_mb)
-    if peak_mb > vram_gate.measured_need_mb(params.measured_peak_mb):
-        values['vram_peak_over_measurement'] = 1
+    values['vram_peak_ratio_pct'] = round(100 * peak_mb / result_peak_mb)
+    if peak_mb > result_peak_mb:
+        values['vram_peak_over_result'] = 1
     return values

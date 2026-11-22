@@ -15,7 +15,7 @@ from sethlans_worker_agent.capacity import WorkerCapacity
 from sethlans_worker_agent.unreal_executor import cvars, ram_ledger, reserve_local, warmup
 from sethlans_worker_agent.unreal_executor.job_ram import RamNeed
 from tests.unit.worker.executors._fakes import profile
-from tests.unit.worker.unreal._executor_fakes import job, params
+from tests.unit.worker.unreal._executor_fakes import job, machine_result, params
 from tests.unit.worker.unreal.test_ram_need import RAM
 from tests.unit.worker.unreal.test_reserve_card import CARDS, IDLE_KEY, KEYS, OTHER_KEY
 from tests.unit.worker.unreal.test_reserve import Sampler, make, reading
@@ -199,9 +199,9 @@ class TestColdSlot:
         marker = warmup.marker_path(tmp_path, p.overlay_sha256, p.engine_build, 0)
         warmup.record_success(marker, p.map, p.sequence, cvars.warmup_cvars_sha256(p.merged))
         r = reserver(cap, ram_readers=readers(), entry_dir=lambda sha: tmp_path)
-        first = r.try_reserve(job(job_id=1, unreal_measured_ram=RAM))
+        first = r.try_reserve(job(job_id=1, unreal_machine_results=[machine_result(ram=RAM)]))
         cap.reserve_unreal_card(1, first.card_key)
-        second = r.try_reserve(job(job_id=2, unreal_measured_ram=RAM))
+        second = r.try_reserve(job(job_id=2, unreal_machine_results=[machine_result(ram=RAM)]))
         assert (first.slot, second.slot) == (0, 1)
         assert (first.ram_need.ws_mb, first.ram_need.commit_mb, first.ram_need.warmup) == (7500, 17600, False)
         assert (second.ram_need.ws_mb, second.ram_need.commit_mb, second.ram_need.warmup) == (12000, 30000, True)

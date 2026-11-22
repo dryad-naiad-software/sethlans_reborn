@@ -15,7 +15,7 @@ from sethlans_worker_agent.unreal_executor import cvars, ram_ledger, reserve_loc
 from sethlans_worker_agent.unreal_executor.job_ram import RamNeed
 from sethlans_worker_agent.unreal_executor.runner_ram import RamTarget, RunnerRam
 from tests.unit.worker.executors._fakes import profile
-from tests.unit.worker.unreal._executor_fakes import job, params
+from tests.unit.worker.unreal._executor_fakes import job, machine_result, params
 from tests.unit.worker.unreal.test_ram_gate import SETTINGS, readers, reserver
 from tests.unit.worker.unreal.test_runner_ram import world  # noqa: F401 - the fixture
 
@@ -93,14 +93,15 @@ class TestNeedAfterTheWarmUp:
         cap = WorkerCapacity(profile(gpu_slot_count=0))
         headroom = COMMIT_LIMIT - 20000   # 51,045: fits 17,630 + 17,630 + 8,192, not 30,699 + 17,630 + 8,192
         r = reserver(cap, ram_readers=readers(FREE_RAM, headroom), entry_dir=lambda sha: tmp_path)
-        first = r.try_reserve(job(job_id=1, unreal_measured_ram=MEASURED))
+        first = r.try_reserve(job(job_id=1, unreal_machine_results=[machine_result(ram=MEASURED)]))
         assert (first.slot, first.ram_need.commit_mb, first.ram_need.warmup) == (0, 30699, True)
         cap.reserve_unreal_card(1, first.card_key)
-        assert r.try_reserve(job(job_id=2, unreal_measured_ram=MEASURED)) is None   # its cold warm-up may run
+        second = job(job_id=2, unreal_machine_results=[machine_result(ram=MEASURED)])
+        assert r.try_reserve(second) is None   # its cold warm-up may run
 
         warm_up = RunnerRam(first.ram_target(), phase='warmup')
         warm_up.launch_started()
         warm_up.launch_ended(tree_exited=True)
-        second = r.try_reserve(job(job_id=2, unreal_measured_ram=MEASURED))
+        second = r.try_reserve(job(job_id=2, unreal_machine_results=[machine_result(ram=MEASURED)]))
         assert second is not None and second.slot == 1
         assert (second.ram_need.commit_mb, second.ram_need.warmup) == (17630, False)

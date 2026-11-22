@@ -20,13 +20,14 @@ from sethlans_worker_agent.capacity import WorkerCapacity
 from sethlans_worker_agent.unreal_executor import reserve_card, vram_gate_check
 from sethlans_worker_agent.unreal_executor.vram import GpuMem
 from tests.unit.worker.executors._fakes import blender_job, install_capacity, key, profile
-from tests.unit.worker.unreal._executor_fakes import job, params, reading
+from tests.unit.worker.unreal._executor_fakes import KIND, job, params, reading
 from tests.unit.worker.unreal.sequence._pieces import audio_data
 from tests.unit.worker.unreal.test_reserve import Sampler, make, token_free
 
 IDLE_KEY = 'pci:0000:41:00.0'   # D8's card (the larger one)
 OTHER_KEY = 'pci:0000:0a:00.0'
-CARDS = (GpuMem(0, 'Test 16G', 16303, 300, None, None, OTHER_KEY), GpuMem(1, 'Test 24G', 24560, 300, None, None, IDLE_KEY))
+CARDS = (GpuMem(0, 'Test 16G', 16303, 300, None, None, OTHER_KEY, card_kind=KIND),
+         GpuMem(1, 'Test 24G', 24560, 300, None, None, IDLE_KEY, card_kind=KIND))
 KEYS = (OTHER_KEY, IDLE_KEY)
 LOGGER = 'sethlans_worker_agent.unreal_executor.reserve'
 
@@ -60,7 +61,7 @@ class TestGatedJob:
     def test_the_first_free_card_that_fits_not_the_first_free_card(self):
         """D4: the larger free card is too busy for the job; the next free card in D8 order that fits is taken."""
         cap = WorkerCapacity(profile(gpu_slot_count=0))
-        busy_big = GpuMem(1, 'Test 24G', 24560, 20000, None, None, IDLE_KEY)
+        busy_big = GpuMem(1, 'Test 24G', 24560, 20000, None, None, IDLE_KEY, card_kind=KIND)
         live = reading(gpus=(CARDS[0], busy_big))
         reservation = make(sampler=lambda: Sampler(live), card_keys=lambda: KEYS, capacity=lambda: cap)[0] \
             .try_reserve(job())
@@ -70,7 +71,7 @@ class TestGatedJob:
     def test_no_free_card_that_fits_declines_and_names_the_first_candidate(self, caplog):
         cap = WorkerCapacity(profile(gpu_slot_count=0))
         cap.reserve_unreal_card(1, IDLE_KEY)
-        small_busy = GpuMem(0, 'Test 16G', 16303, 15000, None, None, OTHER_KEY)
+        small_busy = GpuMem(0, 'Test 16G', 16303, 15000, None, None, OTHER_KEY, card_kind=KIND)
         reserver = make(sampler=lambda: Sampler(reading(gpus=(small_busy, CARDS[1]))), card_keys=lambda: KEYS,
                         capacity=lambda: cap)[0]
         with caplog.at_level(logging.WARNING, logger=LOGGER):
@@ -181,7 +182,8 @@ class TestAudioCardToItself:
     def test_no_other_unreal_or_blender_job_takes_the_audio_card(self):
         cap = install_capacity(gpu_slot_count=2, cpu_slot_count=0)  # Blender cards key(0), key(1)
         keys = (key(0), key(1))
-        gpus = tuple(GpuMem(i, f'Test {i}', 24560 if i == 0 else 16303, 300, None, None, k) for i, k in enumerate(keys))
+        gpus = tuple(GpuMem(i, f'Test {i}', 24560 if i == 0 else 16303, 300, None, None, k, card_kind=KIND)
+                     for i, k in enumerate(keys))
         live = reading(gpus=gpus)
         reserver = make(sampler=lambda: Sampler(live), card_keys=lambda: keys, capacity=lambda: cap)[0]
         audio = reserver.try_reserve(dict(audio_data(), id=50))

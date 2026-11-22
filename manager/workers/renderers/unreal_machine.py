@@ -71,6 +71,20 @@ def worker_kinds(worker) -> tuple:
     return tuple(sorted(kinds)[:MAX_KINDS_PER_WORKER])
 
 
+def stored_card_kind(worker, card_key):
+    """The D1 kind of the worker's stored card ``card_key`` (whatever its tick or state), else ``None``.
+
+    The kind is the card's identity (FR-MT-V-3's cross-check), so a card
+    un-ticked since its job started still has it.
+    """
+    status = worker.card_status
+    cards = status.get('cards') if isinstance(status, dict) else None
+    for card in cards if isinstance(cards, list) else ():
+        if isinstance(card, dict) and card.get('key') == card_key:
+            return card_kind(card.get('vendor_id'), card.get('device_id'), card.get('revision_id'))
+    return None
+
+
 def reading_measures_card(gpu_memory):
     """Whether a stored ``gpu_memory`` is a live card reading (gpu-memory-reader D7, FR-GH-4).
 

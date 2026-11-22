@@ -9,12 +9,19 @@ FR-UE-8, FR-UE-9, FR-UE-10, FR-UE-13, FR-UE-25).
 effective-CVar check) -> warm-up when the marker rule asks for it (a pilot
 always warms up) -> render -> on ``Compilation cancelled.`` or a forced
 quit: drop the pair from the marker, warm up again (``warmup.2.log``) and
-re-render **once** (``render.2.log``) -> output collection. A pilot also
-checks that the card it rendered on is in the gate's GPU memory reading,
-by card key (``pilot.check_card``, FR-GU-4), is released when a warm-up or
-render log lacks UE's ``Chosen`` adapter line (``require_adapter_lines``;
-normal jobs keep ``adapter_log``'s rule), collects the CSV capture and
-computes its metrics (``pilot.measure``) over **every** phase it ran.
+re-render **once** (``render.2.log``) -> output collection. A pilot's
+measurement step is ``pilot_flow.collect``: the card it rendered on must be
+in the gate's GPU memory reading, by card key (``pilot.check_card``,
+FR-GU-4); it is released when a warm-up or render log lacks UE's ``Chosen``
+adapter line (``require_adapter_lines``; normal jobs keep ``adapter_log``'s
+rule); it collects the CSV capture, computes its metrics and D6 verdict
+(``pilot.measure``) over **every** phase it ran and reads the driver version
+(per-machine memory test FR-MT-V-1). A pilot whose warm-up or render fails
+after a saturated sample reports ``does_not_fit`` instead of failing
+(``pilot_flow.after_failure``, D6; an ``IsolationFailure`` is raised again).
+Either way, other programs' use of the card rising past
+``unreal.spill_margin_mb`` releases the pilot with no verdict (Q10). ``result_peak_mb`` (set by ``job_run``)
+is the peak of the machine result the gate chose (FR-MT-G-4's summary).
 A sequence piece (``sequence_flow.RangeFlow``) and an audio job
 (``audio_flow.AudioFlow``, whose render also gets ``_render_extra``) replace four hooks.
 
@@ -30,16 +37,16 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import List, Optional
 
-from sethlans_worker_agent.unreal_executor import (
-    adapter_choice, cvars, job_dir, job_memory, log_summary, log_validation, output, pilot, pilot_csv, queue_prep,
+from sethlans_worker_agent.unreal_executor import (  # output, pilot, pilot_csv: tests patch them through here
+    adapter_choice, cvars, job_dir, log_summary, log_validation, output, pilot, pilot_csv, pilot_flow, queue_prep,
     render_check, warmup)
-from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
+from sethlans_worker_agent.unreal_executor.outcomes import JobFailure
+from sethlans_worker_agent.unreal_executor.pilot_flow import NO_ADAPTER_LINE_MESSAGE, require_adapter_lines
 from sethlans_worker_agent.unreal_executor.runner_types import RENDER_SUCCESS, WARMUP_SUCCESS
 
 logger = logging.getLogger(__name__)
-
-NO_ADAPTER_LINE_MESSAGE = ("the Unreal log did not say which graphics card it rendered on, so the measured peak "
-                           "cannot be tied to the job's card; the job goes back to the queue.")
+__all__ = ['FlowConfig', 'FlowResult', 'NO_ADAPTER_LINE_MESSAGE', 'UeFlow', 'pilot', 'pilot_csv',
+           'render_check_time', 'require_adapter_lines']
 
 
 @dataclass
@@ -69,10 +76,12 @@ class FlowResult:
     sound: object = None          # an audio job: audio_flow.SoundOutput (the .wav, its facts, the offset)
     ram: Optional[dict] = None    # pilot: the body's RAM figures per phase (FR-PC-RAM-3); None when unknown
     ram_process_commit_peak_mb: Optional[int] = None
+    driver_version: Optional[str] = None  # pilot: the render launch's driver version (FR-MT-V-1); None unknown
 
 
 class UeFlow:
     _render_extra: dict = {}      # extra build_render keywords (an audio job: the audio flags)
+    result_peak_mb: Optional[int] = None  # the gate's machine result peak (set by job_run; FR-MT-G-4)
 
     def __init__(self, params, launch_ctx, job, runner, summary, builders, marker_path, uproject, config: FlowConfig,
                  reading=None, choose=None, first_key=None):
@@ -82,6 +91,7 @@ class UeFlow:
         self.cvars_sha = cvars.warmup_cvars_sha256(params.merged)  # the warm-up key: shader-relevant CVars only
         self.prep_s = self.warmup_s = self.render_s = 0.0
         self.choose, self.choice, self.first_key = choose or adapter_choice.choose, None, first_key
+        self.warmup_logs: List[tuple] = []  # (card key, log) of each warm-up launch (the driver's fallback log)
 
     def _adapter_ctx(self):
         """FR-CU-1: the job's card (the gated one at the first launch) re-resolved; its DXGI index on the command line."""
@@ -142,6 +152,7 @@ class UeFlow:
         queue_prep.write_json(job.warmup_params, data)
         launch = self.builders.build_warmup(self._adapter_ctx(), self.uproject, job.script(job_dir.WARMUP_SCRIPT),
                                             job.log('warmup', attempt), job.warmup_params, params.merged)
+        self.warmup_logs.append((self.choice.key, job.log('warmup', attempt)))
         run = self.runner.launch('warmup', attempt, launch, success_marker=WARMUP_SUCCESS, sample=params.is_pilot,
                                  adapter=self.choice)
         self.warmup_s += run.outcome.wall_s
@@ -200,12 +211,18 @@ class UeFlow:
         for text in warnings:
             self.summary.warn(text)
         self.summary.update({'render_exit': run.outcome.exit_code, 'render_s': round(self.render_s, 1)})
-        self.summary.update(log_summary.vram_values(self.params, run.outcome.vram_peak_mb))
+        self.summary.update(log_summary.vram_values(self.params, run.outcome.vram_peak_mb, self.result_peak_mb))
 
     def run(self) -> FlowResult:
         prep = self.prep()
-        warmed = self._warm_if_needed(prep)
-        run, check, before = self._render_with_retry(prep)
+        try:
+            warmed = self._warm_if_needed(prep)
+            run, check, before = self._render_with_retry(prep)
+        except JobFailure as failure:  # D6: a pilot that failed after a saturated sample does not fit (else re-raised)
+            failed = FlowResult(prep=prep, render_s=self.render_s, prep_s=self.prep_s, warmup_s=self.warmup_s,
+                                warmup_ran=bool(self.warmup_logs), render_time_seconds=int(self.render_s),
+                                gate_reading=self.reading)
+            return pilot_flow.after_failure(self, prep, failure, failed)
         warmed = warmed or self.summary.get('warmup') == 'ran(retry)'
         self._render_summary(run, check)
         self.summary.set('warmup_s', round(self.warmup_s, 1) if warmed else '')
@@ -219,22 +236,7 @@ class UeFlow:
             result.outputs = [output.collect_single(self.job.output)]
             self.summary.set('output', result.outputs[0].name)
             return result
-        result.outputs = output.collect_pilot(self.job.output, self.params.job_id, prep.pilot_frames)
-        result.adapter = pilot.chosen_adapter(run.log_path) or ''  # UE's name for it, summary only
-        require_adapter_lines(self.runner.runs, result.adapter)
-        result.card = pilot.check_card(self.choice, self.reading)
-        csv_peak = pilot_csv.collect(run.log_path, self.config.profile, before, self.job.logs)
-        result.metrics = pilot.measure(self.runner.runs, csv_peak)
-        result.ram, result.ram_process_commit_peak_mb = job_memory.pilot_ram(self.runner.runs)
-        self.summary.update(pilot.summary_values(result.metrics, list(prep.pilot_frames), result.adapter,
-                                                 self.cvars_sha))
-        return result
-
-
-def require_adapter_lines(runs, adapter: str) -> None:
-    """A pilot's peak is tied to its card only when every warm-up and render log says which card UE chose."""
-    if not adapter or any(r.outcome.adapter_chosen is None for r in runs if r.phase in ('warmup', 'render')):
-        raise LocalConflict('local_conflict', NO_ADAPTER_LINE_MESSAGE)
+        return pilot_flow.collect(self, result, prep, run, before)
 
 
 def render_check_time(check, render_s: float) -> int:

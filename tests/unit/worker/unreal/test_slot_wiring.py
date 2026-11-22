@@ -19,7 +19,7 @@ from sethlans_worker_agent.unreal_executor.prelaunch import PreLaunch
 from sethlans_worker_agent.unreal_executor.profile_config import ProfileConfigResult
 from sethlans_worker_agent.unreal_executor.zen_log import ZenLogResult
 from tests._unreal_worker_state import install, reachable
-from tests.unit.worker.unreal._executor_fakes import job, outcome, reading
+from tests.unit.worker.unreal._executor_fakes import KIND, job, outcome, reading
 from tests.unit.worker.unreal._job_run_world import World, png_flow
 from tests.unit.worker.unreal.test_isolation_state import FAIL, state  # noqa: F401 - fixture
 from tests.unit.worker.unreal.test_phases_card_cut import Job
@@ -34,7 +34,8 @@ def _boom():
 
 def _two_keyed():
     from sethlans_worker_agent.unreal_executor.vram import GpuMem
-    return reading(gpus=tuple(GpuMem(i, 'a', 32607, 1000, None, None, f'pci:0000:2{3 + i}:00.0') for i in range(2)))
+    return reading(gpus=tuple(GpuMem(i, 'a', 32607, 1000, None, None, f'pci:0000:2{3 + i}:00.0', card_kind=KIND)
+                              for i in range(2)))
 
 
 class TestReserverSlot:

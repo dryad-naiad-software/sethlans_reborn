@@ -62,6 +62,8 @@ _INT_SETTINGS = (
     ('RAM_DEFAULT_WS_MB', 16384, 0, 1048576),
     ('RAM_DEFAULT_COMMIT_MB', 32768, 0, 1048576),
     ('RAM_BLENDER_MB', 4096, 0, 1048576),
+    # Per-machine memory test FR-MT-S-2 (D9) and Q10: how far other programs' use of a card may rise (MB).
+    ('SPILL_MARGIN_MB', 256, 0, 65536),
 )
 # FR-WC-2 / FR-UE-26: the farm-private zenserver's port; never UE's default 8558.
 # Render per card FR-PC-SLOT-4: slot n uses zen_port + n (n < ZEN_PORT_SLOTS), so the whole
@@ -221,3 +223,4 @@ COMMIT_RESERVE_MB: int = _values['COMMIT_RESERVE_MB']
 RAM_DEFAULT_WS_MB: int = _values['RAM_DEFAULT_WS_MB']
 RAM_DEFAULT_COMMIT_MB: int = _values['RAM_DEFAULT_COMMIT_MB']
 RAM_BLENDER_MB: int = _values['RAM_BLENDER_MB']
+SPILL_MARGIN_MB: int = _values['SPILL_MARGIN_MB']

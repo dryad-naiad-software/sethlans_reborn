@@ -17,13 +17,13 @@ from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConf
 from sethlans_worker_agent.unreal_executor.pilot import PilotMetrics
 from sethlans_worker_agent.unreal_executor.summary import Summary
 from sethlans_worker_agent.unreal_executor.vram import GpuMem
-from tests.unit.worker.unreal._executor_fakes import params, reading
+from tests.unit.worker.unreal._executor_fakes import KIND, params, reading
 from tests.unit.worker.unreal._job_run_world import World, png_flow
 
 IDLE_KEY = 'pci:0000:41:00.0'
 BUSY_KEY = 'pci:0000:0a:00.0'
-BUSY = GpuMem(0, 'GeForce Test 16G', 16303, 12000, None, None, BUSY_KEY)
-IDLE = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, IDLE_KEY)
+BUSY = GpuMem(0, 'GeForce Test 16G', 16303, 12000, None, None, BUSY_KEY, card_kind=KIND)
+IDLE = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, IDLE_KEY, card_kind=KIND)
 
 
 @dataclass(frozen=True)

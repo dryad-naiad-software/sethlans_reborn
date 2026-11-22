@@ -18,7 +18,7 @@ from rest_framework.exceptions import ValidationError
 
 from shared.unreal.share_paths import resolve_in_share, validate_share_relpath
 from shared.unreal.validation import validate_cvars, validate_object_path, validate_sha256, validate_uproject_relpath
-from shared.unreal.vram_gate import vram_need_mb
+from shared.unreal.vram_gate import POOL_CVARS
 
 from ..constants import Renderer
 from ..constants_sequence import MAX_SOUND_OFFSETS, SOUND_OFFSET_MS_MAX
@@ -29,6 +29,31 @@ SHARE_UNSET_ASSET_MESSAGE = (
     "Set the Sethlans share (PUT /api/sethlans-share/) before adding Unreal projects."
 )
 REQUIRED_MESSAGE = "This field is required."
+
+
+def check_pool_cvars(cvars):
+    """The pool CVars (``vram_gate.POOL_CVARS``), when set, are non-negative integer MB (FR-UE-21).
+
+    The rule the removed pool-caps gate applied (per-machine memory test
+    D7), kept as project validation: the worker fails a job whose pool
+    value UE changed at render time (``cvars.check_effective``), so only a
+    plain size is accepted.  ``cvars`` is already normalized by
+    ``validate_cvars`` (string values, no name twice in any letter case).
+
+    Raises:
+        ValueError: naming the CVar.
+    """
+    pools = {name.casefold(): name for name in POOL_CVARS}
+    for key, value in cvars.items():
+        name = pools.get(key.casefold())
+        if name is None:
+            continue
+        try:
+            megabytes = int(str(value).strip())
+        except ValueError:
+            raise ValueError(f"{name}: pool size {value!r} is not an integer number of MB") from None
+        if megabytes < 0:
+            raise ValueError(f"{name}: pool size must not be negative")
 
 
 def validate_unreal_project(attrs, instance):
@@ -45,8 +70,7 @@ def validate_unreal_project(attrs, instance):
     if 'unreal_cvar_overrides' in attrs:
         try:
             cvars = validate_cvars(attrs['unreal_cvar_overrides'])
-            # The worker's VRAM gate reads the pool CVars as integers (FR-UE-21).
-            vram_need_mb(cvars)
+            check_pool_cvars(cvars)
         except ValueError as exc:
             errors['unreal_cvar_overrides'] = [str(exc)]
         else:

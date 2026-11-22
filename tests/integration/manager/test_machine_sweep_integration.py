@@ -14,11 +14,11 @@ Covers: a machine that comes online gets one pilot for a key with QUEUED
 jobs that it has not tried (an earlier trigger gave it none while it was
 offline), and the next heartbeat adds none; only the heartbeat's own
 worker is tested; a failed pair gets no pilot, a ``retest_due`` pair a new
-one.  When nothing is due the sweep is one read of the jobs (plus the
-manager's share setting), with no row lock, ``lock_project`` or
-``lock_workers``; a worker without Unreal costs no query; a worker whose
-share is not the manager's, or that is at the 20-pilot cap, costs at most
-two queries and no lock.  A project whose sweep raises is logged and the
+one.  When nothing is due the sweep is exactly one read of the jobs (the
+manager's share setting is a subquery inside it), with no row lock,
+``lock_project`` or ``lock_workers``; a worker without Unreal costs no
+query; a worker whose share is not the manager's, or that is at the
+20-pilot cap, costs exactly that one read and no lock.  A project whose sweep raises is logged and the
 other projects are still swept.
 """
 
@@ -41,8 +41,6 @@ from .unreal_helpers import caps, unreal_asset, unreal_project
 from .unreal_pilot_helpers import KIND, pilots, ready_worker
 
 OFFLINE = timedelta(seconds=WORKER_STALENESS_SECONDS + 60)
-SHARE_READ = ('SELECT "workers_managersettings"."sethlans_share" AS "sethlans_share" '
-              'FROM "workers_managersettings" WHERE "workers_managersettings"."id" = 1 LIMIT 21')
 
 
 @pytest.fixture
@@ -123,13 +121,16 @@ class TestCheapSweeps:
         assert not [query for query in sql if 'FOR UPDATE' in query], sql
         assert [spy.call_count for spy in spies] == [0, 0]
 
+    @staticmethod
+    def _one_job_read(sql):
+        assert len(sql) == 1 and '"workers_job"' in sql[0], sql
+
     def test_nothing_due_is_one_read_without_a_lock(self, job, worker, spies, django_capture_on_commit_callbacks):
         tested, client = worker
         pair_record(job.asset, job.unreal_target_sha256, tested, verdict='fits')
         sql = _sweep_queries(client, tested, django_capture_on_commit_callbacks)
-        # One read of the jobs (D16); besides it only the manager's share setting is read.
-        assert len([query for query in sql if '"workers_job"' in query]) == 1, sql
-        assert [query for query in sql if '"workers_job"' not in query] in ([], [SHARE_READ]), sql
+        # Exactly one read of the jobs (D16); the share setting is a subquery inside it.
+        self._one_job_read(sql)
         self._no_lock(sql, spies)
 
     @pytest.mark.parametrize('capabilities', [caps(enabled=False), {}], ids=['disabled', 'none'])
@@ -145,7 +146,7 @@ class TestCheapSweeps:
         Worker.objects.filter(pk=tested.pk).update(unreal_capabilities=caps(share=r'\\elsewhere.example\other'))
         for _beat in range(2):
             sql = _sweep_queries(client, tested, django_capture_on_commit_callbacks)
-            assert len(sql) <= 2, sql
+            self._one_job_read(sql)
             self._no_lock(sql, spies)
         assert pilots(job.asset) == []
 
@@ -157,7 +158,7 @@ class TestCheapSweeps:
         before = len(pilots())
         for _beat in range(2):
             sql = _sweep_queries(client, tested, django_capture_on_commit_callbacks)
-            assert len(sql) <= 2, sql
+            self._one_job_read(sql)
             self._no_lock(sql, spies)
         assert len(pilots()) == before
 

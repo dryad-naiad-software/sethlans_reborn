@@ -18,7 +18,7 @@ from sethlans_worker_agent.cards.inventory import Card
 from sethlans_worker_agent.unreal_executor import adapter_choice, pilot, vram, vram_gate_check
 from sethlans_worker_agent.unreal_executor.vram import GpuMem, GpuMemoryReading
 from tests.unit.worker.unreal._card_machine import CardMachine, adapter, key
-from tests.unit.worker.unreal._executor_fakes import params, phase_run, trace
+from tests.unit.worker.unreal._executor_fakes import KIND, params, phase_run, trace
 
 LOW, HIGH = 'pci:0000:03:00.0', 'pci:0000:23:00.0'   # two identical cards; LOW drives the display
 A03, A23 = '0000:03:00.0', '0000:23:00.0'
@@ -37,7 +37,7 @@ def _card(card_key, mib=20464, screen=None, index=0):
 
 
 def _gpu(card_key, mib=20464, screen=None, index=0):
-    return GpuMem(index, 'Radeon Test 20G', mib, 500, None, None, card_key, screen)
+    return GpuMem(index, 'Radeon Test 20G', mib, 500, None, None, card_key, screen, KIND)
 
 
 def _gate_key(*gpus):
@@ -111,7 +111,7 @@ class TestGateAndPickAgree:
         live = GpuMemoryReading(0.0, 'pdh', (_gpu(LOW, screen=True),))
         reading = vram.take_reading(0, clock=lambda: 1.0, read=lambda pids: live, pids=frozenset,
                                     cards=lambda: frozenset({(0, 3, 0, 0)}))
-        assert reading.gpus == (dataclasses.replace(_gpu(LOW), screen=None),)
+        assert reading.gpus == (dataclasses.replace(_gpu(LOW), screen=None, card_kind=None),)  # no kind either
 
     def test_the_override_reading_has_no_mark(self):
         reading = vram.take_reading(20480, clock=lambda: 1.0)
@@ -130,7 +130,8 @@ class TestMarksStayLocal:
     def test_the_pilot_report_gpu_has_no_screen_key(self, screen):
         metrics = pilot.measure([phase_run('render', {0: 1000}, {0: 1000}, trace({0: 9000}, {0: 1000}))], None)
         body = pilot.report_body(metrics, _gpu(LOW, screen=screen), prep_s=1, warmup_s=1, render_s=1, frames=1,
-                                 engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s')
+                                 engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s',
+                                 card_kind=KIND, driver_version=None)
         assert 'screen' not in body['gpu'] and not any('screen' in name for name in body)
 
 

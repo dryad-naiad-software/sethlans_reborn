@@ -38,6 +38,13 @@ before any decision), so the gate's ``job_card`` can break a size tie
 of any age, so after a monitor is moved only the preference lags; the gated
 card is still the card the job renders on (its key is handed to the launch).
 
+The decided set also keeps each card's kind (per-machine memory test D1:
+``shared.unreal.card_kind`` of the inventory card's vendor, device and
+revision ids; a card without a vendor or device id has none), and each kept
+card of the reading carries it in ``GpuMem.card_kind`` (``None`` when it has
+none or before any decision), so the memory gate matches a card to its
+machine result by the card's own kind (D7) on the reading alone.
+
 ``only_card(reading, key)`` keeps the one card a launch renders on
 (FR-GU-11). ``taken_at`` is the time the sample started. Any failure
 yields ``None``.
@@ -55,6 +62,7 @@ from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.gpu_memory import reader as gpu_reader
 from sethlans_worker_agent.gpu_memory.types import (  # also re-exported for the Unreal modules
     MAX_AGE_SECONDS, MAX_GPU_INDEX, MAX_NAME_LENGTH, MAX_REPORTED_GPUS, GpuMem, GpuMemoryReading)
+from shared.unreal.card_kind import card_kind
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +75,7 @@ class _Decided(NamedTuple):
     at: float
     generation: int
     screens: dict             # address -> True/False: the cards' known screen marks (never mutated)
+    kinds: dict = {}          # address -> card kind (D1) of each card that has one (never mutated)
 
 
 _set_lock = threading.Lock()  # leaf lock
@@ -132,9 +141,17 @@ def unreal_card_set(clock: Callable[[], float] = time.monotonic, current: Callab
     addresses = frozenset(address for address, _card in keyed if address is not None)
     screens = {address: card.screen for address, card in keyed
                if address is not None and isinstance(getattr(card, 'screen', None), bool)}
+    kinds = {address: kind for address, kind in ((address, _kind_of(card)) for address, card in keyed)
+             if address is not None and kind is not None}
     with _set_lock:
-        _decided, _failure_logged = _Decided(addresses, now, gen, screens), False
+        _decided, _failure_logged = _Decided(addresses, now, gen, screens, kinds), False
     return addresses
+
+
+def _kind_of(card):
+    """D1: the inventory card's kind, ``None`` without a vendor or device id."""
+    return card_kind(getattr(card, 'vendor_id', None), getattr(card, 'device_id', None),
+                     getattr(card, 'revision_id', None))
 
 
 def screen_marks() -> dict:
@@ -143,11 +160,20 @@ def screen_marks() -> dict:
         return dict(_decided.screens) if _decided is not None else {}
 
 
-def with_screens(reading: Optional[GpuMemoryReading], screens: dict) -> Optional[GpuMemoryReading]:
-    """The reading with each card's screen mark (``None`` when unknown), for D8's tie rule."""
+def card_kinds() -> dict:
+    """``{address: card kind}`` of the last decided Unreal cards; a card without a kind is left out."""
+    with _set_lock:
+        return dict(_decided.kinds) if _decided is not None else {}
+
+
+def with_screens(reading: Optional[GpuMemoryReading], screens: dict,
+                 kinds: Optional[dict] = None) -> Optional[GpuMemoryReading]:
+    """The reading with each card's screen mark (D8's tie rule) and card kind (D7); ``None`` when unknown."""
     if reading is None:
         return None
-    gpus = tuple(replace(gpu, screen=screens.get(key_address(gpu.card_key))) for gpu in reading.gpus)
+    kinds = kinds or {}
+    gpus = tuple(replace(gpu, screen=screens.get(key_address(gpu.card_key)), card_kind=kinds.get(key_address(gpu.card_key)))
+                 for gpu in reading.gpus)
     return replace(reading, gpus=gpus)
 
 
@@ -184,7 +210,7 @@ def take_reading(override_mb: int, clock: Callable[[], float] = time.monotonic,
         if reading is None:
             return None
         cut = cut_to_cards(replace(reading, taken_at=taken_at), (cards or unreal_card_set)())
-        return with_screens(cut, screen_marks())
+        return with_screens(cut, screen_marks(), card_kinds())
     except Exception:  # noqa: BLE001 - any failure means "no reading"
         logger.exception("GPU memory reading failed.")
         return None

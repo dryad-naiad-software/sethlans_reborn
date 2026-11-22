@@ -185,6 +185,7 @@ class JobRun:
                           self.deps.flow_config(slot.profile), reading=gate.reading, choose=choose,
                           first_key=self.reservation.card_key)  # the held card (render per card D1, D14)
         flow.disk = disk  # a piece's disk check counts the other running claims (FR-PC-DSK-1)
+        flow.result_peak_mb = gate.result.peak_mb if getattr(gate, 'result', None) else None  # FR-MT-G-4
         try:
             return flow.run()
         finally:

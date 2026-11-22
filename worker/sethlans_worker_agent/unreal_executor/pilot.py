@@ -24,11 +24,21 @@ that card alone:
   members on the peak's GPU (``VramTrace.max_job``, render per card
   FR-PC-ATT-2; summary ``pilot_process_peak_mb`` only, never reported).
 
-Rejections: saturation (any sample ``>= floor(total * 0.93)``; the reason
-names the card size), an implausible peak (< ``MIN_PLAUSIBLE_PEAK_MB``)
--> ``JobFailure``; freed memory (a sample more than
+**Verdict** (per-machine memory test D6, FR-MT-V-2), never a rejection:
+``does_not_fit`` when any sample of the card reached ``floor(total * 0.93)``
+(``saturated``) **or** ``peak_mb + baseline_used_mb > floor(total * 0.93)``
+(``vram_gate.fits_result`` with the baseline as ``used``, the gate's own
+figure), else ``fits``; ``lower_bound_mb`` = ``peak_mb`` for
+``does_not_fit``, ``None`` for ``fits``. The pilot ends DONE either way.
+
+Rejections: an implausible peak (< ``MIN_PLAUSIBLE_PEAK_MB``) ->
+``JobFailure``; no sample at all, freed memory (a sample more than
 ``PILOT_BASELINE_DROP_MB`` below the phase baseline) or a sampling gap
 (> ``PILOT_MAX_SAMPLE_GAP_S``) -> ``LocalConflict('local_conflict')``.
+After a saturated sample the freed-memory and gap rules do not apply and a
+phase without samples is left out: the card was full, so another program's
+memory being evicted or a stall is expected, and the figure is a lower
+bound anyway (D6).
 
 ``check_card(choice, reading)`` (FR-GU-4): the card the launch rendered on
 (``adapter_choice.Choice.key``) must be in the GPU memory reading, by card
@@ -40,7 +50,7 @@ Adapter Id = %u"), for the ``pilot_adapter`` summary value only.
 """
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from sethlans_worker_agent import report_limits
 from sethlans_worker_agent.cards.identity import key_address
@@ -66,6 +76,9 @@ FREED_MESSAGE = "GPU memory was freed by another program during the pilot; the m
 GAP_MESSAGE = "GPU memory sampling stalled for {n} s during the pilot; the measurement is unreliable."
 
 
+FITS, DOES_NOT_FIT = 'fits', 'does_not_fit'
+
+
 @dataclass(frozen=True)
 class PilotMetrics:
     peak_mb: int
@@ -78,6 +91,9 @@ class PilotMetrics:
     gpu_index: int
     max_sample_gap_s: float
     process_peak_mb: Optional[int] = None  # largest memory of the job's own processes on the peak's GPU (summary only)
+    verdict: str = FITS                    # D6: 'fits' or 'does_not_fit'
+    lower_bound_mb: Optional[int] = None   # D6: peak_mb for does_not_fit, else None
+    saturated: bool = False                # a sample reached floor(total * 0.93)
 
 
 def _process_peak(runs: Sequence, index: int) -> Optional[int]:
@@ -95,20 +111,30 @@ def _baselines(run) -> Dict[int, int]:
     return out
 
 
-def _check_saturation(run) -> None:
+def _check_saturation(run) -> bool:
+    """D6: a sample of the run's card reached ``floor(total * 0.93)`` (the shared line)."""
     trace = run.outcome.vram
     for index, used in trace.max_used.items():
         total = trace.total.get(index)
-        budget = vram_gate.usable_mb(total, 0) if total else None  # floor(total * fraction), shared
-        if budget is not None and used >= budget:
-            raise JobFailure(f"Pilot render failed: the GPU was saturated ({used} of {budget} MB usable on a "
-                             f"{total} MB card); the measurement is a lower bound.")
+        if total and used >= vram_gate.usable_mb(total, 0):
+            return True
+    return False
 
 
-def _check_reliable(run, baselines: Dict[int, int]) -> float:
+def saturated(runs: Sequence) -> bool:
+    """D6: any sample of any phase reached its card's 93% line."""
+    return any(_check_saturation(run) for run in runs)
+
+
+def _check_reliable(run, baselines: Dict[int, int], full: bool) -> Optional[float]:
+    """The run's largest sampling gap; ``None`` (left out) for a run without samples after saturation."""
     trace = run.outcome.vram
     if run.pre is None or trace.samples == 0:
+        if full:
+            return None
         raise LocalConflict('local_conflict', GAP_MESSAGE.format(n=int(run.outcome.wall_s)))
+    if full:
+        return trace.max_gap_s
     for index, low in trace.min_used.items():
         if index in baselines and low < baselines[index] - PILOT_BASELINE_DROP_MB:
             raise LocalConflict('local_conflict', FREED_MESSAGE)
@@ -117,30 +143,41 @@ def _check_reliable(run, baselines: Dict[int, int]) -> float:
     return trace.max_gap_s
 
 
+def _verdict(full: bool, peak: int, baseline: int, total: Optional[int]) -> Tuple[str, Optional[int]]:
+    """D6: ``(verdict, lower_bound_mb)``; ``does_not_fit`` on a saturated sample or past the line."""
+    over = total is not None and not vram_gate.fits_result(peak, total, baseline)
+    return (DOES_NOT_FIT, peak) if full or over else (FITS, None)
+
+
 def measure(runs: Sequence, csv_peak_mb: Optional[int]) -> PilotMetrics:
-    """FR-UE-25 "Peak metric" and its rejection rules over every pilot phase."""
-    best = None  # (delta, phase, gpu, baseline)
+    """FR-UE-25 "Peak metric", its rejection rules and D6's verdict over every pilot phase."""
+    best = None  # (delta, phase, gpu, baseline, total)
     drift, gap = 0, 0.0
+    full = saturated(runs)
     for run in runs:
-        _check_saturation(run)
         baselines = _baselines(run)
-        gap = max(gap, _check_reliable(run, baselines))
+        run_gap = _check_reliable(run, baselines, full)
+        if run_gap is None:
+            continue
+        gap = max(gap, run_gap)
         for index in set(run.pre or {}) & set(run.post or {}):
             drift = max(drift, abs(run.pre[index] - run.post[index]))
         for index, used in run.outcome.vram.max_used.items():
             delta = max(0, used - baselines.get(index, used))
             if best is None or delta > best[0]:
-                best = (delta, run.phase, index, baselines.get(index, used))
+                best = (delta, run.phase, index, baselines.get(index, used), run.outcome.vram.total.get(index))
     if best is None:
         raise LocalConflict('local_conflict', GAP_MESSAGE.format(n=0))
-    card, phase, index, baseline = best
+    card, phase, index, baseline, total = best
     peak = max(card, csv_peak_mb or 0)
     source = 'csv' if (csv_peak_mb or 0) > card else 'card'
     if peak < MIN_PLAUSIBLE_PEAK_MB:
         raise JobFailure(f"Pilot render failed: implausible GPU memory peak ({peak} MB).")
+    verdict, lower_bound = _verdict(full, peak, baseline, total)
     return PilotMetrics(peak_mb=peak, peak_source=source, card_delta_peak_mb=card, csv_local_used_peak_mb=csv_peak_mb,
                         baseline_used_mb=baseline, baseline_drift_mb=drift, peak_phase=phase, gpu_index=index,
-                        max_sample_gap_s=round(gap, 2), process_peak_mb=_process_peak(runs, index))
+                        max_sample_gap_s=round(gap, 2), process_peak_mb=_process_peak(runs, index),
+                        verdict=verdict, lower_bound_mb=lower_bound, saturated=full)
 
 
 def chosen_adapter(log_path) -> Optional[str]:
@@ -170,11 +207,18 @@ def check_card(choice, reading):
 
 
 def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, render_s: float,
-                frames: int, engine_build: str, overrides_sha256: str, summary: str,
-                game_overrides: str = render_context.UNKNOWN,
+                frames: int, engine_build: str, overrides_sha256: str, summary: str, card_kind: str,
+                driver_version: Optional[str], game_overrides: str = render_context.UNKNOWN,
                 texture_streaming: str = render_context.UNKNOWN, ram: Optional[dict] = None,
-                ram_process_commit_peak_mb: Optional[int] = None, shared_machine: bool = False) -> dict:
+                ram_process_commit_peak_mb: Optional[int] = None, shared_machine: bool = False,
+                shared_peak_mb: Optional[int] = None) -> dict:
     """The FR-PM-4 ``pilot-result/`` body (strict schema; ``per_shot`` is left empty).
+
+    Per-machine memory test FR-MT-V-3: ``card_kind`` is the kind of the card the pilot rendered on
+    (D1, the job's ``unreal.card_kind``); ``driver_version`` the chosen adapter's ``internal:`` driver
+    from the render launch's log (``driver_log.launch_driver``), ``None`` when unknown; ``verdict``
+    and ``lower_bound_mb`` are D6's (``metrics``); ``shared_peak_mb`` the pilot's largest shared usage
+    on its card (D9), ``None`` until the shared counter is sampled.
 
     ``ram``, ``ram_process_commit_peak_mb`` and ``shared_machine`` (per-card FR-PC-RAM-3) are always
     sent: ``ram`` is ``{"prep": {"ws_mb", "commit_mb"}, "warmup": {"ws_mb", "commit_mb", "cold"} | None,
@@ -203,6 +247,8 @@ def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, r
         'overrides_sha256': overrides_sha256, 'summary': report_limits.bounded_tail(summary, PILOT_SUMMARY_MAX_BYTES),
         'game_overrides': game_overrides, 'texture_streaming': texture_streaming,  # what it ran with (FR-GC-8)
         'ram': ram, 'ram_process_commit_peak_mb': ram_process_commit_peak_mb, 'shared_machine': shared_machine,
+        'card_kind': card_kind, 'driver_version': driver_version, 'verdict': metrics.verdict,
+        'shared_peak_mb': shared_peak_mb, 'lower_bound_mb': metrics.lower_bound_mb,
     }
 
 
@@ -214,4 +260,6 @@ def summary_values(metrics: PilotMetrics, frames: List[int], adapter: str, cvars
             'pilot_peak_phase': metrics.peak_phase, 'pilot_baseline_drift_mb': metrics.baseline_drift_mb,
             'pilot_max_sample_gap_s': metrics.max_sample_gap_s, 'pilot_adapter': adapter,
             'pilot_process_peak_mb': '' if metrics.process_peak_mb is None else metrics.process_peak_mb,
-            'pilot_cvars_sha256': cvars_sha}
+            'pilot_cvars_sha256': cvars_sha, 'pilot_verdict': metrics.verdict,
+            'pilot_lower_bound_mb': '' if metrics.lower_bound_mb is None else metrics.lower_bound_mb,
+            'pilot_saturated': 1 if metrics.saturated else 0}

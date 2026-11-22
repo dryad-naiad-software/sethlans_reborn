@@ -4,7 +4,7 @@
 """
 The audio job's payload, CVars, memory gate and command line (sequence rendering FR-SA-1, FR-SA-3, FR-SA-4,
 FR-SR-5, D3, AC-15): kind ``audio`` with its run, lead-in and shot parts; the audio CVars in its farm tier only (and
-out of the warm-up key); the pilot's need rule on the job's card without a live card reading; the four audio flags
+out of the warm-up key); the machine result's gate like a piece (per-machine memory test D10); the four audio flags
 on its render only.
 """
 import pytest
@@ -26,11 +26,12 @@ class TestPayload:
         assert p.is_audio and not p.is_piece and not p.is_pilot and p.piece is None and p.frame is None
         run = p.audio
         assert (run.submission, run.start, run.end, run.lead, run.first, run.rendered) == (7, 100, 279, 8, 92, 188)
-        assert run.shots == ((3, 100, 190), (4, 190, 280)) and p.measured_peak_mb is None
+        assert run.shots == ((3, 100, 190), (4, 190, 280))
+        assert [r.peak_mb for r in p.machine_results] == [7930]  # gated by this machine's result (D10)
 
     @pytest.mark.parametrize('changes,field', [
         ({'sequence_submission': None}, 'sequence_submission'),
-        ({'unreal_measured_peak_mb': 4000}, 'unreal_measured_peak_mb'),
+        ({'unreal_machine_results': None}, 'unreal_machine_results'),
         ({'unreal_lead_in_frames': 101}, 'unreal_lead_in_frames'),
         ({'end_frame': 99}, 'end_frame'),
         ({'shots': [[3, 100, 200]]}, 'render_settings.unreal.piece_shots'),
@@ -74,11 +75,12 @@ class TestCvars:
 
 class TestGate:
 
-    def test_the_pilot_need_on_the_jobs_card_without_a_live_reading(self):
-        gate = vram_gate_check.evaluate(audio_params(), reading(source='override'))
-        pilot = vram_gate_check.evaluate(params(kind='pilot'), reading())
-        assert gate.ok and gate.gate == 'audio' and gate.need_mb == pilot.need_mb
-        assert 'vram_measured_peak_mb' not in gate.summary and gate.summary['vram_gate'] == 'audio'
+    def test_gated_like_a_piece_by_the_machine_result(self):
+        """Per-machine memory test D10: the result peak of the card's kind is the need (no pilot need any more)."""
+        gate = vram_gate_check.evaluate(audio_params(), reading())
+        assert gate.ok and gate.gate == 'audio' and gate.need_mb == 7930 and gate.result.measurement_id == 1
+        assert gate.summary['vram_gate'] == 'audio' and gate.summary['vram_need_mb'] == 7930
+        assert not vram_gate_check.evaluate(audio_params(), reading(kind=None)).ok  # a card without a kind
 
     def test_a_card_too_small_fails_and_no_reading_fails(self):
         assert not vram_gate_check.evaluate(audio_params(), reading(used=25000)).ok

@@ -29,7 +29,7 @@ from sethlans_worker_agent.unreal_executor import job_dir, pilot, queue_prep
 from workers.constants import UNREAL_GAME_OVERRIDES, UNREAL_TEXTURE_STREAMING
 
 from .unreal_helpers import BUILD, card_key_of, unreal_asset
-from .unreal_pilot_helpers import claimed_pilot, post_result, record_of
+from .unreal_pilot_helpers import DRIVER, KIND, claimed_pilot, post_result, record_of
 
 FACTS_PATH = job_dir.SCRIPTS_SOURCE / job_dir.FACTS_SCRIPT
 PAIRS = list(itertools.product(UNREAL_GAME_OVERRIDES, UNREAL_TEXTURE_STREAMING))
@@ -73,6 +73,7 @@ def _report(game_overrides, texture_streaming):
     gpu = make_gpu(0, 'GPU', 32607, 0, 0, card_key=card_key_of(0))
     body = pilot.report_body(metrics, gpu, prep_s=24.1, warmup_s=800.2, render_s=1380.5, frames=23,
                              engine_build=BUILD, overrides_sha256=overrides_sha256({}), summary='pilot_frames=23',
+                             card_kind=KIND, driver_version=DRIVER,
                              game_overrides=game_overrides, texture_streaming=texture_streaming)
     return json.loads(json.dumps(body))
 

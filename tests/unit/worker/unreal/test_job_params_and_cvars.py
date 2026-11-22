@@ -13,14 +13,15 @@ class TestValidateJobData:
 
     def test_normal_job(self):
         p = validate_job_data(job())
-        assert (p.job_id, p.kind, p.frame, p.measured_peak_mb) == (42, 'render', 1000, 7930)
+        assert (p.job_id, p.kind, p.frame) == (42, 'render', 1000)
+        assert [(r.measurement_id, r.card_kind, r.peak_mb) for r in p.machine_results] == [(1, '10de:2b85:00a1', 7930)]
         assert p.map == '/Game/Maps/Main' and p.overlay_path == 'project-fixes' and p.share_root is None
         assert p.merged[0] == ('gc.TimeBetweenPurgingPendingKillObjects', '4')
         assert dict(p.cvar_overrides) == OVERRIDES
 
     def test_pilot_has_no_frame_and_no_peak(self):
         p = validate_job_data(job(kind='pilot', frame=5, end_frame=6))
-        assert p.is_pilot and p.frame is None and p.measured_peak_mb is None
+        assert p.is_pilot and p.frame is None and p.machine_results == () and p.card_kind == '10de:2b85:00a1'
 
     def test_missing_kind_means_render(self):
         data = job()
@@ -33,9 +34,9 @@ class TestValidateJobData:
 
     @pytest.mark.parametrize('change,field', [
         ({'id': 0}, 'id'), ({'id': True}, 'id'), ({'renderer': 'BLENDER'}, 'renderer'),
-        ({'unreal_kind': 'sound'}, 'unreal_kind'), ({'unreal_measured_peak_mb': None}, 'unreal_measured_peak_mb'),
-        ({'unreal_measured_peak_mb': True}, 'unreal_measured_peak_mb'),
-        ({'unreal_measured_peak_mb': 1048577}, 'unreal_measured_peak_mb'),
+        ({'unreal_kind': 'sound'}, 'unreal_kind'), ({'unreal_machine_results': None}, 'unreal_machine_results'),
+        ({'unreal_machine_results': [{'peak_mb': True}]}, 'unreal_machine_results'),
+        ({'unreal_machine_results': 'x'}, 'unreal_machine_results'),
         ({'end_frame': 1001}, 'end_frame'), ({'start_frame': '1000'}, 'start_frame'),
         ({'start_frame': 20000000, 'end_frame': 20000000}, 'start_frame'),
         ({'engine_build': '5.7.4-51494982'}, 'engine_build'), ({'engine_build': '5.8.04-1'}, 'engine_build'),
@@ -45,9 +46,9 @@ class TestValidateJobData:
             validate_job_data(job(**change))
         assert info.value.field == field
 
-    def test_pilot_with_a_peak_is_rejected(self):
-        with pytest.raises(JobDataError, match='unreal_measured_peak_mb'):
-            validate_job_data(job(kind='pilot', unreal_measured_peak_mb=5))
+    def test_pilot_with_a_machine_result_is_rejected(self):
+        with pytest.raises(JobDataError, match='unreal_machine_results'):
+            validate_job_data(job(kind='pilot', unreal_machine_results=job()['unreal_machine_results']))
 
     @pytest.mark.parametrize('key,value', [
         ('source_type', 'blend_file'), ('uproject_path', '../x.uproject'), ('archive_path', 'incoming\\Demo.zip'),

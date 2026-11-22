@@ -42,7 +42,6 @@ export interface UnrealLatestMeasurement {
   peak_source: string | null;
   game_overrides: string | null;
   texture_streaming: string | null;
-  gate_need_mb: number | null;
   measured_at: string | null;
   worker_hostname: string | null;
   gpu_name: string | null;

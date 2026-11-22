@@ -42,7 +42,7 @@ class TestSuccess:
     def test_stores_the_result_and_finishes_the_pilot(self, pilot):
         job, worker, client = pilot
         resp = post_result(client, job.pk, pilot_body())
-        assert (resp.status_code, resp.data) == (200, {'status': 'DONE', 'peak_mb': 8102, 'gate_need_mb': 9318})
+        assert (resp.status_code, resp.data) == (200, {'status': 'DONE', 'peak_mb': 8102})
         job.refresh_from_db()
         assert (job.status, job.render_time_seconds, job.last_output) == ('DONE', 1380, 'pilot_frames=23')
         assert job.completed_at is not None

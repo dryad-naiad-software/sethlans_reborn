@@ -75,7 +75,7 @@ class TestPilotResult:
         job, worker, client = pilot
         body = pilot_body(game_overrides=pair[0], texture_streaming=pair[1])
         resp = post_result(client, job.pk, body)
-        assert (resp.status_code, resp.data) == (200, {'status': 'DONE', 'peak_mb': 8102, 'gate_need_mb': 9318})
+        assert (resp.status_code, resp.data) == (200, {'status': 'DONE', 'peak_mb': 8102})
         record = record_of(job)
         assert _pair(record) == pair
         assert (record.peak_mb, record.peak_source, record.card_delta_peak_mb, record.frames) == (8102, 'csv', 7930, 23)

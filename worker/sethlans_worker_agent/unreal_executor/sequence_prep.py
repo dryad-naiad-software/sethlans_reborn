@@ -49,6 +49,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from sethlans_worker_agent.unreal_executor import queue_prep
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure
+from sethlans_worker_agent.unreal_executor.queue_prep import sent_draft_cvars  # re-exported: pieces use it here
 from shared.unreal import shots_result, sound_result
 
 GIB = 1024 ** 3
@@ -59,12 +60,6 @@ MAX_SECTIONS, MAX_EXPORT_BYTES, MAX_OFFSET_SAMPLES = sound_result.MAX_SECTIONS, 
 SOURCE_KEYS = ('start', 'end', 'start_offset_samples', 'volume', 'looping', 'wav', 'sample_rate')
 _WAV_NAME = re.compile(r'src_[0-9]{3}\.wav', re.ASCII)
 _WORDS = {'game_overrides': queue_prep.GAME_OVERRIDES, 'texture_streaming': queue_prep.TEXTURE_STREAMING}
-
-
-def sent_draft_cvars(params) -> Tuple[Tuple[str, str], ...]:
-    """The draft CVars the merged list really sends (one a lower tier already beats is not sent, D11)."""
-    merged = {name.casefold(): value for name, value in params.merged}
-    return tuple((name, value) for name, value in params.seq.draft_cvars if merged.get(name.casefold()) == value)
 
 
 def range_params(params, output_dir, result_path, scripts_dir) -> Dict[str, Any]:

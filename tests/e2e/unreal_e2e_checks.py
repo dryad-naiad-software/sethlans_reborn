@@ -9,6 +9,8 @@ sequence rendering chunk 9).
 ``UnrealChecks`` is the manager + Unreal worker harness plus the checks
 every real Unreal run makes: the pilot's summary and CSV peak, the
 project's measurement with the brand-independent peak bound (#281), the
+worker's own memory results for a job (``unreal_machine_results``, sent
+only to worker-token requests: per-machine memory test FR-MT-T-3), the
 isolation snapshot (HostAuth excluded, OQ-31), no orphans, and no farm
 process that would prompt the firewall.
 """
@@ -16,6 +18,8 @@ process that would prompt the firewall.
 import logging
 
 from tests.e2e import unreal_isolation
+from tests.e2e.enrollment_helpers import resolve_worker_config_path, wait_for_worker_config
+from tests.e2e.tls_trust import manager_session
 from tests.e2e.unreal_e2e_config import (
     ENGINE_BUILD,
     MIN_PILOT_PEAK_MB,
@@ -57,6 +61,22 @@ class UnrealChecks(UnrealWorkflowHarness):
         assert resp.status_code == 200, f"GET {path}: {resp.status_code} {resp.text}"
         return resp.json()
 
+    def _worker_get(self, path):
+        """GET ``path`` with the worker's own token: the worker's view, worker-only fields included."""
+        config = wait_for_worker_config(resolve_worker_config_path(self.temp_dir / "worker_data"), timeout=30)
+        headers = {"Authorization": f"Token {config['manager']['api_token']}"}
+        with manager_session(self.manager_env) as session:
+            resp = session.get(f"{self.base_url}{path}", headers=headers, timeout=30)
+        assert resp.status_code == 200, f"Worker GET {path}: {resp.status_code} {resp.text}"
+        return resp.json()
+
+    def _machine_result(self, job_id, kind):
+        """The one ``unreal_machine_results`` entry of card kind ``kind`` the manager sends this worker for the job."""
+        results = self._worker_get(f"/api/jobs/{job_id}/")["unreal_machine_results"]
+        found = [entry for entry in results or [] if entry["card_kind"] == kind]
+        assert len(found) == 1, f"Job {job_id}: no single result of card kind {kind!r} for this worker: {results}"
+        return found[0]
+
     def _assert_pilot(self, pilot, expected):
         """The pilot is DONE with ``expected`` summary keys and a CSV peak within 10%."""
         assert pilot["status"] == "DONE", (
@@ -81,7 +101,7 @@ class UnrealChecks(UnrealWorkflowHarness):
         return peak_upper_bound_mb(gpus, latest["gpu_name"], latest["gpu_total_mb"])
 
     def _assert_measurement(self, pilot_id):
-        """The project's measurement is recorded and plausible; nothing is held."""
+        """The project's measurement is recorded and plausible; nothing is held. Returns ``latest``."""
         measurement = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]
         latest = measurement["latest"]
         assert latest["status"] == "measured", latest
@@ -99,7 +119,7 @@ class UnrealChecks(UnrealWorkflowHarness):
         assert latest["seconds_per_frame"] is not None, latest
         held = {k: measurement[k] for k in ("held_pending", "held_failed", "held_none")}
         assert held == {"held_pending": 0, "held_failed": 0, "held_none": 0}, held
-        return latest["peak_mb"]
+        return latest
 
     def _assert_isolated(self):
         orphans = unreal_isolation.orphans_of(self.cache_dir)

@@ -88,12 +88,6 @@ def covering_records(asset, overrides, target, needed, pairs):
     return found
 
 
-def covering_record(asset, overrides, target, needed, worker, kind):
-    """The record of ``worker`` and ``kind`` that covers key ``target``, or ``None`` (FR-MT-P-2)."""
-    pair = (getattr(worker, 'pk', worker), kind)
-    return covering_records(asset, overrides, target, needed, [pair]).get(pair)
-
-
 def derive(record, key):
     """Create key ``key``'s derived record from covering record ``record``; ``None`` when R changed.
 

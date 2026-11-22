@@ -32,6 +32,7 @@ from tests.integration.worker.unreal_executor._fake_ue import FAKE_UE_SCRIPT, ma
 BUILD = '5.8.4-58902052'
 GPU = 'NVIDIA GeForce RTX 5090'
 CARD_KEY = 'pci:0000:01:00.0'
+KIND = '10de:2b85:00a1'  # the card kind (per-machine memory test D1) of the fake card: choose_adapter's ids
 ADAPTER_INDEX = 1  # not 0, so a launch that ignored the choice would show
 OVERRIDES = {'Constraints.NewEvaluation': '1', 'r.Streaming.PoolSize': '9000'}
 
@@ -56,8 +57,8 @@ class FakeSampler:
 
     def reading(self):
         used = 3000 if self._busy() else 1000
-        return GpuMemoryReading(time.monotonic(), 'nvidia-smi', (GpuMem(0, GPU, 32607, used, None, None, CARD_KEY),),
-                                measures_card=True)
+        gpu = GpuMem(0, GPU, 32607, used, None, None, CARD_KEY, card_kind=KIND)
+        return GpuMemoryReading(time.monotonic(), 'nvidia-smi', (gpu,), measures_card=True)
 
     def fresh(self, max_age_s, deadline):
         return self.reading()
@@ -144,12 +145,19 @@ class Harness:
         self.manager = FakeManager()
         self.choices = []
 
+    kind = KIND  # the card kind of this machine's results and of a pilot
+
     def job(self, job_id, kind='render', frame=1000, peak=2000):
+        """A render or audio job carries one machine result of ``self.kind``; a pilot that card kind."""
+        results = [{'measurement_id': 1, 'card_kind': self.kind, 'peak_mb': peak, 'ram': None,
+                    'shared_peak_mb': None, 'driver_version': None}] if kind in ('render', 'audio') else None
+        settings = {'unreal.map': '/Game/Maps/Main', 'unreal.sequence': '/Game/Seq/Edit',
+                    'unreal.preset': '/Game/Presets/MRG', 'unreal.output_format': 'PNG'}
+        if kind == 'pilot':
+            settings['unreal.card_kind'] = self.kind
         return {'id': job_id, 'renderer': 'UNREAL', 'unreal_kind': kind,
-                'unreal_measured_peak_mb': peak if kind == 'render' else None, 'engine_build': BUILD,
-                'start_frame': frame, 'end_frame': frame,
-                'render_settings': {'unreal.map': '/Game/Maps/Main', 'unreal.sequence': '/Game/Seq/Edit',
-                                    'unreal.preset': '/Game/Presets/MRG', 'unreal.output_format': 'PNG'},
+                'unreal_machine_results': results, 'engine_build': BUILD,
+                'start_frame': frame, 'end_frame': frame, 'render_settings': settings,
                 'asset': {'source_type': 'shared_project', 'archive_path': 'incoming/demo.zip',
                           'uproject_path': 'Demo/Demo.uproject', 'archive_sha256': self.sha,
                           'project_details': {'unreal_cvar_overrides': dict(OVERRIDES)}}}

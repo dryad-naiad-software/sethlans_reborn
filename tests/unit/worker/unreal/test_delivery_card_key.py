@@ -17,7 +17,7 @@ from sethlans_worker_agent.unreal_executor.job_flow import FlowResult
 from sethlans_worker_agent.unreal_executor.pilot import PilotMetrics
 from sethlans_worker_agent.unreal_executor.summary import Summary
 from sethlans_worker_agent.unreal_executor.vram import GpuMem
-from tests.unit.worker.unreal._executor_fakes import params, reading
+from tests.unit.worker.unreal._executor_fakes import KIND, params, reading
 
 KEY = 'pci:0000:0a:00.0'
 
@@ -26,7 +26,7 @@ def _flow(card_key, game_overrides='preset', texture_streaming='fully_load'):
     metrics = PilotMetrics(peak_mb=8102, peak_source='card', card_delta_peak_mb=8102, csv_local_used_peak_mb=None,
                            baseline_used_mb=900, baseline_drift_mb=0, peak_phase='render', gpu_index=0,
                            max_sample_gap_s=1.0)
-    gpu = GpuMem(0, 'Test Card A', 16384, 900, None, None, card_key)
+    gpu = GpuMem(0, 'Test Card A', 16384, 900, None, None, card_key, card_kind=KIND)
     prep = SimpleNamespace(pilot_frames=(0, 1), game_overrides=game_overrides, texture_streaming=texture_streaming)
     return FlowResult(prep=prep, render_s=60.0, prep_s=10.0, warmup_s=30.0,
                       warmup_ran=True, render_time_seconds=60, metrics=metrics, gate_reading=reading(gpus=(gpu,)),
@@ -77,7 +77,7 @@ def test_the_report_carries_what_the_prep_said_the_render_ran_with(calls, game_o
 
 def test_the_report_names_the_flows_card_never_a_gate_reading_lookup(calls):
     """D22: ``FlowResult.card`` is the job's card; the gate reading's card at the peak's index is another one."""
-    job_card = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, 'pci:0000:41:00.0')
+    job_card = GpuMem(1, 'Radeon Test 24G', 24560, 300, None, None, 'pci:0000:41:00.0', card_kind=KIND)
     flow = dataclasses.replace(_flow(KEY), card=job_card)   # gate reading: index 0 is 'Test Card A' (KEY)
     assert flow.metrics.gpu_index == 0 and flow.gate_reading.gpus[0].card_key == KEY
     _delivery(calls).deliver(Outcome('success', flow=flow), integrity_ok=True)

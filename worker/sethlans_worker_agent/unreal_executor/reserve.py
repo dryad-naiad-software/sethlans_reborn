@@ -23,9 +23,12 @@ not claimed):
    cards in use (card selection C-27 b);
 5. ``source_type == 'shared_project'`` (part of 2; logged explicitly);
 6. the **static** VRAM gate on the sampler's latest reading (no wait):
-   the relaxed pilot gate (``pilot_need_mb``, a reading that measures card
-   memory) or the measured-peak gate (FR-UE-21), on the first free card it
-   fits (render per card D4, FR-PC-SEL-1; ``reserve_card.free_now``);
+   a pilot on the first free card of its card kind (no memory need, a
+   reading that measures card memory), a render or audio job on the first
+   free card whose kind has this machine's result and where that result's
+   peak fits under the 93% line (per-machine memory test D7, FR-MT-G-2,
+   ``vram_gate_check``; render per card D4, FR-PC-SEL-1;
+   ``reserve_card.free_now``);
 6a. the slot's farm Zen port is free or held by a farm zenserver;
 6b. the latest known-folder check passed within ``check_6b_max_age_s()``;
 7. the share state and 8. the FR-PA-3 probes (``reserve_share``);
@@ -33,10 +36,12 @@ not claimed):
    time) with its own short deadline, over the free cards read again; its
    card must be one of the Unreal cards in use read in step 4, and a
    pilot's card must have a card key (FR-GU-10). The reservation keeps that
-   gate: the job's first launch is asked for its card (``gate.card_key``).
+   gate: the job's first launch is asked for its card (``gate.card_key``);
+   the gate also carries the card's kind, its ``used`` and its result.
 9a. the RAM gate (``reserve_local.ram_gate``, render per card D9,
-   FR-PC-RAM-4, -6): the job's physical and commit need, checked only while
-   another job runs on the machine.
+   FR-PC-RAM-4, -6): the job's physical and commit need (from the gate's
+   result, per-machine memory test D11), checked only while another job runs
+   on the machine.
 
 A ``shots`` job (sequence rendering D3, FR-SD-3) skips only the memory gate
 (steps 6 and 9: no reading is needed); every other check runs.

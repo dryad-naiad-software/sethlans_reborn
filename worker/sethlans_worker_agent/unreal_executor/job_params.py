@@ -24,11 +24,12 @@ offending field. Checks:
   range and a lead-in, ``job_params_sequence``);
 * ``engine_build`` matches ``BUILD_RE`` and is supported;
 * ``unreal_kind`` is ``'render'`` (also when missing), ``'pilot'`` or a
-  sequence kind (``job_params_sequence``: ``'shots'``, ``'audio'``); a normal job needs
-  an ``int`` ``unreal_measured_peak_mb`` in ``[1, 1048576]``, a pilot must
-  have none (D2);
-* ``unreal_measured_ram`` (render per card FR-PC-MGR-2) is null or absent, or, for a
-  normal job only, the RAM figures ``job_ram.parse_measured`` accepts;
+  sequence kind (``job_params_sequence``: ``'shots'``, ``'audio'``);
+* ``unreal_machine_results`` (per-machine memory test FR-MT-G-1,
+  ``machine_results.parse``): this worker's results per card kind, a list
+  for a render or audio job, null or empty for a pilot or ``shots`` job; a
+  pilot carries its card kind in ``render_settings`` instead
+  (``job_params_sequence``);
 * ``asset.project_details.unreal_cvar_overrides`` passes ``validate_cvars``.
 
 The merged CVar list (FR-UE-5) is computed here once, so every later use
@@ -39,12 +40,11 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from sethlans_worker_agent.unreal_executor import cvars, job_ram
+from sethlans_worker_agent.unreal_executor import cvars, machine_results
 from sethlans_worker_agent.unreal_executor import job_params_sequence as sequence
 from shared.unreal import builds, validation
 from shared.unreal.share_paths import validate_share_relpath
 from shared.unreal.unc import UncPath
-from shared.unreal.vram_gate import MAX_PEAK_MB
 
 MAP, SEQUENCE, PRESET, OUTPUT_FORMAT = 'unreal.map', 'unreal.sequence', 'unreal.preset', 'unreal.output_format'
 REQUIRED_SETTINGS = (MAP, SEQUENCE, PRESET)
@@ -71,7 +71,6 @@ class JobParams:
     preset: str
     output_format: str
     frame: Optional[int]
-    measured_peak_mb: Optional[int]
     archive_path: str
     archive_sha256: str
     overlay_path: str
@@ -81,7 +80,7 @@ class JobParams:
     merged: Tuple[Tuple[str, str], ...]
     share_root: Optional[UncPath] = None
     seq: sequence.SequenceSettings = sequence.NONE
-    measured_ram: Optional[job_ram.MeasuredRam] = None  # FR-PC-RAM-4; None: no measurement
+    machine_results: Tuple[machine_results.MachineResult, ...] = ()  # FR-MT-G-1: per card kind (render, audio)
 
     @property
     def is_pilot(self) -> bool:
@@ -106,6 +105,11 @@ class JobParams:
     @property
     def piece(self) -> Optional[sequence.Piece]:
         return self.seq.piece
+
+    @property
+    def card_kind(self) -> str:
+        """A pilot's card kind (D4, ``unreal.card_kind``); '' for any other job."""
+        return self.seq.card_kind
 
     @property
     def merged_dict(self) -> Dict[str, str]:
@@ -183,24 +187,17 @@ def _frame(job_data) -> int:
     return start
 
 
-def _kind_and_peak(job_data) -> Tuple[str, Optional[int]]:
+def _kind(job_data) -> str:
     kind = job_data.get('unreal_kind') or 'render'
     _require(kind in KINDS, 'unreal_kind', f"must be one of {', '.join(KINDS)}")
     if kind in sequence.KINDS:
-        return kind, sequence.check(kind, job_data, _require)
-    peak = job_data.get('unreal_measured_peak_mb')
-    if kind == 'pilot':
-        _require(peak is None, 'unreal_measured_peak_mb', 'must be null for a pilot')
-        return kind, None
-    _require(_is_int(peak) and 1 <= peak <= MAX_PEAK_MB, 'unreal_measured_peak_mb',
-             f'a normal job needs a measured peak in [1, {MAX_PEAK_MB}]')
-    return kind, peak
+        sequence.check(kind, job_data, _require)
+    return kind
 
 
-def _measured_ram(kind: str, job_data) -> Optional[job_ram.MeasuredRam]:
-    raw = job_data.get('unreal_measured_ram')
-    _require(raw is None or kind == 'render', 'unreal_measured_ram', 'must be null for this job kind')
-    return _checked('unreal_measured_ram', job_ram.parse_measured, raw)
+def _machine_results(kind: str, job_data) -> Tuple[machine_results.MachineResult, ...]:
+    raw = job_data.get(machine_results.FIELD)
+    return _checked(machine_results.FIELD, lambda value: machine_results.parse(kind, value), raw)
 
 
 def validate_job_data(job_data: dict) -> JobParams:
@@ -216,8 +213,8 @@ def validate_job_data(job_data: dict) -> JobParams:
     _require(isinstance(build, str) and _checked('engine_build', builds.parse_build, build) is not None,
              'engine_build', 'invalid')
     _require(builds.is_supported(build), 'engine_build', 'not a supported build')
-    kind, peak = _kind_and_peak(job_data)
-    measured_ram = _measured_ram(kind, job_data)
+    kind = _kind(job_data)
+    results = _machine_results(kind, job_data)
     seq = sequence.settings(kind, job_data, job_data['render_settings'], output, _require)
     # A pilot's frames come from the prep (or the manager's list); shots render none; a piece has a range.
     frame = _frame(job_data) if kind == 'render' and seq.piece is None else None
@@ -228,5 +225,5 @@ def validate_job_data(job_data: dict) -> JobParams:
     except ValueError as exc:
         raise JobDataError('asset.project_details.unreal_cvar_overrides', str(exc)) from None
     return JobParams(job_id=job_id, kind=kind, engine_build=build, map=map_path, sequence=sequence_path,
-                     preset=preset, output_format=output, frame=frame, measured_peak_mb=peak,
-                     cvar_overrides=overrides, merged=merged, seq=seq, measured_ram=measured_ram, **asset)
+                     preset=preset, output_format=output, frame=frame, cvar_overrides=overrides, merged=merged,
+                     seq=seq, machine_results=results, **asset)

@@ -8,8 +8,9 @@ Real Unreal render E2E on a UE 5.8 node (Unreal foundation FR-T-8).
 Exercises the whole Unreal pipeline against a real manager, a real worker
 and a real UE 5.8 install: a single-frame job on the PoC project
 (``ACOMAnimationSample``, frame 1000) first makes the manager create the
-project's pilot (FR-PM); the normal job is held QUEUED until the pilot
-records a GPU memory measurement, then renders to DONE.
+project's pilot for this machine's card kind (FR-PM; per-machine memory
+test D4, D5); the normal job is held QUEUED until the pilot records a
+memory result that fits, then renders to DONE, gated by that result (D7).
 
 The output is verified the way the Blender E2E verifies its renders
 (``verify_image_output``: a valid, not solid-black image) plus the
@@ -57,6 +58,7 @@ PILOT_SUMMARY = {
     "vram_gate": "pilot",
     "pilot_frames": "23",
     "warmup": "ran",
+    "pilot_verdict": "fits",
 }
 RENDER_SUMMARY = {
     "kind": "render",
@@ -93,7 +95,9 @@ class TestUnrealWorkflow(UnrealChecks):
         """Creating the job created the pilot; the job is held for it."""
         job = self._get(f"/api/jobs/{job_id}/")
         assert job["status"] == "QUEUED", job
-        assert job["unreal_measured_peak_mb"] is None, job
+        assert job["unreal_machine_results"] is None, job  # worker-token requests only (FR-MT-T-3)
+        # The worker has no memory result of its own for this render yet.
+        assert self._worker_get(f"/api/jobs/{job_id}/")["unreal_machine_results"] == [], job_id
         assert job["routing_note"] == PENDING_NOTE, job["routing_note"]
         measurement = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]
         latest = measurement["latest"]
@@ -102,16 +106,25 @@ class TestUnrealWorkflow(UnrealChecks):
         assert latest["pilot_job_id"], latest
         return latest["pilot_job_id"]
 
-    def _assert_render(self, result, peak):
+    def _assert_render(self, result, latest, kind):
+        """DONE, gated by this machine's result of ``kind`` (the pilot's record ``latest``), a valid image."""
         assert result["status"] == "DONE", (
             f"Job did not complete successfully. Status: {result['status']}, "
             f"Error: {result.get('error_message', 'N/A')}\n{result.get('last_output')}"
         )
-        assert result["unreal_measured_peak_mb"] == peak, result
+        peak = latest["peak_mb"]
         summary = parse_summary(result["last_output"])
         assert_summary(summary, {**COMMON_SUMMARY, **RENDER_SUMMARY}, "Job")
-        assert int(summary["vram_measured_peak_mb"]) == peak, summary
+        # The first job after the pilot: its gate needed exactly the pilot's peak, on a card of the pilot's kind.
+        assert int(summary["vram_need_mb"]) == peak, summary
+        assert summary["vram_card_kind"] == kind, (kind, summary)
+        assert int(summary["vram_measurement_id"]) == latest["measurement_id"], (latest, summary)
         assert int(summary["vram_need_mb"]) <= int(summary["vram_usable_mb"]), summary
+        # The job's payload for this worker: its result of that kind. The result peak is
+        # max(pilot peak, job peaks reported since), so never below the pilot's (D2).
+        entry = self._machine_result(result["id"], kind)
+        assert entry["measurement_id"] == latest["measurement_id"], (entry, latest)
+        assert entry["peak_mb"] >= peak and entry["ram"] == latest["ram"], (entry, latest)
         assert summary.get("vram_peak_mb"), summary
         assert "log_flood" not in summary, summary
 
@@ -134,9 +147,11 @@ class TestUnrealWorkflow(UnrealChecks):
         # Before any check can fail: the pilot summary in the console.
         logger.info("Pilot %s summary:\n%s", pilot.get("status"), pilot.get("last_output"))
         self._assert_pilot(pilot, PILOT_SUMMARY)
-        peak = self._assert_measurement(pilot_id)
+        latest = self._assert_measurement(pilot_id)
+        kind = pilot["render_settings"].get("unreal.card_kind")
+        assert kind, f"The pilot names no card kind: {pilot['render_settings']}"
 
         result = poll_sampling(self.session, job_url, RENDER_TIMEOUT, watch.sample)
-        self._assert_render(result, peak)
+        self._assert_render(result, latest, kind)
         self._assert_isolated()
         self._assert_no_farm_listeners(watch)

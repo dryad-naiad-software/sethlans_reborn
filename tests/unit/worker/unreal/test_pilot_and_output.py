@@ -14,7 +14,8 @@ from tests.unit.worker.unreal._executor_fakes import outcome, phase_run, reading
 PILOT_FIELDS = {'peak_mb', 'peak_source', 'card_delta_peak_mb', 'baseline_used_mb', 'baseline_drift_mb', 'peak_phase',
                 'max_sample_gap_s', 'prep_s', 'warmup_s', 'warmup_ran', 'render_s', 'frames', 'seconds_per_frame',
                 'per_shot', 'gpu', 'engine_build', 'csv_local_used_peak_mb', 'overrides_sha256', 'summary',
-                'game_overrides', 'texture_streaming', 'ram', 'ram_process_commit_peak_mb', 'shared_machine'}
+                'game_overrides', 'texture_streaming', 'ram', 'ram_process_commit_peak_mb', 'shared_machine',
+                'card_kind', 'driver_version', 'verdict', 'shared_peak_mb', 'lower_bound_mb'}  # memory test FR-MT-V-3
 
 
 def runs():
@@ -35,10 +36,12 @@ class TestMeasure:
         assert pilot.measure(runs(), 8102).peak_source == 'csv' and pilot.measure(runs(), 8102).peak_mb == 8102
         assert pilot.measure(runs(), 7959).peak_source == 'card'
 
-    def test_saturation_names_the_card(self):
-        bad = runs()[:2] + [phase_run('render', {0: 1000}, {0: 1000}, trace({0: 30324}))]
-        with pytest.raises(JobFailure, match=r'saturated \(30324 of 30324 MB usable on a 32607 MB card\)'):
-            pilot.measure(bad, None)
+    def test_saturation_is_a_does_not_fit_verdict_not_a_failure(self):
+        """Per-machine memory test D6: a sample at floor(32607 * 0.93) = 30324 MB; lower bound = the peak."""
+        full = runs()[:2] + [phase_run('render', {0: 1000}, {0: 1000}, trace({0: 30324}))]
+        metrics = pilot.measure(full, None)
+        assert (metrics.verdict, metrics.lower_bound_mb, metrics.saturated) == ('does_not_fit', 29324, True)
+        assert pilot.measure(runs(), None).verdict == 'fits' and pilot.measure(runs(), None).lower_bound_mb is None
 
     def test_freed_memory_releases(self):
         bad = runs()[:2] + [phase_run('render', {0: 3000}, {0: 3000}, trace({0: 9000}, {0: 2400}))]
@@ -86,14 +89,16 @@ def _gpu(card_key=None):
 def test_report_body_matches_the_manager_schema():
     metrics = pilot.measure(runs(), 8102)
     body = pilot.report_body(metrics, _gpu('pci:0000:01:00.0'), prep_s=24.06, warmup_s=800.2, render_s=1380.5,
-                             frames=23, engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s')
+                             frames=23, engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s',
+                             card_kind='10de:2b85:00a1', driver_version=None)
     assert set(body) == PILOT_FIELDS and body['seconds_per_frame'] == 60.02 and body['warmup_ran'] is True
     assert body['gpu'] == {'index': 0, 'name': 'NVIDIA GeForce RTX 5090', 'total_mb': 32607,
                            'card_key': 'pci:0000:01:00.0'}
     assert body['game_overrides'] == body['texture_streaming'] == 'unknown'  # always sent (FR-GC-8)
     body = pilot.report_body(metrics, _gpu('pci:0000:01:00.0'), prep_s=1, warmup_s=1, render_s=1, frames=1,
                              engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s',
-                             game_overrides='implicit', texture_streaming='off')
+                             game_overrides='implicit', texture_streaming='off', card_kind='10de:2b85:00a1',
+                             driver_version=None)
     assert (body['game_overrides'], body['texture_streaming']) == ('implicit', 'off')
 
 
@@ -105,7 +110,7 @@ MANAGER_SUMMARY_LIMIT = 32 * 1024  # the manager's UTF-8 limit on pilot-result/ 
 def _pilot_body(summary):
     return pilot.report_body(pilot.measure(runs(), 8102), _gpu(), prep_s=1, warmup_s=1,
                              render_s=1, frames=1, engine_build='5.8.4-58902052', overrides_sha256='c' * 64,
-                             summary=summary)
+                             summary=summary, card_kind='10de:2b85:00a1', driver_version=None)
 
 
 def test_trimmed_pilot_summary_passes_the_manager_utf8_limit():
@@ -138,7 +143,7 @@ def test_worst_case_pilot_body_fits_the_manager_limit():
 
     body = pilot.report_body(pilot.measure(runs(), 8102), _gpu(), prep_s=1e9, warmup_s=1e9,
                              render_s=1e9, frames=2 ** 31 - 1, engine_build='5.8.4-58902052' * 4,
-                             overrides_sha256='c' * 64, summary=text)
+                             overrides_sha256='c' * 64, summary=text, card_kind='10de:2b85:00a1', driver_version=None)
     body['per_shot'] = [{'frame': 2 ** 31 - 1, 'render_s': 1.7976931348623157e308}] * MAX_PER_SHOT
 
     assert body['summary'].startswith(report_limits.OMITTED_HEAD_MARKER) and text.endswith(

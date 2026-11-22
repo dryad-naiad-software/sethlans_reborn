@@ -7,7 +7,11 @@ foundation FR-UE-8, FR-UE-7 "prep-result return path", FR-UE-25 prep).
 
 ``write_params`` writes ``params.json`` (atomic replace) from validated
 ``JobParams`` only; no job value is ever interpolated into Python source
-(UE scripts read this file through ``SETHLANS_UE_JOB_PARAMS``).
+(UE scripts read this file through ``SETHLANS_UE_JOB_PARAMS``). A pilot with
+a draft (``unreal.draft``, per-machine memory test OQ-1: the draft is part
+of the key it measures) gets the ``draft`` and ``draft_cvars`` a piece gets
+(``sent_draft_cvars``), so the prep's existing edit step (``edits.apply``,
+run on every duplicate) lowers the same settings the draft's pieces lower.
 
 ``read_result`` reads the prep result, which a UE process running project
 code wrote, so it is **untrusted** (Sec M4):
@@ -105,7 +109,15 @@ def prep_params(params, output_dir: str, result_path: str, scripts_dir: str) -> 
         data['resolution'] = list(seq.resolution)
     if seq is not None and seq.pilot_frames and params.is_pilot:
         data['pilot_frames'] = list(seq.pilot_frames)
+    if seq is not None and seq.draft and params.is_pilot:  # a draft pilot measures the draft (memory test OQ-1)
+        data.update(draft=dict(seq.draft), draft_cvars=[name for name, _value in sent_draft_cvars(params)])
     return data
+
+
+def sent_draft_cvars(params) -> Tuple[Tuple[str, str], ...]:
+    """The draft CVars the merged list really sends (one a lower tier already beats is not sent, D11)."""
+    merged = {name.casefold(): value for name, value in params.merged}
+    return tuple((name, value) for name, value in params.seq.draft_cvars if merged.get(name.casefold()) == value)
 
 
 @dataclass(frozen=True)

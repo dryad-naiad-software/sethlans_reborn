@@ -18,8 +18,6 @@ from django.db.models import Count, IntegerField, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
 from rest_framework.fields import DateTimeField
 
-from shared.unreal.vram_gate import measured_need_mb
-
 from ..constants import UnrealKind
 from ..models import Job, JobStatus, Project, UnrealMeasurement
 from .unreal_machine import JOB_KEY_REFS
@@ -90,14 +88,12 @@ def _latest(row):
     status = getattr(row, f'{_PREFIX}status')
     latest['status'] = status
     latest['reason'] = getattr(row, f'{_PREFIX}reason') if status == FAILED else None
-    peak = latest['peak_mb']
-    if peak is None:
+    if latest['peak_mb'] is None:
         for key in _RESULT_KEYS:
             latest[key] = None
     for key in _BLANK_AS_NULL:
         if latest[key] == '':
             latest[key] = None
-    latest['gate_need_mb'] = measured_need_mb(peak) if isinstance(peak, int) and peak > 0 else None
     if latest['measured_at'] is not None:
         latest['measured_at'] = DateTimeField().to_representation(latest['measured_at'])
     return latest

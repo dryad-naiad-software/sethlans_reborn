@@ -18,6 +18,19 @@ existing Job rows it needs before this (a claim holds its Job row and
 waits on the Worker row for its foreign-key check); :func:`workers_locked`
 tells whether that moment has passed.
 
+**Invariant:** every path that locks an ``UnrealMeasurement`` record
+(``FOR UPDATE``) or writes its ``current``, ``verdict`` or
+``stale_reason`` holds that record's Worker row first: creation and
+``derive`` through :func:`lock_workers`, ``machine_test_cancel.release_records``
+after it, ``pilot-result/`` (and ``memory-report/``) through the caller's
+own Worker row after its Job row, and the Worker ``pre_delete`` handler.
+The Worker row therefore serializes every writer of one (worker, card
+kind) pair's records across projects, which is what lets ``pilot-result/``
+apply D3 to other projects' records without their ``lock_project``.  The
+only other record lock is a Job delete's ``SET_NULL`` of ``pilot_job``:
+it comes after that pilot's Job row, writes none of those fields and
+waits on no Worker row.
+
 The marker follows ``unreal_pilot.lock_project``: it counts only while its
 ``on_commit`` token is pending in the current transaction (a rollback of
 the transaction or of the savepoint the lock was taken in discards it).

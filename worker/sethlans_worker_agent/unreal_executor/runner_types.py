@@ -109,6 +109,9 @@ class VramTrace:
     job_peak_mb: Optional[int] = None         # on the launch's card, from the first output file on
     job_other_cards_mb: Optional[int] = None  # the largest on any other card, from the first output file on
     job_unknown: bool = False                 # a sample in that window could not be attributed
+    # Other programs' use of the launch's card: card used minus the members' own MiB on it, the largest per GPU
+    # over the attributed samples of the whole launch (per-machine memory test Q10; D9's ``others``).
+    max_others: Dict[int, int] = field(default_factory=dict)
 
     def add(self, reading, own_pids: Optional[FrozenSet[int]] = None, window: bool = False) -> None:
         """Add one reading, timed by its own ``taken_at``; a reading already added is skipped.
@@ -136,6 +139,7 @@ class VramTrace:
         """The members' MiB per card; ``per_pid`` holds every card of the machine, ``gpus`` the launch's own."""
         per_pid = reading.per_pid
         mine = {key_address(gpu.card_key): gpu.index for gpu in reading.gpus}
+        card_used = {gpu.index: gpu.used_mb for gpu in reading.gpus}
         if per_pid is None or not set(mine) <= {key_address(key) for key in per_pid}:
             self.job_unknown = self.job_unknown or window
             return
@@ -144,6 +148,7 @@ class VramTrace:
             index = mine.get(key_address(key))
             if index is not None:
                 self.max_job[index] = max(self.max_job.get(index, 0), used)
+                self.max_others[index] = max(self.max_others.get(index, 0), max(0, card_used[index] - used))
                 if window:
                     self.job_peak_mb = max(self.job_peak_mb or 0, used)
             elif window:

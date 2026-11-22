@@ -27,7 +27,7 @@ import pytest
 
 from workers.models import Project, UnrealMeasurement
 from workers.services import machine_tests
-from workers.services.machine_coverage import COPIED_FIELDS, covering_record, needed_ranges
+from workers.services.machine_coverage import COPIED_FIELDS, covering_records, needed_ranges
 from workers.services.machine_tests import pair_states
 from workers.services.unreal_pilot import Target
 
@@ -116,8 +116,9 @@ class TestCovered:
         asset, worker = setup
         covering(asset, worker)
         newer = covering(asset, worker, seq('e', RANGES + ((30, 34),)))
-        assert covering_record(asset, asset.project.unreal_overrides_sha256, SUBSET, needed_ranges(SUBSET),
-                               worker, KIND) == newer
+        found = covering_records(asset, asset.project.unreal_overrides_sha256, SUBSET, needed_ranges(SUBSET),
+                                 [(worker, KIND)])
+        assert found == {(worker.pk, KIND): newer}
 
 
 @pytest.mark.django_db

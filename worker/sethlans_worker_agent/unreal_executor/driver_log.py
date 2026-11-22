@@ -138,11 +138,17 @@ def _why_unknown(found: Dict[int, Optional[str]], chosen: Optional[int]) -> str:
 
 
 def launch_driver(render_log, warmup_log=None) -> DriverReading:
-    """FR-MT-V-1: the chosen adapter's driver from the render log, else from the warm-up log."""
-    found, chosen = _read(render_log, SOURCE_RENDER)
-    source = SOURCE_RENDER if found else None
+    """FR-MT-V-1: the chosen adapter's driver from the render log, else from the warm-up log.
+
+    ``render_log=None`` (a pilot whose warm-up failed: no render launch) reads the warm-up log alone.
+    """
+    found, chosen, source = {}, None, None
+    if render_log is not None:
+        found, chosen = _read(render_log, SOURCE_RENDER)
+        source = SOURCE_RENDER if found else None
     if not found and warmup_log is not None:
-        logger.info("The render log has no D3D12 adapter lines; reading the driver version from the warm-up log.")
+        if render_log is not None:
+            logger.info("The render log has no D3D12 adapter lines; reading the driver version from the warm-up log.")
         found, chosen = _read(warmup_log, SOURCE_WARMUP)
         source = SOURCE_WARMUP if found else None
     version = _known(found.get(chosen)) if chosen is not None else None

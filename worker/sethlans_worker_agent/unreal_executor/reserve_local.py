@@ -15,6 +15,9 @@ holds a claim (Unreal or Blender). A job alone is never held (D9: today's behavi
   absent **or** the marker is stale (other farm defaults or shader-relevant CVars). Without the
   archive's cache entry (``ReserveDeps.entry_dir`` gives ``None``) the marker is absent, so a
   warm-up is planned. A ``shots`` job runs the prep only: no warm-up.
+* **Measured figures** (per-machine memory test D11, FR-MT-G-3): the ``ram`` of the result the gate
+  chose for the job's card (``gate.result``, the same record and card kind as the gate's peak); a pilot,
+  a ``shots`` job or a result without RAM figures uses the defaults (``job_ram.need``).
 * **Card size** for the commit default: the gated card's ``total_mb`` (``gate.summary['vram_mb']``);
   ``shots`` 0 (its prep commandlet uses no GPU, D3). A gated job without the figure is declined.
 * **Physical:** ``need_ws <= available - ram_reserve - outstanding_ws``, ``available`` =
@@ -114,6 +117,12 @@ def card_total_mb(params, gate) -> int:
     return total
 
 
+def measured_ram(gate) -> Optional[job_ram.MeasuredRam]:
+    """D11: the RAM figures of the result the gate chose (``None``: no result, or one without figures)."""
+    result = getattr(gate, 'result', None)
+    return result.ram if result is not None else None
+
+
 def others_running(capacity, ledger) -> bool:
     """Another job runs: the capacity holds a reservation or the RAM ledger a claim."""
     return (capacity is not None and not capacity.has_no_reservations()) or ledger.has_claims()
@@ -157,7 +166,7 @@ def ram_gate(params, gate, slot: int, deps, ledger) -> RamDecision:
         total = card_total_mb(params, gate)
     except ValueError as exc:
         return RamDecision(False, None, str(exc))
-    need = job_ram.need(params.measured_ram, warmup_planned(params, entry_dir, slot), total,
+    need = job_ram.need(measured_ram(gate), warmup_planned(params, entry_dir, slot), total,
                         settings.default_ws_mb, settings.default_commit_mb)
     capacity = deps.capacity() if deps.capacity is not None else None
     if not others_running(capacity, ledger):

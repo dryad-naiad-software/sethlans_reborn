@@ -112,7 +112,7 @@ class JobPilotActionsMixin:
                 description=(
                     '{"detail": "Unknown keys: ..."}, or a per-field error object '
                     '{"<field>": ["<message>", ...]} (types, bounds, engine build, '
-                    'GPU cross-check, plausibility).'
+                    'GPU cross-check, plausibility, card kind, verdict).'
                 ),
             ),
             404: _ERROR, 409: _ERROR,
@@ -123,7 +123,7 @@ class JobPilotActionsMixin:
         """Store a successful pilot's measurement and finish the pilot (FR-PM-4).
 
         Returns:
-            200 ``{"status": "DONE", "peak_mb": n, "gate_need_mb": need}``;
+            200 ``{"status": "DONE", "peak_mb": n}`` (verdict ``fits`` or ``does_not_fit``);
             400 for the body or a job-dependent rule; 404 for an unknown
             job; 409 when the job is not rendering on this worker, is not
             a pilot, or rendered other CVars.  A repeat gets 409.

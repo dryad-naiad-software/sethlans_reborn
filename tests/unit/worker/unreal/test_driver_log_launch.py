@@ -91,6 +91,38 @@ class TestSources:
             reading.version = 'x'
 
 
+class TestWarmupOnly:
+    """``render_log=None``: a pilot whose warm-up failed has no render launch; the warm-up log alone is read."""
+
+    def test_the_warmup_log_is_the_source(self, logs):
+        assert driver_log.launch_driver(None, fixture('amd_discrete_modelled.txt')) == DriverReading(AMD_DISCRETE, 'warmup')
+        assert messages(logs, logging.INFO) == [] and messages(logs, logging.WARNING) == []
+
+    def test_no_render_log_is_never_opened(self, monkeypatch, logs):
+        opened = []
+        real = driver_log._scan
+        monkeypatch.setattr(driver_log, '_scan', lambda path: (opened.append(path), real(path))[1])
+        driver_log.launch_driver(None, fixture('nvidia.txt'))
+        assert opened == [fixture('nvidia.txt')]
+
+    def test_a_warmup_log_without_adapter_lines(self, logs):
+        assert driver_log.launch_driver(None, fixture('no_adapter_lines.txt')) == DriverReading(None, None)
+        assert messages(logs, logging.INFO) == [] and messages(logs, logging.WARNING) == [UNKNOWN_WHY.format(NO_LINES)]
+
+    def test_an_unknown_driver_in_the_warmup_log(self, logs):
+        assert driver_log.launch_driver(None, fixture('driver_unknown.txt')) == DriverReading(None, 'warmup')
+        assert messages(logs, logging.WARNING) == [UNKNOWN_WHY.format('Unreal logged the driver version as Unknown')]
+
+    def test_an_unreadable_warmup_log_alone(self, tmp_path, logs):
+        assert driver_log.launch_driver(None, tmp_path / 'warmup.log') == DriverReading(None, None)
+        warnings = messages(logs, logging.WARNING)
+        assert len(warnings) == 2 and 'render log' not in warnings[0] and warnings[1] == UNKNOWN_WHY.format(NO_LINES)
+
+    def test_neither_log(self, logs):
+        assert driver_log.launch_driver(None, None) == DriverReading(None, None)
+        assert messages(logs, logging.WARNING) == [UNKNOWN_WHY.format(NO_LINES)]
+
+
 class TestWarningReasons:
 
     @pytest.mark.parametrize('name, reason', [

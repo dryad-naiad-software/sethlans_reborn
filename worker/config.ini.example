@@ -152,6 +152,10 @@ key_file =
 # ram_default_ws_mb = 16384
 # ram_default_commit_mb = 32768
 # ram_blender_mb = 4096
+# Margin (MB, 0-65536) for other programs' use of an Unreal job's graphics
+# card: when it rises by more than this during a memory test (pilot), the
+# test records no result and runs again later.
+# spill_margin_mb = 256
 # Start-up rule for Unreal renders on several cards: together (default)
 # lets a second render start while another is still starting up (before
 # its first frame is written); one_at_a_time claims no Unreal job while

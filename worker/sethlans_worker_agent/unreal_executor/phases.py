@@ -9,7 +9,8 @@ FR-UE-26, FR-UE-27; chunk 7 integration requirements 10, 11, 15).
 
 0. no launch once a cancel cause or the shutdown is set (``Cancelled``);
    ``zen_guard.scan_project_config`` again on the working copy (an earlier
-   phase ran project code), a hit failing the job (FR-UE-24);
+   phase ran project code), a hit failing the job (FR-UE-24,
+   ``IsolationFailure``);
 1. ``prelaunch.check_before_launch`` (the one pre-launch function: profile
    repair, the known-folder probe before the job's **first** launch, the
    farm-profile config check, the Zen port re-check). A failure raises
@@ -34,7 +35,7 @@ FR-UE-26, FR-UE-27; chunk 7 integration requirements 10, 11, 15).
    rule raises ``LocalConflict`` and disables Unreal until restart; a cancel
    cause raises ``Cancelled``;
 5. the FR-UE-26 Zen log verification (data path, port, override line),
-   failing with ``zen=FAILED``.
+   failing with ``zen=FAILED`` (``IsolationFailure``).
 
 The ``RunOutcome`` and readings are returned for the phase-specific checks.
 """
@@ -44,7 +45,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from sethlans_worker_agent.unreal_executor import adapter_log, log_validation, vram, zen_log, zen_port
-from sethlans_worker_agent.unreal_executor.outcomes import Cancelled, JobFailure, LocalConflict, SurvivorsLeft
+from sethlans_worker_agent.unreal_executor.outcomes import Cancelled, IsolationFailure, LocalConflict, SurvivorsLeft
 from sethlans_worker_agent.unreal_executor.process_runner import phase_vram_sample
 from sethlans_worker_agent.unreal_executor.runner_types import CANCEL_CAUSES, MB, RunSpec
 
@@ -120,7 +121,7 @@ class PhaseRunner:
             return
         result = self.zen_scan(self.project_dir)
         if not result.ok:
-            raise JobFailure(result.message)
+            raise IsolationFailure(result.message)
 
     def _prelaunch(self) -> None:
         cfg = self.config
@@ -190,7 +191,7 @@ class PhaseRunner:
             raise Cancelled(outcome.reason)
         run.zen_ok = self._verify_zen(run)
         if not run.zen_ok and outcome.reason in ('exited', 'exited_after_grace'):
-            raise JobFailure(zen_log.FAILED_MESSAGE)  # a failed phase keeps its own, more specific message
+            raise IsolationFailure(zen_log.FAILED_MESSAGE)  # a failed phase keeps its own, more specific message
         return run
 
     def _verify_zen(self, run: PhaseRun) -> bool:

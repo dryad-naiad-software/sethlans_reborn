@@ -10,9 +10,13 @@ The phases raise one of these; ``job_run`` maps them:
 * ``JobFailure(message)``: a content or render failure -> ``ERROR`` with
   ``message`` (a pilot's message gets the ``"Pilot render failed: "``
   prefix);
+* ``IsolationFailure(message)``: a ``JobFailure`` of the farm's isolation
+  (the Zen/ini guard before a launch, the Zen log verification after one),
+  never caused by the card's memory, so a pilot never turns it into a
+  measurement (per-machine memory test D6, ``pilot_flow.after_failure``);
 * ``LocalConflict(reason, message)``: a local, transient condition (a
   foreign listener on the Zen port, a failed known-folder check, the
-  pilot's freed-memory or sampling-gap rule) -> ``release/`` with
+  pilot's freed-memory, sampling-gap or other-programs rule) -> ``release/`` with
   ``reason`` (``dispatch_failed`` before the first launch, else
   ``local_conflict``), ``released=True``;
 * ``Cancelled(cause)``: ``'canceled'`` -> ``CANCELED``; ``'shutdown'`` ->
@@ -28,6 +32,10 @@ class JobFailure(Exception):
     def __init__(self, message: str):
         self.message = str(message)
         super().__init__(self.message)
+
+
+class IsolationFailure(JobFailure):
+    """The farm's isolation failed (Zen/ini guard, Zen log); a failure, never a memory figure."""
 
 
 class LocalConflict(Exception):

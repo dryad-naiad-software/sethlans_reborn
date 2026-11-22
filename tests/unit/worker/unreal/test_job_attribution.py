@@ -20,9 +20,9 @@ MINE, OTHER, THIRD = 'pci:0000:41:00.0', 'pci:0000:0a:00.0', 'pci:0000:0b:00.0'
 OWN = frozenset({ROOT_PID, 1001})
 
 
-def reading(taken_at, per_pid, key=MINE):
+def reading(taken_at, per_pid, key=MINE, used=9000):
     """The launch's card alone (``phases`` cuts it); ``per_pid`` keeps every card of the machine."""
-    return GpuMemoryReading(taken_at, 'pdh', (GpuMem(1, 'Card', 24560, 9000, None, None, key),), measures_card=True,
+    return GpuMemoryReading(taken_at, 'pdh', (GpuMem(1, 'Card', 24560, used, None, None, key),), measures_card=True,
                             per_pid=per_pid)
 
 
@@ -81,6 +81,38 @@ class TestTrace:
         assert trace.job_peak_mb == 7000
 
 
+class TestOthers:
+    """Q10: other programs' use of the launch's card is its ``used`` minus the members' own MiB on it."""
+
+    def test_card_used_minus_the_members_on_that_card(self):
+        trace = VramTrace()
+        trace.add(reading(1.0, {MINE: {ROOT_PID: 7000, 1001: 300, 9999: 5000}, OTHER: {ROOT_PID: 40}}), OWN)
+        assert trace.max_others == {1: 9000 - 7300}
+
+    def test_the_largest_over_every_attributed_sample_start_up_included(self):
+        trace = VramTrace()
+        trace.add(reading(1.0, {MINE: {ROOT_PID: 7000}}, used=9000), OWN, window=False)   # 2000, before any file
+        trace.add(reading(2.0, {MINE: {ROOT_PID: 8000}}, used=9500), OWN, window=True)    # 1500
+        trace.add(reading(3.0, None, used=20000), OWN, window=True)                       # not split by process
+        assert trace.max_others == {1: 2000}
+
+    def test_members_above_the_card_figure_floor_at_zero(self):
+        trace = VramTrace()
+        trace.add(reading(1.0, {MINE: {ROOT_PID: 9500}}, used=9000), OWN)
+        assert trace.max_others == {1: 0}
+
+    def test_a_padded_key_spelling_is_the_same_card(self):
+        trace = VramTrace()
+        trace.add(reading(1.0, {'pci:00000000:41:00.0': {ROOT_PID: 6000}}), OWN)
+        assert trace.max_others == {1: 3000}
+
+    def test_a_sample_that_cannot_be_split_by_process_fills_nothing(self):
+        for per_pid, own in ((None, OWN), ({OTHER: {ROOT_PID: 40}}, OWN), ({MINE: {ROOT_PID: 7000}}, None)):
+            trace = VramTrace()
+            trace.add(reading(1.0, per_pid), own, window=True)
+            assert trace.max_others == {} and trace.samples == 1
+
+
 class TestFirstOutput:
 
     def test_seen_once_a_file_is_in_the_folder(self, tmp_path):
@@ -120,3 +152,4 @@ class TestRunnerHandsItsMembers:
         world.steps[3] = lambda: setattr(world.root, 'alive', False)
         outcome = world.run(world.spec(vram_sample=lambda t: reading(world.clock.now, {MINE: {ROOT_PID: 5000}})))
         assert outcome.vram.max_job == {1: 5000} and outcome.vram.job_peak_mb is None
+        assert outcome.vram.max_others == {1: 9000 - 5000}   # Q10: every attributed sample, no window needed

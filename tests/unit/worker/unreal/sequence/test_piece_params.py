@@ -28,7 +28,7 @@ class TestPiece:
         piece = p.piece
         assert (piece.start, piece.end, piece.lead, piece.first, piece.rendered) == (100, 129, 30, 70, 60)
         assert piece.shots == ((3, 100, 110), (4, 110, 130)) and piece.output_size == (1920, 1080)
-        assert p.seq.shot_set_sha256 == SHA and p.measured_peak_mb == 7930
+        assert p.seq.shot_set_sha256 == SHA and [r.peak_mb for r in p.machine_results] == [7930]
 
     def test_a_one_frame_piece_at_frame_0_without_a_lead_in(self):
         p = piece_params(start=0, end=0, lead=0, size=None)
@@ -158,7 +158,7 @@ class TestWhoMayCarryWhat:
         data = job(kind='pilot', render_settings=dict(SETTINGS, **{'unreal.pilot_frames': frames}))
         assert _field(data) == 'render_settings.unreal.pilot_frames'
 
-    @pytest.mark.parametrize('key,value', [('unreal.draft', {}), ('unreal.piece_shots', [[1, 0, 1]])])
+    @pytest.mark.parametrize('key,value', [('unreal.output_size', [64, 64]), ('unreal.piece_shots', [[1, 0, 1]])])
     def test_a_pilot_never_carries_piece_keys(self, key, value):
         assert _field(job(kind='pilot', render_settings=dict(SETTINGS, **{key: value}))) == 'render_settings'
 

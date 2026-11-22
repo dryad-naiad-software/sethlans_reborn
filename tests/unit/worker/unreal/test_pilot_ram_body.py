@@ -16,7 +16,8 @@ RAM = {'prep': {'ws_mb': 3000, 'commit_mb': 5000},
 
 def body(**kwargs):
     return pilot.report_body(METRICS, GPU, prep_s=1, warmup_s=1, render_s=10, frames=5,
-                             engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s', **kwargs)
+                             engine_build='5.8.4-58902052', overrides_sha256='c' * 64, summary='s',
+                             card_kind='10de:2b85:00a1', driver_version=None, **kwargs)
 
 
 def test_the_fields_are_always_sent_with_unknown_defaults():
