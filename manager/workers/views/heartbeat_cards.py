@@ -13,7 +13,10 @@ level; an invalid list entry is dropped and the rest kept; an invalid
 top-level value is left out; strings are capped and sanitised.
 ``request_outcome`` is not stored here (FR-CM-13).  States are FR-CR-1's
 plus ``unknown`` (a ticked card missing after a failed OS probe, C-24a); a
-``lost`` card is a card entry carrying its saved record.
+``lost`` card is a card entry carrying its saved record.  A card's
+``job_id`` and ``renderer`` (Unreal render per card FR-PC-MGR-3) are
+*nullable on invalid*: an invalid value is stored ``null`` and the card is
+kept; the two are a pair, both ``null`` unless both are valid.
 """
 import logging
 import re
@@ -21,6 +24,7 @@ import threading
 from datetime import datetime
 
 from ..card_keys import is_card_key
+from ..constants import Renderer
 from ..serializers.worker_card_schemas import (
     CARD_ALERT_KINDS, CARD_BACKENDS, CARD_GPU_MODES, CARD_METHODS, CARD_NOTICE_KINDS,
     CARD_STATES as _STATES,
@@ -36,8 +40,10 @@ MAX_NAME_LENGTH = 128
 MAX_PCI_ID = 0xFFFF
 MAX_REVISION = 2 ** 31 - 1
 MAX_RAISED_AT_LENGTH = 40
+MAX_JOB_ID = 2 ** 31 - 1
 METHODS, GPU_MODES, CARD_STATES = frozenset(CARD_METHODS), frozenset(CARD_GPU_MODES), frozenset(_STATES)
 BACKENDS, ALERT_KINDS, NOTICE_KINDS = frozenset(CARD_BACKENDS), frozenset(CARD_ALERT_KINDS), frozenset(CARD_NOTICE_KINDS)
+RENDERERS = frozenset(Renderer.values)
 _ALERT_ID = re.compile(r'[0-9a-f]{32}', re.ASCII)
 _WARNING_CODE = re.compile(r'[a-z_]{1,32}', re.ASCII)
 
@@ -72,6 +78,14 @@ def _choice(allowed, nullable=False):
     return _when(lambda raw: isinstance(raw, str) and raw in allowed, nullable)
 
 
+def _null_on_invalid(check):
+    """*Nullable on invalid*: a value ``check`` rejects is stored ``None``; the entry is kept."""
+    def lenient(raw):
+        value = check(raw)
+        return None if value is _INVALID else value
+    return lenient
+
+
 _bool = _when(lambda raw: isinstance(raw, bool))
 _bool_or_null = _when(lambda raw: isinstance(raw, bool), nullable=True)
 _pci_id = _when(lambda raw: _int_in(raw, 0, MAX_PCI_ID), nullable=True)
@@ -80,6 +94,8 @@ _key = _when(is_card_key)
 _key_or_null = _when(is_card_key, nullable=True)
 _alert_id = _when(is_alert_id)
 _warning_code = _when(lambda raw: isinstance(raw, str) and _WARNING_CODE.fullmatch(raw) is not None)
+_job_id = _null_on_invalid(_when(lambda raw: _int_in(raw, 1, MAX_JOB_ID), nullable=True))
+_renderer = _null_on_invalid(_choice(RENDERERS, nullable=True))
 
 
 def _raised_at(raw):
@@ -106,19 +122,22 @@ _CARD_FIELDS = (
     ('ticked', _bool, False), ('state', _choice(CARD_STATES), _REQUIRED), ('blender', _bool, False),
     ('backend', _choice(BACKENDS, nullable=True), None), ('note', _LONG_TEXT, ''),
     ('screen', _bool_or_null, None), ('primary_screen', _bool_or_null, None),
+    ('job_id', _job_id, None), ('renderer', _renderer, None),
 )
+# Fields that are valid only together: when any is ``None`` all become ``None``.
+_CARD_PAIRS = (('job_id', 'renderer'),)
 _ALERT_FIELDS = (
     ('id', _alert_id, _REQUIRED), ('kind', _choice(ALERT_KINDS), _REQUIRED), ('key', _key, _REQUIRED),
     ('name', _NAME, ''), ('detail', _LONG_TEXT, ''), ('raised_at', _raised_at, None),
 )
 _NOTICE_FIELDS = (('kind', _choice(NOTICE_KINDS), _REQUIRED), ('key', _key, _REQUIRED), ('name', _NAME, ''))
 _WARNING_FIELDS = (('code', _warning_code, _REQUIRED), ('key', _key_or_null, None), ('text', _LONG_TEXT, _REQUIRED))
-# (list name, entry fields, fields that must be unique across the list).
+# (list name, (entry fields, field pairs), fields that must be unique across the list).
 _LISTS = (
-    ('cards', _CARD_FIELDS, ('key',)),
-    ('alerts', _ALERT_FIELDS, ('id',)),
-    ('notices', _NOTICE_FIELDS, ('kind', 'key')),
-    ('warnings', _WARNING_FIELDS, ()),
+    ('cards', (_CARD_FIELDS, _CARD_PAIRS), ('key',)),
+    ('alerts', (_ALERT_FIELDS, ()), ('id',)),
+    ('notices', (_NOTICE_FIELDS, ()), ('kind', 'key')),
+    ('warnings', (_WARNING_FIELDS, ()), ()),
 )
 # Top-level values; an absent or invalid one is left out.
 _TOP_FIELDS = (
@@ -128,8 +147,13 @@ _TOP_FIELDS = (
 )
 
 
-def _entry(raw, fields):
-    """Return the cleaned entry, or ``None`` when it is invalid."""
+def _entry(raw, shape):
+    """Return the cleaned entry, or ``None`` when it is invalid.
+
+    ``shape`` is ``(fields, pairs)``: the ``(field, check, default)``
+    tuples and the groups of fields that are ``None`` unless all are set.
+    """
+    fields, pairs = shape
     if not isinstance(raw, dict):
         return None
     entry = {}
@@ -143,16 +167,19 @@ def _entry(raw, fields):
         if value is _INVALID:
             return None
         entry[name] = value
+    for pair in pairs:
+        if any(entry[name] is None for name in pair):
+            entry.update(dict.fromkeys(pair))
     return entry
 
 
-def _entries(raw, fields, unique, label):
+def _entries(raw, shape, unique, label):
     """Clean one list: invalid and repeated entries dropped, at most 16 kept."""
     if not isinstance(raw, list):
         return []
     kept, seen = [], set()
     for item in raw:
-        entry = _entry(item, fields)
+        entry = _entry(item, shape)
         identity = tuple(entry[name] for name in unique) if entry else None
         if entry is None or (unique and identity in seen):
             logger.debug("Dropping invalid card report %s entry: %.200r", label, item)
@@ -175,8 +202,8 @@ def validate_card_report(raw):
             value = check(raw[name])
             if value is not _INVALID:
                 report[name] = value
-    for name, fields, unique in _LISTS:
-        report[name] = _entries(raw.get(name), fields, unique, name)
+    for name, shape, unique in _LISTS:
+        report[name] = _entries(raw.get(name), shape, unique, name)
     return report
 
 

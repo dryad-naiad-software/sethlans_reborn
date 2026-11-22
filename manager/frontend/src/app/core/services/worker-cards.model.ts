@@ -18,6 +18,8 @@ export type CardBackend = 'CUDA' | 'OPTIX' | 'HIP' | 'ONEAPI' | 'METAL';
 export type CardAlertKind =
   'card_lost' | 'card_changed' | 'card_lost_blender' | 'adapter_mismatch';
 export type CardNoticeKind = 'card_new' | 'card_gone';
+/** The renderer of the job holding a card (Unreal render per card FR-PC-MGR-3). */
+export type CardRenderer = 'BLENDER' | 'UNREAL';
 /**
  * The outcome codes, in the order of the manager's `CARD_OUTCOME_CODES`
  * (`manager/workers/serializers/worker_card_schemas.py`); `mixed_brands` is
@@ -42,6 +44,9 @@ export interface CardEntry {
   note?: string;
   screen?: boolean | null;
   primary_screen?: boolean | null;
+  /** The job holding the card; null when free. Null exactly when `renderer` is (FR-PC-MGR-3). */
+  job_id?: number | null;
+  renderer?: CardRenderer | null;
 }
 
 /** An open alert. The manager drops entries without `id`, `kind`, `key` or `raised_at`. */

@@ -57,6 +57,18 @@ describe('WorkerCardsComponent', () => {
     expect(rows[2].querySelector('.card-state')!.classList).toContain('tone-bad');
   });
 
+  it('shows the job holding each card, Blender or Unreal, and nothing when free (FR-PC-MGR-4)', () => {
+    const el = render(makeWorker({ card_status: makeStatus({ cards: [
+      makeCard({ job_id: 12, renderer: 'BLENDER' }),
+      makeCard({ key: 'pci:0000:02:00.0', job_id: 345, renderer: 'UNREAL' }),
+      makeCard({ key: 'pci:0000:03:00.0', job_id: null, renderer: null }),
+      makeCard({ key: 'pci:0000:04:00.0' }),
+    ] }) }));
+    const jobs = Array.from(el.querySelectorAll('tr.card .card-job')).map(td => td.textContent!.trim());
+    expect(jobs).toEqual(['Rendering job 12 (Blender)', 'Rendering job 345 (Unreal)', '', '']);
+    expect(el.querySelector('table.cards thead')!.textContent).toContain('Job');
+  });
+
   it('shows the screen marks of each card (FR-CS-4)', () => {
     const { screen, primary_screen, ...absent } = makeCard({ key: 'pci:0000:05:00.0' });
     const el = render(makeWorker({ card_status: makeStatus({ cards: [

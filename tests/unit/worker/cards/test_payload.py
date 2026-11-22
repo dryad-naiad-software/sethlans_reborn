@@ -64,10 +64,10 @@ class TestShape:
             'cards': [
                 {'key': KEY_XT_03, 'name': 'AMD Radeon RX 7900 XT', 'vendor_id': AMD, 'device_id': 0x744C,
                  'ticked': False, 'state': 'unticked', 'blender': True, 'backend': 'HIP', 'note': '',
-                 'screen': None, 'primary_screen': None},
+                 'screen': None, 'primary_screen': None, 'job_id': None, 'renderer': None},
                 {'key': KEY_XT_23, 'name': 'AMD Radeon RX 7900 XT', 'vendor_id': AMD, 'device_id': 0x744C,
                  'ticked': True, 'state': 'ok', 'blender': True, 'backend': 'HIP', 'note': '',
-                 'screen': None, 'primary_screen': None},
+                 'screen': None, 'primary_screen': None, 'job_id': None, 'renderer': None},
             ],
             'alerts': [], 'notices': [],
             'warnings': [{'code': 'engine_not_tied', 'key': None, 'text': payload.text(
@@ -86,7 +86,8 @@ class TestShape:
 
         assert lost == {'key': KEY_RTX_A, 'name': 'NVIDIA GeForce RTX 4080', 'vendor_id': 0x10DE,
                         'device_id': 0x2704, 'ticked': True, 'state': 'lost', 'blender': False, 'backend': None,
-                        'note': 'missing from the card list', 'screen': None, 'primary_screen': None}
+                        'note': 'missing from the card list', 'screen': None, 'primary_screen': None,
+                        'job_id': None, 'renderer': None}
 
     def test_changed_held_and_blender_lost(self, monkeypatch):
         other_model = card(KEY_XT_03, 'AMD Radeon RX 7800 XT', vendor_id=AMD, device_id=0x747E)

@@ -7,7 +7,8 @@ What the worker's two graphics card pages share (FR-CW-2, FR-CW-4, FR-CW-5).
 - ``probe_now()``: a fresh OS probe and screen read (``cards.screens``)
   joined with the *cached* Blender device list. It never starts Blender.
 - ``view(probe, section)``: the JSON answer of both card GETs, with each
-  card's state, the open alerts, the notices, the problem text and the
+  card's state and the job holding it (``job_id``, ``renderer``;
+  ``cards.holds_view``), the open alerts, the notices, the problem text and the
   warnings (``cards.matching``, ``cards.warnings``). It is display data only;
   it raises no alert, stops no job and requests no rebuild (S1).
 - ``parse_body(body)``: the FR-CW-5 shape checks of a save request; a failure
@@ -26,7 +27,7 @@ from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_compute, unreal_switch
 from sethlans_worker_agent.capacity import rebuild
-from sethlans_worker_agent.cards import choice, inventory, matching, os_probe, screens, store, store_requests
+from sethlans_worker_agent.cards import choice, holds_view, inventory, matching, os_probe, screens, store, store_requests
 from sethlans_worker_agent.cards import warnings as card_warnings
 from sethlans_worker_agent.cards.identity import APPLE_GPU_KEY, KEY_PREFIX, card_key, clean_name, key_address
 from sethlans_worker_agent.cards.in_use import FAMILIES
@@ -150,6 +151,8 @@ def view(probe: Probe, section: config_compute.ComputeSection, checking: bool = 
     ticked = set() if failed else set(section.ticked_keys)
     uncached = _uncached_note(check_failed and not checking) if probe.blender_cards is None else None
     checked = _checked(probe, section)
+    holds = holds_view.snapshot()  # job_id and renderer per card, one capacity snapshot (FR-PC-MGR-3)
+    checked['missing'] = [{**entry, **holds.fields(entry['key'])} for entry in checked['missing']]
     answer = {
         'config_read_failed': failed,
         'method': None if failed else section.method,
@@ -160,7 +163,7 @@ def view(probe: Probe, section: config_compute.ComputeSection, checking: bool = 
         'os_probe_failed': probe.inventory.os_probe_failed,
         'blender_version': probe.inventory.blender_version,
         'blender_check': blender_check_state(probe.blender_cards, checking, check_failed),
-        'cards': [_card_view(card, ticked, uncached, checked['states'].get(card.key))
+        'cards': [{**_card_view(card, ticked, uncached, checked['states'].get(card.key)), **holds.fields(card.key)}
                   for card in probe.inventory.cards],
         'rebuild_waiting': rebuild.rebuild_waiting(),  # a new card list waits for running GPU jobs (FR-CW-3)
     }

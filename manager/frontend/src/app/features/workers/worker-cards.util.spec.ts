@@ -4,7 +4,7 @@
 
 import { CARD_OUTCOME_CODES, CardEntry, CardState, CardStatus } from '../../core/services/worker-cards.model';
 import {
-  actionErrorText, addressLabel, alertCount, brandNote, cardBrand, cardName, gpuColumnText, hasCardStatus,
+  actionErrorText, addressLabel, alertCount, brandNote, cardBrand, cardName, gpuColumnText, hasCardStatus, heldText,
   noticeText, oneFamily, screenLabels, shortAddress, stateLabel, stateTone, validTime,
 } from './worker-cards.util';
 import { makeAlert, makeCard, makeStatus } from './worker-cards.fixtures';
@@ -164,6 +164,17 @@ describe('worker-cards.util', () => {
     expect(brandNote(null, ['NVIDIA'])).toBe('Not supported together with other cards.');
     expect(brandNote('NVIDIA', [null])).toBe('Not supported together with other cards.');
     expect(brandNote('NVIDIA', ['AMD', null])).toBe('Not supported together with other cards.');
+  });
+
+  it('heldText names the holding job and its renderer, null when free or invalid (FR-PC-MGR-4)', () => {
+    expect(heldText({ job_id: 12, renderer: 'BLENDER' })).toBe('Rendering job 12 (Blender)');
+    expect(heldText({ job_id: 7, renderer: 'UNREAL' })).toBe('Rendering job 7 (Unreal)');
+    expect(heldText({ job_id: null, renderer: null })).toBeNull();
+    expect(heldText({})).toBeNull();
+    expect(heldText({ job_id: 12, renderer: null })).toBeNull();
+    expect(heldText({ job_id: 0, renderer: 'UNREAL' })).toBeNull();
+    expect(heldText({ job_id: 1.5, renderer: 'UNREAL' })).toBeNull();
+    expect(heldText({ job_id: 3, renderer: 'toString' as unknown as 'UNREAL' })).toBeNull();
   });
 
   it('lists the outcome codes of the manager, mixed_brands included (FR-PC-BR-5)', () => {

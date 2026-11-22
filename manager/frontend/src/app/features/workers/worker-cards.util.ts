@@ -9,7 +9,7 @@
  */
 
 import {
-  CardAlert, CardAlertKind, CardBackend, CardEntry, CardNotice, CardState, CardStatus,
+  CardAlert, CardAlertKind, CardBackend, CardEntry, CardNotice, CardRenderer, CardState, CardStatus,
 } from '../../core/services/worker-cards.model';
 
 export type CardTone = 'bad' | 'amber' | 'good' | 'plain';
@@ -161,6 +161,19 @@ export function brandNote(own: string | null, tickedBrands: readonly (string | n
   if (own === null || tickedBrands.includes(null)) return 'Not supported together with other cards.';
   const other = tickedBrands.find(b => b !== own);
   return other === undefined ? null : `Not supported together with ${other} cards.`;
+}
+
+const RENDERER_NAMES: Record<CardRenderer, string> = { BLENDER: 'Blender', UNREAL: 'Unreal' };
+
+/**
+ * FR-PC-MGR-4: "Rendering job <id> (Blender | Unreal)" for a held card, or
+ * `null` when it is free or the pair is not a positive job id and a known renderer.
+ */
+export function heldText(card: Pick<CardEntry, 'job_id' | 'renderer'>): string | null {
+  const id = card.job_id;
+  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) return null;
+  const renderer = lookup<string | null>(RENDERER_NAMES, card.renderer, null);
+  return renderer === null ? null : `Rendering job ${id} (${renderer})`;
 }
 
 /** The time text for `DatePipe`, or `null` when absent or not a date (the pipe would throw). */

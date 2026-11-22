@@ -68,6 +68,7 @@
   .gc-actions { margin-top: 0.75rem; }
   .gc-fixed { cursor: default; }
   .gc-state, .gc-tag { font-size: 0.75rem; font-weight: bold; }
+  .gc-job { font-size: 0.75rem; color: var(--ok); }
   .gc-tag { opacity: 0.7; }
   .gc-screen { font-size: 0.7rem; padding: 0 0.35rem; border: 1px solid currentColor; border-radius: 3px; opacity: 0.7; }
   .gc-bad, .gc-amber { border-left: 3px solid var(--err); padding-left: 0.4rem; }
@@ -472,6 +473,12 @@
   function setLine(id, text) { setText(id, text); show(id, !!text); }
   function hasGpu(method) { return method === 'gpu' || method === 'cpu_gpu'; }
   function cardLabel(c) { return c.pci ? c.name + ' (PCI ' + c.pci + ')' : c.name; }
+  // The render holding a card (FR-PC-MGR-4); null when the card is free or the pair is not valid.
+  var RENDERER_TEXT = { BLENDER: 'Blender', UNREAL: 'Unreal' };
+  function jobText(c) {
+    var ok = typeof c.job_id === 'number' && c.job_id > 0 && Math.floor(c.job_id) === c.job_id;
+    return ok && Object.prototype.hasOwnProperty.call(RENDERER_TEXT, c.renderer) ? 'Rendering job ' + c.job_id + ' (' + RENDERER_TEXT[c.renderer] + ')' : null;
+  }
   function tickedCards() { return cards.data.cards.filter(function(c) { return cards.ticked[c.address]; }); }
   // Screen marks (FR-CS-4): shown only; they never change a tick or an enabled state.
   function screenMarks(c) {
@@ -597,7 +604,7 @@
   // Redrawn only when something in it changed, so the slow poll does not take the keyboard focus away.
   function renderRows(d, locked) {
     var sig = JSON.stringify([locked, Object.keys(cards.ticked).sort(), d.cards.map(function(c) {
-      return [c.address, c.name, c.pci, c.note, c.family, c.state, c.screen, c.primary_screen, c.vendor_id, c.backend];
+      return [c.address, c.name, c.pci, c.note, c.family, c.state, c.screen, c.primary_screen, c.vendor_id, c.backend, c.job_id, c.renderer];
     })]);
     if (sig === cards.sig.rows) return;
     cards.sig.rows = sig;
@@ -617,6 +624,7 @@
       row.appendChild(box);
       row.appendChild(createEl('span', cardLabel(c)));
       if (STATE_TEXT[c.state]) row.appendChild(createEl('span', STATE_TEXT[c.state], 'gc-state'));
+      if (jobText(c)) row.appendChild(createEl('span', jobText(c), 'gc-job'));
       screenMarks(c).forEach(function(t) { row.appendChild(createEl('span', t, 'gc-screen')); });
       if (c.note) row.appendChild(createEl('span', c.note, 'gc-note'));
       var clash = createEl('span', null, 'gc-note gc-brand');

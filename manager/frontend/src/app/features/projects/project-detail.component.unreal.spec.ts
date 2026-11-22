@@ -11,7 +11,7 @@ import { BehaviorSubject, of } from 'rxjs';
 import { ProjectDetailComponent } from './project-detail.component';
 import { ProjectJobsTableComponent } from './project-jobs-table.component';
 import { JobCreateFormComponent } from './job-create-form.component';
-import { ProjectService, Project } from '../../core/services/project.service';
+import { ProjectService, Project, ProjectDetail } from '../../core/services/project.service';
 import { AssetService, Asset } from '../../core/services/asset.service';
 import { JobService, Job } from '../../core/services/job.service';
 import { TiledJobService } from '../../core/services/tiled-job.service';
@@ -32,20 +32,20 @@ import { SequenceVersionsComponent } from './sequence-versions.component';
  * shape checked by FR-T-12.
  */
 
-const UNREAL_PROJECT: Project = {
+const UNREAL_PROJECT: ProjectDetail = {
   id: 'unreal-uuid', name: 'Unreal Project', renderer: 'UNREAL',
   blender_version: null, blender_version_details: null,
-  engine_build: '5.8.4-58902052', created_at: '2025-06-01T00:00:00Z',
+  engine_build: '5.8.4-58902052', created_at: '2025-06-01T00:00:00Z', unreal_measurement: null,
 };
 
-const BLENDER_PROJECT: Project = {
+const BLENDER_PROJECT: ProjectDetail = {
   id: 'blender-uuid', name: 'Blender Project', renderer: 'BLENDER',
   blender_version: 1,
   blender_version_details: {
     id: 1, major: 4, minor: 2, series: '4.2', resolved_version: '4.2.1',
     is_default: true, added_at: '2025-01-01T00:00:00Z', last_patch_check: null,
   },
-  engine_build: '', created_at: '2025-06-01T00:00:00Z',
+  engine_build: '', created_at: '2025-06-01T00:00:00Z', unreal_measurement: null,
 };
 
 function assetFor(project: Project, blendFile: string | null): Asset {
@@ -115,7 +115,7 @@ describe('ProjectDetailComponent renderer handling', () => {
     consoleError = spyOn(console, 'error');
   });
 
-  function render(project: Project, assets: Asset[], jobs: Job[] = []): void {
+  function render(project: ProjectDetail, assets: Asset[], jobs: Job[] = []): void {
     projectService.get.and.returnValue(of(project));
     assetService.list.and.returnValue(of(assets));
     jobService.list.and.returnValue(of(jobs));

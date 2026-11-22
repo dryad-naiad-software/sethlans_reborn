@@ -8,7 +8,7 @@ import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { of, throwError, BehaviorSubject } from 'rxjs';
 import { ProjectDetailComponent } from './project-detail.component';
-import { ProjectService, Project } from '../../core/services/project.service';
+import { ProjectService, Project, ProjectDetail } from '../../core/services/project.service';
 import { AssetService, Asset } from '../../core/services/asset.service';
 import { JobService } from '../../core/services/job.service';
 import { TiledJobService } from '../../core/services/tiled-job.service';
@@ -26,6 +26,8 @@ const MOCK_PROJECT: Project = {
   renderer: 'BLENDER', engine_build: '',
   created_at: '2025-06-01T00:00:00Z',
 };
+
+const MOCK_DETAIL: ProjectDetail = { ...MOCK_PROJECT, unreal_measurement: null };
 
 const MOCK_ASSET: Asset = {
   id: 1, name: 'scene.blend', blend_file: '/media/scene.blend',
@@ -48,7 +50,7 @@ describe('ProjectDetailComponent', () => {
     mockAssetService = jasmine.createSpyObj('AssetService', ['list']);
     mockRouter = jasmine.createSpyObj('Router', ['navigate']);
 
-    mockProjectService.get.and.returnValue(of(MOCK_PROJECT));
+    mockProjectService.get.and.returnValue(of(MOCK_DETAIL));
     mockAssetService.list.and.returnValue(of([MOCK_ASSET]));
 
     paramMapSubject = new BehaviorSubject(convertToParamMap({ id: 'abc-uuid-123' }));
@@ -94,7 +96,7 @@ describe('ProjectDetailComponent', () => {
 
   it('should load project and asset on init', () => {
     fixture.detectChanges();
-    expect(component.project).toEqual(MOCK_PROJECT);
+    expect(component.project).toEqual(MOCK_DETAIL);
     expect(component.asset).toEqual(MOCK_ASSET);
     expect(component.loading).toBeFalse();
   });

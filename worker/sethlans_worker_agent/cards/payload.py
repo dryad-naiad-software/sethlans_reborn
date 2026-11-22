@@ -11,8 +11,10 @@ old, so the heartbeat runs the OS probe at most once per interval, and none
 while an Unreal render holds the machine (FR-CK-1; with nothing cached then,
 the ``cards`` key is left out). The states, alerts,
 notices, problem and warnings are the card GET's (``web_ui.cards_view.view``),
-reshaped. Like the GET it is display data only (S1): it raises no alert,
-stops no job, requests no rebuild and never starts Blender.
+reshaped; so is each card's ``job_id`` and ``renderer`` (render per card
+FR-PC-MGR-3: one ``holds_snapshot()`` per report, both null when free).
+Like the GET it is display data only (S1): it raises no alert, stops no
+job, requests no rebuild and never starts Blender.
 
 When something failed, only what is safe is sent:
 
@@ -31,7 +33,7 @@ import logging
 from typing import List, Optional
 
 from sethlans_worker_agent import config
-from sethlans_worker_agent.cards import store, store_requests
+from sethlans_worker_agent.cards import holds_view, store, store_requests
 from sethlans_worker_agent.cards.alert_records import ALERT_KINDS
 from sethlans_worker_agent.cards.identity import is_card_key, key_sort_value
 from sethlans_worker_agent.cards.os_probe import log_once
@@ -77,6 +79,7 @@ def _card(entry: dict, ticked: bool, state, backend=None, note='', screen=None, 
         'ticked': ticked, 'state': state, 'blender': backend is not None,
         'backend': backend if backend in BACKENDS else None, 'note': text(note, MAX_TEXT),
         'screen': _mark(screen), 'primary_screen': _mark(primary_screen),
+        **holds_view.checked(entry.get('job_id'), entry.get('renderer')),  # FR-PC-MGR-3, null when free
     }
 
 

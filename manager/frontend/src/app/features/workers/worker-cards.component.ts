@@ -11,8 +11,8 @@ import { WorkerCardAlertsComponent } from './worker-card-alerts.component';
 import { WorkerCardChoiceStatusComponent } from './worker-card-choice-status.component';
 import { WorkerCardPatch } from './worker-row.util';
 import {
-  addressLabel, alertsOf, cardName, cardsOf, hasCardStatus, noticeText, screenLabels, stateLabel,
-  stateTone,
+  addressLabel, alertsOf, cardName, cardsOf, hasCardStatus, heldText, noticeText, screenLabels,
+  stateLabel, stateTone,
 } from './worker-cards.util';
 
 /**
@@ -50,7 +50,7 @@ import {
           <table class="cards">
             <thead>
               <tr>
-                <th>Card</th><th>Address</th><th>Ticked</th><th>State</th><th>Screen</th><th>Note</th>
+                <th>Card</th><th>Address</th><th>Ticked</th><th>State</th><th>Screen</th><th>Job</th><th>Note</th>
               </tr>
             </thead>
             <tbody>
@@ -67,6 +67,7 @@ import {
                       <span class="screen-mark">{{ label }}</span>@if (!$last) {<span class="sep">, </span>}
                     }
                   </td>
+                  <td class="card-job">{{ held(card) }}</td>
                   <td class="card-note">{{ card.note }}</td>
                 </tr>
               }
@@ -135,6 +136,9 @@ export class WorkerCardsComponent {
   tone(card: CardEntry): string { return stateTone(card.state); }
 
   screen(card: CardEntry): string[] { return screenLabels(card); }
+
+  /** FR-PC-MGR-4: the job holding the card, empty when free. */
+  held(card: CardEntry): string { return heldText(card) ?? ''; }
 
   noticeLine(notice: CardNotice): string { return noticeText(notice); }
 }

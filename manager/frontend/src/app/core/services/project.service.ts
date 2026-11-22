@@ -8,6 +8,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { poll, PollErrorHandler } from './polling.util';
 import { SupportedVersion } from './supported-version.service';
+import { UnrealMeasurementSummary } from './unreal-measurement.model';
 
 export interface Project {
   id: string;
@@ -24,6 +25,15 @@ export interface Project {
   created_at: string;
 }
 
+/**
+ * A row of `/api/projects/` (`ProjectDetailSerializer`): a `Project` plus the
+ * Unreal measurement summary. Nested `project_details` rows are plain `Project`s.
+ */
+export interface ProjectDetail extends Project {
+  /** Null for Blender projects. */
+  unreal_measurement: UnrealMeasurementSummary | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProjectService {
   private readonly http = inject(HttpClient);
@@ -37,11 +47,11 @@ export class ProjectService {
     return poll(() => this.list(), onError);
   }
 
-  get(id: string): Observable<Project> {
-    return this.http.get<Project>(`${this.baseUrl}/${id}/`);
+  get(id: string): Observable<ProjectDetail> {
+    return this.http.get<ProjectDetail>(`${this.baseUrl}/${id}/`);
   }
 
-  pollDetail(id: string, onError?: PollErrorHandler): Observable<Project> {
+  pollDetail(id: string, onError?: PollErrorHandler): Observable<ProjectDetail> {
     return poll(() => this.get(id), onError);
   }
 

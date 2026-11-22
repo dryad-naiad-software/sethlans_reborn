@@ -88,7 +88,7 @@ class TestCards:
         assert _kept('cards', {'key': KEY, 'state': 'lost'}) == [{
             'key': KEY, 'name': '', 'vendor_id': None, 'device_id': None, 'ticked': False,
             'state': 'lost', 'blender': False, 'backend': None, 'note': '',
-            'screen': None, 'primary_screen': None,
+            'screen': None, 'primary_screen': None, 'job_id': None, 'renderer': None,
         }]
 
     @pytest.mark.parametrize('state', ['ok', 'lost', 'changed', 'blender_lost', 'held', 'unticked', 'unknown'])

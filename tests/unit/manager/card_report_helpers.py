@@ -19,6 +19,7 @@ def card(**overrides):
         'key': KEY, 'name': 'NVIDIA GeForce RTX 5090', 'vendor_id': 0x10DE,
         'device_id': 0x2B85, 'ticked': True, 'state': 'ok', 'blender': True,
         'backend': 'OPTIX', 'note': '', 'screen': False, 'primary_screen': None,
+        'job_id': None, 'renderer': None,
     }
     entry.update(overrides)
     return entry

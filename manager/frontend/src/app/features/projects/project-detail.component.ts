@@ -12,7 +12,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { Subscription, switchMap, filter } from 'rxjs';
-import { ProjectService, Project } from '../../core/services/project.service';
+import { ProjectService, ProjectDetail } from '../../core/services/project.service';
 import { AssetService, Asset } from '../../core/services/asset.service';
 import { poll } from '../../core/services/polling.util';
 import { JobCreateFormComponent } from './job-create-form.component';
@@ -21,6 +21,7 @@ import { ProjectJobsTableComponent } from './project-jobs-table.component';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { SequenceSubmitDialogComponent, SequenceSubmitDialogData } from './sequence-submit-dialog.component';
 import { SequenceShotRequest, SequenceVersionsComponent } from './sequence-versions.component';
+import { UnrealMeasurementRamComponent } from './unreal-measurement-ram.component';
 
 @Component({
   selector: 'app-project-detail',
@@ -28,7 +29,7 @@ import { SequenceShotRequest, SequenceVersionsComponent } from './sequence-versi
   imports: [
     DatePipe, RouterLink, MatButtonModule, MatIconModule,
     MatDividerModule, MatProgressSpinnerModule, MatSnackBarModule,
-    MatDialogModule, ProjectJobsTableComponent, SequenceVersionsComponent,
+    MatDialogModule, ProjectJobsTableComponent, SequenceVersionsComponent, UnrealMeasurementRamComponent,
   ],
   template: `
     @if (loading) {
@@ -46,6 +47,7 @@ import { SequenceShotRequest, SequenceVersionsComponent } from './sequence-versi
             @if (asset) { &middot; {{ asset.name }} }
             &middot; Created {{ project.created_at | date:'mediumDate' }}
           </p>
+          <app-unreal-measurement-ram [latest]="project.unreal_measurement?.latest ?? null" />
         </div>
         <div class="header-actions">
           <button mat-raised-button color="warn" (click)="showDeleteConfirm = true"
@@ -126,7 +128,7 @@ export class ProjectDetailComponent implements OnInit, OnDestroy {
   private projectSub?: Subscription;
   private assetSub?: Subscription;
 
-  project: Project | null = null;
+  project: ProjectDetail | null = null;
   asset: Asset | null = null;
   assets: Asset[] = [];
   loading = true;

@@ -17,6 +17,8 @@ the issued ids are never exposed.
 from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
+from ..constants import Renderer
+
 # The value sets of the report (FR-CR-1, FR-CR-3).  ``views.heartbeat_cards``
 # validates against them and ``ENUM_NAME_OVERRIDES`` pins their enum names.
 CARD_METHODS = ('cpu', 'gpu', 'cpu_gpu')
@@ -39,6 +41,10 @@ _CARD_SCHEMA = inline_serializer('WorkerCard', {
     'note': serializers.CharField(required=False),
     'screen': serializers.BooleanField(required=False, allow_null=True),
     'primary_screen': serializers.BooleanField(required=False, allow_null=True),
+    # The job holding the card (Unreal render per card FR-PC-MGR-3): both
+    # set, or both ``null`` when the card is free or a value was invalid.
+    'job_id': serializers.IntegerField(required=False, allow_null=True),
+    'renderer': serializers.ChoiceField(required=False, allow_null=True, choices=Renderer.choices),
 })
 _ALERT_SCHEMA = inline_serializer('WorkerCardAlert', {
     'id': serializers.CharField(required=False),
