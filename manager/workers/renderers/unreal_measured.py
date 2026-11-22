@@ -14,16 +14,18 @@ own pairs only: a render or audio job goes to a worker with a current,
 not stale, ``fits`` record of the key for one of its card kinds; a pilot
 goes to its target worker while its record is current and fresh.
 
-For the routing note and the admin retry the key also has a farm-wide
-state, one ``Case`` over its current records (:func:`key_state_case`):
+For the project's held-job counts and the admin retry the key also has a
+farm-wide state, one ``Case`` over its current records (:func:`key_state_case`):
 **measured** when some pair fits, else **pending** while some pair's
 pilot is QUEUED or RENDERING, else **failed** when some pair's test
 failed (pilot ERROR, CANCELED, DONE without a result, or deleted), else
 **does_not_fit** when some pair does not fit, else **none**.  Blender rows
 (empty target hash) evaluate to ``NULL``: no record has an empty hash.
+The routing note judges the online machines' own pairs instead
+(``services/machine_rows.py``, FR-MT-U-2).
 """
 
-from django.db.models import Case, Exists, F, OuterRef, Q, Subquery, TextField, Value, When
+from django.db.models import Case, Exists, F, OuterRef, Subquery, TextField, Value, When
 
 from ..constants import UnrealKind
 from ..models import Job, JobStatus, UnrealMeasurement
@@ -43,7 +45,6 @@ INFRA_SENTENCE = (
     " The pilot was released or requeued too often; this points to a worker "
     "or network problem, not to the project."
 )
-PENDING_NOTE = "Waiting for this project's memory measurement (pilot render)."
 TOO_BIG_NOTE = "This render does not fit the graphics cards of any machine that tested it."
 NO_CARD_READING_MESSAGE = "Worker cannot measure GPU memory (no live card reading)."
 NO_KIND_MESSAGE = "This machine has no ticked graphics card with a known PCI id."
@@ -72,27 +73,6 @@ def failed_note(reason, project_id):
     return note
 
 
-def none_note(project_id):
-    """FR-RT-9 note 3a for a key with no record."""
-    return (
-        "No memory measurement exists for this project version; an admin can "
-        f"start one ({retry_url(project_id)})."
-    )
-
-
-def held_message(state, reason, project_id):
-    """The note / claim text for a held normal job, or ``None`` when measured."""
-    if state == PENDING:
-        return PENDING_NOTE
-    if state == FAILED:
-        return failed_note(reason, project_id)
-    if state == NONE:
-        return none_note(project_id)
-    if state == TOO_BIG:
-        return TOO_BIG_NOTE
-    return None
-
-
 def _latest(records):
     return records.order_by('-created_at', '-id')
 
@@ -106,15 +86,6 @@ def record_reason(prefix=''):
         When(**{status: JobStatus.CANCELED}, then=Value(CANCELED_REASON)),
         When(**{status: JobStatus.DONE}, then=Value(DONE_REASON)),
         default=Value(None), output_field=TextField(),
-    )
-
-
-def record_state():
-    """The state of one record: measured, pending or failed (FR-PM-1)."""
-    return Case(
-        When(peak_mb__isnull=False, then=Value(MEASURED)),
-        When(pilot_job__status__in=_ACTIVE, then=Value(PENDING)),
-        default=Value(FAILED), output_field=TextField(),
     )
 
 
@@ -146,21 +117,6 @@ def key_reason(refs):
     """The failure reason of the key's latest current record without a verdict."""
     records = _latest(current_records(*refs).filter(verdict='', stale_reason='')).annotate(_reason=record_reason())
     return Subquery(records.values('_reason')[:1])
-
-
-def note_annotations(queryset):
-    """Add ``_unreal_key_state`` and ``_unreal_key_reason`` for the routing note (no query per row).
-
-    An audio job reads its submission's piece key (D10).  Not added to
-    worker polls: their routing note is always null.
-    """
-    target = Case(When(unreal_kind=UnrealKind.AUDIO, then=F('sequence_submission__piece_target_sha256')),
-                  default=F('unreal_target_sha256'))
-    refs = (OuterRef('asset_id'), OuterRef('asset__project__unreal_overrides_sha256'), OuterRef('_umk_target'))
-    return queryset.alias(_umk_target=target).alias(**key_aliases(refs, '_umk_')).annotate(
-        _unreal_key_state=key_state_case('_umk_', Q(unreal_target_sha256='')),
-        _unreal_key_reason=key_reason(refs),
-    )
 
 
 def _fresh():

@@ -29,10 +29,10 @@ memory is known and other cards hold at most 256 MB (U-4); overlapping
 pieces have different cards, slots and Zen ports; each log passes the
 slot's Zen rules with no invalid-lock or zenserver shut-down line; every
 editor and ShaderCompileWorker ran with its own slot's TEMP; the RAM
-figures are stored (pilot record, and the worker's own
-``unreal_machine_results`` entry for each piece's card kind),
-``shared_machine`` matches what the cards showed, and the pilot's farm
-tree never exceeded its stored figures; frames have the size and count;
+figures are stored (this machine's row in the project's measurement key,
+and the worker's own ``unreal_machine_results`` entry for each piece's
+card kind), and, when the cards showed no other job beside the pilot, the
+pilot's farm tree never exceeded those figures; frames have the size and count;
 one claim per job; isolation as found; no processes left.
 
 Opt-in as the other real Unreal tests, plus two same-brand cards. GPU time
@@ -142,33 +142,29 @@ class TestUnrealRenderPerCard(UnrealChecks):
         pieces = self._pieces(version["id"])
         planned = [(job["start_frame"], job["end_frame"], job["unreal_lead_in_frames"]) for job in pieces]
         assert planned == cfg.SEQUENCE_PIECES, planned
-        measurement = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]
-        assert measurement["latest"]["status"] == "pending", measurement
-        assert measurement["held_pending"] == len(pieces), measurement
-        return version, pieces, measurement["latest"]["pilot_job_id"]
+        return version, pieces, self._pending_pilot(held=len(pieces))["id"]
 
     # -- checks --------------------------------------------------------------
     def _check_pilot(self, pilot, watch):
-        """AC-E6: measured, RAM figures stored, shared mark as the cards showed, tree within the figures."""
+        """AC-E6: measured, RAM figures stored; alone on the cards, the tree stayed within the figures."""
         summary = parse_summary(pilot["last_output"])
         assert pilot["status"] == "DONE", f"Pilot {pilot['status']}: {pilot.get('error_message')}"
         assert_summary(summary, {"kind": "pilot", "vram_gate": "pilot", "pilot_verdict": "fits"}, "Pilot")
         peak, csv_peak = int(summary["pilot_peak_mb"]), _int(summary.get("pilot_csv_peak_mb"))
         assert csv_peak and abs(peak - csv_peak) <= peak * 0.10, f"CSV peak {csv_peak} MB against {peak} MB"
-        self._assert_measurement(pilot["id"])
-        latest = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]["latest"]
-        ram = latest["ram"]
+        row = self._assert_measurement(pilot)
+        ram = row["ram"]
         assert ram and all(isinstance(ram[p][k], int) and ram[p][k] >= 1 for p in ("prep", "render")
-                           for k in ("ws_mb", "commit_mb")), latest
-        assert isinstance(latest["ram_process_commit_peak_mb"], int), latest
-        assert latest["shared_machine"] is watch.shared_while(pilot["id"]), (latest, watch.holds[-5:])
+                           for k in ("ws_mb", "commit_mb")), row
+        shared = watch.shared_while(pilot["id"])
         phases = [ram[p] for p in ("prep", "warmup", "render") if ram.get(p)]
         alone = watch.alone_peaks_mb(pilot["id"])
-        logger.info("Pilot RAM %s; farm tree sampled alone (ws, commit MB): %s", ram, alone)
-        if alone is not None and not latest["shared_machine"]:
+        logger.info("Pilot RAM %s; another job held a card meanwhile: %s (%s); farm tree sampled alone "
+                    "(ws, commit MB): %s", ram, shared, watch.holds[-5:], alone)
+        if alone is not None and not shared:
             assert alone[1] <= max(p["commit_mb"] for p in phases) * 1.02 + 64, (alone, ram)
             assert alone[0] <= max(p["ws_mb"] for p in phases) * 1.10 + 64, (alone, ram)
-        return latest
+        return row
 
     def _declines(self):
         stdout, stderr = peek_log_files(self.worker_proc)
@@ -213,18 +209,17 @@ class TestUnrealRenderPerCard(UnrealChecks):
         return problems + ue_logs.check_job(self.cache_dir, job, summary, dxgi, pcc.BASE_ZEN_PORT + slot,
                                             self.wall_start)
 
-    def _check_pieces(self, pieces, summaries, latest):
-        """Each piece kept its own frames, gated by this machine's result (the pilot's record) with its RAM figures."""
+    def _check_pieces(self, pieces, summaries, row):
+        """Each piece kept its own frames, gated by this machine's result (measurement ``row``) with its RAM figures."""
         for job in pieces:
             kept = job["end_frame"] - job["start_frame"] + 1
             summary = summaries[job["id"]]
             expected = {"kind": "render", "vram_gate": "measured", "output": f"{kept} PNG frames",
-                        "lead_in_deleted": str(job["unreal_lead_in_frames"]),
-                        "vram_measurement_id": str(latest["measurement_id"])}
+                        "lead_in_deleted": str(job["unreal_lead_in_frames"]), "vram_card_kind": row["card_kind"]}
             assert_summary(summary, expected, job["name"])
-            entry = self._machine_result(job["id"], summary.get("vram_card_kind"))
-            assert entry["measurement_id"] == latest["measurement_id"], (job["name"], entry, latest)
-            assert entry["ram"] == latest["ram"], (job["name"], entry["ram"], latest)
+            entry = self._machine_result(job["id"], row["card_kind"])
+            assert summary.get("vram_measurement_id") == str(entry["measurement_id"]), (job["name"], entry, summary)
+            assert entry["ram"] == row["ram"], (job["name"], entry["ram"], row)
 
     def _check_frames(self, version, pieces):
         """AC-E7: every frame of both shots, at the requested size; the first of each piece not black."""
@@ -265,7 +260,7 @@ class TestUnrealRenderPerCard(UnrealChecks):
         pilot = poll_sampling(self.session, f"{self.base_url}/api/jobs/{pilot_id}/", self._remaining(), sample,
                               held_url=f"{self.base_url}/api/jobs/{pieces[0]['id']}/")
         logger.info("Pilot %s summary:\n%s", pilot.get("status"), pilot.get("last_output"))
-        latest = self._check_pilot(pilot, watch)
+        row = self._check_pilot(pilot, watch)
         version = poll_sampling(self.session, f"{self.base_url}{VERSIONS}/{version['id']}/", self._remaining(),
                                 sample, terminal=VERSION_FINAL)
         logger.info("Version %s after %.1f min", version["status"], (time.monotonic() - started) / 60)
@@ -280,7 +275,7 @@ class TestUnrealRenderPerCard(UnrealChecks):
         for job in pieces:
             problems += self._job_problems(job, summaries[job["id"]], watch)
         assert not problems, "\n".join(problems)
-        self._check_pieces(pieces, summaries, latest)
+        self._check_pieces(pieces, summaries, row)
         self._check_frames(version, pieces)
         self._check_slot_temps(watch, sorted({int(s["slot"]) for s in summaries.values()}))
         self._assert_isolated()

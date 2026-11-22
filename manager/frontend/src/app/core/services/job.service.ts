@@ -8,7 +8,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { poll, PollErrorHandler } from './polling.util';
 import { Asset } from './asset.service';
-import { UnrealRam } from './unreal-measurement.model';
+import { MachineRow } from './unreal-measurement.model';
 
 export interface EffectiveBlenderVersion {
   series: string;
@@ -46,8 +46,11 @@ export interface Job {
   render_time_seconds: number | null;
   output_file: string | null;
   thumbnail: string | null;
-  /** Unreal render jobs: RAM figures of the record giving the measured peak; null otherwise (FR-PC-MGR-2). */
-  unreal_measured_ram?: UnrealRam | null;
+  /**
+   * Unreal render and audio jobs on `GET /api/jobs/{id}/` only: every machine and card kind of
+   * the job's key with its memory test state (FR-MT-U-1); null in lists and otherwise.
+   */
+  unreal_machines?: MachineRow[] | null;
 }
 
 export interface CreateJobRequest {

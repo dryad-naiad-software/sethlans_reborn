@@ -38,6 +38,8 @@ export interface CardEntry {
   name?: string;
   vendor_id?: number | null;
   device_id?: number | null;
+  /** PCI revision (per-machine memory test FR-MT-K-2); null when not read or invalid. */
+  revision_id?: number | null;
   ticked?: boolean;
   blender?: boolean;
   backend?: CardBackend | null;

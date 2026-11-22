@@ -12,7 +12,8 @@ discovery finishes.  ``GET`` lists versions newest first, filtered by
 per count (never several ``Count`` over joins) and the routing note from
 one subquery per row plus one query per response for the picked jobs
 (``services/sequence_routing.py``), so no query runs per row; the detail
-adds the shots and the sound runs.  A submission is read-only through the
+adds the shots, the sound runs and the piece key's machine list
+(``machines``, per-machine memory test FR-MT-U-1).  A submission is read-only through the
 API: no ``PUT`` or ``PATCH`` (FR-SQ-10).  The actions live in
 ``sequence_control.py`` (cancel, re-render, delete, retries, merge) and
 ``sequence_downloads.py`` (FR-SL).
@@ -34,7 +35,7 @@ from ..serializers.sequence_submission import (
     CREATE_KEYS, SequenceSubmissionCreateSerializer, SequenceSubmissionDetailSerializer,
     SequenceSubmissionSerializer,
 )
-from ..services.sequence_routing import CONTEXT_KEY, ROUTING_JOB, routing_job_annotation, routing_jobs
+from ..services.sequence_routing import routing_context, routing_job_annotation
 from ..services.sequence_submit import create_submission
 from ..strict_json import unknown_keys
 from .sequence_control import SequenceControlMixin
@@ -100,10 +101,8 @@ class SequenceSubmissionViewSet(
         return queryset
 
     def _with_routing(self, rows):
-        """Load the routing notes' jobs of ``rows`` in one query (FR-SR-3)."""
-        context = self.get_serializer_context()
-        context[CONTEXT_KEY] = routing_jobs(getattr(row, ROUTING_JOB, None) for row in rows)
-        return context
+        """Load the routing notes' jobs of ``rows`` in one query (FR-SR-3) and name their keys (FR-MT-U-2)."""
+        return routing_context(self.get_serializer_context(), rows)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())

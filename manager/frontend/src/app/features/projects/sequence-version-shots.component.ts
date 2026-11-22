@@ -10,18 +10,20 @@ import { SequenceService, sequenceErrorText } from '../../core/services/sequence
 import { SequenceShot, SequenceSubmission } from '../../core/services/sequence.types';
 import { SequenceDownloadsComponent } from './sequence-downloads.component';
 import { isActive } from './sequence-actions.util';
+import { MachineRowsComponent } from '../../shared/machine-rows.component';
 
 /**
  * The shots of one version (FR-SU-3), from the detail view, polled every
  * 10 s while the row is open and the version is active (restarted by
  * "Render again"): name, frames, status, errors, downloads,
  * "Render again" for a failed or canceled shot and "New version of this
- * shot". Shot names and errors are interpolated only (FR-SU-4b).
+ * shot", then the piece key's machine rows (per-machine memory test
+ * FR-MT-U-4). Shot names and errors are interpolated only (FR-SU-4b).
  */
 @Component({
   selector: 'app-sequence-version-shots',
   standalone: true,
-  imports: [MatButtonModule, SequenceDownloadsComponent],
+  imports: [MatButtonModule, SequenceDownloadsComponent, MachineRowsComponent],
   template: `
     @if (!detail) {
       <p>Loading shots...</p>
@@ -51,6 +53,7 @@ import { isActive } from './sequence-actions.util';
           }
         </tbody>
       </table>
+      <app-machine-rows [machines]="detail.machines" />
     }
   `,
   styles: [`.shots { width: 100%; border-collapse: collapse; } .shots td, .shots th { text-align: left; padding: 2px 6px; }

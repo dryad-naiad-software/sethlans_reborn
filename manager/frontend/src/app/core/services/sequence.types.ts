@@ -7,6 +7,8 @@
  * `/api/sequence-submissions/`), as the manager's serializers return them.
  */
 
+import { MachineRow } from './unreal-measurement.model';
+
 export type DiscoveryStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'ERROR';
 export type SequenceStatus =
   'DISCOVERING' | 'QUEUED' | 'RENDERING' | 'ASSEMBLING' | 'DONE' | 'PARTLY_DONE' | 'ERROR' | 'CANCELED';
@@ -124,6 +126,8 @@ export interface SequenceSubmission {
   pieces_done: number;
   /** Only in the detail view. */
   shots?: SequenceShot[];
+  /** Only in the detail view: the piece key's machines (FR-MT-U-1); null before the version has pieces. */
+  machines?: MachineRow[] | null;
 }
 
 export interface SequenceDraft {

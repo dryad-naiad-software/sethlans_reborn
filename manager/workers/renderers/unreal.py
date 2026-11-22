@@ -127,4 +127,4 @@ class UnrealStrategy(RendererStrategy):
 
     def project_measurement(self, project, context):
         from .unreal_project_measurement import project_summary
-        return project_summary(project)
+        return project_summary(project, context)

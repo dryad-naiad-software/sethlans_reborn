@@ -10,6 +10,7 @@ import { JobDetailComponent } from './job-detail.component';
 import { JobService, Job, EffectiveBlenderVersion } from '../../core/services/job.service';
 import { Project } from '../../core/services/project.service';
 import { Asset } from '../../core/services/asset.service';
+import { machineRow } from '../../shared/machine-row.fixtures';
 
 /**
  * Issue #244: the "Cycles Feature Set" row only appears for Cycles jobs whose
@@ -136,6 +137,35 @@ describe('JobDetailComponent', () => {
       updates.next(makeJob('CYCLES', 'GPU', V5));
       fixture.detectChanges();
       expect(text(fixture.nativeElement)).not.toContain('Cycles Feature Set');
+    });
+  });
+
+  describe('machine rows (per-machine memory test FR-MT-U-4)', () => {
+    it('should show the machine rows of an Unreal job', () => {
+      const job = makeJob('CYCLES', 'GPU', null);
+      job.unreal_machines = [machineRow(), machineRow({ hostname: 'render-02', state: 'testing', online: false })];
+      render(job);
+      const rows = Array.from(fixture.nativeElement.querySelectorAll('.machine-row .machine-text'), text);
+      expect(rows).toEqual([
+        'render-01, Radeon RX 7900 XT: fits: 13,689 of 20,464 MB',
+        'render-02, Radeon RX 7900 XT: testing (off)',
+      ]);
+    });
+
+    it('should say "No machines." for an empty machine list', () => {
+      const job = makeJob('CYCLES', 'GPU', null);
+      job.unreal_machines = [];
+      render(job);
+      expect(text(fixture.nativeElement.querySelector('.machines-none'))).toBe('No machines.');
+    });
+
+    it('should show no machine list when unreal_machines is null or absent', () => {
+      const nullJob = makeJob('CYCLES', 'GPU', V4);
+      nullJob.unreal_machines = null;
+      expect(render(nullJob)).not.toContain('Machines');
+      expect(fixture.nativeElement.querySelector('.machines')).toBeNull();
+      expect(render(makeJob('CYCLES', 'GPU', V4))).not.toContain('Machines');
+      expect(fixture.nativeElement.querySelector('.machines')).toBeNull();
     });
   });
 

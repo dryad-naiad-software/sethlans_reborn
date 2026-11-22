@@ -4,9 +4,10 @@
 
 /**
  * Types of an Unreal project's measurement summary (`unreal_measurement`
- * of `GET /api/projects/{id}/`) and of the pilot's RAM figures, as built by
- * `manager/workers/serializers/unreal_measurement.py` and `pilot_ram.py`
- * (Unreal render per card FR-PC-MGR-1, -2, -4).
+ * of `GET /api/projects/{id}/`), of the machine rows (per-machine memory
+ * test FR-MT-U-1) and of the pilot's RAM figures, as built by
+ * `manager/workers/serializers/unreal_measurement.py`, `machine_rows.py`
+ * and `pilot_ram.py` (Unreal render per card FR-PC-MGR-1, -2, -4).
  */
 
 /** One phase's peak private working set and commit, in MB (1..MAX_PEAK_MB). */
@@ -27,34 +28,48 @@ export interface UnrealRam {
   render: UnrealRamPhase;
 }
 
-/** `unreal_measurement.latest`: the latest measurement under the current CVars. */
-export interface UnrealLatestMeasurement {
-  measurement_id: number;
-  status: 'measured' | 'pending' | 'failed';
+/**
+ * A memory test state of one (machine, card kind) pair, in the order of the
+ * manager's `PAIR_STATES` (`manager/workers/renderers/unreal_machine.py`).
+ */
+export type MachineState = 'fits' | 'does_not_fit' | 'testing' | 'failed' | 'retest_due' | 'not_tried';
+
+/**
+ * One (machine, card kind) row of a measurement key (per-machine memory test
+ * FR-MT-U-1, `MachineRowSerializer` in `manager/workers/serializers/machine_rows.py`).
+ */
+export interface MachineRow {
+  /** Null once the worker was deleted. */
+  worker: number | null;
+  hostname: string;
+  online: boolean;
+  /** `vvvv:dddd:rrrr` (PCI vendor, device, revision or `none`). */
+  card_kind: string;
+  card_name: string | null;
+  card_total_mb: number | null;
+  state: MachineState;
+  /** The result peak; null until measured. */
+  peak_mb: number | null;
+  /** `does_not_fit`: the need is at least this many MB. */
+  lower_bound_mb: number | null;
+  driver_version: string | null;
+  /** Why the memory test failed (`failed` only). */
   reason: string | null;
-  remeasure: boolean;
+  /** Derived from a covering result of the same machine. */
+  covered: boolean;
+  /** Null until measured and for `not_tried`. */
+  ram: UnrealRam | null;
+}
+
+/** One `unreal_measurement.keys` entry with its machine list. */
+export interface UnrealMeasurementKey {
   asset_id: number;
+  target_sha256: string;
   engine_build: string;
   map: string;
   sequence: string;
   preset: string;
-  peak_mb: number | null;
-  peak_source: string | null;
-  game_overrides: string | null;
-  texture_streaming: string | null;
-  measured_at: string | null;
-  worker_hostname: string | null;
-  gpu_name: string | null;
-  gpu_total_mb: number | null;
-  prep_s: number | null;
-  warmup_s: number | null;
-  seconds_per_frame: number | null;
-  pilot_job_id: number | null;
-  /** Null until measured and on records without RAM figures. */
-  ram: UnrealRam | null;
-  ram_process_commit_peak_mb: number | null;
-  /** The pilot ran while another job held the worker; null until measured. */
-  shared_machine: boolean | null;
+  machines: MachineRow[];
 }
 
 /** A project's `unreal_measurement`; null for Blender projects. */
@@ -62,5 +77,6 @@ export interface UnrealMeasurementSummary {
   held_pending: number;
   held_failed: number;
   held_none: number;
-  latest: UnrealLatestMeasurement | null;
+  /** Null in the project list and for worker tokens. */
+  keys: UnrealMeasurementKey[] | null;
 }

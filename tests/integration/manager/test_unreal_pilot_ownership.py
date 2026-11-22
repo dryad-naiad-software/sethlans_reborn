@@ -28,8 +28,10 @@ def _done_message(job):
 
 
 def _failed_status(admin_client, project_id):
-    data = admin_client.get(f'/api/projects/{project_id}/').data['unreal_measurement']
-    return data['latest']['status'], data['latest']['reason']
+    # Per-machine FR-MT-U-1: the pilot's machine row of the key.
+    [key] = admin_client.get(f'/api/projects/{project_id}/').data['unreal_measurement']['keys']
+    [row] = key['machines']
+    return row['state'], row['reason']
 
 
 @pytest.mark.django_db

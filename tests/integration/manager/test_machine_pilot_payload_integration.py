@@ -174,4 +174,5 @@ class TestOpenAPI:
     def test_gate_need_is_gone(self):
         schemas = self._schemas()
         assert set(schemas['PilotResultResponse']['properties']) == {'status', 'peak_mb'}
-        assert 'gate_need_mb' not in schemas['LatestMeasurement']['properties']
+        # The project's single latest measurement is gone (FR-MT-U-1: machines per key).
+        assert 'LatestMeasurement' not in schemas

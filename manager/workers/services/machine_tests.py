@@ -99,11 +99,13 @@ def eligible_pairs(build, workers=None, within=None):
         queryset = queryset.filter(pk__in=sorted(within))
     if workers is not None:
         queryset = queryset.filter(pk__in=[getattr(worker, 'pk', worker) for worker in workers])
-    pairs = []
-    for worker in queryset:
-        if serves_build(worker, build, share):
-            pairs.extend((worker, kind) for kind in eligible_kinds(worker))
-    return pairs
+    return pairs_of(queryset, build, share)
+
+
+def pairs_of(workers, build, share):
+    """The D5 ``(worker, kind)`` pairs of already loaded ``workers`` for ``build`` (activity and age aside)."""
+    return [(worker, kind) for worker in workers if serves_build(worker, build, share)
+            for kind in eligible_kinds(worker)]
 
 
 def pair_states(asset, overrides, target_hash, pairs):

@@ -21,7 +21,7 @@ import { ProjectJobsTableComponent } from './project-jobs-table.component';
 import { ConfirmDialogComponent, ConfirmDialogData } from '../../shared/confirm-dialog.component';
 import { SequenceSubmitDialogComponent, SequenceSubmitDialogData } from './sequence-submit-dialog.component';
 import { SequenceShotRequest, SequenceVersionsComponent } from './sequence-versions.component';
-import { UnrealMeasurementRamComponent } from './unreal-measurement-ram.component';
+import { UnrealMeasurementKeysComponent } from './unreal-measurement-keys.component';
 
 @Component({
   selector: 'app-project-detail',
@@ -29,7 +29,7 @@ import { UnrealMeasurementRamComponent } from './unreal-measurement-ram.componen
   imports: [
     DatePipe, RouterLink, MatButtonModule, MatIconModule,
     MatDividerModule, MatProgressSpinnerModule, MatSnackBarModule,
-    MatDialogModule, ProjectJobsTableComponent, SequenceVersionsComponent, UnrealMeasurementRamComponent,
+    MatDialogModule, ProjectJobsTableComponent, SequenceVersionsComponent, UnrealMeasurementKeysComponent,
   ],
   template: `
     @if (loading) {
@@ -47,7 +47,6 @@ import { UnrealMeasurementRamComponent } from './unreal-measurement-ram.componen
             @if (asset) { &middot; {{ asset.name }} }
             &middot; Created {{ project.created_at | date:'mediumDate' }}
           </p>
-          <app-unreal-measurement-ram [latest]="project.unreal_measurement?.latest ?? null" />
         </div>
         <div class="header-actions">
           <button mat-raised-button color="warn" (click)="showDeleteConfirm = true"
@@ -66,6 +65,7 @@ import { UnrealMeasurementRamComponent } from './unreal-measurement-ram.componen
           </button>
         </div>
       }
+      <app-unreal-measurement-keys [keys]="project.unreal_measurement?.keys ?? null" />
       <mat-divider />
       <div class="jobs-header">
         <h2>Jobs</h2>

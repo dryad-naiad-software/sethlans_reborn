@@ -9,8 +9,9 @@ FR-GT-12, AC-29, AC-31, AC-32).
   the other results; any other value, or a missing field, is a 400 that
   stores nothing.
 * Both stay out of the measurement key: index, key state, claim and poll.
-* ``unreal_measurement.latest`` shows them read-only, ``null`` until
-  measured and for records measured before migration ``0026``.
+* A write through the project endpoint changes neither.  (The project's
+  single ``unreal_measurement.latest`` that showed them is gone:
+  per-machine FR-MT-U-1 lists machines per key instead.)
 """
 
 import json
@@ -23,8 +24,8 @@ from django.test.utils import CaptureQueriesContext
 
 from workers.models import Job, UnrealMeasurement
 from workers.renderers import unreal_measured as um
-from workers.renderers.unreal_machine import current_records, machine_poll_q
-from workers.services.unreal_pilot import key_state
+from workers.renderers.unreal_machine import JOB_KEY_REFS, current_records, machine_poll_q
+from workers.services.unreal_pilot import key_state_of
 
 from .unreal_helpers import unreal_asset
 from .unreal_pilot_helpers import (
@@ -61,10 +62,16 @@ def _pair(record):
     return record.game_overrides, record.texture_streaming
 
 
-def _latest(client, project_id):
+def _key_state(job):
+    return key_state_of(job.asset.project, job.asset_id, job.asset.project.unreal_overrides_sha256,
+                        job.unreal_target_sha256).state
+
+
+def _machines(client, project_id):
     resp = client.get(f'{PROJECTS}{project_id}/')
     assert resp.status_code == 200, resp.data
-    return resp.data['unreal_measurement']['latest']
+    [key] = resp.data['unreal_measurement']['keys']
+    return key['machines']
 
 
 @pytest.mark.django_db
@@ -114,7 +121,7 @@ class TestKeyUnchanged:
         job = created_job(admin_client, asset)
         # The key filter itself (a plain select would list every column).
         statements = [str(current_records(job.asset_id, 'a' * 64, 'b' * 64).values('pk').query),
-                      str(um.note_annotations(Job.objects.all()).query),
+                      str(Job.objects.alias(**um.key_aliases(JOB_KEY_REFS, '_k_')).values('pk').query),
                       str(Job.objects.filter(machine_poll_q(None)).query)]
         with CaptureQueriesContext(connection) as ctx:
             assert um.claim_row(job) is not None
@@ -135,12 +142,11 @@ class TestKeyUnchanged:
         # Per-machine D2: the later record is the pair's current one.
         UnrealMeasurement.objects.filter(pk=first.pk).update(current=False)
         second.save()
-        assert key_state(job).state == um.MEASURED
+        assert _key_state(job) == um.MEASURED
         [result] = machine[1].get(f'{JOBS}{job.pk}/').data['unreal_machine_results']
         assert (result['measurement_id'], result['peak_mb']) == (second.pk, 9000)
-        latest = _latest(admin_client, asset.project_id)
-        assert (latest['measurement_id'], latest['game_overrides'], latest['texture_streaming']) == (
-            second.pk, newer[0], newer[1])
+        [row] = _machines(admin_client, asset.project_id)
+        assert (row['state'], row['peak_mb']) == ('fits', 9000)
 
     @pytest.mark.parametrize('pair', PAIRS)
     def test_a_job_is_claimable_whatever_the_values(self, admin_client, asset, worker_with_token, pair):
@@ -159,39 +165,11 @@ class TestKeyUnchanged:
         assert UnrealMeasurement.objects.count() == 1 and len(keys) == 1
         second = created_job(admin_client, asset, name='Still02')
         assert len(pilots()) == 1 and UnrealMeasurement.objects.count() == 1
-        assert key_state(second).state == um.MEASURED
+        assert _key_state(second) == um.MEASURED
 
 
 @pytest.mark.django_db
-class TestLatest:
-    """FR-GC-10, AC-32: read-only, null until measured, never ''."""
-
-    def test_null_before_measurement(self, admin_client, asset):
-        created_job(admin_client, asset)
-        latest = _latest(admin_client, asset.project_id)
-        assert (latest['status'], latest['game_overrides'], latest['texture_streaming']) == ('pending', None, None)
-
-    def test_values_after_the_pilot_result(self, admin_client, pilot):
-        job, _worker, client = pilot
-        assert post_result(client, job.pk, pilot_body()).status_code == 200
-        latest = _latest(admin_client, job.asset.project_id)
-        assert (latest['status'], latest['game_overrides'], latest['texture_streaming']) == (
-            'measured', 'implicit', 'off')
-
-    def test_a_record_measured_before_0026_shows_null_not_blank(self, admin_client, asset):
-        created_job(admin_client, asset)
-        measure(record_of(pilots()[0]), peak_mb=8102, game_overrides='', texture_streaming='')
-        latest = _latest(admin_client, asset.project_id)
-        assert (latest['status'], latest['peak_mb']) == ('measured', 8102)
-        assert (latest['game_overrides'], latest['texture_streaming']) == (None, None)
-        listed = admin_client.get(PROJECTS).data[0]['unreal_measurement']['latest']
-        assert (listed['game_overrides'], listed['texture_streaming']) == (None, None)
-
-    def test_a_failed_record_shows_null(self, admin_client, asset):
-        created_job(admin_client, asset)
-        Job.objects.filter(pk=pilots()[0].pk).update(status='ERROR', error_message='boom')
-        latest = _latest(admin_client, asset.project_id)
-        assert (latest['status'], latest['game_overrides'], latest['texture_streaming']) == ('failed', None, None)
+class TestProjectEndpoint:
 
     def test_a_write_through_the_project_endpoint_changes_nothing(self, admin_client, pilot):
         job, _worker, client = pilot
@@ -202,8 +180,7 @@ class TestLatest:
             'unreal_measurement': {'latest': {'game_overrides': 'preset', 'texture_streaming': 'fully_load'}},
         }, format='json')
         assert resp.status_code == 200, resp.data
-        assert (resp.data['unreal_measurement']['latest']['game_overrides'],
-                resp.data['unreal_measurement']['latest']['texture_streaming']) == ('implicit', 'off')
+        assert 'latest' not in resp.data['unreal_measurement']
         assert _pair(record_of(job)) == ('implicit', 'off')
 
 
@@ -231,9 +208,3 @@ class TestOpenAPI:
         assert request['properties']['game_overrides'] == {'$ref': '#/components/schemas/UnrealGameOverridesEnum'}
         assert request['properties']['texture_streaming'] == {
             '$ref': '#/components/schemas/UnrealTextureStreamingEnum'}
-
-    def test_latest_fields_are_read_only_and_nullable(self):
-        props = self._schema()['components']['schemas']['LatestMeasurement']['properties']
-        for field, enum in zip(FIELDS, ('UnrealGameOverridesEnum', 'UnrealTextureStreamingEnum')):
-            assert props[field]['readOnly'] is True and props[field]['nullable'] is True
-            assert {'$ref': f'#/components/schemas/{enum}'} in props[field]['oneOf']

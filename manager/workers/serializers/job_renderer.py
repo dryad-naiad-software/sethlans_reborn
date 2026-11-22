@@ -17,6 +17,7 @@ from ..constants import UnrealKind
 from ..renderers import UnsupportedRendererError, get_strategy
 from ..renderers.unreal_routing import _is_worker_request
 from .machine_results import MachineResultSerializer, machine_results
+from .machine_rows import MachineRowSerializer, expect_page_keys, job_machines
 from .renderer_checks import check_immutable_and_consistent, resolve_strategy
 
 _FEATURE_LABELS = {'tiled_job': 'Tiled jobs', 'animation': 'Animations'}
@@ -42,7 +43,7 @@ def ensure_feature_supported(asset, feature):
 
 
 class JobRendererFieldsMixin(serializers.Serializer):
-    """Adds ``routing_note``, ``unreal_machine_results`` and renderer-dispatched validate/create."""
+    """Adds ``routing_note``, ``unreal_machine_results``, ``unreal_machines`` and renderer-dispatched validate/create."""
 
     unreal_kind = serializers.ChoiceField(
         choices=UnrealKind.choices, read_only=True,
@@ -67,6 +68,14 @@ class JobRendererFieldsMixin(serializers.Serializer):
         ),
     )
 
+    unreal_machines = serializers.SerializerMethodField(
+        help_text=(
+            "Unreal render and audio jobs, on GET /api/jobs/{id}/ only: every machine and card "
+            "kind of the job's key with its memory test state (per-machine memory test "
+            "FR-MT-U-1). Null in lists, for worker-token requests and for other jobs."
+        ),
+    )
+
     routing_note = serializers.SerializerMethodField(
         help_text=(
             "Why a queued job is not being picked up by any worker, or "
@@ -80,7 +89,16 @@ class JobRendererFieldsMixin(serializers.Serializer):
             strategy = get_strategy(obj.renderer)
         except UnsupportedRendererError:
             return None
+        request = self.context.get('request')
+        if strategy.supports('pilot_measurement') and (request is None or not _is_worker_request(request)):
+            # FR-MT-U-2, NF-3: the page's keys are read in one query.
+            expect_page_keys(self, obj)
         return strategy.routing_note(obj, self.context)
+
+    @extend_schema_field(MachineRowSerializer(many=True, allow_null=True))
+    def get_unreal_machines(self, obj):
+        """The machine list of the job's key (detail only, never for workers)."""
+        return job_machines(self, obj)
 
     @extend_schema_field(MachineResultSerializer(many=True, allow_null=True))
     def get_unreal_machine_results(self, obj):

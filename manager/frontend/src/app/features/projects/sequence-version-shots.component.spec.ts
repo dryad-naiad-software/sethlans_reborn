@@ -10,6 +10,7 @@ import { SequenceSubmission } from '../../core/services/sequence.types';
 import { SequenceService } from '../../core/services/sequence.service';
 import { SequenceVersionShotsComponent } from './sequence-version-shots.component';
 import { HOSTILE, NO_DOWNLOADS, shot, text, version } from './sequence.fixtures';
+import { machineRow } from '../../shared/machine-row.fixtures';
 
 describe('SequenceVersionShotsComponent', () => {
   let fixture: ComponentFixture<SequenceVersionShotsComponent>;
@@ -92,6 +93,30 @@ describe('SequenceVersionShotsComponent', () => {
     detail$.next(version({ status: 'PARTLY_DONE', shots: [shot()] }));
     expect(detail$.observed).toBeFalse();
     expect(fixture.componentInstance.detail?.status).toBe('PARTLY_DONE');
+  });
+
+  it('shows the piece key\'s machine rows below the shots (FR-MT-U-4)', async () => {
+    await setup();
+    sequences.pollDetail.and.returnValue(of(version({
+      shots: [shot()], machines: [machineRow({ state: 'does_not_fit', lower_bound_mb: 19012 }), machineRow({ covered: true })],
+    })));
+    fixture.componentInstance.load();
+    fixture.detectChanges();
+    const machines = Array.from(fixture.nativeElement.querySelectorAll('.machine-row'), (r: Element) => text(r));
+    expect(machines).toEqual([
+      'render-01, Radeon RX 7900 XT: does not fit: at least 19,012 MB on a 20,464 MB card',
+      'render-01, Radeon RX 7900 XT: fits: 13,689 of 20,464 MB (covered)',
+    ]);
+  });
+
+  it('shows no machine list before the version has pieces (machines null or absent)', async () => {
+    await setup();
+    expect(fixture.nativeElement.querySelector('.machines')).toBeNull();
+    sequences.pollDetail.and.returnValue(of(version({ shots: [shot()], machines: null })));
+    fixture.componentInstance.load();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.machines')).toBeNull();
+    expect(rows().length).toBe(1);
   });
 
   it('asks for a new version of a shot', async () => {

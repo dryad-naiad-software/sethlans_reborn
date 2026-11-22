@@ -26,7 +26,8 @@ from .sound_helpers import audio_jobs_of
 from .submission_helpers import SUBMISSIONS, done_discovery, measure_submission, pieces_of, submit
 
 pytestmark = pytest.mark.django_db
-HELD = "Waiting for this project's memory measurement (pilot render)."
+# Per-machine FR-MT-U-2: the one online machine has not tested the key yet.
+HELD = "Waiting for memory tests on 1 machine(s)."
 
 
 @pytest.fixture

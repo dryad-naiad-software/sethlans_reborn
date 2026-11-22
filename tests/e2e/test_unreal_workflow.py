@@ -51,7 +51,8 @@ PILOT_TIMEOUT = 7200
 # render took ~70 s on the dev machine).
 RENDER_TIMEOUT = 7200
 OUTPUT_SIZE = (1920, 1080)
-PENDING_NOTE = "Waiting for this project's memory measurement (pilot render)."
+# FR-MT-U-2: the one machine's memory test is still running.
+PENDING_NOTE = "Waiting for memory tests on 1 machine(s)."
 
 PILOT_SUMMARY = {
     "kind": "pilot",
@@ -99,32 +100,26 @@ class TestUnrealWorkflow(UnrealChecks):
         # The worker has no memory result of its own for this render yet.
         assert self._worker_get(f"/api/jobs/{job_id}/")["unreal_machine_results"] == [], job_id
         assert job["routing_note"] == PENDING_NOTE, job["routing_note"]
-        measurement = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]
-        latest = measurement["latest"]
-        assert measurement["held_pending"] == 1, measurement
-        assert latest["status"] == "pending", latest
-        assert latest["pilot_job_id"], latest
-        return latest["pilot_job_id"]
+        return self._pending_pilot(held=1)["id"]
 
-    def _assert_render(self, result, latest, kind):
-        """DONE, gated by this machine's result of ``kind`` (the pilot's record ``latest``), a valid image."""
+    def _assert_render(self, result, row):
+        """DONE, gated by this machine's result (its measurement row ``row``, read after the pilot), a valid image."""
         assert result["status"] == "DONE", (
             f"Job did not complete successfully. Status: {result['status']}, "
             f"Error: {result.get('error_message', 'N/A')}\n{result.get('last_output')}"
         )
-        peak = latest["peak_mb"]
+        peak, kind = row["peak_mb"], row["card_kind"]
         summary = parse_summary(result["last_output"])
         assert_summary(summary, {**COMMON_SUMMARY, **RENDER_SUMMARY}, "Job")
         # The first job after the pilot: its gate needed exactly the pilot's peak, on a card of the pilot's kind.
         assert int(summary["vram_need_mb"]) == peak, summary
         assert summary["vram_card_kind"] == kind, (kind, summary)
-        assert int(summary["vram_measurement_id"]) == latest["measurement_id"], (latest, summary)
         assert int(summary["vram_need_mb"]) <= int(summary["vram_usable_mb"]), summary
-        # The job's payload for this worker: its result of that kind. The result peak is
-        # max(pilot peak, job peaks reported since), so never below the pilot's (D2).
+        # The job's payload for this worker: its result of that kind, the one the gate used. The
+        # result peak is max(pilot peak, job peaks reported since), so never below the pilot's (D2).
         entry = self._machine_result(result["id"], kind)
-        assert entry["measurement_id"] == latest["measurement_id"], (entry, latest)
-        assert entry["peak_mb"] >= peak and entry["ram"] == latest["ram"], (entry, latest)
+        assert int(summary["vram_measurement_id"]) == entry["measurement_id"], (entry, summary)
+        assert entry["peak_mb"] >= peak and entry["ram"] == row["ram"], (entry, row)
         assert summary.get("vram_peak_mb"), summary
         assert "log_flood" not in summary, summary
 
@@ -147,11 +142,9 @@ class TestUnrealWorkflow(UnrealChecks):
         # Before any check can fail: the pilot summary in the console.
         logger.info("Pilot %s summary:\n%s", pilot.get("status"), pilot.get("last_output"))
         self._assert_pilot(pilot, PILOT_SUMMARY)
-        latest = self._assert_measurement(pilot_id)
-        kind = pilot["render_settings"].get("unreal.card_kind")
-        assert kind, f"The pilot names no card kind: {pilot['render_settings']}"
+        row = self._assert_measurement(pilot)
 
         result = poll_sampling(self.session, job_url, RENDER_TIMEOUT, watch.sample)
-        self._assert_render(result, latest, kind)
+        self._assert_render(result, row)
         self._assert_isolated()
         self._assert_no_farm_listeners(watch)

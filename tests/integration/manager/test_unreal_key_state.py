@@ -18,7 +18,7 @@ from shared.unreal.validation import overrides_sha256
 
 from workers.models import Job, UnrealMeasurement, Worker
 from workers.renderers import get_strategy
-from workers.services.unreal_pilot import ProjectLockMissing, Target, ensure_pilot, key_state, key_state_of
+from workers.services.unreal_pilot import ProjectLockMissing, Target, ensure_pilot, key_state_of
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS, unreal_asset
 from .unreal_pilot_helpers import KIND, ready_worker
@@ -116,9 +116,9 @@ class TestKeyStates:
     def test_key_state_of_a_job(self, asset):
         job = Job.objects.create(name='StateJob', asset=asset, output_file_pattern='//r/f.png',
                                  render_settings=dict(RENDER_SETTINGS))
-        assert key_state(job).state == 'none'
+        assert key_state_of(asset.project, job.asset_id, EMPTY, job.unreal_target_sha256).state == 'none'
         _record(asset, status='DONE', peak=8100, verdict='fits')
-        assert key_state(job).state == 'measured'
+        assert key_state_of(asset.project, job.asset_id, EMPTY, job.unreal_target_sha256).state == 'measured'
 
 
 @pytest.mark.django_db

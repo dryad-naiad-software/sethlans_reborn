@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import { Component, Input } from '@angular/core';
-import { UnrealLatestMeasurement, UnrealRam } from '../../core/services/unreal-measurement.model';
+import { UnrealRam } from '../core/services/unreal-measurement.model';
 
 /** A RAM figure the manager accepts: an integer of at least 1 MB. */
 function isMegabytes(value: unknown): value is number {
@@ -21,30 +21,22 @@ export function ramPeakText(ram: UnrealRam | null | undefined): string | null {
 }
 
 /**
- * The RAM line of a project's latest Unreal measurement (FR-PC-MGR-4).
- * Shows nothing when the measurement has no RAM figures. Basic UI only.
+ * The RAM figures of one machine's Unreal memory test result (FR-PC-MGR-4,
+ * per-machine memory test Q8), shown in its machine row. Shows nothing when
+ * the result has no RAM figures. Basic UI only.
  */
 @Component({
-  selector: 'app-unreal-measurement-ram',
+  selector: 'app-unreal-ram',
   standalone: true,
   template: `
     @if (text) {
-      <p class="measurement-ram">
-        <span class="ram-peak">{{ text }}</span>
-        @if (shared) {
-          <span class="ram-shared">, measured while the machine was shared</span>
-        }
-      </p>
+      <span class="measurement-ram"><span class="ram-peak">{{ text }}</span></span>
     }
   `,
-  styles: [`
-    .measurement-ram { color: rgba(0,0,0,0.6); margin: 0 0 4px; }
-  `],
+  styles: [`.measurement-ram { color: rgba(0,0,0,0.6); }`],
 })
-export class UnrealMeasurementRamComponent {
-  @Input() latest: UnrealLatestMeasurement | null = null;
+export class UnrealRamComponent {
+  @Input() ram: UnrealRam | null = null;
 
-  get text(): string | null { return ramPeakText(this.latest?.ram); }
-
-  get shared(): boolean { return this.latest?.shared_machine === true; }
+  get text(): string | null { return ramPeakText(this.ram); }
 }

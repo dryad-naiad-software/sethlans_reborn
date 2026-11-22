@@ -11,7 +11,10 @@ matches a type when it matches one member of its union: ``null``,
 ``number``, ``string``, ``boolean``, ``true``/``false``, a string literal,
 ``T[]``, a ``[a, b]`` tuple, an alias, or an interface (every field
 without ``?`` present, every present field matching).  Keys the API sends
-beyond the interface are allowed: the frontend ignores them.
+beyond the interface are allowed: the frontend ignores them.  An
+``extends`` base contributes its fields, and ``TsShapes.from_file`` also
+loads the files a source imports by relative path (``import { X } from
+'./y'``), so an interface defined in another model file resolves.
 
 Module name starts with an underscore so pytest does not collect it.
 """
@@ -19,8 +22,10 @@ Module name starts with an underscore so pytest does not collect it.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
-_INTERFACE_RE = re.compile(r"export\s+interface\s+(\w+)(?:<\w+>)?\s*(?:extends\s+\w+\s*)?\{([^}]*)\}", re.DOTALL)
+_INTERFACE_RE = re.compile(r"export\s+interface\s+(\w+)(?:<\w+>)?\s*(?:extends\s+(\w+)\s*)?\{([^}]*)\}", re.DOTALL)
+_IMPORT_RE = re.compile(r"import\s+(?:type\s+)?\{[^}]*\}\s*from\s*['\"](\.{1,2}/[^'\"]+)['\"]")
 _ALIAS_RE = re.compile(r"export\s+type\s+(\w+)\s*=\s*([^;]+);", re.DOTALL)
 _COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
 _FIELD_RE = re.compile(r"^\s*(\w+)(\?)?\s*:\s*([^;]+);", re.MULTILINE)
@@ -55,19 +60,38 @@ class TsShapes:
     def __init__(self, *sources: str):
         self.interfaces: dict[str, dict[str, tuple[str, bool]]] = {}
         self.aliases: dict[str, str] = {}
+        self.bases: dict[str, str] = {}
         for source in sources:
             source = _COMMENT_RE.sub('', source)  # a comment may hold braces or semicolons
-            for name, body in _INTERFACE_RE.findall(source):
+            for name, base, body in _INTERFACE_RE.findall(source):
                 self.interfaces[name] = {
                     m.group(1): (' '.join(m.group(3).split()), bool(m.group(2))) for m in _FIELD_RE.finditer(body)
                 }
+                if base:
+                    self.bases[name] = base
             for name, value in _ALIAS_RE.findall(source):
                 self.aliases[name] = ' '.join(value.split())
 
+    @classmethod
+    def from_file(cls, path: Path) -> TsShapes:
+        """The shapes of ``path`` and of every file it imports by relative path, transitively."""
+        sources, seen, todo = [], set(), [Path(path).resolve()]
+        while todo:
+            current = todo.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            assert current.is_file(), f"TS file {current} not found"
+            text = current.read_text(encoding='utf-8')
+            sources.append(text)
+            todo.extend((current.parent / f"{spec}.ts").resolve() for spec in _IMPORT_RE.findall(text))
+        return cls(*sources)
+
     def fields(self, interface: str) -> dict[str, tuple[str, bool]]:
-        """``{field: (ts_type, optional)}``; fails for an unknown interface."""
+        """``{field: (ts_type, optional)}``, inherited fields first; fails for an unknown interface."""
         assert interface in self.interfaces, f"TS interface {interface!r} not found"
-        return self.interfaces[interface]
+        base = self.bases.get(interface)
+        return {**self.fields(base), **self.interfaces[interface]} if base else self.interfaces[interface]
 
     def errors(self, value, ts_type: str, path: str = '$', generic: str | None = None) -> list[str]:
         """Why ``value`` does not match ``ts_type`` (empty when it does)."""

@@ -22,15 +22,11 @@ from .unreal_pilot_helpers import (
     JOBS, KIND, POLL, claim, created_job, measure, pilots, ready_worker, record_of,
 )
 
-PENDING = "Waiting for this project's memory measurement (pilot render)."
+# Per-machine FR-MT-U-2: the one online machine has not tested the key yet.
+PENDING = "Waiting for memory tests on 1 machine(s)."
 # Per-machine FR-MT-T-2: the claim judges the caller's own pair.
 NOT_TESTED = "This machine has not tested this render yet."
 CVARS = {'r.Streaming.PoolSize': '3000'}
-
-
-def _none_note(project_id):
-    return ("No memory measurement exists for this project version; an admin can start one "
-            f"(POST /api/projects/{project_id}/unreal-measurement/retry/).")
 
 
 def _failed_note(reason, project_id):
@@ -105,8 +101,8 @@ class TestStates:
         ready_worker(worker)
         job = Job.objects.create(name='PreMigration', asset=asset, output_file_pattern='//r/f.png',
                                  start_frame=1, end_frame=1, render_settings=dict(RENDER_SETTINGS))
-        note = _none_note(asset.project_id)
-        assert admin_client.get(f'{JOBS}{job.pk}/').data['routing_note'] == note
+        # FR-MT-U-2: an online machine that has not tried the key is waited for.
+        assert admin_client.get(f'{JOBS}{job.pk}/').data['routing_note'] == PENDING
         assert claim(client, job, worker).data == {'error': NOT_TESTED}
         assert _names(client.get(JOBS, POLL)) == []
 

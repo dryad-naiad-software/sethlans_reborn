@@ -7,12 +7,14 @@ Checks shared by the real Unreal E2E tests (Unreal foundation FR-T-8,
 sequence rendering chunk 9).
 
 ``UnrealChecks`` is the manager + Unreal worker harness plus the checks
-every real Unreal run makes: the pilot's summary and CSV peak, the
-project's measurement with the brand-independent peak bound (#281), the
-worker's own memory results for a job (``unreal_machine_results``, sent
-only to worker-token requests: per-machine memory test FR-MT-T-3), the
-isolation snapshot (HostAuth excluded, OQ-31), no orphans, and no farm
-process that would prompt the firewall.
+every real Unreal run makes: the pilot's summary and CSV peak; the
+project's one pilot (found in the job list, ``unreal_kind == "pilot"``);
+this machine's row in the project's measurement key (per-machine memory
+test FR-MT-U-1: ``unreal_measurement.keys[*].machines``) with the
+brand-independent peak bound (#281); the worker's own memory results for
+a job (``unreal_machine_results``, sent only to worker-token requests:
+FR-MT-T-3); the isolation snapshot (HostAuth excluded, OQ-31), no orphans,
+and no farm process that would prompt the firewall.
 """
 
 import logging
@@ -42,6 +44,8 @@ COMMON_SUMMARY = {
     "survivors": "",
     "pristine_integrity": "ok",
 }
+# Machine row states (per-machine memory test D2): a pilot QUEUED or RENDERING, a fitting result.
+TESTING, FITS = "testing", "fits"
 
 
 def assert_summary(summary, expected, what):
@@ -92,34 +96,66 @@ class UnrealChecks(UnrealWorkflowHarness):
             f"CSV peak {csv_peak} MB is not within 10% of the peak {peak} MB"
         )
 
-    def _card_total_mb(self, latest):
+    def _pilots(self):
+        """The project's pilot jobs (the job list, filtered by project)."""
+        data = self._get(f"/api/jobs/?asset__project={self.project_id}")
+        rows = data["results"] if isinstance(data, dict) else data
+        return [job for job in rows if job["unreal_kind"] == "pilot"]
+
+    def _the_pilot(self):
+        """The project's one pilot (one machine, one card kind), naming its card kind."""
+        pilots = self._pilots()
+        assert len(pilots) == 1, (
+            f"Expected one pilot: {[(job['id'], job['status'], job['render_settings']) for job in pilots]}"
+        )
+        assert pilots[0]["render_settings"].get("unreal.card_kind"), f"The pilot names no card kind: {pilots[0]}"
+        return pilots[0]
+
+    def _measurement_row(self, kind):
+        """``(unreal_measurement, key, row)``: the project's one key and this machine's row of card kind ``kind``."""
+        measurement = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]
+        keys = [key for key in measurement["keys"] or [] if str(key["asset_id"]) == str(self.asset_id)]
+        assert len(keys) == 1, f"Expected one measurement key for asset {self.asset_id}: {measurement}"
+        hostname = self.worker_data["hostname"]
+        rows = [row for row in keys[0]["machines"] if row["hostname"] == hostname and row["card_kind"] == kind]
+        assert len(rows) == 1, f"No single row of {hostname}, card kind {kind!r}: {keys[0]['machines']}"
+        return measurement, keys[0], rows[0]
+
+    def _pending_pilot(self, held):
+        """Before any result: one pilot, this machine's row of its kind ``testing``, ``held`` jobs held for it."""
+        pilot = self._the_pilot()
+        measurement, _key, row = self._measurement_row(pilot["render_settings"]["unreal.card_kind"])
+        assert row["state"] == TESTING, row
+        assert measurement["held_pending"] == held, measurement
+        return pilot
+
+    def _card_total_mb(self, row):
         """The measured card's total memory from this worker's heartbeat reading."""
         hostname = self.worker_data["hostname"]
         workers = [w for w in self._get("/api/heartbeat/") if w.get("hostname") == hostname]
         gpus = (workers[0].get("gpu_memory") or {}).get("gpus") if workers else None
-        logger.info("Measured card %s; worker GPU reading: %s", latest["gpu_name"], gpus)
-        return peak_upper_bound_mb(gpus, latest["gpu_name"], latest["gpu_total_mb"])
+        logger.info("Measured card %s; worker GPU reading: %s", row["card_name"], gpus)
+        return peak_upper_bound_mb(gpus, row["card_name"], row["card_total_mb"])
 
-    def _assert_measurement(self, pilot_id):
-        """The project's measurement is recorded and plausible; nothing is held. Returns ``latest``."""
-        measurement = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]
-        latest = measurement["latest"]
-        assert latest["status"] == "measured", latest
-        assert latest["pilot_job_id"] == pilot_id, latest
+    def _assert_measurement(self, pilot):
+        """This machine's result of the pilot's card kind fits and is plausible; nothing is held. Returns its row."""
+        kind = pilot["render_settings"].get("unreal.card_kind")
+        assert kind, f"The pilot names no card kind: {pilot['render_settings']}"
+        # Still the project's only pilot, so this machine's result of that kind is the one it measured.
+        assert self._the_pilot()["id"] == pilot["id"], pilot["id"]
+        measurement, key, row = self._measurement_row(kind)
+        assert row["state"] == FITS and not row["covered"], row
         # The peak varies by card and driver: at least a working measurement,
         # at most the measured card's own memory (the worker's reading).
-        card_total = self._card_total_mb(latest)
-        assert card_total, f"No total memory for the measured card: {latest}"
-        assert MIN_PILOT_PEAK_MB <= latest["peak_mb"] <= card_total, (
-            f"Peak {latest['peak_mb']} MB is outside {MIN_PILOT_PEAK_MB}..{card_total} MB: {latest}"
+        card_total = self._card_total_mb(row)
+        assert card_total, f"No total memory for the measured card: {row}"
+        assert MIN_PILOT_PEAK_MB <= row["peak_mb"] <= card_total, (
+            f"Peak {row['peak_mb']} MB is outside {MIN_PILOT_PEAK_MB}..{card_total} MB: {row}"
         )
-        assert latest["engine_build"] == ENGINE_BUILD, latest
-        assert latest["worker_hostname"] == self.worker_data["hostname"], latest
-        assert latest["prep_s"] is not None, latest
-        assert latest["seconds_per_frame"] is not None, latest
+        assert key["engine_build"] == ENGINE_BUILD, key
         held = {k: measurement[k] for k in ("held_pending", "held_failed", "held_none")}
         assert held == {"held_pending": 0, "held_failed": 0, "held_none": 0}, held
-        return latest
+        return row
 
     def _assert_isolated(self):
         orphans = unreal_isolation.orphans_of(self.cache_dir)

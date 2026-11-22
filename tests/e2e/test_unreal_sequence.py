@@ -125,10 +125,7 @@ class TestUnrealSequence(UnrealChecks):
             assert job["render_settings"].get("unreal.resolution") == list(cfg.SEQUENCE_SIZE), job["render_settings"]
         runs = [(job["start_frame"], job["end_frame"], job["unreal_lead_in_frames"]) for job in audio]
         assert runs == [cfg.SEQUENCE_AUDIO], runs
-        measurement = self._get(f"/api/projects/{self.project_id}/")["unreal_measurement"]
-        assert measurement["latest"]["status"] == "pending", measurement
-        assert measurement["held_pending"] == len(pieces), measurement
-        return measurement["latest"]["pilot_job_id"]
+        return self._pending_pilot(held=len(pieces))["id"]
 
     def _assert_pieces(self, pieces):
         """Every piece rendered on the measured gate and kept only its own frames (lead-in deleted)."""
@@ -243,7 +240,7 @@ class TestUnrealSequence(UnrealChecks):
         logger.info("Pilot %s summary:\n%s", pilot.get("status"), pilot.get("last_output"))
         self._assert_pilot(pilot, {"kind": "pilot", "vram_gate": "pilot",
                                    "pilot_frames": str(len(cfg.SEQUENCE_PILOT_FRAMES))})
-        self._assert_measurement(pilot_id)
+        self._assert_measurement(pilot)
 
         version = poll_sampling(self.session, f"{self.base_url}{VERSIONS}/{version['id']}/", FINISH_TIMEOUT,
                                 watch.sample, terminal=VERSION_FINAL)

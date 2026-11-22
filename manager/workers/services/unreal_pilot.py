@@ -54,10 +54,6 @@ class KeyState:
     reason: str | None
 
 
-_UNKNOWN = KeyState(None, None)
-_KEYED_KINDS = (UnrealKind.RENDER, UnrealKind.AUDIO)
-
-
 def key_state_of(project, asset_pk, overrides, target_hash):
     """The state of an explicit key, in one statement (carried by the project row)."""
     refs = (asset_pk, overrides, target_hash)
@@ -68,20 +64,6 @@ def key_state_of(project, asset_pk, overrides, target_hash):
         # The project is gone: no record of it can exist either.
         return KeyState(NONE, None)
     return KeyState(row['_state'], row['_reason'])
-
-
-def key_state(job):
-    """The key state of a saved render or audio ``job`` in one statement (no annotations needed).
-
-    Blender jobs, pilots and ``shots`` jobs read ``KeyState(None, None)`` with no query.
-    """
-    if job.unreal_kind not in _KEYED_KINDS or not job.unreal_target_sha256:
-        return _UNKNOWN
-    from ..renderers.unreal_measured import note_annotations
-    row = note_annotations(Job.objects.filter(pk=job.pk)).values('_unreal_key_state', '_unreal_key_reason').first()
-    if row is None:
-        return _UNKNOWN
-    return KeyState(row['_unreal_key_state'], row['_unreal_key_reason'])
 
 
 class LockToken:
@@ -112,20 +94,6 @@ class LockToken:
         if self.savepoint is not None and self.savepoint not in connection.savepoint_ids:
             return False
         return any(func is self for _sids, func, _robust in connection.run_on_commit)
-
-
-def cached_key_state(job):
-    """The job's key state from its annotations, else :func:`key_state` once.
-
-    The result is stored on the instance as the list annotations are
-    (``_unreal_key_state``, ``_unreal_key_reason``), so a single-object
-    response reads it once.
-    """
-    if hasattr(job, '_unreal_key_state'):
-        return KeyState(job._unreal_key_state, job._unreal_key_reason)
-    found = key_state(job)
-    job._unreal_key_state, job._unreal_key_reason = found.state, found.reason
-    return found
 
 
 def lock_project(project):
@@ -226,6 +194,6 @@ def retry_measurement(project, *, job_id=None, remeasure=False, worker=None, use
 
 __all__ = [
     'KeyState', 'MEASURED', 'NONE', 'PENDING', 'ProjectLockMissing', 'Target',
-    'cached_key_state', 'create_pilot', 'ensure_pilot', 'ensure_pilot_for_job', 'ensure_pilots_for_queued',
-    'key_state', 'key_state_of', 'lock_project', 'locked_project', 'retry_measurement',
+    'create_pilot', 'ensure_pilot', 'ensure_pilot_for_job', 'ensure_pilots_for_queued',
+    'key_state_of', 'lock_project', 'locked_project', 'retry_measurement',
 ]

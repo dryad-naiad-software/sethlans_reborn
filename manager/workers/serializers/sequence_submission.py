@@ -22,6 +22,7 @@ from ..constants_sequence import MAX_SUBMISSION_SHOTS, RESOLUTION_MAX, RESOLUTIO
 from ..constants_video import VideoStatus
 from ..models import SequenceShot, SequenceSubmission
 from ..services.sequence_routing import routing_note
+from .machine_rows import MachineRowSerializer, submission_machines
 from .sequence_discovery import CREATE_KEYS as DISCOVERY_KEYS, SequenceDiscoveryCreateSerializer
 from .sequence_validation import request_errors
 from .unreal_measurement import StrictBooleanField, StrictCharField, StrictIntegerField
@@ -167,7 +168,7 @@ class SequenceSubmissionSerializer(serializers.ModelSerializer):
 
 
 class SequenceSubmissionDetailSerializer(SequenceSubmissionSerializer):
-    """One submission with its shots, its pilot frames and its sound runs."""
+    """One submission with its shots, its pilot frames, its sound runs and its piece key's machines."""
 
     shots = SequenceShotSerializer(many=True, read_only=True)
     pilot_frames = serializers.ListField(child=serializers.IntegerField(), read_only=True)
@@ -179,6 +180,17 @@ class SequenceSubmissionDetailSerializer(SequenceSubmissionSerializer):
         ),
     )
 
+    machines = serializers.SerializerMethodField(
+        help_text=(
+            "Every machine and card kind of the version's piece key with its memory test state "
+            "(per-machine memory test FR-MT-U-1); null before the version has pieces."
+        ),
+    )
+
     class Meta(SequenceSubmissionSerializer.Meta):
-        fields = SequenceSubmissionSerializer.Meta.fields + ['pilot_frames', 'sound_runs', 'shots']
+        fields = SequenceSubmissionSerializer.Meta.fields + ['pilot_frames', 'sound_runs', 'shots', 'machines']
         read_only_fields = fields
+
+    @extend_schema_field(MachineRowSerializer(many=True, allow_null=True))
+    def get_machines(self, obj):
+        return submission_machines(self.context, obj)

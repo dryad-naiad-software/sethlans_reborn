@@ -15,8 +15,6 @@ from rest_framework.response import Response
 from ..models import Job, JobStatus, QueueSetting
 from ..permissions import IsAdmin, IsWorker
 from ..renderers.unreal_machine import piece_target_annotation
-from ..renderers.unreal_measured import note_annotations
-from ..renderers.unreal_routing import _is_worker_request
 from ..serializers import JobSerializer
 from .job_memory_report import JobMemoryReportMixin
 from .job_pause_actions import JobPauseActionsMixin
@@ -102,11 +100,10 @@ class JobViewSet(
             'blender_version',
             'asset__project__blender_version',
         )
-        # The piece key of audio jobs (per-machine D10) and, for the routing
-        # note of non-worker requests, the key state: no query per row.
+        # The piece key of audio jobs (per-machine D10): no query per row.
+        # The routing note reads the page's machine states in one query
+        # (``services/machine_rows.py``, FR-MT-U-2).
         queryset = queryset.annotate(**piece_target_annotation())
-        if not _is_worker_request(self.request):
-            queryset = note_annotations(queryset)
 
         # A worker poll is identified by the presence of these specific query parameters.
         is_worker_poll = (

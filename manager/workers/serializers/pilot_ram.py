@@ -5,8 +5,10 @@
 The pilot's RAM figures (per-card spec FR-PC-RAM-3, FR-PC-MGR-1).
 
 ``UnrealRamSerializer`` is the ``ram`` object of the ``pilot-result/``
-body and, for the OpenAPI schema, of a job's ``unreal_machine_results[].ram`` and
-``unreal_measurement.latest.ram``::
+body and, for the OpenAPI schema, of a job's worker-token
+``unreal_machine_results[].ram`` and of every machine row's ``ram``
+(``serializers/machine_rows.py``: ``unreal_machines``, ``machines``,
+``unreal_measurement.keys[].machines[]``)::
 
     {"prep":   {"ws_mb": n, "commit_mb": n},
      "warmup": {"ws_mb": n, "commit_mb": n, "cold": bool} | null,

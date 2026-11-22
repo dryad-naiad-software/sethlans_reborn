@@ -10,11 +10,12 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Subscription, switchMap } from 'rxjs';
 import { JobService, Job } from '../../core/services/job.service';
 import { showsCyclesFeatureSet } from '../../core/services/blender-version.util';
+import { MachineRowsComponent } from '../../shared/machine-rows.component';
 
 @Component({
   selector: 'app-job-detail',
   standalone: true,
-  imports: [CommonModule, MatCardModule, MatProgressSpinnerModule],
+  imports: [CommonModule, MatCardModule, MatProgressSpinnerModule, MachineRowsComponent],
   template: `
     @if (loading) {
       <mat-spinner diameter="40" />
@@ -34,6 +35,7 @@ import { showsCyclesFeatureSet } from '../../core/services/blender-version.util'
             <div><strong>Worker:</strong> {{ job.assigned_worker_hostname ?? 'Unassigned' }}</div>
             <div><strong>Submitted:</strong> {{ job.submitted_at | date:'medium' }}</div>
           </div>
+          <app-machine-rows [machines]="job.unreal_machines" />
         </mat-card-content>
       </mat-card>
 

@@ -45,7 +45,7 @@ class MachineResultSerializer(serializers.Serializer):
     driver_version = serializers.CharField(allow_null=True)
 
 
-def _key_target(job):
+def key_target(job):
     """The target hash of the job's key: its own, or (audio) its submission's piece key."""
     if job.unreal_kind != UnrealKind.AUDIO:
         return job.unreal_target_sha256
@@ -55,16 +55,21 @@ def _key_target(job):
         'piece_target_sha256', flat=True).first() or ''
 
 
-def _response_assets(serializer, job):
-    """The asset ids of every job in the response (a list serializer's page), ``job``'s included."""
+def response_rows(serializer, job):
+    """Every job in the response (a list serializer's page, read without a query), ``job`` included."""
     rows = [job]
     parent = serializer.parent
     if isinstance(parent, serializers.ListSerializer):
         instance = parent.instance
         # A queryset is the one the list serializer is iterating: already fetched, no query.
         if isinstance(instance, (list, tuple)) or (isinstance(instance, QuerySet) and instance._result_cache is not None):
-            rows = list(instance)
-    return {row.asset_id for row in rows if isinstance(row, Job)} | {job.asset_id}
+            rows = [row for row in instance if isinstance(row, Job)] + [job]
+    return rows
+
+
+def _response_assets(serializer, job):
+    """The asset ids of every job in the response, ``job``'s included."""
+    return {row.asset_id for row in response_rows(serializer, job)}
 
 
 def _entry(row):
@@ -103,4 +108,4 @@ def machine_results(serializer, job, worker):
         assets = _response_assets(serializer, job) - cache['assets']
         cache['results'].update(_load(worker, assets))
         cache['assets'] |= assets
-    return list(cache['results'].get((job.asset_id, _key_target(job)), []))
+    return list(cache['results'].get((job.asset_id, key_target(job)), []))

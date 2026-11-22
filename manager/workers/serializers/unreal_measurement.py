@@ -6,8 +6,9 @@ Serializers of the Unreal measured-peak gate (Unreal foundation FR-PM-4,
 FR-PM-6, FR-PM-7).
 
 * ``ProjectDetailSerializer`` -- ``ProjectSerializer`` plus the read-only
-  ``unreal_measurement`` summary; used only by ``ProjectViewSet`` (nested
-  ``project_details`` keep ``ProjectSerializer``).
+  ``unreal_measurement`` summary (held counts and, per key, the machine
+  list of per-machine memory test FR-MT-U-1); used only by
+  ``ProjectViewSet`` (nested ``project_details`` keep ``ProjectSerializer``).
 * ``PilotResultRequestSerializer`` (with ``PilotGpuSerializer`` and
   ``PilotShotSerializer``) and ``PilotResultResponseSerializer`` -- the
   ``pilot-result/`` contract, used for validation and the OpenAPI schema.
@@ -30,6 +31,7 @@ from ..constants import UNREAL_GAME_OVERRIDES, UNREAL_TEXTURE_STREAMING
 from ..renderers import UnsupportedRendererError, get_strategy
 from ..renderers.unreal_machine import DOES_NOT_FIT, FITS
 from .machine_report_fields import CardKindField, DriverVersionField
+from .machine_rows import MachineRowSerializer
 from .pilot_ram import UnrealRamSerializer, largest_commit_mb, ram_megabytes
 from .projects import ProjectSerializer
 from .strict_fields import StrictBooleanField, StrictCharField, StrictIntegerField, StrictNumberField
@@ -184,53 +186,29 @@ class MeasurementRetryResponseSerializer(serializers.Serializer):
     measurement_id = serializers.IntegerField()
 
 
-class LatestMeasurementSerializer(serializers.Serializer):
-    """Schema of ``unreal_measurement.latest`` (FR-PM-7)."""
+class MeasurementKeySerializer(serializers.Serializer):
+    """Schema of one ``unreal_measurement.keys`` entry (per-machine memory test FR-MT-U-1)."""
 
-    measurement_id = serializers.IntegerField()
-    status = serializers.ChoiceField(choices=['measured', 'pending', 'failed'])
-    reason = serializers.CharField(allow_null=True)
-    remeasure = serializers.BooleanField()
     asset_id = serializers.IntegerField()
+    target_sha256 = serializers.CharField()
     engine_build = serializers.CharField()
     map = serializers.CharField()
     sequence = serializers.CharField()
     preset = serializers.CharField()
-    peak_mb = serializers.IntegerField(allow_null=True)
-    peak_source = serializers.CharField(allow_null=True)
-    game_overrides = serializers.ChoiceField(
-        choices=UNREAL_GAME_OVERRIDES, allow_null=True, read_only=True,
-        help_text="The preset's Game Overrides as the pilot ran (gpu-memory-reader FR-GC-10); "
-                  "null until measured.",
-    )
-    texture_streaming = serializers.ChoiceField(
-        choices=UNREAL_TEXTURE_STREAMING, allow_null=True, read_only=True,
-        help_text="The preset's texture streaming mode as the pilot ran (FR-GC-10); null until measured.",
-    )
-    measured_at = serializers.DateTimeField(allow_null=True)
-    worker_hostname = serializers.CharField(allow_null=True)
-    gpu_name = serializers.CharField(allow_null=True)
-    gpu_total_mb = serializers.IntegerField(allow_null=True)
-    prep_s = serializers.FloatField(allow_null=True)
-    warmup_s = serializers.FloatField(allow_null=True)
-    seconds_per_frame = serializers.FloatField(allow_null=True)
-    pilot_job_id = serializers.IntegerField(allow_null=True)
-    # Per-card spec FR-PC-MGR-4: null until measured and on records without RAM figures.
-    ram = UnrealRamSerializer(allow_null=True, read_only=True)
-    ram_process_commit_peak_mb = serializers.IntegerField(allow_null=True, read_only=True)
-    shared_machine = serializers.BooleanField(
-        allow_null=True, read_only=True,
-        help_text="The pilot ran while another job held the worker; null until measured.",
-    )
+    machines = MachineRowSerializer(many=True)
 
 
 class MeasurementSummarySerializer(serializers.Serializer):
-    """Schema of a project's ``unreal_measurement`` (FR-PM-7)."""
+    """Schema of a project's ``unreal_measurement`` (FR-PM-7, FR-MT-U-1)."""
 
     held_pending = serializers.IntegerField()
     held_failed = serializers.IntegerField()
     held_none = serializers.IntegerField()
-    latest = LatestMeasurementSerializer(allow_null=True)
+    keys = MeasurementKeySerializer(
+        many=True, allow_null=True,
+        help_text=("The measurement keys under the current CVars (active jobs' keys first, at most 20), "
+                   "each with its machine list. Null in the project list and for worker tokens."),
+    )
 
 
 class ProjectDetailSerializer(ProjectSerializer):
@@ -238,8 +216,8 @@ class ProjectDetailSerializer(ProjectSerializer):
 
     unreal_measurement = serializers.SerializerMethodField(
         help_text=(
-            "Unreal projects: QUEUED normal jobs held by measurement state and the "
-            "latest measurement under the current CVars. Null for Blender projects."
+            "Unreal projects: QUEUED normal jobs held by measurement state and each "
+            "measurement key's machines under the current CVars. Null for Blender projects."
         ),
     )
 

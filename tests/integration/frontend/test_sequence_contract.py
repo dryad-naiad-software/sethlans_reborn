@@ -13,7 +13,10 @@ helpers): a discovery read by a worker, a submission planned from it,
 every piece rendered but the last, which fails, and the shot videos built
 with a fake FFmpeg, so the version ends PARTLY_DONE with two DONE shots
 (video built) and one ERROR shot.  The status unions and the final
-statuses of the TS file are checked against the model choices.
+statuses of the TS file are checked against the model choices.  The
+detail's ``machines`` rows (per-machine memory test) are checked against
+``MachineRow``, which ``sequence.types.ts`` imports from
+``unreal-measurement.model.ts`` (``TsShapes.from_file`` follows the import).
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ import pytest
 
 from workers.constants_sequence import FINAL_SEQUENCE_STATUSES, DiscoveryStatus, SequenceStatus, ShotStatus
 from workers.constants_video import VideoStatus
+from workers.renderers.unreal_machine import PAIR_STATES
 
 from tests.integration.manager.sequence.build_helpers import (
     RUN_FFMPEG, FakeFfmpeg, build_all, finish_pieces, manual_queue, version,
@@ -44,7 +48,7 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture(scope="module")
 def ts() -> TsShapes:
-    return TsShapes(TYPES_TS.read_text(encoding="utf-8"))
+    return TsShapes.from_file(TYPES_TS)
 
 
 @pytest.fixture
@@ -72,6 +76,16 @@ def _get(client, url, **params):
     return resp.json()
 
 
+def _assert_machine_rows(ts: TsShapes, detail: dict, worker: int) -> None:
+    """``machines`` is a non-empty ``MachineRow[]`` naming the token worker (not skipped as null)."""
+    assert ts.fields("SequenceSubmission")["machines"] == ("MachineRow[] | null", True)
+    rows = detail["machines"]
+    assert isinstance(rows, list) and rows, rows
+    for i, row in enumerate(rows):
+        assert ts.object_errors(row, "MachineRow", f"$.machines[{i}]") == []
+    assert worker in {row["worker"] for row in rows}
+
+
 def _union(ts: TsShapes, alias: str) -> set:
     return {None if m == "null" else m.strip("'") for m in ts.aliases[alias].split(" | ")}
 
@@ -84,6 +98,9 @@ class TestStatusUnions:
     ])
     def test_status_union_matches_the_model(self, ts, alias, choices):
         assert _union(ts, alias) == set(choices.values)
+
+    def test_machine_state_union_matches_the_pair_states(self, ts):
+        assert _union(ts, "MachineState") == set(PAIR_STATES)
 
     def test_item_status_is_the_video_status_or_null(self, ts):
         assert _union(ts, "ItemStatus") == set(VideoStatus.values) | {None}
@@ -112,12 +129,13 @@ class TestSubmissionShapes:
         assert row["video_settings"]["preset"] == VIDEO["preset"]
         assert isinstance(row["routing_note"], (str, type(None)))
 
-    def test_detail_matches_ts_with_its_shots(self, admin_client, ts, partly_done):
+    def test_detail_matches_ts_with_its_shots(self, admin_client, ts, partly_done, worker_with_token):
         detail = _get(admin_client, f"{SUBMISSIONS}{partly_done.pk}/")
         assert ts.object_errors(detail, "SequenceSubmission") == []
         assert [(s["index"], s["status"]) for s in detail["shots"]] == [(1, "DONE"), (2, "DONE"), (3, "ERROR")]
         assert [s["end_frame"] for s in detail["shots"]] == [4, 10, 24]  # exclusive, as the TS says
         assert detail["shots"][2]["error_message"]
+        _assert_machine_rows(ts, detail, worker=worker_with_token[0].pk)
 
     def test_downloads_flags_follow_the_results(self, admin_client, ts, partly_done):
         detail = _get(admin_client, f"{SUBMISSIONS}{partly_done.pk}/")
@@ -143,6 +161,7 @@ class TestSubmissionShapes:
         assert detail["downloads"] == NOTHING
         assert {s["status"] for s in detail["shots"]} == {"PENDING"}
         assert all(s["downloads"] == NOTHING for s in detail["shots"])
+        _assert_machine_rows(ts, detail, worker=worker.pk)
 
 
 class TestDiscoveryShapes:

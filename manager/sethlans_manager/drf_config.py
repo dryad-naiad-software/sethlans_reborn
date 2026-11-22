@@ -43,7 +43,7 @@ SPECTACULAR_SETTINGS = {
         # The heartbeat ``gpu_memory.source`` names (gpu-memory-reader FR-GH-6).
         'WorkerGpuMemorySourceEnum': 'workers.serializers.workers.GPU_MEMORY_SOURCE_CHOICES',
         # What a pilot render ran with (gpu-memory-reader FR-GC-10): the
-        # pilot-result body, ``unreal_measurement.latest`` and the model.
+        # pilot-result body and the model.
         'UnrealGameOverridesEnum': 'shared.unreal.render_context.GAME_OVERRIDES_VALUES',
         'UnrealTextureStreamingEnum': 'shared.unreal.render_context.TEXTURE_STREAMING_VALUES',
         # Unreal sequence rendering (FR-SD-1, FR-SD-5): pinned beside the job status names.

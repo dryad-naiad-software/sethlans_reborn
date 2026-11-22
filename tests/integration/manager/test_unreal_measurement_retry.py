@@ -60,7 +60,7 @@ class TestRetry:
         assert message.startswith(f"Unreal measurement retry by admin for project {asset.project_id}, asset {asset.pk}")
         assert message.endswith("(remeasure=False, 1 pilots).")
         state = admin_client.get(f'{JOBS}{failed.pk}/').data['routing_note']
-        assert state == "Waiting for this project's memory measurement (pilot render)."
+        assert state == "Waiting for memory tests on 1 machine(s)."
 
     def test_none_state_job(self, admin_client, asset):
         job = Job.objects.create(name='Legacy', asset=asset, output_file_pattern='//r/f.png',
@@ -95,7 +95,7 @@ class TestRetry:
         old.refresh_from_db()
         assert old.current is False
         assert admin_client.get(f'{JOBS}{job.pk}/').data['routing_note'] == (
-            "Waiting for this project's memory measurement (pilot render).")
+            "Waiting for memory tests on 1 machine(s).")
 
     def test_job_id_targets_that_job(self, admin_client, asset, failed):
         other = created_job(admin_client, asset, name='Other', render_settings=settings(sequence=OTHER_SEQUENCE))

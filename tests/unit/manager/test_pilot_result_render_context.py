@@ -12,7 +12,7 @@ from django.utils.module_loading import import_string
 
 from workers import constants
 from workers.models import UnrealMeasurement
-from workers.serializers.unreal_measurement import LatestMeasurementSerializer, PilotResultRequestSerializer
+from workers.serializers.unreal_measurement import PilotResultRequestSerializer
 
 FIELDS = ('game_overrides', 'texture_streaming')
 SHA = 'ab' * 32
@@ -95,11 +95,3 @@ class TestPilotResultRequest:
     def test_the_values_of_one_field_are_not_accepted_in_the_other(self):
         assert set(_errors(_body(game_overrides='off'))) == {'game_overrides'}
         assert set(_errors(_body(texture_streaming='preset'))) == {'texture_streaming'}
-
-
-class TestLatestSchema:
-
-    @pytest.mark.parametrize('field', FIELDS)
-    def test_latest_fields_are_read_only_and_nullable(self, field):
-        declared = LatestMeasurementSerializer().fields[field]
-        assert declared.read_only and declared.allow_null

@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 Integration tests: where the measurement fields appear and what they cost
-(Unreal foundation FR-PM-5, FR-PM-7, FR-PM-8, AC-51, AC-55).
+(Unreal foundation FR-PM-5, FR-PM-7, FR-PM-8, AC-51, AC-55; per-machine
+memory test FR-MT-U-1: ``keys`` with their machines replace ``latest``).
 """
 
 import pytest
@@ -13,7 +14,9 @@ from django.test.utils import CaptureQueriesContext
 from workers.models import Job
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS, unreal_asset, unreal_project
-from .unreal_pilot_helpers import JOBS, OTHER_SEQUENCE, created_job, measure, pilots, ready_worker, record_of, settings
+from .unreal_pilot_helpers import (
+    JOBS, KIND, OTHER_SEQUENCE, created_job, measure, pilots, ready_worker, record_of, settings,
+)
 
 PROJECTS = '/api/projects/'
 
@@ -47,11 +50,16 @@ def asset(db, machine):
 @pytest.mark.django_db
 class TestProjectField:
 
-    def test_no_record(self, admin_client, asset):
-        Job.objects.create(name='Legacy', asset=asset, output_file_pattern='//r/f.png',
-                           render_settings=dict(RENDER_SETTINGS))
-        assert _measurement(admin_client, asset.project_id) == {
-            'held_pending': 0, 'held_failed': 0, 'held_none': 1, 'latest': None}
+    def test_no_record(self, admin_client, asset, machine):
+        job = Job.objects.create(name='Legacy', asset=asset, output_file_pattern='//r/f.png',
+                                 render_settings=dict(RENDER_SETTINGS))
+        data = _measurement(admin_client, asset.project_id)
+        assert (data['held_pending'], data['held_failed'], data['held_none']) == (0, 0, 1)
+        [key] = data['keys']
+        assert (key['asset_id'], key['target_sha256'], key['engine_build'], key['sequence']) == (
+            asset.pk, job.unreal_target_sha256, BUILD, RENDER_SETTINGS['unreal.sequence'])
+        [row] = key['machines']
+        assert (row['worker'], row['state'], row['online'], row['card_kind']) == (machine[0].pk, 'not_tried', True, KIND)
 
     def test_pending_and_counts(self, admin_client, asset):
         created_job(admin_client, asset, name='JobA1')
@@ -60,10 +68,13 @@ class TestProjectField:
         Job.objects.filter(pk=pilots()[-1].pk).update(status='ERROR', error_message='boom')
         data = _measurement(admin_client, asset.project_id)
         assert (data['held_pending'], data['held_failed'], data['held_none']) == (2, 1, 0)
-        latest = data['latest']
-        assert (latest['status'], latest['reason'], latest['pilot_job_id']) == ('failed', 'boom', pilots()[-1].pk)
-        assert latest['sequence'] == OTHER_SEQUENCE
-        assert latest['peak_mb'] is None and 'gate_need_mb' not in latest and latest['measured_at'] is None
+        assert 'latest' not in data
+        # The newest active key first.
+        newest, older = data['keys']
+        assert (newest['sequence'], older['sequence']) == (OTHER_SEQUENCE, RENDER_SETTINGS['unreal.sequence'])
+        [failed], [testing] = newest['machines'], older['machines']
+        assert (failed['state'], failed['reason'], failed['peak_mb']) == ('failed', 'boom', None)
+        assert (testing['state'], testing['reason']) == ('testing', None)
 
     def test_measured(self, admin_client, asset, worker_with_token):
         worker, _client = worker_with_token
@@ -72,32 +83,34 @@ class TestProjectField:
         measure(record, peak_mb=8102, worker=worker)
         data = _measurement(admin_client, asset.project_id)
         assert (data['held_pending'], data['held_failed'], data['held_none']) == (0, 0, 0)
-        latest = data['latest']
-        assert latest['measurement_id'] == record.pk
-        assert (latest['status'], latest['reason'], latest['remeasure']) == ('measured', None, False)
-        assert latest['peak_mb'] == 8102 and 'gate_need_mb' not in latest
-        assert (latest['asset_id'], latest['engine_build'], latest['worker_hostname']) == (
-            asset.pk, BUILD, worker.hostname)
-        assert latest['measured_at'].endswith('Z')
+        [key] = data['keys']
+        assert (key['asset_id'], key['engine_build']) == (asset.pk, BUILD)
+        [row] = key['machines']
+        assert (row['state'], row['peak_mb'], row['hostname'], row['reason'], row['covered']) == (
+            'fits', 8102, worker.hostname, None, False)
 
-    def test_latest_follows_the_current_cvars(self, admin_client, asset):
+    def test_keys_follow_the_current_cvars(self, admin_client, asset):
         created_job(admin_client, asset)
+        Job.objects.filter(pk=pilots()[0].pk).update(status='ERROR', error_message='old cvars')
         admin_client.patch(f'{PROJECTS}{asset.project_id}/',
                            {'unreal_cvar_overrides': {'r.Streaming.PoolSize': '3000'}}, format='json')
-        latest = _measurement(admin_client, asset.project_id)['latest']
-        assert latest['pilot_job_id'] == pilots()[-1].pk
+        [key] = _measurement(admin_client, asset.project_id)['keys']
+        [row] = key['machines']
+        assert row['state'] == 'testing'
 
     def test_list_and_update_responses_carry_it(self, admin_client, asset):
         created_job(admin_client, asset)
         listed = admin_client.get(PROJECTS).data
-        assert listed[0]['unreal_measurement']['held_pending'] == 1
+        # NF-3: no machine lists in the project list.
+        assert (listed[0]['unreal_measurement']['held_pending'], listed[0]['unreal_measurement']['keys']) == (1, None)
         resp = admin_client.patch(f'{PROJECTS}{asset.project_id}/', {'name': 'Renamed'}, format='json')
         assert resp.data['unreal_measurement']['held_pending'] == 1
+        assert len(resp.data['unreal_measurement']['keys']) == 1
         resp = admin_client.post(PROJECTS, {'name': 'NewUnreal', 'renderer': 'UNREAL', 'engine_build': BUILD},
                                  format='json')
         assert resp.status_code == 201, resp.data
         assert resp.data['unreal_measurement'] == {
-            'held_pending': 0, 'held_failed': 0, 'held_none': 0, 'latest': None}
+            'held_pending': 0, 'held_failed': 0, 'held_none': 0, 'keys': []}
 
     def test_blender_project_is_null(self, admin_client, project):
         assert _measurement(admin_client, project.pk) is None

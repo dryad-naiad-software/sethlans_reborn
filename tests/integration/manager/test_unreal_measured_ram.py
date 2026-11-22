@@ -9,8 +9,10 @@ per-machine memory test D2, D11, FR-MT-T-3, AC-10).
   of exactly the record that gives the peak: the caller's own current,
   not stale, ``fits`` record of the key, never another record's figures.
 * The field is null for other callers and for pilots and Blender jobs;
-  the blender-invariance key list, ``unreal_measurement.latest`` and the
-  OpenAPI schema.
+  the blender-invariance key list, the figures stored on the record from
+  the pilot result and the OpenAPI schema.  (The project's single
+  ``unreal_measurement.latest`` is gone: per-machine FR-MT-U-1 lists
+  machines per key instead.)
 """
 
 import json
@@ -20,7 +22,6 @@ from django.core.files.base import ContentFile
 from django.test import Client
 
 from workers.models import Asset, Job, UnrealMeasurement
-from workers.serializers.unreal_measurement import LatestMeasurementSerializer
 
 from .blender_invariance_normalize import NEW_KEYS_BY_KIND
 from .unreal_helpers import unreal_asset
@@ -156,42 +157,22 @@ class TestJobField:
         assert not {'unreal_measured_peak_mb', 'unreal_measured_ram'} & NEW_KEYS_BY_KIND['job']
 
 
-def _latest(client, project_id):
-    resp = client.get(f'{PROJECTS}{project_id}/')
-    assert resp.status_code == 200, resp.data
-    return resp.data['unreal_measurement']['latest']
+def _figures(pilot):
+    record = UnrealMeasurement.objects.get(pilot_job=pilot)
+    return record.ram, record.ram_process_commit_peak_mb, record.shared_machine
 
 
 @pytest.mark.django_db
-class TestLatest:
+class TestStoredFigures:
 
-    def test_the_serializer_declares_the_fields_read_only_and_nullable(self):
-        fields = LatestMeasurementSerializer().fields
-        for name in ('ram', 'ram_process_commit_peak_mb', 'shared_machine'):
-            assert fields[name].read_only and fields[name].allow_null
-
-    def test_null_before_measurement(self, admin_client, job):
-        latest = _latest(admin_client, job.asset.project_id)
-        assert latest['status'] == 'pending'
-        assert (latest['ram'], latest['ram_process_commit_peak_mb'], latest['shared_machine']) == (None, None, None)
+    def test_null_before_measurement(self, job):
+        assert _figures(pilots()[0]) == (None, None, None)
 
     def test_after_the_pilot_result(self, admin_client, asset, machine):
         worker, client = machine
         pilot = claimed_pilot(admin_client, asset, worker, client)
         assert post_result(client, pilot.pk, pilot_body(shared_machine=True)).status_code == 200
-        latest = _latest(admin_client, asset.project_id)
-        assert (latest['ram'], latest['ram_process_commit_peak_mb'], latest['shared_machine']) == (
-            PILOT_RAM, 18900, True)
-        listed = admin_client.get(PROJECTS).data[0]['unreal_measurement']['latest']
-        assert (listed['ram'], listed['shared_machine']) == (PILOT_RAM, True)
-
-    def test_a_failed_record_hides_any_stored_figures(self, admin_client, job):
-        UnrealMeasurement.objects.filter(pilot_job=pilots()[0]).update(
-            ram=RAM_A, ram_process_commit_peak_mb=100, shared_machine=True)
-        Job.objects.filter(pk=pilots()[0].pk).update(status='ERROR', error_message='boom')
-        latest = _latest(admin_client, job.asset.project_id)
-        assert (latest['status'], latest['ram'], latest['ram_process_commit_peak_mb'], latest['shared_machine']) == (
-            'failed', None, None, None)
+        assert _figures(pilot) == (PILOT_RAM, 18900, True)
 
 
 @pytest.mark.django_db
@@ -217,10 +198,9 @@ class TestOpenAPI:
         assert set(schemas['UnrealRamWarmup']['required']) == {'ws_mb', 'commit_mb', 'cold'}
         assert schemas['UnrealRamPhase']['properties']['ws_mb']['minimum'] == 1
 
-    def test_the_request_and_latest_use_the_same_object(self):
+    def test_the_request_requires_the_figures(self):
         schemas = self._schemas()
         request = schemas['PilotResultRequest']
         assert {'ram', 'ram_process_commit_peak_mb', 'shared_machine'} <= set(request['required'])
         assert request['properties']['ram_process_commit_peak_mb']['minimum'] == 1
-        latest = schemas['LatestMeasurement']['properties']
-        assert latest['ram']['readOnly'] is True and latest['ram']['nullable'] is True
+        assert 'LatestMeasurement' not in schemas

@@ -6,6 +6,8 @@ Integration tests: the R8 ``routing_note`` of Unreal jobs (Unreal foundation
 FR-RT-9, FR-T-3, AC-7).  Per-machine memory test D7: whether a render fits
 is each machine's own result, so the note no longer estimates a farm-wide
 memory need from card sizes (no 15% margin, no pool caps, no pilot minimum).
+FR-MT-U-2: the memory part follows the online machines' own pairs; an
+online machine with a fits result gives no note, whatever the other cards.
 """
 
 from datetime import timedelta
@@ -20,7 +22,7 @@ from workers.models import Job, JobStatus, Worker
 from .unreal_helpers import (
     BUILD, RENDER_SETTINGS, SHARE, caps, card_key_of, gpu_memory, set_share, unreal_asset, unreal_project,
 )
-from .unreal_pilot_helpers import measure_key
+from .unreal_pilot_helpers import measure_key, ready_worker
 
 # A peak that the removed farm-wide estimate (peak + 15%) put over a 16 GB card.
 PEAK_MB = 14000
@@ -30,6 +32,8 @@ NO_SHARE = "The Sethlans share is not configured."
 NO_BUILD = f"No online worker reports Unreal Engine build {BUILD}."
 NO_REACH = (f"No online worker with Unreal Engine build {BUILD} is configured "
             "with the manager's Sethlans share and reports it reachable.")
+NO_MACHINE = (f"No online worker with Unreal Engine build {BUILD} has a ticked graphics card "
+              "with a live memory reading.")
 
 
 def _worker(hostname, capabilities, memory=None, online=True):
@@ -37,6 +41,13 @@ def _worker(hostname, capabilities, memory=None, online=True):
                                    gpu_memory=memory or {})
     if not online:
         Worker.objects.filter(pk=worker.pk).update(last_seen=timezone.now() - timedelta(seconds=600))
+    return worker
+
+
+def _fitting_machine(job):
+    """An online, eligible machine with a fits result of the job's key (FR-MT-U-2: no note)."""
+    worker = ready_worker(_worker('note-fits', caps()))
+    measure_key(job, peak_mb=PEAK_MB, worker=worker)
     return worker
 
 
@@ -82,18 +93,23 @@ class TestMessages:
         set_share(SHARE)
         _worker('note-16', caps(), gpu_memory(16303))
         _worker('note-mixed', caps(), gpu_memory(16303, 12282))
+        # FR-MT-U-2: none of them has a ticked card kind, so none can test the key.
+        assert _note(admin_client, job) == NO_MACHINE
+        _fitting_machine(job)
         assert _note(admin_client, job) is None
 
     def test_enough_memory_on_the_largest_gpu(self, admin_client, job):
         set_share(SHARE)
         _worker('note-16', caps(), gpu_memory(16303))
         _worker('note-32', caps(), gpu_memory(32607, 32607, used=30000))
+        _fitting_machine(job)
         assert _note(admin_client, job) is None
 
     def test_worker_without_gpu_memory_is_not_counted_against(self, admin_client, job):
         set_share(SHARE)
         _worker('note-16', caps(), gpu_memory(16303))
         _worker('note-old', caps())
+        _fitting_machine(job)
         assert _note(admin_client, job) is None
 
     def test_a_pilot_has_no_memory_need(self, admin_client):
@@ -124,6 +140,7 @@ class TestNoFarmMemoryEstimate:
     def test_a_measured_key_has_no_memory_note(self, admin_client, job, make_memory):
         set_share(SHARE)
         _worker('note-cards', caps(), make_memory())
+        _fitting_machine(job)
         assert _note(admin_client, job) is None
 
 

@@ -19,6 +19,8 @@ import { AnimationService } from '../../core/services/animation.service';
 import { SequenceService } from '../../core/services/sequence.service';
 import { SequenceSubmitDialogComponent } from './sequence-submit-dialog.component';
 import { SequenceVersionsComponent } from './sequence-versions.component';
+import { UnrealMeasurementKeysComponent } from './unreal-measurement-keys.component';
+import { MACHINE_RAM, measurementKey } from '../../shared/machine-row.fixtures';
 
 /**
  * Unreal foundation spec FR-FE-1 / FR-FE-3 / FR-FE-4 (AC-25, AC-39).
@@ -176,6 +178,34 @@ describe('ProjectDetailComponent renderer handling', () => {
       const jobsTable: ProjectJobsTableComponent = table.componentInstance;
       jobsTable.rerender.emit({ renderType: 'single', samples: 64 });
       expect(open).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('memory tests per key (per-machine memory test FR-MT-U-4)', () => {
+    const summary = { held_pending: 0, held_failed: 0, held_none: 0, keys: [measurementKey()] };
+
+    it('passes the measurement keys to the keys view and shows their machine rows', () => {
+      render({ ...UNREAL_PROJECT, unreal_measurement: summary }, [UNREAL_ASSET]);
+      const keys = fixture.debugElement.query(By.directive(UnrealMeasurementKeysComponent));
+      expect((keys.componentInstance as UnrealMeasurementKeysComponent).keys).toBe(summary.keys);
+      expect(text(fixture.nativeElement.querySelector('.measurement-keys h3'))).toBe('Memory tests');
+      expect(text(fixture.nativeElement.querySelector('.machine-text')))
+        .toBe('render-01, Radeon RX 7900 XT: fits: 13,689 of 20,464 MB');
+    });
+
+    it('no longer reads the old latest measurement', () => {
+      const legacy = { ...summary, keys: null, latest: { ram: MACHINE_RAM, peak_mb: 14000 } };
+      render({ ...UNREAL_PROJECT, unreal_measurement: legacy }, [UNREAL_ASSET]);
+      expect(fixture.nativeElement.querySelector('app-unreal-measurement-ram')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.measurement-ram, .measurement-keys')).toBeNull();
+      expect(text(fixture.nativeElement)).not.toContain('RAM peak');
+    });
+
+    it('shows no memory tests without a measurement summary', () => {
+      render(UNREAL_PROJECT, [UNREAL_ASSET]);
+      const keys = fixture.debugElement.query(By.directive(UnrealMeasurementKeysComponent));
+      expect((keys.componentInstance as UnrealMeasurementKeysComponent).keys).toBeNull();
+      expect(fixture.nativeElement.querySelector('.measurement-keys')).toBeNull();
     });
   });
 

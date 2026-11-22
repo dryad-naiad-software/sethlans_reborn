@@ -48,6 +48,8 @@ NEW_KEYS_BY_KIND = {
         'renderer', 'engine_build', 'routing_note', 'unreal_kind',
         # Per-machine memory test FR-MT-T-3: the caller's own results (replace the farm-wide peak and RAM).
         'unreal_machine_results',
+        # Per-machine memory test FR-MT-U-1: the key's machine list (job detail only).
+        'unreal_machines',
         # Unreal sequence rendering (D2): pieces' submission and lead-in.
         'sequence_submission', 'unreal_lead_in_frames',
     }),
