@@ -86,6 +86,7 @@ class ProjectViewSet(UnrealMeasurementActionsMixin, viewsets.ModelViewSet):
                 completed_at=canceled_at,
                 assigned_worker=None,
                 is_paused=False,
+                unreal_memory_report=None,
             )
             if count > 0 and locked is not None:
                 # The UPDATE fires no signal: fail the discoveries of the

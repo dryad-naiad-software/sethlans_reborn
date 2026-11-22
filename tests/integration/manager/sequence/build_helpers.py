@@ -157,9 +157,10 @@ def finish_pieces(client, worker, submission, fail_last=False):
 
 
 def finish_sound(client, worker, submission):
-    """Claim every audio job and post its ``.wav`` (a measured run)."""
+    """Claim every audio job and post its ``.wav`` (a measured run; per-machine D10: a fits result first)."""
+    measure_submission(submission.asset, worker=worker, submission=submission)
     for job in audio_jobs_of(submission):
-        ready_worker(worker, source='override')
+        ready_worker(worker)
         assert claim(client, job, worker).status_code == 200
         job.refresh_from_db()
         assert post_sound(client, job).status_code == 200

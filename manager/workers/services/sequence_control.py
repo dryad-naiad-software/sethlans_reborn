@@ -50,6 +50,7 @@ NO_SUCH_SHOT = "No such shot in this version."
 REQUEUED = {
     'status': JobStatus.QUEUED, 'assigned_worker': None, 'started_at': None, 'completed_at': None,
     'error_message': '', 'last_output': '', 'auto_requeue_count': 0, 'is_paused': False,
+    'unreal_memory_report': None,
 }
 
 
@@ -75,7 +76,8 @@ def cancel_submission(submission_id):
         take_write_lock(mine)  # SQLite: a write transaction from the first statement
         ids = list(lock_own_rows(mine).order_by('pk').values_list('pk', flat=True))
         count = Job.objects.filter(pk__in=ids, status__in=ACTIVE_JOB_STATUSES).update(
-            status=JobStatus.CANCELED, completed_at=timezone.now(), assigned_worker=None, is_paused=False)
+            status=JobStatus.CANCELED, completed_at=timezone.now(), assigned_worker=None, is_paused=False,
+            unreal_memory_report=None)
         submission = _locked(submission_id)
         if submission.status in FINAL_SEQUENCE_STATUSES and not count:
             raise RetryRefused(409, FINISHED_VERSION)

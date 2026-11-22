@@ -16,10 +16,10 @@ import io
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
-from workers.models import Job, SequenceShot, SequenceSubmission
+from workers.models import Job, SequenceShot, SequenceSubmission, Worker
 from workers.services.parts_check import registry as parts_registry
 
-from ..unreal_pilot_helpers import JOBS, claim, measure, pilots, ready_worker, record_of
+from ..unreal_pilot_helpers import JOBS, claim, fits_record, pilots, ready_worker
 from tests._sequence_bodies import shots_body
 from .sequence_helpers import MAP, PRESET, SEQUENCE, claimed_shots_job, post_shots, shots_job_of
 
@@ -50,17 +50,26 @@ def small_shots_body(**overrides):
 
 
 def done_discovery(admin_client, asset, worker, worker_client, body=None):
-    """Read the shots: claim the shots job and post ``body`` (default :func:`small_shots_body`)."""
+    """Read the shots: claim the shots job and post ``body`` (default :func:`small_shots_body`).
+
+    The worker then has a live card reading and a ticked card (``ready_worker``), so a
+    submission planned after this gets its pilot for that machine (per-machine D5).
+    """
     discovery, job = claimed_shots_job(admin_client, asset, worker, worker_client)
     resp = post_shots(worker_client, job.pk, body or small_shots_body())
     assert resp.status_code == 200, resp.data
     discovery.refresh_from_db()
+    ready_worker(worker)
     return discovery
 
 
 def finish_discovery(worker, worker_client, discovery, body=None):
-    """Claim a waiting discovery's shots job and post ``body``; return the response."""
-    ready_worker(worker, source='override')
+    """Claim a waiting discovery's shots job and post ``body``; return the response.
+
+    The worker has a live card reading (``ready_worker``), so the submissions planned
+    by the result get their pilot for that machine (per-machine D5).
+    """
+    ready_worker(worker)
     job = shots_job_of(discovery)
     resp = claim(worker_client, job, worker)
     assert resp.status_code == 200, resp.data
@@ -93,9 +102,18 @@ def pilot_of(asset):
     return pilots(asset)[-1]
 
 
-def measure_submission(asset, peak_mb=8102):
-    """Measure the submission's key, as a successful pilot would."""
-    measure(record_of(pilot_of(asset)), peak_mb=peak_mb)
+def measure_submission(asset, peak_mb=8102, worker=None, submission=None):
+    """A ``fits`` result of the submission's piece key for ``worker``, else for every worker.
+
+    As a successful pilot on that machine would leave it (per-machine D2),
+    for the card kind ``ready_worker`` gives.  ``submission`` defaults to
+    the asset's latest.
+    """
+    if submission is None:
+        submission = SequenceSubmission.objects.filter(asset=asset).order_by('-pk').first()
+    workers = [worker] if worker is not None else list(Worker.objects.order_by('pk'))
+    for each in workers:
+        fits_record(asset, submission.piece_target_sha256, each, peak_mb=peak_mb)
 
 
 def png_file(size=SIZE, name='frame.png'):

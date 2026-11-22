@@ -12,8 +12,9 @@ a submission that is no longer DISCOVERING (canceled) is skipped and
 nothing is created.  Then, all or nothing: the shot rules that need the
 discovery (a failure sets the submission ERROR), the plan (FR-SP), the
 ``SequenceShot`` rows, the piece jobs (``bulk_create`` with the fields
-``Job.save`` would derive, ``unreal_target_sha256`` included), the pilot
-of the key, and one manifest update after commit.
+``Job.save`` would derive, ``unreal_target_sha256`` included), the
+submission's piece key target and measured ranges (per-machine D8, D10),
+the pilots of the key, and one manifest update after commit.
 
 Every piece carries in its own row what it renders (FR-SW-2): the lead-in
 (``unreal_lead_in_frames``) and the manager-only ``render_settings`` keys
@@ -52,6 +53,7 @@ from .sequence_pilot import measured_ranges, pilot_frames
 from .sequence_plan import PlanError, Selection, plan, shots_from
 from .unreal_pilot import ensure_pilot
 from .unreal_target import Target
+from .worker_locks import lock_workers
 
 logger = logging.getLogger(__name__)
 
@@ -138,13 +140,14 @@ def _shot_rows(submission, result):
     ], batch_size=500)
 
 
-def _pilot(submission, frames, shot_set):
+def _target(submission, frames, shot_set, ranges):
+    """The pieces' key target (D8, OQ-1), with the pilot's frames and measured ranges."""
     resolution = None
     if submission.resolution_x is not None:
         resolution = (submission.resolution_x, submission.resolution_y)
-    target = Target(submission.engine_build, submission.map, submission.sequence, submission.preset,
-                    resolution, shot_set, tuple(frames))
-    return ensure_pilot(submission.project, submission.asset, target, reason='sequence')
+    draft = tuple(sorted(submission.draft.items())) if submission.draft else ()
+    return Target(submission.engine_build, submission.map, submission.sequence, submission.preset,
+                  resolution, shot_set, tuple(frames), draft, tuple(tuple(pair) for pair in ranges))
 
 
 def _sound_offset(submission, discovery):
@@ -172,7 +175,17 @@ def plan_submission(submission, discovery):
     """FR-SP-8 for one submission on the DONE ``discovery``; True when it was planned.
 
     Runs under the caller's ``lock_project`` (``ensure_pilot`` checks it).
+
+    Locks (per-machine D15): the Worker rows are locked before the
+    submission (here, and by both callers before the discovery).  The
+    pilots' records are locked after the discovery and submission locks,
+    which inverts D15 for that one step: the key is known only from the
+    plan.  This cannot deadlock: the paths that lock records first and a
+    submission later (``pilot-result/``, ``memory-report/``) lock the
+    submission of a running job, while the discovery and submissions held
+    here are DISCOVERING (no job of theirs exists yet).
     """
+    lock_workers()
     locked = lock_own_rows(SequenceSubmission.objects).filter(
         pk=submission.pk, status=SequenceStatus.DISCOVERING,
     ).first()
@@ -183,7 +196,8 @@ def plan_submission(submission, discovery):
         return False
     shots = shots_from(discovery.shots)
     # D8: the key's shot set is what the pilot measures (chosen parts and reached shots).
-    shot_set = shot_set_sha256(measured_ranges(result, shots, locked.sound))
+    ranges = sorted([start, end] for start, end in measured_ranges(result, shots, locked.sound))
+    shot_set = shot_set_sha256(ranges)
     frames, total = pilot_frames(result, shots, locked.sound)
     warnings = list(facts_warnings(discovery))
     if total > len(frames):
@@ -192,13 +206,17 @@ def plan_submission(submission, discovery):
     now = timezone.now()
     if locked.sound:
         _audio_jobs(locked, result, now)
-    _piece_jobs(locked, result, _base_settings(locked, discovery, shot_set), now)
+    pieces = _piece_jobs(locked, result, _base_settings(locked, discovery, shot_set), now)
+    target = _target(locked, frames, shot_set, ranges)
+    # D10: every piece shares one key; the audio jobs are gated by it.
+    piece_target = pieces[0].unreal_target_sha256 if pieces else target.sha256()
     SequenceSubmission.objects.filter(pk=locked.pk, status=SequenceStatus.DISCOVERING).update(
         status=SequenceStatus.QUEUED, shot_set_sha256=shot_set, pilot_frames=frames,
+        piece_target_sha256=piece_target, measured_ranges=ranges,
         sound_offset_ms=_sound_offset(locked, discovery), warnings=warnings[:MAX_SUBMISSION_WARNINGS],
     )
     locked.pilot_frames = frames
-    _pilot(locked, frames, shot_set)
+    ensure_pilot(locked.project, locked.asset, target, reason='sequence')
     project_id = locked.project_id
     transaction.on_commit(lambda pid=project_id: _update_manifest(pid), robust=True)
     logger.info("Planned sequence submission %s: %d shots, %d pieces.", locked.pk, len(result.parts),

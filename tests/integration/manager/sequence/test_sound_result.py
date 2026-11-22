@@ -33,7 +33,7 @@ from .sequence_helpers import MAP, PRESET, SEQUENCE, poll_ids
 from .sound_helpers import (
     RATE, audio_jobs_of, claimed_audio, offset, post_sound, run_samples, shot_row, unmeasured, wav_file,
 )
-from .submission_helpers import done_discovery, pieces_of, submit
+from .submission_helpers import done_discovery, measure_submission, pieces_of, submit
 
 
 @pytest.fixture
@@ -82,18 +82,23 @@ class TestPlanning:
         submission, _ = submit(admin_client, asset, sound=False)
         assert audio_jobs_of(submission) == []
 
-    def test_offered_without_measurement_or_card_reading(self, admin_client, asset, worker_with_token):
+    def test_offered_only_with_a_fits_result_of_the_piece_key(self, admin_client, asset, worker_with_token):
+        """Per-machine D10: an audio job is gated like a piece, by the submission's piece key."""
         worker, client = worker_with_token
         done_discovery(admin_client, asset, worker, client)
         submission, _ = submit(admin_client, asset, sound=True)
-        ready_worker(worker, source='override')
-        offered = poll_ids(client)
         jobs = audio_jobs_of(submission)
+        assert not {j.pk for j in jobs} & set(poll_ids(client))
+        assert claim(client, jobs[0], worker).data == {'error': "This machine has not tested this render yet."}
+        measure_submission(asset, worker=worker, submission=submission)
+        offered = poll_ids(client)
         assert {j.pk for j in jobs} <= set(offered)
-        assert not {p.pk for p in pieces_of(submission)} & set(offered)
         resp = claim(client, jobs[0], worker)
         assert resp.status_code == 200, resp.data
-        assert resp.data['unreal_measured_peak_mb'] is None
+        [result] = resp.data['unreal_machine_results']
+        assert result['peak_mb'] == 8102
+        ready_worker(worker, source='override')  # D14: no live card reading, no audio job
+        assert not {j.pk for j in jobs} & set(poll_ids(client))
 
 
 @pytest.mark.django_db

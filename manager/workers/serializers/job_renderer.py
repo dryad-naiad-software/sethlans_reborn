@@ -15,7 +15,8 @@ from rest_framework import serializers
 
 from ..constants import UnrealKind
 from ..renderers import UnsupportedRendererError, get_strategy
-from .pilot_ram import UnrealRamSerializer
+from ..renderers.unreal_routing import _is_worker_request
+from .machine_results import MachineResultSerializer, machine_results
 from .renderer_checks import check_immutable_and_consistent, resolve_strategy
 
 _FEATURE_LABELS = {'tiled_job': 'Tiled jobs', 'animation': 'Animations'}
@@ -41,7 +42,7 @@ def ensure_feature_supported(asset, feature):
 
 
 class JobRendererFieldsMixin(serializers.Serializer):
-    """Adds ``routing_note``, the measured-peak fields and renderer-dispatched validate/create."""
+    """Adds ``routing_note``, ``unreal_machine_results`` and renderer-dispatched validate/create."""
 
     unreal_kind = serializers.ChoiceField(
         choices=UnrealKind.choices, read_only=True,
@@ -58,17 +59,11 @@ class JobRendererFieldsMixin(serializers.Serializer):
         read_only=True,
         help_text="Unreal pieces: frames rendered before start_frame and thrown away (sequence FR-SP-4).",
     )
-    unreal_measured_peak_mb = serializers.SerializerMethodField(
+    unreal_machine_results = serializers.SerializerMethodField(
         help_text=(
-            "Unreal normal jobs: the measured peak GPU memory (MB) of the job's "
-            "measurement key, or null while unmeasured. Null for Blender jobs and pilots."
-        ),
-    )
-    unreal_measured_ram = serializers.SerializerMethodField(
-        help_text=(
-            "Unreal normal jobs: the RAM figures of the record the measured peak comes from "
-            "(per-card spec FR-PC-MGR-2), or null when that record has none or while unmeasured. "
-            "Null for Blender jobs and pilots."
+            "Unreal render and audio jobs, for worker-token requests: the caller's own memory "
+            "results that fit, one per card kind (per-machine memory test FR-MT-T-3); [] when "
+            "it has none. Null for other callers and for Blender, pilot and shots jobs."
         ),
     )
 
@@ -87,25 +82,13 @@ class JobRendererFieldsMixin(serializers.Serializer):
             return None
         return strategy.routing_note(obj, self.context)
 
-    def get_unreal_measured_peak_mb(self, obj) -> int | None:
-        """The list annotation, else one query (single-object responses; FR-PM-5)."""
-        if obj.unreal_kind != UnrealKind.RENDER or not obj.unreal_target_sha256:
+    @extend_schema_field(MachineResultSerializer(many=True, allow_null=True))
+    def get_unreal_machine_results(self, obj):
+        """The caller's fits results of the job's key (one query per response)."""
+        request = self.context.get('request')
+        if request is None or not _is_worker_request(request):
             return None
-        if hasattr(obj, '_unreal_peak_mb'):
-            return obj._unreal_peak_mb
-        # Imported here: the service imports the renderer registry.
-        from ..services.unreal_pilot import cached_key_state
-        return cached_key_state(obj).peak_mb
-
-    @extend_schema_field(UnrealRamSerializer(allow_null=True))
-    def get_unreal_measured_ram(self, obj):
-        """The list annotation, else the cached key state (one query shared with the peak)."""
-        if obj.unreal_kind != UnrealKind.RENDER or not obj.unreal_target_sha256:
-            return None
-        if hasattr(obj, '_unreal_ram'):
-            return obj._unreal_ram
-        from ..services.unreal_pilot import cached_key_state
-        return cached_key_state(obj).ram
+        return machine_results(self, obj, request.user.worker_profile)
 
     def validate_for_renderer(self, data):
         """Generic checks, then the strategy of the job's renderer.

@@ -2,37 +2,31 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Integration tests: a key's RAM figures (per-card spec FR-PC-MGR-2, FR-PC-MGR-4).
+Integration tests: a key's RAM figures (per-card spec FR-PC-MGR-2, FR-PC-MGR-4;
+per-machine memory test D2, D11, FR-MT-T-3, AC-10).
 
-* ``key_ram`` reads exactly the record ``key_peak`` reads (the latest
-  successful one), never a later or earlier record's figures.
-* ``KeyState`` carries ``ram``; ``key_state``, ``key_state_of``,
-  ``cached_key_state``, ``claim_row`` and ``measured_claim_rejection``
-  fill or cache it.
-* The job field ``unreal_measured_ram``, the blender-invariance key list,
-  ``unreal_measurement.latest`` and the OpenAPI schema.
+* A job's ``unreal_machine_results`` carry, per card kind, the RAM figures
+  of exactly the record that gives the peak: the caller's own current,
+  not stale, ``fits`` record of the key, never another record's figures.
+* The field is null for other callers and for pilots and Blender jobs;
+  the blender-invariance key list, ``unreal_measurement.latest`` and the
+  OpenAPI schema.
 """
 
-import dataclasses
 import json
-from datetime import timedelta
 
 import pytest
 from django.core.files.base import ContentFile
 from django.test import Client
-from django.utils import timezone
-
-from shared.unreal.validation import overrides_sha256
 
 from workers.models import Asset, Job, UnrealMeasurement
-from workers.renderers import unreal_measured as um
 from workers.serializers.unreal_measurement import LatestMeasurementSerializer
-from workers.services.unreal_pilot import KeyState, cached_key_state, key_state, key_state_of
 
 from .blender_invariance_normalize import NEW_KEYS_BY_KIND
 from .unreal_helpers import unreal_asset
 from .unreal_pilot_helpers import (
-    JOBS, PILOT_RAM, claim, claimed_pilot, created_job, pilot_body, pilots, post_result, ready_worker,
+    JOBS, KIND, PILOT_RAM, claim, claimed_pilot, created_job, fits_record, pilot_body, pilots, post_result,
+    ready_worker,
 )
 
 PROJECTS = '/api/projects/'
@@ -43,152 +37,123 @@ RAM_B = {'prep': {'ws_mb': 4100, 'commit_mb': 8100},
 
 
 @pytest.fixture
-def asset(db):
+def machine(worker_with_token):
+    """One eligible machine with one card kind (per-machine D5): ``(worker, client)``."""
+    worker, client = worker_with_token
+    ready_worker(worker)
+    return worker, client
+
+
+@pytest.fixture
+def asset(db, machine):
     return unreal_asset()
 
 
 @pytest.fixture
 def job(admin_client, asset):
-    """A normal job (its key has one pending pilot record)."""
+    """A normal job (its key has one testing pilot record for the machine)."""
     return created_job(admin_client, asset)
 
 
-def _copy(job, *, peak=None, ram=None, age=0, created_at=None, process=None, shared=None):
-    """Another record of ``job``'s key (no pilot job), created ``age`` minutes ago."""
+def _result(job, worker, **fields):
+    """The machine's own current fits record of ``job``'s key (no pilot job)."""
     job.refresh_from_db()
-    project = job.asset.project
-    return UnrealMeasurement.objects.create(
-        project=project, asset=job.asset, overrides_sha256=project.unreal_overrides_sha256,
-        target_sha256=job.unreal_target_sha256, engine_build=job.engine_build,
-        map='/Game/M.M', sequence='/Game/S.S', preset='/Game/P.P', peak_mb=peak,
-        peak_source='card' if peak else '', ram=ram, ram_process_commit_peak_mb=process, shared_machine=shared,
-        created_at=created_at or timezone.now() - timedelta(minutes=age),
-        measured_at=timezone.now() if peak else None,
-    )
+    return fits_record(job.asset, job.unreal_target_sha256, worker, **fields)
 
 
-def _annotated(job):
-    return um.job_annotations(Job.objects.filter(pk=job.pk)).values('_unreal_peak_mb', '_unreal_ram').get()
+def _results(client, job):
+    resp = client.get(f'{JOBS}{job.pk}/')
+    assert resp.status_code == 200, resp.data
+    return resp.data['unreal_machine_results']
 
 
-@pytest.mark.django_db
-class TestKeyRamIsThePeakRecord:
-
-    def test_the_latest_successful_record_gives_both(self, job):
-        _copy(job, peak=7000, ram=RAM_A, age=10)
-        _copy(job, peak=8000, ram=RAM_B, age=5)
-        assert _annotated(job) == {'_unreal_peak_mb': 8000, '_unreal_ram': RAM_B}
-
-    def test_a_later_record_without_ram_gives_null_not_the_older_figures(self, job):
-        _copy(job, peak=7000, ram=RAM_A, age=10)
-        _copy(job, peak=8000, ram=None, age=5)
-        assert _annotated(job) == {'_unreal_peak_mb': 8000, '_unreal_ram': None}
-
-    def test_a_later_unmeasured_record_with_figures_is_ignored(self, job):
-        _copy(job, peak=8000, ram=RAM_A, age=10)
-        _copy(job, peak=None, ram=RAM_B, age=1)  # pending: no peak, so not the peak's record
-        assert _annotated(job) == {'_unreal_peak_mb': 8000, '_unreal_ram': RAM_A}
-
-    def test_a_created_at_tie_is_broken_by_id_for_both(self, job):
-        at = timezone.now() - timedelta(minutes=3)
-        _copy(job, peak=7000, ram=RAM_A, created_at=at)
-        _copy(job, peak=8000, ram=RAM_B, created_at=at)
-        assert _annotated(job) == {'_unreal_peak_mb': 8000, '_unreal_ram': RAM_B}
-
-    def test_an_unmeasured_key_reads_null(self, job):
-        assert _annotated(job) == {'_unreal_peak_mb': None, '_unreal_ram': None}
+def _entry(record, peak_mb, ram):
+    return {'measurement_id': record.pk, 'card_kind': KIND, 'peak_mb': peak_mb, 'ram': ram,
+            'shared_peak_mb': None, 'driver_version': None}
 
 
 @pytest.mark.django_db
-class TestKeyState:
+class TestResultsAreTheCallersRecord:
 
-    def test_key_state_gains_ram_as_its_fourth_field(self):
-        assert [field.name for field in dataclasses.fields(KeyState)] == ['state', 'reason', 'peak_mb', 'ram']
+    def test_the_current_fits_record_gives_peak_and_ram(self, job, machine):
+        worker, client = machine
+        record = _result(job, worker, peak_mb=8000, ram=RAM_B)
+        assert _results(client, job) == [_entry(record, 8000, RAM_B)]
 
-    def test_key_state_and_key_state_of_carry_the_peak_record_s_ram(self, job):
-        _copy(job, peak=7000, ram=RAM_B, age=10)
-        _copy(job, peak=8000, ram=RAM_A, age=5)
-        expected = KeyState('measured', None, 8000, RAM_A)
-        assert key_state(job) == expected
-        project = job.asset.project
-        assert key_state_of(project, job.asset_id, overrides_sha256({}), job.unreal_target_sha256) == expected
+    def test_a_record_without_ram_gives_null(self, job, machine):
+        worker, client = machine
+        record = _result(job, worker, peak_mb=8000, ram=None)
+        assert _results(client, job) == [_entry(record, 8000, None)]
 
-    def test_blender_jobs_and_pilots_read_four_nones(self, job):
-        assert key_state(pilots()[0]) == KeyState(None, None, None, None)
+    def test_a_record_that_is_no_longer_current_is_not_sent(self, job, machine):
+        worker, client = machine
+        older = _result(job, worker, peak_mb=7000, ram=RAM_A)
+        newer = _result(job, worker, peak_mb=8000, ram=RAM_B)
+        assert UnrealMeasurement.objects.get(pk=older.pk).current is False
+        assert _results(client, job) == [_entry(newer, 8000, RAM_B)]
 
-    def test_cached_key_state_stores_ram_and_reads_it_without_a_query(self, job, django_assert_num_queries):
-        _copy(job, peak=8000, ram=RAM_A)
-        fresh = Job.objects.get(pk=job.pk)
-        with django_assert_num_queries(1):
-            assert cached_key_state(fresh).ram == RAM_A
-        assert fresh._unreal_ram == RAM_A
-        with django_assert_num_queries(0):
-            again = cached_key_state(fresh)
-        assert (again.state, again.peak_mb, again.ram) == ('measured', 8000, RAM_A)
+    def test_the_job_peak_raises_the_result_peak_and_keeps_the_ram(self, job, machine):
+        worker, client = machine
+        record = _result(job, worker, peak_mb=8000, ram=RAM_A, job_peak_max_mb=9100)
+        assert _results(client, job) == [_entry(record, 9100, RAM_A)]
+
+    @pytest.mark.parametrize('fields', [
+        {'verdict': 'does_not_fit'}, {'verdict': ''}, {'stale_reason': 'driver_changed'},
+    ], ids=['does_not_fit', 'no_verdict', 'stale'])
+    def test_a_record_that_does_not_fit_is_not_sent(self, job, machine, fields):
+        worker, client = machine
+        _result(job, worker, peak_mb=8000, ram=RAM_A, **fields)
+        assert _results(client, job) == []
+
+    def test_another_machine_s_record_is_not_sent(self, job, machine, make_worker_client):
+        _worker, client = machine
+        other, _other_client, _token = make_worker_client('ram-other')
+        _result(job, other, peak_mb=8000, ram=RAM_A)
+        assert _results(client, job) == []
 
 
 @pytest.mark.django_db
-class TestClaimCache:
+class TestClaim:
 
-    def test_claim_row_reads_ram(self, job):
-        _copy(job, peak=8000, ram=RAM_B)
-        row = um.claim_row(job)
-        assert (row['_unreal_peak_mb'], row['_unreal_ram']) == (8000, RAM_B)
-
-    def test_measured_claim_rejection_caches_ram_beside_the_peak(
-            self, job, worker_with_token, django_assert_num_queries):
-        worker, _client = worker_with_token
-        ready_worker(worker)
-        _copy(job, peak=8000, ram=RAM_B)
-        fresh = Job.objects.get(pk=job.pk)
-        assert um.measured_claim_rejection(worker, fresh) is None
-        assert (fresh._unreal_peak_mb, fresh._unreal_ram) == (8000, RAM_B)
-        with django_assert_num_queries(0):
-            assert cached_key_state(fresh).ram == RAM_B
-
-    def test_the_claim_response_carries_the_figures(self, job, worker_with_token):
-        worker, client = worker_with_token
-        ready_worker(worker)
-        _copy(job, peak=8000, ram=RAM_A)
+    def test_the_claim_response_carries_the_figures(self, job, machine):
+        worker, client = machine
+        record = _result(job, worker, peak_mb=8000, ram=RAM_A)
         resp = claim(client, job, worker)
         assert resp.status_code == 200, resp.data
-        assert (resp.data['unreal_measured_peak_mb'], resp.data['unreal_measured_ram']) == (8000, RAM_A)
+        assert resp.data['unreal_machine_results'] == [_entry(record, 8000, RAM_A)]
 
 
 @pytest.mark.django_db
 class TestJobField:
 
-    def test_list_and_detail_carry_the_figures(self, admin_client, job):
-        _copy(job, peak=8000, ram=RAM_B)
+    def test_null_for_admin_requests(self, admin_client, job, machine):
+        _result(job, machine[0], peak_mb=8000, ram=RAM_B)
         listed = {row['name']: row for row in admin_client.get(JOBS).data}
-        assert listed[job.name]['unreal_measured_ram'] == RAM_B
-        assert admin_client.get(f'{JOBS}{job.pk}/').data['unreal_measured_ram'] == RAM_B
+        assert listed[job.name]['unreal_machine_results'] is None
+        assert admin_client.get(f'{JOBS}{job.pk}/').data['unreal_machine_results'] is None
 
-    def test_null_while_unmeasured_and_for_a_peak_record_without_ram(self, admin_client, job):
-        assert admin_client.get(f'{JOBS}{job.pk}/').data['unreal_measured_ram'] is None
-        _copy(job, peak=8000, ram=None)
-        detail = admin_client.get(f'{JOBS}{job.pk}/').data
-        assert (detail['unreal_measured_peak_mb'], detail['unreal_measured_ram']) == (8000, None)
+    def test_null_for_pilots_even_when_their_key_is_measured(self, job, machine):
+        worker, client = machine
+        _result(job, worker, peak_mb=8000, ram=RAM_A)
+        assert _results(client, pilots()[0]) is None
 
-    def test_null_for_pilots_even_when_their_key_is_measured(self, admin_client, job):
-        _copy(job, peak=8000, ram=RAM_A)
-        assert admin_client.get(f'{JOBS}{pilots()[0].pk}/').data['unreal_measured_ram'] is None
-
-    def test_null_for_blender_jobs(self, admin_client, project):
+    def test_null_for_blender_jobs(self, project, machine):
         blend = Asset.objects.create(name='BlendRamAsset', project=project,
                                      blend_file=ContentFile(b'BLENDER' + b'\x00' * 57, name='r.blend'))
         blender_job = Job.objects.create(name='BlendRam', asset=blend, output_file_pattern='//r/b.png')
-        assert admin_client.get(f'{JOBS}{blender_job.pk}/').data['unreal_measured_ram'] is None
+        assert _results(machine[1], blender_job) is None
 
-    def test_a_pilot_result_reaches_the_normal_job(self, admin_client, asset, worker_with_token):
-        worker, client = worker_with_token
+    def test_a_pilot_result_reaches_the_normal_job(self, admin_client, asset, machine):
+        worker, client = machine
         pilot = claimed_pilot(admin_client, asset, worker, client)
         assert post_result(client, pilot.pk, pilot_body()).status_code == 200
         normal = Job.objects.get(name='Still01')
-        assert admin_client.get(f'{JOBS}{normal.pk}/').data['unreal_measured_ram'] == PILOT_RAM
+        [entry] = _results(client, normal)
+        assert (entry['peak_mb'], entry['ram']) == (8102, PILOT_RAM)
 
     def test_the_blender_invariance_list_has_the_new_key(self):
-        assert 'unreal_measured_ram' in NEW_KEYS_BY_KIND['job']
+        assert 'unreal_machine_results' in NEW_KEYS_BY_KIND['job']
+        assert not {'unreal_measured_peak_mb', 'unreal_measured_ram'} & NEW_KEYS_BY_KIND['job']
 
 
 def _latest(client, project_id):
@@ -210,8 +175,8 @@ class TestLatest:
         assert latest['status'] == 'pending'
         assert (latest['ram'], latest['ram_process_commit_peak_mb'], latest['shared_machine']) == (None, None, None)
 
-    def test_after_the_pilot_result(self, admin_client, asset, worker_with_token):
-        worker, client = worker_with_token
+    def test_after_the_pilot_result(self, admin_client, asset, machine):
+        worker, client = machine
         pilot = claimed_pilot(admin_client, asset, worker, client)
         assert post_result(client, pilot.pk, pilot_body(shared_machine=True)).status_code == 200
         latest = _latest(admin_client, asset.project_id)
@@ -238,11 +203,15 @@ class TestOpenAPI:
         assert resp.status_code == 200
         return json.loads(resp.content.decode('utf-8'))['components']['schemas']
 
-    def test_the_job_field_is_a_typed_nullable_object(self):
+    def test_the_job_field_is_a_typed_nullable_list(self):
         schemas = self._schemas()
-        field = schemas['Job']['properties']['unreal_measured_ram']
-        assert field['readOnly'] is True and field['nullable'] is True
-        assert {'$ref': '#/components/schemas/UnrealRam'} in field['allOf'] + field.get('oneOf', [])
+        field = schemas['Job']['properties']['unreal_machine_results']
+        assert field['readOnly'] is True and field['nullable'] is True and field['type'] == 'array'
+        entry = schemas[field['items']['$ref'].rsplit('/', 1)[-1]]
+        assert set(entry['required']) == {
+            'measurement_id', 'card_kind', 'peak_mb', 'ram', 'shared_peak_mb', 'driver_version'}
+        ram_ref = {'$ref': '#/components/schemas/UnrealRam'}
+        assert ram_ref in entry['properties']['ram'].get('allOf', []) + entry['properties']['ram'].get('oneOf', [])
         ram = schemas['UnrealRam']
         assert set(ram['required']) == {'prep', 'warmup', 'render'}
         assert set(schemas['UnrealRamWarmup']['required']) == {'ws_mb', 'commit_mb', 'cold'}

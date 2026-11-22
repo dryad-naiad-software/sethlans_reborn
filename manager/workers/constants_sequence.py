@@ -70,8 +70,10 @@ PIECE_SHOTS_KEY = RUN_SHOTS_KEY
 OUTPUT_SIZE_KEY = 'unreal.output_size'
 PILOT_FRAMES_KEY = 'unreal.pilot_frames'
 DRAFT_KEY = 'unreal.draft'
+# A pilot's card kind (per-machine memory test D4, FR-MT-R-5).
+CARD_KIND_KEY = 'unreal.card_kind'
 # Clients never send these (FR-SW-2); ``unreal.resolution`` is open to standalone jobs.
-MANAGER_ONLY_KEYS = (SHOT_SET_KEY, PIECE_SHOTS_KEY, OUTPUT_SIZE_KEY, PILOT_FRAMES_KEY, DRAFT_KEY)
+MANAGER_ONLY_KEYS = (SHOT_SET_KEY, PIECE_SHOTS_KEY, OUTPUT_SIZE_KEY, PILOT_FRAMES_KEY, DRAFT_KEY, CARD_KIND_KEY)
 
 # Limits (FR-SQ-3, FR-SQ-5, FR-SP-7, FR-SR-1, FR-SS-1, D18).
 MAX_SUBMISSION_SHOTS = 2_000

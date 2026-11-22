@@ -81,10 +81,11 @@ def requeue_or_fail(job, requeue_message):
         job.started_at = None
         job.completed_at = None
         job.error_message = requeue_message
+        job.unreal_memory_report = None
         job.save(update_fields=[
             'status', 'assigned_worker', 'started_at',
             'completed_at', 'error_message',
-            'auto_requeue_count',
+            'auto_requeue_count', 'unreal_memory_report',
         ])
     return job.status
 

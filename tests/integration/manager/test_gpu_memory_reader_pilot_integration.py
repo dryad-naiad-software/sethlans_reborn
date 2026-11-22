@@ -12,6 +12,9 @@ the GPU by ``card_key`` and total, never by ``index``.
 
 import pytest
 
+from tests.unit.manager.card_report_helpers import card, stored
+from workers.models import Worker
+
 from .gpu_memory_reader_helpers import (
     AMD_KEY, AMD_NAME, AMD_TOTAL, NV_KEY, NV_NAME, NV_TOTAL,
     amd_gpu, nv_gpu, payload_of, reading, report, send_heartbeat,
@@ -28,8 +31,10 @@ def rendering(admin_client, worker_with_token):
     """A pilot claimed by a worker whose heartbeat reported one NV-like and one AMD-like card."""
     worker, client = worker_with_token
     send_heartbeat(client, worker, payload_of(reading(nv_gpu(), amd_gpu(), source='mixed')))
+    # Per-machine D5: one ticked card kind, so the key gets one pilot for this worker.
+    Worker.objects.filter(pk=worker.pk).update(card_status=stored(cards=[card(key=NV_KEY)]))
     created_job(admin_client, unreal_asset())
-    job = pilots()[0]
+    [job] = pilots()
     assert claim(client, job, worker).status_code == 200
     return job, worker, client
 

@@ -19,13 +19,13 @@ never locked or written here (lock order Job -> UnrealMeasurement).
 from django.db import transaction
 from django.utils import timezone
 
-from shared.unreal.vram_gate import measured_need_mb
+from shared.unreal.vram_gate import measured_need_mb, usable_mb
 
 from ..constants import UnrealKind
 from ..models import Job, JobStatus, UnrealMeasurement
 from ..parent_status import take_write_lock
 from ..renderers import UnsupportedRendererError, get_strategy
-from ..renderers.unreal_measured import reading_measures_card
+from ..renderers.unreal_machine import DOES_NOT_FIT, FITS, reading_measures_card
 from .row_locks import lock_own_rows
 
 NOT_RENDERING_HERE = "Job is not rendering on this worker."
@@ -114,11 +114,22 @@ def _fail_pilot(job, now):
     job.save(update_fields=['status', 'error_message', 'completed_at'])
 
 
+def verdict_fields(data):
+    """D6 on the gate's own figure: ``does_not_fit`` when ``peak_mb + baseline_used_mb`` is over the 93% line.
+
+    Until the worker reports its own verdict (FR-MT-V-3) the manager
+    decides from these figures alone.
+    """
+    if data['peak_mb'] + data['baseline_used_mb'] > usable_mb(data['gpu']['total_mb'], 0):
+        return {'verdict': DOES_NOT_FIT, 'verdict_source': 'pilot', 'lower_bound_mb': data['peak_mb']}
+    return {'verdict': FITS, 'verdict_source': 'pilot', 'lower_bound_mb': None}
+
+
 def _store(job, record, worker, data, now):
     results = {field: data[field] for field in _RESULT_FIELDS}
     gpu = data['gpu']
     UnrealMeasurement.objects.filter(pk=record.pk).update(
-        **results,
+        **results, **verdict_fields(data),
         per_shot=[dict(shot) for shot in data['per_shot']], ram=_plain_ram(data['ram']),
         worker=worker, worker_hostname=worker.hostname, gpu_index=gpu['index'],
         gpu_name=gpu['name'], gpu_total_mb=gpu['total_mb'], measured_at=now,

@@ -6,8 +6,10 @@ import logging
 import threading  # noqa: F401  (tests patch ``workers.signals.threading.Thread``)
 
 from django.db import transaction
-from django.db.models.signals import post_save
+from django.db.models import Q
+from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
+from django.utils import timezone
 
 from .models import (
     Job,
@@ -16,6 +18,9 @@ from .models import (
     TiledJob,
     Project,
     Asset,  # Import Asset
+    JobStatus,
+    UnrealMeasurement,
+    Worker,
 )
 from .manifest_generator import update_project_manifest
 from .parent_dispatch import (  # noqa: F401  (_trigger_video_assembly re-exported)
@@ -23,6 +28,7 @@ from .parent_dispatch import (  # noqa: F401  (_trigger_video_assembly re-export
     dispatch_for_job,
     dispatch_tiled_animation,
 )
+from .services.row_locks import lock_own_rows
 from .signal_helpers import _skip_thumbnails
 
 logger = logging.getLogger(__name__)
@@ -135,3 +141,31 @@ def handle_animation_frame_completion(sender, instance, **kwargs):
     # DONE when every frame is DONE, ERROR once every frame is DONE/ERROR
     # with at least one ERROR, otherwise QUEUED/RENDERING.
     dispatch_tiled_animation(instance.animation_id)
+
+
+TARGET_DELETED_MESSAGE = "The machine this memory test was for was deleted."
+
+
+@receiver(pre_delete, sender=Worker)
+def cancel_targeted_pilots(sender, instance, **kwargs):
+    """Per-machine memory test D4: cancel the deleted worker's open targeted pilots.
+
+    ``Job.target_worker`` is SET_NULL so the pilots and their records stay
+    as history; an open pilot without a target could never be claimed, and
+    the worker's results stop being current (with ``worker`` NULL they must
+    not keep counting).  Locks first, in D15 order, before the delete's own
+    SET_NULL updates reach these rows: the worker's Job rows (target or
+    assignee) by pk, then the Worker row, then its records by pk.
+    Queryset ``update()`` only (no ``save()``, no signal recursion).
+    """
+    jobs = Job.objects.filter(Q(target_worker=instance) | Q(assigned_worker=instance))
+    list(lock_own_rows(jobs).order_by('pk').values_list('pk', flat=True))
+    list(lock_own_rows(Worker.objects).filter(pk=instance.pk).values_list('pk', flat=True))
+    records = UnrealMeasurement.objects.filter(worker=instance)
+    list(lock_own_rows(records).order_by('pk').values_list('pk', flat=True))
+    count = Job.objects.filter(
+        target_worker=instance, status__in=[JobStatus.QUEUED, JobStatus.RENDERING],
+    ).update(status=JobStatus.CANCELED, completed_at=timezone.now(), error_message=TARGET_DELETED_MESSAGE)
+    records.filter(current=True).update(current=False)
+    if count:
+        logger.info("Canceled %d memory test(s) of deleted worker %s.", count, instance.hostname)

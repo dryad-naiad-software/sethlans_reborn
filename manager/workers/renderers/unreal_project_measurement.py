@@ -22,8 +22,9 @@ from shared.unreal.vram_gate import measured_need_mb
 
 from ..constants import UnrealKind
 from ..models import Job, JobStatus, Project, UnrealMeasurement
+from .unreal_machine import JOB_KEY_REFS
 from .unreal_measured import (
-    FAILED, JOB_KEY_REFS, NONE, PENDING, key_aliases, key_state_case, record_reason,
+    FAILED, NONE, PENDING, key_aliases, key_state_case, record_reason,
     record_state,
 )
 

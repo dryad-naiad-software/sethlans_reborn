@@ -136,6 +136,9 @@ class SequenceSubmission(models.Model):
     # Planning (FR-SR-1, D8): the key's shot set and the pilot's frames.
     shot_set_sha256 = models.CharField(max_length=64, blank=True, default='')
     pilot_frames = models.JSONField(default=list, blank=True)
+    # The pieces' key target and the measured [start, end) ranges (per-machine D8, D10).
+    piece_target_sha256 = models.CharField(max_length=64, blank=True, default='')
+    measured_ranges = models.JSONField(null=True, blank=True)
     status = _status(SequenceStatus.choices, default=SequenceStatus.DISCOVERING)
     cancel_requested = models.BooleanField(default=False)
     assembly_boot = models.CharField(max_length=36, blank=True, default='')

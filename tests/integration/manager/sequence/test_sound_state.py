@@ -143,7 +143,7 @@ class TestRetrySound:
         submission, job = claimed_audio(admin_client, asset, worker, client)
         assert post_sound(client, job).status_code == 200
         other = audio_jobs_of(submission)[1]
-        ready_worker(worker, source='override')
+        ready_worker(worker)
         assert claim(client, other, worker).status_code == 200
         other.refresh_from_db()
         assert post_sound(client, other).status_code == 200
@@ -200,7 +200,7 @@ class TestRetrySound:
         _fail_audio(client, job)
         assert admin_client.post(f'{JOBS}{job.pk}/requeue/').status_code == 200
         assert _sound(submission)[0] == (None, '', None)
-        ready_worker(worker, source='override')
+        ready_worker(worker)
         assert claim(client, job, worker).status_code == 200
         job.refresh_from_db()
         assert post_sound(client, job).status_code == 200

@@ -16,6 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
+from ..constants import UnrealKind
 from ..models import Job, JobStatus, Worker
 from ..renderers import UnsupportedRendererError, get_strategy
 from ..services.row_locks import lock_own_rows
@@ -27,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 # ``_claim_outcome`` result: the assignee re-claimed its own job.
 _RECLAIM = object()
+OTHER_MACHINE_MESSAGE = "This memory test is for another machine."
+NO_MACHINE_MESSAGE = "This memory test has no machine."
 
 
 def _claim_outcome(job, worker):
@@ -39,6 +42,11 @@ def _claim_outcome(job, worker):
         renderers whose strategy allows it), or the 409 rejection (any
         other value; the caller sends ``str()`` of it).
     """
+    # Per-machine memory test D4, FR-MT-T-2: first, for every renderer.
+    if job.target_worker_id is not None and job.target_worker_id != worker.pk:
+        return OTHER_MACHINE_MESSAGE
+    if job.target_worker_id is None and job.unreal_kind == UnrealKind.PILOT:
+        return NO_MACHINE_MESSAGE
     try:
         strategy = get_strategy(job.renderer)
     except UnsupportedRendererError:

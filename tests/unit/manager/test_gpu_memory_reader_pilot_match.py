@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from workers.constants import UnrealKind
+from workers.renderers import unreal_machine
 from workers.renderers import unreal_measured as um
 from workers.services.pilot_result import TOTAL_SKEW_MB, _gpu_matches
 
@@ -43,7 +44,7 @@ class TestReadingMeasuresCard:
         _reading(),
     ])
     def test_true_only_for_stored_card_true(self, gpu_memory):
-        assert um.reading_measures_card(gpu_memory) is True
+        assert unreal_machine.reading_measures_card(gpu_memory) is True
 
     @pytest.mark.parametrize('gpu_memory', [
         None, {}, [], 'x', {'source': 'nvidia-smi', 'gpus': [_stored_gpu(0, KEY_A, 1)]},
@@ -52,7 +53,7 @@ class TestReadingMeasuresCard:
         {'capabilities': {'card': 'true'}}, {'capabilities': {'process': True}},
     ])
     def test_false_otherwise(self, gpu_memory):
-        assert um.reading_measures_card(gpu_memory) is False
+        assert unreal_machine.reading_measures_card(gpu_memory) is False
 
     @pytest.mark.parametrize('gpu_memory, expected', [
         (_reading(), True), (_reading(card=False), False), ({}, False), (None, False),
@@ -75,18 +76,26 @@ class TestMeasuredClaimRejection:
         claim_row.assert_not_called()
 
     def test_pilot_with_card_reading_goes_on_to_the_row(self):
+        """Per-machine FR-MT-T-2: a row that cannot be read is refused, never skipped."""
         worker = SimpleNamespace(gpu_memory=_reading())
         job = SimpleNamespace(unreal_kind=UnrealKind.PILOT)
         with patch.object(um, 'claim_row', return_value=None) as claim_row:
-            assert um.measured_claim_rejection(worker, job) is None
+            assert um.measured_claim_rejection(worker, job) == um.NOT_AVAILABLE_MESSAGE
         claim_row.assert_called_once_with(job)
 
-    def test_normal_job_ignores_the_card_reading(self):
+    def test_normal_job_reads_the_row_first(self):
         worker = SimpleNamespace(gpu_memory={})
         job = SimpleNamespace(unreal_kind=UnrealKind.RENDER)
         with patch.object(um, 'claim_row', return_value=None) as claim_row:
-            assert um.measured_claim_rejection(worker, job) is None
+            assert um.measured_claim_rejection(worker, job) == um.NOT_AVAILABLE_MESSAGE
         claim_row.assert_called_once_with(job)
+
+    def test_normal_job_needs_a_card_reading(self):
+        """Per-machine D14: a worker without a live card reading takes no render job."""
+        worker = SimpleNamespace(gpu_memory={}, card_status={})
+        job = SimpleNamespace(unreal_kind=UnrealKind.RENDER)
+        with patch.object(um, 'claim_row', return_value={'asset__project_id': 1}):
+            assert um.measured_claim_rejection(worker, job) == um.NO_CARD_READING_MESSAGE
 
 
 class TestGpuMatches:

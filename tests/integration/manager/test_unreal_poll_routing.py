@@ -11,7 +11,7 @@ import pytest
 from workers.models import Job
 
 from .unreal_helpers import BUILD, SHARE, caps, set_share, unreal_asset
-from .unreal_pilot_helpers import measure_key
+from .unreal_pilot_helpers import live_card, measure_key
 
 URL = '/api/jobs/'
 POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
@@ -19,20 +19,22 @@ UNREAL = {**POLL, 'renderers': 'BLENDER,UNREAL', 'unreal_builds': BUILD}
 
 
 @pytest.fixture
-def jobs(asset):
+def jobs(asset, worker_with_token):
     blender = Job.objects.create(name='PollBlender', asset=asset, output_file_pattern='//r/b.png')
     unreal = Job.objects.create(name='PollUnreal', asset=unreal_asset(), output_file_pattern='//r/u.png')
-    measure_key(unreal)  # chunk 2b: an unmeasured key is held (AC-46)
+    # Per-machine D2: the worker's own fits result (an unmeasured key is held, AC-46).
+    measure_key(unreal, worker=worker_with_token[0])
     return blender, unreal
 
 
 @pytest.fixture
 def ready_worker(worker_with_token):
-    """A worker whose stored capabilities report the build and the manager's share."""
+    """A worker whose stored capabilities report the build and the manager's share, with a live card."""
     worker, client = worker_with_token
     set_share(SHARE)
     worker.unreal_capabilities = caps()
     worker.save(update_fields=['unreal_capabilities'])
+    live_card(worker)
     return worker, client
 
 

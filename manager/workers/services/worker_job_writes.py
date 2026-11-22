@@ -199,6 +199,8 @@ def _locked_write(job_pk, apply, before=None):
 
 
 def _set_and_save(job, changes):
+    if changes.get('status') == JobStatus.QUEUED:
+        changes['unreal_memory_report'] = None  # per-machine FR-MT-R-2: queued again, no accepted report
     for field, value in changes.items():
         setattr(job, field, value)
     job.save(update_fields=sorted(changes))

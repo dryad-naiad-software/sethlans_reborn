@@ -61,7 +61,7 @@ class TestCancel:
         worker, client = worker_with_token
         discovery = done_discovery(admin_client, asset, worker, client)
         submission, _ = submit(admin_client, asset, sound=True)
-        ready_worker(worker, source='override')
+        measure_submission(asset, worker=worker, submission=submission)  # per-machine D10
         audio = audio_jobs_of(submission)
         assert claim(client, audio[0], worker).status_code == 200
         resp = _post(admin_client, submission, 'cancel')

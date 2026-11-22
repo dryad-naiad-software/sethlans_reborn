@@ -15,7 +15,7 @@ from shared.unreal.vram_gate import measured_need_mb
 from workers.models import Job
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS, unreal_asset, unreal_project
-from .unreal_pilot_helpers import JOBS, OTHER_SEQUENCE, created_job, measure, pilots, record_of, settings
+from .unreal_pilot_helpers import JOBS, OTHER_SEQUENCE, created_job, measure, pilots, ready_worker, record_of, settings
 
 PROJECTS = '/api/projects/'
 
@@ -34,7 +34,15 @@ def _count(client, url, params=None):
 
 
 @pytest.fixture
-def asset(db):
+def machine(worker_with_token):
+    """One eligible machine with one card kind (per-machine D5): ``(worker, client)``."""
+    worker, client = worker_with_token
+    ready_worker(worker)
+    return worker, client
+
+
+@pytest.fixture
+def asset(db, machine):
     return unreal_asset()
 
 
@@ -115,24 +123,30 @@ class TestQueryCounts:
         many, resp = _count(admin_client, PROJECTS)
         assert len(resp.data) == 6 and many == few
 
-    def test_job_list_adds_no_query_for_the_peak(self, admin_client, asset):
+    def test_job_list_adds_no_query_for_the_results(self, admin_client, asset, machine):
+        """Per-machine FR-MT-T-3: a worker's list reads its results in one query per response."""
+        _worker, client = machine
         created_job(admin_client, asset, name='Job0')
         measure(record_of(pilots()[0]))
-        few, _ = _count(admin_client, JOBS, {'renderer': 'UNREAL'})
+        few, _ = _count(client, JOBS, {'renderer': 'UNREAL'})
         for i in range(1, 8):
             created_job(admin_client, asset, name=f'Job{i}')
-        many, resp = _count(admin_client, JOBS, {'renderer': 'UNREAL'})
+        many, resp = _count(client, JOBS, {'renderer': 'UNREAL'})
         assert many == few
-        assert {row['unreal_measured_peak_mb'] for row in resp.data if row['unreal_kind'] == 'render'} == {8102}
+        peaks = {result['peak_mb'] for row in resp.data if row['unreal_kind'] == 'render'
+                 for result in row['unreal_machine_results']}
+        assert peaks == {8102}
 
-    def test_create_response_uses_the_fallback(self, admin_client, asset):
+    def test_create_response_and_single_object_read(self, admin_client, asset, machine):
         created_job(admin_client, asset, name='Job0')
         measure(record_of(pilots()[0]), peak_mb=9000)
         resp = admin_client.post(JOBS, {
             'name': 'Job1', 'asset_id': asset.pk, 'output_file_pattern': '//r/f.png',
             'start_frame': 1, 'end_frame': 1, 'render_settings': dict(RENDER_SETTINGS)}, format='json')
         assert resp.status_code == 201, resp.data
-        assert (resp.data['unreal_kind'], resp.data['unreal_measured_peak_mb']) == ('render', 9000)
+        assert (resp.data['unreal_kind'], resp.data['unreal_machine_results']) == ('render', None)
+        [result] = machine[1].get(f'{JOBS}{resp.data["id"]}/').data['unreal_machine_results']
+        assert result['peak_mb'] == 9000
 
     def test_blender_lists_are_unchanged(self, admin_client, project):
         """AC-51: the counts measured on master before chunk 2b (b83dec2) were 1 query each."""
@@ -146,5 +160,5 @@ class TestQueryCounts:
         Job.objects.create(name='BQ2', asset=blend, output_file_pattern='//r/b.png')
         count, resp = _count(admin_client, JOBS)
         assert count == 1
-        assert all(row['unreal_kind'] == 'render' and row['unreal_measured_peak_mb'] is None for row in resp.data)
+        assert all(row['unreal_kind'] == 'render' and row['unreal_machine_results'] is None for row in resp.data)
         assert all(row['unreal_measurement'] is None for row in _count(admin_client, PROJECTS)[1].data)

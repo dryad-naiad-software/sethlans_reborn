@@ -11,8 +11,8 @@ QUEUED ``shots`` job, else null.
 
 No query per row: :func:`routing_job_annotation` picks that job's id as a
 subquery of the submission query; :func:`routing_jobs` then loads every
-picked job of a response in **one** query, with its key state and peak as
-the job list's annotations (``job_annotations``) and its project joined.
+picked job of a response in **one** query, with its key state as the job
+list's annotations (``note_annotations``) and its project joined.
 The note itself is ``unreal_routing.unreal_routing_note`` with the
 response's shared worker cache, so a whole page costs the same few
 queries as one row.
@@ -46,11 +46,11 @@ def routing_job_annotation():
 
 def routing_jobs(job_ids):
     """``{id: job}`` for the picked jobs, in one query, ready for ``unreal_routing_note``."""
-    from ..renderers.unreal_measured import job_annotations
+    from ..renderers.unreal_measured import note_annotations
     ids = sorted({pk for pk in job_ids if pk is not None})
     if not ids:
         return {}
-    jobs = job_annotations(Job.objects.filter(pk__in=ids)).select_related('asset__project')
+    jobs = note_annotations(Job.objects.filter(pk__in=ids)).select_related('asset__project')
     return {job.pk: job for job in jobs}
 
 

@@ -20,7 +20,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from workers.models import Job
 
 from ..unreal_pilot_helpers import JOBS, claim, ready_worker
-from .submission_helpers import done_discovery, submit
+from .submission_helpers import done_discovery, measure_submission, submit
 
 RATE = 48_000
 SAMPLES_PER_FRAME = 1_600
@@ -82,10 +82,14 @@ def post_sound(client, job, file_obj=None, offset_value=None, skipped='false', *
 
 
 def claimed_audio(admin_client, asset, worker, worker_client, index=0, **submit_overrides):
-    """Read the shots, submit with sound and claim one audio job (no measurement, no card reading)."""
+    """Read the shots, submit with sound and claim one audio job.
+
+    Per-machine D10: the worker needs a live card and a fits result of the piece key.
+    """
     done_discovery(admin_client, asset, worker, worker_client)
     submission, _ = submit(admin_client, asset, sound=True, **submit_overrides)
-    ready_worker(worker, source='override')
+    ready_worker(worker)
+    measure_submission(asset, worker=worker, submission=submission)
     job = audio_jobs_of(submission)[index]
     resp = claim(worker_client, job, worker)
     assert resp.status_code == 200, resp.data

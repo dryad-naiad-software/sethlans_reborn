@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 Pilot jobs and measurement records (Unreal foundation FR-PM-1, FR-PM-2,
-FR-PM-6, FR-PM-10, D2).
+FR-PM-6, FR-PM-10, D2; per-machine memory test D5, FR-MT-R-5).
 
-A normal Unreal job is held until its measurement key is measured by a
-manager-created **pilot** job.  Records are created only here
-(:func:`ensure_pilot` from the ``UnrealStrategy`` hooks, and
-:func:`retry_measurement` from the admin retry); their results are
-written only by ``POST /api/jobs/{id}/pilot-result/``.
+A normal Unreal job goes to a machine only after that machine's own
+**pilot** job measured its key.  The ``UnrealStrategy`` hooks call
+:func:`ensure_pilot` and friends, which create one targeted pilot per
+eligible (worker, card kind) pair (``services/machine_tests.py``); the
+admin retry is :func:`retry_measurement`.  Results are written only by
+``POST /api/jobs/{id}/pilot-result/``.
 
 **Lock first (FR-PM-10).**  Every write that can create a pilot opens
 ``transaction.atomic()`` and runs :func:`lock_project` as its first
@@ -17,30 +18,25 @@ statement: a zero-row ``UPDATE`` of the project (SQLite takes its write
 lock), then ``SELECT ... FOR UPDATE`` of the project row only.  Two
 requests on one project therefore serialize from their first statement.
 :func:`ensure_pilot` asserts the lock is held in the current transaction
-and computes the key from the locked, re-read row.  Lock order: Project,
-then Asset / Job / UnrealMeasurement.
+and computes the key from the locked, re-read row.  Lock order (D15):
+Project, then Job rows, then the pair's Worker row, then its records.
 """
 
 import logging
 from dataclasses import dataclass
 
 from django.db import transaction
-from django.db.models import Min
-from django.utils import timezone
 
-from ..constants import PILOT_NAME_PREFIX, RenderDevice, UnrealKind
-from ..models import Job, JobStatus, Project, UnrealMeasurement
+from ..constants import UnrealKind
+from ..models import Job, JobStatus, Project
 from ..parent_status import take_write_lock
-from ..renderers.unreal_measured import (
-    MEASURED, NONE, PENDING, key_aliases, key_peak, key_ram, key_reason, key_state_case,
-)
-from ..renderers.unreal_settings import MAP, OUTPUT_FORMAT, PRESET, SEQUENCE
+from ..renderers.unreal_measured import MEASURED, NONE, PENDING, key_aliases, key_reason, key_state_case
 from .row_locks import lock_own_rows
 from .unreal_target import Target
 
 logger = logging.getLogger(__name__)
 
-# Per-connection marker: ``{project_pk: (_LockToken, locked project)}``.
+# Per-connection marker: ``{project_pk: (LockToken, locked project)}``.
 _MARKER = '_sethlans_unreal_project_locks'
 # ``take_write_lock`` field on Project: always '' or a 64-hex hash.
 _LOCK_FIELD = 'unreal_overrides_sha256'
@@ -52,52 +48,44 @@ class ProjectLockMissing(RuntimeError):
 
 @dataclass(frozen=True)
 class KeyState:
-    """A key's state, the latest record's failure reason, and the measured peak and RAM.
-
-    ``peak_mb`` and ``ram`` come from the same record (per-card spec FR-PC-MGR-2).
-    """
+    """A key's farm-wide state and its failed record's reason (``renderers/unreal_measured.py``)."""
 
     state: str | None
     reason: str | None
-    peak_mb: int | None
-    ram: dict | None
 
 
-_UNKNOWN = KeyState(None, None, None, None)
+_UNKNOWN = KeyState(None, None)
+_KEYED_KINDS = (UnrealKind.RENDER, UnrealKind.AUDIO)
 
 
 def key_state_of(project, asset_pk, overrides, target_hash):
     """The state of an explicit key, in one statement (carried by the project row)."""
     refs = (asset_pk, overrides, target_hash)
-    row = Project.objects.filter(pk=project.pk).alias(
-        **key_aliases(refs, '_ek_'),
-    ).annotate(
-        _state=key_state_case('_ek_'), _reason=key_reason(refs), _peak=key_peak(refs), _ram=key_ram(refs),
-    ).values('_state', '_reason', '_peak', '_ram').first()
+    row = Project.objects.filter(pk=project.pk).alias(**key_aliases(refs, '_ek_')).annotate(
+        _state=key_state_case('_ek_'), _reason=key_reason(refs),
+    ).values('_state', '_reason').first()
     if row is None:
         # The project is gone: no record of it can exist either.
-        return KeyState(NONE, None, None, None)
-    return KeyState(row['_state'], row['_reason'], row['_peak'], row['_ram'])
+        return KeyState(NONE, None)
+    return KeyState(row['_state'], row['_reason'])
 
 
 def key_state(job):
-    """The key state of a saved ``job`` in one statement (no annotations needed).
+    """The key state of a saved render or audio ``job`` in one statement (no annotations needed).
 
-    Blender jobs and pilots read ``KeyState(None, None, None, None)`` with no query.
+    Blender jobs, pilots and ``shots`` jobs read ``KeyState(None, None)`` with no query.
     """
-    if job.unreal_kind != UnrealKind.RENDER or not job.unreal_target_sha256:
+    if job.unreal_kind not in _KEYED_KINDS or not job.unreal_target_sha256:
         return _UNKNOWN
-    from ..renderers.unreal_measured import job_annotations
-    row = job_annotations(Job.objects.filter(pk=job.pk)).values(
-        '_unreal_key_state', '_unreal_key_reason', '_unreal_peak_mb', '_unreal_ram',
-    ).first()
+    from ..renderers.unreal_measured import note_annotations
+    row = note_annotations(Job.objects.filter(pk=job.pk)).values('_unreal_key_state', '_unreal_key_reason').first()
     if row is None:
         return _UNKNOWN
-    return KeyState(row['_unreal_key_state'], row['_unreal_key_reason'], row['_unreal_peak_mb'], row['_unreal_ram'])
+    return KeyState(row['_unreal_key_state'], row['_unreal_key_reason'])
 
 
-class _LockToken:
-    """``on_commit`` callback that marks one project lock of one transaction.
+class LockToken:
+    """``on_commit`` callback that marks one lock of one transaction (a project's, or the Worker locks).
 
     Registered when the lock is taken: a rollback (of the transaction or
     of the savepoint the lock was taken in) discards it, and a commit runs
@@ -130,15 +118,13 @@ def cached_key_state(job):
     """The job's key state from its annotations, else :func:`key_state` once.
 
     The result is stored on the instance as the list annotations are
-    (``_unreal_key_state``, ``_unreal_key_reason``, ``_unreal_peak_mb``,
-    ``_unreal_ram``), so a single-object response reads it once and its
-    fields agree.
+    (``_unreal_key_state``, ``_unreal_key_reason``), so a single-object
+    response reads it once.
     """
     if hasattr(job, '_unreal_key_state'):
-        return KeyState(job._unreal_key_state, job._unreal_key_reason, job._unreal_peak_mb, job._unreal_ram)
+        return KeyState(job._unreal_key_state, job._unreal_key_reason)
     found = key_state(job)
     job._unreal_key_state, job._unreal_key_reason = found.state, found.reason
-    job._unreal_peak_mb, job._unreal_ram = found.peak_mb, found.ram
     return found
 
 
@@ -156,7 +142,7 @@ def lock_project(project):
         raise RuntimeError("lock_project must run inside transaction.atomic()")
     take_write_lock(Project.objects.filter(pk=project.pk), field=_LOCK_FIELD)
     locked = lock_own_rows(Project.objects).get(pk=project.pk)
-    token = _LockToken(connection, project.pk)
+    token = LockToken(connection, project.pk)
     transaction.on_commit(token)
     markers = getattr(connection, _MARKER, None)
     if markers is None:
@@ -169,7 +155,7 @@ def lock_project(project):
 def locked_project(project):
     """Return the row :func:`lock_project` locked in this transaction.
 
-    The lock counts only while its :class:`_LockToken` is pending: taken in
+    The lock counts only while its :class:`LockToken` is pending: taken in
     the current transaction, in a savepoint that is still open, and neither
     committed nor rolled back.
 
@@ -185,64 +171,25 @@ def locked_project(project):
     return entry[1]
 
 
-def _queue_position(asset, target_hash, now):
-    """``min(now, oldest QUEUED normal job of the key)`` (FR-PM-2 queue position)."""
-    oldest = Job.objects.filter(
-        asset=asset, unreal_kind=UnrealKind.RENDER, status=JobStatus.QUEUED,
-        unreal_target_sha256=target_hash,
-    ).aggregate(oldest=Min('submitted_at'))['oldest']
-    return min(now, oldest) if oldest is not None else now
-
-
-def create_pilot(project, asset, target, *, reason, frame=0, remeasure=False):
-    """Insert a measurement record and its pilot job (FR-PM-2 step 4).
-
-    Runs in the caller's locked transaction: the record first (its pk
-    names the job), then the job, then the record's ``pilot_job``.  A
-    sequence target's resolution, shot set and frames go into the pilot's
-    ``render_settings`` (D8, FR-SR-1), so its key equals its pieces' key.
-    """
-    now = timezone.now()
-    target_hash = target.sha256()
-    frame = target.pilot_frame(frame)
-    record = UnrealMeasurement.objects.create(
-        project=project, asset=asset, overrides_sha256=project.unreal_overrides_sha256,
-        target_sha256=target_hash, created_at=now, engine_build=target.engine_build,
-        map=target.map, sequence=target.sequence, preset=target.preset, remeasure=remeasure,
-    )
-    name = f"{PILOT_NAME_PREFIX}{record.pk}"
-    pilot = Job.objects.create(
-        name=name, asset=asset, output_file_pattern=f"//sethlans_pilot/{name}.png",
-        engine_build=target.engine_build, unreal_kind=UnrealKind.PILOT,
-        render_device=RenderDevice.GPU, start_frame=frame, end_frame=frame,
-        render_settings={MAP: target.map, SEQUENCE: target.sequence, PRESET: target.preset,
-                         OUTPUT_FORMAT: 'PNG', **target.pilot_settings()},
-        status=JobStatus.QUEUED, submitted_at=_queue_position(asset, target_hash, now),
-    )
-    UnrealMeasurement.objects.filter(pk=record.pk).update(pilot_job=pilot)
-    record.pilot_job = pilot
-    logger.info(
-        "Created pilot job %s for Unreal project %s (asset %s, target %s %s %s %s, reason %s).",
-        pilot.pk, project.pk, asset.pk, target.map, target.sequence, target.preset,
-        target.engine_build, reason,
-    )
-    return record
+def create_pilot(project, asset, target, *, worker, card_kind, reason, frame=0, remeasure=False):
+    """A pair's targeted pilot and record (``services/machine_tests.create_pilot``, FR-MT-R-5)."""
+    from .machine_tests import create_pilot as _create
+    return _create(project, asset, target, worker=worker, card_kind=card_kind, reason=reason,
+                   frame=frame, remeasure=remeasure)
 
 
 def ensure_pilot(project, asset, target, *, reason, frame=0):
-    """Create the pilot of a key that has no record yet (FR-PM-2).
+    """Create the pilots of a key for every eligible pair that needs one (FR-PM-2, FR-MT-R-5).
 
-    Returns ``None`` when the key is measured, pending or failed (after a
-    failure only the admin retry creates a pilot), else the new pilot job.
+    Returns the new pilot jobs (empty when every eligible pair fits, does
+    not fit, is testing or failed; after a failure only the admin retry
+    creates a pilot).
 
     Raises:
         ProjectLockMissing: the caller did not take the project lock.
     """
-    locked = locked_project(project)
-    found = key_state_of(locked, asset.pk, locked.unreal_overrides_sha256, target.sha256())
-    if found.state != NONE:
-        return None
-    return create_pilot(locked, asset, target, reason=reason, frame=frame).pilot_job
+    from .machine_tests import ensure_machine_tests
+    return ensure_machine_tests(project, asset, target, reason=reason, frame=frame)
 
 
 def ensure_pilots_for_queued(project, *, reason, asset=None):
@@ -259,16 +206,14 @@ def ensure_pilots_for_queued(project, *, reason, asset=None):
         if key in seen:
             continue
         seen.add(key)
-        pilot = ensure_pilot(project, job.asset, Target.of(job), reason=reason, frame=job.start_frame)
-        if pilot is not None:
-            created.append(pilot)
+        created += ensure_pilot(project, job.asset, Target.of(job), reason=reason, frame=job.start_frame)
     return created
 
 
 def ensure_pilot_for_job(job, *, reason):
-    """Trigger (a) / (a'): the key of one QUEUED normal job."""
+    """Trigger (a) / (a'): the key of one QUEUED normal job; the new pilot jobs."""
     if job.unreal_kind != UnrealKind.RENDER or job.status != JobStatus.QUEUED:
-        return None
+        return []
     return ensure_pilot(job.asset.project, job.asset, Target.of(job), reason=reason,
                         frame=job.start_frame)
 

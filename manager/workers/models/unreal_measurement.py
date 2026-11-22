@@ -15,12 +15,31 @@ move to another project, FR-MR-11).  Rows are created only by
 ``services/unreal_pilot.py`` and their results written only by the
 ``pilot-result/`` action; no serializer writes them.  The state of a
 record and of a key is derived (``renderers/unreal_measured.py``).
+
+Per-machine memory test (D2, FR-MT-R-1): a record belongs to one worker
+and one card kind.  Exactly one record per (key, worker, card kind) is
+``current``; the flag is moved under the D15 locks when a new record of
+the pair is created (no partial unique constraint: MySQL drops those).
+Records made before migration 0032 stay as history, never current.
 """
 
 from django.db import models
 from django.utils import timezone
 
 from ..constants import UNREAL_GAME_OVERRIDES_CHOICES, UNREAL_TEXTURE_STREAMING_CHOICES
+
+
+class MeasurementVerdict(models.TextChoices):
+    """A result's verdict (D2, D6); '' while testing or after a failed test."""
+
+    NONE = '', 'None'
+    FITS = 'fits', 'Fits'
+    DOES_NOT_FIT = 'does_not_fit', 'Does not fit'
+
+
+VERDICT_SOURCE_CHOICES = (('', ''), ('pilot', 'pilot'), ('spill', 'spill'), ('job_peak', 'job_peak'),
+                          ('covered', 'covered'))
+STALE_REASON_CHOICES = (('', ''), ('driver_changed', 'driver_changed'))
 
 
 class UnrealMeasurement(models.Model):
@@ -86,6 +105,21 @@ class UnrealMeasurement(models.Model):
     ram_process_commit_peak_mb = models.IntegerField(null=True, blank=True)
     shared_machine = models.BooleanField(null=True, blank=True)
     measured_at = models.DateTimeField(null=True, blank=True)
+    # Per-machine result (D2, D3, D6, D8, D9; FR-MT-R-1).
+    card_kind = models.CharField(max_length=32, blank=True, default='')
+    driver_version = models.CharField(max_length=64, blank=True, default='')
+    verdict = models.CharField(max_length=16, blank=True, default='', choices=MeasurementVerdict.choices)
+    verdict_source = models.CharField(max_length=8, blank=True, default='', choices=VERDICT_SOURCE_CHOICES)
+    stale_reason = models.CharField(max_length=16, blank=True, default='', choices=STALE_REASON_CHOICES)
+    current = models.BooleanField(default=False)
+    covered_by = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='covers',
+    )
+    base_target_sha256 = models.CharField(max_length=64, blank=True, default='')
+    measured_ranges = models.JSONField(null=True, blank=True)
+    shared_peak_mb = models.IntegerField(null=True, blank=True)
+    job_peak_max_mb = models.IntegerField(null=True, blank=True)
+    lower_bound_mb = models.IntegerField(null=True, blank=True)
 
     def __str__(self):
         return f"UnrealMeasurement {self.pk} (asset {self.asset_id})"
@@ -96,5 +130,9 @@ class UnrealMeasurement(models.Model):
             models.Index(
                 fields=['asset', 'overrides_sha256', 'target_sha256', '-created_at', '-id'],
                 name='unrealmeas_key_latest_idx',
+            ),
+            models.Index(
+                fields=['asset', 'overrides_sha256', 'target_sha256', 'worker', 'card_kind', 'current'],
+                name='unrealmeas_pair_idx',
             ),
         ]

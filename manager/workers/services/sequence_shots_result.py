@@ -23,6 +23,7 @@ from ..models import Job, JobStatus, Project, SequenceDiscovery
 from . import sequence_discovery
 from .row_locks import lock_own_rows
 from .unreal_pilot import lock_project
+from .worker_locks import lock_workers
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ def record_shots_result(job_pk, worker, result):
             return 409, {'error': NOT_RENDERING_HERE}
         if job.unreal_kind != UnrealKind.SHOTS:
             return 409, {'error': NOT_A_SHOTS_JOB}
+        lock_workers()  # D15: Workers before the discovery; planning creates pilots
         discovery = lock_own_rows(SequenceDiscovery.objects).filter(job_id=job.pk).first()
         if discovery is None or discovery.status not in OPEN_DISCOVERY_STATUSES:
             return 409, {'error': NOT_WAITING}

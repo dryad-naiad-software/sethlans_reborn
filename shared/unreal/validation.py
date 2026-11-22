@@ -180,8 +180,16 @@ def _resolution_text(resolution) -> str:
     return str(resolution)
 
 
-def target_sha256(engine_build, map_path, sequence, preset, resolution=None, shot_set=None) -> str:
-    """Return the frozen hash of a measurement target (FR-PM-1, OQ-26; sequence D8).
+def _draft_text(draft) -> str:
+    """The canonical JSON of a draft object (sorted keys, compact, ASCII); never raises."""
+    try:
+        return json.dumps(draft, sort_keys=True, separators=(',', ':'))
+    except (TypeError, ValueError):
+        return str(draft)
+
+
+def target_sha256(engine_build, map_path, sequence, preset, resolution=None, shot_set=None, draft=None) -> str:
+    """Return the frozen hash of a measurement target (FR-PM-1, OQ-26; sequence D8; per-machine OQ-1).
 
     The same frozen, pure, never-raising form as :func:`overrides_sha256`
     over ``[engine_build, map, sequence, preset]`` (each ``str(x)``,
@@ -189,11 +197,17 @@ def target_sha256(engine_build, map_path, sequence, preset, resolution=None, sho
     chosen ``shot_set`` hash (:func:`shot_set_sha256`) is given, the list
     gains ``"<w>x<h>"`` (or ``''``) and the shot set (or ``''``); with
     neither, the hash is the original four-part form, so standalone jobs
-    keep their keys.
+    keep their keys.  A non-empty ``draft`` object (``unreal.draft``) adds
+    both of those and then its canonical JSON, so a draft has its own key
+    and every key without a draft is unchanged.  Anything that is not a
+    non-empty object is no draft (one rule for ``Job`` and ``Target``).
     """
+    draft = draft if isinstance(draft, dict) and draft else None
     parts = [engine_build, map_path, sequence, preset]
-    if resolution is not None or shot_set:
+    if resolution is not None or shot_set or draft:
         parts += [_resolution_text(resolution), shot_set or '']
+    if draft:
+        parts.append(_draft_text(draft))
     return _frozen_sha256(['' if part is None else str(part) for part in parts])
 
 

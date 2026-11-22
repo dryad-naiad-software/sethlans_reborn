@@ -11,6 +11,7 @@ so a PATCH cannot leave an Unreal job in a state the create would refuse.
 A worker status PATCH sends none of these keys and is never refused here.
 """
 
+import json
 import os
 
 from rest_framework.exceptions import ValidationError
@@ -146,6 +147,29 @@ def _reserved_name_errors(attrs, instance, errors):
         errors['name'] = [f'Names starting with "{SEQUENCE_NAME_PREFIX}" are reserved for sequence renders.']
 
 
+def _canonical(value):
+    """The canonical JSON of ``value`` (``1``, ``1.0`` and ``true`` differ), or ``None`` when it has none."""
+    try:
+        return json.dumps(value, sort_keys=True, separators=(',', ':'))
+    except (TypeError, ValueError):
+        return None
+
+
+def _drop_unchanged_settings(attrs, instance):
+    """An update that re-sends the stored ``render_settings`` exactly keeps the stored value.
+
+    A manager-made job (a pilot's ``unreal.card_kind``, a piece's keys)
+    carries keys clients never send; re-sending them unchanged is not a
+    change.  "Unchanged" is compared by canonical JSON, so a value of
+    another type is a change and is validated (and refused) as usual.
+    """
+    if instance is None or 'render_settings' not in attrs:
+        return
+    sent = _canonical(attrs['render_settings'])
+    if sent is not None and sent == _canonical(instance.render_settings):
+        attrs.pop('render_settings')
+
+
 def validate_unreal_job(attrs, instance):
     """Validate Unreal job ``attrs`` (``instance`` on update); return attrs.
 
@@ -153,6 +177,7 @@ def validate_unreal_job(attrs, instance):
         rest_framework.exceptions.ValidationError: keyed by field (HTTP 400).
     """
     creating = instance is None
+    _drop_unchanged_settings(attrs, instance)
     errors = {}
     if creating or {'start_frame', 'end_frame'} & attrs.keys():
         _frame_errors(attrs, instance, errors)

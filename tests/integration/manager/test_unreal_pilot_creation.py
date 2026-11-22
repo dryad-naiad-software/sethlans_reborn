@@ -18,28 +18,36 @@ from shared.unreal.validation import overrides_sha256, target_sha256
 from workers.models import Asset, Job, UnrealMeasurement
 from workers.services.unreal_pilot import ProjectLockMissing, Target, ensure_pilot, lock_project
 
-from .unreal_helpers import BUILD, RENDER_SETTINGS, unreal_asset, unreal_project
-from .unreal_pilot_helpers import OTHER_SEQUENCE, create_job, created_job, pilots, record_of, settings
+from .unreal_helpers import BUILD, RENDER_SETTINGS, caps, unreal_asset, unreal_project
+from .unreal_pilot_helpers import KIND, OTHER_SEQUENCE, create_job, created_job, pilots, ready_worker, record_of, settings
 
 CVARS = {'r.Streaming.PoolSize': '3000'}
 
 
 @pytest.fixture
-def asset(db):
+def machine(worker_with_token):
+    """One eligible machine with one card kind (per-machine D5): each key gets one pilot."""
+    return ready_worker(worker_with_token[0])
+
+
+@pytest.fixture
+def asset(db, machine):
     return unreal_asset()
 
 
 @pytest.mark.django_db
 class TestFirstJob:
 
-    def test_creates_one_pilot_with_the_job_target(self, admin_client, asset):
+    def test_creates_one_pilot_with_the_job_target(self, admin_client, asset, machine):
         job = created_job(admin_client, asset, frame=1000)
         [pilot] = pilots()
         record = record_of(pilot)
         assert pilot.name == f'sethlans-pilot-{record.pk}'
         assert (pilot.unreal_kind, pilot.renderer, pilot.render_device) == ('pilot', 'UNREAL', 'GPU')
         assert (pilot.engine_build, pilot.start_frame, pilot.end_frame, pilot.status) == (BUILD, 1000, 1000, 'QUEUED')
-        assert pilot.render_settings == {**RENDER_SETTINGS, 'unreal.output_format': 'PNG'}
+        assert pilot.render_settings == {**RENDER_SETTINGS, 'unreal.output_format': 'PNG', 'unreal.card_kind': KIND}
+        assert pilot.target_worker_id == machine.pk
+        assert (record.worker_id, record.card_kind, record.current, record.verdict) == (machine.pk, KIND, True, '')
         assert pilot.output_file_pattern.endswith('.png')
         assert pilot.unreal_target_sha256 == job.unreal_target_sha256 == record.target_sha256
         assert record.overrides_sha256 == asset.project.unreal_overrides_sha256 == overrides_sha256({})
@@ -61,13 +69,16 @@ class TestFirstJob:
         {'render_settings': settings(map='/Game/Maps/Other.Other')},
         {'engine_build': '5.8.3-1'},
     ], ids=['sequence', 'preset', 'map', 'engine_build'])
-    def test_other_target_gets_its_own_pilot(self, admin_client, asset, change):
+    def test_other_target_gets_its_own_pilot(self, admin_client, asset, machine, change):
+        # Per-machine D5: the machine must report the other build to be eligible for its key.
+        machine.unreal_capabilities = caps(builds=(BUILD, '5.8.3-1'))
+        machine.save(update_fields=['unreal_capabilities'])
         created_job(admin_client, asset, name='Still01')
         second = created_job(admin_client, asset, name='Still02', **change)
         assert len(pilots()) == 2
         pilot = pilots()[-1]
         assert pilot.engine_build == second.engine_build
-        assert pilot.render_settings == {**second.render_settings}
+        assert pilot.render_settings == {**second.render_settings, 'unreal.card_kind': KIND}
         assert pilot.unreal_target_sha256 == second.unreal_target_sha256
         created_job(admin_client, asset, name='Still03')
         assert len(pilots()) == 2
@@ -191,9 +202,9 @@ class TestLockAssertion:
         target = Target(BUILD, *(RENDER_SETTINGS[k] for k in ('unreal.map', 'unreal.sequence', 'unreal.preset')))
         with transaction.atomic():
             lock_project(asset.project)
-            pilot = ensure_pilot(asset.project, asset, target, reason='test')
+            created = ensure_pilot(asset.project, asset, target, reason='test')
             again = ensure_pilot(asset.project, asset, target, reason='test')
-        assert pilot is not None and again is None
+        assert (len(created), again) == (1, [])
 
 
 @pytest.mark.django_db
@@ -207,13 +218,13 @@ class TestBlenderUnaffected:
         }, format='json')
         assert resp.status_code == 201, resp.data
         assert resp.data['unreal_kind'] == 'render'
-        assert resp.data['unreal_measured_peak_mb'] is None
+        assert resp.data['unreal_machine_results'] is None
         assert UnrealMeasurement.objects.count() == 0
         assert pilots() == []
 
 
 @pytest.mark.django_db
-def test_second_project_keys_are_separate(admin_client):
+def test_second_project_keys_are_separate(admin_client, machine):
     first = unreal_asset()
     second = unreal_asset(unreal_project(name='OtherProj'), name='OtherAsset')
     created_job(admin_client, first)

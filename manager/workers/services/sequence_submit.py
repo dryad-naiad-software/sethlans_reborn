@@ -32,6 +32,7 @@ from .row_locks import lock_own_rows
 from .sequence_create import plan_submission
 from .sequence_discovery_create import find_or_create_discovery
 from .unreal_pilot import lock_project
+from .worker_locks import lock_workers
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ def create_submission(data):
     asset = data['asset']
     with transaction.atomic():
         project = lock_project(asset.project)
+        lock_workers()  # D15: Workers before the discovery and the submission; planning creates pilots
         discovery, _created = find_or_create_discovery(asset, data['map'], data['sequence'], data['preset'])
         _refuse_on_facts(data, discovery)
         submission = _row(project, discovery, data, _next_version(project, data['sequence']))

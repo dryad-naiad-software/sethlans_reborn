@@ -12,14 +12,19 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from workers.models import Job, UnrealMeasurement, Worker
+from django.db import transaction
 
-from .unreal_helpers import BUILD, RENDER_SETTINGS, SHARE, caps, gpu_memory, set_share, unreal_asset, unreal_project
+from workers.models import Job, Worker
+from workers.services.unreal_pilot import Target, create_pilot, lock_project
+
+from .unreal_helpers import RENDER_SETTINGS, SHARE, caps, gpu_memory, set_share, unreal_asset, unreal_project
 from .unreal_pilot_helpers import (
-    JOBS, POLL, claim, created_job, measure, pilots, ready_worker, record_of,
+    JOBS, KIND, POLL, claim, created_job, measure, pilots, ready_worker, record_of,
 )
 
 PENDING = "Waiting for this project's memory measurement (pilot render)."
+# Per-machine FR-MT-T-2: the claim judges the caller's own pair.
+NOT_TESTED = "This machine has not tested this render yet."
 CVARS = {'r.Streaming.PoolSize': '3000'}
 
 
@@ -63,21 +68,25 @@ class TestHolding:
     def test_claim_of_the_held_job_is_refused(self, held):
         job, _pilot, worker, client = held
         resp = claim(client, job, worker)
-        assert (resp.status_code, resp.data) == (409, {'error': PENDING})
+        assert (resp.status_code, resp.data) == (409, {'error': NOT_TESTED})
 
     def test_routing_note_is_pending_and_none_for_the_pilot(self, admin_client, held):
         job, pilot, _worker, _client = held
         assert admin_client.get(f'{JOBS}{job.pk}/').data['routing_note'] == PENDING
         assert admin_client.get(f'{JOBS}{pilot.pk}/').data['routing_note'] is None
 
-    def test_after_measurement_the_job_is_offered_with_its_peak(self, admin_client, held):
+    def test_after_measurement_the_job_is_offered_with_its_result(self, admin_client, held):
         job, pilot, worker, client = held
-        measure(record_of(pilot), peak_mb=8102)
+        record = record_of(pilot)
+        measure(record, peak_mb=8102)
         resp = client.get(JOBS, POLL)
         assert _names(resp) == [job.name]
-        assert resp.data[0]['unreal_measured_peak_mb'] == 8102
+        assert resp.data[0]['unreal_machine_results'] == [{
+            'measurement_id': record.pk, 'card_kind': KIND, 'peak_mb': 8102, 'ram': None,
+            'shared_peak_mb': None, 'driver_version': None,
+        }]
         detail = admin_client.get(f'{JOBS}{job.pk}/').data
-        assert (detail['unreal_measured_peak_mb'], detail['routing_note']) == (8102, None)
+        assert (detail['unreal_machine_results'], detail['routing_note']) == (None, None)
         assert claim(client, job, worker).status_code == 200
 
     def test_pilot_is_claimable(self, held):
@@ -85,7 +94,7 @@ class TestHolding:
         resp = claim(client, pilot, worker)
         assert resp.status_code == 200, resp.data
         assert resp.data['unreal_kind'] == 'pilot'
-        assert resp.data['unreal_measured_peak_mb'] is None
+        assert resp.data['unreal_machine_results'] is None
 
 
 @pytest.mark.django_db
@@ -98,7 +107,7 @@ class TestStates:
                                  start_frame=1, end_frame=1, render_settings=dict(RENDER_SETTINGS))
         note = _none_note(asset.project_id)
         assert admin_client.get(f'{JOBS}{job.pk}/').data['routing_note'] == note
-        assert claim(client, job, worker).data == {'error': note}
+        assert claim(client, job, worker).data == {'error': NOT_TESTED}
         assert _names(client.get(JOBS, POLL)) == []
 
     @pytest.mark.parametrize('update, reason', [
@@ -164,6 +173,7 @@ class TestPilotExclusions:
         assert claim(client, old_pilot, worker).status_code == 200
 
     def test_superseded_pilot(self, admin_client, held):
+        """Per-machine D2: a later pilot of the same pair makes the earlier record not current."""
         job, pilot, worker, client = held
         record = record_of(pilot)
         url = f'/api/projects/{pilot.asset.project_id}/unreal-measurement/retry/'
@@ -172,9 +182,11 @@ class TestPilotExclusions:
         assert resp.status_code == 201, resp.data
         remeasure_pilot = Job.objects.get(pk=resp.data['pilot_job_id'])
         assert remeasure_pilot.name in _names(client.get(JOBS, POLL))
-        # A later successful record of the same key supersedes the queued re-measure pilot.
-        later = record_of(remeasure_pilot)
-        UnrealMeasurement.objects.filter(pk=record.pk).update(measured_at=later.created_at + timedelta(seconds=1))
+        record.refresh_from_db()
+        assert (record.current, record_of(remeasure_pilot).current) == (False, True)
+        with transaction.atomic():
+            locked = lock_project(job.asset.project)
+            create_pilot(locked, job.asset, Target.of(job), worker=worker, card_kind=KIND, reason='test')
         assert remeasure_pilot.name not in _names(client.get(JOBS, POLL))
         assert claim(client, remeasure_pilot, worker).data == {
             'error': "Pilot is no longer needed: its target was measured by a later pilot."}
@@ -196,52 +208,44 @@ class TestQueueOrder:
 
 
 def _online_worker(hostname, total):
-    return Worker.objects.create(hostname=hostname, is_active=True, unreal_capabilities=caps(),
-                                 gpu_memory=gpu_memory(total))
+    worker = Worker.objects.create(hostname=hostname, is_active=True, unreal_capabilities=caps(),
+                                   gpu_memory=gpu_memory(total))
+    return ready_worker(worker, total_mb=total)
 
 
 @pytest.mark.django_db
-class TestVramNote:
+class TestNoFarmMemoryNote:
+    """Per-machine D7, S2: no pilot minimum, no 15% margin, no pool-caps bound in the routing note."""
 
-    def test_pilot_uses_the_relaxed_pilot_need(self, admin_client):
+    def test_pilot_has_no_memory_need(self, admin_client):
         set_share(SHARE)
         project = unreal_project(unreal_cvar_overrides={
             'r.Streaming.PoolSize': '9000', 'r.RayTracing.ResidentGeometryMemoryPoolSizeInMB': '2048'})
         asset = unreal_asset(project)
+        _online_worker('vram-12', 12282)
         created_job(admin_client, asset)
         pilot = pilots()[0]
-        _online_worker('vram-12', 12282)
-        assert admin_client.get(f'{JOBS}{pilot.pk}/').data['routing_note'] == (
-            f"No online worker with Unreal Engine build {BUILD} has enough GPU memory: this render needs 12478 MB "
-            "at the preset's size; the largest card online has 12282 MB. "
-            "A card with more memory or a smaller output size is needed.")
-        _online_worker('vram-16', 16303)
         assert admin_client.get(f'{JOBS}{pilot.pk}/').data['routing_note'] is None
 
-    def test_measured_job_uses_measured_need_and_the_sanity_bound(self, admin_client):
+    def test_measured_job_has_no_farm_estimate(self, admin_client):
         set_share(SHARE)
         project = unreal_project(unreal_cvar_overrides={
             'r.Streaming.PoolSize': '9000', 'r.RayTracing.ResidentGeometryMemoryPoolSizeInMB': '2048'})
         asset = unreal_asset(project)
+        _online_worker('vram-11', 11264)
         job = created_job(admin_client, asset)
         measure(record_of(pilots()[0]), peak_mb=7930)
-        _online_worker('vram-11', 11264)  # need 9120 fits 10475, caps 11048 do not
-        note = admin_client.get(f'{JOBS}{job.pk}/').data['routing_note']
-        assert note == (f"No online worker with Unreal Engine build {BUILD} has enough GPU memory: this render needs "
-                        "9120 MB at the preset's size; the largest card online has 11264 MB. "
-                        "A card with more memory or a smaller output size is needed.")
-        _online_worker('vram-12', 12282)
         assert admin_client.get(f'{JOBS}{job.pk}/').data['routing_note'] is None
 
 
 @pytest.mark.django_db
-def test_claim_reads_the_key_once(held):
-    """The claim check's row feeds the response: one key-state read per claim."""
+def test_claim_reads_the_results_a_fixed_number_of_times(held):
+    """Per-machine FR-MT-T-2/3: the claim row, the caller's pair states, and the response's results."""
     from django.db import connection
     from django.test.utils import CaptureQueriesContext
     job, pilot, worker, client = held
     measure(record_of(pilot))
     with CaptureQueriesContext(connection) as ctx:
         resp = claim(client, job, worker)
-    assert resp.status_code == 200 and resp.data['unreal_measured_peak_mb'] == 8102
-    assert len([q for q in ctx.captured_queries if 'workers_unrealmeasurement' in q['sql']]) == 1
+    assert resp.status_code == 200 and resp.data['unreal_machine_results'][0]['peak_mb'] == 8102
+    assert len([q for q in ctx.captured_queries if 'workers_unrealmeasurement' in q['sql']]) == 3

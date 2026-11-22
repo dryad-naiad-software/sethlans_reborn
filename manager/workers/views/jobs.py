@@ -14,7 +14,9 @@ from rest_framework.response import Response
 
 from ..models import Job, JobStatus, QueueSetting
 from ..permissions import IsAdmin, IsWorker
-from ..renderers.unreal_measured import job_annotations
+from ..renderers.unreal_machine import piece_target_annotation
+from ..renderers.unreal_measured import note_annotations
+from ..renderers.unreal_routing import _is_worker_request
 from ..serializers import JobSerializer
 from .job_pause_actions import JobPauseActionsMixin
 from .job_pilot_actions import JobPilotActionsMixin, pilot_requeue_refusal
@@ -98,8 +100,11 @@ class JobViewSet(
             'blender_version',
             'asset__project__blender_version',
         )
-        # Measured-peak fields and key state (FR-PM-5): subqueries, no query per row.
-        queryset = job_annotations(queryset)
+        # The piece key of audio jobs (per-machine D10) and, for the routing
+        # note of non-worker requests, the key state: no query per row.
+        queryset = queryset.annotate(**piece_target_annotation())
+        if not _is_worker_request(self.request):
+            queryset = note_annotations(queryset)
 
         # A worker poll is identified by the presence of these specific query parameters.
         is_worker_poll = (
@@ -216,10 +221,11 @@ class JobViewSet(
                 job.last_output = ''
                 job.auto_requeue_count = 0
                 job.is_paused = False
+                job.unreal_memory_report = None
                 job.save(update_fields=[
                     'status', 'assigned_worker', 'started_at',
                     'completed_at', 'error_message', 'last_output',
-                    'auto_requeue_count', 'is_paused',
+                    'auto_requeue_count', 'is_paused', 'unreal_memory_report',
                 ])
         except Job.DoesNotExist:
             return Response(

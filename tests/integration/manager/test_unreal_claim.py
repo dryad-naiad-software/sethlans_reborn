@@ -11,13 +11,14 @@ import pytest
 from workers.models import Job, JobStatus
 
 from .unreal_helpers import BUILD, SHARE, caps, set_share, unreal_asset
-from .unreal_pilot_helpers import measure_key
+from .unreal_pilot_helpers import live_card, measure_key
 
 
 @pytest.fixture
-def job(db):
+def job(db, worker_with_token):
     job = Job.objects.create(name='ClaimUnreal', asset=unreal_asset(), output_file_pattern='//r/u.png')
-    measure_key(job)  # chunk 2b: an unmeasured key is held (AC-46)
+    # Per-machine D2: the worker's own fits result of the key (an unmeasured key is held, AC-46).
+    measure_key(job, worker=worker_with_token[0])
     return job
 
 
@@ -29,6 +30,7 @@ def _ready(worker, **kwargs):
     set_share(SHARE)
     worker.unreal_capabilities = caps(**kwargs)
     worker.save(update_fields=['unreal_capabilities'])
+    live_card(worker)
 
 
 @pytest.mark.django_db

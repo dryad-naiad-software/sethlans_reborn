@@ -79,9 +79,10 @@ def _asset_body(project, name, archive):
 
 
 def _one_pending_per_key():
+    """Per-machine D2: QUEUED pilots per (key, worker, card kind) pair."""
     keys = {}
     for record in UnrealMeasurement.objects.filter(pilot_job__status='QUEUED'):
-        key = (record.asset_id, record.overrides_sha256, record.target_sha256)
+        key = (record.asset_id, record.overrides_sha256, record.target_sha256, record.worker_id, record.card_kind)
         keys[key] = keys.get(key, 0) + 1
     return keys
 
@@ -89,7 +90,8 @@ def _one_pending_per_key():
 @pytest.mark.django_db(transaction=True)
 class TestConcurrentWrites:
 
-    def test_two_job_creates_on_one_key_create_one_pilot(self, admin_user, file_database):
+    def test_two_job_creates_on_one_key_create_one_pilot(self, admin_user, worker_with_token, file_database):
+        ready_worker(worker_with_token[0])
         asset = unreal_asset()
         a, b = _client(admin_user), _client(admin_user)
         results = _run_together(lambda: create_job(a, asset, name='RaceOne'),
@@ -97,7 +99,8 @@ class TestConcurrentWrites:
         assert [r.status_code for r in results] == [201, 201]
         assert len(pilots()) == 1
 
-    def test_two_asset_creates_on_one_project(self, admin_user, file_database):
+    def test_two_asset_creates_on_one_project(self, admin_user, worker_with_token, file_database):
+        ready_worker(worker_with_token[0])
         project = unreal_asset().project
         a, b = _client(admin_user), _client(admin_user)
         results = _run_together(
@@ -108,7 +111,8 @@ class TestConcurrentWrites:
         assert Asset.objects.filter(project=project).count() == 3
         assert all(n == 1 for n in _one_pending_per_key().values())
 
-    def test_asset_create_racing_a_cvar_patch(self, admin_user, file_database):
+    def test_asset_create_racing_a_cvar_patch(self, admin_user, worker_with_token, file_database):
+        ready_worker(worker_with_token[0])
         asset = unreal_asset()
         created_job(_client(admin_user), asset)
         a, b = _client(admin_user), _client(admin_user)
@@ -180,8 +184,8 @@ class TestLockIsTheFirstStatement:
             assert LOCK_MARK in statements[0] and '"workers_project"' in statements[0], statements[:3]
             assert statements[1].upper().startswith('SELECT') and '"workers_project"' in statements[1]
 
-    def test_job_create_update_project_update_and_retry(self, admin_client):
-        set_share(SHARE)
+    def test_job_create_update_project_update_and_retry(self, admin_client, worker_with_token):
+        ready_worker(worker_with_token[0])
         asset = unreal_asset()
         with CaptureQueriesContext(connection) as ctx:
             job = created_job(admin_client, asset)

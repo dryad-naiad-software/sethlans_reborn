@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Integration tests: the key state on a table of record states, and the
-strategy hooks (Unreal foundation FR-PM-1, FR-PM-2 steps 1-4, FR-MR-8,
-FR-T-4).
+Integration tests: the farm-wide key state on a table of current record
+states, and the strategy hooks (Unreal foundation FR-PM-1, FR-PM-2 steps
+1-4, FR-MR-8, FR-T-4; per-machine memory test D2: only current records
+of a (worker, card kind) pair count).
 """
 
 from datetime import timedelta
@@ -15,29 +16,34 @@ from django.utils import timezone
 
 from shared.unreal.validation import overrides_sha256
 
-from workers.models import Job, UnrealMeasurement
+from workers.models import Job, UnrealMeasurement, Worker
 from workers.renderers import get_strategy
 from workers.services.unreal_pilot import ProjectLockMissing, Target, ensure_pilot, key_state, key_state_of
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS, unreal_asset
+from .unreal_pilot_helpers import KIND, ready_worker
 
 TARGET = Target(BUILD, RENDER_SETTINGS['unreal.map'], RENDER_SETTINGS['unreal.sequence'],
                 RENDER_SETTINGS['unreal.preset'])
 EMPTY = overrides_sha256({})
 
 
-def _record(asset, *, status=None, peak=None, error='', overrides=EMPTY, age=0):
+def _record(asset, *, status=None, peak=None, error='', overrides=EMPTY, age=0, verdict='', stale='',
+            current=True, kind=KIND, host='ks-a'):
+    """One record of a pair (``host``, ``kind``); ``verdict`` 'fits' or 'does_not_fit' when measured."""
+    worker, _created = Worker.objects.get_or_create(hostname=host)
     pilot = None
     if status is not None:
         pilot = Job.objects.create(
             name=f'sethlans-pilot-x{UnrealMeasurement.objects.count()}', asset=asset, unreal_kind='pilot',
             output_file_pattern='//p/p.png', render_settings=dict(RENDER_SETTINGS), status=status,
-            error_message=error)
+            error_message=error, target_worker=worker)
     return UnrealMeasurement.objects.create(
         project=asset.project, asset=asset, overrides_sha256=overrides, target_sha256=TARGET.sha256(),
         engine_build=BUILD, map=TARGET.map, sequence=TARGET.sequence, preset=TARGET.preset,
         pilot_job=pilot, peak_mb=peak, created_at=timezone.now() - timedelta(minutes=age),
-        measured_at=timezone.now() if peak else None)
+        measured_at=timezone.now() if peak else None, worker=worker, card_kind=kind, current=current,
+        verdict=verdict, stale_reason=stale)
 
 
 @pytest.fixture
@@ -69,37 +75,50 @@ class TestKeyStates:
         found = _state(asset)
         assert (found.state, found.reason) == ('failed', reason)
 
-    def test_measured_uses_the_latest_successful_peak(self, asset):
-        _record(asset, status='DONE', peak=7000, age=10)
-        _record(asset, status='DONE', peak=8000, age=5)
-        _record(asset, status='QUEUED')  # a pending re-measurement does not unmeasure the key
-        found = _state(asset)
-        assert (found.state, found.peak_mb) == ('measured', 8000)
+    def test_measured_when_some_pair_fits(self, asset):
+        _record(asset, status='DONE', peak=8000, verdict='fits', host='ks-a')
+        _record(asset, status='QUEUED', host='ks-b')  # another machine still testing
+        _record(asset, status='ERROR', error='boom', host='ks-c')
+        assert _state(asset).state == 'measured'
 
-    def test_latest_record_decides_without_success(self, asset):
-        _record(asset, status='ERROR', error='old', age=10)
-        _record(asset, status='QUEUED', age=1)
+    def test_testing_comes_before_failed_and_does_not_fit(self, asset):
+        _record(asset, status='ERROR', error='old', host='ks-a')
+        _record(asset, status='QUEUED', host='ks-b')
+        _record(asset, status='DONE', peak=30000, verdict='does_not_fit', host='ks-c')
         assert _state(asset).state == 'pending'
 
-    def test_other_cvars_are_another_key(self, asset):
-        _record(asset, status='DONE', peak=8000, overrides='f' * 64)
+    def test_does_not_fit_everywhere(self, asset):
+        _record(asset, status='DONE', peak=30000, verdict='does_not_fit')
+        assert _state(asset).state == 'does_not_fit'
+
+    def test_only_current_records_count(self, asset):
+        _record(asset, status='DONE', peak=8000, verdict='fits', current=False)
         assert _state(asset).state == 'none'
 
-    def test_ensure_pilot_only_for_none(self, asset):
+    def test_a_stale_result_neither_fits_nor_fails(self, asset):
+        _record(asset, status='DONE', peak=8000, verdict='fits', stale='driver_changed')
+        assert _state(asset).state == 'none'
+
+    def test_other_cvars_are_another_key(self, asset):
+        _record(asset, status='DONE', peak=8000, verdict='fits', overrides='f' * 64)
+        assert _state(asset).state == 'none'
+
+    def test_ensure_pilot_only_for_an_untried_pair(self, asset, worker_with_token):
+        ready_worker(worker_with_token[0])
         with transaction.atomic():
             get_strategy('UNREAL').lock_for_write(asset.project)
-            assert ensure_pilot(asset.project, asset, TARGET, reason='t') is not None
+            assert len(ensure_pilot(asset.project, asset, TARGET, reason='t')) == 1
         Job.objects.filter(unreal_kind='pilot').update(status='ERROR')
         with transaction.atomic():
             get_strategy('UNREAL').lock_for_write(asset.project)
-            assert ensure_pilot(asset.project, asset, TARGET, reason='t') is None
+            assert ensure_pilot(asset.project, asset, TARGET, reason='t') == []
 
     def test_key_state_of_a_job(self, asset):
         job = Job.objects.create(name='StateJob', asset=asset, output_file_pattern='//r/f.png',
                                  render_settings=dict(RENDER_SETTINGS))
         assert key_state(job).state == 'none'
-        _record(asset, status='DONE', peak=8100)
-        assert (key_state(job).state, key_state(job).peak_mb) == ('measured', 8100)
+        _record(asset, status='DONE', peak=8100, verdict='fits')
+        assert key_state(job).state == 'measured'
 
 
 @pytest.mark.django_db

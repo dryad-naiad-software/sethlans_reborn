@@ -23,6 +23,8 @@ from django.test.utils import CaptureQueriesContext
 
 from workers.models import Job, UnrealMeasurement
 from workers.renderers import unreal_measured as um
+from workers.renderers.unreal_machine import current_records, machine_poll_q
+from workers.services.unreal_pilot import key_state
 
 from .unreal_helpers import unreal_asset
 from .unreal_pilot_helpers import (
@@ -36,7 +38,15 @@ PAIRS = [('implicit', 'off'), ('preset', 'fully_load')]
 
 
 @pytest.fixture
-def asset(db):
+def machine(worker_with_token):
+    """One eligible machine with one card kind (per-machine D5): ``(worker, client)``."""
+    worker, client = worker_with_token
+    ready_worker(worker)
+    return worker, client
+
+
+@pytest.fixture
+def asset(db, machine):
     return unreal_asset()
 
 
@@ -103,9 +113,9 @@ class TestKeyUnchanged:
     def test_not_read_by_the_key_lookup_claim_or_poll(self, admin_client, asset):
         job = created_job(admin_client, asset)
         # The key filter itself (a plain select would list every column).
-        statements = [str(um.key_records(job.asset_id, 'a' * 64, 'b' * 64).values('pk').query),
-                      str(um.job_annotations(Job.objects.all()).query),
-                      str(Job.objects.filter(um.poll_measured_q(True)).query)]
+        statements = [str(current_records(job.asset_id, 'a' * 64, 'b' * 64).values('pk').query),
+                      str(um.note_annotations(Job.objects.all()).query),
+                      str(Job.objects.filter(machine_poll_q(None)).query)]
         with CaptureQueriesContext(connection) as ctx:
             assert um.claim_row(job) is not None
         statements += [query['sql'] for query in ctx.captured_queries]
@@ -113,7 +123,7 @@ class TestKeyUnchanged:
             assert not any(field in sql for field in FIELDS), sql
 
     @pytest.mark.parametrize('older, newer', [(PAIRS[0], PAIRS[1]), (PAIRS[1], PAIRS[0])])
-    def test_records_differing_only_in_them_share_one_key(self, admin_client, asset, older, newer):
+    def test_records_differing_only_in_them_share_one_key(self, admin_client, asset, machine, older, newer):
         job = created_job(admin_client, asset)
         first = record_of(pilots()[0])
         measure(first, peak_mb=8102, game_overrides=older[0], texture_streaming=older[1])
@@ -122,10 +132,12 @@ class TestKeyUnchanged:
         second.pilot_job = None
         second.created_at = first.created_at + timedelta(seconds=1)
         second.peak_mb, second.game_overrides, second.texture_streaming = 9000, newer[0], newer[1]
+        # Per-machine D2: the later record is the pair's current one.
+        UnrealMeasurement.objects.filter(pk=first.pk).update(current=False)
         second.save()
-        row = um.claim_row(job)
-        assert (row['_unreal_key_state'], row['_unreal_peak_mb']) == (um.MEASURED, 9000)
-        assert admin_client.get(f'{JOBS}{job.pk}/').data['unreal_measured_peak_mb'] == 9000
+        assert key_state(job).state == um.MEASURED
+        [result] = machine[1].get(f'{JOBS}{job.pk}/').data['unreal_machine_results']
+        assert (result['measurement_id'], result['peak_mb']) == (second.pk, 9000)
         latest = _latest(admin_client, asset.project_id)
         assert (latest['measurement_id'], latest['game_overrides'], latest['texture_streaming']) == (
             second.pk, newer[0], newer[1])
@@ -147,7 +159,7 @@ class TestKeyUnchanged:
         assert UnrealMeasurement.objects.count() == 1 and len(keys) == 1
         second = created_job(admin_client, asset, name='Still02')
         assert len(pilots()) == 1 and UnrealMeasurement.objects.count() == 1
-        assert um.claim_row(second)['_unreal_key_state'] == um.MEASURED
+        assert key_state(second).state == um.MEASURED
 
 
 @pytest.mark.django_db

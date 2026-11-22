@@ -13,11 +13,13 @@ from workers.models import Job, JobStatus
 from workers.services.worker_job_writes import PilotDoneRefused, apply_admin_patch, apply_worker_patch
 
 from .unreal_helpers import unreal_asset, unreal_project
-from .unreal_pilot_helpers import JOBS, claimed_pilot, created_job, pilots, record_of, settings
+from .unreal_pilot_helpers import JOBS, claimed_pilot, created_job, pilots, ready_worker, record_of, settings
 
 
 @pytest.fixture
-def asset(db):
+def asset(db, worker_with_token):
+    """An Unreal asset; the worker is an eligible machine, so each key gets its pilot (per-machine D5)."""
+    ready_worker(worker_with_token[0])
     return unreal_asset()
 
 

@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from shared.unreal.validation import target_sha256
 
 from ..constants import RenderEngine, CyclesFeatureSet, RenderDevice, Renderer, UnrealKind
-from ..constants_sequence import RESOLUTION_KEY, SHOT_SET_KEY
+from ..constants_sequence import DRAFT_KEY, RESOLUTION_KEY, SHOT_SET_KEY
 from .upload_paths import job_output_upload_path, tiled_job_output_upload_path, thumbnail_upload_path
 from .projects import Asset
 from .renderer_constraints import JOB_KIND_CONSISTENT, JOB_RENDERER_BUILD_CONSISTENT
@@ -131,6 +131,13 @@ class Job(models.Model):
     end_frame = models.IntegerField(default=1)
     status = models.CharField(max_length=50, choices=JobStatus.choices, default=JobStatus.QUEUED)
     assigned_worker = models.ForeignKey(Worker, on_delete=models.SET_NULL, null=True, blank=True, related_name='jobs')
+    target_worker = models.ForeignKey(
+        Worker, on_delete=models.SET_NULL, null=True, blank=True, related_name='targeted_jobs',
+        help_text="Unreal pilots: the only worker that may claim this memory test (per-machine D4).",
+    )
+    unreal_memory_report = models.JSONField(
+        null=True, blank=True, help_text="Unreal render and audio jobs: the accepted memory report.",
+    )
     submitted_at = models.DateTimeField(default=timezone.now)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -230,7 +237,8 @@ class Job(models.Model):
         """The measurement target hash of an Unreal job, ``''`` otherwise (FR-PM-1).
 
         Sequence D8: the output resolution and the chosen shot set stored in
-        ``render_settings`` are part of the key, so every save keeps it.
+        ``render_settings`` are part of the key, so every save keeps it; so
+        are the draft values (per-machine memory test OQ-1).
         """
         if self.renderer != Renderer.UNREAL:
             return ''
@@ -238,7 +246,7 @@ class Job(models.Model):
         return target_sha256(
             self.engine_build, settings.get('unreal.map'),
             settings.get('unreal.sequence'), settings.get('unreal.preset'),
-            settings.get(RESOLUTION_KEY), settings.get(SHOT_SET_KEY),
+            settings.get(RESOLUTION_KEY), settings.get(SHOT_SET_KEY), settings.get(DRAFT_KEY),
         )
 
     def __str__(self):

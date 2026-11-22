@@ -6,10 +6,15 @@ Integration tests: which heartbeats make a worker eligible for pilots
 (gpu-memory-reader FR-GH-2, FR-GH-4, FR-GT-5, AC-10, AC-26).
 
 Every reading goes through the real ``/api/heartbeat/``; eligibility is then
-checked on both the worker's poll and its claim of the pilot.
+checked on both the worker's poll and its claim of the pilot.  Per machine
+(per-machine memory test D5, D14) a pilot is created only for a worker
+with a live card reading and a ticked card of a known kind.
 """
 
 import pytest
+
+from tests.unit.manager.card_report_helpers import card, stored
+from workers.models import Worker
 
 from .gpu_memory_reader_helpers import (
     AMD_KEY, AMD_NAME, AMD_TOTAL, NO_READING, NV_KEY, NV_NAME, NV_TOTAL,
@@ -23,23 +28,25 @@ def _offered(client):
     return [job['name'] for job in client.get(JOBS, POLL).data]
 
 
-def _pilot(admin_client):
+def _job_and_pilots(admin_client, worker):
+    """Tick one card on ``worker`` (its stored card report), then create a job: its pilots."""
+    Worker.objects.filter(pk=worker.pk).update(card_status=stored(cards=[card(key=NV_KEY)]))
     created_job(admin_client, unreal_asset())
-    return pilots()[0]
+    return pilots()
+
+
+def _pilot(admin_client, worker):
+    [pilot] = _job_and_pilots(admin_client, worker)
+    return pilot
 
 
 def _assert_no_pilot(admin_client, worker, client):
-    job = _pilot(admin_client)
+    assert _job_and_pilots(admin_client, worker) == []
     assert _offered(client) == []
-    resp = claim(client, job, worker)
-    assert resp.status_code != 200
-    assert resp.data == {'error': NO_READING}
-    job.refresh_from_db()
-    assert (job.status, job.assigned_worker_id) == ('QUEUED', None)
 
 
 def _assert_pilot_offered(admin_client, worker, client):
-    job = _pilot(admin_client)
+    job = _pilot(admin_client, worker)
     assert _offered(client) == [job.name]
     assert claim(client, job, worker).status_code == 200
     job.refresh_from_db()
@@ -131,7 +138,7 @@ class TestNoCardReadingIntegration:
     def test_a_later_override_heartbeat_withdraws_the_pilot(self, admin_client, worker_with_token):
         worker, client = worker_with_token
         send_heartbeat(client, worker, payload_of(reading(nv_gpu())))
-        job = _pilot(admin_client)
+        job = _pilot(admin_client, worker)
         assert _offered(client) == [job.name]
         send_heartbeat(client, worker, payload_of(reading(nv_gpu(card_key=None), source='override')))
         assert _offered(client) == []

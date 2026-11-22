@@ -20,6 +20,8 @@ def _job(**extra):
     values = {
         'renderer': 'BLENDER', 'status': JobStatus.QUEUED,
         'assigned_worker_id': None, 'is_paused': False,
+        # Per-machine D4: the target check runs first for every renderer.
+        'target_worker_id': None, 'unreal_kind': 'render',
     }
     values.update(extra)
     return SimpleNamespace(**values)

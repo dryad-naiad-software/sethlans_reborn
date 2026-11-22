@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 Integration tests: the R8 ``routing_note`` of Unreal jobs (Unreal foundation
-FR-RT-9, FR-T-3, AC-7).
+FR-RT-9, FR-T-3, AC-7).  Per-machine memory test D7: whether a render fits
+is each machine's own result, so the note no longer estimates a farm-wide
+memory need from card sizes (no 15% margin, no pool caps, no pilot minimum).
 """
 
 from datetime import timedelta
@@ -20,8 +22,7 @@ from .unreal_helpers import (
 )
 from .unreal_pilot_helpers import measure_key
 
-# chunk 2b: a measured normal job needs measured_need_mb(peak) (FR-RT-9 note 4);
-# 14,000 MB needs 16,100 MB, more than a 16 GB card's 15,161 MB budget.
+# A peak that the removed farm-wide estimate (peak + 15%) put over a 16 GB card.
 PEAK_MB = 14000
 
 URL = '/api/jobs/'
@@ -29,12 +30,6 @@ NO_SHARE = "The Sethlans share is not configured."
 NO_BUILD = f"No online worker reports Unreal Engine build {BUILD}."
 NO_REACH = (f"No online worker with Unreal Engine build {BUILD} is configured "
             "with the manager's Sethlans share and reports it reachable.")
-
-
-def _no_vram(need, largest):
-    return (f"No online worker with Unreal Engine build {BUILD} has enough GPU memory: this render needs "
-            f"{need} MB at the preset's size; the largest card online has {largest} MB. "
-            "A card with more memory or a smaller output size is needed.")
 
 
 def _worker(hostname, capabilities, memory=None, online=True):
@@ -51,7 +46,8 @@ def job(db):
                                                     'r.RayTracing.ResidentGeometryMemoryPoolSizeInMB': '2048'})
     job = Job.objects.create(name='NoteJob', asset=unreal_asset(project), output_file_pattern='//r/f.png',
                              render_settings=RENDER_SETTINGS, render_device='GPU')
-    measure_key(job, peak_mb=PEAK_MB)
+    # Per-machine D2: one (offline) machine's fits result measures the key.
+    measure_key(job, peak_mb=PEAK_MB, worker=_worker('note-tester', caps(), online=False))
     return job
 
 
@@ -81,11 +77,12 @@ class TestMessages:
         _worker('note-w', caps(**kwargs))
         assert _note(admin_client, job) == NO_REACH
 
-    def test_not_enough_gpu_memory(self, admin_client, job):
+    def test_small_cards_give_no_memory_note(self, admin_client, job):
+        """D7: no farm-wide estimate; the old peak + 15% rule refused these cards."""
         set_share(SHARE)
         _worker('note-16', caps(), gpu_memory(16303))
         _worker('note-mixed', caps(), gpu_memory(16303, 12282))
-        assert _note(admin_client, job) == _no_vram(16100, 16303)
+        assert _note(admin_client, job) is None
 
     def test_enough_memory_on_the_largest_gpu(self, admin_client, job):
         set_share(SHARE)
@@ -99,13 +96,13 @@ class TestMessages:
         _worker('note-old', caps())
         assert _note(admin_client, job) is None
 
-    def test_default_pools_without_overrides(self, admin_client):
-        # chunk 2b: the pools still enter the need only for a pilot (OQ-28 (d)).
+    def test_a_pilot_has_no_memory_need(self, admin_client):
+        """S2, D7: the 12,478 MB pilot minimum is gone."""
         set_share(SHARE)
         job = Job.objects.create(name='NoteDefault', asset=unreal_asset(name='A2'), output_file_pattern='//r/f.png',
                                  unreal_kind='pilot')
         _worker('note-12', caps(), gpu_memory(12282))
-        assert _note(admin_client, job) == _no_vram(12478, 12282)
+        assert _note(admin_client, job) is None
 
 
 def _without_total(memory, index):
@@ -116,36 +113,17 @@ def _without_total(memory, index):
 
 
 @pytest.mark.django_db
-class TestLargestCardDecides:
-    """AC-25 / FR-GH-9: the job renders on the largest card (D22), so the note judges that card."""
+class TestNoFarmMemoryEstimate:
+    """D7 replaces AC-25 / FR-GH-9's largest-card estimate: card sizes never make a note."""
 
-    def test_largest_of_mixed_cards_fits(self, admin_client, job):
+    @pytest.mark.parametrize('make_memory', [
+        lambda: gpu_memory(12282, 32607), lambda: gpu_memory(8188, 12282), lambda: gpu_memory(16303),
+        lambda: gpu_memory(32607), lambda: _without_total(gpu_memory(12282), 1),
+        lambda: _without_total(gpu_memory(), 0), gpu_memory,
+    ], ids=['mixed-large', 'mixed-small', 'one-16g', 'one-32g', 'partial', 'no-totals', 'empty-reading'])
+    def test_a_measured_key_has_no_memory_note(self, admin_client, job, make_memory):
         set_share(SHARE)
-        _worker('note-mixed', caps(), gpu_memory(12282, 32607))
-        assert _note(admin_client, job) is None
-
-    def test_largest_of_mixed_cards_too_small(self, admin_client, job):
-        set_share(SHARE)
-        _worker('note-mixed', caps(), gpu_memory(8188, 12282))
-        assert _note(admin_client, job) == _no_vram(16100, 12282)
-
-    @pytest.mark.parametrize('total, expected', [(16303, _no_vram(16100, 16303)), (32607, None)])
-    def test_one_card(self, admin_client, job, total, expected):
-        set_share(SHARE)
-        _worker('note-one', caps(), gpu_memory(total))
-        assert _note(admin_client, job) == expected
-
-    def test_entry_without_total_is_skipped(self, admin_client, job):
-        set_share(SHARE)
-        _worker('note-partial', caps(), _without_total(gpu_memory(12282), 1))
-        assert _note(admin_client, job) == _no_vram(16100, 12282)
-
-    @pytest.mark.parametrize('make_memory', [lambda: _without_total(gpu_memory(), 0), gpu_memory],
-                             ids=['no-totals', 'empty-reading'])
-    def test_no_total_is_not_counted_against(self, admin_client, job, make_memory):
-        set_share(SHARE)
-        _worker('note-small', caps(), gpu_memory(12282))
-        _worker('note-unknown', caps(), make_memory())
+        _worker('note-cards', caps(), make_memory())
         assert _note(admin_client, job) is None
 
 

@@ -24,6 +24,7 @@ from shared.unreal.validation import overrides_sha256
 from sethlans_worker_agent.gpu_memory.types import GpuMemoryReading, make_gpu
 from sethlans_worker_agent.unreal_executor import pilot, vram
 from sethlans_worker_agent.unreal_executor.summary import Summary
+from tests.unit.manager.card_report_helpers import card, stored
 from workers.models import Worker
 
 from .unreal_helpers import BUILD, SHARE, caps, set_share, unreal_asset
@@ -84,6 +85,8 @@ def heartbeat(worker_with_token):
     resp = client.post(HB, {'hostname': worker.hostname, 'unreal_capabilities': caps(),
                             'gpu_memory': _heartbeat_payload()}, format='json')
     assert resp.status_code == 200, resp.data
+    # Per-machine D5: the stored card report has the card ticked, so the worker gets pilots.
+    Worker.objects.filter(pk=worker.pk).update(card_status=stored(cards=[card(key=CARD_KEY)]))
     worker.refresh_from_db()
     return worker, client, resp
 

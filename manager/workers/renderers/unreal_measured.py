@@ -2,33 +2,37 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-The measured-peak gate in SQL (Unreal foundation FR-PM-1, FR-PM-5,
-FR-MS-5, FR-RT-4, FR-RT-9).
+The measured gate in SQL (Unreal foundation FR-PM-1, FR-MS-5, FR-RT-4,
+FR-RT-9; per-machine memory test D2, FR-MT-T-1..3).
 
 A normal Unreal job's **measurement key** is ``(asset, the project's
-unreal_overrides_sha256, the job's unreal_target_sha256)``.  Its state:
+unreal_overrides_sha256, the job's unreal_target_sha256)``; an audio
+job's is its submission's piece key (D10).  A result belongs to one key,
+one worker and one card kind; the **pair** states are in
+``renderers.unreal_machine``.  The poll and the claim judge the caller's
+own pairs only: a render or audio job goes to a worker with a current,
+not stale, ``fits`` record of the key for one of its card kinds; a pilot
+goes to its target worker while its record is current and fresh.
 
-* **measured** -- some record of the key has a ``peak_mb`` (the latest
-  such record's peak applies);
-* otherwise the state of the key's latest record (``created_at``, ``id``):
-  **pending** while its pilot is QUEUED or RENDERING, else **failed**
-  (pilot ERROR, CANCELED, DONE without a result, or deleted);
-* **none** when the key has no record.
-
-The state is always one ``Case`` expression evaluated in one statement,
-never two reads a concurrent commit could fall between.  ``poll_q``, the
-claim check, the routing note and the job annotations all use the
-expressions here, so the four cannot drift.  Blender rows (empty target
-hash) evaluate to ``NULL``: no record has an empty hash.
+For the routing note and the admin retry the key also has a farm-wide
+state, one ``Case`` over its current records (:func:`key_state_case`):
+**measured** when some pair fits, else **pending** while some pair's
+pilot is QUEUED or RENDERING, else **failed** when some pair's test
+failed (pilot ERROR, CANCELED, DONE without a result, or deleted), else
+**does_not_fit** when some pair does not fit, else **none**.  Blender rows
+(empty target hash) evaluate to ``NULL``: no record has an empty hash.
 """
 
 from django.db.models import Case, Exists, F, OuterRef, Q, Subquery, TextField, Value, When
 
 from ..constants import UnrealKind
 from ..models import Job, JobStatus, UnrealMeasurement
-from .unreal_sequence import ungated_poll_q
+from .unreal_machine import (
+    DOES_NOT_FIT, FITS, RETEST_DUE, TESTING, current_records, eligible_kinds, measures_card, pair_state_case,
+)
 
 MEASURED, PENDING, FAILED, NONE = 'measured', 'pending', 'failed', 'none'
+TOO_BIG = 'does_not_fit'
 _ACTIVE = (JobStatus.QUEUED, JobStatus.RENDERING)
 
 CANCELED_REASON = "Pilot job was canceled."
@@ -40,17 +44,16 @@ INFRA_SENTENCE = (
     "or network problem, not to the project."
 )
 PENDING_NOTE = "Waiting for this project's memory measurement (pilot render)."
+TOO_BIG_NOTE = "This render does not fit the graphics cards of any machine that tested it."
 NO_CARD_READING_MESSAGE = "Worker cannot measure GPU memory (no live card reading)."
+NO_KIND_MESSAGE = "This machine has no ticked graphics card with a known PCI id."
 STALE_MESSAGE = "Pilot is stale: the project's CVars changed since it was created."
 SUPERSEDED_MESSAGE = "Pilot is no longer needed: its target was measured by a later pilot."
+NOT_AVAILABLE_MESSAGE = "Job is not available for claiming."
+NOT_TESTED_MESSAGE = "This machine has not tested this render yet."
+DOES_NOT_FIT_MESSAGE = "This render does not fit this machine's graphics cards."
+RETEST_MESSAGE = "This machine's memory test is being re-done after a driver change."
 MAX_REASON = 200
-
-# References from a Job query to its own key columns.
-JOB_KEY_REFS = (
-    OuterRef('asset_id'),
-    OuterRef('asset__project__unreal_overrides_sha256'),
-    OuterRef('unreal_target_sha256'),
-)
 
 
 def retry_url(project_id):
@@ -85,14 +88,9 @@ def held_message(state, reason, project_id):
         return failed_note(reason, project_id)
     if state == NONE:
         return none_note(project_id)
+    if state == TOO_BIG:
+        return TOO_BIG_NOTE
     return None
-
-
-def key_records(asset, overrides, target):
-    """Records of one key; each argument is a value or an ``OuterRef``."""
-    return UnrealMeasurement.objects.filter(
-        asset=asset, overrides_sha256=overrides, target_sha256=target,
-    )
 
 
 def _latest(records):
@@ -121,62 +119,47 @@ def record_state():
 
 
 def key_aliases(refs, prefix):
-    """``alias()`` kwargs reading one key's records (one statement with the rest)."""
-    records = key_records(*refs)
+    """``alias()`` kwargs reading one key's current records (one statement with the rest)."""
+    records = current_records(*refs)
+    untested = records.filter(verdict='')
     return {
-        f'{prefix}success': Exists(records.filter(peak_mb__isnull=False)),
-        f'{prefix}any': Exists(records),
-        f'{prefix}latest_status': Subquery(_latest(records).values('pilot_job__status')[:1]),
+        f'{prefix}fits': Exists(records.filter(verdict=FITS, stale_reason='')),
+        f'{prefix}testing': Exists(untested.filter(pilot_job__status__in=_ACTIVE)),
+        f'{prefix}failed': Exists(untested.filter(stale_reason='').exclude(pilot_job__status__in=_ACTIVE)),
+        f'{prefix}too_big': Exists(records.filter(verdict=DOES_NOT_FIT, stale_reason='')),
     }
 
 
 def key_state_case(prefix, blender=None):
-    """The key state ``Case`` over :func:`key_aliases`; ``blender`` gives NULL."""
+    """The farm-wide key state ``Case`` over :func:`key_aliases`; ``blender`` gives NULL."""
     whens = [] if blender is None else [When(blender, then=Value(None))]
     whens += [
-        When(**{f'{prefix}success': True}, then=Value(MEASURED)),
-        When(**{f'{prefix}any': False}, then=Value(NONE)),
-        When(**{f'{prefix}latest_status__in': _ACTIVE}, then=Value(PENDING)),
+        When(**{f'{prefix}fits': True}, then=Value(MEASURED)),
+        When(**{f'{prefix}testing': True}, then=Value(PENDING)),
+        When(**{f'{prefix}failed': True}, then=Value(FAILED)),
+        When(**{f'{prefix}too_big': True}, then=Value(TOO_BIG)),
     ]
-    return Case(*whens, default=Value(FAILED), output_field=TextField())
-
-
-def _latest_success(refs):
-    """The key's successful records, latest first: the one record peak and RAM are read from."""
-    return _latest(key_records(*refs).filter(peak_mb__isnull=False))
-
-
-def key_peak(refs):
-    """``peak_mb`` of the key's latest successful record."""
-    return Subquery(_latest_success(refs).values('peak_mb')[:1])
-
-
-def key_ram(refs):
-    """``ram`` of exactly the record :func:`key_peak` reads (per-card spec FR-PC-MGR-2).
-
-    Never the latest record that has RAM figures: a later measurement
-    without them gives ``None``, not an older record's figures.
-    """
-    return Subquery(_latest_success(refs).values('ram')[:1])
+    return Case(*whens, default=Value(NONE), output_field=TextField())
 
 
 def key_reason(refs):
-    """The failure reason of the key's latest record."""
-    records = _latest(key_records(*refs)).annotate(_reason=record_reason())
+    """The failure reason of the key's latest current record without a verdict."""
+    records = _latest(current_records(*refs).filter(verdict='', stale_reason='')).annotate(_reason=record_reason())
     return Subquery(records.values('_reason')[:1])
 
 
-def job_annotations(queryset):
-    """Add ``_unreal_peak_mb``, ``_unreal_ram``, ``_unreal_key_state``, ``_unreal_key_reason`` (FR-PM-5).
+def note_annotations(queryset):
+    """Add ``_unreal_key_state`` and ``_unreal_key_reason`` for the routing note (no query per row).
 
-    Subqueries of the job query itself: a list adds no query.
+    An audio job reads its submission's piece key (D10).  Not added to
+    worker polls: their routing note is always null.
     """
-    blender = Q(unreal_target_sha256='')
-    return queryset.alias(**key_aliases(JOB_KEY_REFS, '_umk_')).annotate(
-        _unreal_peak_mb=key_peak(JOB_KEY_REFS),
-        _unreal_ram=key_ram(JOB_KEY_REFS),
-        _unreal_key_state=key_state_case('_umk_', blender),
-        _unreal_key_reason=key_reason(JOB_KEY_REFS),
+    target = Case(When(unreal_kind=UnrealKind.AUDIO, then=F('sequence_submission__piece_target_sha256')),
+                  default=F('unreal_target_sha256'))
+    refs = (OuterRef('asset_id'), OuterRef('asset__project__unreal_overrides_sha256'), OuterRef('_umk_target'))
+    return queryset.alias(_umk_target=target).alias(**key_aliases(refs, '_umk_')).annotate(
+        _unreal_key_state=key_state_case('_umk_', Q(unreal_target_sha256='')),
+        _unreal_key_reason=key_reason(refs),
     )
 
 
@@ -192,70 +175,62 @@ def _fresh():
     ))
 
 
-def _superseded():
-    """A pilot whose key was measured after its own record was created."""
-    own_created = UnrealMeasurement.objects.filter(
-        pilot_job=OuterRef(OuterRef('pk')),
-    ).values('created_at')[:1]
-    later = key_records(*JOB_KEY_REFS).filter(
-        peak_mb__isnull=False, measured_at__gt=Subquery(own_created),
-    )
-    return Exists(later)
-
-
-def poll_measured_q(include_pilots):
-    """FR-MS-5: normal jobs of measured keys; fresh, unsuperseded pilots; ``shots`` and ``audio`` jobs (D3)."""
-    normal = (Q(unreal_kind=UnrealKind.RENDER) & Exists(
-        key_records(*JOB_KEY_REFS).filter(peak_mb__isnull=False),
-    )) | ungated_poll_q()
-    if not include_pilots:
-        return normal
-    pilot = Q(unreal_kind=UnrealKind.PILOT) & _fresh() & ~_superseded()
-    return normal | pilot
+def _current():
+    """A pilot whose record is its pair's current record (a later pilot of the pair supersedes it)."""
+    return Exists(UnrealMeasurement.objects.filter(pilot_job=OuterRef('pk'), current=True))
 
 
 def claim_row(job):
-    """Read a job's key state and pilot flags in one statement (FR-RT-4)."""
-    queryset = job_annotations(Job.objects.filter(pk=job.pk)).annotate(
-        _fresh=_fresh(), _superseded=_superseded(),
-    )
-    return queryset.values(
-        '_unreal_key_state', '_unreal_key_reason', '_unreal_peak_mb', '_unreal_ram',
-        '_fresh', '_superseded', 'asset__project_id',
+    """Read a job's pilot flags and key columns in one statement (FR-RT-4, FR-MT-T-2)."""
+    return Job.objects.filter(pk=job.pk).annotate(_fresh=_fresh(), _current=_current()).values(
+        '_fresh', '_current', 'asset_id', 'asset__project_id', 'asset__project__unreal_overrides_sha256',
+        'unreal_target_sha256', 'sequence_submission__piece_target_sha256',
     ).first()
 
 
-def reading_measures_card(gpu_memory):
-    """Whether a stored ``gpu_memory`` is a live card reading (gpu-memory-reader D7, FR-GH-4).
-
-    True only when ``capabilities.card is True`` as the heartbeat stored it
-    (FR-GH-2 forces it false for the override and for an empty reading).
-    """
-    reading = gpu_memory if isinstance(gpu_memory, dict) else {}
-    capabilities = reading.get('capabilities')
-    return isinstance(capabilities, dict) and capabilities.get('card') is True
+def _pair_states(worker, kinds, row, is_audio):
+    """``{kind: (state, failure reason)}`` of the caller's current records of the job's key (one query)."""
+    target = row['sequence_submission__piece_target_sha256'] if is_audio else row['unreal_target_sha256']
+    records = current_records(
+        row['asset_id'], row['asset__project__unreal_overrides_sha256'], target or '',
+    ).filter(worker=worker, card_kind__in=list(kinds)).annotate(_state=pair_state_case(), _reason=record_reason())
+    return {kind: (state, reason) for kind, state, reason in records.values_list('card_kind', '_state', '_reason')}
 
 
-def measures_card(worker):
-    """Whether the worker's stored ``gpu_memory`` is a live card reading (FR-GH-4)."""
-    return reading_measures_card(worker.gpu_memory)
+def pair_claim_rejection(worker, job, row):
+    """FR-MT-T-2: why ``worker`` has no fits pair for the render or audio ``job``, or ``None``."""
+    if not measures_card(worker):
+        return NO_CARD_READING_MESSAGE
+    kinds = eligible_kinds(worker)
+    if not kinds:
+        return NO_KIND_MESSAGE
+    states = _pair_states(worker, kinds, row, job.unreal_kind == UnrealKind.AUDIO)
+    found = {state for state, _reason in states.values()}
+    if FITS in found:
+        return None
+    if RETEST_DUE in found:
+        return RETEST_MESSAGE
+    if TESTING in found or len(states) < len(kinds):
+        return NOT_TESTED_MESSAGE
+    reasons = [reason for state, reason in states.values() if state == FAILED]
+    if reasons:
+        return failed_note(reasons[0], row['asset__project_id'])
+    return DOES_NOT_FIT_MESSAGE
 
 
 def measured_claim_rejection(worker, job):
-    """The measured-gate part of an Unreal claim check, or ``None`` (FR-RT-4)."""
+    """The measured-gate part of an Unreal claim check, or ``None`` (FR-RT-4, FR-MT-T-2).
+
+    Never skipped: a job row that cannot be read is refused.
+    """
     is_pilot = job.unreal_kind == UnrealKind.PILOT
     if is_pilot and not measures_card(worker):
         return NO_CARD_READING_MESSAGE
     row = claim_row(job)
     if row is None:
-        return None
-    # The claim response then reads these instead of querying again.
-    job._unreal_key_state = row['_unreal_key_state']
-    job._unreal_key_reason = row['_unreal_key_reason']
-    job._unreal_peak_mb = row['_unreal_peak_mb']
-    job._unreal_ram = row['_unreal_ram']
+        return NOT_AVAILABLE_MESSAGE
     if is_pilot:
         if not row['_fresh']:
             return STALE_MESSAGE
-        return SUPERSEDED_MESSAGE if row['_superseded'] else None
-    return held_message(row['_unreal_key_state'], row['_unreal_key_reason'], row['asset__project_id'])
+        return None if row['_current'] else SUPERSEDED_MESSAGE
+    return pair_claim_rejection(worker, job, row)

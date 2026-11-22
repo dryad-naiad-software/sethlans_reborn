@@ -86,6 +86,7 @@ class CascadeChildActionsMixin:
                 last_output='',
                 auto_requeue_count=0,
                 is_paused=False,
+                unreal_memory_report=None,
             )
             self.cascade_dispatch(parent.pk)
         self._log_cascade('requeued', count, parent)

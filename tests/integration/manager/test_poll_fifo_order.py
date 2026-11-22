@@ -17,7 +17,7 @@ import pytest
 from workers.models import Asset, Job, JobStatus, Project, TiledJob
 
 from .unreal_helpers import BUILD, SHARE, caps, set_share
-from .unreal_pilot_helpers import measure_key
+from .unreal_pilot_helpers import live_card, measure_key
 
 JOBS_URL = '/api/jobs/'
 POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
@@ -187,6 +187,7 @@ class TestRendererInterleaving:
         set_share(SHARE)
         worker.unreal_capabilities = caps()
         worker.save(update_fields=['unreal_capabilities'])
+        live_card(worker)  # per-machine D14: render jobs need a live card reading and a card kind
         self._jobs(asset, unreal_asset)
         names = _names(_poll(client, renderers='BLENDER,UNREAL', unreal_builds=BUILD))
         assert names == [

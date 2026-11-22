@@ -14,8 +14,9 @@ import copy
 from django.utils import timezone
 
 from shared.unreal.validation import overrides_sha256
+from tests.unit.manager.card_report_helpers import card, stored
 
-from workers.models import Job, UnrealMeasurement
+from workers.models import Job, UnrealMeasurement, Worker
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS, SHARE, caps, card_key_of, gpu_memory, set_share
 
@@ -23,6 +24,8 @@ JOBS = '/api/jobs/'
 POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true',
         'renderers': 'BLENDER,UNREAL', 'unreal_builds': BUILD}
 OTHER_SEQUENCE = '/Game/Cinematics/Other.Other'
+# The card kind ``ready_worker`` gives (per-machine memory test D1): card_report_helpers.card().
+KIND = '10de:2b85:00a1'
 
 
 def settings(**overrides):
@@ -60,11 +63,22 @@ def record_of(pilot):
 
 
 def ready_worker(worker, total_mb=32607, source='nvidia-smi'):
-    """Make ``worker`` eligible for Unreal jobs on the manager's share."""
+    """Make ``worker`` eligible for Unreal jobs on the manager's share.
+
+    One ticked card of kind ``KIND`` (per-machine D5); with ``source='override'``
+    the worker has no live card reading and so no kind (D14).
+    """
     set_share(SHARE)
     worker.unreal_capabilities = caps()
+    worker.save(update_fields=['unreal_capabilities'])
+    return live_card(worker, total_mb=total_mb, source=source)
+
+
+def live_card(worker, total_mb=32607, source='nvidia-smi'):
+    """Give ``worker`` a stored card reading and one ticked card of kind ``KIND`` (capabilities untouched)."""
     worker.gpu_memory = gpu_memory(total_mb, source=source)
-    worker.save(update_fields=['unreal_capabilities', 'gpu_memory'])
+    worker.card_status = stored(cards=[card(key=card_key_of(0))], alerts=[], notices=[], warnings=[])
+    worker.save(update_fields=['gpu_memory', 'card_status', 'last_seen'])
     return worker
 
 
@@ -72,33 +86,50 @@ def claim(client, job, worker):
     return client.post(f'{JOBS}{job.pk}/claim/', {'worker_id': worker.pk}, format='json')
 
 
-def measure(record, peak_mb=8102, worker=None, game_overrides='preset', texture_streaming='fully_load'):
-    """Store a successful result on ``record`` (as ``pilot-result/`` would)."""
+def measure(record, peak_mb=8102, worker=None, game_overrides='preset', texture_streaming='fully_load',
+            verdict='fits'):
+    """Store a successful result on ``record`` (as ``pilot-result/`` would); its pair keeps its worker."""
+    who = {} if worker is None else {'worker': worker, 'worker_hostname': worker.hostname}
     UnrealMeasurement.objects.filter(pk=record.pk).update(
-        peak_mb=peak_mb, peak_source='csv', measured_at=timezone.now(),
-        worker=worker, worker_hostname=getattr(worker, 'hostname', ''),
-        game_overrides=game_overrides, texture_streaming=texture_streaming,
+        peak_mb=peak_mb, peak_source='csv', measured_at=timezone.now(), verdict=verdict, verdict_source='pilot',
+        game_overrides=game_overrides, texture_streaming=texture_streaming, **who,
     )
     if record.pilot_job_id is not None:
         Job.objects.filter(pk=record.pilot_job_id).update(status='DONE')
 
 
-def measure_key(job, peak_mb=8102):
-    """Store a successful measurement for ``job``'s key (no pilot job).
+def fits_record(asset, target_sha256, worker, peak_mb=8102, kind=KIND, ram=None, **fields):
+    """A current ``fits`` result of ``worker`` and ``kind`` for a key (no pilot job, per-machine D2)."""
+    project = asset.project
+    UnrealMeasurement.objects.filter(
+        asset=asset, overrides_sha256=project.unreal_overrides_sha256, target_sha256=target_sha256,
+        worker=worker, card_kind=kind, current=True,
+    ).update(current=False)
+    values = dict(engine_build=BUILD, map=RENDER_SETTINGS['unreal.map'], sequence=RENDER_SETTINGS['unreal.sequence'],
+                  preset=RENDER_SETTINGS['unreal.preset'], peak_mb=peak_mb, peak_source='card', ram=ram,
+                  measured_at=timezone.now(), worker=worker, worker_hostname=worker.hostname, card_kind=kind,
+                  current=True, verdict='fits', verdict_source='pilot')
+    values.update(fields)
+    return UnrealMeasurement.objects.create(
+        project=project, asset=asset, overrides_sha256=project.unreal_overrides_sha256,
+        target_sha256=target_sha256, **values,
+    )
+
+
+def measure_key(job, peak_mb=8102, worker=None, ram=None):
+    """Store a ``fits`` result of ``job``'s key (no pilot job) for ``worker``, else for every worker.
 
     For tests written before chunk 2b, whose ORM-created jobs would
-    otherwise be held as unmeasured (state "none", AC-46).
+    otherwise be held as unmeasured (AC-46).  Per machine (D2) a result
+    belongs to one worker and card kind: ``KIND``, the kind ``ready_worker``
+    gives.  Returns the last record.
     """
     job.refresh_from_db()
-    project = job.asset.project
-    settings_ = job.render_settings if isinstance(job.render_settings, dict) else {}
-    return UnrealMeasurement.objects.create(
-        project=project, asset=job.asset, overrides_sha256=project.unreal_overrides_sha256,
-        target_sha256=job.unreal_target_sha256, engine_build=job.engine_build,
-        map=settings_.get('unreal.map', ''), sequence=settings_.get('unreal.sequence', ''),
-        preset=settings_.get('unreal.preset', ''), peak_mb=peak_mb, peak_source='card',
-        measured_at=timezone.now(),
-    )
+    workers = [worker] if worker is not None else list(Worker.objects.order_by('pk'))
+    record = None
+    for each in workers:
+        record = fits_record(job.asset, job.unreal_target_sha256, each, peak_mb=peak_mb, ram=ram)
+    return record
 
 
 # A pilot's RAM figures (per-card spec FR-PC-RAM-3): commit ~ working set + GPU memory (D8).
@@ -134,10 +165,10 @@ def post_result(client, job_pk, body):
 
 
 def claimed_pilot(admin_client, asset, worker, worker_client, name='Still01', **kwargs):
-    """Create a job (and its pilot) and claim the pilot as ``worker``."""
+    """Create a job (and ``worker``'s pilot) and claim the pilot as ``worker``."""
+    ready_worker(worker)
     created_job(admin_client, asset, name=name, **kwargs)
     pilot = pilots(asset)[-1]
-    ready_worker(worker)
     resp = claim(worker_client, pilot, worker)
     assert resp.status_code == 200, resp.data
     pilot.refresh_from_db()

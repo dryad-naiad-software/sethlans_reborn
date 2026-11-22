@@ -86,9 +86,10 @@ def _hand_back(job, reason):
     job.started_at = None
     job.yield_requeue_count += 1
     job.error_message = f"Interrupted: {reason}"
+    job.unreal_memory_report = None
     job.save(update_fields=[
         'status', 'assigned_worker', 'started_at',
-        'yield_requeue_count', 'error_message',
+        'yield_requeue_count', 'error_message', 'unreal_memory_report',
     ])
     return job.status
 

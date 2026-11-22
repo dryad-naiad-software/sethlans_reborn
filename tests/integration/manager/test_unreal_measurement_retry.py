@@ -26,7 +26,13 @@ def _url(project_id):
 
 
 @pytest.fixture
-def asset(db):
+def machine(worker_with_token):
+    """One eligible machine with one card kind (per-machine D5)."""
+    return ready_worker(worker_with_token[0])
+
+
+@pytest.fixture
+def asset(db, machine):
     return unreal_asset()
 
 
@@ -41,8 +47,7 @@ def failed(admin_client, asset):
 @pytest.mark.django_db
 class TestRetry:
 
-    def test_after_a_failure_creates_a_new_pilot(self, admin_client, asset, failed, worker_with_token):
-        ready_worker(worker_with_token[0])
+    def test_after_a_failure_creates_a_new_pilot(self, admin_client, asset, failed):
         with mock.patch.object(unreal_retry, 'logger') as log:
             resp = admin_client.post(_url(asset.project_id), {}, format='json')
         assert resp.status_code == 201, resp.data
@@ -53,7 +58,7 @@ class TestRetry:
         assert pilot.submitted_at == failed.submitted_at
         message = log.warning.call_args.args[0] % log.warning.call_args.args[1:]
         assert message.startswith(f"Unreal measurement retry by admin for project {asset.project_id}, asset {asset.pk}")
-        assert message.endswith("(remeasure=False).")
+        assert message.endswith("(remeasure=False, 1 pilots).")
         state = admin_client.get(f'{JOBS}{failed.pk}/').data['routing_note']
         assert state == "Waiting for this project's memory measurement (pilot render)."
 
@@ -74,8 +79,7 @@ class TestRetry:
         resp = admin_client.post(_url(asset.project_id), {}, format='json')
         assert (resp.status_code, resp.data) == (409, {'error': "No held Unreal job needs a measurement; pass job_id."})
 
-    def test_measured_needs_remeasure(self, admin_client, asset, worker_with_token):
-        ready_worker(worker_with_token[0])
+    def test_measured_needs_remeasure(self, admin_client, asset, machine):
         job = created_job(admin_client, asset)
         old = record_of(pilots()[0])
         measure(old, peak_mb=8102)
@@ -87,11 +91,11 @@ class TestRetry:
         assert resp.status_code == 201, resp.data
         assert UnrealMeasurement.objects.get(pk=resp.data['measurement_id']).remeasure is True
         assert 'remeasure=True' in log.warning.call_args.args[0] % log.warning.call_args.args[1:]
-        # The old peak stays in force until the new pilot succeeds.
-        detail = admin_client.get(f'{JOBS}{job.pk}/').data
-        assert (detail['unreal_measured_peak_mb'], detail['routing_note']) == (8102, None)
-        Job.objects.filter(pk=resp.data['pilot_job_id']).update(status='ERROR', error_message='x')
-        assert admin_client.get(f'{JOBS}{job.pk}/').data['unreal_measured_peak_mb'] == 8102
+        # Per-machine D2: the new record is the pair's current one, so the machine tests again.
+        old.refresh_from_db()
+        assert old.current is False
+        assert admin_client.get(f'{JOBS}{job.pk}/').data['routing_note'] == (
+            "Waiting for this project's memory measurement (pilot render).")
 
     def test_job_id_targets_that_job(self, admin_client, asset, failed):
         other = created_job(admin_client, asset, name='Other', render_settings=settings(sequence=OTHER_SEQUENCE))

@@ -22,7 +22,7 @@ from workers.models import Job, Project
 from workers.services.unreal_retry import retry_measurement
 
 from ..unreal_helpers import BUILD, RENDER_SETTINGS, unreal_asset
-from ..unreal_pilot_helpers import JOBS, create_job, created_job, pilots, settings as job_settings
+from ..unreal_pilot_helpers import JOBS, create_job, created_job, pilots, ready_worker, settings as job_settings
 from .sequence_helpers import MAP, PRESET, SEQUENCE
 from .submission_helpers import claimed_piece, done_discovery, pieces_of, pilot_of, submit
 
@@ -107,7 +107,8 @@ class TestStandaloneJobs:
         assert job.unreal_target_sha256 == target_sha256(
             BUILD, RENDER_SETTINGS['unreal.map'], RENDER_SETTINGS['unreal.sequence'], RENDER_SETTINGS['unreal.preset'])
 
-    def test_resolution_accepted_and_keyed(self, admin_client, asset):
+    def test_resolution_accepted_and_keyed(self, admin_client, asset, worker_with_token):
+        ready_worker(worker_with_token[0])  # per-machine D5: an eligible machine gets the pilot
         job = created_job(admin_client, asset, render_settings=job_settings(resolution=[1280, 720]))
         plain = target_sha256(BUILD, RENDER_SETTINGS['unreal.map'], RENDER_SETTINGS['unreal.sequence'],
                               RENDER_SETTINGS['unreal.preset'])

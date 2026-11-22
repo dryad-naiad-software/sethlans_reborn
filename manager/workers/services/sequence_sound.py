@@ -132,7 +132,7 @@ def retry_sound(submission_id):
             raise RetryRefused(409, NOTHING_TO_RETRY)
         Job.objects.filter(pk__in=ids).update(
             status=JobStatus.QUEUED, assigned_worker=None, started_at=None, completed_at=None, error_message='',
-            last_output='', auto_requeue_count=0, is_paused=False,
+            last_output='', auto_requeue_count=0, is_paused=False, unreal_memory_report=None,
         )
         refresh_submission(submission_id, [], audio_jobs=ids)
     return len(ids)

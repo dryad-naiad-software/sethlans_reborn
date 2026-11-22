@@ -3,39 +3,29 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 Poll and claim rules for the Unreal sequence job kinds (sequence rendering
-D3, FR-SD-3, FR-SR-5).
-
-Neither kind is held by a measurement key or needs a live card reading on
-the manager, so both are offered to every worker that passes the Unreal
-build and share rules (``unreal_routing``):
+D3, FR-SD-3; per-machine memory test D10).
 
 * a ``shots`` job runs the prep commandlet only: no GPU work, no warm-up,
-  no render;
-* an ``audio`` job renders sound only; the worker gates it on its own card
-  with the pilot's need rule (``vram_gate.pilot_need_mb``), so the manager
-  adds no memory gate at the claim.
+  no render.  It is held by no measurement key and needs no card reading,
+  so it is offered to every worker that passes the Unreal build and share
+  rules (``unreal_routing``).
+* an ``audio`` job renders sound only.  It is gated like a piece by its
+  submission's piece key (D10): offered only to a worker with a ``fits``
+  result for that key (``unreal_machine``).
 
-Their routing note never names a measurement; an audio job's memory note
-uses the pilot's need (FR-SR-5).  :func:`output_size_text` gives the
-output-size part of every memory note (FR-SR-4).
+:func:`output_size_text` gives the output-size part of a memory note
+(FR-SR-4).
 """
-
-from django.db.models import Q
 
 from ..constants import UnrealKind
 from ..constants_sequence import OUTPUT_SIZE_KEY, PILOT_FRAMES_KEY, RESOLUTION_KEY
 
 # Kinds offered without a measurement key, a memory gate or a card reading.
-UNGATED_KINDS = (UnrealKind.SHOTS, UnrealKind.AUDIO)
-
-
-def ungated_poll_q():
-    """The poll part for the ungated kinds (FR-SD-3, FR-SR-5)."""
-    return Q(unreal_kind__in=UNGATED_KINDS)
+UNGATED_KINDS = (UnrealKind.SHOTS,)
 
 
 def skips_measured_gate(job):
-    """Whether ``job`` skips the measured-peak gate at claim and in its routing note."""
+    """Whether ``job`` skips the measured gate at claim and in its routing note."""
     return job.unreal_kind in UNGATED_KINDS
 
 

@@ -21,7 +21,7 @@ from workers.constants import UnrealKind
 from workers.constants_sequence import (
     SHOTS_JOB_CANCELED, SHOTS_JOB_DELETED, SHOTS_JOB_DONE_WITHOUT_RESULT, SHOTS_JOB_FAILED, shots_job_name,
 )
-from workers.renderers.unreal_sequence import skips_measured_gate, ungated_poll_q
+from workers.renderers.unreal_sequence import skips_measured_gate
 from workers.renderers.unreal_settings import validate_unreal_job
 from workers.services.job_kind_rules import (
     done_only_by_result, never_requeued, pilot_done_message, pilot_requeue_message,
@@ -59,15 +59,11 @@ class TestJobKindRules:
 
 
 class TestUngatedKinds:
-    def test_shots_and_audio_skip_the_gate(self):
-        """Chunk 5: an audio job is gated on the worker's card only (FR-SR-5)."""
-        for kind in (UnrealKind.SHOTS, UnrealKind.AUDIO):
-            assert skips_measured_gate(_job(kind))
-        for kind in (UnrealKind.RENDER, UnrealKind.PILOT):
+    def test_only_shots_skip_the_gate(self):
+        """Per-machine D10: an audio job is gated by its submission's piece key; only shots stay ungated."""
+        assert skips_measured_gate(_job(UnrealKind.SHOTS))
+        for kind in (UnrealKind.RENDER, UnrealKind.PILOT, UnrealKind.AUDIO):
             assert not skips_measured_gate(_job(kind))
-
-    def test_poll_q_names_the_shots_and_audio_kinds(self):
-        assert ungated_poll_q().children == [('unreal_kind__in', (UnrealKind.SHOTS, UnrealKind.AUDIO))]
 
 
 class TestNames:

@@ -72,7 +72,10 @@ class TestSuccess:
         job, worker, client = pilot
         post_result(client, job.pk, pilot_body())
         normal = Job.objects.get(name='Still01')
-        assert admin_client.get(f'{JOBS}{normal.pk}/').data['unreal_measured_peak_mb'] == 8102
+        # Per-machine FR-MT-T-3: the worker's own result reaches its view of the job.
+        [result] = client.get(f'{JOBS}{normal.pk}/').data['unreal_machine_results']
+        assert result['peak_mb'] == 8102
+        assert record_of(job).verdict == 'fits'
 
 
 @pytest.mark.django_db
@@ -90,6 +93,7 @@ class TestCheckOrder:
         assert (resp.status_code, resp.data) == (404, {'error': 'Job not found.'})
 
     def test_non_owner_before_kind(self, admin_client, asset, worker_with_token, make_worker_client):
+        ready_worker(worker_with_token[0])
         created_job(admin_client, asset)
         normal = Job.objects.get(name='Still01')
         _other, other_client, _token = make_worker_client('other-host')

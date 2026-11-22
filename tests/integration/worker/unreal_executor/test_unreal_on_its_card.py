@@ -31,6 +31,14 @@ def _forget_refused_projects():
     adapter_log.reset_for_tests()
 
 
+def _cards_report():
+    """The heartbeat ``cards`` report of the two cards, both ticked and ``ok`` (one card kind)."""
+    from tests.unit.manager.card_report_helpers import card, report
+    cards = [card(key=c.key, name=c.name, vendor_id=c.vendor_id, device_id=c.device_id,
+                  revision_id=c.revision_id, backend='HIP') for c in (FIRST, SECOND)]
+    return report(cards=cards, alerts=[], notices=[], warnings=[])
+
+
 @pytest.fixture
 def manager_pilot(db):
     """A pilot on the manager, claimed by a worker whose heartbeat reported both cards (FR-GH-10)."""
@@ -51,9 +59,13 @@ def manager_pilot(db):
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f'Token {Token.objects.create(user=user).key}')
     send_heartbeat(client, worker, payload_of(raw_reading(taken_at=100.0)))
+    # Per-machine memory test D5: the pilot is made only for a ticked ``ok`` card with a known kind.
+    resp = client.post('/api/heartbeat/', {'hostname': worker.hostname, 'cards': _cards_report()}, format='json')
+    assert resp.status_code == 200, resp.data
     asset = unreal_asset(unreal_project(unreal_cvar_overrides=dict(OVERRIDES)))
     created_job(admin, asset)
-    job = pilots(asset)[0]
+    job, = pilots(asset)
+    assert (job.target_worker_id, job.render_settings['unreal.card_kind']) == (worker.pk, '1002:7448:0000')
     resp = claim(client, job, worker)
     assert resp.status_code == 200, resp.data
     return job, client

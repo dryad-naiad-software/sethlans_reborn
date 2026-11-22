@@ -166,6 +166,8 @@ class TestYieldRequeueCountIncrement:
         expected = {
             "status", "assigned_worker", "started_at",
             "yield_requeue_count", "error_message",
+            # Per-machine FR-MT-R-2: cleared with the assignment.
+            "unreal_memory_report",
         }
         assert set(update_fields) == expected
 

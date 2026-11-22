@@ -6,9 +6,9 @@ Integration tests for a sequence version's routing note (Unreal sequence
 spec FR-SR-3, FR-SR-4, FR-SR-5, FR-SQ-11, AC-23, AC-42).
 
 Covers: the note of the first QUEUED piece (held while the key is
-unmeasured; the memory text with the output size, its source and the
-largest card online once measured); the first QUEUED audio job's note with
-the pilot's need when no piece is queued; null when nothing is queued; a
+unmeasured; per-machine memory test D7: no farm-wide memory estimate once
+some machine fits); the first QUEUED audio job's note, which follows the
+piece key (D10), when no piece is queued; null when nothing is queued; a
 version still reading its shots shows its shots job's note; the list's query count stays the
 same for 1 and 20 versions with notes; an audio job's own note in the job
 API.
@@ -20,19 +20,13 @@ from django.test.utils import CaptureQueriesContext
 
 from workers.models import Job
 
-from ..unreal_helpers import BUILD, unreal_asset
+from ..unreal_helpers import unreal_asset
 from ..unreal_pilot_helpers import JOBS, ready_worker
 from .sound_helpers import audio_jobs_of
 from .submission_helpers import SUBMISSIONS, done_discovery, measure_submission, pieces_of, submit
 
 pytestmark = pytest.mark.django_db
 HELD = "Waiting for this project's memory measurement (pilot render)."
-
-
-def _memory(need, size, largest):
-    return (f"No online worker with Unreal Engine build {BUILD} has enough GPU memory: this render needs {need} MB "
-            f"{size}; the largest card online has {largest} MB. "
-            "A card with more memory or a smaller output size is needed.")
 
 
 @pytest.fixture
@@ -60,31 +54,30 @@ def _detail_note(admin_client, submission):
 
 class TestNote:
 
-    def test_held_then_memory_with_the_submission_size(self, admin_client, asset, card):
+    def test_held_then_no_memory_note_once_measured(self, admin_client, asset, card):
         submission, resp = submit(admin_client, asset, sound=False, resolution_x=128, resolution_y=72)
         assert resp.data['routing_note'] == HELD
         assert _list_note(admin_client) == HELD
+        # D7: the old peak + 15% estimate refused a 16 GB card for 14,000 MB; now the machine's result decides.
         measure_submission(asset, peak_mb=14000)
-        expected = _memory(16100, "at 128x72 (the submission's size)", 16303)
-        assert _list_note(admin_client) == expected
-        assert _detail_note(admin_client, submission) == expected
+        assert _list_note(admin_client) is None
+        assert _detail_note(admin_client, submission) is None
 
-    def test_preset_size_and_a_card_that_fits(self, admin_client, asset, card):
+    def test_card_size_gives_no_note(self, admin_client, asset, card):
         submission, _ = submit(admin_client, asset, sound=False)
         measure_submission(asset, peak_mb=14000)
-        assert _detail_note(admin_client, submission) == _memory(16100, "at 64x36 (the preset's size)", 16303)
-        ready_worker(card, total_mb=32607)
+        ready_worker(card, total_mb=8188)
         assert _detail_note(admin_client, submission) is None
 
     def test_audio_job_when_no_piece_is_queued(self, admin_client, asset, card):
+        """D10: the audio job waits for the piece key's result; no pilot minimum (S2)."""
         submission, _ = submit(admin_client, asset, sound=True)
         Job.objects.filter(pk__in=[piece.pk for piece in pieces_of(submission)]).update(status='DONE')
         ready_worker(card, total_mb=8188)
-        expected = _memory(12478, "at 128x72 (the sound render's size)", 8188)
-        assert _detail_note(admin_client, submission) == expected
+        assert _detail_note(admin_client, submission) == HELD
         audio = audio_jobs_of(submission)[0]
-        assert admin_client.get(f'{JOBS}{audio.pk}/').data['routing_note'] == expected
-        ready_worker(card, total_mb=16303)
+        assert admin_client.get(f'{JOBS}{audio.pk}/').data['routing_note'] == HELD
+        measure_submission(asset, worker=card, submission=submission)
         assert _detail_note(admin_client, submission) is None
 
     def test_nothing_queued_is_null(self, admin_client, asset, card):
