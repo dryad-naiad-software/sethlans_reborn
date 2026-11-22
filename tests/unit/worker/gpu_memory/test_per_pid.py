@@ -7,7 +7,7 @@ process items and from ``nvidia-smi -q -d PIDS`` fixtures. Fakes only; runs on e
 """
 import pytest
 
-from sethlans_worker_agent.gpu_memory import nvidia_smi, win_backend
+from sethlans_worker_agent.gpu_memory import nvidia_smi, win_backend, win_process
 from sethlans_worker_agent.gpu_memory.types import GpuMemoryReading
 from sethlans_worker_agent.gpu_memory.win_pdh import PDH_CSTATUS_NO_INSTANCE, PDH_CSTATUS_VALID_DATA
 from tests.unit.worker.gpu_memory._nvidia_fixtures import BUS_A, BUS_B, BUSY, KEY_A, KEY_B, gpu_block, listing
@@ -58,9 +58,9 @@ class TestPdh:
 
     def test_process_usage_is_the_sum_of_the_per_pid_map(self):
         items = [process_item(4242, LUID_A, 10), process_item(4343, LUID_A, 20), process_item(OTHER_PID, LUID_B, 5)]
-        by_pid = win_backend.process_usage_by_pid(items, OURS)
-        assert win_backend.process_usage(items, OURS) == win_backend.luid_sums(by_pid) == {
-            win_backend.luid_value(LUID_A): 30 * MIB}
+        by_pid = win_process.process_usage_by_pid(items, OURS)
+        assert by_pid == {win_backend.luid_value(LUID_A): {4242: 10 * MIB, 4343: 20 * MIB}}
+        assert win_process.luid_sums(by_pid) == {win_backend.luid_value(LUID_A): 30 * MIB}
 
     def test_the_cross_check_reading_has_no_map(self):
         cards = (win_backend.Card(os_card(0, WIN_KEY_A), 1),)

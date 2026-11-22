@@ -10,7 +10,8 @@ index, ``total_mb`` DXGI's dedicated memory (D21) and ``card_key`` the PCI
 address key. A card with no ``GPU Adapter Memory`` instance in the first
 collect is left out (one INFO line); at most ``MAX_REPORTED_GPUS`` cards.
 
-Each sample is one ``PdhQuery.collect()`` over two wildcard counters:
+Each sample is one ``PdhQuery.collect()`` over three wildcard counters (the
+process items are read by ``win_process``):
 
 * ``used_mb``: the card's ``luid_0x<HIGH>_0x<LOW>_phys_<n>`` adapter items
   summed (every ``phys_n``). LUIDs are compared as integers, so the case of
@@ -26,6 +27,11 @@ Each sample is one ``PdhQuery.collect()`` over two wildcard counters:
   items, then floored to MiB). Every card of the reading has an entry (empty
   when none of the pids uses it); ``None`` when the process array cannot be
   read.
+* ``per_pid_shared`` (FR-MT-S-1): the same map from the process ``Shared
+  Usage`` items; ``None`` when that array cannot be read. When the query
+  with the ``Shared Usage`` counter cannot be opened but the one without it
+  can, the latter is used (one INFO line) and ``per_pid_shared`` is always
+  ``None``.
 
 LUID changes: a collect with an adapter LUID never seen, or without a kept
 card's LUID, lists the cards again (at most every ``RELIST_SECONDS``). When
@@ -51,20 +57,22 @@ from typing import Callable, Dict, FrozenSet, Iterable, NamedTuple, Optional, Tu
 
 from sethlans_worker_agent.gpu_memory import win_pdh
 from sethlans_worker_agent.gpu_memory.types import MAX_REPORTED_GPUS, GpuMemoryReading, make_gpu
+from sethlans_worker_agent.gpu_memory.win_process import (
+    MIB, ByPid, by_pid_or_none, hex_luid, luid_sums, per_pid_map, valid_items)
 
 logger = logging.getLogger(__name__)
 
 SOURCE = 'pdh'
 ADAPTER_PATH = r'\GPU Adapter Memory(*)\Dedicated Usage'
 PROCESS_PATH = r'\GPU Process Memory(*)\Dedicated Usage'
-PATHS = (ADAPTER_PATH, PROCESS_PATH)
+SHARED_PATH = r'\GPU Process Memory(*)\Shared Usage'
+DEDICATED_PATHS = (ADAPTER_PATH, PROCESS_PATH)
+PATHS = DEDICATED_PATHS + (SHARED_PATH,)
 RELIST_SECONDS = 60.0
-MIB = 1024 * 1024
 _CHECK_WAITING, _CHECK_DUE, _CHECK_DONE = 'waiting', 'due', 'done'  # the one nvidia-smi cross-check
+_OPEN_ERRORS = (OSError, TypeError, ValueError, AttributeError, ctypes.ArgumentError)
 
 _ADAPTER_NAME = re.compile(r'luid_0x([0-9a-f]{8})_0x([0-9a-f]{8})_phys_(\d+)', re.IGNORECASE)
-_PROCESS_NAME = re.compile(r'pid_(\d+)_luid_0x([0-9a-f]{8})_0x([0-9a-f]{8})_phys_(\d+)', re.IGNORECASE)
-_GOOD_STATUS = (win_pdh.PDH_CSTATUS_VALID_DATA, win_pdh.PDH_CSTATUS_NEW_DATA)
 
 
 class Card(NamedTuple):
@@ -79,73 +87,29 @@ def luid_value(luid: Tuple[int, int]) -> int:
     return ((high & 0xFFFFFFFF) << 32) | (low & 0xFFFFFFFF)
 
 
-def _hex_luid(high: str, low: str) -> int:
-    return (int(high, 16) << 32) | int(low, 16)
-
-
 def adapter_luid(instance: str) -> Optional[int]:
     """The LUID of an adapter instance name, or ``None`` when it does not parse."""
     match = _ADAPTER_NAME.fullmatch(instance or '')
-    return _hex_luid(match.group(1), match.group(2)) if match else None
-
-
-def process_owner(instance: str) -> Optional[Tuple[int, int]]:
-    """``(pid, LUID)`` of a process instance name, or ``None`` when it does not parse."""
-    match = _PROCESS_NAME.fullmatch(instance or '')
-    return (int(match.group(1)), _hex_luid(match.group(2), match.group(3))) if match else None
-
-
-def _valid(items: Iterable[win_pdh.Item]):
-    for name, value, status in items:
-        if status in _GOOD_STATUS and value >= 0:
-            yield name, value
+    return hex_luid(match.group(1), match.group(2)) if match else None
 
 
 def adapter_usage(items: Iterable[win_pdh.Item]) -> Dict[int, int]:
     """Bytes in use per LUID, over every ``phys_n`` instance of it."""
     used: Dict[int, int] = {}
-    for name, value in _valid(items):
+    for name, value in valid_items(items):
         luid = adapter_luid(name)
         if luid is not None:
             used[luid] = used.get(luid, 0) + value
     return used
 
 
-def process_usage_by_pid(items: Iterable[win_pdh.Item], pids: FrozenSet[int]) -> Dict[int, Dict[int, int]]:
-    """Bytes each of the given pids uses, per LUID: ``{luid: {pid: bytes}}``."""
-    per: Dict[int, Dict[int, int]] = {}
-    for name, value in _valid(items):
-        owner = process_owner(name)
-        if owner is not None and owner[0] in pids:
-            pid, luid = owner
-            on_card = per.setdefault(luid, {})
-            on_card[pid] = on_card.get(pid, 0) + value
-    return per
-
-
-def luid_sums(by_pid: Dict[int, Dict[int, int]]) -> Dict[int, int]:
-    """Bytes per LUID over every pid of a ``process_usage_by_pid`` map."""
-    return {luid: sum(per.values()) for luid, per in by_pid.items()}
-
-
-def process_usage(items: Iterable[win_pdh.Item], pids: FrozenSet[int]) -> Dict[int, int]:
-    """Bytes the given pids use per LUID."""
-    return luid_sums(process_usage_by_pid(items, pids))
-
-
-def per_pid_map(cards: Tuple[Card, ...], by_pid: Optional[Dict[int, Dict[int, int]]]):
-    """``{card_key: {pid: MiB}}`` for the cards with a key, or ``None`` when the process array was not read."""
-    if by_pid is None:
-        return None
-    return {card.os_card.key: {pid: used // MIB for pid, used in by_pid.get(card.luid, {}).items()}
-            for card in cards if card.os_card.key is not None}
-
-
 def build_reading(cards: Tuple[Card, ...], used: Dict[int, int], ours: Optional[Dict[int, int]],
-                  taken_at: float, by_pid: Optional[Dict[int, Dict[int, int]]] = None) -> Optional[GpuMemoryReading]:
+                  taken_at: float, by_pid: Optional[ByPid] = None,
+                  shared_by_pid: Optional[ByPid] = None) -> Optional[GpuMemoryReading]:
     """The reading of ``cards``; ``None`` when there is no card or one has no adapter figure (partial).
 
-    ``by_pid`` (``process_usage_by_pid``) fills ``per_pid``; ``None`` leaves it ``None``.
+    ``by_pid`` and ``shared_by_pid`` (``process_usage_by_pid`` of the dedicated and shared process items) fill
+    ``per_pid`` and ``per_pid_shared``; ``None`` leaves the field ``None``.
     """
     gpus = []
     for card in cards:
@@ -158,7 +122,7 @@ def build_reading(cards: Tuple[Card, ...], used: Dict[int, int], ours: Optional[
     if not gpus:
         return None
     return GpuMemoryReading(taken_at, SOURCE, tuple(gpus), measures_card=True, measures_process=ours is not None,
-                            per_pid=per_pid_map(cards, by_pid))
+                            per_pid=per_pid_map(cards, by_pid), per_pid_shared=per_pid_map(cards, shared_by_pid))
 
 
 def _default_cards():
@@ -196,10 +160,8 @@ class PdhBackend:
         pairs = self._cards_now()
         if not pairs:
             return False
-        try:
-            self._query = self._query_factory(PATHS)
-        except (OSError, TypeError, ValueError, AttributeError, ctypes.ArgumentError) as exc:
-            logger.info("The Windows GPU memory counters cannot be opened: %s", exc)
+        self._query = self._open_query()
+        if self._query is None:
             return False
         data = self._query.collect()
         adapter = data.get(ADAPTER_PATH) if data else None
@@ -218,10 +180,10 @@ class PdhBackend:
         used = adapter_usage(adapter)
         if self._moved(used) and self._relisted(used):
             return None
-        process = data.get(PROCESS_PATH)
-        by_pid = None if process is None else process_usage_by_pid(process, pids)
+        by_pid = by_pid_or_none(data.get(PROCESS_PATH), pids)
         ours = None if by_pid is None else luid_sums(by_pid)
-        reading = build_reading(self._cards, used, ours, taken_at, by_pid)
+        shared = by_pid_or_none(data.get(SHARED_PATH), pids)
+        reading = build_reading(self._cards, used, ours, taken_at, by_pid, shared)
         if reading is not None and self._check_state == _CHECK_WAITING:
             self._check_state = _CHECK_DUE
         return reading
@@ -244,6 +206,21 @@ class PdhBackend:
         query, self._query = self._query, None
         if query is not None:
             query.close()
+
+    def _open_query(self):
+        """The query over ``PATHS``; else over ``DEDICATED_PATHS`` (FR-MT-S-1); ``None`` when neither opens."""
+        try:
+            return self._query_factory(PATHS)
+        except _OPEN_ERRORS as exc:
+            shared_error = exc
+        try:
+            query = self._query_factory(DEDICATED_PATHS)
+        except _OPEN_ERRORS as exc:
+            logger.info("The Windows GPU memory counters cannot be opened: %s", exc)
+            return None
+        logger.info("The Windows GPU counters could not be opened with the process Shared Usage counter; "
+                    "opened without it, so spill-over is not measured: %s", shared_error)
+        return query
 
     # -- cards and LUID changes ---------------------------------------------
     def _cards_now(self):

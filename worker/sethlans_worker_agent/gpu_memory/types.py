@@ -22,6 +22,10 @@ the old positional constructors keep working. Sizes are MiB
   per process (NVIDIA on Windows, Linux AMD, the override). A card key that
   is missing from the map is not attributed; an empty inner map means none of
   the pids uses the card. Left out of the hash; not reported.
+* ``per_pid_shared`` (spill-over FR-MT-S-1): the same map from the Windows
+  ``\\GPU Process Memory(*)\\Shared Usage`` counter. ``None`` when that
+  counter is not available (every backend but ``pdh``, or a Windows build
+  without it). Left out of the hash; not reported.
 
 ``problem(reading)`` names the first broken rule of a backend's reading
 ('' when it holds); the reader drops a reading that breaks one.
@@ -57,6 +61,7 @@ class GpuMemoryReading:
     measures_card: bool = False
     measures_process: bool = False
     per_pid: Optional[Mapping[str, Mapping[int, int]]] = field(default=None, hash=False)
+    per_pid_shared: Optional[Mapping[str, Mapping[int, int]]] = field(default=None, hash=False)
 
 
 def make_gpu(index: int, name: str, total_mb: int, used_mb: int, sethlans_used_mb: Optional[int],

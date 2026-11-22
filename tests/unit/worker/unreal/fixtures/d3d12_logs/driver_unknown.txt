@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Driver lookup failed: adapter 0 driver lines MODELLED from UE 5.8.4 source (WindowsPlatformMisc.cpp:3798-3800
+# sets the internal and user versions and the date to Unknown; GetUnifiedDriverVersion returns the internal value).
+# Adapter 1 is the real AMD integrated block.
+# Expected: {0: None, 1: 32.0.21042.62}; chosen 0 -> None.
+[2026.11.17-18.27.59:806][  0]LogD3D12RHI: Found D3D12 adapter 0: NVIDIA GeForce RTX 5090 (VendorId: 10de, DeviceId: 2b85, SubSysId: 53001462, Revision: 00a1
+[2026.11.17-18.27.59:806][  0]LogD3D12RHI:   Max supported Feature Level 12_2, shader model 6.7, binding tier 3, wave ops supported, atomic64 supported
+[2026.11.17-18.27.59:806][  0]LogD3D12RHI:   Adapter has 32187MB of dedicated video memory, 0MB of dedicated system memory, and 155377MB of shared system memory, 1 output[s], TileBased:false UMA:false CacheCoherentUMA:false GPU Upload Heaps:true
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Driver Version: Unknown (internal:Unknown, unified:Unknown)
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:      Driver Date: Unknown
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Found D3D12 adapter 1: AMD Radeon(TM) Graphics (VendorId: 1002, DeviceId: 13c0, SubSysId: 88771043, Revision: 00e5
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Max supported Feature Level 12_2, shader model 6.7, binding tier 3, wave ops supported, atomic64 supported
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Adapter has 2021MB of dedicated video memory, 0MB of dedicated system memory, and 155377MB of shared system memory, 0 output[s], TileBased:false UMA:true CacheCoherentUMA:false GPU Upload Heaps:true
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Driver Version: AMD Adrenalin Software 2026.04.17 (internal:32.0.21042.62, unified:32.0.21042.62)
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:      Driver Date: 4-17-2026
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: DirectX Agility SDK runtime found.
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Chosen D3D12 Adapter Id = 0

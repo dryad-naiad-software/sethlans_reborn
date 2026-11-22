@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Real UE 5.8 log lines (D3D12 adapter enumeration), copied verbatim.
+# Adapters: 0 NVIDIA RTX 5090, 1 AMD integrated, 2 Basic Render Driver (no driver line), 3 the same RTX 5090 again.
+# Expected: {0: 32.0.16.1692, 1: 32.0.21042.62, 2: None, 3: 32.0.16.1692}; chosen 0 -> 32.0.16.1692.
+# The LogRHI Driver Version line after the Chosen line is not an adapter block line.
+[2026.11.17-18.27.59:446][  0]LogSlate: Slate User Registered.  User Index 0, Is Virtual User: 0
+[2026.11.17-18.27.59:526][  0]LogInit: Running DelayedAutoRegister Phase PreRHIInit
+[2026.11.17-18.27.59:804][  0]LogRHI: Using Default RHI: D3D12
+[2026.11.17-18.27.59:804][  0]LogRHI: Using Highest Feature Level of D3D12: SM5
+[2026.11.17-18.27.59:804][  0]LogRHI: Loading RHI module D3D12RHI
+[2026.11.17-18.27.59:806][  0]LogD3D12RHI: Found D3D12 adapter 0: NVIDIA GeForce RTX 5090 (VendorId: 10de, DeviceId: 2b85, SubSysId: 53001462, Revision: 00a1
+[2026.11.17-18.27.59:806][  0]LogD3D12RHI:   Max supported Feature Level 12_2, shader model 6.7, binding tier 3, wave ops supported, atomic64 supported
+[2026.11.17-18.27.59:806][  0]LogD3D12RHI:   Adapter has 32187MB of dedicated video memory, 0MB of dedicated system memory, and 155377MB of shared system memory, 1 output[s], TileBased:false UMA:false CacheCoherentUMA:false GPU Upload Heaps:true
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Driver Version: 616.92 (internal:32.0.16.1692, unified:616.92)
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:      Driver Date: 9-4-2026
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Found D3D12 adapter 1: AMD Radeon(TM) Graphics (VendorId: 1002, DeviceId: 13c0, SubSysId: 88771043, Revision: 00e5
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Max supported Feature Level 12_2, shader model 6.7, binding tier 3, wave ops supported, atomic64 supported
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Adapter has 2021MB of dedicated video memory, 0MB of dedicated system memory, and 155377MB of shared system memory, 0 output[s], TileBased:false UMA:true CacheCoherentUMA:false GPU Upload Heaps:true
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Driver Version: AMD Adrenalin Software 2026.04.17 (internal:32.0.21042.62, unified:32.0.21042.62)
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:      Driver Date: 4-17-2026
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Found D3D12 adapter 2: Microsoft Basic Render Driver (VendorId: 1414, DeviceId: 008c, SubSysId: 0000, Revision: 0000
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Max supported Feature Level 12_1, shader model 6.7, binding tier 3, wave ops supported, atomic64 supported
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Adapter has 0MB of dedicated video memory, 0MB of dedicated system memory, and 155377MB of shared system memory, 0 output[s], TileBased:false UMA:true CacheCoherentUMA:true GPU Upload Heaps:true
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   D3D10Warp Version: 10.0.26100.9818
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Found D3D12 adapter 3: NVIDIA GeForce RTX 5090 (VendorId: 10de, DeviceId: 2b85, SubSysId: 53001462, Revision: 00a1
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Max supported Feature Level 12_2, shader model 6.7, binding tier 3, wave ops supported, atomic64 supported
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Adapter has 32187MB of dedicated video memory, 0MB of dedicated system memory, and 155377MB of shared system memory, 0 output[s], TileBased:false UMA:false CacheCoherentUMA:false GPU Upload Heaps:true
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Driver Version: 616.92 (internal:32.0.16.1692, unified:616.92)
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:      Driver Date: 9-4-2026
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: DirectX Agility SDK runtime found.
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Chosen D3D12 Adapter Id = 0
+[2026.11.17-18.27.59:807][  0]LogRHI: RHI D3D12 with Feature Level SM5 is supported and will be used.
+[2026.11.17-18.27.59:857][  0]LogD3D12RHI: Integrated GPU (iGPU): false
+[2026.11.17-18.27.59:857][  0]LogD3D12RHI: Display: Creating D3D12 RHI with Max Feature Level SM5
+[2026.11.17-18.27.59:860][  0]LogD3D12RHI: NVIDIA Architecture=432
+[2026.11.17-18.27.59:861][  0]LogRHI: Display: Timeout Detection and Recovery (TDR) summary: 
+	- TDR settings OK - Level: Recover, Delay: 2, DdiDelay: 5
+[2026.11.17-18.27.59:861][  0]LogWindows: Attached monitors:
+[2026.11.17-18.27.59:861][  0]LogRHI:             Name: NVIDIA GeForce RTX 5090
+[2026.11.17-18.27.59:861][  0]LogRHI:   Driver Version: 616.92 (internal:32.0.16.1692, unified:616.92)
+[2026.11.17-18.27.59:861][  0]LogRHI:      Driver Date: 9-4-2026
+[2026.11.17-18.27.59:861][  0]LogRHI: Performing driver check for denylisted drivers.
+[2026.11.17-18.27.59:861][  0]LogD3D12RHI:     GPU DeviceId: 0x2b85 (for the marketing name, search the web for "GPU Device Id")

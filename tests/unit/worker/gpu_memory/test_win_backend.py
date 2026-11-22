@@ -10,7 +10,7 @@ import logging
 
 import pytest
 
-from sethlans_worker_agent.gpu_memory import win_backend
+from sethlans_worker_agent.gpu_memory import win_backend, win_process
 from sethlans_worker_agent.gpu_memory.win_pdh import PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_NO_INSTANCE, PdhError
 from tests.unit.worker.gpu_memory._win_fakes import (
     KEY_A, KEY_B, LUID_A, LUID_B, OTHER_PID, OURS, FakeCards, FakeQuery, adapter_item, collect, make_backend,
@@ -34,9 +34,9 @@ class TestNames:
         assert win_backend.adapter_luid(name) is None
 
     def test_process_owner(self):
-        assert win_backend.process_owner('pid_4242_luid_0x00000001_0x0001a2b3_phys_0') == (4242, (1 << 32) | 0x1A2B3)
-        assert win_backend.process_owner('pid_x_luid_0x00000001_0x0001a2b3_phys_0') is None
-        assert win_backend.process_owner('luid_0x00000001_0x0001a2b3_phys_0') is None
+        assert win_process.process_owner('pid_4242_luid_0x00000001_0x0001a2b3_phys_0') == (4242, (1 << 32) | 0x1A2B3)
+        assert win_process.process_owner('pid_x_luid_0x00000001_0x0001a2b3_phys_0') is None
+        assert win_process.process_owner('luid_0x00000001_0x0001a2b3_phys_0') is None
 
     def test_luid_value_takes_the_high_part_unsigned(self):
         assert win_backend.luid_value((-1, 5)) == (0xFFFFFFFF << 32) | 5
@@ -45,11 +45,12 @@ class TestNames:
 
 class TestOpen:
 
-    def test_opens_both_counters_and_takes_the_first_collect(self):
+    def test_opens_every_counter_and_takes_the_first_collect(self):
         query = FakeQuery([IDLE])
         backend = make_backend(query)
         assert backend.open() is True
-        assert query.paths == (r'\GPU Adapter Memory(*)\Dedicated Usage', r'\GPU Process Memory(*)\Dedicated Usage')
+        assert query.paths == (r'\GPU Adapter Memory(*)\Dedicated Usage', r'\GPU Process Memory(*)\Dedicated Usage',
+                               r'\GPU Process Memory(*)\Shared Usage')
         assert query.calls == 1
 
     def test_a_card_without_an_adapter_instance_is_left_out(self, caplog):

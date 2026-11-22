@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+# AMD discrete card: MODELLED on the real AMD integrated block format (no real AMD discrete log yet, spec U-2).
+# Adapters: 0 AMD Radeon RX 7900 XTX (modelled), 1 Basic Render Driver (real lines, renumbered).
+# Expected: {0: 32.0.22029.1019, 1: None}; chosen 0 -> 32.0.22029.1019.
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Found D3D12 adapter 0: AMD Radeon RX 7900 XTX (VendorId: 1002, DeviceId: 744c, SubSysId: 0e3b1002, Revision: 00c8
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Max supported Feature Level 12_2, shader model 6.7, binding tier 3, wave ops supported, atomic64 supported
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Adapter has 24560MB of dedicated video memory, 0MB of dedicated system memory, and 65448MB of shared system memory, 1 output[s], TileBased:false UMA:false CacheCoherentUMA:false GPU Upload Heaps:true
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Driver Version: AMD Adrenalin Software 2026.10.21 (internal:32.0.22029.1019, unified:32.0.22029.1019)
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:      Driver Date: 10-21-2026
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Found D3D12 adapter 1: Microsoft Basic Render Driver (VendorId: 1414, DeviceId: 008c, SubSysId: 0000, Revision: 0000
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Max supported Feature Level 12_1, shader model 6.7, binding tier 3, wave ops supported, atomic64 supported
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   Adapter has 0MB of dedicated video memory, 0MB of dedicated system memory, and 155377MB of shared system memory, 0 output[s], TileBased:false UMA:true CacheCoherentUMA:true GPU Upload Heaps:true
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI:   D3D10Warp Version: 10.0.26100.9818
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: DirectX Agility SDK runtime found.
+[2026.11.17-18.27.59:807][  0]LogD3D12RHI: Chosen D3D12 Adapter Id = 0

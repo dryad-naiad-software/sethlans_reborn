@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+# No D3D12 adapter lines: real UE 5.8 lines from before the RHI starts (a launch that stopped early).
+# Expected: {}; chosen None (launch_driver then reads the warm-up log).
+[2026.11.17-18.27.59:233][  0]LogTextLocalizationManager: No specific localization for 'en-US' exists, so 'en' will be used for the language.
+[2026.11.17-18.27.59:235][  0]LogInit: Setting process to per monitor DPI aware
+[2026.11.17-18.27.59:442][  0]LogWindowsTouchpad: Display: CacheForceMaxTouchpadSensitivityMode SetMaxTouchpadSensitivity
+[2026.11.17-18.27.59:442][  0]LogInputDeviceRegistry: RegisterDevice: DeviceId=0 InputDeviceName=WindowsApplication HardwareDeviceIdentifier=KBM (changed=true)
+[2026.11.17-18.27.59:443][  0]LogObj: Display: Attempting to load config data for Default__SlateThemeManager before the Class has been constructed/registered/linked (likely during module loading or early startup). This will result in the load silently failing and should be fixed.
+[2026.11.17-18.27.59:446][  0]LogSlate: New Slate User Created. Platform User Id 0, User Index 0, Is Virtual User: 0
+[2026.11.17-18.27.59:446][  0]LogSlate: Slate User Registered.  User Index 0, Is Virtual User: 0
+[2026.11.17-18.27.59:526][  0]LogInit: Running DelayedAutoRegister Phase PreRHIInit
+[2026.11.17-18.27.59:804][  0]LogRHI: Using Default RHI: D3D12
+[2026.11.17-18.27.59:804][  0]LogRHI: Using Highest Feature Level of D3D12: SM5
