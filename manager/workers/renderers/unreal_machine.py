@@ -128,6 +128,10 @@ def fits_exists(refs, worker, kinds):
     return Exists(fits_records(refs).filter(worker=worker, card_kind__in=list(kinds)))
 
 
+# Every D2 pair state, once (``MachineStateEnum`` in the schema, drf_config).
+PAIR_STATES = (FITS, DOES_NOT_FIT, TESTING, FAILED, RETEST_DUE, NOT_TRIED)
+
+
 def pair_state_case(prefix=''):
     """The D2 state of a current record (or one reached through ``prefix``)."""
     return Case(

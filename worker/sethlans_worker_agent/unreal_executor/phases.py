@@ -26,7 +26,9 @@ FR-UE-26, FR-UE-27; chunk 7 integration requirements 10, 11, 15).
    ``vram.only_card``): the ``adapter`` choice's key, else the gated card
    (``card_key``, set by ``job_run``; a pilot's prep has no choice). A
    reading without that card counts as no sample. With no key at all (the
-   override) nothing is cut;
+   override) nothing is cut; a sampled render launch also gets a
+   fresh ``spill.SpillWatch`` (``spill``, set by ``job_run``), which its
+   trace feeds every sample of the launch (per-machine memory test D9);
 4. a warm-up or render whose log names another D3D12 adapter than its
    ``-graphicsadapter`` card raises the alert and refuses the project
    (``adapter_log.check_run``), then releases the job unless survivors
@@ -106,6 +108,7 @@ class PhaseRunner:
     card_key: Optional[str] = None          # the gated card (set by job_run): traces of a launch without a choice
     ram_target: Optional[object] = None     # runner_ram.RamTarget of the claim (set by job_run, FR-PC-RAM-2)
     startup_done: Optional[Callable[[], None]] = None  # a render's first output file ends the start-up (FR-PC-SU-1)
+    spill: Optional[Callable[[], object]] = None  # a new spill.SpillWatch per sampled render launch (set by job_run, D9)
 
     def _stop_requested(self) -> None:
         """No launch once a cancel cause or the shutdown is known (review L2)."""
@@ -162,7 +165,8 @@ class PhaseRunner:
             vram_baseline=baseline, expected_adapter=adapter.index if adapter is not None else None,
             expected_ids=adapter_log.ids_of(adapter), ram_target=self.ram_target,
             first_output_dir=self.job_dir.output if phase == 'render' else None,
-            on_first_output=self.startup_done if phase == 'render' else None)
+            on_first_output=self.startup_done if phase == 'render' else None,
+            spill=self.spill() if self.spill is not None and sampled is not None and phase == 'render' else None)
 
     def launch(self, phase: str, attempt: int, launch, *, success_marker=None, success_check=None,
                sample: bool = False, adapter=None) -> PhaseRun:

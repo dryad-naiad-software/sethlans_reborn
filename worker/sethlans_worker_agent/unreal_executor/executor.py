@@ -177,7 +177,7 @@ def default_run_deps():
                               upload=api_extras.upload_output_handle, report_pilot=api_extras.report_pilot_result,
                               report_shots=api_sequence.report_shots_result, upload_frame=api_sequence.upload_frame,
                               report_piece=api_sequence.report_piece_result, upload_sound=api_sequence.upload_sound,
-                              was_shared=_was_shared),
+                              was_shared=_was_shared, report_memory=api_extras.report_memory),
         disable_until_restart=runtime.disable_until_restart, keep_job_logs=lambda: config_unreal.KEEP_JOB_LOGS,
         prep_timeout_s=lambda: config_unreal.PREP_TIMEOUT_SECONDS,
         cancel_poll_s=lambda: config_unreal.CANCEL_POLL_SECONDS, choose_adapter=adapter_choice.choose)

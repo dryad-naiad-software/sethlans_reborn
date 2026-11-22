@@ -217,8 +217,9 @@ def report_body(metrics: PilotMetrics, gpu, *, prep_s: float, warmup_s: float, r
     Per-machine memory test FR-MT-V-3: ``card_kind`` is the kind of the card the pilot rendered on
     (D1, the job's ``unreal.card_kind``); ``driver_version`` the chosen adapter's ``internal:`` driver
     from the render launch's log (``driver_log.launch_driver``), ``None`` when unknown; ``verdict``
-    and ``lower_bound_mb`` are D6's (``metrics``); ``shared_peak_mb`` the pilot's largest shared usage
-    on its card (D9), ``None`` until the shared counter is sampled.
+    and ``lower_bound_mb`` are D6's (``metrics``); ``shared_peak_mb`` the pilot's largest summed shared
+    usage of its own processes on its card over the render launch (D9, ``spill.shared_peak``), ``None``
+    when unknown (no shared counter, not Windows, or no render launch).
 
     ``ram``, ``ram_process_commit_peak_mb`` and ``shared_machine`` (per-card FR-PC-RAM-3) are always
     sent: ``ram`` is ``{"prep": {"ws_mb", "commit_mb"}, "warmup": {"ws_mb", "commit_mb", "cold"} | None,

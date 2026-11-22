@@ -10,8 +10,11 @@ FR-MT-V-1..3).
 succeeded: UE's chosen adapter name (summary), the rule that every warm-up
 and render log names the chosen adapter (``require_adapter_lines``), the
 card it rendered on (``pilot.check_card``), the CSV capture, the metrics and
-D6's verdict (``pilot.measure``), the RAM figures, and the driver version
-(``driver``).
+D6's verdict (``pilot.measure``), the RAM figures, the driver version
+(``driver``) and ``shared_peak_mb`` (D9: the largest summed shared usage of
+the pilot's own processes on its card over the whole render launch, start-up
+included, ``spill.shared_peak``; ``None`` without the shared counter or a
+render launch), which becomes the reference of the jobs' spill check.
 
 ``after_failure(flow, prep, failure)`` is D6's second case: a pilot whose
 warm-up or render launch failed (``JobFailure``) **after a saturated sample**
@@ -54,7 +57,7 @@ from typing import Optional, Tuple
 
 from sethlans_worker_agent import config_unreal
 from sethlans_worker_agent.cards.identity import key_address
-from sethlans_worker_agent.unreal_executor import driver_log, job_memory, output, pilot, pilot_csv
+from sethlans_worker_agent.unreal_executor import driver_log, job_memory, output, pilot, pilot_csv, spill
 from sethlans_worker_agent.unreal_executor.outcomes import IsolationFailure, JobFailure, LocalConflict
 
 logger = logging.getLogger(__name__)
@@ -136,6 +139,7 @@ def _measure(flow, result, prep, render_log, csv_peak: Optional[int]):
     result.metrics = pilot.measure(flow.runner.runs, csv_peak)
     result.ram, result.ram_process_commit_peak_mb = job_memory.pilot_ram(flow.runner.runs)
     result.driver_version = driver(flow, render_log)
+    result.shared_peak_mb = spill.shared_peak(flow.runner.runs)  # D9: the jobs' reference on this machine
     flow.summary.update(pilot.summary_values(result.metrics, list(prep.pilot_frames), result.adapter, flow.cvars_sha))
     return result
 

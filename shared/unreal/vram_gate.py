@@ -38,11 +38,6 @@ def usable_mb(total_mb: int, used_mb: int) -> int:
     return math.floor(total_mb * VRAM_BUDGET_FRACTION) - used_mb
 
 
-def fits(need_mb: int, total_mb: int, used_mb: int) -> bool:
-    """Return whether ``need_mb`` fits on a GPU of ``total_mb`` with ``used_mb`` in use."""
-    return need_mb <= usable_mb(total_mb, used_mb)
-
-
 def fits_result(peak_mb: int, total_mb: int, used_mb: int) -> bool:
     """D7: whether a result peak fits a card: ``peak_mb <= floor(total_mb * 0.93) - used_mb``.
 

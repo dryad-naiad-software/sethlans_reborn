@@ -42,4 +42,3 @@ def test_a_card_already_past_its_line_fits_nothing():
 
 def test_the_kept_names():
     assert g.VRAM_BUDGET_FRACTION == 0.93 and g.MIN_PLAUSIBLE_PEAK_MB == 1024 and g.MAX_PEAK_MB == 1_048_576
-    assert g.fits(100, 32607, 0) is g.fits_result(100, 32607, 0) is True

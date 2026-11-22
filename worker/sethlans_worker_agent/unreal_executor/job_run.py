@@ -15,7 +15,8 @@ FR-SD-4; a sequence piece ``RangeFlow``, FR-SW-3; an audio job ``AudioFlow``, FR
 ``execute``), survivors handling, then ``JobWorkspace.finish(survivors=...,
 abort=NEVER)`` -> delivery (upload from the checked handle, or
 ``pilot-result/``, ``shots-result/``, ``frames/`` and ``piece-result/``,
-``sound-result/``, or release).
+``sound-result/``, or release), preceded by a render or audio job's
+``memory-report/`` (``memory_report``, per-machine memory test FR-MT-S-4).
 
 Survivors (from a phase or ``confirm_all``): ``reservation.retain_until_
 restart()`` -> ``runtime.disable_until_restart(SURVIVORS_DISABLED_REASON)``
@@ -60,7 +61,7 @@ from sethlans_worker_agent.project_archive.abort import NEVER, Abort
 from sethlans_worker_agent.project_archive.errors import CacheUnavailableError
 from sethlans_worker_agent.project_archive.workspace import ArchiveRequest
 from sethlans_worker_agent.unreal_executor import adapter_choice, adapter_log, job_dir, job_outcome, job_run_summary
-from sethlans_worker_agent.unreal_executor import warmup
+from sethlans_worker_agent.unreal_executor import memory_report, spill, warmup
 from sethlans_worker_agent.unreal_executor import slot as slots
 from sethlans_worker_agent.unreal_executor.audio_flow import AudioFlow
 from sethlans_worker_agent.unreal_executor.cancel_watch import CancelCause, CancelWatcher
@@ -108,7 +109,7 @@ class JobRun:
         self.summary = Summary()
         self.cancel = CancelCause()
         self.registry = deps.registry_factory()
-        self.job = self.ws = self.layout = None
+        self.job = self.ws = self.layout = self.runner = self.flow = None
 
     def cause(self) -> str:
         """``shutdown``, then the manager's cause, then ``worker_hardware_changed`` (the job's own card stop, C-24 m)."""
@@ -174,6 +175,7 @@ class JobRun:
         runner.ram_target = self.reservation.ram_target()  # each launch publishes its RAM figures (FR-PC-RAM-2)
         p = self.params  # FR-PC-SU-1: a picture render's first output file ends the start-up; audio, shots at the end
         runner.startup_done = None if p.is_audio or p.is_shots else self.reservation.startup_ended
+        runner.spill = None if p.is_shots else spill.watch_for(gate, p.job_id)  # D9 on every render launch
         marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build,
                                     slot.n)
         # FR-SD-4: shots run the prep only; a sequence piece renders a frame range (FR-SW-3); FR-SA: sound only.
@@ -186,6 +188,7 @@ class JobRun:
                           first_key=self.reservation.card_key)  # the held card (render per card D1, D14)
         flow.disk = disk  # a piece's disk check counts the other running claims (FR-PC-DSK-1)
         flow.result_peak_mb = gate.result.peak_mb if getattr(gate, 'result', None) else None  # FR-MT-G-4
+        self.flow = flow  # the memory report reads the render launch's driver through it (FR-MT-S-4)
         try:
             return flow.run()
         finally:
@@ -254,6 +257,7 @@ class JobRun:
                 outcome = self._attempt()
             finally:
                 outcome, integrity_ok = self._confirm_and_finish(outcome)
+            memory_report.send(self)  # FR-MT-S-4: before the completion call, on every end path
             delivery = Delivery(self.params, self.deps.delivery, self.summary, self._after_report(), cause=self.cause)
             return delivery.deliver(outcome, integrity_ok)
         finally:

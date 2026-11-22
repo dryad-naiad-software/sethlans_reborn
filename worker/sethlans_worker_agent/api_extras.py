@@ -21,6 +21,8 @@ reuses its base URL, auth headers, pinned session and retry helper by import.
   a rejected body); 5xx or a network error -> retried, 3 attempts with
   backoff, then ``failed``; any other 4xx -> ``rejected`` with the response's
   error text (at most 500 characters).
+* ``report_memory(job_id, body, attempts)`` (per-machine memory test
+  FR-MT-S-4): ``POST jobs/{id}/memory-report/`` with the same handling.
 """
 import logging
 import time
@@ -148,10 +150,11 @@ def _classify(response) -> Optional[PilotReport]:
     return None  # 5xx: retried
 
 
-def post_result(job_id: int, endpoint: str, body: dict, sleep: Callable[[float], None] = time.sleep) -> PilotReport:
+def post_result(job_id: int, endpoint: str, body: dict, sleep: Callable[[float], None] = time.sleep,
+                attempts: int = PILOT_ATTEMPTS) -> PilotReport:
     """``POST jobs/{id}/<endpoint>/`` with the FR-UE-25 response handling (also ``shots-result/``). Never raises."""
     last = PilotReport('failed')
-    for attempt in range(PILOT_ATTEMPTS):
+    for attempt in range(attempts):
         try:
             response = get_session().request('post', _url(f"jobs/{int(job_id)}/{endpoint}/"), json=body,
                                              headers=get_auth_headers(), timeout=PILOT_TIMEOUT_SECONDS)
@@ -161,7 +164,7 @@ def post_result(job_id: int, endpoint: str, body: dict, sleep: Callable[[float],
             last = PilotReport('failed', response.status_code, _detail(response))
         except requests.exceptions.RequestException as exc:
             last = PilotReport('failed', None, f"{type(exc).__name__}: {exc}"[:MAX_DETAIL])
-        if attempt + 1 < PILOT_ATTEMPTS:
+        if attempt + 1 < attempts:
             logger.warning("%s/ for job %s failed (%s); retrying.", endpoint, job_id, last.detail or last.status_code)
             sleep(PILOT_BACKOFF_SECONDS[min(attempt, len(PILOT_BACKOFF_SECONDS) - 1)])
     return last
@@ -170,3 +173,12 @@ def post_result(job_id: int, endpoint: str, body: dict, sleep: Callable[[float],
 def report_pilot_result(job_id: int, body: dict, sleep: Callable[[float], None] = time.sleep) -> PilotReport:
     """``POST jobs/{id}/pilot-result/`` with the FR-UE-25 response handling. Never raises."""
     return post_result(job_id, 'pilot-result', body, sleep)
+
+
+def report_memory(job_id: int, body: dict, attempts: int = PILOT_ATTEMPTS,
+                  sleep: Callable[[float], None] = time.sleep) -> PilotReport:
+    """``POST jobs/{id}/memory-report/`` (per-machine memory test FR-MT-S-3, -4), the pilot result's handling.
+
+    ``attempts`` 1 sends once without a retry (the shutdown budget). Never raises.
+    """
+    return post_result(job_id, 'memory-report', body, sleep, attempts=max(1, int(attempts)))

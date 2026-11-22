@@ -176,30 +176,38 @@ def _fail_pilot(job, now):
     job.save(update_fields=['status', 'error_message', 'completed_at'])
 
 
-def _lock_pair(record, worker, driver):
-    """D15: lock the pilot's record and the pair's current records (any key) of another driver, by pk.
+def _lock_pair(record, worker, driver, extra=()):
+    """D15: lock the record, the pks in ``extra`` and the pair's current records (any key) of another
+    driver, in one ``ORDER BY pk`` query.
 
-    With ``driver`` unknown ('') only the pilot's record is locked (D3 stales nothing).
+    With ``driver`` unknown ('') only the record and ``extra`` are locked (D3 stales nothing).
+    ``memory-report/`` passes a derived record's ``covered_by`` record in ``extra``.
     """
-    wanted = Q(pk=record.pk)
+    wanted = Q(pk=record.pk) | Q(pk__in=list(extra))
     if driver:
         wanted |= Q(worker_id=worker.pk, card_kind=record.card_kind, current=True) & ~Q(driver_version=driver)
     return list(lock_own_rows(UnrealMeasurement.objects.filter(wanted)).order_by('pk'))
 
 
-def _stale_older_drivers(record, rows, driver):
+def _stale_older_drivers(record, rows, driver, include_record=False):
     """D3: when another current record has a non-null driver other than ``driver``, stale every
-    current record of the pair whose driver is not ``driver`` (unknown '' included)."""
+    current record of the pair whose driver is not ``driver`` (unknown '' included); returns their pks.
+
+    ``rows`` are the pair's locked rows.  ``record`` itself is a candidate only with
+    ``include_record`` (``memory-report/``: the result the job ran on; ``pilot-result/`` writes
+    the reported driver into its own record instead).
+    """
     if not driver:
-        return
-    others = [row for row in rows if row.pk != record.pk and row.current and row.driver_version != driver]
+        return []
+    others = [row for row in rows if (include_record or row.pk != record.pk)
+              and row.current and row.driver_version != driver]
     if not any(row.driver_version for row in others):
-        return
+        return []
     stale = [row.pk for row in others]
-    if stale:
-        UnrealMeasurement.objects.filter(pk__in=stale).update(stale_reason=DRIVER_CHANGED)
-        logger.info("Worker %s, card kind %s: driver %s replaces an earlier driver; results %s are re-tested.",
-                    record.worker_hostname, record.card_kind, driver, stale)
+    UnrealMeasurement.objects.filter(pk__in=stale).update(stale_reason=DRIVER_CHANGED)
+    logger.info("Worker %s, card kind %s: driver %s replaces an earlier driver; results %s are re-tested.",
+                record.worker_hostname, record.card_kind, driver, stale)
+    return stale
 
 
 def _store(job, record, worker, data, now):

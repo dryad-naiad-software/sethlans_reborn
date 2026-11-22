@@ -77,6 +77,7 @@ class FlowResult:
     ram: Optional[dict] = None    # pilot: the body's RAM figures per phase (FR-PC-RAM-3); None when unknown
     ram_process_commit_peak_mb: Optional[int] = None
     driver_version: Optional[str] = None  # pilot: the render launch's driver version (FR-MT-V-1); None unknown
+    shared_peak_mb: Optional[int] = None  # pilot: its own largest shared usage over the render launch (D9)
 
 
 class UeFlow:

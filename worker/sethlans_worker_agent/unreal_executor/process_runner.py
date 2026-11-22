@@ -102,7 +102,7 @@ class ProcessRunner:
         self._snapshot: List = []
         self._confirmed: Optional[Tuple[Tuple[int, str], ...]] = None
         self._lock = threading.Lock()  # leaf lock: confirm_exit may run from execute()'s finally
-        self.vram = VramTrace()
+        self.vram = VramTrace(spill=spec.spill)  # a render launch watches D9 spill-over (spill.SpillWatch)
         self.ram = RunnerRam(spec.ram_target, reader=ram_reader, phase=spec.phase)
         self._first_output = FirstOutput(spec.first_output_dir, on_seen=spec.on_first_output)
 

@@ -63,12 +63,31 @@ def summary_values(runs: Sequence) -> Dict[str, object]:
         values[f'ram_{phase}_ws_mb'] = _value(figures.ws_mb if figures else None)
         values[f'ram_{phase}_commit_mb'] = _value(figures.commit_mb if figures else None)
     values['ram_warmup_cold'] = 1 if warmup_cold(runs) else 0
-    renders = [run for run in runs if run.phase == 'render']
-    trace = renders[-1].outcome.vram if renders else None
+    trace = _last_render_trace(runs)
     known = trace is not None and not trace.job_unknown
     values['vram_job_peak_mb'] = _value(trace.job_peak_mb if known else None)
     values['vram_job_other_cards_mb'] = _value(trace.job_other_cards_mb if known else None)
     return values
+
+
+def _last_render_trace(runs: Sequence):
+    renders = [run for run in runs if run.phase == 'render']
+    return renders[-1].outcome.vram if renders else None
+
+
+def job_peak_mb(runs: Sequence) -> Optional[int]:
+    """The memory report's ``job_peak_mb`` (per-machine memory test D6, FR-MT-S-3); None when unknown.
+
+    The job's own Job Object members' dedicated usage on its card (``VramTrace.max_job``, every attributed
+    sample of the **whole** launch, start-up spike included, as the pilot's result peak includes its start-up),
+    the largest over **every** render launch (a failed first launch counts). Never the card's rise, which counts
+    other programs too. A launch with only some samples attributed gives a lower bound, still valid for D6's
+    feedback. Each trace holds the launch's card alone (``phases`` cuts every reading to it). The summary's
+    ``vram_job_peak_mb`` (the last render launch, from its first output file on) is a different figure.
+    """
+    peaks = [peak for run in runs if run.phase == 'render'
+             for peak in getattr(run.outcome.vram, 'max_job', {}).values()]
+    return max(peaks) if peaks else None
 
 
 def _pair(figures: Optional[PhaseRam]) -> Optional[dict]:

@@ -61,6 +61,10 @@ SPECTACULAR_SETTINGS = {
         'VideoStatusEnum': 'workers.constants_video.VideoStatus',
         # A pilot's D6 verdict (Unreal per-machine memory test FR-MT-V-3, FR-MT-U-3).
         'MeasurementVerdictEnum': 'workers.serializers.unreal_measurement.PILOT_VERDICTS',
+        # The memory report's spill cause (FR-MT-S-3) and D2's pair states: the report's
+        # answer and the machine lists (FR-MT-U-1) share one value set, so one pinned name.
+        'SpillCauseEnum': 'workers.serializers.memory_report.SPILL_CAUSES',
+        'MachineStateEnum': 'workers.renderers.unreal_machine.PAIR_STATES',
     },
     'SECURITY': [
         {'sessionAuth': []},

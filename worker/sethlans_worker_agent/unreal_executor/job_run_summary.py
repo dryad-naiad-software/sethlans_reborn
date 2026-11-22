@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 The summary values ``job_run.JobRun`` sets before the job starts and after its phases ran
-(Unreal foundation FR-UE-2; render per card FR-PC-SLOT-8, FR-PC-RAM-3, FR-PC-ATT-2).
+(Unreal foundation FR-UE-2; render per card FR-PC-SLOT-8, FR-PC-RAM-3, FR-PC-ATT-2; per-machine memory test
+FR-MT-S-2's spill keys).
 """
-from sethlans_worker_agent.unreal_executor import job_memory, user_state
+from sethlans_worker_agent.unreal_executor import job_memory, spill, user_state
 
 
 def start(summary, reservation) -> None:
@@ -28,3 +29,4 @@ def from_runner(summary, runner) -> None:
     for name in runner.collisions:
         summary.append('user_cvar_collision', name)
     summary.update(job_memory.summary_values(runner.runs))
+    summary.update(spill.summary_values(runner.runs))  # per-machine memory test FR-MT-S-2 (D9)

@@ -18,6 +18,7 @@ from ..renderers.unreal_machine import piece_target_annotation
 from ..renderers.unreal_measured import note_annotations
 from ..renderers.unreal_routing import _is_worker_request
 from ..serializers import JobSerializer
+from .job_memory_report import JobMemoryReportMixin
 from .job_pause_actions import JobPauseActionsMixin
 from .job_pilot_actions import JobPilotActionsMixin, pilot_requeue_refusal
 from .job_release_actions import JobReleaseActionsMixin
@@ -50,6 +51,7 @@ logger = logging.getLogger(__name__)
 )
 class JobViewSet(
     JobPilotActionsMixin,
+    JobMemoryReportMixin,
     JobSequenceActionsMixin,
     JobSoundActionsMixin,
     JobReleaseActionsMixin,
@@ -77,7 +79,7 @@ class JobViewSet(
 
     def get_permissions(self):
         if self.action in ('claim', 'upload_output', 'yield_requeue', 'release', 'pilot_result', 'shots_result',
-                           'frames', 'piece_result', 'sound_result'):
+                           'frames', 'piece_result', 'sound_result', 'memory_report'):
             return [IsWorker()]
         elif self.action in ('list', 'retrieve'):
             return [(IsAdmin | IsWorker)()]

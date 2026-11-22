@@ -76,6 +76,7 @@ class FakeManager:
     frames: list = field(default_factory=list)
     piece_bodies: list = field(default_factory=list)
     sounds: list = field(default_factory=list)
+    memory_reports: list = field(default_factory=list)  # (job_id, body) of memory-report/ (FR-MT-S-4)
     status: str = 'RENDERING'
     pilot_report: object = None
     shots_report: object = None
@@ -87,7 +88,12 @@ class FakeManager:
         return DeliveryDeps(release_job=lambda job_id, reason: self.releases.append((job_id, reason)) or True,
                             mark_unreachable=lambda reason: None, upload=self.upload, report_pilot=self.report,
                             report_shots=self.report_shots, upload_frame=self.upload_frame,
-                            report_piece=self.report_piece, upload_sound=self.upload_sound)
+                            report_piece=self.report_piece, upload_sound=self.upload_sound,
+                            report_memory=self.report_memory)
+
+    def report_memory(self, job_id, body, attempts=api_extras.PILOT_ATTEMPTS):
+        self.memory_reports.append((job_id, body))
+        return api_extras.PilotReport('done', 200)
 
     def upload_sound(self, job_id, handle, offset, skipped, render_s, summary, cause=None):
         """``sound-result/`` (FR-SA-6); ``sound_sink`` (a callable) replaces it, e.g. the real endpoint."""

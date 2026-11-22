@@ -88,6 +88,7 @@ class RunSpec:
     #                                                   first file on (FR-PC-ATT-2)
     on_first_output: Optional[Callable[[], None]] = None  # called once at that first file: the start-up is over
     #                                                   (FR-PC-SU-1)
+    spill: Optional[object] = None                    # a render launch's spill.SpillWatch (per-machine memory test D9)
 
     @property
     def phase(self) -> str:
@@ -112,14 +113,21 @@ class VramTrace:
     # Other programs' use of the launch's card: card used minus the members' own MiB on it, the largest per GPU
     # over the attributed samples of the whole launch (per-machine memory test Q10; D9's ``others``).
     max_others: Dict[int, int] = field(default_factory=dict)
+    # D9 (FR-MT-S-2): a render launch's spill.SpillWatch, fed every attributed sample of the launch's card.
+    spill: Optional[object] = None
 
     def add(self, reading, own_pids: Optional[FrozenSet[int]] = None, window: bool = False) -> None:
         """Add one reading, timed by its own ``taken_at``; a reading already added is skipped.
 
         ``own_pids``: the launch's members at this tick (``None``: no per-job attribution); ``window``: the
-        render has written its first output file.
+        render has written its first output file. D9: a missing reading (``None``, also a reading cut to a card
+        it lacks) and a tick without attribution break the spill watch's run of over samples; a repeated
+        reading is no new sample, so it neither advances nor breaks it.
         """
-        if reading is None or reading.taken_at == self.last_sample_at:
+        if reading is None:
+            self._spill_gap()
+            return
+        if reading.taken_at == self.last_sample_at:
             return
         if self.last_sample_at is not None:
             self.max_gap_s = max(self.max_gap_s, reading.taken_at - self.last_sample_at)
@@ -134,6 +142,12 @@ class VramTrace:
                 self.max_sethlans[gpu.index] = max(self.max_sethlans.get(gpu.index, 0), ours)
         if own_pids is not None:
             self._attribute(reading, own_pids, window)
+        else:
+            self._spill_gap()
+
+    def _spill_gap(self) -> None:
+        if self.spill is not None:
+            self.spill.missing()
 
     def _attribute(self, reading, own_pids: FrozenSet[int], window: bool) -> None:
         """The members' MiB per card; ``per_pid`` holds every card of the machine, ``gpus`` the launch's own."""
@@ -142,6 +156,7 @@ class VramTrace:
         card_used = {gpu.index: gpu.used_mb for gpu in reading.gpus}
         if per_pid is None or not set(mine) <= {key_address(key) for key in per_pid}:
             self.job_unknown = self.job_unknown or window
+            self._spill_gap()
             return
         for key, by_pid in per_pid.items():
             used = sum(mib for pid, mib in by_pid.items() if pid in own_pids)
@@ -149,6 +164,8 @@ class VramTrace:
             if index is not None:
                 self.max_job[index] = max(self.max_job.get(index, 0), used)
                 self.max_others[index] = max(self.max_others.get(index, 0), max(0, card_used[index] - used))
+                if self.spill is not None and len(mine) == 1:
+                    self.spill.observe(_own(reading.per_pid_shared, key, own_pids), used, card_used[index])
                 if window:
                     self.job_peak_mb = max(self.job_peak_mb or 0, used)
             elif window:
@@ -161,6 +178,15 @@ class VramTrace:
         if not self.max_used:
             return None
         return max(max(0, used - baseline.get(index, 0)) for index, used in self.max_used.items())
+
+
+def _own(per_pid_shared, key, own_pids: FrozenSet[int]) -> Optional[int]:
+    """The members' shared MiB on the card ``key`` (D9), or None when the reading has no shared figure for it."""
+    address = key_address(key)
+    for other, by_pid in (per_pid_shared or {}).items():
+        if key_address(other) == address:
+            return sum(mib for pid, mib in by_pid.items() if pid in own_pids)
+    return None
 
 
 @dataclass
