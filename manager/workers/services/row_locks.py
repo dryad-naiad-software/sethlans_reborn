@@ -30,12 +30,15 @@ from django.db import connections, router
 SELF_ONLY = ('self',)
 
 
-def lock_own_rows(queryset, *related):
+def lock_own_rows(queryset, *related, skip_locked=False):
     """Return ``queryset`` locked ``FOR UPDATE`` on its own table only.
 
     Args:
         queryset: A model manager or queryset (e.g. ``Job.objects``).
         *related: ``select_related`` lookups to load with the locked row.
+        skip_locked: Leave out rows another transaction holds instead of
+            waiting for them (``SKIP LOCKED``) where the backend supports
+            it; a backend that does not waits as usual.
 
     Returns:
         A queryset that, when evaluated inside ``transaction.atomic()``,
@@ -48,11 +51,13 @@ def lock_own_rows(queryset, *related):
     if not isinstance(alias, str):
         alias = router.db_for_write(queryset.model)
     features = connections[alias].features
+    skip = {'skip_locked': True} if skip_locked and features.has_select_for_update_skip_locked else {}
     if features.has_select_for_update and not features.has_select_for_update_of:
         # Cannot name the locked table: drop the joins so the lock cannot
         # reach related rows; prefetch the relations without locking them.
+        locked = queryset.select_for_update(**skip)
         return locked.prefetch_related(*related) if related else locked
-    locked = queryset.select_for_update(of=SELF_ONLY)
+    locked = queryset.select_for_update(of=SELF_ONLY, **skip)
     if related:
         locked = locked.select_related(*related)
     return locked

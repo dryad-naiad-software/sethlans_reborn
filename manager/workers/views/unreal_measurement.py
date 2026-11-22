@@ -29,7 +29,8 @@ _BAD = OpenApiResponse(
     response=inline_serializer('MeasurementRetryBadRequest', {'detail': serializers.CharField(required=False)}),
     description=(
         '{"detail": "Unknown keys: ..."} or {"detail": "Not an Unreal project."}, or a per-field '
-        'error object such as {"job_id": ["Not an Unreal job of this project."]}.'
+        'error object such as {"job_id": ["Not an Unreal job of this project."]} or '
+        '{"worker": ["This machine cannot run this memory test now."]}.'
     ),
 )
 
@@ -48,15 +49,17 @@ class UnrealMeasurementActionsMixin:
     def unreal_measurement_retry(self, request, pk=None):
         """Create a new pilot for one measurement key of this project.
 
-        Body (optional): ``{"job_id": <int>, "remeasure": <bool>}``.
+        Body (optional): ``{"job_id": <int>, "remeasure": <bool>, "worker": <int>}``.
 
         Returns:
             201 ``{"pilot_job_id": n, "measurement_id": n}``; 400 for a bad
-            body, a Blender project or a ``job_id`` that is not a normal
-            Unreal job of this project; 403 for a non-admin or a worker;
-            404 for an unknown project; 409 when the key is pending,
-            measured (without ``remeasure``), no held job needs one, or
-            the project has no Unreal asset.
+            body, a Blender project, a ``job_id`` that is not a normal
+            Unreal job of this project or a ``worker`` that cannot test
+            the key now; 403 for a non-admin or a worker; 404 for an
+            unknown project; 409 when the key is pending, measured
+            (without ``remeasure``), every machine is at the open-test
+            limit, no held job needs one, or the project has no Unreal
+            asset.
         """
         project = self.get_object()
         data = request.data if hasattr(request.data, 'keys') else None
@@ -72,7 +75,7 @@ class UnrealMeasurementActionsMixin:
             record = retry_measurement(
                 project, job_id=body.validated_data.get('job_id'),
                 remeasure=body.validated_data.get('remeasure', False),
-                username=request.user.get_username(),
+                worker=body.validated_data.get('worker'), username=request.user.get_username(),
             )
         except RetryRefused as exc:
             return Response(exc.body, status=exc.status)

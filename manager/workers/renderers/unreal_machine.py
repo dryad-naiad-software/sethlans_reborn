@@ -27,6 +27,7 @@ from shared.unreal.card_kind import card_kind
 
 from ..constants import UnrealKind
 from ..models import JobStatus, UnrealMeasurement
+from ..models.workers import reports_share_reachable
 
 # D5: at most this many kinds per worker, so a changing revision id cannot
 # grow the number of pilots a worker gets.
@@ -89,6 +90,11 @@ def measures_card(worker):
 def eligible_kinds(worker) -> tuple:
     """The worker's kinds, or none without a live card reading (D14)."""
     return worker_kinds(worker) if measures_card(worker) else ()
+
+
+def serves_build(worker, build, share) -> bool:
+    """D5: the worker reports ``build`` and the manager's ``share`` as reachable (activity and age aside)."""
+    return bool(share) and worker.has_unreal_build(build) and reports_share_reachable(worker.unreal_capabilities, share)
 
 
 def current_records(asset, overrides, target):

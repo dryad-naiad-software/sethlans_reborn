@@ -144,6 +144,20 @@ def _fresh_identity_warning_state(monkeypatch):
     monkeypatch.setattr(worker_reconcile, '_identity_warned_at', {})
 
 
+@pytest.fixture(autouse=True)
+def _fresh_cap_warnings():
+    """Forget when the open-pilot cap was last logged (per-machine memory test D5).
+
+    ``machine_tests`` logs the cap at most once an hour per worker pk in
+    module state; pks repeat across tests, so without this a test could
+    miss its WARNING because an earlier test logged it.
+    """
+    from workers.services.machine_tests import reset_cap_warnings
+    reset_cap_warnings()
+    yield
+    reset_cap_warnings()
+
+
 @pytest.fixture
 def make_worker_client(db):
     """Return a factory that builds a fresh token-authed Worker + APIClient.

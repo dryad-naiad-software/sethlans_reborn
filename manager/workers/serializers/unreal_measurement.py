@@ -34,6 +34,7 @@ from .strict_fields import StrictBooleanField, StrictCharField, StrictIntegerFie
 
 MAX_SECONDS = 259_200
 MAX_FRAME = 2 ** 31 - 1
+MAX_WORKER_ID = 2 ** 31 - 1  # a worker primary key (signed 32-bit)
 MAX_SUMMARY_BYTES = 32 * 1024
 MAX_GPU_NAME = 128
 _SHA256 = re.compile(r'[0-9a-f]{64}', re.ASCII)
@@ -152,6 +153,8 @@ class MeasurementRetryRequestSerializer(serializers.Serializer):
 
     job_id = StrictIntegerField(min_value=1, max_value=MAX_FRAME, required=False)
     remeasure = StrictBooleanField(required=False)
+    worker = StrictIntegerField(min_value=1, max_value=MAX_WORKER_ID, required=False,
+                                help_text="Test only this worker's card kinds (per-machine memory test FR-MT-P-4).")
 
 
 class MeasurementRetryResponseSerializer(serializers.Serializer):

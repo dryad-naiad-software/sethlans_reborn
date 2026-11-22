@@ -12,22 +12,32 @@ manager's share as reachable and has a live card reading, with one of its
 ``worker_kinds`` (at most four).  A worker with the VRAM override has no
 live card reading and is never eligible (D14).
 
-:func:`ensure_machine_tests` creates a targeted pilot for every eligible
-pair of a key that has no current record, or whose current record is
-``retest_due``.  A pair that is testing, fits, does not fit or failed gets
-none (a failed pair waits for the admin retry).  A worker with
-``MAX_OPEN_PILOTS`` QUEUED targeted pilots gets no more.
+:func:`ensure_machine_tests` serves every eligible pair of a key that
+has no current record, or whose current record is ``retest_due``: a
+covering result of the same machine and kind gives a derived record
+(``machine_coverage``, D8), else a targeted pilot.  A pair that is
+testing, fits, does not fit or failed gets none (a failed pair waits for
+the admin retry).  A worker with ``MAX_OPEN_PILOTS`` QUEUED targeted
+pilots gets no more; that is logged at WARNING at most once an hour per
+worker.  First, while the transaction has not locked the Worker rows yet,
+the project's QUEUED pilots that can no longer run are canceled
+(``machine_test_cancel``).  The heartbeat sweep is
+``machine_sweep.ensure_for_worker`` (D16).
 
-**Locks (D15):** the caller holds ``lock_project``; then every Worker row
-is locked once per transaction in ascending pk order
-(``worker_locks.lock_workers``, before any record lock, so several keys in
-one transaction never lock workers out of order); :func:`create_pilot`
+**Locks (D15):** the caller holds ``lock_project``; the pilots to cancel
+(Job rows, ``SKIP LOCKED``) come next; then every Worker row is locked
+once per transaction in ascending pk order (``worker_locks.lock_workers``,
+before any record lock, so several keys in one transaction never lock
+workers out of order); the canceled pilots' records; :func:`create_pilot`
 then locks the pair's current records (by pk), moves ``current`` to the
-new record and inserts the pilot job.  The open-pilot cap is counted after
+new record and inserts the pilot job (``derive`` locks the covering
+record together with the pair's records, by pk).  The open-pilot cap is counted after
 the Worker locks, so concurrent projects cannot pass it.
 """
 
 import logging
+import threading
+import time
 from datetime import timedelta
 
 from django.db.models import Count, Min
@@ -36,18 +46,43 @@ from django.utils import timezone
 from ..constants import PILOT_NAME_PREFIX, WORKER_STALENESS_SECONDS, RenderDevice, UnrealKind
 from ..constants_sequence import CARD_KIND_KEY
 from ..models import Job, JobStatus, UnrealMeasurement, Worker
-from ..models.workers import reports_share_reachable
-from ..renderers.unreal_machine import RETEST_DUE, eligible_kinds, live_pilot, pair_state_case
+from ..renderers.unreal_machine import RETEST_DUE, eligible_kinds, live_pilot, pair_state_case, serves_build
 from ..renderers.unreal_settings import MAP, OUTPUT_FORMAT, PRESET, SEQUENCE
+from .machine_coverage import covering_records, derive, needed_ranges
+from .machine_test_cancel import cancel_ineligible_pilots, release_records
 from .row_locks import lock_own_rows
 from .sethlans_share import configured_share
 from .unreal_pilot import locked_project
-from .worker_locks import lock_workers
+from .worker_locks import lock_workers, workers_locked
 
 logger = logging.getLogger(__name__)
 
 # D5: open (QUEUED) targeted pilots one worker may have.
 MAX_OPEN_PILOTS = 20
+# D5: the cap WARNING at most once per this many seconds per worker (per process).
+CAP_WARNING_SECONDS = 3600
+_cap_warned = {}
+_cap_warned_lock = threading.Lock()
+
+
+def _warn_cap(worker, project, kind):
+    """Log the open-pilot cap for ``worker`` unless it was logged within the hour."""
+    now = time.monotonic()
+    with _cap_warned_lock:
+        last = _cap_warned.get(worker.pk)
+        if last is not None and now - last < CAP_WARNING_SECONDS:
+            return
+        _cap_warned[worker.pk] = now
+    logger.warning(
+        "Worker %s already has %d queued memory tests; no pilot for project %s, card kind %s "
+        "(logged at most once an hour per worker).", worker.hostname, MAX_OPEN_PILOTS, project.pk, kind,
+    )
+
+
+def reset_cap_warnings():
+    """Forget when the cap was last logged (test helper)."""
+    with _cap_warned_lock:
+        _cap_warned.clear()
 
 
 def eligible_pairs(build, workers=None, within=None):
@@ -66,7 +101,7 @@ def eligible_pairs(build, workers=None, within=None):
         queryset = queryset.filter(pk__in=[getattr(worker, 'pk', worker) for worker in workers])
     pairs = []
     for worker in queryset:
-        if worker.has_unreal_build(build) and reports_share_reachable(worker.unreal_capabilities, share):
+        if serves_build(worker, build, share):
             pairs.extend((worker, kind) for kind in eligible_kinds(worker))
     return pairs
 
@@ -169,10 +204,7 @@ def create_pilots(project, asset, target, pairs, *, reason, frame=0, remeasured=
     records = []
     for worker, kind in pairs:
         if counts.get(worker.pk, 0) >= MAX_OPEN_PILOTS:
-            logger.warning(
-                "Worker %s already has %d queued memory tests; no pilot for project %s, card kind %s.",
-                worker.hostname, MAX_OPEN_PILOTS, project.pk, kind,
-            )
+            _warn_cap(worker, project, kind)
             continue
         record = create_pilot(project, asset, target, worker=worker, card_kind=kind, reason=reason,
                               frame=frame, remeasure=(worker.pk, kind) in remeasured)
@@ -183,17 +215,37 @@ def create_pilots(project, asset, target, pairs, *, reason, frame=0, remeasured=
 
 
 def ensure_machine_tests(project, asset, target, *, reason, frame=0, workers=None):
-    """Create a targeted pilot for every eligible pair of the key that needs one (D5, FR-MT-P-1).
+    """Serve every eligible pair of the key that needs a result (D5, D8, FR-MT-P-1).
 
-    Returns the new pilot jobs (possibly none).
+    A pair with a covering result gets a derived record; the others get
+    a targeted pilot within the cap.  ``workers`` narrows the pairs (the
+    heartbeat sweep passes its own worker).  Returns the new pilot jobs
+    (possibly none).
 
     Raises:
         ProjectLockMissing: the caller did not take the project lock.
     """
     locked = locked_project(project)
-    pairs = eligible_pairs(target.engine_build, workers, within=lock_workers())
-    states = pair_states(asset, locked.unreal_overrides_sha256, target.sha256(), pairs)
+    canceled = [] if workers_locked() else cancel_ineligible_pilots(locked)  # D15: Job rows before Workers
+    within = lock_workers()
+    release_records(canceled)  # D15: records after Workers
+    overrides = locked.unreal_overrides_sha256
+    pairs = eligible_pairs(target.engine_build, workers, within=within)
+    states = pair_states(asset, overrides, target.sha256(), pairs)
     # D2: no current record (not tried), or a current record that is retest_due.
     needing = [(worker, kind) for worker, kind in pairs
                if states.get((worker.pk, kind)) in (None, RETEST_DUE)]
-    return [record.pilot_job for record in create_pilots(locked, asset, target, needing, reason=reason, frame=frame)]
+    covering = covering_records(asset, overrides, target, needed_ranges(target), needing)
+    tested = []
+    for worker, kind in needing:
+        record = covering.get((worker.pk, kind))
+        # D8: a covering result gives a derived record; one that changed under the lock gives a pilot.
+        if record is None or derive(record, (locked, asset, target)) is None:
+            tested.append((worker, kind))
+    return [record.pilot_job for record in create_pilots(locked, asset, target, tested, reason=reason, frame=frame)]
+
+
+def ensure_for_worker(worker_id, *, worker=None):
+    """The heartbeat sweep for one worker (D16); see ``machine_sweep.ensure_for_worker``."""
+    from .machine_sweep import ensure_for_worker as _sweep
+    return _sweep(worker_id, worker=worker)

@@ -44,6 +44,21 @@ def canonical_root(value) -> UncPath | None:
     return root if root.canonical == value else None
 
 
+def share_of(value) -> str:
+    """The canonical share string of a stored ``sethlans_share`` value read elsewhere, ``''`` when unset.
+
+    The same rule as :func:`configured_share` (an invalid value is logged
+    once and counts as not configured), for a value read inside another query.
+    """
+    if value is None or value == '':
+        return ''
+    root = canonical_root(value)
+    if root is None:
+        _log_invalid_once(value)
+        return ''
+    return root.canonical
+
+
 def _log_invalid_once(value) -> None:
     key = repr(value)[:200]
     with _logged_invalid_lock:

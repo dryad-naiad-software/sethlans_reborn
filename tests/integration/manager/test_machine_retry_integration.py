@@ -13,8 +13,12 @@ or without ``remeasure``; pairs that are due a re-test or were never tried
 are retried; ``remeasure`` re-measures pairs with a result (``remeasure``
 true on their records only); the 409 texts of ``_refusal``: every pair
 measured (or measured and testing) without ``remeasure``, every pair
-testing, and no machine that can run the test (offline, or at the D5 cap
-of open pilots); a refused retry creates nothing.
+testing, no machine that can run the test (offline), and every machine
+that needs one at the D5 cap of open pilots; a refused retry creates
+nothing.  With ``worker`` (FR-MT-P-4): only that worker's eligible kinds are
+tested, ``remeasure`` re-measures only that worker, a worker that cannot
+test now (offline, override, unknown) is 400, a malformed ``worker`` is
+400, and that worker at the cap is 409 at the limit.
 """
 
 from datetime import timedelta
@@ -26,13 +30,16 @@ from workers.constants import WORKER_STALENESS_SECONDS
 from workers.models import Job, UnrealMeasurement, Worker
 from workers.services import machine_tests
 
-from .machine_test_helpers import current_of, pair_record, render_job
+from .machine_test_helpers import KIND_AMD, current_of, kinds_worker, pair_record, render_job
 from .unreal_helpers import unreal_asset
-from .unreal_pilot_helpers import pilots, ready_worker
+from .unreal_pilot_helpers import KIND, pilots, ready_worker
 
 ALREADY_MEASURED = 'This target is already measured; send "remeasure": true to measure it again.'
 ALREADY_PENDING = "A pilot render is already queued or running."
 NO_MACHINE = "No machine that is on can run this memory test now."
+AT_LIMIT = ("Every machine that needs this memory test already has 20 queued memory tests; "
+            "retry when some of them have run.")
+NOT_ELIGIBLE = "This machine cannot run this memory test now."
 STATES = {
     'fits': {'verdict': 'fits'},
     'does_not_fit': {'verdict': 'does_not_fit'},
@@ -149,5 +156,59 @@ class TestRefusals:
                 pair_record(other, f'{worker.pk:02x}{n:062x}', worker, pilot='QUEUED')
         before = _pilot_pks(job)
         resp = _retry(admin_client, job)
-        assert (resp.status_code, resp.data) == (409, {'error': NO_MACHINE})
+        assert (resp.status_code, resp.data) == (409, {'error': AT_LIMIT})
         assert _pilot_pks(job) == before
+
+
+@pytest.mark.django_db
+class TestOneWorker:
+    """FR-MT-P-4: ``worker`` narrows the retry to that worker's eligible card kinds."""
+
+    def test_only_that_workers_kinds(self, admin_client, setup):
+        job, worker_a, worker_b = setup
+        kinds_worker(worker_a, KIND, KIND_AMD)
+        resp = _retry(admin_client, job, worker=worker_a.pk)
+        assert resp.status_code == 201, resp.data
+        assert sorted((p.target_worker_id, p.render_settings['unreal.card_kind']) for p in pilots(job.asset)) == sorted(
+            [(worker_a.pk, KIND), (worker_a.pk, KIND_AMD)])
+        assert Job.objects.get(pk=resp.data['pilot_job_id']).target_worker_id == worker_a.pk
+
+    def test_remeasure_only_that_worker(self, admin_client, setup):
+        job, worker_a, worker_b = setup
+        pair_record(job.asset, job.unreal_target_sha256, worker_a, **STATES['fits'])
+        fits_b = pair_record(job.asset, job.unreal_target_sha256, worker_b, **STATES['fits'])
+        resp = _retry(admin_client, job, worker=worker_a.pk)
+        assert (resp.status_code, resp.data) == (409, {'error': ALREADY_MEASURED})
+        resp = _retry(admin_client, job, worker=worker_a.pk, remeasure=True)
+        assert resp.status_code == 201, resp.data
+        assert _new_pilots(job, set()) == {worker_a.pk: True}
+        assert current_of(job.asset, job.unreal_target_sha256, worker_b) == [fits_b.pk]
+
+    @pytest.mark.parametrize('who', ['offline', 'override', 'unknown'])
+    def test_a_worker_that_cannot_test_now_is_400(self, admin_client, setup, who):
+        job, _worker_a, worker_b = setup
+        if who == 'offline':
+            Worker.objects.filter(pk=worker_b.pk).update(
+                last_seen=timezone.now() - timedelta(seconds=WORKER_STALENESS_SECONDS + 60))
+        elif who == 'override':
+            ready_worker(worker_b, source='override')
+        resp = _retry(admin_client, job, worker=worker_b.pk if who != 'unknown' else 99999)
+        assert (resp.status_code, resp.data) == (400, {'worker': [NOT_ELIGIBLE]})
+        assert pilots(job.asset) == []
+
+    @pytest.mark.parametrize('value', [0, -1, 'one', True, 1.5])
+    def test_a_malformed_worker_is_400(self, admin_client, setup, value):
+        job, _worker_a, _worker_b = setup
+        resp = _retry(admin_client, job, worker=value)
+        assert resp.status_code == 400 and 'worker' in resp.data, resp.data
+        assert pilots(job.asset) == []
+
+    def test_that_worker_at_the_cap(self, admin_client, setup):
+        job, worker_a, worker_b = setup
+        other = unreal_asset(job.asset.project, name='MtRetryOneCap')
+        for n in range(machine_tests.MAX_OPEN_PILOTS):
+            pair_record(other, f'{n:064x}', worker_a, pilot='QUEUED')
+        resp = _retry(admin_client, job, worker=worker_a.pk)
+        assert (resp.status_code, resp.data) == (409, {'error': AT_LIMIT})
+        assert pilots(job.asset) == []
+        assert _retry(admin_client, job, worker=worker_b.pk).status_code == 201

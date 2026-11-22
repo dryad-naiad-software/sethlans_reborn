@@ -13,7 +13,10 @@ creates pilots for several keys.  :func:`lock_workers` therefore locks
 **every** Worker row once per transaction, in ascending pk order, before
 the transaction's first record lock; later calls in the same transaction
 reuse that set.  Pilot creation only uses workers in the set (a worker
-added after the lock waits for a later trigger).
+added after the lock waits for a later trigger).  A transaction locks any
+existing Job rows it needs before this (a claim holds its Job row and
+waits on the Worker row for its foreign-key check); :func:`workers_locked`
+tells whether that moment has passed.
 
 The marker follows ``unreal_pilot.lock_project``: it counts only while its
 ``on_commit`` token is pending in the current transaction (a rollback of
@@ -36,6 +39,19 @@ class _WorkerLockToken(LockToken):
         entry = getattr(self.connection, _MARKER, None)
         if entry is not None and entry[0] is self:
             setattr(self.connection, _MARKER, None)
+
+
+def workers_locked():
+    """Whether :func:`lock_workers` already locked the Worker rows in the current transaction.
+
+    A path that still has to lock existing Job rows must do so only while
+    this is false (D15: Job rows before Workers).
+    """
+    connection = transaction.get_connection()
+    if not connection.in_atomic_block:
+        return False
+    entry = getattr(connection, _MARKER, None)
+    return entry is not None and entry[0].is_live()
 
 
 def lock_workers():

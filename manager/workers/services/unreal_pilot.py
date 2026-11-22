@@ -218,10 +218,10 @@ def ensure_pilot_for_job(job, *, reason):
                         frame=job.start_frame)
 
 
-def retry_measurement(project, *, job_id=None, remeasure=False, username=''):
-    """The admin retry (FR-PM-6); see ``services/unreal_retry.py``."""
+def retry_measurement(project, *, job_id=None, remeasure=False, worker=None, username=''):
+    """The admin retry (FR-PM-6, FR-MT-P-4); see ``services/unreal_retry.py``."""
     from .unreal_retry import retry_measurement as _retry
-    return _retry(project, job_id=job_id, remeasure=remeasure, username=username)
+    return _retry(project, job_id=job_id, remeasure=remeasure, worker=worker, username=username)
 
 
 __all__ = [

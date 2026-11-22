@@ -19,7 +19,7 @@ See ``enroll.py`` for the enrollment flow and
 
 import logging
 
-from django.db import DatabaseError, models
+from django.db import DatabaseError, models, transaction
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -36,6 +36,7 @@ from ..services.data_dir import get_manager_data_dir as _get_data_dir
 from ..models import SupportedBlenderVersion, Worker
 from ..permissions import HeartbeatViewSetPermission
 from ..serializers import WorkerSerializer
+from ..services.machine_tests import ensure_for_worker
 from ..services.sentinel import is_setup_complete
 # Module import, attributes read at call time: ``worker_reconcile`` imports
 # ``views.stuck_jobs``, so a ``from`` import here would be an import cycle.
@@ -177,6 +178,7 @@ class WorkerHeartbeatViewSet(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         result.update(heartbeat_card_sync.sync(worker, request.data))  # after the handler's save (D24)
+        transaction.on_commit(lambda: ensure_for_worker(worker.pk, worker=worker), robust=True)  # memory tests D16
         # Append required Blender versions to every heartbeat response
         result['required_blender_versions'] = list(
             SupportedBlenderVersion.objects.values(

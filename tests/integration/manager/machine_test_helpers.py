@@ -11,7 +11,10 @@ worker eligible with one ticked ``ok`` card per given kind;
 :func:`pair_record` stores one record of a pair in a chosen D2 state.
 """
 
-from django.db import transaction
+import contextlib
+from unittest.mock import patch
+
+from django.db import connection, transaction
 from django.utils import timezone
 
 from tests.unit.manager.card_report_helpers import card, stored
@@ -34,6 +37,34 @@ NO_MACHINE = "This memory test has no machine."
 NO_CARD_READING = "Worker cannot measure GPU memory (no live card reading)."
 NO_KIND = "This machine has no ticked graphics card with a known PCI id."
 TARGET_DELETED = "The machine this memory test was for was deleted."
+NO_LONGER_USED = "This machine no longer uses this card kind."
+HB = '/api/heartbeat/'
+
+
+@contextlib.contextmanager
+def emulated_row_locks():
+    """Emulate a backend with ``FOR UPDATE OF`` and ``SKIP LOCKED`` (PostgreSQL); the clause is a trailing comment."""
+    real = connection.ops.for_update_sql
+
+    def commented(**kwargs):
+        return f'/* {real(**kwargs)} */'
+
+    with patch.object(connection.features, 'has_select_for_update', True), \
+            patch.object(connection.features, 'has_select_for_update_of', True), \
+            patch.object(connection.features, 'has_select_for_update_skip_locked', True), \
+            patch.object(connection.ops, 'for_update_sql', commented):
+        yield
+
+
+def heartbeat(client, worker, capture, **extra):
+    """POST a heartbeat as ``worker`` and run its on-commit callbacks (the D16 sweep); the response.
+
+    ``capture`` is pytest-django's ``django_capture_on_commit_callbacks``.
+    """
+    with capture(execute=True):
+        resp = client.post(HB, {'hostname': worker.hostname, **extra}, format='json')
+    assert resp.status_code == 200, resp.data
+    return resp
 
 
 def ids_of(kind):

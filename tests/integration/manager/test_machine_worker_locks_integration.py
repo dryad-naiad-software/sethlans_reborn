@@ -22,8 +22,6 @@ locks and the clause is compiled as a trailing comment, as in
 ``test_row_lock_sql.py``.
 """
 
-from unittest.mock import patch
-
 import pytest
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
@@ -32,7 +30,7 @@ from tests.row_lock_sql import locked_tables
 from workers.models import Job, Worker
 from workers.services.worker_locks import lock_workers
 
-from .machine_test_helpers import render_job
+from .machine_test_helpers import emulated_row_locks, render_job
 from .sequence.sequence_helpers import post_shots, shots_job_of
 from .sequence.submission_helpers import done_discovery, small_shots_body, submit
 from .unreal_helpers import unreal_asset
@@ -46,14 +44,7 @@ CVARS = {'r.Streaming.PoolSize': '3000'}
 @pytest.fixture
 def row_locks():
     """Emulate a backend with ``FOR UPDATE OF`` (PostgreSQL); the clause is a trailing comment."""
-    real = connection.ops.for_update_sql
-
-    def commented(**kwargs):
-        return f'/* {real(**kwargs)} */'
-
-    with patch.object(connection.features, 'has_select_for_update', True), \
-            patch.object(connection.features, 'has_select_for_update_of', True), \
-            patch.object(connection.ops, 'for_update_sql', commented):
+    with emulated_row_locks():
         yield
 
 

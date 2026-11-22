@@ -21,6 +21,11 @@ there.  This test therefore checks that both finish, with the right
 pilots and no errors; the lock order itself (one all-Worker lock before
 any record lock) is checked statement by statement in
 ``test_machine_worker_locks_integration.py``.
+
+A job-creation trigger and a heartbeat sweep (D16) of the same untried
+pair at once also create exactly one pilot: the sweep's lock-free read may
+see the pair untried, but it re-checks the pair states under the project
+lock.
 """
 
 import threading
@@ -29,7 +34,8 @@ import pytest
 from django.db import connections, transaction
 
 from workers.models import Job, ManagerSettings
-from workers.services.unreal_pilot import ensure_pilots_for_queued, lock_project
+from workers.services.machine_sweep import ensure_for_worker
+from workers.services.unreal_pilot import ensure_pilot_for_job, ensure_pilots_for_queued, lock_project
 
 from .machine_test_helpers import render_job
 from .sqlite_file_db import file_backed_sqlite
@@ -107,3 +113,23 @@ def test_two_projects_in_opposite_worker_orders(worker_with_token, make_worker_c
     # Project one needs B then A; project two needs A then B: each pair got its one pilot.
     assert (_targets(one_k1), _targets(one_k2)) == ([worker_b.pk], [worker_a.pk])
     assert (_targets(two_k1), _targets(two_k2)) == ([worker_a.pk], [worker_b.pk])
+
+
+def _trigger(job):
+    """The job-creation trigger (``ensure_pilot_for_job``) in its own locked transaction."""
+    def call():
+        with transaction.atomic():
+            lock_project(job.asset.project)
+            return [p.pk for p in ensure_pilot_for_job(job, reason='test')]
+    return call
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('round_', range(ROUNDS))
+def test_a_trigger_and_a_heartbeat_sweep_make_one_pilot(worker_with_token, file_database, round_):
+    """D5, D16: both see the pair untried; the project lock lets only the first create its pilot."""
+    worker = ready_worker(worker_with_token[0])
+    job = render_job(unreal_asset(unreal_project(name=f'MtRaceSweep{round_}'), name=f'MtRaceSweepAsset{round_}'))
+    made, swept = _run_together(_trigger(job), lambda: ensure_for_worker(worker.pk))
+    assert len(made) + swept == 1
+    assert _targets(job) == [worker.pk]
