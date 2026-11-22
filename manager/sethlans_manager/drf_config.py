@@ -37,6 +37,9 @@ SPECTACULAR_SETTINGS = {
         'WorkerCardNoticeKindEnum': 'workers.serializers.worker_card_schemas.CARD_NOTICE_KINDS',
         'WorkerCardOutcomeResultEnum': 'workers.serializers.worker_card_schemas.CARD_OUTCOME_RESULTS',
         'WorkerCardOutcomeCodeEnum': 'workers.serializers.worker_card_schemas.CARD_OUTCOME_CODES',
+        # A project's and job's renderer and the renderer of a held card (Unreal
+        # render per card FR-PC-MGR-3) share one value set, so one pinned name.
+        'RendererEnum': 'workers.constants.Renderer',
         # The heartbeat ``gpu_memory.source`` names (gpu-memory-reader FR-GH-6).
         'WorkerGpuMemorySourceEnum': 'workers.serializers.workers.GPU_MEMORY_SOURCE_CHOICES',
         # What a pilot render ran with (gpu-memory-reader FR-GC-10): the
