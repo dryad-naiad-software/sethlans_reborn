@@ -177,7 +177,7 @@ class UnrealWorkflowHarness(CoreWorkflowsHarness):
     def _boot(cls):
         # A worker without a card choice is CPU-only and never claims an
         # Unreal job; stop now rather than at the claim timeout.
-        cls.compute_env, skip_reason = compute_env()
+        cls.compute_env, skip_reason = cls._card_env()
         if skip_reason:
             pytest.skip(f"Unreal E2E needs a GPU card choice: {skip_reason}")
         running = unreal_isolation.running_unreal_processes()
@@ -185,7 +185,7 @@ class UnrealWorkflowHarness(CoreWorkflowsHarness):
             f"Unreal is already running (an artist's editor or a leftover); "
             f"close it before this test: {running}"
         )
-        cls.cache_dir = os.environ.get(CACHE_DIR_ENV) or DEFAULT_CACHE_DIR
+        cls.cache_dir = cls._cache_dir()
         assert " " not in cls.cache_dir, f"{CACHE_DIR_ENV} must not contain spaces"
         cls.isolation_before = unreal_isolation.take_snapshot(
             cls.temp_dir / "hkcu_before.reg", archive_on_share(),
@@ -200,6 +200,15 @@ class UnrealWorkflowHarness(CoreWorkflowsHarness):
         cls.overlay_sha256 = fingerprint(cls.manager_env, OVERLAY_RELPATH)
         cls.project_id = cls._create_project()
         cls.asset_id = cls._create_asset()
+
+    @classmethod
+    def _card_env(cls):
+        """``(worker env updates, skip reason)``; a test class may tick other cards."""
+        return compute_env()
+
+    @classmethod
+    def _cache_dir(cls):
+        return os.environ.get(CACHE_DIR_ENV) or DEFAULT_CACHE_DIR
 
     @classmethod
     def _start_manager(cls):
