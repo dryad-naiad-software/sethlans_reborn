@@ -12,7 +12,7 @@ from rest_framework.parsers import FileUploadParser, MultiPartParser
 
 from ..models import Asset, Job
 from ..renderers import UnsupportedRendererError, strategy_for_source_type
-from ..services.row_locks import lock_own_rows
+from ..services.delete_locks import lock_for_delete
 from ..permissions import IsAdminOrWorkerReadOnly
 from ..serializers import AssetSerializer
 
@@ -40,21 +40,28 @@ class AssetViewSet(viewsets.ModelViewSet):
     filterset_fields = ['project']
 
     def perform_destroy(self, instance):
-        """Lock the asset's jobs (by pk) before deleting it (FR-PM-10 lock order).
+        """Take the delete's locks first, in D15 order, then delete (FR-PM-10, issue #288).
 
-        The cascade deletes the asset's measurement records and jobs; with
-        the jobs locked first it keeps the ``pilot-result/`` order (Job ->
-        UnrealMeasurement).  Assets without measurements keep the plain delete.
+        The cascade deletes the asset's measurement records, jobs and
+        sequence rows.  For a renderer with measurement records: the
+        project's row, the asset's Job rows, the Worker rows of its records,
+        its records, discoveries and submissions, each by pk
+        (``delete_locks.lock_for_delete``), before Django's delete collector
+        runs.  An asset whose project was deleted meanwhile deletes nothing.
+        Assets without measurements keep the plain delete.
         """
         try:
-            measured = strategy_for_source_type(instance.source_type).supports('pilot_measurement')
+            strategy = strategy_for_source_type(instance.source_type)
         except UnsupportedRendererError:
-            measured = False
-        if not measured:
+            strategy = None
+        if strategy is None or not strategy.supports('pilot_measurement'):
             return super().perform_destroy(instance)
         with transaction.atomic():
-            list(lock_own_rows(Job.objects.filter(asset=instance).order_by('pk')).values_list('pk', flat=True))
-            instance.delete()
+            # ``project_id``, never the lazy ``instance.project``: a project
+            # deleted meanwhile is found under the lock (``lock_for_delete``).
+            if lock_for_delete(strategy, instance.project_id, Job.objects.filter(asset=instance), asset=instance):
+                instance.delete()
+        return None
 
     def create(self, request, *args, **kwargs):
         logger.info(

@@ -17,7 +17,9 @@ from ..permissions import IsAdmin
 from ..renderers import get_strategy
 from ..renderers.unreal_project_measurement import project_annotations
 from ..serializers.unreal_measurement import ProjectDetailSerializer
+from ..services.delete_locks import lock_for_delete
 from ..services.sequence_discovery import settle_canceled_shots_jobs
+from .job_pilot_actions import measures_pilots
 from .unreal_measurement import UnrealMeasurementActionsMixin
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,26 @@ class ProjectViewSet(UnrealMeasurementActionsMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         """The ``unreal_measurement`` summary as subqueries: a list adds no query (FR-PM-7)."""
         return super().get_queryset().annotate(**project_annotations())
+
+    def perform_destroy(self, instance):
+        """Take the delete's locks first, in D15 order, then delete (issue #287).
+
+        For a renderer with measurement records: the Project row, the
+        project's Job rows, the Worker rows of its records, its records,
+        discoveries and submissions, each by pk
+        (``delete_locks.lock_for_delete``), before Django's delete
+        collector runs.  A project deleted meanwhile deletes
+        nothing.  Other renderers keep the plain delete.
+        """
+        if not measures_pilots(instance.renderer):
+            return super().perform_destroy(instance)
+        with transaction.atomic():
+            # ``asset_id__in`` (a subquery, not a join): MariaDB's plain
+            # FOR UPDATE would also lock the joined Asset rows.
+            jobs = Job.objects.filter(asset_id__in=Asset.objects.filter(project=instance).values('pk'))
+            if lock_for_delete(get_strategy(instance.renderer), instance.pk, jobs, project=instance):
+                instance.delete()
+        return None
 
     @action(detail=True, methods=['post'], url_path='cancel_all_jobs')
     def cancel_all_jobs(self, request, pk=None):

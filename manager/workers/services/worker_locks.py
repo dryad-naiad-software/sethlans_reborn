@@ -23,13 +23,17 @@ tells whether that moment has passed.
 ``stale_reason`` holds that record's Worker row first: creation and
 ``derive`` through :func:`lock_workers`, ``machine_test_cancel.release_records``
 after it, ``pilot-result/`` (and ``memory-report/``) through the caller's
-own Worker row after its Job row, and the Worker ``pre_delete`` handler.
-The Worker row therefore serializes every writer of one (worker, card
-kind) pair's records across projects, which is what lets ``pilot-result/``
-apply D3 to other projects' records without their ``lock_project``.  The
-only other record lock is a Job delete's ``SET_NULL`` of ``pilot_job``:
-it comes after that pilot's Job row, writes none of those fields and
-waits on no Worker row.
+own Worker row after its Job row, the Worker ``pre_delete`` handler, and
+the project and asset deletes (``delete_locks.lock_for_delete``: Project
+row, the Job rows, the Worker rows of the deleted records (an ascending
+subset of :func:`lock_workers`' order), then the records, each by pk,
+all before Django's delete collector runs).  The Worker row therefore
+serializes every writer of one (worker, card kind) pair's records across
+projects, which is what lets ``pilot-result/`` apply D3 to other
+projects' records without their ``lock_project``.  The only other record
+lock is a single Job delete's ``SET_NULL`` of ``pilot_job``: one record
+(the pilot's own), after that pilot's Job row; it writes none of those
+fields and waits on no Worker row.
 
 The marker follows ``unreal_pilot.lock_project``: it counts only while its
 ``on_commit`` token is pending in the current transaction (a rollback of

@@ -228,20 +228,21 @@ class TestLockedDelete:
         assert not Job.objects.filter(pk=pilot.pk).exists()
 
     def test_asset_delete_locks_its_jobs_by_pk_first(self, admin_client, asset, mocker):
-        from workers.views import assets as asset_views
+        from workers.services import delete_locks
         created_job(admin_client, asset)
-        spy = mocker.spy(asset_views, 'lock_own_rows')
+        spy = mocker.spy(delete_locks, 'lock_own_rows')
         assert admin_client.delete(f'/api/assets/{asset.pk}/').status_code == 204
-        locked = spy.call_args.args[0]
+        locked = spy.call_args_list[0].args[0]
         assert locked.model is Job and locked.query.order_by == ('pk',)
         assert not Job.objects.filter(asset_id=asset.pk).exists()
 
     def test_blender_deletes_take_no_lock(self, admin_client, asset_on_blender, mocker):
-        from workers.views import assets as asset_views, job_pilot_actions
+        from workers.services import delete_locks
+        from workers.views import job_pilot_actions
         first, _second = asset_on_blender
         job = Job.objects.create(name='BlendDel', asset=first, output_file_pattern='//r/b.png')
         job_spy = mocker.spy(job_pilot_actions, 'lock_own_rows')
-        asset_spy = mocker.spy(asset_views, 'lock_own_rows')
+        asset_spy = mocker.spy(delete_locks, 'lock_own_rows')
         assert admin_client.delete(f'{JOBS}{job.pk}/').status_code == 204
         assert admin_client.delete(f'/api/assets/{first.pk}/').status_code == 204
         assert job_spy.call_count == 0 and asset_spy.call_count == 0
