@@ -23,9 +23,11 @@ One Windows Job Object per UE launch (Unreal foundation FR-UE-11; Conc H1).
 kills the process and refuses to run unconfined. The ctypes pattern
 follows ``shared/caddy_supervisor/process.py`` (copied, not imported:
 those helpers are private and fail open). ``ctypes`` is loaded on first
-use, so the module imports on every platform; the Win32 layer
+use, so the module imports on every platform, and off Windows every call
+raises ``JobObjectError`` before it touches a Windows-only name; the Win32 layer
 (``Win32JobApi``) is a class so unit tests can pass a fake.
 """
+import sys
 import threading
 from typing import List, Optional, Tuple
 
@@ -48,6 +50,8 @@ class Win32JobApi:
     _ns = None
 
     def _load(self):
+        if sys.platform != 'win32':  # before any Windows-only ctypes name (WinDLL, wintypes, get_last_error)
+            raise JobObjectError("Job Objects exist only on Windows")
         with Win32JobApi._lock:
             if Win32JobApi._ns is not None:
                 return Win32JobApi._ns

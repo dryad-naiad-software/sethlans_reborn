@@ -119,6 +119,17 @@ class TestReadersOnFakes:
         with pytest.raises(ProcessMemoryError, match='only read on Windows'):
             process_memory.private_ws_and_commit(os.getpid())
 
+    @pytest.mark.parametrize('read', [lambda: process_memory.private_ws_and_commit(os.getpid()),
+                                      process_memory.commit_headroom], ids=['process', 'headroom'])
+    def test_simulated_off_windows_raises_before_any_windows_ctypes_name(self, monkeypatch, read):
+        """Issue #286: ``ctypes`` without ``get_last_error``/``WinDLL`` (Linux, macOS) on every OS."""
+        monkeypatch.setattr(process_memory, 'sys', type('Sys', (), {'platform': 'linux'}))
+        monkeypatch.delattr(ctypes, 'get_last_error', raising=False)
+        monkeypatch.delattr(ctypes, 'WinDLL', raising=False)
+        monkeypatch.setattr(Win32MemoryApi, '_shared', None)
+        with pytest.raises(ProcessMemoryError, match='only read on Windows'):
+            read()
+
 
 @windows_only
 @pytest.mark.skipif(sys.maxsize <= 2 ** 32, reason='64-bit layout')

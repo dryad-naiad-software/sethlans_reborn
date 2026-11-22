@@ -20,7 +20,8 @@ with fixed-width ``ctypes`` types (``DWORD`` = ``c_uint32``, ``SIZE_T`` = ``c_si
 
 **Every failure raises** ``ProcessMemoryError`` (no fallback, NF-2): the process cannot be opened
 or is gone, a call fails, or a Windows build fills a shorter structure than ``EX2`` (its returned
-``cb`` is not the size asked for; U-6). Off Windows the Win32 layer raises too. The Win32 layer is a
+``cb`` is not the size asked for; U-6). Off Windows the Win32 layer raises it too, before it
+touches any Windows-only ``ctypes`` name (``WinDLL``, ``wintypes``, ``get_last_error``). The Win32 layer is a
 class (``Win32MemoryApi``) so tests can pass a fake ``kernel32``.
 """
 import ctypes
@@ -58,9 +59,19 @@ class PerformanceInformation(ctypes.Structure):
                 ('HandleCount', _DWORD), ('ProcessCount', _DWORD), ('ThreadCount', _DWORD)]
 
 
-def _load_kernel32():
+def _require_windows() -> None:
+    """Raise ``ProcessMemoryError`` off Windows, before any Windows-only ``ctypes`` name is touched."""
     if sys.platform != 'win32':
         raise ProcessMemoryError("process memory figures are only read on Windows")
+
+
+def _windows_last_error() -> int:
+    _require_windows()
+    return ctypes.get_last_error()
+
+
+def _load_kernel32():
+    _require_windows()
     from ctypes import wintypes
     k32 = ctypes.WinDLL('kernel32', use_last_error=True)
     handle, boolean = wintypes.HANDLE, wintypes.BOOL
@@ -85,7 +96,7 @@ class Win32MemoryApi:
 
     def __init__(self, kernel32=None, last_error: Optional[Callable[[], int]] = None):
         self._k32 = kernel32
-        self._last_error = last_error or ctypes.get_last_error
+        self._last_error = last_error or _windows_last_error
 
     def _kernel32(self):
         if self._k32 is not None:

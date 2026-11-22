@@ -4,6 +4,7 @@
 """Unreal slots: paths, ports, Zen flags, launch checks, farm zenserver identity, port range and marker
 (render per card D5, D6, FR-PC-SLOT-1..4, FR-PC-SLOT-7; AC-4, AC-5)."""
 import logging
+import os
 
 import pytest
 
@@ -12,7 +13,7 @@ from sethlans_worker_agent.unreal_executor import command, user_state, warmup, z
 from sethlans_worker_agent.unreal_executor import slot as slots
 from sethlans_worker_agent.unreal_executor.command import CommandError
 from tests.unit.worker.unreal.test_command import EDITOR, JOB, MAP, MERGED, QUEUE, UPROJECT
-from tests.unit.worker.unreal.test_zen_private import FakeProc, owners  # noqa: F401 - fixture
+from tests.unit.worker.unreal.test_zen_private import OTHER_SID, FakeProc, owners  # noqa: F401 - fixture
 
 CACHE = r'D:\uecache'
 LOG = JOB + r'\logs\render.1.log'
@@ -137,9 +138,20 @@ class TestFarmZenserver:
         assert not zen_private.is_farm_zenserver(FakeProc(['zenserver.exe', '--data-dir', data_dir]), CACHE)
 
     def test_another_owner_of_a_slot_server_is_not(self, owners):  # noqa: F811
-        proc = FakeProc(['zenserver.exe', '--data-dir', zen_private.zen_data_dir(CACHE, 3)], pid=7)
-        owners[7] = 'S-1-5-21-1-2-3-1002'
+        """Issue #286: the other owner is set for both checks (the SID on Windows, the uid elsewhere)."""
+        proc = FakeProc(['zenserver.exe', '--data-dir', zen_private.zen_data_dir(CACHE, 3)], pid=7, owner=OTHER_SID)
+        owners[7] = OTHER_SID
         assert not zen_private.is_farm_zenserver(proc, CACHE)
+
+    @pytest.mark.parametrize('owner, ours', [(None, True), (OTHER_SID, False)], ids=['own-uid', 'other-uid'])
+    def test_off_windows_the_uid_decides(self, monkeypatch, owner, ours):
+        """The orphan sweep runs on every OS: off Windows another user's slot server is refused by uid."""
+        monkeypatch.setattr(zen_private, 'sys', type('Sys', (), {'platform': 'linux'}))
+        monkeypatch.setattr(os, 'geteuid', lambda: 1000, raising=False)
+        monkeypatch.setattr(zen_private.win32_proc, 'process_owner_sid', lambda pid: pytest.fail('SID read off Windows'))
+        cmdline = [zen_private.ZEN_IMAGE_POSIX, '--data-dir', zen_private.zen_data_dir(CACHE, 3)]
+        proc = FakeProc(cmdline, name=zen_private.ZEN_IMAGE_POSIX, **({'owner': owner} if owner else {}))
+        assert zen_private.is_farm_zenserver(proc, CACHE) is ours
 
 
 class TestZenLog:

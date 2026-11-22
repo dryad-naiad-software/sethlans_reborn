@@ -42,6 +42,17 @@ class PeakApi:
         self.calls.append(('close', handle))
 
 
+@pytest.mark.parametrize('call', ['create', 'peak'])
+def test_simulated_off_windows_raises_job_object_error_before_any_windows_ctypes_name(monkeypatch, call):
+    """Issue #286: ``ctypes`` without ``WinDLL``/``get_last_error`` (Linux, macOS) on every OS."""
+    monkeypatch.setattr(job_object, 'sys', type('Sys', (), {'platform': 'linux'}))
+    monkeypatch.delattr(ctypes, 'WinDLL', raising=False)
+    monkeypatch.delattr(ctypes, 'get_last_error', raising=False)
+    monkeypatch.setattr(Win32JobApi, '_ns', None)
+    with pytest.raises(JobObjectError, match='only on Windows'):
+        Win32JobApi().create() if call == 'create' else Win32JobApi().peak_memory(1)
+
+
 def test_job_object_passes_its_handle_and_returns_job_then_process_peak():
     api = PeakApi()
     job = JobObject.create(api)
