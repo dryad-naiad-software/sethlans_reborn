@@ -93,7 +93,7 @@ class TestCardFields:
         [entry] = _view([], cards=(xt_23(),))['cards']
         assert entry == {
             'key': KEY_XT_23, 'address': '0000:23:00.0', 'pci': '23:00.0', 'name': 'AMD Radeon RX 7900 XT',
-            'vendor_id': AMD, 'device_id': 0x744C, 'backend': 'HIP', 'family': 'HIP', 'note': '',
+            'vendor_id': AMD, 'device_id': 0x744C, 'revision_id': 0xCC, 'backend': 'HIP', 'family': 'HIP', 'note': '',
             'ticked': False, 'state': 'unticked', 'screen': None, 'primary_screen': None,
             'job_id': None, 'renderer': None,
         }
@@ -147,7 +147,8 @@ class TestStates:
                                                                      (KEY_XT_23, 'held')]
         assert answer['missing'] == [{'key': KEY_RTX_A, 'address': '0000:01:00.0', 'pci': '01:00.0',
                                       'name': 'NVIDIA GeForce RTX 4080', 'state': 'lost',
-                                      'vendor_id': 0x10DE, 'device_id': 0x2704, 'job_id': None, 'renderer': None}]
+                                      'vendor_id': 0x10DE, 'device_id': 0x2704, 'revision_id': 0xA1,
+                                      'job_id': None, 'renderer': None}]
         assert answer['alerts'] == [self.ALERT]
         assert answer['notices'] == [{'kind': 'card_new', 'key': 'pci:0000:03:00.0', 'name': 'AMD Radeon RX 7900 XT'},
                                      {'kind': 'card_new', 'key': KEY_XT_23, 'name': 'AMD Radeon RX 7900 XT'}]

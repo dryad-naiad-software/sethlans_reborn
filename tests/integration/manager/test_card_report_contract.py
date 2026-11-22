@@ -67,6 +67,9 @@ class TestEveryStateAndKind:
         stored = _passes_unchanged(report)
         lost = {entry['key']: entry for entry in stored['cards']}[KEY_LOST]
         assert (lost['vendor_id'], lost['device_id'], lost['ticked']) == (NVIDIA, 0x2204, True)
+        # FR-MT-K-2: every probed card's revision survives; the lost card's saved record has none.
+        assert {e['key']: e['revision_id'] for e in stored['cards']} == dict.fromkeys(_states(report), 0xA1) | {
+            KEY_LOST: None}
         assert stored['revision'] == 7 and stored['method'] == 'cpu_gpu'
 
     def test_failed_os_probe_sends_unknown_and_its_warning(self, machine):

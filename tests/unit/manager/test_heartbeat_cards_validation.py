@@ -86,7 +86,7 @@ class TestCards:
 
     def test_absent_optional_fields_get_defaults(self):
         assert _kept('cards', {'key': KEY, 'state': 'lost'}) == [{
-            'key': KEY, 'name': '', 'vendor_id': None, 'device_id': None, 'ticked': False,
+            'key': KEY, 'name': '', 'vendor_id': None, 'device_id': None, 'revision_id': None, 'ticked': False,
             'state': 'lost', 'blender': False, 'backend': None, 'note': '',
             'screen': None, 'primary_screen': None, 'job_id': None, 'renderer': None,
         }]

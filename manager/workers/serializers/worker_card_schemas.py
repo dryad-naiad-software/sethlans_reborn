@@ -34,6 +34,9 @@ _CARD_SCHEMA = inline_serializer('WorkerCard', {
     'name': serializers.CharField(required=False),
     'vendor_id': serializers.IntegerField(required=False, allow_null=True),
     'device_id': serializers.IntegerField(required=False, allow_null=True),
+    # PCI revision (Unreal per-machine memory test FR-MT-K-2): ``null`` when
+    # not read or invalid.
+    'revision_id': serializers.IntegerField(required=False, allow_null=True),
     'ticked': serializers.BooleanField(required=False),
     'state': serializers.ChoiceField(required=False, choices=CARD_STATES),
     'blender': serializers.BooleanField(required=False),

@@ -96,7 +96,7 @@ def _card_view(card: inventory.Card, ticked, uncached_note: Optional[str], state
     note = uncached_note if uncached_note and card.note == inventory.NOTE_NO_BLENDER else card.note
     return {
         'key': card.key, 'address': address_of(card.key), 'pci': short_address(card.key),
-        'name': card.name, 'vendor_id': card.vendor_id, 'device_id': card.device_id,
+        'name': card.name, 'vendor_id': card.vendor_id, 'device_id': card.device_id, 'revision_id': card.revision_id,
         'backend': backend, 'family': FAMILIES.get(backend, backend) if backend else None,
         'note': note, 'ticked': card.key in ticked, 'state': state,
         'screen': card.screen, 'primary_screen': card.primary_screen,
@@ -108,7 +108,8 @@ def _missing_view(record: dict, state: Optional[str]) -> dict:
     key = record['key']
     return {'key': key, 'address': address_of(key), 'pci': short_address(key),
             'name': clean_name(str(record.get('name') or '')) or key, 'state': state,
-            'vendor_id': record.get('vendor_id'), 'device_id': record.get('device_id')}  # the saved ids (FR-CR-1)
+            'vendor_id': record.get('vendor_id'), 'device_id': record.get('device_id'),
+            'revision_id': record.get('revision_id')}  # the saved ids (FR-CR-1)
 
 
 def _alert_view(alert: dict) -> dict:

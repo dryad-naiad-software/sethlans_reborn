@@ -63,10 +63,10 @@ class TestShape:
             'manager_changes_allowed': True, 'rebuild_waiting': False, 'problem': '',
             'cards': [
                 {'key': KEY_XT_03, 'name': 'AMD Radeon RX 7900 XT', 'vendor_id': AMD, 'device_id': 0x744C,
-                 'ticked': False, 'state': 'unticked', 'blender': True, 'backend': 'HIP', 'note': '',
+                 'revision_id': 0xC8, 'ticked': False, 'state': 'unticked', 'blender': True, 'backend': 'HIP', 'note': '',
                  'screen': None, 'primary_screen': None, 'job_id': None, 'renderer': None},
                 {'key': KEY_XT_23, 'name': 'AMD Radeon RX 7900 XT', 'vendor_id': AMD, 'device_id': 0x744C,
-                 'ticked': True, 'state': 'ok', 'blender': True, 'backend': 'HIP', 'note': '',
+                 'revision_id': 0xCC, 'ticked': True, 'state': 'ok', 'blender': True, 'backend': 'HIP', 'note': '',
                  'screen': None, 'primary_screen': None, 'job_id': None, 'renderer': None},
             ],
             'alerts': [], 'notices': [],
@@ -85,7 +85,8 @@ class TestShape:
         lost = by_key(payload.build())[KEY_RTX_A]
 
         assert lost == {'key': KEY_RTX_A, 'name': 'NVIDIA GeForce RTX 4080', 'vendor_id': 0x10DE,
-                        'device_id': 0x2704, 'ticked': True, 'state': 'lost', 'blender': False, 'backend': None,
+                        'device_id': 0x2704, 'revision_id': 0xA1, 'ticked': True, 'state': 'lost', 'blender': False,
+                        'backend': None,
                         'note': 'missing from the card list', 'screen': None, 'primary_screen': None,
                         'job_id': None, 'renderer': None}
 

@@ -16,7 +16,9 @@ plus ``unknown`` (a ticked card missing after a failed OS probe, C-24a); a
 ``lost`` card is a card entry carrying its saved record.  A card's
 ``job_id`` and ``renderer`` (Unreal render per card FR-PC-MGR-3) are
 *nullable on invalid*: an invalid value is stored ``null`` and the card is
-kept; the two are a pair, both ``null`` unless both are valid.
+kept; the two are a pair, both ``null`` unless both are valid.  A card's
+PCI ``revision_id`` (Unreal per-machine memory test FR-MT-K-2) is nullable
+on invalid too, on its own.
 """
 import logging
 import re
@@ -89,6 +91,7 @@ def _null_on_invalid(check):
 _bool = _when(lambda raw: isinstance(raw, bool))
 _bool_or_null = _when(lambda raw: isinstance(raw, bool), nullable=True)
 _pci_id = _when(lambda raw: _int_in(raw, 0, MAX_PCI_ID), nullable=True)
+_pci_revision = _null_on_invalid(_pci_id)
 _revision = _when(lambda raw: _int_in(raw, 0, MAX_REVISION))
 _key = _when(is_card_key)
 _key_or_null = _when(is_card_key, nullable=True)
@@ -119,7 +122,8 @@ _LONG_TEXT = _text(MAX_REASON_LENGTH)
 # (field, check, default or _REQUIRED), in the stored order.
 _CARD_FIELDS = (
     ('key', _key, _REQUIRED), ('name', _NAME, ''), ('vendor_id', _pci_id, None), ('device_id', _pci_id, None),
-    ('ticked', _bool, False), ('state', _choice(CARD_STATES), _REQUIRED), ('blender', _bool, False),
+    ('revision_id', _pci_revision, None), ('ticked', _bool, False), ('state', _choice(CARD_STATES), _REQUIRED),
+    ('blender', _bool, False),
     ('backend', _choice(BACKENDS, nullable=True), None), ('note', _LONG_TEXT, ''),
     ('screen', _bool_or_null, None), ('primary_screen', _bool_or_null, None),
     ('job_id', _job_id, None), ('renderer', _renderer, None),

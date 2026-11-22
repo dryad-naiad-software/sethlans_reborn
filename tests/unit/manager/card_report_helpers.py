@@ -17,7 +17,7 @@ def card(**overrides):
     """One valid card entry."""
     entry = {
         'key': KEY, 'name': 'NVIDIA GeForce RTX 5090', 'vendor_id': 0x10DE,
-        'device_id': 0x2B85, 'ticked': True, 'state': 'ok', 'blender': True,
+        'device_id': 0x2B85, 'revision_id': 0xA1, 'ticked': True, 'state': 'ok', 'blender': True,
         'backend': 'OPTIX', 'note': '', 'screen': False, 'primary_screen': None,
         'job_id': None, 'renderer': None,
     }

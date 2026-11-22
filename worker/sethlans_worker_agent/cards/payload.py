@@ -76,6 +76,7 @@ def _card(entry: dict, ticked: bool, state, backend=None, note='', screen=None, 
     return {
         'key': key, 'name': text(entry.get('name'), MAX_NAME) or key,
         'vendor_id': _pci_id(entry.get('vendor_id')), 'device_id': _pci_id(entry.get('device_id')),
+        'revision_id': _pci_id(entry.get('revision_id')),  # FR-MT-K-2, null when not read
         'ticked': ticked, 'state': state, 'blender': backend is not None,
         'backend': backend if backend in BACKENDS else None, 'note': text(note, MAX_TEXT),
         'screen': _mark(screen), 'primary_screen': _mark(primary_screen),
