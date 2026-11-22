@@ -19,7 +19,7 @@ the gate used valid for its report.
 **Locks (D15):** the Job row (SQLite write lock first), then the
 caller's own Worker row (``FOR UPDATE``, one row, no other Worker and no
 Job after it), then in ONE ``ORDER BY pk`` ``FOR UPDATE`` query
-(``pilot_result._lock_pair``) the target record, its ``covered_by``
+(``pair_locks.lock_pair``) the target record, its ``covered_by``
 record and the pair's current records whose driver differs from the
 reported one.  The ``SequenceSubmission`` row for the warning is locked
 last (``sequence_create.plan_submission``'s documented inversion relies
@@ -54,7 +54,7 @@ from ..parent_status import take_write_lock
 from ..renderers.unreal_machine import RETEST_DUE, stored_card_kind
 from .fits_nowhere import check_on_commit
 from .memory_report_effects import add_warning, feed_back, pair_state
-from .pilot_result import _lock_pair, _stale_older_drivers
+from .pair_locks import lock_pair, stale_older_drivers
 from .row_locks import lock_own_rows
 
 logger = logging.getLogger(__name__)
@@ -133,14 +133,14 @@ def _locked_covering(locked, by_pk, worker):
 def _apply(job, worker, record, data):
     """Effects (2)-(5) under the record locks; returns the pair's state."""
     driver = data['driver_version'] or ''
-    rows = _lock_pair(record, worker, driver, extra=_covering_pks(record, worker))
+    rows = lock_pair(record, worker, driver, extra=_covering_pks(record, worker))
     by_pk = {row.pk: row for row in rows}
     locked = by_pk.get(record.pk)
     if locked is None or not locked.current:  # AC-8: superseded meanwhile, no verdict, peak or driver change
         add_warning(job, worker, data, record)
         return pair_state(record, worker)
     pair = [row for row in rows if _same_pair(row, worker, locked.card_kind)]
-    if locked.pk in _stale_older_drivers(locked, pair, driver, include_record=True):
+    if locked.pk in stale_older_drivers(locked, pair, driver, include_record=True):
         # D3: the driver change wins over any verdict change in the same report; the spill is still told.
         add_warning(job, worker, data, locked)
         return RETEST_DUE

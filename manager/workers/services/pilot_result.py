@@ -39,15 +39,14 @@ stored with '' (unknown) included, becomes
 record (all others unknown or equal) nothing is staled; a null driver
 (UE's ``Unknown`` included) stales nothing.  D3 applies only while the
 pilot's record is still current (and was locked): a superseded record
-keeps its figures as history and changes no other record.  The
+keeps its figures as history and changes no other record.  The record
+locks and D3 are ``pair_locks.lock_pair`` and
+``pair_locks.stale_older_drivers`` (shared with ``memory-report/``).  The
 fits-nowhere check of the key is registered ``on_commit``
 (``fits_nowhere.check_on_commit``).
 """
 
-import logging
-
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
 from shared.unreal.vram_gate import fits_result, usable_mb
@@ -59,9 +58,8 @@ from ..parent_status import take_write_lock
 from ..renderers import UnsupportedRendererError, get_strategy
 from ..renderers.unreal_machine import FITS, reading_measures_card, stored_card_kind
 from .fits_nowhere import check_on_commit
+from .pair_locks import lock_pair, stale_older_drivers
 from .row_locks import lock_own_rows
-
-logger = logging.getLogger(__name__)
 
 NOT_RENDERING_HERE = "Job is not rendering on this worker."
 KIND_UNSUPPORTED = "Pilot results are not supported for this renderer."
@@ -71,7 +69,6 @@ CVAR_MISMATCH_ERROR = "Pilot render failed: it rendered different CVars than its
 GPU_MISMATCH = "Does not match this worker's reported GPU memory."
 KIND_NOT_THE_JOBS = "Does not match the job's card kind."
 KIND_NOT_THE_CARDS = "Does not match the kind of this worker's card gpu.card_key."
-DRIVER_CHANGED = 'driver_changed'
 TOTAL_SKEW_MB = 64
 _RESULT_FIELDS = (
     'peak_mb', 'peak_source', 'card_delta_peak_mb', 'baseline_used_mb', 'baseline_drift_mb',
@@ -176,48 +173,14 @@ def _fail_pilot(job, now):
     job.save(update_fields=['status', 'error_message', 'completed_at'])
 
 
-def _lock_pair(record, worker, driver, extra=()):
-    """D15: lock the record, the pks in ``extra`` and the pair's current records (any key) of another
-    driver, in one ``ORDER BY pk`` query.
-
-    With ``driver`` unknown ('') only the record and ``extra`` are locked (D3 stales nothing).
-    ``memory-report/`` passes a derived record's ``covered_by`` record in ``extra``.
-    """
-    wanted = Q(pk=record.pk) | Q(pk__in=list(extra))
-    if driver:
-        wanted |= Q(worker_id=worker.pk, card_kind=record.card_kind, current=True) & ~Q(driver_version=driver)
-    return list(lock_own_rows(UnrealMeasurement.objects.filter(wanted)).order_by('pk'))
-
-
-def _stale_older_drivers(record, rows, driver, include_record=False):
-    """D3: when another current record has a non-null driver other than ``driver``, stale every
-    current record of the pair whose driver is not ``driver`` (unknown '' included); returns their pks.
-
-    ``rows`` are the pair's locked rows.  ``record`` itself is a candidate only with
-    ``include_record`` (``memory-report/``: the result the job ran on; ``pilot-result/`` writes
-    the reported driver into its own record instead).
-    """
-    if not driver:
-        return []
-    others = [row for row in rows if (include_record or row.pk != record.pk)
-              and row.current and row.driver_version != driver]
-    if not any(row.driver_version for row in others):
-        return []
-    stale = [row.pk for row in others]
-    UnrealMeasurement.objects.filter(pk__in=stale).update(stale_reason=DRIVER_CHANGED)
-    logger.info("Worker %s, card kind %s: driver %s replaces an earlier driver; results %s are re-tested.",
-                record.worker_hostname, record.card_kind, driver, stale)
-    return stale
-
-
 def _store(job, record, worker, data, now):
     results = {field: data[field] for field in _RESULT_FIELDS}
     gpu = data['gpu']
     driver = data['driver_version'] or ''
-    rows = _lock_pair(record, worker, driver)
+    rows = lock_pair(record, worker, driver)
     locked = next((row for row in rows if row.pk == record.pk), None)
     if locked is not None and locked.current:  # a record gone or superseded meanwhile: no D3
-        _stale_older_drivers(locked, rows, driver)
+        stale_older_drivers(locked, rows, driver)
     UnrealMeasurement.objects.filter(pk=record.pk).update(
         **results, verdict=data['verdict'], verdict_source='pilot', lower_bound_mb=data['lower_bound_mb'],
         shared_peak_mb=data['shared_peak_mb'], driver_version=driver,

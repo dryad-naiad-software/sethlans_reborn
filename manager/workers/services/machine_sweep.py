@@ -21,13 +21,21 @@ its project cancels it).  Otherwise **one read without locks**
   pilots;
 * ``cancel`` rows: QUEUED pilots targeted at the worker whose build or
   card kind it no longer serves (or the share), or whose record is no
-  longer current (the rules of ``machine_test_cancel``).
+  longer current (the rules of ``machine_test_cancel``);
+* ``stop`` rows (D16 (b), at most ``SWEEP_MAX_KEYS``): keys with QUEUED
+  render or audio jobs of a build the worker reports, not a ``test`` row,
+  where no current record fits on any worker, nothing of the key is
+  RENDERING, an online worker's current record does not fit and no online
+  worker's current record is testing with a QUEUED pilot
+  (``fits_nowhere.candidate_q``); failed records, pairs not tried and
+  ``retest_due`` records are left to ``fits_nowhere.stop_due``.
 
 The read applies the rules the locked check applies, so a worker with a
 mismatched share or at the cap finds nothing after its first sweep: one
 query, no lock, no write.  (A key at the cap that a covering
 result could serve waits until the worker is under the cap.)  Otherwise
-one transaction per project: ``lock_project`` first, the pilots to
+one transaction per project with ``test`` or ``cancel`` rows:
+``lock_project`` first, the pilots to
 cancel (Job rows, ``SKIP LOCKED``) and, when any were canceled, every
 Worker row and their records; then, per key that still has a job to
 test, every Worker row (``lock_workers``, once per transaction) and
@@ -35,9 +43,13 @@ test, every Worker row (``lock_workers``, once per transaction) and
 everything under the locks (eligibility, the pair states, the cap,
 coverage).
 
-Stop candidates (D16 (b): keys where no online pair fits, is testing or
-is untried) and the fits-nowhere check they run (FR-MT-N-1) are added to
-this read by chunk 7; this module does not look for them yet.
+Each ``stop`` row is then confirmed by ``fits_nowhere.stop_due``, a
+lock-free read of the exact D12 rule (eligible online pairs, failed
+pairs, pairs not tried, ``retest_due``), and only then
+``fits_nowhere.check`` runs, in its own transaction (never inside the
+per-project transaction above).  So a key that the read cannot settle (a
+failed or untried online pair, a record due a re-test, a machine no
+longer eligible) costs a few reads, never a lock.
 """
 
 import logging
@@ -53,6 +65,7 @@ from ..constants import UnrealKind
 from ..models import Job, JobStatus, ManagerSettings, Project, UnrealMeasurement, Worker
 from ..models.workers import reported_unreal_builds, reports_share_reachable
 from ..renderers.unreal_machine import eligible_kinds, live_pilot
+from .fits_nowhere import candidate_q, check, stop_due
 from .machine_test_cancel import cancel_ineligible_pilots, release_records
 from .machine_tests import MAX_OPEN_PILOTS, ensure_machine_tests
 from .sethlans_share import share_of
@@ -64,7 +77,11 @@ logger = logging.getLogger(__name__)
 
 # D16: keys one sweep reads.
 SWEEP_MAX_KEYS = 20
-TEST, CANCEL, PILOT = 'test', 'cancel', 'pilot'
+TEST, CANCEL, PILOT, STOP = 'test', 'cancel', 'pilot', 'stop'
+_OVERRIDES = 'asset__project__unreal_overrides_sha256'
+# The read yields a role's rank (its index here) and is ordered by it, so stop candidates never crowd
+# test rows out of the read's slice; ``sweep_rows`` maps the rank back to the name.
+_ROLES = (CANCEL, PILOT, TEST, STOP)
 _KEY_TARGET = Case(
     When(unreal_kind=UnrealKind.PILOT, then=Value('')),
     When(unreal_kind=UnrealKind.AUDIO, then=F('sequence_submission__piece_target_sha256')),
@@ -102,54 +119,76 @@ def _have(worker, kinds):
     return Coalesce(Subquery(records, output_field=IntegerField()), 0)
 
 
-def _role(worker, builds, kinds):
-    """``cancel``: a pilot of the worker it no longer serves; ``pilot``: its other pilots; else ``test``."""
+def _stop_builds(worker):
+    """The builds whose keys the worker's sweep reads for stop candidates (D16 (b)): those it reports."""
+    caps = worker.unreal_capabilities
+    return sorted(reported_unreal_builds(caps)) if isinstance(caps, dict) else []
+
+
+def _rank(role):
+    return Value(_ROLES.index(role))
+
+
+def _role(worker, builds, kinds, test):
+    """The rank in ``_ROLES`` of: ``cancel`` (a pilot of the worker it no longer serves), ``pilot`` (its other
+    pilots), ``test``, else ``stop``."""
     pilot = Q(unreal_kind=UnrealKind.PILOT, target_worker=worker.pk)
     if kinds:
         unserved = (~Q(engine_build__in=builds) | ~Q(unreal_measurement__card_kind__in=list(kinds))
                     | ~Q(_current=True))
-        return Case(When(pilot & unserved, then=Value(CANCEL)), When(pilot, then=Value(PILOT)),
-                    default=Value(TEST), output_field=CharField())
-    return Case(When(pilot, then=Value(CANCEL)), default=Value(TEST), output_field=CharField())
+        whens = [When(pilot & unserved, then=_rank(CANCEL)), When(pilot, then=_rank(PILOT))]
+    else:
+        whens = [When(pilot, then=_rank(CANCEL))]
+    if test is not None:
+        whens.append(When(test, then=_rank(TEST)))
+    return Case(*whens, default=_rank(STOP), output_field=IntegerField())
 
 
-def _query(worker, builds, kinds):
-    pilots = Q(unreal_kind=UnrealKind.PILOT, target_worker=worker.pk)
+def _query(worker, builds, kinds, stop_builds):
+    keyed = Q(unreal_kind__in=(UnrealKind.RENDER, UnrealKind.AUDIO)) & ~Q(_key_target='')
     aliases = {'_current': Exists(UnrealMeasurement.objects.filter(pilot_job=OuterRef('pk'), current=True))}
-    wanted = pilots
+    wanted, test = Q(unreal_kind=UnrealKind.PILOT, target_worker=worker.pk), None
     if kinds:
         aliases.update(_have=_have(worker, kinds), _open=_open_pilots(worker))
         # A worker at the D5 cap gets no pilot under the lock either: no test rows for it.
-        wanted |= (Q(unreal_kind__in=(UnrealKind.RENDER, UnrealKind.AUDIO), engine_build__in=builds,
-                     _have__lt=len(kinds), _open__lt=MAX_OPEN_PILOTS) & ~Q(_key_target=''))
+        test = keyed & Q(engine_build__in=builds, _have__lt=len(kinds), _open__lt=MAX_OPEN_PILOTS)
+        wanted |= test
+    if stop_builds:
+        wanted |= keyed & Q(engine_build__in=stop_builds) & candidate_q(OuterRef('_key_target'), OuterRef(_OVERRIDES))
     return Job.objects.filter(status=JobStatus.QUEUED).annotate(_key_target=_KEY_TARGET).alias(
         **aliases,
-    ).filter(wanted).annotate(_role=_role(worker, builds, kinds), _share=_MANAGER_SHARE).values(
-        'asset__project_id', 'asset_id', '_key_target', '_role', '_share',
+    ).filter(wanted).annotate(_role=_role(worker, builds, kinds, test), _share=_MANAGER_SHARE).values(
+        'asset__project_id', 'asset_id', '_key_target', '_role', '_share', _OVERRIDES,
     ).annotate(_first=Min('pk')).order_by('_role', '_first')
 
 
-def sweep_rows(worker):
-    """The D16 read, one query: ``[{project, asset, target, role, first}]``, at most ``SWEEP_MAX_KEYS`` tests.
+def _kept(role, served, counts):
+    """Whether a row with ``role`` is acted on; counts the ``test`` and ``stop`` rows kept."""
+    if role == PILOT or (role == TEST and not served) or counts.get(role, 0) >= SWEEP_MAX_KEYS:
+        return False
+    counts[role] = counts.get(role, 0) + (role in (TEST, STOP))
+    return True
 
-    The manager's share comes with the rows: a worker that does not serve
-    it (none configured, another share) gets no ``test`` rows and every
-    pilot of its own is a ``cancel`` row, as the locked check decides.
+
+def sweep_rows(worker):
+    """The D16 read, one query: ``[{project, asset, target, overrides, role, first}]``.
+
+    At most ``SWEEP_MAX_KEYS`` ``test`` and as many ``stop`` rows.  The
+    manager's share comes with the rows: a worker that does not serve it
+    (none configured, another share) gets no ``test`` rows and every pilot
+    of its own is a ``cancel`` row, as the locked check decides.
     """
     builds, kinds = _caps_served(worker)
-    rows = list(_query(worker, builds, kinds)[:SWEEP_MAX_KEYS + MAX_OPEN_PILOTS])
+    rows = list(_query(worker, builds, kinds, _stop_builds(worker))[:2 * SWEEP_MAX_KEYS + MAX_OPEN_PILOTS])
     share = share_of(rows[0]['_share']) if rows else ''
     served = bool(kinds) and reports_share_reachable(worker.unreal_capabilities, share)
-    found, tests = [], 0
+    found, counts = [], {}
     for row in rows:
-        role = row['_role']
-        if role == PILOT and not served:
-            role = CANCEL
-        if role == PILOT or (role == TEST and (not served or tests >= SWEEP_MAX_KEYS)):
-            continue
-        tests += role == TEST
-        found.append({'project': row['asset__project_id'], 'asset': row['asset_id'], 'target': row['_key_target'],
-                      'role': role, 'first': row['_first']})
+        role = _ROLES[row['_role']]
+        role = CANCEL if role == PILOT and not served else role
+        if _kept(role, served, counts):
+            found.append({'project': row['asset__project_id'], 'asset': row['asset_id'], 'target': row['_key_target'],
+                          'overrides': row[_OVERRIDES], 'role': role, 'first': row['_first']})
     return found
 
 
@@ -198,7 +237,8 @@ def ensure_for_worker(worker_id, *, worker=None):
     the row is read by ``worker_id``.  A worker without Unreal enabled is
     skipped with no query.  A failure in one project is logged at WARNING
     with its traceback and the other projects still run (the next
-    heartbeat repeats the sweep).
+    heartbeat repeats the sweep); so is a failed fits-nowhere check of a
+    ``stop`` row, which runs after the projects' pilot transactions.
     """
     if worker is None:
         worker = Worker.objects.filter(pk=worker_id).first()
@@ -207,9 +247,9 @@ def ensure_for_worker(worker_id, *, worker=None):
     caps = worker.unreal_capabilities
     if not isinstance(caps, dict) or caps.get('enabled') is not True:
         return 0
-    by_project = defaultdict(list)
+    by_project, stops = defaultdict(list), []
     for row in sweep_rows(worker):
-        by_project[row['project']].append(row)
+        (stops if row['role'] == STOP else by_project[row['project']]).append(row)
     created = 0
     for project_id, rows in by_project.items():
         try:
@@ -217,4 +257,16 @@ def ensure_for_worker(worker_id, *, worker=None):
         except Exception:  # one bad project must not block the later ones on every heartbeat
             logger.warning("Memory-test sweep for worker %s, project %s failed; retried next heartbeat.",
                            worker.hostname, project_id, exc_info=True)
+    for row in stops:
+        _stop_key(worker, row)
     return created
+
+
+def _stop_key(worker, row):
+    """D16 (b): confirm a stop candidate without locks, then run the fits-nowhere check (own transaction)."""
+    try:
+        if stop_due(row['asset'], row['overrides'], row['target']):
+            check(row['project'], row['asset'], row['overrides'], row['target'])
+    except Exception:  # one bad key must not block the others on every heartbeat
+        logger.warning("Fits-nowhere check from the sweep of worker %s, project %s failed; retried next heartbeat.",
+                       worker.hostname, row['project'], exc_info=True)
