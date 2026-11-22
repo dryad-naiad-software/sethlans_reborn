@@ -11,7 +11,10 @@ D6, D9, FR-MT-S-3, FR-MT-S-4).
 so it covers every end path: success, failure, cancel, release, survivors.
 It sends once per job when the job is a ``render`` (not a pilot: its
 ``pilot-result/`` carries the figures) or ``audio`` job and at least one
-render launch ran (``PhaseRunner.runs`` holds a ``render`` launch). The body
+warm-up or render launch ran (``PhaseRunner.runs`` holds one; a job's
+warm-up launches are always sampled, so a cold warm-up that fails before
+any render launch still feeds D6, Q11; the spill fields are then null and
+the driver comes from the warm-up log). The body
 (strict, the manager refuses any other key)::
 
     {"measurement_id": int,          # the result the gate used (GateResult.result)
@@ -24,9 +27,10 @@ render launch ran (``PhaseRunner.runs`` holds a ``render`` launch). The body
      "job_peak_mb": int | null}      # the job's own dedicated peak on its card, 1..MAX_PEAK_MB
 
 ``job_peak_mb`` is the job's own Job Object processes' dedicated peak on its
-card over the whole of every render launch, start-up spike included
-(``job_memory.job_peak_mb``; the pilot's result peak includes its start-up
-too), never the card's rise over its baseline: the rise counts other
+card over the whole of every warm-up and render launch, start-up spike
+included (``job_memory.job_peak_mb``; the pilot's result peak includes its
+start-up too; Q11: a cold warm-up can peak above the render, so D6's
+feedback counts it), never the card's rise over its baseline: the rise counts other
 programs, and D6's feedback would turn a result ``does_not_fit`` for their
 memory. 0 (nothing attributed to the job) is sent as null; other figures
 outside their range are sent as null (logged).
@@ -63,10 +67,10 @@ class ReportError(ValueError):
 
 
 def due(params, runner) -> bool:
-    """A render (not pilot) or audio job with at least one render launch."""
+    """A render (not pilot) or audio job with at least one warm-up or render launch (Q11)."""
     if runner is None or not (params.kind == 'render' or params.is_audio):
         return False
-    return any(run.phase == 'render' for run in getattr(runner, 'runs', ()))
+    return any(run.phase in job_memory.PEAK_PHASES for run in getattr(runner, 'runs', ()))
 
 
 def _in_range(name: str, value: Optional[int], low: int) -> Optional[int]:
@@ -116,13 +120,14 @@ def body(job_run) -> dict:
 
 def _deliver(job_run, report_body: dict) -> str:
     job_id, cause = job_run.params.job_id, job_run.cause()
+    phase = job_memory.job_peak(job_run.runner.runs)[1] or 'none'
     call = job_run.deps.delivery.report_memory
     if call is None:
         logger.error("Unreal job %s: no memory-report call is wired; the report is not sent.", job_id)
         return FAILED
     report = call(job_id, report_body, attempts=1) if cause == 'shutdown' else call(job_id, report_body)
     if report.outcome == 'done':
-        logger.info("Unreal job %s memory report sent: %s", job_id, report_body)
+        logger.info("Unreal job %s memory report sent (job peak from the %s launch): %s", job_id, phase, report_body)
         return SENT
     if report.outcome == 'terminal':
         log = logger.info if cause in QUIET_CAUSES else logger.warning

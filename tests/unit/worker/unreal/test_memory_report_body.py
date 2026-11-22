@@ -8,7 +8,7 @@ Exactly eight keys: ``measurement_id`` (the gate's result), ``card_kind`` (the g
 held card), ``driver_version`` (the render launch's; Unknown -> null), ``spilled`` (bool or null),
 ``spill_cause`` (null exactly when ``spilled`` is not true), ``shared_peak_mb`` (0..MAX_PEAK_MB or null) and
 ``job_peak_mb`` (1..MAX_PEAK_MB or null): the job's own dedicated peak on its card over the whole launch,
-start-up included, the largest over every render launch, never the card's rise. A figure out of range is
+start-up included, the largest over every warm-up and render launch (Q11), never the card's rise. A figure out of range is
 sent as null with a WARNING. A known launch driver other than the result's known driver sets
 ``driver_changed=1``.
 """
@@ -35,9 +35,9 @@ class TestDue:
     def test_render_and_audio_jobs_with_a_render_launch(self, tmp_path, p, due):
         assert memory_report.due(p, job_run([render_run(tmp_path)]).runner) is due
 
-    def test_no_render_launch_is_not_due(self, tmp_path):
-        runs = [render_run(tmp_path, phase='prep'), render_run(tmp_path, phase='warmup')]
-        assert memory_report.due(params(), job_run(runs).runner) is False
+    def test_no_warm_up_or_render_launch_is_not_due(self, tmp_path):
+        """Q11: a warm-up launch alone makes it due (``test_warmup_report``); the prep alone never does."""
+        assert memory_report.due(params(), job_run([render_run(tmp_path, phase='prep')]).runner) is False
         assert memory_report.due(params(), job_run([]).runner) is False
 
     def test_no_runner_is_not_due(self):
@@ -86,11 +86,11 @@ class TestJobPeak:
         assert memory_report.body(job_run([run]))['job_peak_mb'] == 9500
         assert job_memory.summary_values([run])['vram_job_peak_mb'] == 7000   # the summary keeps its window
 
-    def test_the_largest_over_every_render_launch(self, tmp_path):
-        """A crashed first launch counts; a warm-up never does."""
+    def test_the_largest_over_every_warm_up_and_render_launch(self, tmp_path):
+        """A crashed first launch counts, and so does a warm-up (Q11: a cold warm-up can peak above the render)."""
         runs = [render_run(tmp_path, 1, max_job=9800), render_run(tmp_path, 2, max_job=12000, phase='warmup'),
                 render_run(tmp_path, 2, max_job=7100)]
-        assert memory_report.body(job_run(runs))['job_peak_mb'] == 9800
+        assert memory_report.body(job_run(runs))['job_peak_mb'] == 12000
 
     def test_an_audio_job_gets_a_real_figure(self, tmp_path):
         """No output file window for audio: the whole-launch figure still exists."""

@@ -17,7 +17,7 @@ FR-UE-26, FR-UE-27; chunk 7 integration requirements 10, 11, 15).
    ``LocalConflict`` (``dispatch_failed`` before the first launch, else
    ``local_conflict``);
 2. a pre-launch GPU reading when the phase samples GPU memory (every pilot
-   phase, and every render);
+   phase, every warm-up and every render; Q11);
 3. ``process_runner.run(spec, registry)`` (publishing RAM figures to the
    claim's ``ram_target``; a render's output folder for FR-PC-ATT-2) with a **fresh**
    ``zen_port.LoopbackWatch`` as ``tick_check`` and
@@ -35,7 +35,7 @@ FR-UE-26, FR-UE-27; chunk 7 integration requirements 10, 11, 15).
    remain (FR-CU-3);
    the post-exit reading; survivors raise ``SurvivorsLeft``; the loopback
    rule raises ``LocalConflict`` and disables Unreal until restart; a cancel
-   cause raises ``Cancelled``;
+   cause or the job's own card stop (``worker_hardware_changed``) raises ``Cancelled``;
 5. the FR-UE-26 Zen log verification (data path, port, override line),
    failing with ``zen=FAILED`` (``IsolationFailure``).
 
@@ -46,6 +46,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
+from sethlans_worker_agent.blender_job_stop import WORKER_HARDWARE_CHANGED
 from sethlans_worker_agent.unreal_executor import adapter_log, log_validation, vram, zen_log, zen_port
 from sethlans_worker_agent.unreal_executor.outcomes import Cancelled, IsolationFailure, LocalConflict, SurvivorsLeft
 from sethlans_worker_agent.unreal_executor.process_runner import phase_vram_sample
@@ -191,8 +192,8 @@ class PhaseRunner:
         if outcome.reason == 'local_conflict':
             self.disable_until_restart(zen_port.LOOPBACK_DISABLE_REASON)
             raise LocalConflict('local_conflict', outcome.detail or zen_port.LOOPBACK_DISABLE_REASON)
-        if outcome.reason in CANCEL_CAUSES:
-            raise Cancelled(outcome.reason)
+        if outcome.reason in CANCEL_CAUSES or outcome.reason == WORKER_HARDWARE_CHANGED:
+            raise Cancelled(outcome.reason)  # the job's own card stop mid-launch ends it like a shutdown (C-24 m)
         run.zen_ok = self._verify_zen(run)
         if not run.zen_ok and outcome.reason in ('exited', 'exited_after_grace'):
             raise IsolationFailure(zen_log.FAILED_MESSAGE)  # a failed phase keeps its own, more specific message

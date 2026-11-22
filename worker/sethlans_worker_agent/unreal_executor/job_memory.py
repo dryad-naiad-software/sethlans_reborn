@@ -13,7 +13,8 @@ FR-PC-ATT-2), from the launches' ``RunOutcome.ram`` (``runner_ram.PhaseRam``) an
   warm-up launch's Job Object members, ``RunOutcome.shader_workers``; UE starts them only when shader
   jobs are queued, so a new project version on a warm slot is warm, whatever its marker says), and
   the last render launch's ``vram_job_peak_mb`` and ``vram_job_other_cards_mb`` (``''`` when
-  unknown).
+  unknown), and ``vram_job_peak_phase``: ``warmup`` or ``render``, the launch that gave the memory
+  report's ``job_peak_mb`` (``job_peak``; ``''`` without one).
 * **Pilot body**: ``ram`` = ``{"prep": {"ws_mb", "commit_mb"}, "warmup": {..., "cold"} | None,
   "render": {...}}``, ``None`` when any figure of a phase that ran is unknown or prep or render did
   not run; ``ram_process_commit_peak_mb`` = the largest ``PeakProcessMemoryUsed`` over the launches,
@@ -25,6 +26,7 @@ from typing import Dict, Iterable, Optional, Sequence, Tuple
 from sethlans_worker_agent.unreal_executor.runner_ram import PhaseRam
 
 PHASES = ('prep', 'warmup', 'render')
+PEAK_PHASES = ('warmup', 'render')  # the launches the memory report's job_peak_mb covers (D6, Q11)
 
 
 def _largest(values: Sequence[Optional[int]]) -> Optional[int]:
@@ -67,6 +69,7 @@ def summary_values(runs: Sequence) -> Dict[str, object]:
     known = trace is not None and not trace.job_unknown
     values['vram_job_peak_mb'] = _value(trace.job_peak_mb if known else None)
     values['vram_job_other_cards_mb'] = _value(trace.job_other_cards_mb if known else None)
+    values['vram_job_peak_phase'] = job_peak(runs)[1]  # the launch the memory report's job_peak_mb came from
     return values
 
 
@@ -80,14 +83,30 @@ def job_peak_mb(runs: Sequence) -> Optional[int]:
 
     The job's own Job Object members' dedicated usage on its card (``VramTrace.max_job``, every attributed
     sample of the **whole** launch, start-up spike included, as the pilot's result peak includes its start-up),
-    the largest over **every** render launch (a failed first launch counts). Never the card's rise, which counts
-    other programs too. A launch with only some samples attributed gives a lower bound, still valid for D6's
-    feedback. Each trace holds the launch's card alone (``phases`` cuts every reading to it). The summary's
-    ``vram_job_peak_mb`` (the last render launch, from its first output file on) is a different figure.
+    the largest over **every** warm-up and render launch (a failed first launch and a retry's warm-up count;
+    Q11: a cold warm-up can peak above the render). Never the card's rise, which counts other programs too. A
+    launch with only some samples attributed gives a lower bound, still valid for D6's feedback. Each trace
+    holds the launch's card alone (``phases`` cuts every reading to it). The prep is never counted (no card
+    of its own, not sampled for a job). The summary's ``vram_job_peak_mb`` (the last render launch, from its
+    first output file on) is a different figure.
     """
-    peaks = [peak for run in runs if run.phase == 'render'
-             for peak in getattr(run.outcome.vram, 'max_job', {}).values()]
-    return max(peaks) if peaks else None
+    return job_peak(runs)[0]
+
+
+def job_peak(runs: Sequence) -> Tuple[Optional[int], str]:
+    """``(job_peak_mb(runs), the phase of the launch that gave it)``: ``'warmup'`` or ``'render'``.
+
+    A tie goes to ``'render'``: the warm-up is named only when it peaked strictly above every render launch.
+    ``(None, '')`` without a figure; a peak of 0 (nothing attributed, sent as null) has no phase either.
+    """
+    best: Tuple[Optional[int], str] = (None, '')
+    for run in runs:
+        if run.phase not in PEAK_PHASES:
+            continue
+        for peak in getattr(run.outcome.vram, 'max_job', {}).values():
+            if best[0] is None or peak > best[0] or (peak == best[0] and run.phase == 'render'):
+                best = (peak, run.phase)
+    return best if best[0] else (best[0], '')
 
 
 def _pair(figures: Optional[PhaseRam]) -> Optional[dict]:

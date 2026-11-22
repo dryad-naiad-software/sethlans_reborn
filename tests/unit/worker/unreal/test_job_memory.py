@@ -15,7 +15,7 @@ from sethlans_worker_agent.unreal_executor.runner_types import VramTrace
 from tests.unit.worker.unreal._executor_fakes import outcome
 
 KEYS = ('ram_prep_ws_mb', 'ram_prep_commit_mb', 'ram_warmup_ws_mb', 'ram_warmup_commit_mb', 'ram_render_ws_mb',
-        'ram_render_commit_mb', 'ram_warmup_cold', 'vram_job_peak_mb', 'vram_job_other_cards_mb')
+        'ram_render_commit_mb', 'ram_warmup_cold', 'vram_job_peak_mb', 'vram_job_other_cards_mb', 'vram_job_peak_phase')
 
 
 def run(phase, ws=None, commit=None, process=None, vram=None, ram=True, scw=False):

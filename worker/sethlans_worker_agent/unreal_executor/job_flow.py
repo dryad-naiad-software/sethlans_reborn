@@ -26,7 +26,10 @@ A sequence piece (``sequence_flow.RangeFlow``) and an audio job
 (``audio_flow.AudioFlow``, whose render also gets ``_render_extra``) replace four hooks.
 
 Every launch goes through ``PhaseRunner.launch`` (pre-launch checks, Zen
-verification) and every command through the builders in ``command``. Each
+verification) and every command through the builders in ``command``. GPU
+memory is sampled on every warm-up and render launch (the prep only for a
+pilot): a cold warm-up can peak above the render, and a job's memory report
+counts its warm-up launches (per-machine memory test Q11, ``job_memory.job_peak_mb``). Each
 warm-up and render launch resolves its card's DXGI index afresh (``choose``,
 ``adapter_choice.choose``; FR-CU-1), always the card of the first launch (D8).
 The first launch asks for the gated card (``first_key``, FR-GU-10; ``None``
@@ -154,8 +157,8 @@ class UeFlow:
         launch = self.builders.build_warmup(self._adapter_ctx(), self.uproject, job.script(job_dir.WARMUP_SCRIPT),
                                             job.log('warmup', attempt), job.warmup_params, params.merged)
         self.warmup_logs.append((self.choice.key, job.log('warmup', attempt)))
-        run = self.runner.launch('warmup', attempt, launch, success_marker=WARMUP_SUCCESS, sample=params.is_pilot,
-                                 adapter=self.choice)
+        run = self.runner.launch('warmup', attempt, launch, success_marker=WARMUP_SUCCESS, sample=True,
+                                 adapter=self.choice)  # Q11: a job's own warm-up peak feeds its memory report
         self.warmup_s += run.outcome.wall_s
         self._note_quit(run, 'warmup')
         render_check.check_warmup(run.outcome)
