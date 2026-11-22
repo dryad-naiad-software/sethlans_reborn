@@ -104,7 +104,7 @@ class ProcessRunner:
         self._lock = threading.Lock()  # leaf lock: confirm_exit may run from execute()'s finally
         self.vram = VramTrace()
         self.ram = RunnerRam(spec.ram_target, reader=ram_reader, phase=spec.phase)
-        self._first_output = FirstOutput(spec.first_output_dir)
+        self._first_output = FirstOutput(spec.first_output_dir, on_seen=spec.on_first_output)
 
     # -- launch ---------------------------------------------------------
     def start(self) -> None:
@@ -202,8 +202,9 @@ class ProcessRunner:
         state.cpu.update(procs, now)
         own = frozenset(members.listed) if self.job is not None else None  # the Job Object's own list
         self.ram.tick(self.job, members.listed)
+        seen = self._first_output.seen(now)  # every tick: it also ends the claim's start-up (FR-PC-SU-1)
         if self.spec.vram_sample is not None:
-            self.vram.add(self.spec.vram_sample(VRAM_SAMPLE_TIMEOUT_S), own, self._first_output.seen(now))
+            self.vram.add(self.spec.vram_sample(VRAM_SAMPLE_TIMEOUT_S), own, seen)
         return state.decide(now)
 
     def _terminate(self) -> None:

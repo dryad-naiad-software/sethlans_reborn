@@ -32,7 +32,8 @@ from typing import Optional
 from sethlans_worker_agent import api_extras, api_sequence, config_unreal, unreal_share
 from sethlans_worker_agent.blender_job_stop import job_stop
 from sethlans_worker_agent.executors.base import ExecutionContext, RenderResult
-from sethlans_worker_agent.unreal_executor import adapter_choice, command, disk_ledger, job_params, ram_ledger, reserve
+from sethlans_worker_agent.unreal_executor import (
+    adapter_choice, command, disk_ledger, job_params, ram_ledger, reserve, startup_watch)
 from sethlans_worker_agent.unreal_executor.delivery import DeliveryDeps, result
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,8 @@ def default_reserve_deps() -> reserve.ReserveDeps:
         budget=lambda: ProbeBudget(config_unreal.POLL_PROBE_BUDGET_SECONDS), card_keys=_unreal_card_keys,
         ram=ram_ledger.ledger,  # the process's one RAM ledger: the runners publish into it (FR-PC-RAM-5)
         capacity=_capacity, d8_key=adapter_choice.d8_key,
-        disk=disk_ledger.ledger, entry_dir=_entry_dir)  # FR-PC-DSK-1; the warm-up markers (FR-PC-RAM-4)
+        disk=disk_ledger.ledger, entry_dir=_entry_dir,  # FR-PC-DSK-1; the warm-up markers (FR-PC-RAM-4)
+        startup=startup_watch.watch, startup_rule=lambda: config_unreal.STARTUP_RULE)  # FR-PC-SU-1, -2
 
 
 def _worker_id():

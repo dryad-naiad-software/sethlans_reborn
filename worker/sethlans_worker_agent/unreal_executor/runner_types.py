@@ -86,6 +86,8 @@ class RunSpec:
     ram_target: Optional[object] = None               # runner_ram.RamTarget: publish to the RAM ledger (FR-PC-RAM-2)
     first_output_dir: Optional[Path] = None           # a render's output folder: the job's card figures from its
     #                                                   first file on (FR-PC-ATT-2)
+    on_first_output: Optional[Callable[[], None]] = None  # called once at that first file: the start-up is over
+    #                                                   (FR-PC-SU-1)
 
     @property
     def phase(self) -> str:

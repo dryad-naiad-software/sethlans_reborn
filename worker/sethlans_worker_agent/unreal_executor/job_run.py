@@ -37,7 +37,9 @@ folders and port (``slot.slot_for``) and the warm-up marker; the summary
 names it (``slot=``) and the gated card (``card=``). The runner publishes its RAM
 figures under the claim (``reservation.ram_target()``, FR-PC-RAM-2); the summary
 carries them per phase and the job's own card memory (``job_memory``, FR-PC-RAM-3,
-FR-PC-ATT-2), ``''`` until a launch measured them. The job folder is attached to
+FR-PC-ATT-2), ``''`` until a launch measured them (``job_run_summary``). A picture render's first
+output file ends the claim's start-up (``reservation.startup_ended``, FR-PC-SU-1); an audio or
+shots job stays starting until its release. The job folder is attached to
 the claim's disk ledger entry as soon as it exists, before any launch, and a
 piece's disk check goes through it (``reservation.disk_target()``, FR-PC-DSK-1).
 
@@ -57,8 +59,8 @@ from sethlans_worker_agent.blender_job_stop import WORKER_HARDWARE_CHANGED, JobS
 from sethlans_worker_agent.project_archive.abort import NEVER, Abort
 from sethlans_worker_agent.project_archive.errors import CacheUnavailableError
 from sethlans_worker_agent.project_archive.workspace import ArchiveRequest
-from sethlans_worker_agent.unreal_executor import adapter_choice, adapter_log, job_dir, job_memory, job_outcome
-from sethlans_worker_agent.unreal_executor import user_state, warmup
+from sethlans_worker_agent.unreal_executor import adapter_choice, adapter_log, job_dir, job_outcome, job_run_summary
+from sethlans_worker_agent.unreal_executor import warmup
 from sethlans_worker_agent.unreal_executor import slot as slots
 from sethlans_worker_agent.unreal_executor.audio_flow import AudioFlow
 from sethlans_worker_agent.unreal_executor.cancel_watch import CancelCause, CancelWatcher
@@ -118,16 +120,6 @@ class JobRun:
             return self.cancel.cause
         return WORKER_HARDWARE_CHANGED if stop is not None and stop.is_set() else ''
 
-    def _start_summary(self) -> None:
-        p = self.params
-        # FR-PC-SLOT-8: the held card and the slot (no ``exclusive`` since the per-card hold).
-        self.summary.update({'engine': p.engine_build, 'kind': p.kind,
-                             'card': self.reservation.card_key, 'slot': self.reservation.slot,
-                             'user_state': user_state.SUMMARY.split('=', 1)[1], 'quit_forced': '',
-                             'cvar_overridden': '', 'job_object': 'skipped'})
-        self.summary.update(self.reservation.gate.summary)
-        self.summary.update(job_memory.summary_values(()))  # every Unreal job carries the keys
-
     # -- body -----------------------------------------------------------
     def _workspace(self, cache, att8: str):
         p = self.params
@@ -180,10 +172,11 @@ class JobRun:
         gate = self.reservation.gate
         runner.card_key = gate.card_key  # the gated card: the traces of a launch without a choice (D22)
         runner.ram_target = self.reservation.ram_target()  # each launch publishes its RAM figures (FR-PC-RAM-2)
+        p = self.params  # FR-PC-SU-1: a picture render's first output file ends the start-up; audio, shots at the end
+        runner.startup_done = None if p.is_audio or p.is_shots else self.reservation.startup_ended
         marker = warmup.marker_path(self.ws.entry.entry_dir, self.params.overlay_sha256, self.params.engine_build,
                                     slot.n)
         # FR-SD-4: shots run the prep only; a sequence piece renders a frame range (FR-SW-3); FR-SA: sound only.
-        p = self.params
         flow_class = ShotsFlow if p.is_shots else RangeFlow if p.is_piece else AudioFlow if p.is_audio else UeFlow
         choose = functools.partial(self.deps.choose_adapter or adapter_choice.choose,  # kept per claim (D16)
                                    claim_id=self.reservation.claim_id)
@@ -195,17 +188,7 @@ class JobRun:
         try:
             return flow.run()
         finally:
-            self._runner_summary(runner)
-
-    def _runner_summary(self, runner) -> None:
-        self.summary.update({'user_profile_reset': runner.profile_reset, 'user_cvars': runner.user_cvars,
-                             'zen': f"private:{runner.config.zen_port}" if runner.zen_ok else 'FAILED'})
-        if runner.runs:  # 'skipped' (the default) when no UE process was launched (review L4)
-            ok = all(r.outcome.job_object == 'ok' for r in runner.runs)
-            self.summary.set('job_object', 'ok' if ok else 'failed')
-        for name in runner.collisions:
-            self.summary.append('user_cvar_collision', name)
-        self.summary.update(job_memory.summary_values(runner.runs))
+            job_run_summary.from_runner(self.summary, runner)
 
     def _attempt(self) -> Outcome:
         try:
@@ -259,7 +242,7 @@ class JobRun:
         return lambda: job_dir.cleanup_after_report(layout, job, keep)
 
     def run(self):
-        self._start_summary()
+        job_run_summary.start(self.summary, self.reservation)
         watcher = CancelWatcher(self.params.job_id, self.cancel, get_assignment=self.deps.get_assignment,
                                 worker_id=self.deps.worker_id(), shutdown_event=self.ctx.shutdown_event,
                                 poll_seconds=self.deps.cancel_poll_s())

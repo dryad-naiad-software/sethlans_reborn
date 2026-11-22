@@ -104,6 +104,7 @@ class PhaseRunner:
     project: str = ''                       # archive sha256 (set by job_run): an adapter mismatch refuses it
     card_key: Optional[str] = None          # the gated card (set by job_run): traces of a launch without a choice
     ram_target: Optional[object] = None     # runner_ram.RamTarget of the claim (set by job_run, FR-PC-RAM-2)
+    startup_done: Optional[Callable[[], None]] = None  # a render's first output file ends the start-up (FR-PC-SU-1)
 
     def _stop_requested(self) -> None:
         """No launch once a cancel cause or the shutdown is known (review L2)."""
@@ -159,7 +160,8 @@ class PhaseRunner:
             tick_check=self.loopback_factory(cfg.zen_port, cfg.cache_dir, worker_sid=cfg.worker_sid, slot=cfg.slot),
             vram_baseline=baseline, expected_adapter=adapter.index if adapter is not None else None,
             expected_ids=adapter_log.ids_of(adapter), ram_target=self.ram_target,
-            first_output_dir=self.job_dir.output if phase == 'render' else None)
+            first_output_dir=self.job_dir.output if phase == 'render' else None,
+            on_first_output=self.startup_done if phase == 'render' else None)
 
     def launch(self, phase: str, attempt: int, launch, *, success_marker=None, success_check=None,
                sample: bool = False, adapter=None) -> PhaseRun:

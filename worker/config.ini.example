@@ -152,6 +152,11 @@ key_file =
 # ram_default_ws_mb = 16384
 # ram_default_commit_mb = 32768
 # ram_blender_mb = 4096
+# Start-up rule for Unreal renders on several cards: together (default)
+# lets a second render start while another is still starting up (before
+# its first frame is written); one_at_a_time claims no Unreal job while
+# another Unreal render on this worker is still starting.
+# startup_rule = together
 
 [gpu_memory]
 # How the worker reads graphics card memory (used by Unreal rendering).

@@ -11,6 +11,9 @@ not claimed):
 0. an Unreal job may be claimed now (``unreal_bridge.can_take_unreal``: a
    free Unreal card, no Blender CPU job, no pending rebuild; render per
    card FR-PC-CAP-5);
+0b. the start-up rule (``ReserveDeps.startup_rule``, FR-PC-SU-2): under
+   ``one_at_a_time`` the job is declined while another claim is starting
+   (``startup_watch``); under ``together`` nothing is checked;
 1. Unreal is enabled and the startup recovery succeeded;
 2. ``job_params.validate_job_data`` (before any share access); a project
    refused after an adapter mismatch (``adapter_log.refused``) is declined;
@@ -51,9 +54,10 @@ back; a retained reservation keeps it until restart.
 Each reservation has a ``claim_id`` (uuid4 hex, D16) and is registered, as the
 last step, in the RAM ledger (``ReserveDeps.ram``) with the need check 9a
 worked out (FR-PC-RAM-5) and in the disk ledger (``ReserveDeps.disk``) with a
-need of 0 (FR-PC-DSK-1). Both entries are dropped by the release (before the
-slot is given back) and by ``retain_until_restart``, which keeps only the slot
-(FR-PC-SU-1). ``ProbePending`` is
+need of 0 (FR-PC-DSK-1), then marked *starting* in the start-up watch
+(``ReserveDeps.startup``, FR-PC-SU-1; ``reserve_claim``). Every entry is dropped
+by the release (before the slot is given back) and by ``retain_until_restart``,
+which keeps only the slot (FR-PC-SU-1). ``ProbePending`` is
 raised only when the sole reason to decline is a probe still pending.
 """
 import logging
@@ -68,7 +72,8 @@ from sethlans_worker_agent.cards.identity import key_address
 from sethlans_worker_agent.executors.base import ProbePending
 from sethlans_worker_agent.unreal_executor import job_params as jp
 from sethlans_worker_agent.unreal_executor import (
-    adapter_log, disk_ledger, ram_ledger, reserve_card, reserve_local, reserve_share, vram_gate_check)
+    adapter_log, disk_ledger, ram_ledger, reserve_card, reserve_claim, reserve_local, reserve_share, startup_watch,
+    vram_gate_check)
 from sethlans_worker_agent.unreal_executor.reservation import UnrealReservation
 from sethlans_worker_agent.unreal_executor.slot import SlotPool
 
@@ -102,6 +107,8 @@ class ReserveDeps:
     disk: Optional[disk_ledger.DiskLedger] = None  # production: disk_ledger.ledger; None: one of this Reserver
     entry_dir: Optional[Callable[[str], Optional[Path]]] = None  # the archive's cache entry (warm-up marker)
     ram_readers: Optional[reserve_local.RamReaders] = None  # None: psutil and GetPerformanceInfo
+    startup: Optional[startup_watch.StartupWatch] = None  # production: startup_watch.watch; None: one of this Reserver
+    startup_rule: Optional[Callable[[], str]] = None  # check 0b (FR-PC-SU-2): config_unreal.STARTUP_RULE; None: together
 
 
 class Reserver:
@@ -111,6 +118,8 @@ class Reserver:
         self.slots = SlotPool()
         self.ram = deps.ram if deps.ram is not None else ram_ledger.RamLedger()
         self.disk = deps.disk if deps.disk is not None else disk_ledger.DiskLedger()
+        self.startup = deps.startup if deps.startup is not None else startup_watch.StartupWatch()
+        self._books = reserve_claim.Books(self.slots, self.ram, self.disk, self.startup)
         self._warned: Dict[str, float] = {}
         self._warn_lock = threading.Lock()  # leaf lock
 
@@ -133,6 +142,9 @@ class Reserver:
     # -- checks ---------------------------------------------------------
     def _prechecks(self, job_data: dict):
         if not self.deps.can_take():
+            return None
+        if self.deps.startup_rule is not None and not self.startup.admits(self.deps.startup_rule()):
+            self._skip(job_data.get('id'), "%s", startup_watch.STILL_STARTING)  # check 0b (FR-PC-SU-2)
             return None
         enabled, reason = self.deps.status()
         if not enabled:
@@ -236,27 +248,10 @@ class Reserver:
             self._skip(params.job_id, "%s", declined or ram.message)
             return None
         claim_id = uuid.uuid4().hex
-        return UnrealReservation(params, install, gate, on_release=lambda: self._release(claim_id, slot),
+        return UnrealReservation(params, install, gate,
+                                 on_release=lambda: reserve_claim.release(claim_id, slot, self._books),
                                  card_keys=card_keys, slot=slot, claim_id=claim_id, ram=self.ram,
-                                 card_key=card_key, disk=self.disk, ram_need=ram.need)
-
-    def _register(self, claimed: UnrealReservation) -> None:
-        need = claimed.ram_need
-        self.ram.register(claimed.claim_id, need.ws_mb, need.commit_mb)  # FR-PC-RAM-5
-        try:
-            self.disk.register(claimed.claim_id)  # need 0 until a piece's disk check (FR-PC-DSK-1)
-        except BaseException:
-            self.ram.unregister(claimed.claim_id)
-            raise
-
-    def _release(self, claim_id: str, slot: int) -> None:
-        try:
-            try:
-                self.ram.unregister(claim_id)
-            finally:
-                self.disk.unregister(claim_id)
-        finally:
-            self.slots.give(slot)
+                                 card_key=card_key, disk=self.disk, ram_need=ram.need, startup=self.startup)
 
     def try_reserve(self, job_data: dict) -> Optional[UnrealReservation]:
         params = self._prechecks(job_data)
@@ -269,7 +264,7 @@ class Reserver:
         try:
             claimed = self._after_slot(params, slot)
             if claimed is not None:
-                self._register(claimed)
+                reserve_claim.register(claimed, self._books)
             reservation = claimed
             return reservation
         finally:

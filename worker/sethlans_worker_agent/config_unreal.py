@@ -71,6 +71,10 @@ ZEN_PORT_FORBIDDEN = 8558
 ZEN_PORT_SLOTS = 16
 ZEN_PORT_MAX = 65519  # FR-PC-SLOT-4: 1024..65519
 WORKCOPY_MODES = ('hardlink', 'copy')
+# Render per card FR-PC-SU-2, D13: may a second Unreal render start while another is still starting?
+STARTUP_TOGETHER = 'together'            # the default: nothing waits
+STARTUP_ONE_AT_A_TIME = 'one_at_a_time'  # an Unreal job is not claimed while another claim is starting
+STARTUP_RULES = (STARTUP_TOGETHER, STARTUP_ONE_AT_A_TIME)
 
 Getter = Callable[[str, str, Any], Any]
 
@@ -154,6 +158,9 @@ def _apply_cross_checks(values: Dict[str, Any]) -> None:
     if values['WORKCOPY_MODE'] not in WORKCOPY_MODES:
         logger.warning("Config 'unreal.workcopy_mode' must be one of %s; using 'hardlink'.", WORKCOPY_MODES)
         values['WORKCOPY_MODE'] = 'hardlink'
+    if values['STARTUP_RULE'] not in STARTUP_RULES:
+        logger.warning("Config 'unreal.startup_rule' must be one of %s; using %r.", STARTUP_RULES, STARTUP_TOGETHER)
+        values['STARTUP_RULE'] = STARTUP_TOGETHER
 
 
 def load(get_value: Optional[Getter] = None) -> Dict[str, Any]:
@@ -167,6 +174,7 @@ def load(get_value: Optional[Getter] = None) -> Dict[str, Any]:
         'ENGINE_PATHS': _as_str(get_value, 'ENGINE_PATHS', ''),
         'CACHE_DIR': _as_str(get_value, 'CACHE_DIR', '') or default_cache_dir(),
         'WORKCOPY_MODE': _as_str(get_value, 'WORKCOPY_MODE', 'hardlink').strip().lower(),
+        'STARTUP_RULE': _as_str(get_value, 'STARTUP_RULE', STARTUP_TOGETHER).strip().lower(),
     }
     for key, default, low, high in _INT_SETTINGS:
         values[key] = _as_int(get_value, key, default, low, high)
@@ -182,6 +190,7 @@ SHARE: str = _values['SHARE']
 ENGINE_PATHS: str = _values['ENGINE_PATHS']
 CACHE_DIR: str = _values['CACHE_DIR']
 WORKCOPY_MODE: str = _values['WORKCOPY_MODE']
+STARTUP_RULE: str = _values['STARTUP_RULE']
 SHARE_RECHECK_SECONDS: int = _values['SHARE_RECHECK_SECONDS']
 SHARE_RECHECK_MAX_SECONDS: int = _values['SHARE_RECHECK_MAX_SECONDS']
 VRAM_SAMPLE_SECONDS: int = _values['VRAM_SAMPLE_SECONDS']
