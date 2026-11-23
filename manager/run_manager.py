@@ -18,8 +18,9 @@ Usage:
 
 Phase 6 replaced the ``--dev`` fail-fast stub with a watchdog-based
 parent/child wrapper. The parent process owns the filesystem observer
-and signals the child on any ``*.py`` change under ``manager/``; the
-child process runs the production Waitress path.
+and signals the child on any ``*.py`` change under ``manager/`` or
+``shared/``; the child is this script again without ``--dev``, so it
+runs the production boot (migrate, collectstatic, Waitress).
 
 Issue #191 added ``--manage <subcommand> [args...]``. In frozen
 PyInstaller mode the launcher cannot invoke
@@ -84,6 +85,8 @@ from sethlans_manager.waitress_launcher import (  # noqa: E402
 logger = logging.getLogger(__name__)
 
 MANAGE_PY = str(MANAGER_DIR / 'manage.py')
+# The dev watchdog's child runs this script again, without ``--dev``.
+RUN_MANAGER_PY = Path(__file__).resolve()
 
 if is_frozen():
     PROJECT_ROOT = get_app_dir()
@@ -220,7 +223,9 @@ def _dispatch_dev_mode() -> None:
             file=sys.stderr,
         )
         sys.exit(2)
-    rc = run_dev_watchdog(Path(MANAGE_PY), sys.argv[1:])
+    # The child is run_manager.py itself, not manage.py: a bare
+    # manage.py prints Django's help and exits (issue #293).
+    rc = run_dev_watchdog(RUN_MANAGER_PY, sys.argv[1:])
     sys.exit(rc)
 
 
@@ -265,8 +270,10 @@ def main():
     public_port = get_waitress_public_port(ini_path)
     internal_port = get_waitress_internal_port(ini_path)
 
+    # SETHLANS_DEV_MODE=1 is set only by the --dev watchdog parent.
+    mode = "DEV" if os.environ.get("SETHLANS_DEV_MODE") == "1" else "PRODUCTION"
     print(
-        "\n--- Starting Sethlans Manager (PRODUCTION) "
+        f"\n--- Starting Sethlans Manager ({mode}) "
         f"-- public vhost {host}:{port} via Caddy -> "
         f"Waitress 127.0.0.1:{public_port} ---",
     )

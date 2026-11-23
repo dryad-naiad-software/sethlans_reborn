@@ -6,9 +6,11 @@
 Parent/child supervisor that provides ``--reload``-style hot-reload
 semantics for the Waitress production path. The parent process owns the
 filesystem observer and child-lifecycle signalling; the child actually
-serves HTTP traffic. On any ``*.py`` change under ``manager/``, the
-parent debounces a 500 ms window of events and then restarts the
-child.
+serves HTTP traffic. The child is ``run_manager.py`` itself without
+``--dev`` (issue #293), so it takes the normal production boot:
+migrations, collectstatic, then the Waitress listeners. On any
+``*.py`` change under ``manager/`` or ``shared/``, the parent debounces
+a 500 ms window of events and then restarts the child.
 
 Design constraints:
 
@@ -19,78 +21,44 @@ Design constraints:
 * **No Django boot in the parent**: the parent must not import
   ``sethlans_manager.wsgi`` or trigger ``django.setup()``. All Django
   work happens in the child.
-* **Windows signalling**: we spawn the child with
-  ``subprocess.CREATE_NEW_PROCESS_GROUP`` so ``CTRL_BREAK_EVENT`` can
-  be delivered to the child independently of the parent's own Ctrl+C
-  handling.
+* **Process tree**: the child runs in its own process group (Windows)
+  or session (POSIX), so stop signals reach its ``migrate`` /
+  ``collectstatic`` subprocesses too. See ``dev_watchdog_process.py``.
 
 The filesystem event filter, the debouncer, and the watchdog event
-handler live in ``dev_watchdog_handler.py`` to keep both files under
-the 300-line ceiling.
+handler live in ``dev_watchdog_handler.py``; the process-tree
+signalling lives in ``dev_watchdog_process.py``.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import signal
 import subprocess
-import sys
 import threading
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import Iterable, Optional, Sequence
 
 from sethlans_manager.dev_watchdog_handler import (
     _DebouncedRestarter,
     _make_event_handler,
 )
+from sethlans_manager.dev_watchdog_process import (  # noqa: F401
+    build_child_command,
+    build_child_env as _build_child_env,
+    install_parent_signal_handlers as _install_parent_signal_handlers,
+    kill_process_tree,
+    popen_group_kwargs,
+    send_stop_signal,
+    strip_dev_flag as _strip_dev_flag,
+)
 
 logger = logging.getLogger(__name__)
 
 _GRACEFUL_SHUTDOWN_SECONDS = 5.0
-
-
-def _strip_dev_flag(argv: Sequence[str]) -> List[str]:
-    """Return ``argv`` with the first ``--dev`` occurrence removed.
-
-    The child is respawned via the production path; keeping ``--dev``
-    in its argv would cause infinite recursion.
-    """
-    out: List[str] = []
-    dropped = False
-    for token in argv:
-        if token == "--dev" and not dropped:
-            dropped = True
-            continue
-        out.append(token)
-    return out
-
-
-def _build_child_env(parent_env: Optional[dict] = None) -> dict:
-    """Build the environment for the child process.
-
-    Copies the parent env, preserves ``SETHLANS_DEV_MODE=1``, and
-    strips ``SETHLANS_DEV_IS_PARENT`` so the child takes the
-    production branch in ``run_manager.main()``.
-    """
-    src = dict(os.environ if parent_env is None else parent_env)
-    src["SETHLANS_DEV_MODE"] = "1"
-    src.pop("SETHLANS_DEV_IS_PARENT", None)
-    return src
-
-
-def _popen_creationflags() -> int:
-    """Return the Windows ``CREATE_NEW_PROCESS_GROUP`` flag or 0."""
-    if sys.platform == "win32":
-        return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    return 0
-
-
-def _terminate_signal() -> int:
-    """Return the platform-appropriate graceful-stop signal."""
-    if sys.platform == "win32":
-        return getattr(signal, "CTRL_BREAK_EVENT", signal.SIGTERM)
-    return signal.SIGTERM
+# Upper bound for waiting on an in-flight restart at shutdown: one
+# graceful stop, one kill wait, plus the spawn.
+_RESTART_DRAIN_SECONDS = 2 * _GRACEFUL_SHUTDOWN_SECONDS + 5.0
 
 
 class _ChildSupervisor:
@@ -98,37 +66,37 @@ class _ChildSupervisor:
 
     def __init__(
         self,
-        manage_script: Path,
+        server_script: Path,
         child_argv: Sequence[str],
         shutdown_event: threading.Event,
     ):
-        self._manage_script = Path(manage_script)
+        self._server_script = Path(server_script)
         self._child_argv = list(child_argv)
         self._shutdown_event = shutdown_event
         self._proc: Optional[subprocess.Popen] = None
-        self._lock = threading.Lock()
+        # RLock: the parent's signal handler calls ``stop()`` on the main
+        # thread, which may already hold this lock when interrupted.
+        self._lock = threading.RLock()
+        # Serialises restarts so two debounce fires cannot each spawn a
+        # child. Never taken by ``stop()`` or the signal handler.
+        self._restart_lock = threading.Lock()
         self._restart_in_progress = threading.Event()
 
     def spawn(self) -> subprocess.Popen:
-        """Start a fresh child process."""
-        cmd = [sys.executable, str(self._manage_script), *self._child_argv]
+        """Start a fresh child process.
+
+        If shutdown began while the child was being spawned, the new
+        child is stopped at once so it is never left untracked.
+        """
+        cmd = build_child_command(self._server_script, self._child_argv)
         env = _build_child_env()
-        creationflags = _popen_creationflags()
         logger.info("dev watchdog: spawning child %s", cmd)
-        proc = subprocess.Popen(
-            cmd,
-            env=env,
-            creationflags=creationflags,
-        )
+        proc = subprocess.Popen(cmd, env=env, **popen_group_kwargs())
         with self._lock:
             self._proc = proc
+        if self._shutdown_event.is_set():
+            self.stop()
         return proc
-
-    def _send_stop_signal(self, proc: subprocess.Popen) -> None:
-        try:
-            proc.send_signal(_terminate_signal())
-        except (ProcessLookupError, OSError) as exc:  # pragma: no cover
-            logger.warning("dev watchdog: signal to child failed: %s", exc)
 
     def stop(
         self, timeout: float = _GRACEFUL_SHUTDOWN_SECONDS,
@@ -138,7 +106,7 @@ class _ChildSupervisor:
             proc = self._proc
         if proc is None:
             return None
-        self._send_stop_signal(proc)
+        send_stop_signal(proc)
         try:
             return proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -146,22 +114,39 @@ class _ChildSupervisor:
                 "dev watchdog: child did not exit in %.1fs, killing",
                 timeout,
             )
-            proc.kill()
+            kill_process_tree(proc)
             try:
                 return proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:  # pragma: no cover
                 return None
 
     def restart(self) -> None:
-        """Stop the running child and spawn a new one."""
-        self._restart_in_progress.set()
-        try:
-            self.stop()
+        """Stop the running child and spawn a new one (one at a time)."""
+        with self._restart_lock:
             if self._shutdown_event.is_set():
                 return
-            self.spawn()
-        finally:
-            self._restart_in_progress.clear()
+            self._restart_in_progress.set()
+            try:
+                self.stop()
+                if self._shutdown_event.is_set():
+                    return
+                self.spawn()
+            finally:
+                self._restart_in_progress.clear()
+
+    def wait_for_restart(
+        self, timeout: float = _RESTART_DRAIN_SECONDS,
+    ) -> None:
+        """Wait for an in-flight restart to finish (shutdown path).
+
+        Called after the shutdown event is set, so a restart that was
+        mid-spawn has published (and stopped) its child before the
+        parent's final ``stop()``.
+        """
+        if self._restart_lock.acquire(timeout=timeout):
+            self._restart_lock.release()
+        else:  # pragma: no cover - defensive
+            logger.warning("dev watchdog: restart still running at exit")
 
     def wait_for_unexpected_exit(self) -> int:
         """Block until the child exits outside a restart; return rc.
@@ -178,9 +163,12 @@ class _ChildSupervisor:
                 rc = proc.wait(timeout=0.5)
             except subprocess.TimeoutExpired:
                 continue
-            if self._restart_in_progress.is_set():
-                # Expected exit from an in-flight restart — loop and
-                # pick up the freshly-spawned child on the next tick.
+            with self._lock:
+                replaced = self._proc is not proc
+            if replaced or self._restart_in_progress.is_set():
+                # Expected exit from a restart (in flight, or already
+                # done and the new child spawned) — loop and pick up
+                # the freshly-spawned child on the next tick.
                 continue
             if self._shutdown_event.is_set():
                 return rc
@@ -189,28 +177,6 @@ class _ChildSupervisor:
             )
             return rc if rc is not None else 1
         return 0
-
-
-def _install_parent_signal_handlers(
-    shutdown_event: threading.Event,
-    supervisor: _ChildSupervisor,
-) -> None:
-    """Forward SIGINT/SIGTERM to the child and trip shutdown_event."""
-
-    def _handler(signum, _frame):  # pragma: no cover - signal path
-        logger.info("dev watchdog: parent received signal %s", signum)
-        shutdown_event.set()
-        supervisor.stop()
-
-    try:
-        signal.signal(signal.SIGINT, _handler)
-    except (ValueError, OSError):  # pragma: no cover
-        pass
-    if hasattr(signal, "SIGTERM"):
-        try:
-            signal.signal(signal.SIGTERM, _handler)
-        except (ValueError, OSError):  # pragma: no cover
-            pass
 
 
 def _start_observer(watch_dir: Path, handler) -> "object":
@@ -223,16 +189,30 @@ def _start_observer(watch_dir: Path, handler) -> "object":
     return observer
 
 
-def _watched_directories(manage_script: Path) -> Iterable[Path]:
-    """Return directories the parent should watch recursively."""
-    return [Path(manage_script).resolve().parent]
+def _watched_directories(server_script: Path) -> Iterable[Path]:
+    """Return directories the parent should watch recursively.
+
+    The manager tree (the directory holding ``run_manager.py``) and the
+    repository's ``shared/`` package, which the manager imports.
+    """
+    manager_dir = Path(server_script).resolve().parent
+    dirs = [manager_dir]
+    shared_dir = manager_dir.parent / "shared"
+    if shared_dir.is_dir():
+        dirs.append(shared_dir)
+    return dirs
 
 
-def run_dev_watchdog(manage_script: Path, argv: Sequence[str]) -> int:
+def run_dev_watchdog(server_script: Path, argv: Sequence[str]) -> int:
     """Parent entry point for dev hot-reload.
 
-    Blocks until the child exits unexpectedly or the parent receives
-    SIGINT/SIGTERM. Returns the intended process exit code.
+    ``server_script`` is ``run_manager.py``; ``argv`` is its command
+    line without the program name. The child runs ``server_script``
+    with ``argv`` minus ``--dev``.
+
+    Blocks until the child exits unexpectedly or the parent receives a
+    stop signal (SIGINT/SIGTERM, plus SIGBREAK on Windows and SIGHUP on
+    POSIX). Returns the intended process exit code.
     """
     # Parent-side env markers — the child inherits SETHLANS_DEV_MODE
     # via ``_build_child_env``; SETHLANS_DEV_IS_PARENT is stripped
@@ -240,12 +220,12 @@ def run_dev_watchdog(manage_script: Path, argv: Sequence[str]) -> int:
     os.environ["SETHLANS_DEV_MODE"] = "1"
     os.environ["SETHLANS_DEV_IS_PARENT"] = "1"
 
-    manage_script = Path(manage_script).resolve()
+    server_script = Path(server_script).resolve()
     child_argv = _strip_dev_flag(argv)
 
     shutdown_event = threading.Event()
     supervisor = _ChildSupervisor(
-        manage_script=manage_script,
+        server_script=server_script,
         child_argv=child_argv,
         shutdown_event=shutdown_event,
     )
@@ -254,7 +234,7 @@ def run_dev_watchdog(manage_script: Path, argv: Sequence[str]) -> int:
     handler = _make_event_handler(restarter)
 
     observers = []
-    for watch_dir in _watched_directories(manage_script):
+    for watch_dir in _watched_directories(server_script):
         observers.append(_start_observer(watch_dir, handler))
 
     _install_parent_signal_handlers(shutdown_event, supervisor)
@@ -275,6 +255,7 @@ def run_dev_watchdog(manage_script: Path, argv: Sequence[str]) -> int:
                 obs.join(timeout=2.0)
             except Exception:  # pragma: no cover
                 logger.exception("observer.join() failed")
+        supervisor.wait_for_restart()
         supervisor.stop()
 
     return rc

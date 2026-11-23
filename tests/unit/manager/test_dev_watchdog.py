@@ -147,8 +147,10 @@ class TestRunDevWatchdogParentEnv:
     def test_parent_sets_dev_mode_and_is_parent(self, mocker, monkeypatch):
         """The parent process sets BOTH markers in its own ``os.environ``
         before spawning. Child env construction is tested separately."""
-        monkeypatch.delenv("SETHLANS_DEV_MODE", raising=False)
-        monkeypatch.delenv("SETHLANS_DEV_IS_PARENT", raising=False)
+        # setenv first so monkeypatch removes the markers afterwards.
+        for name in ("SETHLANS_DEV_MODE", "SETHLANS_DEV_IS_PARENT"):
+            monkeypatch.setenv(name, "0")
+            monkeypatch.delenv(name)
 
         # Stub everything that would start real threads / subprocesses.
         fake_obs = mocker.MagicMock()
@@ -165,7 +167,7 @@ class TestRunDevWatchdogParentEnv:
         fake_supervisor.wait_for_unexpected_exit.return_value = 0
 
         rc = dev_watchdog.run_dev_watchdog(
-            manage_script=Path(__file__),
+            server_script=Path(__file__),
             argv=["--dev"],
         )
 
@@ -190,7 +192,7 @@ class TestChildSupervisorSpawn:
         )
         import threading
         supervisor = dev_watchdog._ChildSupervisor(
-            manage_script=tmp_path / "manage.py",
+            server_script=tmp_path / "run_manager.py",
             child_argv=["--extra"],  # parent already stripped --dev
             shutdown_event=threading.Event(),
         )
@@ -208,24 +210,26 @@ class TestChildSupervisorSpawn:
         self, mocker, tmp_path,
     ):
         """``stop`` signals first, waits up to ``timeout`` seconds,
-        and only kills if the child does not exit."""
+        and only kills the process tree if the child does not exit."""
         import threading
         import subprocess as real_subprocess
+        stop_signal = mocker.patch.object(dev_watchdog, "send_stop_signal")
+        kill_tree = mocker.patch.object(dev_watchdog, "kill_process_tree")
         proc = mocker.MagicMock()
         proc.wait.side_effect = [
             real_subprocess.TimeoutExpired(cmd="x", timeout=5.0),
             -9,
         ]
         supervisor = dev_watchdog._ChildSupervisor(
-            manage_script=tmp_path / "manage.py",
+            server_script=tmp_path / "run_manager.py",
             child_argv=[],
             shutdown_event=threading.Event(),
         )
         supervisor._proc = proc
 
         rc = supervisor.stop(timeout=0.01)
-        proc.send_signal.assert_called_once()
-        proc.kill.assert_called_once()
+        stop_signal.assert_called_once_with(proc)
+        kill_tree.assert_called_once_with(proc)
         assert rc == -9
 
 
