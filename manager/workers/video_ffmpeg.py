@@ -12,9 +12,10 @@ allowlists of :mod:`workers.constants_video` before use.
 A frame rate is an integer (Blender animations) or a ``(num, den)``
 fraction (Unreal sequences, D19).  Sequence videos (D13, FR-SV-3..6) add
 a ``-video_track_timescale`` that is a multiple of ``num`` for MP4 and MOV,
-so every frame lasts the same whole number of ticks and shot videos join by
-stream copy; the concat list is written by :func:`concat_list_text` and
-its command always pairs ``-safe 0`` with ``-protocol_whitelist file``.
+and the same ``-movie_timescale``, so every frame and every edit list lasts
+a whole number of ticks and shot videos join by stream copy; the concat
+list is written by :func:`concat_list_text` and its command always pairs
+``-safe 0`` with ``-protocol_whitelist file``.
 """
 
 import logging
@@ -97,10 +98,18 @@ def track_timescale(rate):
 
 
 def timescale_args(container, rate):
-    """D13: ``-video_track_timescale`` (:func:`track_timescale`) for MP4 and MOV; nothing for WebM."""
+    """D13: ``-video_track_timescale`` and ``-movie_timescale`` (:func:`track_timescale`) for MP4 and MOV.
+
+    The movie timescale also carries the edit list's duration; left at the
+    muxer's default (1000) a B-frame video's length is written in whole
+    milliseconds, so a shot of 212 frames at 24 fps can read 30 ticks short
+    and the concat demuxer overlaps the next shot by that much (#291).
+    Nothing for WebM.
+    """
     if container not in TIMESCALE_CONTAINERS:
         return []
-    return ['-video_track_timescale', str(track_timescale(rate))]
+    ticks = str(track_timescale(rate))
+    return ['-video_track_timescale', ticks, '-movie_timescale', ticks]
 
 
 def build_ffmpeg_command(frame_pattern, output_path, video_settings):

@@ -77,6 +77,7 @@ class TestFullBuild:
             assert cmd[cmd.index('-start_number') + 1] == str(shot.start_frame)
             assert cmd[cmd.index('-frames:v') + 1] == str(shot.end_frame - shot.start_frame)
             assert cmd[cmd.index('-video_track_timescale') + 1] == '90000'
+            assert cmd[cmd.index('-movie_timescale') + 1] == '90000'
         concat = fake.of_kind('concat')[0]
         assert concat[concat.index('-safe') + 1] == '0'
         assert concat[concat.index('-protocol_whitelist') + 1] == 'file'
@@ -103,6 +104,7 @@ class TestFullBuild:
         assert (submission.status, submission.video_status) == ('DONE', 'DONE')
         for cmd in fake.of_kind('frames') + fake.of_kind('concat'):
             assert cmd[cmd.index('-video_track_timescale') + 1] == timescale
+            assert cmd[cmd.index('-movie_timescale') + 1] == timescale
         assert {cmd[cmd.index('-framerate') + 1] for cmd in fake.of_kind('frames')} == {f'{rate[0]}/{rate[1]}'}
 
 
@@ -161,7 +163,7 @@ class TestFailures:
         assert submission.video_file.name.endswith('/whole/video.webm')
         whole = fake.of_kind('frames')[-1]
         assert whole[whole.index('-frames:v') + 1] == '14' and whole[whole.index('-start_number') + 1] == '1'
-        assert '-video_track_timescale' not in whole
+        assert '-video_track_timescale' not in whole and '-movie_timescale' not in whole
         pattern, listed = fake.patterns[-1]
         folder = os.path.dirname(pattern)
         assert os.path.commonpath([folder, os.path.realpath(settings.MEDIA_ROOT)]) == os.path.realpath(

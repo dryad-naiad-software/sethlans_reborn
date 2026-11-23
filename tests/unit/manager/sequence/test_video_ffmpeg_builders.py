@@ -70,13 +70,23 @@ class TestShotVideo:
         assert _after(cmd, '-start_number') == '120'
         assert _after(cmd, '-frames:v') == '48'
         assert _after(cmd, '-video_track_timescale') == '90000'
+        assert _after(cmd, '-movie_timescale') == '90000'
         assert cmd.index('-start_number') < cmd.index('-i') < cmd.index('-c:v')
         assert cmd[-1] == 'out.mp4'
 
     def test_mov_and_webm_timescales(self):
-        assert _after(build_sequence_video_command('p', 'o.mov', PRORES, (24, 1)), '-video_track_timescale') == '90000'
-        assert '-video_track_timescale' not in build_sequence_video_command('p', 'o.webm', VP9, (30000, 1001))
-        assert timescale_args('mp4', 25) == ['-video_track_timescale', '90000']
+        mov = build_sequence_video_command('p', 'o.mov', PRORES, (24, 1))
+        assert _after(mov, '-video_track_timescale') == _after(mov, '-movie_timescale') == '90000'
+        webm = build_sequence_video_command('p', 'o.webm', VP9, (30000, 1001))
+        assert '-video_track_timescale' not in webm and '-movie_timescale' not in webm
+        assert timescale_args('mp4', 25) == ['-video_track_timescale', '90000', '-movie_timescale', '90000']
+        assert timescale_args('webm', 25) == []
+
+    @pytest.mark.parametrize('container, rate, ticks', [('mp4', (24000, 1001), '96000'), ('mov', (60000, 1001), '120000'),
+                                                        ('mp4', (7, 1), '90006')], ids=str)
+    def test_movie_timescale_matches_the_track_timescale(self, container, rate, ticks):
+        """#291: the edit list is written in the movie timescale, so it must be as exact as the track's."""
+        assert timescale_args(container, rate) == ['-video_track_timescale', ticks, '-movie_timescale', ticks]
 
     @pytest.mark.parametrize('rate, timescale, ticks', [
         ((24, 1), 90000, 3750), ((25, 1), 90000, 3600), ((30, 1), 90000, 3000), ((24000, 1001), 96000, 4004),
@@ -127,7 +137,7 @@ class TestConcat:
         assert _after(cmd, '-protocol_whitelist') == 'file'
         assert cmd.index('-protocol_whitelist') < cmd.index('-i')
         assert _after(cmd, '-c') == 'copy' and '-c:v' not in cmd
-        assert ('-video_track_timescale' in cmd) == (container != 'webm')
+        assert ('-video_track_timescale' in cmd) == ('-movie_timescale' in cmd) == (container != 'webm')
 
     def test_unknown_container_is_refused(self):
         with pytest.raises(ValueError):
@@ -145,6 +155,7 @@ class TestMux:
         assert _after(cmd, '-c:v') == 'copy'
         start = cmd.index('-c:a') + 1
         assert cmd[start:start + len(codec)] == codec == list(VIDEO_AUDIO_CODECS[container])
+        assert ('-movie_timescale' in cmd) == (container != 'webm')
 
     def test_unknown_container_is_refused(self):
         with pytest.raises(ValueError):
