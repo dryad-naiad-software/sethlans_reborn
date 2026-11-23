@@ -84,8 +84,9 @@ def populate_cache():
     The inner thread is left running as a daemon; it will not block
     interpreter shutdown.
 
-    Callers (``WorkersConfig.ready`` background thread, the refresh
-    trigger) depend on this function returning in bounded time.
+    Callers (the serving process's start thread from
+    :mod:`workers.release_cache_startup`, the refresh trigger) depend
+    on this function returning in bounded time.
     """
     global _cache_ready
     worker = threading.Thread(

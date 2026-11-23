@@ -32,26 +32,15 @@ class WorkersConfig(AppConfig):
         from sethlans_manager.db_hooks import register_connection_hooks
         register_connection_hooks()
 
-        # Populate Blender series cache in the background.
-        #
-        # Guarded against:
-        #   * Test runs (``pytest`` in ``sys.modules``) — unit tests
-        #     boot Django many times per run; we don't want 2 700 test
-        #     invocations hitting ``download.blender.org``. Tests that
-        #     need the cache populate it explicitly via their own
-        #     fixtures / mocks.
-        #   * Airgapped deployments — operators can set
-        #     ``SETHLANS_DISABLE_RELEASE_FETCH=1`` to skip the fetch
-        #     entirely (the cache stays empty; the settings page will
-        #     show an empty series list until a manual refresh).
-        if self._should_populate_release_cache():
-            import threading
-            from .utils.blender_series_cache import populate_cache
-            threading.Thread(
-                target=populate_cache,
-                name='blender-series-cache-populate',
-                daemon=True,
-            ).start()
+        # Populate the Blender series cache in the background — only in
+        # a process that serves requests (issue #292).  ready() also runs
+        # for every management command, so here it starts the fetch for
+        # ``runserver``'s serving process alone; the Waitress serving
+        # process starts it from ``waitress_launcher.launch``.  Pytest
+        # and ``SETHLANS_DISABLE_RELEASE_FETCH=1`` block it everywhere.
+        # See ``workers.release_cache_startup``.
+        from .release_cache_startup import start_if_runserver
+        start_if_runserver()
 
         # Boot-time parts-check.  Idempotent under multi-fire ready()
         # via the in-process ``_thread_started`` flag — autoreload
@@ -63,23 +52,6 @@ class WorkersConfig(AppConfig):
 
         # Reset stuck video assemblies from prior server shutdown
         self._reset_stuck_assemblies()
-
-    @staticmethod
-    def _should_populate_release_cache() -> bool:
-        """Gate the background Blender release fetch.
-
-        Returns False when running under pytest or when the operator
-        has set ``SETHLANS_DISABLE_RELEASE_FETCH=1``. Broken out as a
-        static method so tests can patch it directly and assert the
-        fetch thread is not spawned.
-        """
-        import os
-        import sys
-        if os.environ.get('SETHLANS_DISABLE_RELEASE_FETCH') == '1':
-            return False
-        if 'pytest' in sys.modules:
-            return False
-        return True
 
     def _reset_stuck_assemblies(self):
         from django.db import OperationalError, ProgrammingError

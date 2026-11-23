@@ -2,75 +2,121 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Regression tests for ``WorkersConfig.ready`` guards (issue #97).
+"""Regression tests for ``WorkersConfig.ready`` guards (issues #97, #292).
 
-The Blender series cache populate thread previously fired
-unconditionally during ``WorkersConfig.ready``, which meant every
-pytest invocation hit ``download.blender.org`` and leaked
-``I/O operation on closed file`` tracebacks during teardown. The
-guard now gates the thread on an env var and on whether pytest is
-active.
+#97: the Blender series cache populate thread fired unconditionally
+during ``WorkersConfig.ready``, so every pytest invocation hit
+``download.blender.org``.  #292: ``ready()`` runs for every management
+command too (``spectacular``, ``migrate``, ...), and each one started
+the fetch.  ``ready()`` now starts it only in ``runserver``'s serving
+process; the Waitress serving process starts it from
+``waitress_launcher.launch``.  The gate itself is covered in
+``test_release_cache_startup.py``.
 """
 
 from __future__ import annotations
 
+import sys
+
+import pytest
+from django.apps import apps
+
+from workers import release_cache_startup as startup
 from workers.apps import WorkersConfig
 
 
 # ---------------------------------------------------------------------
-# _should_populate_release_cache — guard logic.
+# ready() — the release fetch starts for runserver's serving process only.
 # ---------------------------------------------------------------------
 
-class TestShouldPopulateReleaseCache:
+class TestReadyReleaseFetch:
 
-    def test_false_under_pytest_by_default(self, monkeypatch):
-        """With the env var cleared, pytest presence in ``sys.modules``
-        alone must be enough to keep the guard closed. Proves the
-        pytest-detection branch stands on its own — it does not rely
-        on the pytest.ini env flag also being set."""
-        monkeypatch.delenv(
-            'SETHLANS_DISABLE_RELEASE_FETCH', raising=False,
-        )
-        assert WorkersConfig._should_populate_release_cache() is False
+    @pytest.fixture(autouse=True)
+    def _isolated_ready(self, mocker, monkeypatch):
+        """Run the real ``ready()`` with its other side effects (logging,
+        DB hooks, parts check, DB reset) patched out and ``Thread``
+        mocked, so no test touches the network."""
+        mocker.patch('sethlans_manager.logging_config.configure')
+        mocker.patch('sethlans_manager.db_hooks.register_connection_hooks')
+        mocker.patch('workers.services.parts_check.run_parts_check')
+        mocker.patch.object(WorkersConfig, '_reset_stuck_assemblies')
+        monkeypatch.setattr(startup, '_started', False)
+        monkeypatch.delenv('RUN_MAIN', raising=False)
+        self.thread_cls = mocker.patch.object(startup.threading, 'Thread')
+        self.config = apps.get_app_config('workers')
 
-    def test_false_when_env_var_set(self, monkeypatch):
-        monkeypatch.setenv('SETHLANS_DISABLE_RELEASE_FETCH', '1')
-        assert WorkersConfig._should_populate_release_cache() is False
+    @pytest.fixture
+    def guard_open(self, mocker):
+        """Open the pytest / opt-out guard so only the server gate decides."""
+        mocker.patch.object(startup, 'fetch_disabled', return_value=False)
 
-    def test_true_when_env_unset_and_pytest_absent(self, monkeypatch):
-        """Simulate the production path: env unset, pytest not loaded."""
-        import sys
-        monkeypatch.delenv(
-            'SETHLANS_DISABLE_RELEASE_FETCH', raising=False,
-        )
-        fake_modules = {
-            k: v for k, v in sys.modules.items()
-            if not k.startswith('pytest')
-        }
-        monkeypatch.setattr(sys, 'modules', fake_modules)
-        assert WorkersConfig._should_populate_release_cache() is True
+    def _fetch_threads(self):
+        return [
+            c for c in self.thread_cls.call_args_list
+            if c.kwargs.get('name') == startup.THREAD_NAME
+        ]
 
-    def test_env_override_beats_pytest_presence(self, monkeypatch):
-        """The env var dominates — if an operator explicitly disables
-        the fetch, we never start the thread even if pytest happens to
-        be importable in the same interpreter."""
-        monkeypatch.setenv('SETHLANS_DISABLE_RELEASE_FETCH', '1')
-        # pytest is in sys.modules as usual; don't strip it.
-        assert WorkersConfig._should_populate_release_cache() is False
+    @pytest.mark.usefixtures('guard_open')
+    @pytest.mark.parametrize('argv', [
+        ['manage.py', 'spectacular', '--file', 'schema.yml'],
+        ['manage.py', 'migrate', '--noinput'],
+        ['manage.py', 'makemigrations', '--check'],
+        ['manage.py', 'check'],
+        ['manage.py', 'collectstatic', '--noinput'],
+        ['manage', 'apply_pending_setup', '--data-dir', 'x'],
+    ], ids=['spectacular', 'migrate', 'makemigrations', 'check', 'collectstatic', 'apply_pending_setup'])
+    def test_management_command_does_not_fetch(self, monkeypatch, argv):
+        """#292 reproduction: these commands used to start the fetch."""
+        monkeypatch.setattr(sys, 'argv', argv)
+        self.config.ready()
+        assert self._fetch_threads() == []
 
-    def test_env_value_other_than_one_allows_fetch(self, monkeypatch):
-        """Only the literal string ``'1'`` disables the fetch. Any
-        other truthy-ish value (``'true'``, ``'yes'``, ``'0'``, '')
-        does not count — this matches the convention the rest of the
-        codebase uses for env flags."""
-        import sys
-        monkeypatch.setenv('SETHLANS_DISABLE_RELEASE_FETCH', 'true')
-        fake_modules = {
-            k: v for k, v in sys.modules.items()
-            if not k.startswith('pytest')
-        }
-        monkeypatch.setattr(sys, 'modules', fake_modules)
-        assert WorkersConfig._should_populate_release_cache() is True
+    @pytest.mark.usefixtures('guard_open')
+    def test_runserver_reloader_parent_does_not_fetch(self, monkeypatch):
+        monkeypatch.setattr(sys, 'argv', ['manage.py', 'runserver'])
+        self.config.ready()
+        assert self._fetch_threads() == []
+
+    @pytest.mark.usefixtures('guard_open')
+    def test_runserver_serving_child_fetches(self, monkeypatch):
+        monkeypatch.setattr(sys, 'argv', ['manage.py', 'runserver', '8080'])
+        monkeypatch.setenv('RUN_MAIN', 'true')
+        self.config.ready()
+        assert len(self._fetch_threads()) == 1
+        self.thread_cls.return_value.start.assert_called_once_with()
+
+    @pytest.mark.usefixtures('guard_open')
+    def test_runserver_noreload_fetches(self, monkeypatch):
+        monkeypatch.setattr(sys, 'argv', ['manage.py', 'runserver', '--noreload'])
+        self.config.ready()
+        assert len(self._fetch_threads()) == 1
+
+    @pytest.mark.usefixtures('guard_open')
+    def test_server_entry_point_leaves_it_to_the_launcher(self, monkeypatch):
+        """``run_manager.py`` boots Django (and so ``ready()``) before
+        Waitress starts; the launcher, not ``ready()``, starts the fetch."""
+        monkeypatch.setattr(sys, 'argv', ['run_manager.py'])
+        self.config.ready()
+        assert self._fetch_threads() == []
+
+    def test_env_opt_out_wins_for_runserver(self, monkeypatch):
+        """The real guard with pytest hidden: ``SETHLANS_DISABLE_RELEASE_FETCH=1``
+        keeps even runserver's serving process from fetching."""
+        monkeypatch.setenv(startup.DISABLE_ENV, '1')
+        monkeypatch.setattr(sys, 'modules', {
+            k: v for k, v in sys.modules.items() if not k.startswith('pytest')
+        })
+        monkeypatch.setattr(sys, 'argv', ['manage.py', 'runserver', '--noreload'])
+        self.config.ready()
+        assert self._fetch_threads() == []
+
+    def test_pytest_guard_wins_for_runserver(self, monkeypatch):
+        """Without the opt-out, pytest alone keeps runserver's serving
+        process from fetching (the #97 guard is kept)."""
+        monkeypatch.delenv(startup.DISABLE_ENV, raising=False)
+        monkeypatch.setattr(sys, 'argv', ['manage.py', 'runserver', '--noreload'])
+        self.config.ready()
+        assert self._fetch_threads() == []
 
 
 # ---------------------------------------------------------------------

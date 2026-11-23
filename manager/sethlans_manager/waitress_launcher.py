@@ -205,6 +205,10 @@ def launch(
     # D16: the build queue starts in the serving process only, once.
     from workers.video_startup import on_server_start
     on_server_start()
+    # Issue #292: the Blender series fetch starts in the serving
+    # process only, never from apps.ready() for management commands.
+    from workers.release_cache_startup import start_release_cache_populate
+    start_release_cache_populate()
     public_thread.start()
     internal_thread.start()
 

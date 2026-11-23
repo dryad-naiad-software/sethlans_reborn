@@ -35,6 +35,10 @@ class TestLaunchDualListeners:
         # The build queue's start hook needs the database (D16); it is
         # covered by the sequence video integration tests.
         self.start_hook = mocker.patch("workers.video_startup.on_server_start")
+        # Issue #292: the Blender series fetch (network) starts here.
+        self.fetch_start = mocker.patch(
+            "workers.release_cache_startup.start_release_cache_populate",
+        )
 
     def setup_method(self):
         waitress_launcher._servers.clear()
@@ -240,3 +244,24 @@ class TestLaunchDualListeners:
 
         waitress_launcher.launch(public_port=8090, internal_port=8088, ini_path=tmp_path / "manager.ini")
         assert events == ["hook", "listener", "listener"]
+
+    def test_serving_process_starts_the_release_fetch_once_before_the_listeners(self, mocker, tmp_path):
+        """Issue #292: the Waitress serving process (source, frozen, Docker,
+        ``--dev`` child) starts the Blender series fetch, once, before serving."""
+        events = []
+        mocker.patch.object(
+            waitress_launcher.waitress, "create_server",
+            side_effect=lambda *a, **k: mocker.MagicMock(),
+        )
+        mocker.patch.object(waitress_launcher, "get_waitress_tuning", return_value={})
+        mocker.patch("sethlans_manager.wsgi.application", new=object())
+        thread = mocker.MagicMock()
+        thread.start.side_effect = lambda: events.append("listener")
+        mocker.patch.object(waitress_launcher.threading, "Thread", return_value=thread)
+        mocker.patch.object(waitress_launcher, "_install_signal_handlers")
+        self.fetch_start.side_effect = lambda: events.append("fetch")
+        waitress_launcher._shutdown_event.set()
+
+        waitress_launcher.launch(public_port=8090, internal_port=8088, ini_path=tmp_path / "manager.ini")
+        self.fetch_start.assert_called_once_with()
+        assert events == ["fetch", "listener", "listener"]
