@@ -83,6 +83,24 @@ def _megabytes(**kwargs):
     return StrictIntegerField(min_value=0, max_value=MAX_PEAK_MB, **kwargs)
 
 
+def _total_bound_errors(attrs, errors):
+    """The card figures that cannot exceed ``gpu.total_mb``.
+
+    The card delta and the baseline are dedicated-memory readings of the card,
+    so never above its total.  The CSV LocalUsed peak (and so ``peak_mb``) of
+    an over-full render can be (part of it already in shared memory): for
+    ``does_not_fit`` those two are bounded by ``MAX_PEAK_MB`` only (D6, #290).
+    """
+    total = attrs['gpu']['total_mb']
+    fields = ['card_delta_peak_mb', 'baseline_used_mb', 'baseline_drift_mb']
+    if attrs['verdict'] != DOES_NOT_FIT:
+        fields += ['peak_mb', 'csv_local_used_peak_mb']
+    for field in fields:
+        value = attrs.get(field)
+        if value is not None and value > total:
+            errors[field] = [f"Must not exceed gpu.total_mb ({total})."]
+
+
 def _lower_bound_errors(attrs, errors):
     """D6: ``lower_bound_mb`` is ``peak_mb`` exactly for ``does_not_fit`` and null for ``fits``."""
     bound = attrs['lower_bound_mb']
@@ -150,13 +168,8 @@ class PilotResultRequestSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         """The bounds that depend on ``gpu.total_mb``, then the RAM process peak."""
-        total = attrs['gpu']['total_mb']
         errors = {}
-        for field in ('peak_mb', 'card_delta_peak_mb', 'baseline_used_mb', 'baseline_drift_mb',
-                      'csv_local_used_peak_mb'):
-            value = attrs.get(field)
-            if value is not None and value > total:
-                errors[field] = [f"Must not exceed gpu.total_mb ({total})."]
+        _total_bound_errors(attrs, errors)
         # RAM figures are not GPU memory: never bounded by gpu.total_mb (FR-PC-MGR-1).
         process, largest = attrs['ram_process_commit_peak_mb'], largest_commit_mb(attrs['ram'])
         if process is not None and largest is not None and process > largest:

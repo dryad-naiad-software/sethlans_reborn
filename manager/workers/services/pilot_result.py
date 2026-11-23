@@ -106,14 +106,24 @@ def _gpu_matches(gpu_memory, gpu):
 
 
 def _plausibility_errors(data, errors):
+    """``peak_mb`` is the larger figure, and the card's own reading fits in the card.
+
+    For ``fits`` the whole ``peak_mb`` plus the baseline stays within the card.
+    For ``does_not_fit`` only the card delta does: an over-full render's CSV
+    LocalUsed peak (and so ``peak_mb``) can be above the card's total, part of
+    it already in shared memory (D6, #290).
+    """
     card, csv = data['card_delta_peak_mb'], data['csv_local_used_peak_mb'] or 0
     if data['peak_mb'] != max(card, csv):
         errors['peak_mb'] = ["Must equal max(card_delta_peak_mb, csv_local_used_peak_mb)."]
     elif data['peak_source'] != ('csv' if csv > card else 'card'):
         errors['peak_source'] = ["Must name the larger of the card delta and the CSV peak."]
-    if data['peak_mb'] + data['baseline_used_mb'] > data['gpu']['total_mb'] + TOTAL_SKEW_MB:
+    limit = data['gpu']['total_mb'] + TOTAL_SKEW_MB
+    if data['verdict'] == FITS and data['peak_mb'] + data['baseline_used_mb'] > limit:
         errors.setdefault('peak_mb', []).append(
             "peak_mb + baseline_used_mb exceeds the card's total memory.")
+    elif data['verdict'] != FITS and card + data['baseline_used_mb'] > limit:
+        errors['card_delta_peak_mb'] = ["card_delta_peak_mb + baseline_used_mb exceeds the card's total memory."]
 
 
 def _card_kind_errors(job, worker, data, errors):
