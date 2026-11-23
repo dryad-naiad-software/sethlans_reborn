@@ -248,7 +248,8 @@ def _publish_broadcaster_params() -> None:
         data_dir = get_data_dir("manager")
     else:
         from django.conf import settings
-        data_dir = Path(settings.BASE_DIR)
+        from sethlans_manager.state_dir import source_data_dir
+        data_dir = source_data_dir(settings.BASE_DIR)
     target = data_dir / "broadcaster_params.json"
 
     payload = {

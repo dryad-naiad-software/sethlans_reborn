@@ -6,7 +6,8 @@ TLS certificate setup and configuration for the Sethlans Manager.
 
 Handles BYO certificate loading, self-signed certificate generation,
 and SSL context construction.  Reads config from ``manager.ini``
-(data dir when frozen, ``MANAGER_DIR`` when running from source).
+(data dir when frozen; from source, ``SETHLANS_MANAGER_DATA_DIR`` when
+set, else ``MANAGER_DIR`` -- see :mod:`sethlans_manager.state_dir`).
 """
 
 import logging
@@ -22,6 +23,7 @@ from sethlans_manager.cert_utils import (
     get_cert_fingerprint,
     load_and_validate_cert,
 )
+from sethlans_manager.state_dir import source_data_dir
 from shared.frozen_paths import get_data_dir, is_frozen
 from shared.tls_utils import build_ssl_context  # noqa: F401
 
@@ -75,10 +77,14 @@ def _enforce_key_permissions(key_path: Path) -> None:
 
 
 def get_config_file_path(manager_dir: Path) -> Path:
-    """Return the manager.ini path (data dir when frozen)."""
+    """Return the manager.ini path.
+
+    Frozen: the per-user data dir. Source: ``SETHLANS_MANAGER_DATA_DIR``
+    when set (same file ``config_loader`` reads), else ``manager_dir``.
+    """
     if is_frozen():
         return get_data_dir('manager') / 'manager.ini'
-    return manager_dir / 'manager.ini'
+    return source_data_dir(manager_dir) / 'manager.ini'
 
 
 def get_tls_config(manager_dir: Path):
@@ -125,9 +131,11 @@ def get_tls_config(manager_dir: Path):
 def get_tls_dir(dev_mode: bool, manager_dir: Path, project_root: Path):
     """Return the TLS directory path based on mode.
 
+    ``SETHLANS_TLS_DATA_DIR`` wins in every mode.
     Frozen mode: <data_dir>/tls/
     Dev mode:    <project_root>/temp/dev-tls/
-    Prod mode:   <manager_dir>/tls/
+    Prod mode:   <state dir>/tls/ -- ``SETHLANS_MANAGER_DATA_DIR`` when
+                 set (the Docker image: /data/tls), else <manager_dir>/tls/
     """
     env_override = os.getenv('SETHLANS_TLS_DATA_DIR')
     if env_override:
@@ -142,7 +150,7 @@ def get_tls_dir(dev_mode: bool, manager_dir: Path, project_root: Path):
         return get_data_dir('manager') / 'tls'
     if dev_mode:
         return project_root / 'temp' / 'dev-tls'
-    return manager_dir / 'tls'
+    return source_data_dir(manager_dir) / 'tls'
 
 
 def setup_certificates(dev_mode, manager_dir, project_root):

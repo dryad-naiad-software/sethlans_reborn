@@ -15,14 +15,15 @@ to ``<dev-data>/pending_setup.json`` so the Phase 3 apply command can
 pick it up. (Phase 3 doesn't exist yet at the time of writing — the
 flag is here so this script doesn't need rewriting once it lands.)
 
-Note: the manager's source-mode bootstrap reads ``manager/manager.ini``
-and writes its database / TLS certs under the manager source tree. The
-dev script does NOT redirect those into ``temp/dev-data/`` because
-``run_manager.py`` is hard-wired to the source-tree paths in dev mode.
-What this script does redirect is the *shared* per-user data dir
-(setup sentinel, topology, IPC markers) via
-``SETHLANS_MANAGER_DATA_DIR``. If you want a clean DB, delete
-``manager/db.sqlite3`` between runs.
+Because ``SETHLANS_MANAGER_DATA_DIR`` is set, the source-mode manager
+keeps its state in ``temp/dev-data/manager/`` instead of the source
+tree (see ``sethlans_manager.state_dir``): ``manager.ini``, the default
+SQLite database (next to ``manager.ini``), logs, the setup marker it
+reads, broadcaster params, the secret-key file and FFmpeg. The TLS
+cert is passed explicitly via ``SETHLANS_TLS_CERT_FILE`` /
+``SETHLANS_TLS_KEY_FILE``. ``SETHLANS_DATA_DIR`` points the shared data
+dir (topology, IPC markers) at the dev data root. For a clean DB,
+delete ``temp/dev-data/manager/db.sqlite3`` between runs.
 
 CLI:
     python tools/dev_manager.py [--port N] [--seed-pending PATH]

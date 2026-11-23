@@ -21,6 +21,16 @@ services:
       dockerfile: deploy/docker/manager/Dockerfile
     ports:
       - "8080:8080"
+    # All manager state (database, media, manager.ini, TLS cert,
+    # FFmpeg, logs) lives in /data, so it survives a new container.
+    # The manager runs as uid 1000, gid 1000. On a Linux host Docker
+    # creates a missing ./data/manager owned by root, and the manager
+    # then exits with code 3 and a message. Fix it once on the host,
+    # before or after the first start:
+    #   mkdir -p ./data/manager ./config/manager &&
+    #     sudo chown -R 1000:1000 ./data ./config && sudo chmod 700 ./data/manager
+    # Host user uid 1000 then has full access to the manager state
+    # (database, TLS private key).
     volumes:
       - ./data/manager:/data
       - ./config/manager:/config

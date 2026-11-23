@@ -31,6 +31,7 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from sethlans_manager import runtime_state
+from sethlans_manager.state_dir import source_data_dir
 from shared.frozen_paths import get_data_dir, is_frozen
 from workers.services.sentinel import read_sentinel
 
@@ -40,7 +41,7 @@ logger = logging.getLogger(__name__)
 def _data_dir() -> Path:
     if is_frozen():
         return get_data_dir("manager")
-    return settings.BASE_DIR
+    return source_data_dir(settings.BASE_DIR)
 
 
 def _build_summary_payload(data_dir: Path, sentinel: dict) -> dict:

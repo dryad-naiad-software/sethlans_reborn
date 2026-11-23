@@ -38,7 +38,7 @@ services:
       - SETHLANS_SECURITY_SECRET_KEY=dev-insecure-key-for-local-development-only
     command: []
     healthcheck:
-      test: ["CMD", "curl", "-fsk", "https://localhost:8080/api/health/"]
+      test: ["CMD", "python", "/app/launcher/container_healthcheck.py"]
       interval: 10s
       timeout: 5s
       start_period: 30s

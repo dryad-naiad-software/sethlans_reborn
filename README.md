@@ -277,6 +277,16 @@ Images are published to GitHub Container Registry:
 
 All containers run as non-root (uid 1000). Manager and CPU worker images support `linux/amd64` and `linux/arm64`.
 
+The compose file bind-mounts `deploy/docker/data/` and `deploy/docker/config/`. On a Linux host Docker creates missing host folders owned by root, which uid 1000 cannot write; the manager then exits with code 3 and says so. Give the folders to uid 1000 once, from `deploy/docker`:
+
+```bash
+mkdir -p ./data/manager ./config/manager && sudo chown -R 1000:1000 ./data ./config && sudo chmod 700 ./data/manager
+```
+
+Whichever host user has uid 1000 then has full access to the manager's state, including its database and TLS private key.
+
+The manager keeps its state (database, media, `manager.ini`, TLS certificate, downloaded FFmpeg, logs) in its `/data` volume, so recreating the container (for example on an image upgrade) keeps it, including the certificate fingerprint workers have pinned. If you set `SETHLANS_MANAGER_PORT`, the manager serves and health-checks on that port inside the container; publish the same port.
+
 ---
 
 ## Supported Render Configuration (Blender)

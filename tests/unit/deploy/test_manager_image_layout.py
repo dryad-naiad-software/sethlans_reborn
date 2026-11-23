@@ -99,6 +99,40 @@ def test_static_caddyfile_env_points_at_copied_file(dockerfile):
     assert "SETHLANS_MANAGER_CADDYFILE_PATH=/etc/caddy/Caddyfile" in _text(dockerfile)
 
 
+@pytest.mark.parametrize("dockerfile", [DOCKERFILE, DOCKERFILE_DEV])
+def test_all_state_under_data_through_one_setting(dockerfile):
+    """#297: one env var moves every source-mode state location to /data."""
+    text = _text(dockerfile)
+    assert "SETHLANS_MANAGER_DATA_DIR=/data" in text
+    # The TLS dir follows the data dir now; no second knob in the image.
+    assert "SETHLANS_TLS_DATA_DIR" not in text
+
+
+def test_healthcheck_probes_the_configured_port():
+    """#298: the probe resolves the port like the entrypoint, not a fixed 8080."""
+    text = _text(DOCKERFILE)
+    assert 'CMD ["python", "/app/launcher/container_healthcheck.py"]' in text
+    assert "localhost:8080" not in text
+    assert (REPO_ROOT / "launcher" / "container_healthcheck.py").is_file()
+    assert '"/app/launcher/container_healthcheck.py"]' in _text(COMPOSE_DEV)
+
+
+HOST_FIX = (
+    "sudo chown -R 1000:1000 ./data ./config && sudo chmod 700 ./data/manager"
+)
+
+
+def test_compose_documents_the_bind_mount_chown():
+    text = _text(DOCKER_DIR / "docker-compose.yml")
+    assert "- ./data/manager:/data" in text
+    assert HOST_FIX in text
+    assert "mkdir -p ./data/manager ./config/manager &&" in text
+    readme = _text(REPO_ROOT / "README.md")
+    assert f"mkdir -p ./data/manager ./config/manager && {HOST_FIX}" in readme
+    assert "full access" in readme
+    assert "setup marker" not in readme
+
+
 def test_caddyfile_placeholders_all_come_from_the_overlay():
     from launcher.caddy_launcher import _MANAGER_ENV_OVERLAY
 
@@ -111,16 +145,17 @@ def test_caddyfile_placeholders_all_come_from_the_overlay():
     assert placeholders <= set(_MANAGER_ENV_OVERLAY.values())
 
 
-def test_runtime_user_owns_only_data_and_output_dirs():
-    """The runtime user may write logs/static output, never the code dir."""
+def test_runtime_user_owns_only_volumes_and_static_output():
+    """The runtime user may write the volumes and static output, never code.
+
+    Logs moved to /data/logs with the rest of the state (#297), so
+    /app/manager/logs is no longer created or handed over.
+    """
     text = _text(DOCKERFILE)
     chowns = re.findall(r"chown\s+(?:-\S+\s+)*sethlans:sethlans((?:[^\n]*\\\n)*[^\n]*)", text)
     assert len(chowns) == 1, "expected exactly one chown in the manager Dockerfile"
     owned = set(chowns[0].replace("\\", " ").split())
-    assert owned == {
-        "/data", "/config", "/certs",
-        "/app/manager/logs", "/app/manager/staticfiles",
-    }
+    assert owned == {"/data", "/config", "/certs", "/app/manager/staticfiles"}
     assert "chown -R" not in text
     assert "--chown" not in text
     assert "USER sethlans" in text

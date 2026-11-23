@@ -7,9 +7,13 @@ On a native install the launcher starts Caddy (TLS on the public port)
 and then runs the manager as a child process. The manager image has no
 launcher main loop, so this module does the same job in the container:
 
+0. Check the data folder (``SETHLANS_MANAGER_DATA_DIR``, ``/data`` in
+   the image): missing or relative -> exit 2; not writable -> exit 3 with
+   a one-paragraph chown fix; then restrict it to mode 0700 (see
+   :mod:`launcher.container_checks`).
 1. Resolve the TLS cert and key exactly as the manager does (BYO via
    ``SETHLANS_TLS_CERT_FILE`` / ``SETHLANS_TLS_KEY_FILE``, else a
-   self-signed pair in ``SETHLANS_TLS_DATA_DIR``), so Caddy has them
+   self-signed pair in ``<data folder>/tls``), so Caddy has them
    before it starts.
 2. Start Caddy through the shared :class:`CaddySupervisor`, built by
    :func:`launcher.caddy_launcher.build_manager_caddy_supervisor`,
@@ -83,6 +87,7 @@ from launcher.caddy_launcher import (  # noqa: E402
     CADDYFILE_PATH_ENV,
     build_manager_caddy_supervisor,
 )
+from launcher.container_checks import data_dir_problem  # noqa: E402
 from launcher.setup_helpers import (  # noqa: E402
     CADDY_LOOPBACK_PORT,
     CADDY_PUBLIC_TLS_PORT,
@@ -223,6 +228,11 @@ def main(
     args = list(sys.argv[1:] if argv is None else argv)
     stop = _STOP if stop is None else stop
     install_signal_handlers(stop)
+    problem = data_dir_problem()
+    if problem:
+        code, message = problem
+        logger.error("%s", message)
+        return code
     try:
         caddy = build_supervisor()
     except (CertificateError, ValueError) as exc:

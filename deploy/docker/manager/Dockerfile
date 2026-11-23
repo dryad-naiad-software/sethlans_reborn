@@ -52,9 +52,13 @@ ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
     SETHLANS_TLS_KEY_FILE="" \
     SETHLANS_SECURITY_DEBUG=false
 
-# Without a BYO cert, the manager generates a self-signed one in
-# SETHLANS_TLS_DATA_DIR so it (and its fingerprint) survive restarts.
-ENV SETHLANS_TLS_DATA_DIR=/data/tls
+# All manager state lives in /data (#297): manager.ini, the TLS cert
+# (/data/tls, so the fingerprint survives a new container), the secret
+# key file, FFmpeg (/data/bin/ffmpeg) and the logs (/data/logs); the
+# manager also looks for its setup marker there. From source it
+# resolves each of these through this one setting
+# (sethlans_manager.state_dir). The entrypoint sets /data to 0700.
+ENV SETHLANS_MANAGER_DATA_DIR=/data
 
 # Caddy: path to the static Caddyfile (above). Its presence tells the
 # Caddy supervisor to use this file instead of writing one.
@@ -62,21 +66,21 @@ ENV SETHLANS_MANAGER_CADDYFILE_PATH=/etc/caddy/Caddyfile
 
 EXPOSE 8080
 
-# Run from source, the manager writes its logs and collected static
-# files under its own directory, so only those two subdirectories are
-# given to the runtime user. /app/manager itself and the code stay
-# root-owned: /app/manager is first on sys.path, and a writable code
-# dir would let planted modules run on every restart. (The entrypoint
-# tells the manager not to write broadcaster_params.json there.)
-RUN mkdir -p /data /config /certs /app/manager/logs /app/manager/staticfiles && \
-    chown sethlans:sethlans /data /config /certs \
-        /app/manager/logs /app/manager/staticfiles
+# The runtime user owns the volumes and the collected static files
+# (rebuilt on every start, so not state). /app/manager itself and the
+# code stay root-owned: /app/manager is first on sys.path, and a
+# writable code dir would let planted modules run on every restart.
+RUN mkdir -p /data /config /certs /app/manager/staticfiles && \
+    chown sethlans:sethlans /data /config /certs /app/manager/staticfiles
 USER sethlans
 
+# Probes the port Caddy listens on: SETHLANS_MANAGER_PORT, else
+# /data/manager.ini [server] port, else 8080 (#298).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsk https://localhost:8080/api/health/ || exit 1
+    CMD ["python", "/app/launcher/container_healthcheck.py"]
 
-# The entrypoint starts Caddy (TLS on 8080) in front of the manager's
+# The entrypoint checks /data is writable (exit 3 with the fix if not),
+# starts Caddy (TLS on 8080 by default) in front of the manager's
 # loopback Waitress listeners, runs the manager as a child process, and
 # stops both on SIGTERM. The container exits when the manager does.
 ENTRYPOINT ["python", "/app/launcher/container_entrypoint.py"]

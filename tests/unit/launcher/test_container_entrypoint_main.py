@@ -32,6 +32,7 @@ def main_env(monkeypatch):
     """Patch everything main() touches outside this module."""
     monkeypatch.setattr(ce.logging, "basicConfig", lambda **_k: None)
     monkeypatch.setattr(ce, "install_signal_handlers", lambda _e: None)
+    monkeypatch.setattr(ce, "data_dir_problem", lambda: None)
     caddy = _fake_caddy()
     monkeypatch.setattr(ce, "build_supervisor", lambda: caddy)
     spawn = MagicMock(return_value=MagicMock())
@@ -86,3 +87,17 @@ def test_main_manager_spawn_failure_stops_caddy(main_env):
 
     assert ce.main([], stop=ce.StopFlag()) == 1
     caddy.stop.assert_called_once()
+
+
+@pytest.mark.parametrize("code", [2, 3])
+def test_main_data_dir_problem_exits_before_anything(main_env, monkeypatch, caplog, code):
+    caddy, spawn, _ = main_env
+    built = MagicMock()
+    monkeypatch.setattr(ce, "build_supervisor", built)
+    monkeypatch.setattr(ce, "data_dir_problem", lambda: (code, "data folder message"))
+
+    assert ce.main([], stop=ce.StopFlag()) == code
+    assert "data folder message" in caplog.text
+    built.assert_not_called()
+    caddy.start.assert_not_called()
+    spawn.assert_not_called()

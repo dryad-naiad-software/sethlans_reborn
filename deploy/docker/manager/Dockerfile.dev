@@ -47,7 +47,7 @@ RUN chmod +x /usr/local/bin/dev-entrypoint.sh
 ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
     SETHLANS_DB_NAME=/data/db.sqlite3 \
     SETHLANS_MEDIA_ROOT=/data/media \
-    SETHLANS_TLS_DATA_DIR=/data/tls \
+    SETHLANS_MANAGER_DATA_DIR=/data \
     SETHLANS_SECURITY_DEBUG=true \
     SETHLANS_MANAGER_CADDYFILE_PATH=/etc/caddy/Caddyfile \
     PYTHONUNBUFFERED=1

@@ -12,7 +12,6 @@ lives here as a small shared helper.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from shared.frozen_paths import get_data_dir, is_frozen
@@ -29,8 +28,6 @@ def get_manager_data_dir() -> Path:
     """
     if is_frozen():
         return get_data_dir("manager")
-    override = os.environ.get("SETHLANS_MANAGER_DATA_DIR")
-    if override:
-        return Path(override)
     from django.conf import settings
-    return settings.BASE_DIR
+    from sethlans_manager.state_dir import source_data_dir
+    return source_data_dir(settings.BASE_DIR)

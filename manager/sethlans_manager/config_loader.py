@@ -15,6 +15,7 @@ from pathlib import Path
 import configparser
 import os
 
+from sethlans_manager.state_dir import source_data_dir
 from shared.frozen_paths import get_data_dir, get_manager_dir, is_frozen
 
 
@@ -31,12 +32,12 @@ _INSECURE_DEFAULT_KEY = (
 )
 
 _config = configparser.ConfigParser()
-# Honor SETHLANS_MANAGER_DATA_DIR in source mode so integration tests (and
-# dev scripts that set the env var) get the same isolation as frozen mode.
-if is_frozen() or os.environ.get('SETHLANS_MANAGER_DATA_DIR'):
+# Source mode honours SETHLANS_MANAGER_DATA_DIR (Docker image, tests);
+# see sethlans_manager.state_dir.
+if is_frozen():
     _config_file_path = get_data_dir('manager') / 'manager.ini'
 else:
-    _config_file_path = BASE_DIR / 'manager.ini'
+    _config_file_path = source_data_dir(BASE_DIR) / 'manager.ini'
 if _config_file_path.exists():
     _config.read(_config_file_path)
 

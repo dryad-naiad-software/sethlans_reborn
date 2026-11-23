@@ -203,7 +203,11 @@ def get_waitress_internal_port(ini_path: Path) -> int:
 
 
 def resolve_ini_path(manager_dir: Optional[Path] = None) -> Path:
-    """Return the manager.ini path (data dir when frozen)."""
+    """Return the manager.ini path (same file as ``tls_setup``).
+
+    Frozen: the per-user data dir. Source: ``SETHLANS_MANAGER_DATA_DIR``
+    when set, else ``manager_dir``.
+    """
     # Import lazily so this module stays importable during test discovery
     # without Django or the frozen-paths shim loaded.
     from shared.frozen_paths import get_data_dir, is_frozen
@@ -211,7 +215,8 @@ def resolve_ini_path(manager_dir: Optional[Path] = None) -> Path:
     if is_frozen():
         return get_data_dir("manager") / "manager.ini"
     if manager_dir is not None:
-        return Path(manager_dir) / "manager.ini"
+        from sethlans_manager.state_dir import source_data_dir
+        return source_data_dir(manager_dir) / "manager.ini"
     raise ValueError(
         "resolve_ini_path(manager_dir=...) is required outside frozen mode."
     )
