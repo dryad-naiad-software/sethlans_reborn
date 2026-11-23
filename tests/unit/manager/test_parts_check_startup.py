@@ -27,7 +27,6 @@ import pytest
 from django.apps import apps
 
 from workers import parts_check_startup as startup
-from workers.apps import WorkersConfig
 from workers.services.parts_check import registry
 from workers.services.parts_check.ffmpeg_download_pkg import download
 
@@ -80,7 +79,7 @@ class TestReadyStartsTheCheckForRunserverOnly:
         mocker.patch('sethlans_manager.logging_config.configure')
         mocker.patch('sethlans_manager.db_hooks.register_connection_hooks')
         mocker.patch('workers.release_cache_startup.start_if_runserver')
-        mocker.patch.object(WorkersConfig, '_reset_stuck_assemblies')
+        mocker.patch('workers.animation_video_startup.reset_if_runserver')
         self.config = apps.get_app_config('workers')
 
     @pytest.mark.parametrize('argv', MANAGEMENT_ARGVS, ids=MANAGEMENT_IDS)

@@ -11,7 +11,9 @@ command too (``spectacular``, ``migrate``, ...), and each one started
 the fetch.  ``ready()`` now starts it only in ``runserver``'s serving
 process; the Waitress serving process starts it from
 ``waitress_launcher.launch``.  The gate itself is covered in
-``test_release_cache_startup.py``.
+``test_release_cache_startup.py``.  The same gate for the animation
+video reset (#295) is covered in ``test_animation_video_startup.py``
+(unit and integration).
 """
 
 from __future__ import annotations
@@ -22,7 +24,6 @@ import pytest
 from django.apps import apps
 
 from workers import release_cache_startup as startup
-from workers.apps import WorkersConfig
 
 
 # ---------------------------------------------------------------------
@@ -34,12 +35,12 @@ class TestReadyReleaseFetch:
     @pytest.fixture(autouse=True)
     def _isolated_ready(self, mocker, monkeypatch):
         """Run the real ``ready()`` with its other side effects (logging,
-        DB hooks, parts check, DB reset) patched out and ``Thread``
+        DB hooks, parts check, video reset) patched out and ``Thread``
         mocked, so no test touches the network."""
         mocker.patch('sethlans_manager.logging_config.configure')
         mocker.patch('sethlans_manager.db_hooks.register_connection_hooks')
         mocker.patch('workers.services.parts_check.run_parts_check')
-        mocker.patch.object(WorkersConfig, '_reset_stuck_assemblies')
+        mocker.patch('workers.animation_video_startup.reset_if_runserver')
         monkeypatch.setattr(startup, '_started', False)
         monkeypatch.delenv('RUN_MAIN', raising=False)
         self.thread_cls = mocker.patch.object(startup.threading, 'Thread')

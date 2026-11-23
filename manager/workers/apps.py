@@ -2,11 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-import logging
-
 from django.apps import AppConfig
-
-logger = logging.getLogger(__name__)
 
 
 class WorkersConfig(AppConfig):
@@ -51,26 +47,11 @@ class WorkersConfig(AppConfig):
         from .parts_check_startup import start_if_runserver as start_parts_check_if_runserver
         start_parts_check_if_runserver()
 
-        # Reset stuck video assemblies from prior server shutdown
-        self._reset_stuck_assemblies()
-
-    def _reset_stuck_assemblies(self):
-        from django.db import OperationalError, ProgrammingError
-        from .models import Animation
-
-        try:
-            updated = Animation.objects.filter(
-                video_status='ASSEMBLING'
-            ).update(
-                video_status='ERROR',
-                video_error='Video assembly was interrupted by server restart.',
-            )
-            if updated:
-                logger.info(
-                    "Reset %d animation(s) from ASSEMBLING to ERROR "
-                    "(server restart recovery).",
-                    updated,
-                )
-        except (OperationalError, ProgrammingError):
-            # Column does not exist yet (pre-migration). Safe to skip.
-            pass
+        # Reset animation videos left ASSEMBLING by a stopped server — the
+        # same gate (issue #295): ready() resets for runserver's serving
+        # process alone; the Waitress serving process resets from
+        # ``waitress_launcher.launch``.  A management command run beside a
+        # live server must not mark its running builds failed.
+        # See ``workers.animation_video_startup``.
+        from .animation_video_startup import reset_if_runserver
+        reset_if_runserver()

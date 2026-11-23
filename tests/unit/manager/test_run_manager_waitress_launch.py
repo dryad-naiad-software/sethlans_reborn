@@ -43,6 +43,10 @@ class TestLaunchDualListeners:
         self.parts_start = mocker.patch(
             "workers.parts_check_startup.start_for_server",
         )
+        # Issue #295: the animation video reset (database) runs here.
+        self.video_reset = mocker.patch(
+            "workers.animation_video_startup.reset_for_server",
+        )
 
     def setup_method(self):
         waitress_launcher._servers.clear()
@@ -249,11 +253,11 @@ class TestLaunchDualListeners:
         waitress_launcher.launch(public_port=8090, internal_port=8088, ini_path=tmp_path / "manager.ini")
         assert events == ["hook", "listener", "listener"]
 
-    def test_serving_process_starts_the_parts_check_and_release_fetch_once_before_the_listeners(
-            self, mocker, tmp_path):
-        """Issues #292 and #294: the Waitress serving process (source, frozen,
-        Docker, ``--dev`` child) starts the Blender series fetch and the parts
-        check, once each, before serving."""
+    def test_serving_process_runs_its_start_steps_once_before_the_listeners(self, mocker, tmp_path):
+        """Issues #292, #294 and #295: the Waitress serving process (source,
+        frozen, Docker, ``--dev`` child) resets interrupted animation videos,
+        starts the parts check and the Blender series fetch, once each,
+        before serving."""
         events = []
         mocker.patch.object(
             waitress_launcher.waitress, "create_server",
@@ -268,11 +272,15 @@ class TestLaunchDualListeners:
         self.fetch_start.side_effect = lambda: events.append("fetch")
         self.parts_start.side_effect = lambda: events.append("parts")
         self.start_hook.side_effect = lambda: events.append("hook")
+        self.video_reset.side_effect = lambda: events.append("reset")
         waitress_launcher._shutdown_event.set()
 
         waitress_launcher.launch(public_port=8090, internal_port=8088, ini_path=tmp_path / "manager.ini")
         self.fetch_start.assert_called_once_with()
+        # Issue #295: the reset goes first, before any step or request
+        # could start or queue a build in this process.
+        self.video_reset.assert_called_once_with()
         # Issue #294: the parts check starts (no wait) before the build
         # queue's start hook queues builds that read FFmpeg's status.
         self.parts_start.assert_called_once_with()
-        assert events == ["parts", "hook", "fetch", "listener", "listener"]
+        assert events == ["reset", "parts", "hook", "fetch", "listener", "listener"]

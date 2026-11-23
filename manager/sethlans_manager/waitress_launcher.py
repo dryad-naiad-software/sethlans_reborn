@@ -202,6 +202,12 @@ def launch(
     )
     _threads.extend([public_thread, internal_thread])
 
+    # Issue #295: animation videos a stopped server left ASSEMBLING are
+    # marked ERROR here, once, first: every build is started by a
+    # request, so before the listeners nothing of this process is
+    # building.  Never from apps.ready(), which management commands run.
+    from workers.animation_video_startup import reset_for_server
+    reset_for_server()
     # Issue #294: the parts check (FFmpeg, may download) starts in the
     # serving process only, without waiting.  It goes before the start
     # hook; builds wait PENDING while it runs and are queued again after.

@@ -479,10 +479,10 @@ class TestStartupRecovery:
         """Apply the ffmpeg-ready seed to every test in this class."""
 
     def _run_recovery(self):
-        """Call the recovery logic directly via the registered app config."""
-        from django.apps import apps
-        config = apps.get_app_config('workers')
-        config._reset_stuck_assemblies()
+        """Call the recovery logic directly (issue #295: the serving
+        process runs it at server start, never ``ready()``)."""
+        from workers.animation_video_startup import reset_interrupted_assemblies
+        reset_interrupted_assemblies()
 
     def test_reset_stuck_assembling(self, db, animation_payload, admin_client):
         # Create animation with video settings
