@@ -41,6 +41,16 @@ report; default in the temp dir), ``SETHLANS_UNREAL_E2E_PM_EXPECT_KIND`` (a
 card kind prefix such as ``1002:744c:`` that the pilot's kind must start
 with; checked only when set).
 
+Part B only: ``SETHLANS_UNREAL_E2E_PM_OTHERS_MB`` (MB, ``OTHERS_MIN_MB`` to
+``OTHERS_MAX_MB``; unset: Part B exactly as without it). When set, a
+stand-in "other program" (``gpu_memory_holder``, its own process) holds that
+much video memory on this machine's ticked card inside its AC-E7 pilot's
+render launch, and E7 also checks owner decision Q10's band 2 on that pilot
+(``unreal_pm_others``). 1536 is a good value: clearly over the 512 MB margin,
+far from filling a large card. The value plus the pilot's own use must leave
+the card clear of 93% full: a saturated sample is band 3, which correctly
+releases the pilot and fails the test (8192 on a 16 GB card would do that).
+
 Part A only: ``SETHLANS_UNREAL_E2E_PM_E5_SHARED_REF_MB`` (MB) overrides the
 spill reference AC-E5 writes into the admitted record. By default it is V1's
 result ``shared_peak_mb`` (measured at 640x360) plus frame read-back scaled
@@ -70,6 +80,7 @@ PORT_ENV = "SETHLANS_UNREAL_E2E_PM_PORT"
 HANDOFF_ENV = "SETHLANS_UNREAL_E2E_PM_HANDOFF"
 REMOTE_WAIT_ENV = "SETHLANS_UNREAL_E2E_PM_REMOTE_WAIT_S"
 ENROLLMENT_KEY_ENV = "SETHLANS_UNREAL_E2E_PM_ENROLLMENT_KEY"
+OTHERS_MB_ENV = "SETHLANS_UNREAL_E2E_PM_OTHERS_MB"
 
 # Versions at the small size: shots 0055 (518-730) and 0060 (730-864) of the PoC
 # sequence. With piece_seconds 6 (T = 144, limit 216) each shot is one piece.
@@ -91,6 +102,9 @@ READBACK_MB_PER_MPX = 46
 # that crawls in shared memory (AC-E5) is stopped after 45 minutes instead of 4 hours.
 WORKER_EXTRA_ENV = {"SETHLANS_UNREAL_KEEP_JOB_LOGS": "100", "SETHLANS_UNREAL_RENDER_TIMEOUT_SECONDS": "2700"}
 DEFAULT_REMOTE_WAIT_S = 2700
+# Part B's other program (Q10 band 2): enough over the 512 MB margin to stand clear of desktop noise.
+OTHERS_MIN_MB = 1024
+OTHERS_MAX_MB = 8192
 _KEY_PREFIX = "pci:"
 
 
@@ -106,6 +120,16 @@ def over_size():
     width, sep, height = text.partition("x")
     assert sep and width.isdigit() and height.isdigit(), f"{OVER_SIZE_ENV} must be WxH, got {text!r}"
     return int(width), int(height)
+
+
+def others_mb(environ=None):
+    """Part B's other-program size in MB (``OTHERS_MB_ENV``), or ``None`` when unset."""
+    text = (os.environ if environ is None else environ).get(OTHERS_MB_ENV, "").strip()
+    if not text:
+        return None
+    assert text.isdigit() and OTHERS_MIN_MB <= int(text) <= OTHERS_MAX_MB, (
+        f"{OTHERS_MB_ENV} must be a whole number of MB from {OTHERS_MIN_MB} to {OTHERS_MAX_MB}, got {text!r}")
+    return int(text)
 
 
 def cache_dir():

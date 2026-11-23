@@ -24,12 +24,21 @@ describes the handoff). Each method first waits, bounded, for that worker.
   the version is DONE (not stopped) and its machine list shows both states.
   Which machine has the larger card is read from the results, never assumed.
 
+With ``SETHLANS_UNREAL_E2E_PM_OTHERS_MB`` set (opt-in; unset, E7 is as
+above), E7 also starts a stand-in other program holding that much video
+memory on this machine's ticked card inside its pilot's render launch and
+checks owner decision Q10's band 2 on that pilot: DONE with a verdict on the
+run the holder was in, ``pilot_others_rise_mb`` over the 512 MB margin, a
+``pilot_others_added_mb`` key and a consistent peak (``unreal_pm_others``).
+The second machine's pilot and E8 are unchanged.
+
 AC-E9 for both: frames of the requested size and count. Observations go to
 the result file (``unreal_pm_records.record``).
 
 Opt-in: ``SETHLANS_UNREAL_E2E=1``, ``SETHLANS_UNREAL_E2E_SHARE``,
 ``SETHLANS_UNREAL_E2E_PM_TWO_MACHINES=1``, ``SETHLANS_UNREAL_E2E_PM_MANAGER_HOST``,
-``SETHLANS_UNREAL_E2E_PM_PORT`` (see ``unreal_pm_config``). GPU time with
+``SETHLANS_UNREAL_E2E_PM_PORT`` (see ``unreal_pm_config``); optional
+``SETHLANS_UNREAL_E2E_PM_OTHERS_MB`` for E7's other program. GPU time with
 cold caches: E7 about 25 min on each machine (the pilots run side by side;
 a cold warm-up is most of it), then about 5 min of pieces; E8 about 5 min
 of pilots on each and about 5 min of one piece on the larger card. About
@@ -37,12 +46,14 @@ of pilots on each and about 5 min of one piece on the larger card. About
 """
 
 import logging
+import sys
 import time
 
 import pytest
 
 from tests.e2e import unreal_e2e_config as cfg
 from tests.e2e import unreal_pm_config as pm
+from tests.e2e import unreal_pm_others as others
 from tests.e2e import unreal_pm_outputs as outputs
 from tests.e2e import unreal_pm_records as rec
 from tests.e2e.helpers import POLL_INTERVAL
@@ -59,6 +70,24 @@ PILOTS_APPEAR_S = 120
 
 class TestUnrealPerMachineTwoMachines(TwoMachineFlow):
     """Two machines, two card kinds: own pilots, pieces on both, routing by result."""
+
+    _others = None  # E7's other program (opt-in), polled on every pilot wait round
+
+    def _sample(self):
+        if self._others is not None:
+            self._others.poll()
+
+    def _start_others(self):
+        """E7's ``OthersHolder`` when ``SETHLANS_UNREAL_E2E_PM_OTHERS_MB`` is set, else ``None``."""
+        mb = pm.others_mb()
+        if mb is None:
+            return None
+        assert sys.platform == "win32", (
+            f"{pm.OTHERS_MB_ENV} needs Windows (the holder uses Direct3D 12); unset it on {sys.platform}")
+        margin = others.pilot_margin_mb(worker_env=pm.WORKER_EXTRA_ENV)
+        cards, reason = pm.choose_one_kind(1)
+        assert cards, reason
+        return others.OthersHolder(mb, cards, self.db_path, self.worker_data["id"], self.temp_dir, margin)
 
     def _machines(self):
         """``{worker id: (hostname, kind)}`` of this machine and the second one."""
@@ -105,6 +134,7 @@ class TestUnrealPerMachineTwoMachines(TwoMachineFlow):
                 job["name"], records[0], rec.summary_facts(facts))
 
     def test_e7_two_kinds_one_version(self):
+        holder = self._start_others()  # opt-in checks fail here, before any pilot exists
         machines, before = self._machines(), self._pilot_ids()
         version = self._submit(pm.SMALL_SIZE, shots=list(cfg.SEQUENCE_SHOTS))
         pieces, _audio = self._version_jobs(version["id"])
@@ -112,9 +142,18 @@ class TestUnrealPerMachineTwoMachines(TwoMachineFlow):
         assert planned == cfg.SEQUENCE_PIECES, planned
         for job in pieces:
             self._pause(job["id"])  # released together once both machines have their result
-        self._two_pilots(before, machines, "AC-E7")
+        type(self)._others = holder
+        try:
+            pilots = self._two_pilots(before, machines, "AC-E7")
+        finally:
+            type(self)._others = None
+            status = holder.stop() if holder is not None else None  # gone before the pieces are released
         rows = self._rows(version["id"], machines)
         rec.record("AC-E7 rows", rows=rows)
+        if holder is not None:
+            local = self.worker_data["id"]
+            figures = others.check_pilot(holder, status, pilots[local], self._worker_log(), rows[local])
+            rec.record("AC-E7 band 2", **figures)
         assert all(row["state"] == "fits" for row in rows.values()), rows
         drivers = {row["driver_version"] for row in rows.values()}
         peaks = {row["peak_mb"] for row in rows.values()}
