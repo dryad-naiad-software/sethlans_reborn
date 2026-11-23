@@ -202,6 +202,11 @@ def launch(
     )
     _threads.extend([public_thread, internal_thread])
 
+    # Issue #294: the parts check (FFmpeg, may download) starts in the
+    # serving process only, without waiting.  It goes before the start
+    # hook; builds wait PENDING while it runs and are queued again after.
+    from workers.parts_check_startup import start_for_server
+    start_for_server()
     # D16: the build queue starts in the serving process only, once.
     from workers.video_startup import on_server_start
     on_server_start()

@@ -5,13 +5,16 @@
 Parts-check registry: thread-safe storage of part status and the
 idempotent kickoff that runs every registered check.
 
-Concurrency model — two distinct primitives, neither nested:
+Concurrency model — two distinct primitives, neither nested (plus
+``_checks_done``, the current run's Event, set when its check thread
+finishes; a fresh one is made under ``_kickoff_lock`` per run and the
+thread sets the one it was given):
 
 1. ``_thread_started`` — a process-global ``bool`` guarded by
    ``_kickoff_lock``.  ``run_parts_check()`` takes the lock, checks the
    flag, sets it ``True``, releases the lock, and then spawns the daemon
-   thread.  Subsequent ``run_parts_check()`` invocations (e.g. from
-   multi-fire ``AppConfig.ready()``) take the lock, see the flag, and
+   thread.  Subsequent ``run_parts_check()`` invocations (e.g. a second
+   serving-process start call) take the lock, see the flag, and
    return early.  **The lock is never held across the actual check**;
    it scopes only the flag mutation.
 
@@ -69,6 +72,11 @@ _status_lock = threading.Lock()
 _kickoff_lock = threading.Lock()
 _thread_started: bool = False
 
+# The current run's "every check has published" Event (issue #294).
+# Replaced under _kickoff_lock at each kickoff; the check thread sets the
+# Event it was given, so a test reset never sees an old thread's set().
+_checks_done = threading.Event()
+
 
 def register_part(name: str, check_fn: Callable[[], Status]) -> None:
     """Register a part with its check function.
@@ -106,52 +114,87 @@ def _publish(name: str, status: Status) -> None:
         _statuses[name] = status
 
 
-def _run_all_checks() -> None:
+def _run_all_checks(done: threading.Event) -> None:
     """Sequentially run every registered check, publishing each result.
 
     Runs inside the single daemon thread spawned by
     ``run_parts_check()``.  Exceptions are caught per-part so one
     misbehaving check cannot prevent later checks from running.
     """
-    for name, check_fn in _parts.items():
-        try:
-            result = check_fn()
-        except Exception:
-            logger.exception(
-                "parts_check: %r raised an unexpected exception", name,
-            )
-            result = Status(
-                status="failed",
-                error="extraction_failed",  # generic catch-all bucket
-            )
-        _publish(name, result)
-        logger.info(
-            "parts_check: %s -> status=%s source=%s version=%s",
-            name, result.status, result.source, result.version,
+    try:
+        for name, check_fn in _parts.items():
+            _run_one(name, check_fn)
+    finally:
+        done.set()
+
+
+def _run_one(name: str, check_fn: Callable[[], Status]) -> None:
+    """Run one check and publish its result (or a failed Status)."""
+    try:
+        result = check_fn()
+    except Exception:
+        logger.exception(
+            "parts_check: %r raised an unexpected exception", name,
         )
+        result = Status(
+            status="failed",
+            error="extraction_failed",  # generic catch-all bucket
+        )
+    _publish(name, result)
+    logger.info(
+        "parts_check: %s -> status=%s source=%s version=%s",
+        name, result.status, result.source, result.version,
+    )
 
 
 def run_parts_check() -> None:
-    """Kickoff entry-point — idempotent under multi-fire AppConfig.ready().
+    """Kickoff entry-point — idempotent, the checks run once per process.
+
+    Called by the serving process only (issue #294, see
+    ``workers.parts_check_startup``); management commands never call it.
 
     The first caller takes ``_kickoff_lock``, checks ``_thread_started``,
     sets it ``True``, releases the lock, and spawns the daemon thread.
     Subsequent callers take the lock, see the flag already set, release
     and return — they do NOT spawn a second thread.
     """
-    global _thread_started
+    global _thread_started, _checks_done
 
     with _kickoff_lock:
         if _thread_started:
             return
         _thread_started = True
+        done = _checks_done = threading.Event()
 
     thread = threading.Thread(
         target=_run_all_checks,
+        args=(done,),
         name="parts-check",
         daemon=True,
     )
     thread.start()
+
+
+def _current_run() -> tuple[bool, threading.Event]:
+    with _kickoff_lock:
+        return _thread_started, _checks_done
+
+
+def wait_for_checks(timeout: Optional[float]) -> bool:
+    """Block until every check has published (``timeout`` None: no bound).
+
+    Returns True when the checks finished in time.  Returns False when
+    they did not, and at once when ``run_parts_check()`` was never
+    called in this process.  Never starts the checks itself.
+    """
+    started, done = _current_run()
+    return started and done.wait(timeout)
+
+
+def checks_in_progress() -> bool:
+    """True while this process's check thread runs (started, not finished)."""
+    started, done = _current_run()
+    return started and not done.is_set()
 
 
 def _reset_for_tests() -> None:
@@ -160,9 +203,10 @@ def _reset_for_tests() -> None:
     NOT part of the public API.  Used by ``tests/unit/manager/test_*``
     modules to simulate process boundaries within a single pytest run.
     """
-    global _thread_started
+    global _thread_started, _checks_done
     with _kickoff_lock:
         _thread_started = False
+        _checks_done = threading.Event()
     with _status_lock:
         for name in list(_statuses.keys()):
             _statuses[name] = Status(status="installing")

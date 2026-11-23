@@ -39,6 +39,10 @@ class TestLaunchDualListeners:
         self.fetch_start = mocker.patch(
             "workers.release_cache_startup.start_release_cache_populate",
         )
+        # Issue #294: the parts check (FFmpeg, may download) starts here.
+        self.parts_start = mocker.patch(
+            "workers.parts_check_startup.start_for_server",
+        )
 
     def setup_method(self):
         waitress_launcher._servers.clear()
@@ -245,9 +249,11 @@ class TestLaunchDualListeners:
         waitress_launcher.launch(public_port=8090, internal_port=8088, ini_path=tmp_path / "manager.ini")
         assert events == ["hook", "listener", "listener"]
 
-    def test_serving_process_starts_the_release_fetch_once_before_the_listeners(self, mocker, tmp_path):
-        """Issue #292: the Waitress serving process (source, frozen, Docker,
-        ``--dev`` child) starts the Blender series fetch, once, before serving."""
+    def test_serving_process_starts_the_parts_check_and_release_fetch_once_before_the_listeners(
+            self, mocker, tmp_path):
+        """Issues #292 and #294: the Waitress serving process (source, frozen,
+        Docker, ``--dev`` child) starts the Blender series fetch and the parts
+        check, once each, before serving."""
         events = []
         mocker.patch.object(
             waitress_launcher.waitress, "create_server",
@@ -260,8 +266,13 @@ class TestLaunchDualListeners:
         mocker.patch.object(waitress_launcher.threading, "Thread", return_value=thread)
         mocker.patch.object(waitress_launcher, "_install_signal_handlers")
         self.fetch_start.side_effect = lambda: events.append("fetch")
+        self.parts_start.side_effect = lambda: events.append("parts")
+        self.start_hook.side_effect = lambda: events.append("hook")
         waitress_launcher._shutdown_event.set()
 
         waitress_launcher.launch(public_port=8090, internal_port=8088, ini_path=tmp_path / "manager.ini")
         self.fetch_start.assert_called_once_with()
-        assert events == ["fetch", "listener", "listener"]
+        # Issue #294: the parts check starts (no wait) before the build
+        # queue's start hook queues builds that read FFmpeg's status.
+        self.parts_start.assert_called_once_with()
+        assert events == ["parts", "hook", "fetch", "listener", "listener"]

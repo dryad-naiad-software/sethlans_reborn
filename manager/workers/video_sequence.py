@@ -9,7 +9,10 @@ D22): claim, build, record, advance.
    PENDING to ASSEMBLING that writes the serving process's boot id to the
    row's ``assembly_boot``.  Nothing is claimed for a canceled version (its
    PENDING item goes back to null), when the boot id is empty (no serving
-   process) or when the item's inputs are not DONE yet.
+   process) or when the item's inputs are not DONE yet.  While this
+   process's parts check still runs (FFmpeg's status unknown, issue #294),
+   nothing is claimed either: the item stays PENDING and is queued again
+   when the check ends (``parts_check_startup``).
 2. **Build** outside any transaction (``video_sequence_build``: each ffmpeg
    run holds the assembly semaphore shared with the animation assembler),
    into a fresh temporary folder that is always removed.
@@ -113,8 +116,14 @@ def _build(key):
 
 def run_task(key, boot):
     """Claim, build and record the item ``key``; the queue's thread calls this."""
+    from .services import parts_check
     from .services.sequence_assembly import advance
     from .services.worker_job_writes import run_with_lock_retry
+    if parts_check.checks_in_progress():
+        # Issue #294: FFmpeg's status is not known yet.  Leave the item
+        # PENDING; parts_check_startup queues it again when the check ends.
+        logger.info("Build %s waits for the parts check (FFmpeg).", key)
+        return False
     if not claim(key, boot):
         return False
     message = INTERRUPTED

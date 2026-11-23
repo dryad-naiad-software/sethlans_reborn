@@ -42,13 +42,14 @@ class WorkersConfig(AppConfig):
         from .release_cache_startup import start_if_runserver
         start_if_runserver()
 
-        # Boot-time parts-check.  Idempotent under multi-fire ready()
-        # via the in-process ``_thread_started`` flag — autoreload
-        # subprocess parents, management commands, the test runner,
-        # and runserver's double-fire all become no-ops after the
-        # first call.
-        from .services import parts_check
-        parts_check.run_parts_check()
+        # Boot-time parts check (finds FFmpeg, may download it) — the
+        # same gate (issue #294): ready() starts it for runserver's
+        # serving process alone; the Waitress serving process starts
+        # it from ``waitress_launcher.launch``.  Management commands,
+        # the reloader's parent and the test runner never run it.
+        # See ``workers.parts_check_startup``.
+        from .parts_check_startup import start_if_runserver as start_parts_check_if_runserver
+        start_parts_check_if_runserver()
 
         # Reset stuck video assemblies from prior server shutdown
         self._reset_stuck_assemblies()
