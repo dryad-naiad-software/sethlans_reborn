@@ -211,10 +211,11 @@ class TestOpenAPISchema:
     """Spec AC §467 — schema references both serializer shapes.
 
     The implementation uses ``PolymorphicProxySerializer`` with
-    ``component_name="FFmpegStatus"`` to publish both regular and
-    admin shapes.  We assert the path is documented with 200/401
-    responses, the wrapper component is present, and the admin
-    leaf shape's distinguishing fields are reachable.
+    ``component_name="FFmpegStatusResponse"`` to publish both regular
+    and admin shapes.  We assert the path is documented with 200/401
+    responses, the wrapper is a ``oneOf`` of the two leaf components,
+    and each leaf is a real object (issue #282: a wrapper named
+    ``FFmpegStatus`` replaced the regular leaf and referred to itself).
     """
 
     def _get_schema(self):
@@ -244,14 +245,29 @@ class TestOpenAPISchema:
     def test_schema_references_both_serializer_shapes(self):
         doc = self._get_schema()
         components = doc.get("components", {}).get("schemas", {})
-        # The PolymorphicProxySerializer wrapper.
-        assert "FFmpegStatus" in components, (
-            "FFmpegStatus polymorphic wrapper missing from schema."
+        prefix = "#/components/schemas/"
+        # The PolymorphicProxySerializer wrapper: a oneOf of both leaves.
+        wrapper = components.get("FFmpegStatusResponse")
+        assert wrapper is not None, (
+            "FFmpegStatusResponse polymorphic wrapper missing from schema."
         )
-        full_text = json.dumps(doc)
-        # The slim shape's defining field.
-        assert "video_assembly_ready" in full_text
-        # The admin shape's distinguishing block.  Either the leaf
-        # serializer is published as a named component, or its
-        # ``ffmpeg`` field appears inlined via oneOf/allOf.
-        assert "FFmpegDetails" in full_text or "ffmpeg" in full_text
+        assert wrapper.get("oneOf") == [
+            {"$ref": prefix + "FFmpegStatus"},
+            {"$ref": prefix + "FFmpegStatusAdmin"},
+        ]
+        # The 200 response points at the wrapper.
+        get_op = doc["paths"]["/api/ffmpeg-status/"]["get"]
+        content = get_op["responses"]["200"]["content"]
+        assert content["application/json"]["schema"] == {
+            "$ref": prefix + "FFmpegStatusResponse",
+        }
+        # The slim leaf is a plain object, not the wrapper.
+        slim = components["FFmpegStatus"]
+        assert "oneOf" not in slim
+        assert set(slim["properties"]) == {"video_assembly_ready"}
+        # The admin leaf carries the ``ffmpeg`` details block.
+        admin = components["FFmpegStatusAdmin"]
+        assert set(admin["properties"]) == {"video_assembly_ready", "ffmpeg"}
+        assert admin["properties"]["ffmpeg"] == {
+            "$ref": prefix + "FFmpegDetails",
+        }

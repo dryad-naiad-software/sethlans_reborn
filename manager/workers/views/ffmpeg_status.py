@@ -45,8 +45,12 @@ class FFmpegStatusView(APIView):
     @extend_schema(
         tags=["Management UI"],
         responses={
+            # The proxy's name must differ from the leaf components:
+            # drf-spectacular names FFmpegStatusSerializer
+            # "FFmpegStatus", and a proxy with the same name becomes a
+            # oneOf that refers to itself (issue #282).
             200: PolymorphicProxySerializer(
-                component_name="FFmpegStatus",
+                component_name="FFmpegStatusResponse",
                 serializers=[
                     FFmpegStatusSerializer,
                     FFmpegStatusAdminSerializer,
