@@ -30,6 +30,25 @@ COMPOSE_DEV="$PROJECT_ROOT/deploy/docker/docker-compose.dev.yml"
 # merged. Export a dev-only value so compose parsing succeeds.
 export SETHLANS_SECURITY_SECRET_KEY="dev-insecure-key-for-local-development-only"
 
+# The manager and worker images COPY a pre-fetched Caddy binary from
+# .tmp/caddy/linux-<arch>/ in the build context (same as CI).
+CADDY_DIR="$PROJECT_ROOT/.tmp/caddy"
+
+ensure_caddy_binaries() {
+    if [ -x "$CADDY_DIR/linux-amd64/caddy" ] && [ -x "$CADDY_DIR/linux-arm64/caddy" ]; then
+        return
+    fi
+    local python_bin
+    python_bin="$(command -v python || command -v python3 || true)"
+    if [ -z "$python_bin" ]; then
+        echo "[ERROR] Neither python nor python3 found; needed to fetch Caddy" >&2
+        exit 1
+    fi
+    echo "--- Fetching Caddy binaries into $CADDY_DIR ---"
+    "$python_bin" "$SCRIPT_DIR/fetch_caddy.py" --target-dir "$CADDY_DIR" \
+        --multi-arch linux-amd64,linux-arm64
+}
+
 usage() {
     echo "Usage: $0 <command> [args...]"
     echo ""
@@ -50,6 +69,7 @@ shift
 
 case "$CMD" in
     up)
+        ensure_caddy_binaries
         docker compose \
             -f "$COMPOSE_BASE" \
             -f "$COMPOSE_DEV" \

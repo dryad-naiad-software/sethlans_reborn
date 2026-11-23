@@ -1,8 +1,8 @@
 .env
 .env.*
-__pycache__/
-*.pyc
-*.pyo
+**/__pycache__/
+**/*.pyc
+**/*.pyo
 .git/
 .github/
 temp/
@@ -11,7 +11,7 @@ development/
 *.sqlite3
 venv/
 .venv/
-node_modules/
+**/node_modules/
 *.md
 !LICENSE
 
@@ -32,5 +32,8 @@ manager/manager.ini
 manager/logs/
 manager/media/
 manager/caddy/
+manager/staticfiles/
+**/broadcaster_params.json
+**/.setup_complete
 worker/config.ini
 worker/.dev-data/

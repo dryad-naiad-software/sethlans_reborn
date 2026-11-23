@@ -25,9 +25,13 @@ services:
     ports:
       - "8080:8080"
       - "4200:4200"
+    # Source-tree layout: the manager imports shared/ from the parent of
+    # manager/, and the container entrypoint lives in launcher/.
     volumes:
-      - ../../manager:/app
-      - frontend-node-modules:/app/frontend/node_modules
+      - ../../manager:/app/manager
+      - ../../shared:/app/shared
+      - ../../launcher:/app/launcher
+      - frontend-node-modules:/app/manager/frontend/node_modules
       - dev-db:/data
     environment:
       - SETHLANS_SECURITY_DEBUG=true
@@ -44,8 +48,13 @@ services:
     build:
       context: ../../
       dockerfile: deploy/docker/worker-cpu/Dockerfile
+    # Mount only the source, not all of worker/ over /app: that would
+    # hide the image's /app/shared/ package and the Caddy binary in
+    # /app/.venv-build/.
     volumes:
-      - ../../worker:/app
+      - ../../worker/sethlans_worker_agent:/app/sethlans_worker_agent
+      - ../../worker/run_worker.py:/app/run_worker.py
+      - ../../shared:/app/shared
       - dev-worker-data:/data
     environment:
       - SETHLANS_MANAGER_HOST=manager

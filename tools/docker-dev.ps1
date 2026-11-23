@@ -45,6 +45,22 @@ $ComposeDev = Join-Path $ProjectRoot "deploy" "docker" "docker-compose.dev.yml"
 # merged. Export a dev-only value so compose parsing succeeds.
 $env:SETHLANS_SECURITY_SECRET_KEY = "dev-insecure-key-for-local-development-only"
 
+# The manager and worker images COPY a pre-fetched Caddy binary from
+# .tmp/caddy/linux-<arch>/ in the build context (same as CI).
+$CaddyDir = Join-Path $ProjectRoot ".tmp" "caddy"
+
+function Ensure-CaddyBinaries {
+    $amd64 = Join-Path $CaddyDir "linux-amd64" "caddy"
+    $arm64 = Join-Path $CaddyDir "linux-arm64" "caddy"
+    if ((Test-Path $amd64) -and (Test-Path $arm64)) { return }
+    Write-Host "--- Fetching Caddy binaries into $CaddyDir ---"
+    python (Join-Path $ScriptDir "fetch_caddy.py") --target-dir $CaddyDir `
+        --multi-arch linux-amd64,linux-arm64
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Caddy fetch failed (exit $LASTEXITCODE)"; exit 1
+    }
+}
+
 function Show-Usage {
     Write-Host "Usage: .\tools\docker-dev.ps1 <command> [args...]"
     Write-Host ""
@@ -64,6 +80,7 @@ $composeFlags = @("-f", $ComposeBase, "-f", $ComposeDev, "--project-directory", 
 
 switch ($Command) {
     "up" {
+        Ensure-CaddyBinaries
         docker compose @composeFlags up --build @ExtraArgs
     }
     "down" {

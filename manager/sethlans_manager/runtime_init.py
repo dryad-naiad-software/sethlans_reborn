@@ -29,6 +29,10 @@ except ImportError:  # pragma: no cover - frozen manager bundle fallback
 
 logger = logging.getLogger(__name__)
 
+# Set to "0" by launcher/container_entrypoint.py; see
+# _publish_broadcaster_params.
+PUBLISH_BROADCASTER_PARAMS_ENV = "SETHLANS_MANAGER_PUBLISH_BROADCASTER_PARAMS"
+
 
 def get_enrollment_config(manager_dir: Path) -> dict:
     """Read ``[enrollment]`` section from ``manager.ini``.
@@ -221,11 +225,24 @@ def _publish_broadcaster_params() -> None:
     This file-based IPC is how the launcher obtains the inputs —
     Django no longer hosts the broadcaster in-process (relocated in
     Phase 3 and formalised with the Phase 7 deletions).
+
+    Skipped when ``SETHLANS_MANAGER_PUBLISH_BROADCASTER_PARAMS`` is
+    ``0`` / ``false`` / ``no`` / ``off``. The container entrypoint sets
+    that: no launcher broadcaster runs in the image, so nothing reads
+    the file, and the manager's code dir is not writable there (#296).
     """
     import json
     import tempfile
     from sethlans_manager import runtime_state
     from shared.frozen_paths import get_data_dir, is_frozen
+
+    flag = os.environ.get(PUBLISH_BROADCASTER_PARAMS_ENV, "")
+    if flag.strip().lower() in ("0", "false", "no", "off"):
+        logger.info(
+            "Not publishing broadcaster params (%s=%s)",
+            PUBLISH_BROADCASTER_PARAMS_ENV, flag,
+        )
+        return
 
     if is_frozen():
         data_dir = get_data_dir("manager")
