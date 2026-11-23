@@ -19,9 +19,13 @@ rule); it collects the CSV capture, computes its metrics and D6 verdict
 (per-machine memory test FR-MT-V-1). A pilot whose warm-up or render fails
 after a saturated sample reports ``does_not_fit`` instead of failing
 (``pilot_flow.after_failure``, D6; an ``IsolationFailure`` is raised again).
-Either way, other programs' use of the card rising past
-``unreal.spill_margin_mb`` releases the pilot with no verdict (Q10). ``result_peak_mb`` (set by ``job_run``)
-is the peak of the machine result the gate chose (FR-MT-G-4's summary).
+Either way, other programs' use of the card (Q10, ``pilot_flow.check_others``) is
+judged in three bands against ``unreal.pilot_others_margin_mb`` (default 512): a rise up to the margin leaves
+the result as measured; after a larger rise while the card stayed clear of full (no sample at its 93% line),
+the part of other programs' use the measurement does not already hold is added to the peak before D6's
+verdict (``pilot_others``); a larger rise when the card came close to full releases the pilot
+with no verdict. ``result_peak_mb`` (set by ``job_run``) is the peak of the machine result the gate chose
+(FR-MT-G-4's summary).
 A sequence piece (``sequence_flow.RangeFlow``) and an audio job
 (``audio_flow.AudioFlow``, whose render also gets ``_render_extra``) replace four hooks.
 

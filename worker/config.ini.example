@@ -152,10 +152,18 @@ key_file =
 # ram_default_ws_mb = 16384
 # ram_default_commit_mb = 32768
 # ram_blender_mb = 4096
-# Margin (MB, 0-65536) for other programs' use of an Unreal job's graphics
-# card: when it rises by more than this during a memory test (pilot), the
-# test records no result and runs again later.
+# Margin (MB, 0-65536) of the spill check: a job's shared GPU memory rising
+# more than this over its memory test's figure counts as spilled, and other
+# programs' use of the card rising more than this makes the cause contention.
 # spill_margin_mb = 256
+# Margin (MB, 0-65536) for other programs' use of a memory test's (pilot's)
+# graphics card, for example the desktop on a computer used while it
+# renders. A rise up to this leaves the test's result as measured. A larger
+# rise is added to the measured peak while the card stayed clear of full
+# (93% of its memory); when the card came close to full the test records no
+# result and runs again later.
+# Env var: SETHLANS_UNREAL_PILOT_OTHERS_MARGIN_MB.
+# pilot_others_margin_mb = 512
 # Start-up rule for Unreal renders on several cards: together (default)
 # lets a second render start while another is still starting up (before
 # its first frame is written); one_at_a_time claims no Unreal job while

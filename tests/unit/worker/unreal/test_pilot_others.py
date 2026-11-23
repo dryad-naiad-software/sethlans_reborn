@@ -6,11 +6,16 @@ Other programs' use of the pilot's card (Unreal per-machine memory test, owner d
 
 ``others_rise(runs)``: the largest ``max_others[gpu] - run.pre[gpu]`` over every sampled launch (prep, warm-up,
 render) with its phase; ``None`` when no launch has both a pre-launch reading and per-process samples.
-``check_others``: a rise of more than ``unreal.spill_margin_mb`` (read at call time) records no verdict: the
-pilot is released (``LocalConflict('local_conflict')``) with a WARNING and the summary warning
-``pilot_others_rose``; ``pilot_others_rise_mb`` is set either way (empty when not checked). ``collect`` checks
-before the CSV capture and the measurement; ``after_failure`` before a saturated failure becomes
-``does_not_fit``, and never for an ``IsolationFailure`` or a failure without a saturated sample.
+``check_others``, three bands against ``unreal.pilot_others_margin_mb`` (default 512, read at call time; the spill
+margin ``unreal.spill_margin_mb`` plays no part): (1) a rise up to the margin returns ``None`` (the result stands);
+(2) a larger rise while no sample reached the card's 93% line returns the highest other-programs figure over the
+checked launches (``pilot_others.top_others``; ``pilot.measure`` adds the part not already counted; an INFO line,
+no warning); (3) a larger rise with a saturated sample records no verdict: the pilot is released
+(``LocalConflict('local_conflict')``) with a WARNING and the summary warning ``pilot_others_rose``.
+``pilot_others_rise_mb`` is set either way (empty when not checked). ``collect`` checks before the CSV capture and
+the measurement; ``after_failure`` before a saturated failure becomes ``does_not_fit`` (the card was full, so a
+rise past the margin is band 3), and never for an ``IsolationFailure`` or a failure without a saturated sample.
+Band 2 end to end (the verdict from the adjusted peak) is ``test_pilot_others_bands``.
 """
 import logging
 from types import SimpleNamespace
@@ -26,19 +31,21 @@ from tests.unit.worker.unreal._executor_fakes import phase_run, reading, trace
 from tests.unit.worker.unreal.test_job_flow_card import BUSY, IDLE, IDLE_KEY, METRICS, Chooser, _flow
 from tests.unit.worker.unreal.test_pilot_flow_failure import LINE, failing_flow, launch
 
-MARGIN = 256
+MARGIN = 512
+FULL = 30324                      # floor(32607 * 0.93): the card's usable line, D6's saturated sample
 LOGGER = pilot_flow.__name__
 
 
 @pytest.fixture(autouse=True)
 def _margin(monkeypatch):
-    """The default margin, whatever the developer's own config says."""
-    monkeypatch.setattr(config_unreal, 'SPILL_MARGIN_MB', MARGIN)
+    """The default margins, whatever the developer's own config says."""
+    monkeypatch.setattr(config_unreal, 'PILOT_OTHERS_MARGIN_MB', MARGIN)
+    monkeypatch.setattr(config_unreal, 'SPILL_MARGIN_MB', 256)
 
 
-def run(phase, pre, others):
-    """A sampled launch whose card was at ``pre`` before it and whose others' use peaked at ``others``."""
-    result = phase_run(phase, pre, pre, trace({0: 5000}))
+def run(phase, pre, others, used=5000):
+    """A sampled launch whose card was at ``pre`` before it, peaked at ``used`` and others' use at ``others``."""
+    result = phase_run(phase, pre, pre, trace({0: used}))
     result.outcome.vram.max_others = others
     return result
 
@@ -49,7 +56,14 @@ def flow_stub():
 
 def message(rise, phase, margin=MARGIN):
     return (f"other programs' use of the pilot's graphics card rose by {rise} MB during the {phase} (more than the "
-            f"{margin} MB margin), so the measurement is not the pilot's own; it runs again later.")
+            f"{margin} MB margin) and the card came close to full, so the measurement is not the pilot's own; it "
+            "runs again later.")
+
+
+def added_message(rise, phase, margin=MARGIN, top=0):
+    return (f"other programs' use of the pilot's graphics card rose by {rise} MB during the {phase} (more than the "
+            f"{margin} MB margin) while the card stayed clear of full; the part of their use (up to {top} MB) not "
+            "already in the measurement is added to the pilot's peak.")
 
 
 class TestOthersRise:
@@ -85,16 +99,31 @@ class TestOthersRise:
 
 class TestCheckOthers:
 
-    def test_exactly_at_the_margin_is_not_released(self, caplog):
+    @pytest.mark.parametrize('rise', [0, 257, MARGIN - 1, MARGIN], ids=['none', 'desktop_257', 'below', 'exactly'])
+    def test_band_1_up_to_the_margin_the_result_stands(self, caplog, rise):
+        """A real desktop rise of 257 MB that the old 256 MB margin released."""
         flow = flow_stub()
-        assert pilot_flow.check_others(flow, [run('render', {0: 400}, {0: 400 + MARGIN})]) is None
-        assert flow.summary.get('pilot_others_rise_mb') == str(MARGIN) and flow.summary.warnings() == ()
-        assert [r for r in caplog.records if r.name == LOGGER and r.levelno >= logging.WARNING] == []
+        with caplog.at_level(logging.INFO, logger=LOGGER):
+            assert pilot_flow.check_others(flow, [run('render', {0: 400}, {0: 400 + rise}, used=FULL)]) is None
+        assert flow.summary.get('pilot_others_rise_mb') == str(rise) and flow.summary.warnings() == ()
+        assert [r for r in caplog.records if r.name == LOGGER] == []
 
-    def test_one_mb_over_the_margin_releases_with_no_verdict(self, caplog):
+    @pytest.mark.parametrize('rise', [MARGIN + 1, 4000])
+    def test_band_2_past_the_margin_with_the_card_clear_returns_the_top_figure(self, caplog, rise):
+        """The highest absolute figure (pre 400 + rise), not the rise: ``pilot_others`` takes out what is counted."""
         flow = flow_stub()
+        runs = [run('warmup', {0: 400}, {0: 400 + rise}, used=FULL - 1), run('render', {0: 400}, {0: 400})]
+        with caplog.at_level(logging.INFO, logger=LOGGER):
+            assert pilot_flow.check_others(flow, runs) == 400 + rise
+        assert [(r.levelno, r.getMessage()) for r in caplog.records if r.name == LOGGER] == \
+            [(logging.INFO, f"Pilot job 42: {added_message(rise, 'warm-up', top=400 + rise)}")]
+        assert flow.summary.get('pilot_others_rise_mb') == str(rise) and flow.summary.warnings() == ()
+
+    def test_band_3_one_mb_over_the_margin_with_the_card_full_releases_with_no_verdict(self, caplog):
+        flow = flow_stub()
+        runs = [run('warmup', {0: 400}, {0: 400 + MARGIN + 1}), run('render', {0: 0}, {}, used=FULL)]
         with caplog.at_level(logging.WARNING, logger=LOGGER), pytest.raises(LocalConflict) as info:
-            pilot_flow.check_others(flow, [run('warmup', {0: 400}, {0: 400 + MARGIN + 1}), run('render', {0: 0}, {})])
+            pilot_flow.check_others(flow, runs)
         expected = message(MARGIN + 1, 'warm-up')
         assert (info.value.reason, info.value.message) == ('local_conflict', expected)
         assert [r.getMessage() for r in caplog.records if r.name == LOGGER and r.levelno == logging.WARNING] == \
@@ -105,29 +134,39 @@ class TestCheckOthers:
     @pytest.mark.parametrize('phase', ['render', 'prep'])
     def test_the_message_names_the_phase(self, phase):
         with pytest.raises(LocalConflict) as info:
-            pilot_flow.check_others(flow_stub(), [run(phase, {0: 0}, {0: 4000})])
+            pilot_flow.check_others(flow_stub(), [run(phase, {0: 0}, {0: 4000}, used=FULL + 500)])
         assert info.value.message == message(4000, phase)
 
     @pytest.mark.parametrize('pre,others', [(None, {0: 30000}), ({0: 400}, {})],
                              ids=['no_pre_launch_reading', 'no_per_process_data'])
     def test_an_unknown_rise_is_not_checked_and_left_empty(self, pre, others):
         flow = flow_stub()
-        pilot_flow.check_others(flow, [run('render', pre, others)])
+        assert pilot_flow.check_others(flow, [run('render', pre, others, used=FULL)]) is None
         assert flow.summary.get('pilot_others_rise_mb', 'unset') == '' and flow.summary.warnings() == ()
         assert '[sethlans-unreal] pilot_others_rise_mb=\n' in flow.summary.text() + '\n'
 
-    @pytest.mark.parametrize('margin,rise,released', [
+    @pytest.mark.parametrize('margin,rise,over', [
         (100, 100, False), (100, 101, True), (1000, 900, False), (0, 0, False), (0, 1, True),
     ])
-    def test_the_margin_is_read_at_call_time(self, monkeypatch, margin, rise, released):
-        monkeypatch.setattr(config_unreal, 'SPILL_MARGIN_MB', margin)
-        runs = [run('render', {0: 400}, {0: 400 + rise})]
-        if not released:
-            pilot_flow.check_others(flow_stub(), runs)
+    def test_the_margin_is_read_at_call_time(self, monkeypatch, margin, rise, over):
+        monkeypatch.setattr(config_unreal, 'PILOT_OTHERS_MARGIN_MB', margin)
+        assert pilot_flow.check_others(flow_stub(), [run('render', {0: 400}, {0: 400 + rise})]) == \
+            (400 + rise if over else None)
+        full = [run('render', {0: 400}, {0: 400 + rise}, used=FULL)]
+        if not over:
+            assert pilot_flow.check_others(flow_stub(), full) is None
             return
         with pytest.raises(LocalConflict) as info:
-            pilot_flow.check_others(flow_stub(), runs)
+            pilot_flow.check_others(flow_stub(), full)
         assert info.value.message == message(rise, 'render', margin)
+
+    @pytest.mark.parametrize('spill', [0, 1, 256, 65536])
+    def test_the_spill_margin_plays_no_part(self, monkeypatch, spill):
+        """``unreal.spill_margin_mb`` stays D9's spill margin; the pilot reads its own setting."""
+        monkeypatch.setattr(config_unreal, 'SPILL_MARGIN_MB', spill)
+        assert pilot_flow.check_others(flow_stub(), [run('render', {0: 400}, {0: 400 + 300}, used=FULL)]) is None
+        with pytest.raises(LocalConflict):
+            pilot_flow.check_others(flow_stub(), [run('render', {0: 400}, {0: 400 + MARGIN + 1}, used=FULL)])
 
 
 def with_others(launch_run, rise):
@@ -136,9 +175,9 @@ def with_others(launch_run, rise):
     return launch_run
 
 
-def collecting_flow(monkeypatch, tmp_path, rise, calls):
+def collecting_flow(monkeypatch, tmp_path, rise, calls, warm_used=9000):
     """A pilot whose render succeeded; the warm-up saw others' use rise by ``rise``; CSV and measure recorded."""
-    warm = with_others(launch(tmp_path, 'warmup', 9000), rise)
+    warm = with_others(launch(tmp_path, 'warmup', warm_used), rise)
     render = with_others(launch(tmp_path, 'render', 9000), 0)
     flow = _flow(Chooser(None), IDLE_KEY, kind='pilot', gate_reading=reading(gpus=(BUSY, IDLE)), tmp_path=tmp_path)
     flow.choice = Choice(42, IDLE_KEY, 'Radeon Test 24G', 1)
@@ -150,26 +189,34 @@ def collecting_flow(monkeypatch, tmp_path, rise, calls):
     monkeypatch.setattr(job_flow, 'render_check_time', lambda check, render_s: 60)
     monkeypatch.setattr(job_flow.output, 'collect_pilot', lambda *args: [])
     monkeypatch.setattr(job_flow.pilot_csv, 'collect', lambda *args: calls.append('csv'))
-    monkeypatch.setattr(job_flow.pilot, 'measure', lambda runs, csv_peak: calls.append('measure') or METRICS)
+    monkeypatch.setattr(job_flow.pilot, 'measure',
+                        lambda runs, csv_peak, others_top: calls.append(('measure', others_top)) or METRICS)
     return flow
 
 
 class TestCollect:
 
-    def test_others_past_the_margin_release_before_the_measurement(self, monkeypatch, tmp_path):
+    def test_others_past_the_margin_with_the_card_full_release_before_the_measurement(self, monkeypatch, tmp_path):
         calls = []
-        flow = collecting_flow(monkeypatch, tmp_path, MARGIN + 1, calls)
+        flow = collecting_flow(monkeypatch, tmp_path, MARGIN + 1, calls, warm_used=LINE)
         with pytest.raises(LocalConflict) as info:
             flow.run()
         assert info.value.message == message(MARGIN + 1, 'warm-up') and calls == []
         assert flow.summary.get('pilot_verdict') == '' and flow.summary.get('driver_version') == ''
 
-    def test_others_at_the_margin_are_measured(self, monkeypatch, tmp_path):
+    def test_others_at_the_margin_are_measured_with_nothing_added(self, monkeypatch, tmp_path):
         calls = []
-        flow = collecting_flow(monkeypatch, tmp_path, MARGIN, calls)
+        flow = collecting_flow(monkeypatch, tmp_path, MARGIN, calls, warm_used=LINE)
         result = flow.run()
-        assert result.metrics is METRICS and calls == ['csv', 'measure']
+        assert result.metrics is METRICS and calls == ['csv', ('measure', None)]
         assert flow.summary.get('pilot_others_rise_mb') == str(MARGIN)
+
+    def test_others_past_the_margin_with_the_card_clear_are_measured_with_the_rise(self, monkeypatch, tmp_path):
+        calls = []
+        flow = collecting_flow(monkeypatch, tmp_path, MARGIN + 1, calls)
+        result = flow.run()
+        assert result.metrics is METRICS and calls == ['csv', ('measure', 300 + MARGIN + 1)]
+        assert flow.summary.warnings() == () and flow.summary.get('pilot_others_rise_mb') == str(MARGIN + 1)
 
 
 class TestAfterFailure:
@@ -184,10 +231,20 @@ class TestAfterFailure:
         assert not [w for w in flow.summary.warnings() if w.startswith('pilot_failed_saturated')]
         assert [w for w in flow.summary.warnings() if w.startswith('pilot_others_rose: ')]
 
-    def test_a_saturated_failure_with_others_at_the_margin_does_not_fit(self, tmp_path):
-        flow = failing_flow(tmp_path, [with_others(launch(tmp_path, 'render', LINE), MARGIN)])
+    def test_a_saturated_failure_one_mb_past_the_margin_is_released(self, tmp_path):
+        """The card was full: a rise past the margin is band 3, never band 2's addition."""
+        flow = failing_flow(tmp_path, [with_others(launch(tmp_path, 'render', LINE), MARGIN + 1)])
+        with pytest.raises(LocalConflict) as info:
+            flow.run()
+        assert info.value.message == message(MARGIN + 1, 'render') and flow.summary.get('pilot_verdict') == ''
+
+    @pytest.mark.parametrize('rise', [257, MARGIN])
+    def test_a_saturated_failure_with_others_up_to_the_margin_does_not_fit(self, tmp_path, rise):
+        flow = failing_flow(tmp_path, [with_others(launch(tmp_path, 'render', LINE), rise)])
         result = flow.run()
-        assert result.metrics.verdict == 'does_not_fit' and flow.summary.get('pilot_others_rise_mb') == str(MARGIN)
+        assert result.metrics.verdict == 'does_not_fit' and flow.summary.get('pilot_others_rise_mb') == str(rise)
+        assert (result.metrics.others_added_mb, result.metrics.peak_mb) == (0, LINE - 300)
+        assert flow.summary.get('pilot_others_added_mb') == '0'
 
     @pytest.mark.parametrize('rise', [0, 900])
     def test_an_isolation_failure_is_always_raised_again(self, tmp_path, rise):

@@ -96,7 +96,7 @@ def _pilot_flow(monkeypatch, tmp_path, choice_key, log_text=ADAPTER_LINES):
     monkeypatch.setattr(job_flow, 'render_check_time', lambda check, render_s: 60)
     monkeypatch.setattr(job_flow.output, 'collect_pilot', lambda *args: [])
     monkeypatch.setattr(job_flow.pilot_csv, 'collect', lambda *args: None)
-    monkeypatch.setattr(job_flow.pilot, 'measure', lambda runs, csv_peak: METRICS)
+    monkeypatch.setattr(job_flow.pilot, 'measure', lambda runs, csv_peak, others_top_mb: METRICS)
     return flow
 
 

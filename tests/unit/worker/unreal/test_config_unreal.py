@@ -143,7 +143,7 @@ class TestRamSettings:
 
 
 class TestSpillMargin:
-    """Per-machine memory test FR-MT-S-2 / Q10: ``unreal.spill_margin_mb``, 0-65536, default 256."""
+    """Per-machine memory test FR-MT-S-2 (D9): ``unreal.spill_margin_mb``, 0-65536, default 256."""
 
     def test_the_default(self):
         assert config_unreal.load(getter({}))['SPILL_MARGIN_MB'] == 256
@@ -181,3 +181,56 @@ class TestSpillMargin:
         from pathlib import Path
         example = Path(config_unreal.__file__).resolve().parents[1] / 'config.ini.example'
         assert '# spill_margin_mb = 256' in example.read_text(encoding='utf-8')
+
+
+class TestPilotOthersMargin:
+    """Owner decision Q10: ``unreal.pilot_others_margin_mb``, 0-65536, default 512; the spill margin stays 256."""
+
+    def test_the_default_and_the_spill_margin_untouched(self):
+        values = config_unreal.load(getter({}))
+        assert (values['PILOT_OTHERS_MARGIN_MB'], values['SPILL_MARGIN_MB']) == (512, 256)
+        assert isinstance(config_unreal.PILOT_OTHERS_MARGIN_MB, int)
+
+    def test_each_key_is_read_on_its_own(self):
+        values = config_unreal.load(getter({'pilot_others_margin_mb': 2048, 'spill_margin_mb': 128}))
+        assert (values['PILOT_OTHERS_MARGIN_MB'], values['SPILL_MARGIN_MB']) == (2048, 128)
+
+    @pytest.mark.parametrize('raw', ['-1', '65537', 'lots', True])
+    def test_out_of_range_or_non_integer_warns_and_uses_512(self, raw, caplog):
+        assert config_unreal.load(getter({'pilot_others_margin_mb': raw}))['PILOT_OTHERS_MARGIN_MB'] == 512
+        assert 'unreal.pilot_others_margin_mb' in caplog.text
+
+    def test_the_env_var_sets_only_this_margin(self, monkeypatch):
+        import configparser
+
+        from sethlans_worker_agent import config
+        monkeypatch.setenv('SETHLANS_UNREAL_PILOT_OTHERS_MARGIN_MB', '1024')
+        monkeypatch.delenv('SETHLANS_UNREAL_SPILL_MARGIN_MB', raising=False)
+        monkeypatch.setattr(config, '_json_config', {})
+        monkeypatch.setattr(config, 'config_parser', configparser.ConfigParser())
+        values = config_unreal.load()
+        assert (values['PILOT_OTHERS_MARGIN_MB'], values['SPILL_MARGIN_MB']) == (1024, 256)
+
+    def test_a_bad_env_var_warns_and_uses_512(self, monkeypatch, caplog):
+        monkeypatch.setenv('SETHLANS_UNREAL_PILOT_OTHERS_MARGIN_MB', '70000')
+        assert config_unreal.load()['PILOT_OTHERS_MARGIN_MB'] == 512 and 'unreal.pilot_others_margin_mb' in caplog.text
+
+    def test_the_config_ini_value(self, monkeypatch):
+        import configparser
+
+        from sethlans_worker_agent import config
+        parser = configparser.ConfigParser()
+        parser.read_string('[unreal]\npilot_others_margin_mb = 768\n')
+        monkeypatch.delenv('SETHLANS_UNREAL_PILOT_OTHERS_MARGIN_MB', raising=False)
+        monkeypatch.delenv('SETHLANS_UNREAL_SPILL_MARGIN_MB', raising=False)
+        monkeypatch.setattr(config, '_json_config', {})
+        monkeypatch.setattr(config, 'config_parser', parser)
+        values = config_unreal.load()
+        assert (values['PILOT_OTHERS_MARGIN_MB'], values['SPILL_MARGIN_MB']) == (768, 256)
+
+    def test_the_example_ini_documents_it_next_to_the_spill_margin(self):
+        from pathlib import Path
+        example = Path(config_unreal.__file__).resolve().parents[1] / 'config.ini.example'
+        text = example.read_text(encoding='utf-8')
+        assert '# pilot_others_margin_mb = 512' in text and 'SETHLANS_UNREAL_PILOT_OTHERS_MARGIN_MB' in text
+        assert 0 < text.index('# pilot_others_margin_mb = 512') - text.index('# spill_margin_mb = 256') < 800

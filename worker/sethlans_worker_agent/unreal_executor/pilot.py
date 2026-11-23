@@ -24,6 +24,16 @@ that card alone:
   members on the peak's GPU (``VramTrace.max_job``, render per card
   FR-PC-ATT-2; summary ``pilot_process_peak_mb`` only, never reported).
 
+**Other programs' use** (owner decision Q10, band 2; ``pilot_flow.check_others``
+decides it): ``measure(runs, csv_peak, others_top_mb)`` adds the part of
+the highest other-programs figure that ``peak + baseline`` does not already
+hold (``pilot_others.added``) to the figure that set the peak
+(``pilot_others.with_others``), so ``peak_mb = max(card_delta_peak_mb,
+csv_local_used_peak_mb)`` and ``peak_source`` still hold (the manager checks
+both); the verdict below and ``lower_bound_mb`` follow from that adjusted
+peak. ``others_added_mb`` is in the summary only (``pilot_others_added_mb``).
+The implausible-peak rule sees the peak before the addition.
+
 **Verdict** (per-machine memory test D6, FR-MT-V-2), never a rejection:
 ``does_not_fit`` when any sample of the card reached ``floor(total * 0.93)``
 (``saturated``) **or** ``peak_mb + baseline_used_mb > floor(total * 0.93)``
@@ -54,6 +64,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from sethlans_worker_agent import report_limits
 from sethlans_worker_agent.cards.identity import key_address
+from sethlans_worker_agent.unreal_executor import pilot_others
 from sethlans_worker_agent.unreal_executor.log_tail import iter_log_lines
 from sethlans_worker_agent.unreal_executor.outcomes import JobFailure, LocalConflict
 from shared.unreal import render_context, vram_gate
@@ -94,6 +105,7 @@ class PilotMetrics:
     verdict: str = FITS                    # D6: 'fits' or 'does_not_fit'
     lower_bound_mb: Optional[int] = None   # D6: peak_mb for does_not_fit, else None
     saturated: bool = False                # a sample reached floor(total * 0.93)
+    others_added_mb: int = 0               # Q10 band 2: other programs' rise added to the peak's figure
 
 
 def _process_peak(runs: Sequence, index: int) -> Optional[int]:
@@ -149,9 +161,13 @@ def _verdict(full: bool, peak: int, baseline: int, total: Optional[int]) -> Tupl
     return (DOES_NOT_FIT, peak) if full or over else (FITS, None)
 
 
-def measure(runs: Sequence, csv_peak_mb: Optional[int]) -> PilotMetrics:
-    """FR-UE-25 "Peak metric", its rejection rules and D6's verdict over every pilot phase."""
-    best = None  # (delta, phase, gpu, baseline, total)
+def measure(runs: Sequence, csv_peak_mb: Optional[int], others_top_mb: Optional[int] = None) -> PilotMetrics:
+    """FR-UE-25 "Peak metric", its rejection rules and D6's verdict over every pilot phase.
+
+    ``others_top_mb`` (Q10 band 2; ``None`` otherwise): the highest other-programs figure; the part of it not
+    already in ``peak + baseline`` is added to the figure that set the peak before the verdict.
+    """
+    best = None  # (delta, phase, gpu, baseline, total, run)
     drift, gap = 0, 0.0
     full = saturated(runs)
     for run in runs:
@@ -165,19 +181,22 @@ def measure(runs: Sequence, csv_peak_mb: Optional[int]) -> PilotMetrics:
         for index, used in run.outcome.vram.max_used.items():
             delta = max(0, used - baselines.get(index, used))
             if best is None or delta > best[0]:
-                best = (delta, run.phase, index, baselines.get(index, used), run.outcome.vram.total.get(index))
+                best = (delta, run.phase, index, baselines.get(index, used), run.outcome.vram.total.get(index), run)
     if best is None:
         raise LocalConflict('local_conflict', GAP_MESSAGE.format(n=0))
-    card, phase, index, baseline, total = best
-    peak = max(card, csv_peak_mb or 0)
-    source = 'csv' if (csv_peak_mb or 0) > card else 'card'
-    if peak < MIN_PLAUSIBLE_PEAK_MB:
-        raise JobFailure(f"Pilot render failed: implausible GPU memory peak ({peak} MB).")
+    card, phase, index, baseline, total, peak_run = best
+    measured = max(card, csv_peak_mb or 0)  # the plausibility rule sees the peak before any addition
+    if measured < MIN_PLAUSIBLE_PEAK_MB:
+        raise JobFailure(f"Pilot render failed: implausible GPU memory peak ({measured} MB).")
+    added = pilot_others.added(others_top_mb, card, csv_peak_mb, baseline, peak_run, index)
+    card, csv = pilot_others.with_others(card, csv_peak_mb, added)
+    peak = max(card, csv or 0)
+    source = 'csv' if (csv or 0) > card else 'card'
     verdict, lower_bound = _verdict(full, peak, baseline, total)
-    return PilotMetrics(peak_mb=peak, peak_source=source, card_delta_peak_mb=card, csv_local_used_peak_mb=csv_peak_mb,
+    return PilotMetrics(peak_mb=peak, peak_source=source, card_delta_peak_mb=card, csv_local_used_peak_mb=csv,
                         baseline_used_mb=baseline, baseline_drift_mb=drift, peak_phase=phase, gpu_index=index,
                         max_sample_gap_s=round(gap, 2), process_peak_mb=_process_peak(runs, index),
-                        verdict=verdict, lower_bound_mb=lower_bound, saturated=full)
+                        verdict=verdict, lower_bound_mb=lower_bound, saturated=full, others_added_mb=added)
 
 
 def chosen_adapter(log_path) -> Optional[str]:
@@ -263,4 +282,4 @@ def summary_values(metrics: PilotMetrics, frames: List[int], adapter: str, cvars
             'pilot_process_peak_mb': '' if metrics.process_peak_mb is None else metrics.process_peak_mb,
             'pilot_cvars_sha256': cvars_sha, 'pilot_verdict': metrics.verdict,
             'pilot_lower_bound_mb': '' if metrics.lower_bound_mb is None else metrics.lower_bound_mb,
-            'pilot_saturated': 1 if metrics.saturated else 0}
+            'pilot_saturated': 1 if metrics.saturated else 0, 'pilot_others_added_mb': metrics.others_added_mb}

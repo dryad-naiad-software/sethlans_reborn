@@ -113,6 +113,9 @@ class VramTrace:
     # Other programs' use of the launch's card: card used minus the members' own MiB on it, the largest per GPU
     # over the attributed samples of the whole launch (per-machine memory test Q10; D9's ``others``).
     max_others: Dict[int, int] = field(default_factory=dict)
+    # Q10: other programs' use at the sample that set ``max_used`` (the smaller on a tie); absent when that sample
+    # could not be split by process. ``pilot_others`` uses it: a card peak already holds this much of theirs.
+    others_at_max: Dict[int, int] = field(default_factory=dict)
     # D9 (FR-MT-S-2): a render launch's spill.SpillWatch, fed every attributed sample of the launch's card.
     spill: Optional[object] = None
 
@@ -134,6 +137,8 @@ class VramTrace:
         self.last_sample_at = reading.taken_at
         self.samples += 1
         for gpu in reading.gpus:
+            if gpu.used_mb > self.max_used.get(gpu.index, -1):
+                self.others_at_max.pop(gpu.index, None)  # a new peak sample: the old figure is not its own
             self.max_used[gpu.index] = max(self.max_used.get(gpu.index, gpu.used_mb), gpu.used_mb)
             self.min_used[gpu.index] = min(self.min_used.get(gpu.index, gpu.used_mb), gpu.used_mb)
             self.total[gpu.index] = gpu.total_mb
@@ -163,7 +168,10 @@ class VramTrace:
             index = mine.get(key_address(key))
             if index is not None:
                 self.max_job[index] = max(self.max_job.get(index, 0), used)
-                self.max_others[index] = max(self.max_others.get(index, 0), max(0, card_used[index] - used))
+                others = max(0, card_used[index] - used)
+                self.max_others[index] = max(self.max_others.get(index, 0), others)
+                if card_used[index] == self.max_used.get(index):  # this sample is (or ties) the card's peak
+                    self.others_at_max[index] = min(self.others_at_max.get(index, others), others)
                 if self.spill is not None and len(mine) == 1:
                     self.spill.observe(_own(reading.per_pid_shared, key, own_pids), used, card_used[index])
                 if window:

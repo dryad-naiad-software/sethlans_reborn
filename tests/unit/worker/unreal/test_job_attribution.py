@@ -106,6 +106,27 @@ class TestOthers:
         trace.add(reading(1.0, {'pci:00000000:41:00.0': {ROOT_PID: 6000}}), OWN)
         assert trace.max_others == {1: 3000}
 
+    def test_others_at_the_card_peak_sample(self):
+        """Q10 band 2: what a card peak already holds of other programs' use (``pilot_others.counted``)."""
+        trace = VramTrace()
+        trace.add(reading(1.0, {MINE: {ROOT_PID: 7000}}, used=9000), OWN)    # others 2000
+        trace.add(reading(2.0, {MINE: {ROOT_PID: 8000}}, used=9500), OWN)    # the peak: others 1500
+        trace.add(reading(3.0, {MINE: {ROOT_PID: 4000}}, used=9200), OWN)    # others 5200, not the peak
+        assert trace.others_at_max == {1: 1500} and trace.max_others == {1: 5200}
+
+    def test_a_new_peak_that_cannot_be_split_drops_the_older_figure(self):
+        trace = VramTrace()
+        trace.add(reading(1.0, {MINE: {ROOT_PID: 7000}}, used=9000), OWN)
+        trace.add(reading(2.0, None, used=20000), OWN)
+        assert trace.others_at_max == {} and trace.max_used == {1: 20000}
+
+    def test_a_tie_with_the_peak_keeps_the_smaller_figure(self):
+        for owns in ((7000, 8000), (8000, 7000)):
+            trace = VramTrace()
+            for n, own in enumerate(owns, start=1):
+                trace.add(reading(float(n), {MINE: {ROOT_PID: own}}, used=9500), OWN)
+            assert trace.others_at_max == {1: 1500}
+
     def test_a_sample_that_cannot_be_split_by_process_fills_nothing(self):
         for per_pid, own in ((None, OWN), ({OTHER: {ROOT_PID: 40}}, OWN), ({MINE: {ROOT_PID: 7000}}, None)):
             trace = VramTrace()

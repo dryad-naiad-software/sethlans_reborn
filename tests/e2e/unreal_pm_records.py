@@ -50,7 +50,7 @@ SUMMARY_KEYS = ("kind", "card", "slot", "attempt", "warmup", "vram_gate", "vram_
                 "spill_reference_mb", "spill_others_peak_mb", "driver_version", "driver_source",
                 "driver_changed", "memory_report", "pilot_verdict", "pilot_peak_mb", "pilot_baseline_mb",
                 "pilot_card_delta_peak_mb", "pilot_csv_peak_mb", "pilot_peak_phase", "pilot_saturated",
-                "pilot_lower_bound_mb", "pilot_others_rise_mb", "pilot_frames")
+                "pilot_lower_bound_mb", "pilot_others_rise_mb", "pilot_others_added_mb", "pilot_frames")
 # Anchored at the line start (UE's optional "[time][frame]" prefix), so echoed text never matches.
 _PREFIX = r"^(?:\[[^\]]*\]\[\s*\d+\])?"
 _FOUND = re.compile(_PREFIX + r"LogD3D12RHI: Found D3D12 adapter (\d+): (.*?) \(VendorId")
