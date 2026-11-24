@@ -141,7 +141,7 @@ def _build_env(
 ) -> dict[str, str]:
     env = {
         "SETHLANS_WORKER_DATA_DIR": str(worker_data.resolve()),
-        "SETHLANS_DATA_DIR": str(worker_data.parent.resolve()),
+        "SETHLANS_SETTINGS_DIR": str(worker_data.parent.resolve()),
         "SETHLANS_WORKER_UI_PORT": str(ui_port),
         "SETHLANS_WORKER_UI_ENABLED": "true",
     }

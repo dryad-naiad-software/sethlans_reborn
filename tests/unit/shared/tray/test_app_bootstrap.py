@@ -49,10 +49,10 @@ def _patch_main_deps(mocker, topology, tmp_path, phase="runtime"):
 
     # Path layer — avoid touching the real filesystem topology.
     mocker.patch.object(
-        app, "get_shared_data_dir", return_value=tmp_path,
+        app, "get_settings_dir", return_value=tmp_path,
     )
     mocker.patch.object(
-        app, "get_data_dir",
+        app, "get_identity_dir",
         side_effect=lambda role: tmp_path / role,
     )
     mocker.patch.object(

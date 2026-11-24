@@ -47,10 +47,11 @@ def _write_topology(data_dir, topo="manager_worker"):
     )
 
 
-def _write_manager_ini(manager_data):
-    manager_data.mkdir(parents=True, exist_ok=True)
-    (manager_data / "manager.ini").write_text(
-        "[server]\nport = 8080\n", encoding="utf-8",
+def _write_settings(ini):
+    ini.write_text(
+        "[setup]\ntoken = wizard-token\nversion = 1\n"
+        "[server]\nport = 9443\n",
+        encoding="utf-8",
     )
 
 
@@ -58,8 +59,11 @@ class TestFirstRunSupervisionPersists:
     """#203 regression: wizard fall-through enters the supervision loop."""
 
     def test_orchestration_blocks_until_quit_event_set(
-        self, tmp_path, mocker,
+        self, tmp_path, mocker, monkeypatch,
     ):
+        ini = tmp_path / "sethlans.ini"
+        monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(ini))
+
         # 1. Wizard succeeds: write sentinel + return 0. This emulates
         # the apply pipeline's contract — .setup_complete is the
         # success signal for the defensive guard.
@@ -72,11 +76,13 @@ class TestFirstRunSupervisionPersists:
             side_effect=_fake_wizard,
         )
 
-        # 2. Topology + manager.ini so run_normal_mode resolves a port.
+        # 2. Topology + a settings file holding the wizard's [setup]
+        # token, which run_normal_mode must drop (keeping the rest).
         _write_topology(tmp_path)
 
         def _bootstrap(d):
-            _write_manager_ini(d / "manager")
+            (d / "manager").mkdir(parents=True, exist_ok=True)
+            _write_settings(ini)
             return d / "manager"
         bootstrap = MagicMock(side_effect=_bootstrap)
 
@@ -87,7 +93,6 @@ class TestFirstRunSupervisionPersists:
         start_caddy = mocker.patch.object(
             orchestration, "start_caddy_supervisor",
         )
-        mocker.patch.object(orchestration, "remove_setup_section")
         # The cold-boot health gate must succeed so the supervision
         # loop is reached. Mock it to return None (None = no early
         # exit, fall through to the while True loop).
@@ -157,6 +162,10 @@ class TestFirstRunSupervisionPersists:
             "run_normal_mode did not spawn the manager — fall-through "
             "to start_component(\"manager\") did not happen"
         )
+        text = ini.read_text(encoding="utf-8")
+        assert "wizard-token" not in text
+        assert "version = 1" in text
+        assert "port = 9443" in text
 
 
 if __name__ == "__main__":

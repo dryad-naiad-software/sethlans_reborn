@@ -9,16 +9,15 @@ Bypasses the HTTP enrollment endpoint entirely — all database operations
 happen inside a single atomic transaction.
 """
 
-import configparser
 import logging
 import socket
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework.authtoken.models import Token
 
 from sethlans_manager import runtime_state
+from sethlans_manager.bind_config import get_manager_bind
 from workers.models import Worker
 from workers.services.worker_tokens import issue_fresh_token
 from workers.views._helpers import get_or_create_worker_user
@@ -97,11 +96,9 @@ def auto_enroll_local_worker(hostname: str | None = None) -> dict:
         token = issue_fresh_token(user)
 
     # Build the manager URL using loopback — this is a local worker.
-    ini_path = settings.BASE_DIR / "manager.ini"
-    config = configparser.ConfigParser()
-    if ini_path.exists():
-        config.read(ini_path)
-    port = config.get("server", "port", fallback="8080")
+    # Same env > settings file > default order as the manager's own
+    # start (issue #313).
+    _host, port = get_manager_bind()
     manager_url = f"https://127.0.0.1:{port}"
 
     logger.info(

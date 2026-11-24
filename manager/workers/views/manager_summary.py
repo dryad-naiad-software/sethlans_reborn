@@ -12,9 +12,7 @@ completes.
 
 from __future__ import annotations
 
-import configparser
 import logging
-from pathlib import Path
 
 from drf_spectacular.utils import extend_schema
 from rest_framework.authentication import (
@@ -30,23 +28,14 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from sethlans_manager import runtime_state
-from workers.services.data_dir import get_manager_data_dir
+from sethlans_manager.bind_config import get_manager_bind
 
 logger = logging.getLogger(__name__)
 
 
-def _data_dir() -> Path:
-    """Return the manager data dir, where ``manager.ini`` lives."""
-    return get_manager_data_dir()
-
-
-def _build_summary_payload(data_dir: Path) -> dict:
-    ini_path = data_dir / "manager.ini"
-    config = configparser.ConfigParser()
-    if ini_path.exists():
-        config.read(ini_path)
-    host = config.get("server", "host", fallback="0.0.0.0")
-    port = config.get("server", "port", fallback="8080")
+def _build_summary_payload() -> dict:
+    """Build the summary; host and port resolve as at the start (#313)."""
+    host, port = get_manager_bind()
     if host == "0.0.0.0":
         host = "localhost"
     manager_url = f"https://{host}:{port}"
@@ -77,4 +66,4 @@ def _build_summary_payload(data_dir: Path) -> dict:
 @permission_classes([IsAuthenticated, IsAdminUser])
 def manager_summary_view(request):
     """GET /api/manager/summary/ — admin-only post-setup summary."""
-    return Response(_build_summary_payload(_data_dir()))
+    return Response(_build_summary_payload())

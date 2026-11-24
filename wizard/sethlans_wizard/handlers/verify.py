@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+from shared import settings_file
 from wizard.sethlans_wizard import (
     manager_ini,
     progress,
@@ -51,8 +52,10 @@ _cached_at: float = 0.0
 _cached_result: Optional[dict] = None
 
 
-def _read_manager_ini(data_dir: Path) -> configparser.ConfigParser:
-    """Read ``manager.ini`` under the manager-ini lock.
+def _read_manager_ini(ini_path: Optional[Path] = None) -> configparser.RawConfigParser:
+    """Read the settings file under the manager-ini lock.
+
+    *ini_path* defaults to :func:`shared.settings_file.settings_path`.
 
     Concurrency-reviewer C3 — the verify handler must NOT race a
     concurrent ``/network/`` or ``/database/`` POST that is mid-write
@@ -63,16 +66,13 @@ def _read_manager_ini(data_dir: Path) -> configparser.ConfigParser:
     ``parser.read`` issues multiple read syscalls, so cross-syscall
     consistency requires the same lock the writer takes.
     """
-    parser = configparser.ConfigParser()
-    target = data_dir / "manager.ini"
-    if not target.exists():
-        return parser
+    target = settings_file.settings_path() if ini_path is None else Path(ini_path)
     with manager_ini.get_manager_ini_lock():
         try:
-            parser.read(str(target), encoding="utf-8")
-        except configparser.Error as exc:
-            logger.warning("Could not parse manager.ini: %s", exc)
-    return parser
+            return settings_file.read_settings(target)
+        except OSError as exc:
+            logger.warning("Could not parse the settings file: %s", exc)
+    return settings_file.new_parser()
 
 
 def _check_network_bindable(parser: configparser.ConfigParser) -> dict:
@@ -169,7 +169,7 @@ def _read_topology(data_dir: Path) -> Optional[str]:
 
 
 def _run_checks(data_dir: Path) -> dict:
-    parser = _read_manager_ini(data_dir)
+    parser = _read_manager_ini()
     topology = _read_topology(data_dir) or "manager"
     checks = [
         _check_network_bindable(parser),

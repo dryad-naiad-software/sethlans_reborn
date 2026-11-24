@@ -142,9 +142,9 @@ def _patch_main_for_shutdown(mocker, tmp_path,
     """Smaller ``main`` patch set focused on shutdown-path tests."""
     from PySide6.QtWidgets import QMenu
 
-    mocker.patch.object(app, "get_shared_data_dir",
+    mocker.patch.object(app, "get_settings_dir",
                         return_value=tmp_path)
-    mocker.patch.object(app, "get_data_dir",
+    mocker.patch.object(app, "get_identity_dir",
                         side_effect=lambda r: tmp_path / r)
     mocker.patch.object(topo_mod, "read_topology", return_value=topology)
     mocker.patch.object(app, "_read_manager_ports",

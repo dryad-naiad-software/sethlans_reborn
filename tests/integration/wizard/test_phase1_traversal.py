@@ -21,6 +21,7 @@ Windows-only branches: device-namespace ``\\?\`` and system root.
 
 from __future__ import annotations
 
+import configparser
 import os
 import platform
 import socket
@@ -77,9 +78,9 @@ def test_traversal_dotdot_rejected_no_fs_writes(wizard_process, tmp_path):
 
     # NOTHING was written under the rejected parent path.
     assert _no_files_under(parent), list(parent.iterdir())
-    # No manager.ini at the rejected target.
+    # No settings file at the rejected target.
+    assert not (parent / "sethlans.ini").exists()
     assert not (parent / "manager.ini").exists()
-    assert not (parent / "manager.ini.tmp").exists()
 
 
 def test_traversal_relative_path_rejected(wizard_process):
@@ -165,8 +166,8 @@ def test_traversal_system_windows_root_rejected(wizard_process):
     assert parsed.get("category") == "forbidden_root", parsed
 
 
-def test_traversal_valid_override_writes_manager_ini(wizard_process, tmp_path):
-    """A LEGITIMATE absolute override IS honoured — write lands there.
+def test_traversal_valid_override_is_recorded(wizard_process, tmp_path):
+    """A LEGITIMATE absolute override IS honoured — recorded in the settings file.
 
     Sanity-check the happy path so the rejection tests above can't
     accidentally pass via false-positive (e.g. handler always rejecting
@@ -191,7 +192,9 @@ def test_traversal_valid_override_writes_manager_ini(wizard_process, tmp_path):
     )
     assert status == 200, parsed
 
-    # manager.ini lands at the override.
-    assert (target_dir / "manager.ini").exists()
-    # The wizard's own data_dir does NOT receive the override write.
-    assert not (wp.data_dir / "manager.ini").exists()
+    # The override is recorded as [server] data_dir in the one settings
+    # file; the settings file itself never moves into the override.
+    parser = configparser.RawConfigParser(interpolation=None)
+    parser.read(str(wp.data_dir / "sethlans.ini"), encoding="utf-8")
+    assert Path(parser.get("server", "data_dir")).resolve() == target_dir.resolve()
+    assert not (target_dir / "sethlans.ini").exists()

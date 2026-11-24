@@ -94,9 +94,9 @@ class TestGetDataDir:
         assert result == expected
 
     def test_env_override_wins_over_platform(self, mocker, tmp_path):
-        """Issue #181: ``SETHLANS_DATA_DIR`` overrides the per-OS default.
+        """Issue #181: ``SETHLANS_SETTINGS_DIR`` overrides the per-OS default.
 
-        Mirrors :func:`shared.frozen_paths.get_shared_data_dir` so the
+        Mirrors :func:`shared.settings_file.get_settings_dir` so the
         launcher resolves to the same shared root the wizard / manager /
         worker subprocesses do — without the override the launcher
         polled ``%LOCALAPPDATA%\\Sethlans`` while the wizard wrote to
@@ -105,7 +105,7 @@ class TestGetDataDir:
         """
         override = (tmp_path / "shared-data").resolve()
         env = os.environ.copy()
-        env["SETHLANS_DATA_DIR"] = str(override)
+        env["SETHLANS_SETTINGS_DIR"] = str(override)
         # Set every platform-specific signal too so the test fails if
         # the override is silently ignored on any branch.
         env["LOCALAPPDATA"] = "C:\\Users\\artist\\AppData\\Local"
@@ -120,7 +120,7 @@ class TestGetDataDir:
 
     def test_env_override_must_be_absolute(self, mocker):
         env = os.environ.copy()
-        env["SETHLANS_DATA_DIR"] = "relative/path"
+        env["SETHLANS_SETTINGS_DIR"] = "relative/path"
         with patch.dict(os.environ, env, clear=True):
             mocker.patch("platform.system", return_value="Linux")
             try:
@@ -130,15 +130,15 @@ class TestGetDataDir:
                 assert "relative/path" in str(exc)
             else:
                 raise AssertionError(
-                    "expected ValueError for relative SETHLANS_DATA_DIR"
+                    "expected ValueError for relative SETHLANS_SETTINGS_DIR"
                 )
 
     def test_env_override_empty_string_falls_through(self, mocker):
-        """Empty ``SETHLANS_DATA_DIR`` is treated as unset (matches shared)."""
+        """Empty ``SETHLANS_SETTINGS_DIR`` is treated as unset (matches shared)."""
         fake_home = Path("/home/artist")
         mocker.patch("pathlib.Path.home", return_value=fake_home)
         env = os.environ.copy()
-        env["SETHLANS_DATA_DIR"] = ""
+        env["SETHLANS_SETTINGS_DIR"] = ""
         env.pop("XDG_DATA_HOME", None)
         with patch.dict(os.environ, env, clear=True):
             mocker.patch("platform.system", return_value="Linux")

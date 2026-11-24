@@ -11,7 +11,7 @@ the 300-line ceiling. This module owns:
   ``sethlans_manager.caddy_template`` renderer is importable before
   :func:`launcher.caddy_launcher.build_manager_caddy_supervisor`
   resolves it).
-* Reading ports from ``manager.ini`` with sensible defaults.
+* Reading ports from the settings file with sensible defaults.
 * Constructing + registering + starting the supervisor, aborting
   startup on failure (a manager without a public TLS listener is
   unusable).
@@ -22,7 +22,6 @@ Shutdown is handled automatically by
 
 from __future__ import annotations
 
-import configparser
 import logging
 import sys
 from pathlib import Path
@@ -32,6 +31,7 @@ from launcher.setup_helpers import (
     CADDY_LOOPBACK_PORT,
     CADDY_PUBLIC_TLS_PORT,
 )
+from shared import settings_file
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +72,11 @@ def _ensure_manager_on_syspath() -> None:
 
 
 def _resolve_caddy_public_port(ini_path: Path) -> int:
-    """Return ``[server] port`` from manager.ini or the spec default."""
-    cfg = configparser.ConfigParser()
-    if ini_path.exists():
-        try:
-            cfg.read(ini_path)
-        except (configparser.Error, OSError):
-            return CADDY_PUBLIC_TLS_PORT
+    """Return ``[server] port`` from the settings file or the spec default."""
+    try:
+        cfg = settings_file.read_settings(ini_path)
+    except OSError:
+        return CADDY_PUBLIC_TLS_PORT
     if cfg.has_option("server", "port"):
         try:
             return int(cfg.get("server", "port"))
@@ -109,7 +107,7 @@ def start_caddy_supervisor(manager_data: Path) -> None:
         get_waitress_public_port,
     )
 
-    ini_path = manager_data / "manager.ini"
+    ini_path = settings_file.settings_path()
     caddyfile_path = manager_data / "caddy" / "Caddyfile"
     caddyfile_path.parent.mkdir(parents=True, exist_ok=True)
     cert_path = manager_data / "tls" / "cert.pem"

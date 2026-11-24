@@ -4,9 +4,11 @@
 """
 Waitress tuning + port configuration helpers (Phase 5).
 
-Centralises the env-var > ``manager.ini`` > spec-default hierarchy for
+Centralises the env-var > settings file > spec-default hierarchy for
 the five Waitress tunables and the two Waitress loopback ports so
-``run_manager.py`` stays under the 300-line ceiling.
+``run_manager.py`` stays under the 300-line ceiling. The settings file
+is ``sethlans.ini`` (:func:`shared.settings_file.settings_path`); callers
+pass its path in.
 
 Tunable defaults come from ``development/specs/waitress-migration-manager.md``
 Phase 5 "Waitress tuning" table. Changing any default is a spec-level
@@ -23,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from sethlans_manager.body_limits import UPLOAD_BODY_LIMIT
+from shared.settings_file import read_settings
 
 logger = logging.getLogger(__name__)
 
@@ -40,19 +43,16 @@ DEFAULT_WAITRESS_PUBLIC_PORT = 8090
 DEFAULT_WAITRESS_INTERNAL_PORT = 8088
 
 
-def _read_ini(ini_path: Path) -> configparser.ConfigParser:
-    """Return a ConfigParser loaded from *ini_path*, empty on failure."""
-    cfg = configparser.ConfigParser()
-    if not ini_path.exists():
-        return cfg
+def _read_ini(ini_path: Path) -> configparser.RawConfigParser:
+    """Return the settings file at *ini_path* parsed, empty on failure."""
     try:
-        cfg.read(ini_path)
-    except Exception as exc:
+        return read_settings(ini_path)
+    except OSError as exc:
         print(
-            f"[WARNING] Could not read manager.ini: {exc}",
+            f"[WARNING] Could not read the settings file: {exc}",
             file=sys.stderr,
         )
-    return cfg
+        return configparser.RawConfigParser(interpolation=None)
 
 
 def _resolve_int(
@@ -65,7 +65,7 @@ def _resolve_int(
 ) -> int:
     """Resolve an integer tunable per the override hierarchy.
 
-    Precedence: env var > ``manager.ini`` > spec default.
+    Precedence: env var > settings file > spec default.
     Non-integer values fall through to the next tier with a warning.
     """
     raw = os.getenv(env_var)
@@ -85,7 +85,7 @@ def _resolve_int(
             return int(raw)
         except ValueError:
             logger.warning(
-                "manager.ini [%s] %s=%r is not an integer; using default.",
+                "Settings file [%s] %s=%r is not an integer; using default.",
                 ini_section, ini_key, raw,
             )
 
@@ -164,7 +164,7 @@ def _try_ini_int(cfg, section: str, key: str) -> Optional[int]:
         return int(raw)
     except ValueError:
         logger.warning(
-            "manager.ini [%s] %s=%r is not an integer; falling back.",
+            "Settings file [%s] %s=%r is not an integer; falling back.",
             section, key, raw,
         )
         return None
@@ -202,26 +202,6 @@ def get_waitress_internal_port(ini_path: Path) -> int:
     return DEFAULT_WAITRESS_INTERNAL_PORT
 
 
-def resolve_ini_path(manager_dir: Optional[Path] = None) -> Path:
-    """Return the manager.ini path (same file as ``tls_setup``).
-
-    Frozen: the per-user data dir. Source: ``SETHLANS_MANAGER_DATA_DIR``
-    when set, else ``manager_dir``.
-    """
-    # Import lazily so this module stays importable during test discovery
-    # without Django or the frozen-paths shim loaded.
-    from shared.frozen_paths import get_data_dir, is_frozen
-
-    if is_frozen():
-        return get_data_dir("manager") / "manager.ini"
-    if manager_dir is not None:
-        from sethlans_manager.state_dir import source_data_dir
-        return source_data_dir(manager_dir) / "manager.ini"
-    raise ValueError(
-        "resolve_ini_path(manager_dir=...) is required outside frozen mode."
-    )
-
-
 # ---------------------------------------------------------------------
 # Settings-module helpers (called from sethlans_manager.settings).
 # ---------------------------------------------------------------------
@@ -254,7 +234,7 @@ def resolve_internal_port_for_settings(
 def resolve_public_port_for_settings(config) -> Optional[int]:
     """Resolve the public-origin port from ``settings.py`` context.
 
-    Returns ``None`` when neither the env var nor ``manager.ini``
+    Returns ``None`` when neither the env var nor the settings file
     supplies an explicit value. This tolerance path preserves the
     Phase 2 middleware contract: ``UrlconfOriginMiddleware`` with
     ``WAITRESS_LOOPBACK_PORT_PUBLIC=None`` treats any non-internal

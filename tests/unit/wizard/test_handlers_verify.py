@@ -62,7 +62,7 @@ def _provision_manager_ini(tmp_path, port: int | None = None) -> None:
     parser["database"] = {
         "engine": "sqlite", "name": "sethlans.db",
     }
-    with open(tmp_path / "manager.ini", "w", encoding="utf-8") as fh:
+    with open(tmp_path / "sethlans.ini", "w", encoding="utf-8") as fh:
         parser.write(fh)
 
 
@@ -353,7 +353,7 @@ class TestManagerIniLockedRead:
         from wizard.sethlans_wizard import manager_ini
         _provision_manager_ini(tmp_path)
         lock_spy = mocker.spy(manager_ini, "get_manager_ini_lock")
-        verify_handler._read_manager_ini(tmp_path)
+        verify_handler._read_manager_ini()
         assert lock_spy.call_count >= 1
 
     def test_concurrent_writer_does_not_torn_parse(
@@ -370,7 +370,7 @@ class TestManagerIniLockedRead:
 
         # Seed the file so it exists.
         manager_ini.update_manager_ini(
-            tmp_path, "server",
+            "server",
             {"bind_host": "127.0.0.1", "bind_port": "8080"},
         )
 
@@ -386,11 +386,11 @@ class TestManagerIniLockedRead:
                     # torn read if the lock is missing.
                     port = "8080" if i % 2 == 0 else "8443"
                     manager_ini.update_manager_ini(
-                        tmp_path, "server",
+                        "server",
                         {"bind_host": "127.0.0.1", "bind_port": port},
                     )
                     manager_ini.update_manager_ini(
-                        tmp_path, "database",
+                        "database",
                         {
                             "engine": "sqlite",
                             "name": f"db-{i}.sqlite",
@@ -402,7 +402,7 @@ class TestManagerIniLockedRead:
 
         def reader():
             for _ in range(200):
-                parser = verify_handler._read_manager_ini(tmp_path)
+                parser = verify_handler._read_manager_ini()
                 # Validate structure: server section should exist with
                 # the expected keys.
                 if not parser.has_section("server"):

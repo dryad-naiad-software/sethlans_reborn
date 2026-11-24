@@ -19,7 +19,7 @@ which:
   chmod-600 permissions on POSIX (mirrors what the launcher does in
   prod).
 * Allocates a free TCP port on 127.0.0.1.
-* Spawns ``python wizard/run_wizard.py`` with ``SETHLANS_DATA_DIR``
+* Spawns ``python wizard/run_wizard.py`` with ``SETHLANS_SETTINGS_DIR``
   + ``SETHLANS_WIZARD_PORT`` set, polls the HTTP root until it
   responds 200.
 * Yields a :class:`WizardProcess` dataclass with ``proc``, ``port``,
@@ -227,7 +227,9 @@ def wizard_process(
 
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
-    env["SETHLANS_DATA_DIR"] = str(wizard_data_dir)
+    env["SETHLANS_SETTINGS_DIR"] = str(wizard_data_dir)
+    # The stage fixture's settings file would outrank the folder above.
+    env.pop("SETHLANS_SETTINGS_FILE", None)
     env["SETHLANS_WIZARD_PORT"] = str(port)
     # Tests share PYTHONPATH with the integration suite (pytest.ini sets
     # ``pythonpath = . manager worker``); the wizard's run_wizard.py

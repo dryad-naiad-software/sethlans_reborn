@@ -27,6 +27,8 @@ import tempfile
 import urllib.parse
 from pathlib import Path
 
+from shared.frozen_paths import get_identity_dir
+
 logger = logging.getLogger(__name__)
 
 CONFIG_FILENAME = "config.json"
@@ -35,18 +37,15 @@ CONFIG_FILENAME = "config.json"
 def get_worker_config_path() -> Path:
     """Return the path to the worker's ``config.json``.
 
-    Uses the same per-OS data directory convention as the worker
-    agent, duplicated here to satisfy FR-FT1 (no worker imports).
-
+    The worker's identity folder, resolved by the same shared function
+    the worker agent uses (:func:`shared.frozen_paths.get_identity_dir`).
     Creates the directory tree if it does not exist.
 
     Env override: ``SETHLANS_WORKER_DATA_DIR`` (must be absolute).
-
-    Platform defaults:
-      - Windows:  ``%LOCALAPPDATA%/Sethlans/worker/``
-      - macOS:    ``~/Library/Application Support/Sethlans/worker/``
-      - Linux:    ``$XDG_DATA_HOME/sethlans/worker/``
-                  (fallback ``~/.local/share/sethlans/worker/``)
+    Default: ``<settings folder>/worker`` (``%LOCALAPPDATA%/Sethlans/worker/``,
+    ``~/Library/Application Support/Sethlans/worker/``,
+    ``$XDG_DATA_HOME/sethlans/worker/`` or
+    ``~/.local/share/sethlans/worker/``).
     """
     data_dir = _resolve_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -102,46 +101,14 @@ def write_worker_config(
 
 
 def _resolve_data_dir() -> Path:
-    """Compute the per-OS worker data directory.
+    """Return the worker's identity folder, where ``config.json`` lives.
 
-    Mirrors ``worker/sethlans_worker_agent/config_store/paths.py``
-    without importing it (FR-FT1).
+    :func:`shared.frozen_paths.get_identity_dir` (shared code, not a
+    worker import, so FR-FT1 holds): ``SETHLANS_WORKER_DATA_DIR`` when
+    set, else ``<settings folder>/worker``. It never moves with the
+    data folder.
     """
-    env_override = os.environ.get("SETHLANS_WORKER_DATA_DIR")
-    if env_override:
-        p = Path(env_override)
-        if not p.is_absolute():
-            raise ValueError(
-                f"SETHLANS_WORKER_DATA_DIR must be absolute, "
-                f"got: {env_override}"
-            )
-        return p
-
-    system = platform.system()
-
-    if system == "Windows":
-        base = os.environ.get("LOCALAPPDATA")
-        if not base:
-            userprofile = os.environ.get("USERPROFILE")
-            if userprofile:
-                base = os.path.join(
-                    userprofile, "AppData", "Local",
-                )
-            else:
-                base = str(Path.home() / "AppData" / "Local")
-        return Path(base) / "Sethlans" / "worker"
-
-    if system == "Darwin":
-        return (
-            Path.home() / "Library" / "Application Support"
-            / "Sethlans" / "worker"
-        )
-
-    # Linux / other POSIX
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return Path(xdg) / "sethlans" / "worker"
-    return Path.home() / ".local" / "share" / "sethlans" / "worker"
+    return get_identity_dir("worker")
 
 
 def _merge_existing(config_path: Path, new_data: dict) -> dict:

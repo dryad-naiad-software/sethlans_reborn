@@ -52,11 +52,12 @@ ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
     SETHLANS_TLS_KEY_FILE="" \
     SETHLANS_SECURITY_DEBUG=false
 
-# All manager state lives in /data (#297): manager.ini, the TLS cert
-# (/data/tls, so the fingerprint survives a new container), the secret
-# key file, FFmpeg (/data/bin/ffmpeg) and the logs (/data/logs). From
-# source it resolves each of these through this one setting
-# (sethlans_manager.state_dir). The entrypoint sets /data to 0700.
+# All manager state lives in /data (#297): the settings file
+# (/data/sethlans.ini, optional), the TLS cert (/data/tls, so the
+# fingerprint survives a new container), the secret key file, FFmpeg
+# (/data/bin/ffmpeg), the collected static files (/data/staticfiles) and
+# the logs (/data/logs). The manager resolves each of these through this
+# one setting. The entrypoint sets /data to 0700.
 ENV SETHLANS_MANAGER_DATA_DIR=/data
 
 # Caddy: path to the static Caddyfile (above). Its presence tells the
@@ -65,16 +66,16 @@ ENV SETHLANS_MANAGER_CADDYFILE_PATH=/etc/caddy/Caddyfile
 
 EXPOSE 8080
 
-# The runtime user owns the volumes and the collected static files
-# (rebuilt on every start, so not state). /app/manager itself and the
-# code stay root-owned: /app/manager is first on sys.path, and a
-# writable code dir would let planted modules run on every restart.
-RUN mkdir -p /data /config /certs /app/manager/staticfiles && \
-    chown sethlans:sethlans /data /config /certs /app/manager/staticfiles
+# The runtime user owns the volumes (static files are collected into
+# /data/staticfiles on every start). /app/manager itself and the code
+# stay root-owned: /app/manager is first on sys.path, and a writable
+# code dir would let planted modules run on every restart.
+RUN mkdir -p /data /config /certs && \
+    chown sethlans:sethlans /data /config /certs
 USER sethlans
 
 # Probes the port Caddy listens on: SETHLANS_MANAGER_PORT, else
-# /data/manager.ini [server] port, else 8080 (#298).
+# /data/sethlans.ini [server] port, else 8080 (#298).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD ["python", "/app/launcher/container_healthcheck.py"]
 

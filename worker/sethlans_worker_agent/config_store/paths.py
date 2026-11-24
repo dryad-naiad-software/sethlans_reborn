@@ -3,60 +3,40 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Per-OS path selection for the worker config store (FR-24, FR-24a).
+Path selection for the worker config store (FR-24, FR-24a).
 
 Selects:
-  * ``get_data_dir()``   — per-user data directory for config, tools,
-                           assets, output, temp, logs, failed_uploads.
+  * ``get_data_dir()``     — the worker's data folder (tools, assets,
+                             unreal, output, temp, logs, failed_uploads),
+                             from :func:`shared.frozen_paths.get_data_dir`.
+  * ``get_identity_dir()`` — the worker's identity folder (``config.json``,
+                             its lock, ``tls/``, setup state, Caddyfile),
+                             from :func:`shared.frozen_paths.get_identity_dir`;
+                             it never moves with the data folder.
   * ``SYSTEM_CONFIG_PATH`` — ``/etc/sethlans/worker.json`` on Linux;
                              ``None`` on Windows/macOS.
+
+Both folders are the same by default (``<settings>/worker``) and when
+``SETHLANS_WORKER_DATA_DIR`` is set (Docker: ``/data``).
 """
 
-import os
 import platform
 from pathlib import Path
 from typing import Optional
 
+from shared import frozen_paths
+
+WORKER_COMPONENT = "worker"
+
 
 def get_data_dir() -> Path:
-    """Return the per-OS per-user data directory for worker state.
+    """Return the worker's data folder (env > data root > settings file > default)."""
+    return frozen_paths.get_data_dir(WORKER_COMPONENT)
 
-    When SETHLANS_WORKER_DATA_DIR is set (e.g., in Docker), use it
-    directly instead of the OS-specific path.
 
-    Also used by ``config.py`` for ``MANAGED_TOOLS_DIR``,
-    ``MANAGED_ASSETS_DIR``, ``WORKER_OUTPUT_DIR``, ``WORKER_TEMP_DIR``,
-    ``WORKER_LOG_DIR``, and ``FAILED_UPLOADS_DIR`` per FR-24a.
-    """
-    env_override = os.environ.get("SETHLANS_WORKER_DATA_DIR")
-    if env_override:
-        p = Path(env_override)
-        if not p.is_absolute():
-            raise ValueError(
-                f"SETHLANS_WORKER_DATA_DIR must be an absolute path, "
-                f"got: {env_override}"
-            )
-        return p
-    system = platform.system()
-    if system == "Windows":
-        base = os.environ.get("LOCALAPPDATA")
-        if not base:
-            userprofile = os.environ.get("USERPROFILE")
-            if userprofile:
-                base = os.path.join(userprofile, "AppData", "Local")
-            else:
-                base = str(Path.home() / "AppData" / "Local")
-        return Path(base) / "Sethlans" / "worker"
-    if system == "Darwin":
-        return (
-            Path.home() / "Library" / "Application Support"
-            / "Sethlans" / "worker"
-        )
-    # Linux / other POSIX
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return Path(xdg) / "sethlans" / "worker"
-    return Path.home() / ".local" / "share" / "sethlans" / "worker"
+def get_identity_dir() -> Path:
+    """Return the worker's identity folder (``SETHLANS_WORKER_DATA_DIR`` or ``<settings>/worker``)."""
+    return frozen_paths.get_identity_dir(WORKER_COMPONENT)
 
 
 def _system_config_path() -> Optional[Path]:
@@ -69,8 +49,8 @@ SYSTEM_CONFIG_PATH: Optional[Path] = _system_config_path()
 
 
 def user_config_path() -> Path:
-    return get_data_dir() / "config.json"
+    return get_identity_dir() / "config.json"
 
 
 def lockfile_path() -> Path:
-    return get_data_dir() / "config.json.lock"
+    return get_identity_dir() / "config.json.lock"

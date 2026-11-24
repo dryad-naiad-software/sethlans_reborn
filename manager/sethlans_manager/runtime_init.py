@@ -10,7 +10,6 @@ Waitress takes over — the launcher's broadcaster supervisor reads
 these values from ``broadcaster_params.json`` on process startup.
 """
 
-import configparser
 import logging
 import os
 import socket
@@ -20,12 +19,11 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-try:
-    from shared.frozen_paths import get_shared_data_dir
-except ImportError:  # pragma: no cover - frozen manager bundle fallback
-    from sethlans_manager.frozen_paths import (  # type: ignore[no-redef]
-        get_shared_data_dir,
-    )
+from shared.settings_file import (
+    get_settings_dir,
+    read_settings,
+    remove_setup_wizard_keys,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +32,10 @@ logger = logging.getLogger(__name__)
 PUBLISH_BROADCASTER_PARAMS_ENV = "SETHLANS_MANAGER_PUBLISH_BROADCASTER_PARAMS"
 
 
-def get_enrollment_config(manager_dir: Path) -> dict:
-    """Read ``[enrollment]`` section from ``manager.ini``.
+def get_enrollment_config(ini_path: Optional[Path] = None) -> dict:
+    """Read the ``[enrollment]`` section of the settings file.
 
+    *ini_path* defaults to :func:`shared.settings_file.settings_path`.
     Returns a dict with keys ``name`` and ``advertised_ip``, either of
     which may be absent.  Env vars take precedence.
     """
@@ -47,20 +46,10 @@ def get_enrollment_config(manager_dir: Path) -> dict:
         ),
     }
     try:
-        config = configparser.ConfigParser()
-        config_file_path = manager_dir / "manager.ini"
-        if config_file_path.exists():
-            config.read(config_file_path)
-            if result["name"] is None and config.has_option(
-                "enrollment", "name",
-            ):
-                result["name"] = config.get("enrollment", "name")
-            if result["advertised_ip"] is None and config.has_option(
-                "enrollment", "advertised_ip",
-            ):
-                result["advertised_ip"] = config.get(
-                    "enrollment", "advertised_ip",
-                )
+        config = read_settings(ini_path)
+        for key in ("name", "advertised_ip"):
+            if result[key] is None and config.has_option("enrollment", key):
+                result[key] = config.get("enrollment", key)
     except Exception as exc:
         print(
             f"[WARNING] Could not read [enrollment] section: {exc}",
@@ -130,44 +119,43 @@ def apply_enrollment_key_env_override() -> None:
 
 
 def cleanup_stale_setup_section(
-    manager_dir: Path,
-    shared_data_dir: Optional[Path] = None,
+    ini_path: Optional[Path] = None,
+    settings_dir: Optional[Path] = None,
 ) -> None:
-    """Remove ``[setup]`` from ``manager.ini`` if setup is complete.
+    """Drop the wizard's ``[setup]`` keys from the settings file once set up.
 
     Belt-and-suspenders for the launcher-owned cleanup: if the manager
     is started outside the restart orchestrator (crash recovery,
     installer upgrade, manual restart) after the setup sentinel was
     written, the stale ``[setup] token`` / ``session_id`` would persist
     forever. This boot-time sweep keeps "first normal run
-    indistinguishable from any later run" honest.
+    indistinguishable from any later run" honest. The setup-finished
+    keys of the same section (``version``, ``mode``, ``completed_at``)
+    are kept.
 
-    ``manager_dir`` is the manager component data dir (``manager.ini``
-    lives here). ``shared_data_dir`` is the shared Sethlans data root
-    where ``.setup_complete`` lives (issue #195: the sentinel is at
-    ``<shared>/`` per ``apply_pending_setup --data-dir <shared>``, not
-    ``<shared>/manager/``). When ``shared_data_dir`` is ``None``, the
-    function resolves it via :func:`shared.frozen_paths.get_shared_data_dir`;
-    the keyword argument exists for testability.
+    *ini_path* defaults to :func:`shared.settings_file.settings_path`.
+    *settings_dir* is the folder holding ``.setup_complete`` (issue
+    #195: ``apply_pending_setup --data-dir <settings folder>``); it
+    defaults to :func:`shared.settings_file.get_settings_dir`. Both
+    keyword arguments exist for testability.
+
+    Any ``OSError`` from the write, including a settings-lock timeout
+    (``shared.file_lock.FileLockTimeoutError`` is a ``TimeoutError``),
+    is logged as a warning and the start goes on: the keys are removed
+    on a later start.
     """
-    from workers.services.ini_atomic import remove_ini_section
     from workers.services.sentinel import read_sentinel
 
-    lookup_dir = (
-        shared_data_dir if shared_data_dir is not None
-        else get_shared_data_dir()
-    )
+    lookup_dir = settings_dir if settings_dir is not None else get_settings_dir()
     sentinel = read_sentinel(lookup_dir)
     if sentinel is None or not sentinel.get("completed_at"):
         return
-    ini_path = manager_dir / "manager.ini"
-    if not ini_path.exists():
-        return
     try:
-        remove_ini_section(ini_path, "setup")
+        remove_setup_wizard_keys(ini_path)
     except OSError as exc:
         logger.warning(
-            "Could not remove stale [setup] from manager.ini: %s", exc,
+            "Could not remove stale [setup] keys from the settings file: %s",
+            exc,
         )
 
 
@@ -234,7 +222,7 @@ def _publish_broadcaster_params() -> None:
     import json
     import tempfile
     from sethlans_manager import runtime_state
-    from shared.frozen_paths import get_data_dir, is_frozen
+    from shared.frozen_paths import get_identity_dir, is_frozen
 
     flag = os.environ.get(PUBLISH_BROADCASTER_PARAMS_ENV, "")
     if flag.strip().lower() in ("0", "false", "no", "off"):
@@ -244,8 +232,10 @@ def _publish_broadcaster_params() -> None:
         )
         return
 
+    # Read by the launcher from ``<settings folder>/manager``, the
+    # identity folder: it never moves with the data folder.
     if is_frozen():
-        data_dir = get_data_dir("manager")
+        data_dir = get_identity_dir("manager")
     else:
         from django.conf import settings
         from sethlans_manager.state_dir import source_data_dir

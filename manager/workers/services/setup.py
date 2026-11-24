@@ -7,7 +7,7 @@ command and by the new ``apply_pending_setup`` management command.
 
 Post Spec 2 cluster B1 (FR-DEL5) this module retains only the three
 helpers still imported by those two commands.  The wizard now owns
-``manager.ini`` writes (FR-M2-INI), DB validation (FR-M2-4), worker UI
+``sethlans.ini`` writes (FR-M2-INI), DB validation (FR-M2-4), worker UI
 password hashing (FR-M2-6), and FFmpeg verification (parts_check).  The
 launcher's ``_bootstrap_first_run`` owns SECRET_KEY generation.
 

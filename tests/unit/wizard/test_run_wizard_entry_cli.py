@@ -121,7 +121,7 @@ class TestMissingSecrets:
         handlers with its own console + file handlers, which sidesteps
         pytest's ``caplog`` propagation hook.
         """
-        monkeypatch.setenv("SETHLANS_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(tmp_path))
         wizard_subdir = tmp_path / "wizard"
         wizard_subdir.mkdir()
         # Only the ipc secret is written; .setup_token is missing.
@@ -139,7 +139,7 @@ class TestMissingSecrets:
         self, tmp_path, monkeypatch, capsys,
     ):
         """No ``.ipc_secret`` → log + return 2."""
-        monkeypatch.setenv("SETHLANS_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(tmp_path))
         wizard_subdir = tmp_path / "wizard"
         wizard_subdir.mkdir()
         (wizard_subdir / ".setup_token").write_bytes(b"setup-token")
@@ -156,7 +156,7 @@ class TestMissingSecrets:
         self, tmp_path, monkeypatch,
     ):
         """No ``.setup_token`` AND no ``.ipc_secret`` → return 2."""
-        monkeypatch.setenv("SETHLANS_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(tmp_path))
         run_wizard = importlib.import_module("run_wizard")
         rc = run_wizard.main([])
         assert rc == 2

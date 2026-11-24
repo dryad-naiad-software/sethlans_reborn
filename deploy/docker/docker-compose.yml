@@ -21,8 +21,9 @@ services:
       dockerfile: deploy/docker/manager/Dockerfile
     ports:
       - "8080:8080"
-    # All manager state (database, media, manager.ini, TLS cert,
-    # FFmpeg, logs) lives in /data, so it survives a new container.
+    # All manager state (database, media, the optional sethlans.ini,
+    # TLS cert, FFmpeg, static files, logs) lives in /data, so it
+    # survives a new container.
     # The manager runs as uid 1000, gid 1000. On a Linux host Docker
     # creates a missing ./data/manager owned by root, and the manager
     # then exits with code 3 and a message. Fix it once on the host,

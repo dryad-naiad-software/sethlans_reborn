@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(realpath "$SCRIPT_DIR/..")"
 MANAGER_DIR="$PROJECT_ROOT/manager"
 FRONTEND_DIR="$MANAGER_DIR/frontend"
-CONFIG_FILE="$MANAGER_DIR/manager.ini"
+CONFIG_FILE="$MANAGER_DIR/sethlans.ini"
 MANAGE_PY="$MANAGER_DIR/manage.py"
 WORKER_DIR="$PROJECT_ROOT/worker"
 AGENT_DIR="$WORKER_DIR/sethlans_worker_agent"
@@ -42,7 +42,7 @@ CADDY_BIN="$CADDY_DIR/caddy"
 CADDYFILE="$MANAGER_DIR/caddy/Caddyfile"
 DEV_BOOTSTRAP="$SCRIPT_DIR/_dev_bootstrap.py"
 
-# Port layout — mirrors production defaults in manager.ini.example.
+# Port layout — mirrors production defaults in sethlans.ini.example.
 PUBLIC_TLS_PORT=8080
 CADDY_LOOPBACK_PORT=8089
 WAITRESS_PUBLIC_PORT=8090
@@ -269,7 +269,7 @@ cmd_clean() {
 # -- start ---------------------------------------------------------------
 cmd_start() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo "[ERROR] manager.ini not found. Run: bash tools/sethlans.sh dev"; exit 1
+        echo "[ERROR] sethlans.ini not found. Run: bash tools/sethlans.sh dev"; exit 1
     fi
     start_services
 }
@@ -304,7 +304,7 @@ start_caddy() {
 # -- manager -------------------------------------------------------------
 cmd_manager() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo "[ERROR] manager.ini not found. Run: bash tools/sethlans.sh dev"; exit 1
+        echo "[ERROR] sethlans.ini not found. Run: bash tools/sethlans.sh dev"; exit 1
     fi
     local existing; existing=$(get_saved_pid "manager")
     if [ -n "$existing" ]; then
@@ -336,7 +336,7 @@ cmd_manager() {
 # -- worker --------------------------------------------------------------
 cmd_worker() {
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo "[ERROR] manager.ini not found. Run: bash tools/sethlans.sh dev"; exit 1
+        echo "[ERROR] sethlans.ini not found. Run: bash tools/sethlans.sh dev"; exit 1
     fi
     local existing; existing=$(get_saved_pid "worker")
     if [ -n "$existing" ]; then

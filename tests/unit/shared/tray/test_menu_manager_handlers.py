@@ -100,13 +100,13 @@ class TestCopyTokenHandler:
         copy_spy.assert_not_called()
 
     def test_noop_when_token_missing(self, section, mocker):
-        # No manager.ini written.
+        # No settings file written.
         copy_spy = mocker.patch.object(qmm, "copy_token_to_clipboard")
         section.on_copy_token()
         copy_spy.assert_not_called()
 
     def test_noop_when_token_malformed(self, section, mocker, tmp_path):
-        (tmp_path / "manager" / "manager.ini").write_text(
+        (tmp_path / "sethlans.ini").write_text(
             "[setup]\ntoken = bad!\n", encoding="utf-8",
         )
         copy_spy = mocker.patch.object(qmm, "copy_token_to_clipboard")
@@ -115,7 +115,7 @@ class TestCopyTokenHandler:
 
     def test_copies_valid_token(self, section, mocker, tmp_path):
         token = "a" * 40
-        (tmp_path / "manager" / "manager.ini").write_text(
+        (tmp_path / "sethlans.ini").write_text(
             f"[setup]\ntoken = {token}\n", encoding="utf-8",
         )
         copy_spy = mocker.patch.object(
@@ -128,7 +128,7 @@ class TestCopyTokenHandler:
         self, section, mocker, tmp_path,
     ):
         token = "a" * 40
-        (tmp_path / "manager" / "manager.ini").write_text(
+        (tmp_path / "sethlans.ini").write_text(
             f"[setup]\ntoken = {token}\n", encoding="utf-8",
         )
         mocker.patch.object(
@@ -180,7 +180,7 @@ class TestNotifyWiring:
         self, section, mocker, tmp_path,
     ):
         token = "a" * 40
-        (tmp_path / "manager" / "manager.ini").write_text(
+        (tmp_path / "sethlans.ini").write_text(
             f"[setup]\ntoken = {token}\n", encoding="utf-8",
         )
         mocker.patch.object(

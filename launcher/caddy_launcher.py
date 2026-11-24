@@ -10,7 +10,7 @@ Mirrors ``worker/sethlans_worker_agent/agent_caddy.py`` in shape.
 
 Runtime flow:
 
-1. Launcher resolves ports + cert paths (from ``manager.ini`` +
+1. Launcher resolves ports + cert paths (from the settings file +
    defaults in :mod:`launcher.setup_helpers`) before starting any
    children.
 2. :func:`build_manager_caddy_supervisor` constructs the supervisor;

@@ -20,7 +20,6 @@ concurrent writer.
 import sqlite3
 import threading
 import time
-from pathlib import Path
 
 import pytest
 from django.db import OperationalError, connection, connections, transaction
@@ -53,7 +52,7 @@ def db_path(tmp_path):
 @pytest.fixture
 def django_file_connection(db_path, django_db_blocker):
     """A Django connection to ``db_path`` built from the production config."""
-    settings_dict = dict(_build_sqlite(str(db_path), Path('manager.ini'))['default'])
+    settings_dict = dict(_build_sqlite(str(db_path))['default'])
     settings_dict.update({
         'ATOMIC_REQUESTS': False, 'AUTOCOMMIT': True, 'CONN_MAX_AGE': 0,
         'CONN_HEALTH_CHECKS': False, 'TIME_ZONE': None, 'TEST': {},
@@ -70,7 +69,7 @@ def django_file_connection(db_path, django_db_blocker):
 
 
 def test_sqlite_config_sets_immediate_transaction_mode():
-    options = _build_sqlite('db.sqlite3', Path('manager.ini'))['default']['OPTIONS']
+    options = _build_sqlite('db.sqlite3')['default']['OPTIONS']
     assert options['transaction_mode'] == 'IMMEDIATE'
 
 

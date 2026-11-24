@@ -5,9 +5,10 @@
 """
 Integration tests for TLS setup frozen-mode path resolution.
 
-Verifies that ``tls_setup.py`` reads config and stores certificates
-in the per-user data directory when ``is_frozen()`` returns ``True``,
-and falls back to the source-tree directory in source mode.
+Verifies that ``tls_setup.py`` reads the settings file and stores
+certificates in the manager's identity folder when ``is_frozen()``
+returns ``True``, and falls back to the source-tree directory in source
+mode.
 
 Patches are applied at the ``sethlans_manager.tls_setup`` module level
 because ``tls_setup.py`` uses ``from shared.frozen_paths import ...``,
@@ -26,57 +27,36 @@ from sethlans_manager.tls_setup import (
 
 
 def _patch_frozen(monkeypatch, tmp_path, frozen=True):
-    """Patch is_frozen and get_data_dir on the tls_setup module."""
+    """Patch is_frozen and get_identity_dir on the tls_setup module."""
     monkeypatch.setattr(tls_mod, 'is_frozen', lambda: frozen)
     if frozen:
         monkeypatch.setattr(
-            tls_mod, 'get_data_dir',
+            tls_mod, 'get_identity_dir',
             lambda component: tmp_path / component,
         )
 
 
-class TestFrozenConfigFilePath:
-    """get_config_file_path resolves to data dir when frozen."""
+class TestConfigFilePath:
+    """get_config_file_path is the settings file in every mode."""
 
-    def test_frozen_config_path_in_data_dir(
-        self, tmp_path, monkeypatch,
+    @pytest.mark.parametrize('frozen', [True, False])
+    def test_config_path_is_settings_path(
+        self, tmp_path, monkeypatch, frozen,
     ):
-        """Config file path is data_dir/manager/manager.ini when frozen."""
-        _patch_frozen(monkeypatch, tmp_path, frozen=True)
+        """The path is ``shared.settings_file.settings_path()``."""
+        from shared.settings_file import settings_path
+        _patch_frozen(monkeypatch, tmp_path, frozen=frozen)
 
-        result = get_config_file_path(Path('/fake/manager'))
-        expected = tmp_path / 'manager' / 'manager.ini'
-        assert result == expected
-
-    def test_source_config_path_in_manager_dir(
-        self, tmp_path, monkeypatch,
-    ):
-        """Config file path is manager_dir/manager.ini in source mode."""
-        _patch_frozen(monkeypatch, tmp_path, frozen=False)
-
-        manager_dir = tmp_path / 'manager'
-        manager_dir.mkdir()
-        result = get_config_file_path(manager_dir)
-        assert result == manager_dir / 'manager.ini'
-
-    def test_frozen_ignores_manager_dir_argument(
-        self, tmp_path, monkeypatch,
-    ):
-        """In frozen mode, the manager_dir argument is not used."""
-        _patch_frozen(monkeypatch, tmp_path, frozen=True)
-
-        # Pass a completely different manager_dir
-        result = get_config_file_path(Path('/completely/different'))
-        # Result should still use data dir, not the argument
-        assert str(tmp_path) in str(result)
-        assert '/completely/different' not in str(result)
+        result = get_config_file_path()
+        assert result == settings_path()
+        assert result.name == 'sethlans.ini'
 
 
 class TestFrozenTlsDir:
-    """get_tls_dir resolves to data dir when frozen."""
+    """get_tls_dir resolves to the identity folder when frozen."""
 
-    def test_frozen_tls_dir_in_data_dir(self, tmp_path, monkeypatch):
-        """TLS dir is data_dir/manager/tls when frozen."""
+    def test_frozen_tls_dir_in_identity_dir(self, tmp_path, monkeypatch):
+        """TLS dir is <identity dir>/tls when frozen."""
         _patch_frozen(monkeypatch, tmp_path, frozen=True)
         monkeypatch.delenv('SETHLANS_TLS_DATA_DIR', raising=False)
 

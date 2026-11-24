@@ -4,13 +4,13 @@
 
 """Unit tests for ``sethlans_manager.waitress_config`` (Phase 5).
 
-Covers the env-var > ``manager.ini`` > spec-default hierarchy for the
+Covers the env-var > settings file > spec-default hierarchy for the
 five Waitress tunables and the two Waitress loopback ports. Each tier
 is probed independently so a regression only fails the responsible
 layer instead of a composite assertion.
 
 Settings-facing helpers (``resolve_public_port_for_settings``,
-``resolve_internal_port_for_settings``, ``resolve_ini_path``) live in
+``resolve_internal_port_for_settings``, ``_read_ini``) live in
 ``test_waitress_config_settings.py`` to keep both files under the
 300-line Python ceiling.
 """
@@ -61,7 +61,7 @@ class TestGetWaitressTuningDefaults:
 
 
 class TestGetWaitressTuningIniOverrides:
-    """``manager.ini [server]`` overrides the spec defaults."""
+    """The settings file's ``[server]`` overrides the spec defaults."""
 
     def _write_ini(self, tmp_path, body):
         ini = tmp_path / "manager.ini"

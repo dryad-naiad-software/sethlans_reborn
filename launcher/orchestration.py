@@ -241,7 +241,7 @@ def run_normal_mode(
     if topo is None:
         return fail_unknown_topology(on_startup_failed)
     manager_data = data_dir / "manager"
-    remove_setup_section(manager_data)
+    remove_setup_section()
 
     # Caddy terminates TLS in front of Waitress for manager-bearing
     # topologies. Worker-only installs skip it (scoped out per spec).

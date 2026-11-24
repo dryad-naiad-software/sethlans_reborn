@@ -30,7 +30,7 @@ CLI:
     SETHLANS_DEV_LOG_LEVEL   — DEBUG/INFO/etc.; passed via env to child.
 
 Existing ``SETHLANS_*`` env vars (``SETHLANS_WIZARD_PORT``,
-``SETHLANS_DATA_DIR``) the wizard already honours pass through unchanged.
+``SETHLANS_SETTINGS_DIR``) the wizard already honours pass through unchanged.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def _provision_data_dir(data_root: Path) -> tuple[Path, str, bytes]:
     """Create the wizard data dir and write the secret pair.
 
     Returns ``(wizard_dir, setup_token, ipc_secret)`` so the caller can
-    print the token and pass the dir to the child as ``SETHLANS_DATA_DIR``.
+    print the token and pass the dir to the child as ``SETHLANS_SETTINGS_DIR``.
     """
     shared_dir = data_root
     shared_dir.mkdir(parents=True, exist_ok=True)
@@ -132,8 +132,8 @@ def _build_env(
 ) -> dict[str, str]:
     """Compose the SETHLANS_* env vars handed to ``run_wizard.py``."""
     env = {
-        # frozen_paths.get_shared_data_dir() honours SETHLANS_DATA_DIR.
-        "SETHLANS_DATA_DIR": str(shared_data_dir.resolve()),
+        # settings_file.get_settings_dir() honours SETHLANS_SETTINGS_DIR.
+        "SETHLANS_SETTINGS_DIR": str(shared_data_dir.resolve()),
         # The wizard's own server.resolve_port honours this.
         "SETHLANS_WIZARD_PORT": str(port),
     }

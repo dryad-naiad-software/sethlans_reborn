@@ -189,7 +189,7 @@ class TestGetLoopbackPortBackwardsCompat:
         )
         monkeypatch.setattr(
             run_manager, "get_config_file_path",
-            lambda _d: tmp_path / "missing.ini",
+            lambda: tmp_path / "missing.ini",
         )
         got = run_manager.get_loopback_port()
         assert isinstance(got, str)

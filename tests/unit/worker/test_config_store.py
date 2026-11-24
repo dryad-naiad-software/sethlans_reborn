@@ -30,13 +30,16 @@ from sethlans_worker_agent.config_store import io as io_mod
 def _tmp_data_dir(tmp_path, monkeypatch):
     """Redirect the config store to a temp directory for every test."""
     data_dir = tmp_path / "sethlans-worker"
-    monkeypatch.setattr(
-        "sethlans_worker_agent.config_store.paths.get_data_dir",
-        lambda: data_dir,
-    )
-    # The re-exported symbol in the package __init__ also needs to
-    # point at the same callable.
-    monkeypatch.setattr(config_store, "get_data_dir", lambda: data_dir)
+    # config.json and its lock live in the identity folder; data and
+    # identity are the same folder by default.
+    for name in ("get_data_dir", "get_identity_dir"):
+        monkeypatch.setattr(
+            f"sethlans_worker_agent.config_store.paths.{name}",
+            lambda: data_dir,
+        )
+        # The re-exported symbol in the package __init__ also needs to
+        # point at the same callable.
+        monkeypatch.setattr(config_store, name, lambda: data_dir)
     return data_dir
 
 

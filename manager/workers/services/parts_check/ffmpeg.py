@@ -6,7 +6,7 @@ FFmpeg part: PATH-first detection + version gate + bundled fallback.
 
 Detection priority (per spec FR §34-39):
 
-    1. ``manager.ini [ffmpeg] path =`` override (single argv element,
+    1. ``sethlans.ini [ffmpeg] path =`` override (single argv element,
        resolved via ``os.path.realpath`` + ``os.path.isfile``, gated
        by ``verify_runs`` and major version >= 8).
     2. ``shutil.which("ffmpeg")`` PATH lookup gated by major version
@@ -45,7 +45,7 @@ MIN_MAJOR_VERSION = 8
 
 
 def _read_manager_ini_override() -> Optional[str]:
-    """Return ``manager.ini [ffmpeg] path =`` value or ``None``.
+    """Return ``sethlans.ini [ffmpeg] path =`` value or ``None``.
 
     Lazy-imports the config-loader so this module remains importable
     in test contexts that have not booted Django settings yet.
@@ -61,7 +61,7 @@ def _read_manager_ini_override() -> Optional[str]:
 
 
 def _check_override(override: str) -> Optional[registry.Status]:
-    """Validate the manager.ini override path; return Status or None.
+    """Validate the sethlans.ini override path; return Status or None.
 
     Returns:
         - ``Status(status="ready", source="system", ...)`` on success.
@@ -75,7 +75,7 @@ def _check_override(override: str) -> Optional[registry.Status]:
     resolved = os.path.realpath(override)
     if not os.path.isfile(resolved):
         logger.error(
-            "manager.ini [ffmpeg] path = %r is not a regular file "
+            "sethlans.ini [ffmpeg] path = %r is not a regular file "
             "(resolved=%r)", override, resolved,
         )
         return registry.Status(
@@ -83,7 +83,7 @@ def _check_override(override: str) -> Optional[registry.Status]:
         )
     if not verify_runs(resolved):
         logger.error(
-            "manager.ini override %r failed verify_runs", resolved,
+            "sethlans.ini override %r failed verify_runs", resolved,
         )
         return registry.Status(
             status="failed", error="override_path_unverifiable",
@@ -91,7 +91,7 @@ def _check_override(override: str) -> Optional[registry.Status]:
     major = parse_major_version(resolved)
     if major is None or major < MIN_MAJOR_VERSION:
         logger.error(
-            "manager.ini override %r reports major version %r "
+            "sethlans.ini override %r reports major version %r "
             "(< %d)", resolved, major, MIN_MAJOR_VERSION,
         )
         return registry.Status(
@@ -170,7 +170,7 @@ def check_ffmpeg() -> registry.Status:
     # Step 0: stale-partial sweep (pre-extraction, single-thread guard).
     cleanup_stale_partials(data_dir / "bin" / "ffmpeg")
 
-    # Step 1: manager.ini override.
+    # Step 1: sethlans.ini override.
     override = _read_manager_ini_override()
     if override:
         return _check_override(override)

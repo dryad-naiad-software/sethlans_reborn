@@ -82,7 +82,7 @@ def handle_verify(
         )
 
         if all_passed:
-            data_dir = config_store.get_data_dir()
+            data_dir = config_store.get_identity_dir()
             topology = get_current_topology() or "worker_only"
             checkpoints = get_current_checkpoints() + ["verified"]
 

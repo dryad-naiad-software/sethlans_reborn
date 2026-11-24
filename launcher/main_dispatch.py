@@ -60,7 +60,7 @@ def _run_orchestration(
         )
         if rc != 0:
             return rc
-        # FR-LOOP5: ensure manager.ini exists before run_normal_mode
+        # FR-LOOP5: ensure the settings file exists before run_normal_mode
         # reads it via _resolve_caddy_public_port. _bootstrap_first_run
         # is idempotent (no-op if the file already exists).
         bootstrap_first_run(data_dir)

@@ -6,11 +6,11 @@ Bootstrap persistence for Django's ``SECRET_KEY``.
 
 On first boot, the manager has no persisted key and no env-var / ini
 override. Rather than crashing (Issue #63), we generate a fresh key,
-write it atomically to the manager data directory with restrictive
+write it atomically to the manager identity folder with restrictive
 permissions, and return it. Subsequent boots read the same file.
 
 Callers should still prefer explicit overrides (env var or
-``manager.ini``) when provided; this loader is the fallback chain.
+``sethlans.ini``) when provided; this loader is the fallback chain.
 """
 
 import logging
@@ -88,8 +88,8 @@ def load_or_create_secret_key(data_dir: Path) -> str:
     Parameters
     ----------
     data_dir : Path
-        The manager's per-user data directory
-        (``get_data_dir('manager')``).
+        The manager's identity folder (``get_identity_dir('manager')``),
+        which never moves with the data folder.
 
     Returns
     -------

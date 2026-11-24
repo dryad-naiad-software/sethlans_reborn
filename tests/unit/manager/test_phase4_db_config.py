@@ -71,7 +71,7 @@ class TestConnMaxAge:
     def test_postgres_default_conn_max_age(
         self, ini_path, clean_env,
     ):
-        result = build_database_config(_pg_config(), ini_path)
+        result = build_database_config(_pg_config())
         db = result["default"]
         assert db["CONN_MAX_AGE"] == _DEFAULT_CONN_MAX_AGE == 60
         assert db["CONN_HEALTH_CHECKS"] is True
@@ -80,7 +80,7 @@ class TestConnMaxAge:
         self, ini_path, clean_env,
     ):
         clean_env.setenv("SETHLANS_MANAGER_DB_CONN_MAX_AGE", "120")
-        result = build_database_config(_pg_config(), ini_path)
+        result = build_database_config(_pg_config())
         assert result["default"]["CONN_MAX_AGE"] == 120
 
     def test_conn_max_age_ini_override(
@@ -88,14 +88,14 @@ class TestConnMaxAge:
     ):
         cfg = _pg_config()
         cfg.set("database", "conn_max_age", "45")
-        result = build_database_config(cfg, ini_path)
+        result = build_database_config(cfg)
         assert result["default"]["CONN_MAX_AGE"] == 45
 
     def test_env_beats_ini(self, ini_path, clean_env):
         cfg = _pg_config()
         cfg.set("database", "conn_max_age", "45")
         clean_env.setenv("SETHLANS_MANAGER_DB_CONN_MAX_AGE", "300")
-        result = build_database_config(cfg, ini_path)
+        result = build_database_config(cfg)
         assert result["default"]["CONN_MAX_AGE"] == 300
 
     def test_conn_max_age_zero_allowed(
@@ -103,7 +103,7 @@ class TestConnMaxAge:
     ):
         """CONN_MAX_AGE=0 means 'reconnect every request' (Django idiom)."""
         clean_env.setenv("SETHLANS_MANAGER_DB_CONN_MAX_AGE", "0")
-        result = build_database_config(_pg_config(), ini_path)
+        result = build_database_config(_pg_config())
         assert result["default"]["CONN_MAX_AGE"] == 0
 
     def test_invalid_value_falls_back_to_default(
@@ -112,14 +112,14 @@ class TestConnMaxAge:
         clean_env.setenv(
             "SETHLANS_MANAGER_DB_CONN_MAX_AGE", "not-a-number",
         )
-        result = build_database_config(_pg_config(), ini_path)
+        result = build_database_config(_pg_config())
         assert result["default"]["CONN_MAX_AGE"] == _DEFAULT_CONN_MAX_AGE
 
     def test_negative_value_falls_back_to_default(
         self, ini_path, clean_env,
     ):
         clean_env.setenv("SETHLANS_MANAGER_DB_CONN_MAX_AGE", "-5")
-        result = build_database_config(_pg_config(), ini_path)
+        result = build_database_config(_pg_config())
         assert result["default"]["CONN_MAX_AGE"] == _DEFAULT_CONN_MAX_AGE
 
     def test_sqlite_does_not_get_conn_max_age(
@@ -127,7 +127,7 @@ class TestConnMaxAge:
     ):
         """SQLite config should NOT carry CONN_MAX_AGE."""
         cfg = configparser.ConfigParser()
-        result = build_database_config(cfg, ini_path)
+        result = build_database_config(cfg)
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.sqlite3"
         assert "CONN_MAX_AGE" not in db
@@ -160,7 +160,7 @@ class TestSqliteTimeoutReconciliation:
         """The Python-layer timeout and engine-layer busy_timeout
         must agree — otherwise the shorter one silently wins."""
         cfg = configparser.ConfigParser()
-        result = build_database_config(cfg, ini_path)
+        result = build_database_config(cfg)
         options = result["default"]["OPTIONS"]
         assert options["timeout"] == _SQLITE_TIMEOUT_SECONDS
         # busy_timeout pragma is in milliseconds

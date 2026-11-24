@@ -14,12 +14,14 @@ could ever fail them.
 
 from __future__ import annotations
 
+import configparser
 import io
 import json
 import types
 from pathlib import Path
 
 from launcher import wizard_ipc as launcher_ipc
+from shared import settings_file_io
 from wizard.sethlans_wizard import bootstrap, ipc, manager_ini, progress
 from wizard.sethlans_wizard.handlers import pending_setup, topology
 
@@ -37,22 +39,23 @@ def test_pending_setup_atomic_write(tmp_path: Path):
     assert _read_raw(target) == BODY
 
 
-def test_manager_ini_atomic_write(tmp_path: Path):
+def test_settings_file_atomic_write(tmp_path: Path):
     target = tmp_path / manager_ini.MANAGER_INI_FILENAME
-    manager_ini._atomic_write(target, BODY)
+    settings_file_io.atomic_replace(target, BODY)
     assert _read_raw(target) == BODY
 
 
 def test_manager_ini_update_writes_configparser_output(tmp_path: Path):
     target = manager_ini.update_manager_ini(
-        tmp_path, "server", {"port": 8080, "host": "0.0.0.0"},
+        "server", {"port": 8080, "host": "0.0.0.0"}, tmp_path / "sethlans.ini",
     )
-    parser = manager_ini.configparser.ConfigParser()
+    parser = configparser.RawConfigParser(interpolation=None)
     parser.read_dict({"server": {"port": "8080", "host": "0.0.0.0"}})
     expected = io.StringIO()
     parser.write(expected)
     raw = _read_raw(target)
     assert b"\n" in raw
+    assert b"\r" not in raw
     assert raw == expected.getvalue().encode("utf-8")
 
 

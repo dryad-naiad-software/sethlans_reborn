@@ -39,7 +39,7 @@ if not getattr(sys, "frozen", False):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-from shared.frozen_paths import get_shared_data_dir  # noqa: E402
+from shared.settings_file import get_settings_dir  # noqa: E402
 from shared.version import get_version  # noqa: E402
 
 import sethlans_wizard  # noqa: F401, E402  (ensures package importable)
@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    data_dir = Path(get_shared_data_dir()).resolve(strict=False)
+    data_dir = Path(get_settings_dir()).resolve(strict=False)
     subdir = bootstrap.wizard_subdir(data_dir)
 
     bootstrap.configure_logging(subdir)

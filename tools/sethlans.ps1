@@ -17,7 +17,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..") | Select-Object -ExpandProperty Path
 $ManagerDir = Join-Path $ProjectRoot "manager"
 $FrontendDir = Join-Path $ManagerDir "frontend"
-$ConfigFile = Join-Path $ManagerDir "manager.ini"
+$ConfigFile = Join-Path $ManagerDir "sethlans.ini"
 $ManagePy = Join-Path $ManagerDir "manage.py"
 $WorkerDir = Join-Path $ProjectRoot "worker"
 $AgentDir = Join-Path $WorkerDir "sethlans_worker_agent"
@@ -32,7 +32,7 @@ $CaddyBin = Join-Path $CaddyDir "caddy.exe"
 $Caddyfile = Join-Path $ManagerDir "caddy\Caddyfile"
 $DevBootstrap = Join-Path $ScriptDir "_dev_bootstrap.py"
 
-# Port layout — mirrors production defaults in manager.ini.example.
+# Port layout — mirrors production defaults in sethlans.ini.example.
 $PublicTlsPort = 8080
 $CaddyLoopbackPort = 8089
 $WaitressPublicPort = 8090
@@ -279,7 +279,7 @@ function Invoke-Clean {
 # -- start -----------------------------------------------------------------
 function Invoke-Start {
     if (-not (Test-Path $ConfigFile)) {
-        Write-Host "[ERROR] manager.ini not found. Run: .\tools\sethlans.ps1 dev"; exit 1
+        Write-Host "[ERROR] sethlans.ini not found. Run: .\tools\sethlans.ps1 dev"; exit 1
     }
     Invoke-StartServices
 }
@@ -314,7 +314,7 @@ function Start-Caddy {
 # -- manager ---------------------------------------------------------------
 function Invoke-Manager {
     if (-not (Test-Path $ConfigFile)) {
-        Write-Host "[ERROR] manager.ini not found. Run: .\tools\sethlans.ps1 dev"; exit 1
+        Write-Host "[ERROR] sethlans.ini not found. Run: .\tools\sethlans.ps1 dev"; exit 1
     }
     $existing = Get-SavedPid "manager"
     if ($existing) {
@@ -347,7 +347,7 @@ function Invoke-Manager {
 # -- worker ----------------------------------------------------------------
 function Invoke-Worker {
     if (-not (Test-Path $ConfigFile)) {
-        Write-Host "[ERROR] manager.ini not found. Run: .\tools\sethlans.ps1 dev"; exit 1
+        Write-Host "[ERROR] sethlans.ini not found. Run: .\tools\sethlans.ps1 dev"; exit 1
     }
     $existing = Get-SavedPid "worker"
     if ($existing) { Write-Host "[OK] Worker already running (PID $existing)"; return }

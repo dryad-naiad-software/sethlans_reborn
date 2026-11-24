@@ -20,6 +20,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from shared import settings_file
+
 logger = logging.getLogger(__name__)
 
 # Port range for auto-detection.
@@ -112,71 +114,50 @@ def find_available_waitress_public_port(
     return start
 
 
-def generate_setup_token(manager_data: Path) -> str:
+def generate_setup_token(ini_path: Optional[Path] = None) -> str:
     """Return the existing setup token, or generate a new one.
 
-    Reuses any existing non-empty ``[setup] token`` value in
-    ``manager.ini`` so an in-progress wizard session survives
-    launcher restarts.  Only generates and writes a new token when
-    the section is missing or the value is empty. Returns the token.
+    Reuses any existing non-empty ``[setup] token`` value in the
+    settings file (*ini_path*, default
+    :func:`shared.settings_file.settings_path`) so an in-progress wizard
+    session survives launcher restarts. Only generates and writes a new
+    token when the section is missing or the value is empty, under the
+    settings lock. Returns the token.
     """
-    ini_path = manager_data / "manager.ini"
+    found: dict = {}
 
-    config = configparser.ConfigParser()
-    if ini_path.exists():
-        config.read(ini_path)
-
-    if config.has_section("setup"):
-        existing = config.get("setup", "token", fallback="")
+    def _mutate(parser: configparser.RawConfigParser) -> bool:
+        existing = parser.get("setup", "token", fallback="")
         if existing:
-            return existing
+            found["token"] = existing
+            return False
+        if not parser.has_section("setup"):
+            parser.add_section("setup")
+        found["token"] = secrets.token_urlsafe(32)
+        parser.set("setup", "token", found["token"])
+        return True
 
-    token = secrets.token_urlsafe(32)
-    if not config.has_section("setup"):
-        config.add_section("setup")
-    config.set("setup", "token", token)
-
-    atomic_write_ini(config, ini_path)
-    return token
-
-
-def remove_setup_section(manager_data: Path) -> None:
-    """Remove the ``[setup]`` section from manager.ini."""
-    ini_path = manager_data / "manager.ini"
-    if not ini_path.exists():
-        return
-
-    config = configparser.ConfigParser()
-    config.read(ini_path)
-
-    if config.has_section("setup"):
-        config.remove_section("setup")
-        atomic_write_ini(config, ini_path)
+    settings_file.update_settings(_mutate, ini_path)
+    return found["token"]
 
 
-def atomic_write_ini(
-    config: configparser.ConfigParser, path: Path,
-) -> None:
-    """Write a ConfigParser to *path* atomically."""
-    parent = str(path.parent)
-    fd, tmp_path = tempfile.mkstemp(dir=parent, suffix=".ini")
-    try:
-        with os.fdopen(fd, "w") as f:
-            config.write(f)
-        os.replace(tmp_path, str(path))
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+def remove_setup_section(ini_path: Optional[Path] = None) -> None:
+    """Remove the wizard's ``[setup]`` keys from the settings file.
+
+    Delegates to :func:`shared.settings_file.remove_setup_wizard_keys`:
+    ``token`` and ``session_id`` go, then the section if that leaves it
+    empty; the setup-finished keys stay. *ini_path* defaults to
+    :func:`shared.settings_file.settings_path`. A missing file is left
+    missing.
+    """
+    settings_file.remove_setup_wizard_keys(ini_path)
 
 
 def atomic_write_text(path: Path, content: str) -> None:
     """Atomically write ``content`` to ``path``.
 
-    Generalised form of :func:`atomic_write_ini` for non-ini
-    payloads (Caddyfile, setup_restart_request.json). Creates the
+    For non-ini payloads (Caddyfile, setup_restart_request.json; the
+    settings file goes through :mod:`shared.settings_file`). Creates the
     parent directory if missing. On write failure, best-effort
     unlinks the tempfile so no ``.tmp`` crumbs leak.
 

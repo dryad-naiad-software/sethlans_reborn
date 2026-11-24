@@ -90,22 +90,24 @@ class TestStartCaddySupervisorCallsEnsureCertFirst:
     """
 
     def test_ensure_manager_tls_cert_called_before_supervisor_build(
-        self, tmp_path, mocker,
+        self, tmp_path, mocker, monkeypatch,
     ):
         manager_data = tmp_path / "manager"
         manager_data.mkdir()
-        (manager_data / "manager.ini").write_text(
-            "[server]\nport = 8080\n", encoding="utf-8",
-        )
+        ini = tmp_path / "sethlans.ini"
+        ini.write_text("[server]\nport = 9443\n", encoding="utf-8")
+        monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(ini))
         order: list[str] = []
+        build_kwargs: dict = {}
 
         def _record_cert(*_a, **_kw):
             order.append("cert")
             return (manager_data / "tls" / "cert.pem",
                     manager_data / "tls" / "key.pem")
 
-        def _record_build(*_a, **_kw):
+        def _record_build(*_a, **kw):
             order.append("build")
+            build_kwargs.update(kw)
             return mocker.MagicMock()
 
         mocker.patch(
@@ -136,6 +138,8 @@ class TestStartCaddySupervisorCallsEnsureCertFirst:
             "build_manager_caddy_supervisor so the supervisor finds the "
             "cert file at start time."
         )
+        # The public port is read from the settings file, not defaulted.
+        assert build_kwargs["public_tls_port"] == 9443
 
 
 if __name__ == "__main__":

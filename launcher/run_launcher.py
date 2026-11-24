@@ -41,6 +41,7 @@ from launcher.main_dispatch import (  # noqa: F401, E402
 )
 from launcher.paths import get_bin_dir, get_data_dir, get_install_dir, set_file_permissions  # noqa: E402
 from launcher.single_instance import acquire_single_instance_lock, release_lock  # noqa: E402
+from shared import settings_file  # noqa: E402
 from shared.version import get_version  # noqa: E402
 
 __version__ = get_version()
@@ -66,25 +67,34 @@ def _read_topology(data_dir: Path) -> dict:
 
 
 def _bootstrap_first_run(data_dir: Path) -> Path:
+    """Create ``<data_dir>/manager`` and, when missing, the settings file.
+
+    The settings file (:func:`shared.settings_file.settings_path`) gets
+    the first-run ``[security]`` and ``[server]`` defaults, written
+    atomically and owner-only. An existing file is left untouched.
+    """
     manager_data = data_dir / "manager"
     manager_data.mkdir(parents=True, exist_ok=True)
-    ini_path = manager_data / "manager.ini"
-    if not ini_path.exists():
-        secret_key = secrets.token_urlsafe(50)
-        ini_path.write_text(
-            "[security]\n"
-            f"secret_key = {secret_key}\n"
-            "debug = False\n\n"
-            "[server]\n"
-            "host = 0.0.0.0\n"
-            f"port = {MANAGER_PORT}\n"
-            "loopback_port = 8088\n"
-            "waitress_loopback_port_public = 8090\n"
-            "waitress_loopback_port_internal = 8088\n",
-            encoding="utf-8",
-        )
-        _set_file_permissions(ini_path)
-        print(f"Generated manager.ini at {ini_path}")
+    ini_path = settings_file.settings_path()
+    defaults = {
+        "security": {"secret_key": secrets.token_urlsafe(50), "debug": "False"},
+        "server": {
+            "host": "0.0.0.0",
+            "port": str(MANAGER_PORT),
+            "loopback_port": "8088",
+            "waitress_loopback_port_public": "8090",
+            "waitress_loopback_port_internal": "8088",
+        },
+    }
+
+    def _fill_when_new(parser) -> bool:
+        if parser.sections():
+            return False
+        parser.read_dict(defaults)
+        return True
+
+    if not ini_path.exists() and settings_file.update_settings(_fill_when_new, ini_path):
+        print(f"Generated settings file at {ini_path}")
     return manager_data
 
 

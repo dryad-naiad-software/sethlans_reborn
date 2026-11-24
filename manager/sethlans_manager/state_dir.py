@@ -1,21 +1,27 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Where the manager keeps its state when it runs from source.
+"""Where a manager run from source keeps its identity-side state.
 
-A frozen (installed) manager always keeps its state in the per-user
-data dir (:func:`shared.frozen_paths.get_data_dir`); callers handle that
-branch themselves and do not call this module.
+Data (database, media, static files, logs, FFmpeg) is not here: in every
+mode it is :func:`shared.frozen_paths.get_data_dir` (``manager/`` by
+default from source; ``SETHLANS_MANAGER_DATA_DIR``,
+``SETHLANS_DATA_ROOT`` and ``[paths] data_dir`` move it). A frozen
+(installed) manager keeps its identity files (TLS, secret key,
+broadcaster params) in :func:`shared.frozen_paths.get_identity_dir`;
+callers handle that branch themselves and do not call this module.
 
-From source the state (``manager.ini``, the TLS cert, the setup-complete
-marker, logs, broadcaster params) lives next to the code in ``manager/``,
-unless ``SETHLANS_MANAGER_DATA_DIR`` is set. The Docker image sets it to
-``/data`` so every piece of state is in the mounted volume (#297); the
-e2e harness and the integration tests set it to a per-test folder.
+From source the TLS cert and the broadcaster params live next to the
+code in ``manager/``, unless ``SETHLANS_MANAGER_DATA_DIR`` is set. The
+Docker image sets it to ``/data`` so every piece of state is in the
+mounted volume (#297); the e2e harness and the integration tests set it
+to a per-test folder. ``SETHLANS_DATA_ROOT`` and ``[paths] data_dir``
+never move these. The settings file itself is resolved by
+:func:`shared.settings_file.settings_path`, which follows the same rule
+from source (``<repo>/manager/sethlans.ini`` or
+``$SETHLANS_MANAGER_DATA_DIR/sethlans.ini``).
 
-This is the one switch every source-mode reader goes through. It is
-Django-free so ``config_loader`` and ``logging_config`` can use it while
-settings are still loading.
+It is Django-free so it can be used while settings are still loading.
 """
 
 from __future__ import annotations

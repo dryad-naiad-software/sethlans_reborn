@@ -10,17 +10,20 @@ Split out of the main module to keep each file under the 300-line cap
 
 from __future__ import annotations
 
-import configparser
 import logging
 import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
+
+from shared.settings_file import read_settings, settings_path
 
 logger = logging.getLogger(__name__)
 
 _TOKEN_SHAPE = re.compile(r"^[A-Za-z0-9_-]{30,60}$")
-_MAX_INI_BYTES = 1024
+# The whole settings file (server, database, ...), not just [setup].
+_MAX_INI_BYTES = 64 * 1024
 
 SENTINEL_NAME = "setup_complete.json"
 
@@ -33,32 +36,30 @@ def sentinel_exists(manager_data_dir: Path) -> bool:
     )
 
 
-def read_token(manager_data_dir: Path) -> str:
-    """Return the setup token from ``manager.ini`` or empty string."""
-    ini_path = manager_data_dir / "manager.ini"
-    # Python 3.13 changed Path.exists() to propagate OSError (e.g.
-    # PermissionError) rather than silently returning False. Guard
-    # explicitly so read_token remains fail-closed across versions.
+def read_token(ini_path: Optional[Path] = None) -> str:
+    """Return ``[setup] token`` from the settings file or empty string.
+
+    *ini_path* defaults to :func:`shared.settings_file.settings_path`.
+    Fail-closed: a bad path, a missing, oversized or unparsable file all
+    give an empty string.
+    """
     try:
-        if not ini_path.exists():
-            return ""
-    except OSError:
-        return ""
-    try:
+        ini_path = settings_path() if ini_path is None else Path(ini_path)
+        # Path.stat() raises (FileNotFoundError, PermissionError) rather
+        # than returning; any OSError means "no token".
         size = ini_path.stat().st_size
-    except OSError:
+    except (OSError, ValueError):
         return ""
     if size > _MAX_INI_BYTES:
         logger.warning(
-            "manager.ini exceeds %d bytes; ignoring for token read",
+            "%s exceeds %d bytes; ignoring for token read", ini_path.name,
             _MAX_INI_BYTES,
         )
         return ""
     try:
-        cfg = configparser.ConfigParser()
-        cfg.read(ini_path, encoding="utf-8")
-    except (OSError, configparser.Error) as exc:
-        logger.warning("Could not parse manager.ini: %s", exc)
+        cfg = read_settings(ini_path)
+    except OSError as exc:
+        logger.warning("Could not parse %s: %s", ini_path.name, exc)
         return ""
     return cfg.get("setup", "token", fallback="") or ""
 

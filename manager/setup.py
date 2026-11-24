@@ -4,13 +4,13 @@
 """
 First-time setup script for the Sethlans Manager.
 
-Generates manager.ini with a secure SECRET_KEY and enrollment key,
-runs database migrations, creates an admin user, and optionally
-builds the Angular frontend.
+Writes the settings file (``sethlans.ini``, at
+``shared.settings_file.settings_path()``) with a secure SECRET_KEY and
+enrollment key, runs database migrations, creates an admin user, and
+optionally builds the Angular frontend.
 
 Run from anywhere: python manager/setup.py
 """
-import configparser
 import os
 import secrets
 import subprocess
@@ -18,7 +18,11 @@ import sys
 from pathlib import Path
 
 MANAGER_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = MANAGER_DIR / 'manager.ini'
+if str(MANAGER_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(MANAGER_DIR.parent))
+
+from shared import settings_file  # noqa: E402
+
 MANAGE_PY = MANAGER_DIR / 'manage.py'
 FRONTEND_DIR = MANAGER_DIR / 'frontend'
 
@@ -29,14 +33,24 @@ def generate_secret_key():
 
 
 def setup_config():
-    """Create or update manager.ini with security settings."""
-    config = configparser.ConfigParser()
-    if CONFIG_PATH.exists():
-        config.read(CONFIG_PATH)
-        print(f"[OK] Found existing {CONFIG_PATH.name}")
+    """Create or update the settings file with security settings."""
+    config_path = settings_file.settings_path()
+    if config_path.exists():
+        print(f"[OK] Found existing {config_path}")
     else:
-        print(f"[NEW] Creating {CONFIG_PATH.name}")
+        print(f"[NEW] Creating {config_path}")
+    found = {}
 
+    def _mutate(config):
+        found['enrollment_key'] = _fill_defaults(config)
+        return True
+
+    settings_file.update_settings(_mutate, config_path)
+    return found['enrollment_key']
+
+
+def _fill_defaults(config):
+    """Add the missing security defaults to *config*; return the enrollment key."""
     if not config.has_section('server'):
         config.add_section('server')
     if not config.has_option('server', 'port'):
@@ -57,9 +71,9 @@ def setup_config():
     if not config.get('security', 'enrollment_key', fallback=''):
         enrollment_key = secrets.token_urlsafe(32)
         config.set('security', 'enrollment_key', enrollment_key)
-        print(f"[OK] Generated enrollment key")
+        print("[OK] Generated enrollment key")
         print(f"\n{'=' * 60}")
-        print(f"  ENROLLMENT KEY (copy to each worker's config.ini):")
+        print("  ENROLLMENT KEY (copy to each worker's config.ini):")
         print(f"  {enrollment_key}")
         print(f"{'=' * 60}\n")
     else:
@@ -70,9 +84,6 @@ def setup_config():
     if not config.get('security', 'debug', fallback=''):
         config.set('security', 'debug', 'true')
         print("[OK] Set DEBUG=true (development mode)")
-
-    with open(CONFIG_PATH, 'w') as f:
-        config.write(f)
 
     return enrollment_key
 

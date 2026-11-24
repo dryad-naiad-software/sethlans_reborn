@@ -140,7 +140,7 @@ def _walk_wizard(
         "password": ADMIN_PASSWORD,
         "password_confirm": ADMIN_PASSWORD,
     }
-    # #199: pin SQLite path inside data_dir so manager.ini bakes a
+    # #199: pin SQLite path inside data_dir so the settings file bakes a
     # tempdir path, not %LOCALAPPDATA%\Sethlans\manager\.
     db_name = (
         str(data_dir / "manager" / "sethlans.db") if data_dir else ""

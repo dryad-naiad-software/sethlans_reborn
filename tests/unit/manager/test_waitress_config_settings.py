@@ -10,14 +10,12 @@ file ceiling. Covers:
 
 * ``resolve_public_port_for_settings`` / ``resolve_internal_port_for_settings``
   — the env-var > ini hierarchy as consumed by ``settings.py``.
-* ``resolve_ini_path`` — source-mode guard and manager-dir composition.
+* ``_read_ini`` — the settings file parsed without interpolation.
 """
 
 from __future__ import annotations
 
 import configparser
-
-import pytest
 
 from sethlans_manager import waitress_config as wc
 
@@ -83,12 +81,19 @@ class TestResolveSettingsHelpers:
         assert wc.resolve_internal_port_for_settings(cfg) == 6501
 
 
-class TestResolveIniPath:
+class TestReadIni:
+    """``_read_ini`` parses the settings file without interpolation."""
 
-    def test_source_mode_requires_manager_dir(self, monkeypatch):
-        with pytest.raises(ValueError):
-            wc.resolve_ini_path(None)
+    def test_percent_value_is_literal(self, tmp_path):
+        ini = tmp_path / "sethlans.ini"
+        ini.write_text("[server]\nnote = 50% off %(x)s\n", encoding="utf-8")
+        assert wc._read_ini(ini).get("server", "note") == "50% off %(x)s"
 
-    def test_source_mode_returns_manager_dir_ini(self, tmp_path):
-        out = wc.resolve_ini_path(tmp_path)
-        assert out == tmp_path / "manager.ini"
+    def test_missing_file_is_empty(self, tmp_path):
+        assert wc._read_ini(tmp_path / "missing.ini").sections() == []
+
+    def test_unparsable_file_warns_and_is_empty(self, tmp_path, capsys):
+        ini = tmp_path / "sethlans.ini"
+        ini.write_text("no section header\n", encoding="utf-8")
+        assert wc._read_ini(ini).sections() == []
+        assert "Could not read the settings file" in capsys.readouterr().err

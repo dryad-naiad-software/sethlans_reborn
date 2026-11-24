@@ -17,8 +17,12 @@ The user SID always comes from the process token (``OpenProcessToken`` ->
 goes through ``ctypes``; ``pywin32`` is not used (it is not installed, see
 GitHub issue #214, and NF-4 forbids adding it).
 
-POSIX: ``chmod 0700``; verified as no group/other bits and owned by the
-effective uid.
+POSIX: ``chmod 0700`` for a directory, ``0600`` for a file; verified as no
+group/other bits and owned by the effective uid.
+
+Files: Windows drops the inheritance flags (``OICI``) from the ACEs of a
+non-directory, so for a file ``verify_owner_only`` also accepts the same
+two ACEs with no flags.
 
 ``create_owner_only_dir`` creates a directory with that descriptor from
 birth (``CreateDirectoryW`` + ``SECURITY_ATTRIBUTES``), so no other account
@@ -58,6 +62,10 @@ def _win_create_dir(path: str, sddl: str) -> bool:
     return _win.create_dir(path, sddl)
 
 
+def _win_create_file(path: str, sddl: str, shared: bool) -> int:
+    return _win.create_file(path, sddl, shared=shared)
+
+
 def _win_set_security(path: str, sddl: str) -> None:
     _win.set_security(path, sddl)
 
@@ -90,7 +98,7 @@ def apply_owner_only(path) -> None:
     if _is_windows():
         _win_set_security(os.fspath(path), owner_only_sddl(current_user_sid()))
     else:
-        os.chmod(path, 0o700)
+        os.chmod(path, 0o700 if os.path.isdir(path) else 0o600)
 
 
 def create_owner_only_dir(path) -> bool:
@@ -108,6 +116,21 @@ def create_owner_only_dir(path) -> bool:
         return False
     os.chmod(path, 0o700)  # the umask can only remove bits; make it exact
     return True
+
+
+def create_owner_only_file(path, *, shared: bool = False) -> int:
+    """Create (or open) a file owner-only from birth; return a writable fd.
+
+    ``shared=False``: the file must not exist (``FileExistsError``); on
+    Windows no other handle can be opened until the fd is closed. POSIX:
+    ``O_EXCL`` with mode 0600. ``shared=True``: open or create a lock
+    file for read/write that other processes may open too; a new file is
+    owner-only from birth, an existing one keeps its permissions.
+    """
+    if _is_windows():
+        return _win_create_file(os.fspath(path), owner_only_sddl(current_user_sid()), shared)
+    flags = os.O_RDWR | os.O_CREAT if shared else os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    return os.open(path, flags, 0o600)
 
 
 def current_owner_sids() -> frozenset:
@@ -146,12 +169,13 @@ def is_owned_by_current_user(path) -> bool:
         return False
 
 
-def _acl_is_owner_only(user_sid: str, protected: bool, owner: str, aces) -> bool:
+def _acl_is_owner_only(user_sid: str, protected: bool, owner: str, aces,
+                       allowed_flags=frozenset({_REQUIRED_ACE_FLAGS})) -> bool:
     expected = {user_sid, SYSTEM_SID}
     if not protected or owner != user_sid or aces is None or len(aces) != len(expected):
         return False
     for ace_type, ace_flags, sid in aces:
-        if ace_type != _ACCESS_ALLOWED_ACE_TYPE or ace_flags != _REQUIRED_ACE_FLAGS:
+        if ace_type != _ACCESS_ALLOWED_ACE_TYPE or ace_flags not in allowed_flags:
             return False
         if sid not in expected:
             return False
@@ -164,7 +188,10 @@ def verify_owner_only(path) -> bool:
         if _is_windows():
             user_sid = current_user_sid()
             protected, owner, aces = _win_read_security(os.fspath(path))
-            return _acl_is_owner_only(user_sid, protected, owner, aces)
+            allowed = {_REQUIRED_ACE_FLAGS}
+            if not os.path.isdir(path):
+                allowed.add(0)  # a file's ACEs carry no inheritance flags
+            return _acl_is_owner_only(user_sid, protected, owner, aces, frozenset(allowed))
         st = os.stat(path)
         return stat.S_IMODE(st.st_mode) & 0o077 == 0 and st.st_uid == os.geteuid()
     except (OSError, ValueError):

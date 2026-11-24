@@ -31,7 +31,6 @@ allowlist in ``sethlans_manager.manage_dispatch`` so that the frozen
 binary never exposes commands like ``createsuperuser`` or ``shell``
 to local users. ``--manage`` is mutually exclusive with ``--dev``.
 """
-import configparser
 import logging
 import os
 import sys
@@ -50,7 +49,6 @@ if _SHARED_DIR not in sys.path:
 
 from shared.frozen_paths import (  # noqa: E402
     get_app_dir,
-    get_data_dir,
     get_manager_dir,
     is_frozen,
 )
@@ -60,6 +58,9 @@ if is_frozen():
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sethlans_manager.settings')
 
+from sethlans_manager.bind_config import (  # noqa: E402
+    get_manager_bind as _resolve_manager_bind,
+)
 from sethlans_manager.cert_utils import (  # noqa: E402
     CertificateError,
     check_cert_expiry_warning,
@@ -69,7 +70,6 @@ from sethlans_manager.runtime_init import (  # noqa: E402
     cleanup_stale_setup_section,
     initialize_runtime_state,
 )
-from sethlans_manager.state_dir import source_data_dir  # noqa: E402
 from sethlans_manager.tls_setup import (  # noqa: E402
     get_config_file_path,
     setup_certificates,
@@ -99,25 +99,13 @@ def get_manager_bind():
     """Return (host, port) tuple respecting the override hierarchy.
 
     1. Environment variables (SETHLANS_MANAGER_HOST, SETHLANS_MANAGER_PORT)
-    2. manager.ini file
+    2. The settings file ``[server]`` (``sethlans.ini``)
     3. Hardcoded defaults (0.0.0.0, 8080)
+
+    See :func:`sethlans_manager.bind_config.get_manager_bind`, the one
+    resolver the local worker's enrollment and the summary use too.
     """
-    host = os.getenv('SETHLANS_MANAGER_HOST')
-    port = os.getenv('SETHLANS_MANAGER_PORT')
-
-    try:
-        config = configparser.ConfigParser()
-        config_file_path = get_config_file_path(MANAGER_DIR)
-        if config_file_path.exists():
-            config.read(config_file_path)
-            if not host and config.has_option('server', 'host'):
-                host = config.get('server', 'host')
-            if not port and config.has_option('server', 'port'):
-                port = config.get('server', 'port')
-    except Exception as e:
-        print(f"[WARNING] Could not read manager.ini: {e}", file=sys.stderr)
-
-    return (host or '0.0.0.0', port or '8080')
+    return _resolve_manager_bind(get_config_file_path())
 
 
 def get_loopback_port():
@@ -132,11 +120,11 @@ def get_loopback_port():
     waitress-migration Phase 5):
       1. ``SETHLANS_MANAGER_LOOPBACK_PORT`` env var (legacy).
       2. ``SETHLANS_MANAGER_WAITRESS_PORT_INTERNAL`` env var.
-      3. ``manager.ini [server] waitress_loopback_port_internal``.
-      4. ``manager.ini [server] loopback_port`` (legacy).
+      3. ``[server] waitress_loopback_port_internal`` (settings file).
+      4. ``[server] loopback_port`` (legacy).
       5. Default ``8088``.
     """
-    ini_path = get_config_file_path(MANAGER_DIR)
+    ini_path = get_config_file_path()
     return str(get_waitress_internal_port(ini_path))
 
 
@@ -157,12 +145,8 @@ def _prepare_runtime(cert, host, port):
             sys.exit(1)
         from sethlans_manager.logging_config import configure as _cfg
         _cfg()
-    config_dir = (
-        get_data_dir('manager') if is_frozen()
-        else source_data_dir(MANAGER_DIR)
-    )
-    enrollment_cfg = get_enrollment_config(config_dir)
-    cleanup_stale_setup_section(config_dir)
+    enrollment_cfg = get_enrollment_config(get_config_file_path())
+    cleanup_stale_setup_section(get_config_file_path())
     initialize_runtime_state(cert, enrollment_cfg, host, port)
 
 
@@ -268,7 +252,7 @@ def main():
     host, port = get_manager_bind()
     _prepare_runtime(cert, host, port)
 
-    ini_path = get_config_file_path(MANAGER_DIR)
+    ini_path = get_config_file_path()
     public_port = get_waitress_public_port(ini_path)
     internal_port = get_waitress_internal_port(ini_path)
 

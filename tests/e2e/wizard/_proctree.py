@@ -73,7 +73,7 @@ def _kill_by_cmdline(data_dir: Path, psutil) -> None:
 
 
 def _proc_belongs_to_data_dir(proc, data_dir_str: str) -> bool:
-    """Return True if *proc*'s SETHLANS_DATA_DIR env matches *data_dir_str*."""
+    """Return True if *proc*'s SETHLANS_SETTINGS_DIR env matches *data_dir_str*."""
     try:
         env = proc.environ()
     except Exception:  # noqa: BLE001 — psutil environ() can fail
@@ -81,7 +81,7 @@ def _proc_belongs_to_data_dir(proc, data_dir_str: str) -> bool:
         # cmdline already matched our needles). Better to over-clean
         # than leak.
         return True
-    val = env.get("SETHLANS_DATA_DIR", "").replace("/", "\\").lower()
+    val = env.get("SETHLANS_SETTINGS_DIR", "").replace("/", "\\").lower()
     return val == data_dir_str
 
 
