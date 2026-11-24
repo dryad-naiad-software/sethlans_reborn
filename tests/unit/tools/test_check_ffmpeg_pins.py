@@ -78,9 +78,11 @@ class TestTimeBudget:
 
     def test_worst_case_fits_the_workflow_timeout(self, tool):
         """Each URL can take deadline + one socket timeout; all must fit."""
-        workflow = (REPO_ROOT / ".github" / "workflows" / "ffmpeg-pins.yml").read_text(
-            encoding="utf-8",
-        )
+        workflow_path = REPO_ROOT / ".github" / "workflows" / "ffmpeg-pins.yml"
+        if not workflow_path.is_file():
+            # The Docker test image leaves out .github/ (.dockerignore).
+            pytest.skip(f"workflow file not in this checkout: {workflow_path}")
+        workflow = workflow_path.read_text(encoding="utf-8")
         minutes = int(re.search(r"timeout-minutes:\s*(\d+)", workflow).group(1))
         urls, _ = tool.load_pins()
         per_url = tool.DOWNLOAD_DEADLINE_S + tool.SOCKET_TIMEOUT_S
