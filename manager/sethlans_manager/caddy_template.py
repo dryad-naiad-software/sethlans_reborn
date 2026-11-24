@@ -14,6 +14,8 @@ spec, "Caddy TLS hardening invariants"):
 * Per-site ``protocols tls1.2 tls1.3`` (TLS floor pinned to 1.2)
 * Explicit cert/key paths — no automatic issuance
 * ``reverse_proxy`` transport pinned to HTTP/1.1
+* The loopback vhost carries ``bind 127.0.0.1``: the host in a site
+  address is only a Host matcher, not a listen address (issue #309)
 * ``/api/status/public/`` routes return 404 on the **public** vhost
   (defense-in-depth against URLconf-origin middleware); the loopback
   vhost passes them through
@@ -242,6 +244,10 @@ def render_manager_caddyfile(
         "# Serves the tray helper's /api/status/public/ endpoint.\n"
         "# Proxies to the internal-origin Waitress listener (Phase 5).\n"
         f"http://127.0.0.1:{loop_port} {{\n"
+        # The host in a site address is only a Host matcher; without
+        # ``bind`` Caddy listens on every interface (issue #309).
+        "    bind 127.0.0.1\n"
+        "\n"
         + body_limit_directives(allow_uploads=False)
         + "    reverse_proxy 127.0.0.1:"
         + str(wloop_port) + " {\n"

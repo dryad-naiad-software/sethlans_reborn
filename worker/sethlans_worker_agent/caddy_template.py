@@ -15,6 +15,8 @@ the manager spec's TLS hardening invariants:
 - No access log directive (if added later, ``Authorization``,
   ``X-Setup-Token``, and ``Cookie`` headers must be redacted)
 - ``reverse_proxy`` transport pinned to HTTP/1.1
+- The loopback vhost carries ``bind 127.0.0.1``: the host in a site
+  address is only a Host matcher, not a listen address (issue #309)
 - ``/setup/*`` routes reachable **only** on the loopback vhost during
   setup; the public vhost returns 404 for setup paths until the
   setup-complete sentinel is written
@@ -248,6 +250,10 @@ def render_worker_caddyfile(
         "# only origin from which /setup/* is reachable during the\n"
         "# setup window.\n"
         f"http://127.0.0.1:{loop_port} {{\n"
+        # The host in a site address is only a Host matcher; without
+        # ``bind`` Caddy listens on every interface (issue #309).
+        "    bind 127.0.0.1\n"
+        "\n"
         "    reverse_proxy 127.0.0.1:" + str(up_port) + " {\n"
         "        transport http {\n"
         "            versions 1.1\n"

@@ -19,6 +19,7 @@
 #   - /api/status/public/* returns 404 on the public vhost
 #     (tray-helper endpoint is loopback-only)
 #   - reverse_proxy transport pinned to HTTP/1.1
+#   - loopback vhost binds 127.0.0.1 only (issue #309)
 #   - request_body limits per route, one matcher per class of
 #     body_limits.BODY_CLASSES (issue #260; kept equal to
 #     caddy_body_classes.body_limit_directives() by a unit test)
@@ -88,8 +89,12 @@
 
 # Loopback plaintext vhost. Tray helper origin for
 # /api/status/public/. Proxies to the internal-origin Waitress
-# listener (urls_loopback URLconf).
+# listener (urls_loopback URLconf). The host in the site address is
+# only a Host matcher; `bind` keeps the listener on the container's
+# loopback (issue #309). Nothing outside the container uses this port.
 http://127.0.0.1:{$SETHLANS_MANAGER_CADDY_LOOPBACK_PORT} {
+    bind 127.0.0.1
+
     request_body {
         max_size 131072
     }

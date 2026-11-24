@@ -20,6 +20,7 @@
 #     loopback vhost passes them through so the wizard is
 #     loopback-only during the setup window
 #   - reverse_proxy transport pinned to HTTP/1.1
+#   - loopback vhost binds 127.0.0.1 only (issue #309)
 
 {
     admin off
@@ -48,7 +49,12 @@
 }
 
 # Loopback plaintext vhost. Setup wizard origin during setup window.
+# The host in the site address is only a Host matcher; `bind` keeps
+# the listener on the container's loopback (issue #309). Nothing
+# outside the container uses this port.
 http://127.0.0.1:{$SETHLANS_WORKER_CADDY_LOOPBACK_PORT} {
+    bind 127.0.0.1
+
     reverse_proxy 127.0.0.1:{$SETHLANS_WORKER_WAITRESS_UPSTREAM_PORT} {
         transport http {
             versions 1.1

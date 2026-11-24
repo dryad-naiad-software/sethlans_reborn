@@ -141,8 +141,9 @@ class TestHardeningInvariants:
 
     def test_loopback_vhost_uses_127_0_0_1(self, manager_paths):
         out = render_manager_caddyfile(**_valid_kwargs(manager_paths))
-        # The loopback plaintext vhost must bind to 127.0.0.1 only,
-        # never 0.0.0.0.
+        # Checks the loopback site ADDRESS only (a Host matcher). The
+        # listener itself is limited by ``bind 127.0.0.1``, checked in
+        # tests/unit/deploy/test_caddy_loopback_bind.py (issue #309).
         assert 'http://127.0.0.1:' in out
         assert 'http://0.0.0.0:' not in out
 
