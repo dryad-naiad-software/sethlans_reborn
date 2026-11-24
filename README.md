@@ -295,6 +295,8 @@ docker exec <manager container> python manage.py show_enrollment_key
 docker exec -it <manager container> python manage.py createsuperuser
 ```
 
+A GPU worker (NVIDIA or ROCm) starts with no graphics card ticked and renders on the CPU until its card choice is made. Choose GPU (or CPU and GPU) and tick the cards from the manager or the worker page, or set `SETHLANS_COMPUTE_METHOD=gpu` and `SETHLANS_COMPUTE_CARDS` (comma-separated PCI addresses, such as `pci:0000:01:00.0`, as the worker logs them at start under `Graphics cards (operating system list ...)`) in `.env`. Setting any of `SETHLANS_COMPUTE_METHOD`, `SETHLANS_COMPUTE_GPU_MODE` or `SETHLANS_COMPUTE_CARDS` fixes the whole card choice; the manager and the worker pages cannot change it. Leave all three unset to choose from the manager. `.env.example` lists these and `SETHLANS_COMPUTE_ALLOW_MANAGER_CHANGES`.
+
 ---
 
 ## Supported Render Configuration (Blender)

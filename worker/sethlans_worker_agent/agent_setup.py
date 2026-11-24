@@ -62,9 +62,11 @@ def _reload_config():
 def run_first_run_wizard_if_needed():
     """Run the first-run enrollment wizard on the main thread.
 
-    Invariant: runs BEFORE any background threads are spawned so
-    ``tls_adapter.reset_sessions()`` (per-thread) works correctly for
-    pinning activation after enrollment (FR-23).
+    Runs BEFORE any background threads are spawned. Enrollment sends its
+    request through its own unpinned session
+    (``tls_adapter.unpinned_session``); after it, the first
+    ``tls_adapter.get_session()`` call on any thread reads the saved
+    fingerprint and pins that thread's session (FR-23, #306).
 
     On success, writes the setup sentinel and flips the setup gate
     so the worker's web UI is fully accessible after enrollment.

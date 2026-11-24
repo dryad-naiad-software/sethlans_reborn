@@ -17,7 +17,10 @@ switches them off without a mismatch line (FR-CB-2).
 ``SETHLANS_COMPUTE_CARDS`` names keys only: each key's model is taken from the
 first inventory that lists it with ids and kept for the process, so a later
 model change is still seen (FR-CC-2). An unusable ticked card is logged at
-ERROR once per process.
+ERROR once per process, except a card that only waits for Blender to be
+installed: that one is logged at INFO once (#305), it gets no slot either,
+and the periodic card check (``capacity.card_check.check``) finds it once
+Blender is in place and requests the rebuild that gives it its slot.
 """
 import logging
 import threading
@@ -26,6 +29,7 @@ from typing import Dict, Iterable, NamedTuple, Optional, Tuple
 
 from sethlans_worker_agent.cards import matching
 from sethlans_worker_agent.cards.identity import has_ids, key_sort_value
+from sethlans_worker_agent.cards.inventory import NOTE_NO_BLENDER
 from sethlans_worker_agent.cards.os_probe import log_once
 
 logger = logging.getLogger(__name__)
@@ -36,9 +40,13 @@ NO_TICK_TEXT = ("GPU rendering is chosen, but no graphics card is ticked. This w
                 "Tick a card in the worker's settings.")
 NONE_USABLE_TEXT = ("None of the ticked graphics cards can be used (missing, changed or waiting for a person to "
                     "check them). This worker takes no GPU jobs until one can.")
+WAITING_FOR_BLENDER_TEXT = ("Waiting for Blender to be installed before the ticked graphics cards can be used. "
+                            "This worker takes no GPU jobs until then.")
 COMBINE_TEXT = ("Combine GPUs needs two or more cards that Blender drives the same way (CUDA/OptiX, HIP, "
                 "oneAPI or Metal).")
 COMBINE_PROBLEM_TEXT = COMBINE_TEXT + " This worker takes no GPU jobs until the choice is changed."
+WAITING_FOR_BLENDER_LOG = ("Ticked graphics card %s (%s) is waiting for Blender: Blender is not installed yet. "
+                           "The card is checked again at the first card check after Blender is installed.")
 
 _env_lock = threading.Lock()
 _env_records: Dict[str, dict] = {}
@@ -128,6 +136,9 @@ def blender_cards_in_use(inv, section, alerts=None, states=None) -> Tuple[CardIn
         card, state = by_key.get(saved['key']), states.get(saved['key'])
         if state == matching.OK and card.blender is not None:
             cards.append(CardInUse(card.key, card.name, card.blender[0], card.blender[1]))
+        elif state == matching.OK and card.note == NOTE_NO_BLENDER:  # not a fault: no Blender to ask yet (#305)
+            log_once(logger, logging.INFO, WAITING_FOR_BLENDER_LOG, ascii(saved.get('name') or saved['key']),
+                     saved['key'])
         else:
             log_once(logger, logging.ERROR, "Ticked graphics card %s (%s) is not used by Blender: %s.",
                      ascii(saved.get('name') or saved['key']), saved['key'], _why_not_used(state, saved, card))
@@ -156,8 +167,21 @@ def unreal_card_addresses(inv=None, section=None) -> frozenset:
     return unreal_cards.addresses(found[0]) if found is not None else frozenset()
 
 
-def problem_message(section, cards: Tuple[CardInUse, ...]) -> str:
-    """FR-CK-6: why a worker set to render on graphics cards takes no GPU jobs ('' when it does)."""
+def waiting_for_blender(inv, section, states) -> bool:
+    """Every ticked card is ``ok`` and only waits for Blender to be installed (#305); False with no ticked card."""
+    by_key = {card.key: card for card in inv.cards}
+    return bool(section.cards) and all(
+        states.get(saved['key']) == matching.OK and saved['key'] in by_key
+        and by_key[saved['key']].note == NOTE_NO_BLENDER for saved in section.cards)
+
+
+def problem_message(section, cards: Tuple[CardInUse, ...], waiting: bool = False) -> str:
+    """FR-CK-6: why a worker set to render on graphics cards takes no GPU jobs ('' when it does).
+
+    ``waiting`` (``waiting_for_blender``): the ticked cards are fine but no Blender is installed yet.
+    """
     if section.method == 'cpu' or cards:
         return ''
-    return NO_TICK_TEXT if not section.cards else NONE_USABLE_TEXT
+    if not section.cards:
+        return NO_TICK_TEXT
+    return WAITING_FOR_BLENDER_TEXT if waiting else NONE_USABLE_TEXT

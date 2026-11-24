@@ -45,7 +45,7 @@ from typing import Optional
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.capacity import card_blender, rebuild
-from sethlans_worker_agent.capacity.card_profile import log_problem, profile_for, selection_of
+from sethlans_worker_agent.capacity.card_profile import detected_card_count, log_problem, profile_for, selection_of
 from sethlans_worker_agent.capacity.card_stops import raise_alerts, stop_jobs
 from sethlans_worker_agent.capacity.drift import DETECTION_FAILED, adopt_detection_executable, detect_physical_gpus_now
 from sethlans_worker_agent.cards import in_use, inventory, matching, os_probe, screens, store
@@ -123,8 +123,8 @@ def rebuild_profile(capacity):
     section = store.snapshot()
     if section.read_failed:
         return None
-    if _nothing_to_check(section):
-        return profile_for(section, _no_tick_selection(section))
+    if _nothing_to_check(section):  # the cached card probe only says whether cards were found (#305; B6)
+        return profile_for(section, _no_tick_selection(section), detected=detected_card_count())
     selection, inv = _evaluate_known(section, capacity)
     if inv.os_probe_failed and _probe_ever_worked:
         return None
