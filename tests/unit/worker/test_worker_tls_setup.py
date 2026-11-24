@@ -88,7 +88,7 @@ class TestGetTlsConfig:
 
 class TestGetTlsDir:
 
-    def test_default_uses_data_dir(self, mocker):
+    def test_default_uses_identity_dir(self, mocker):
         mocker.patch.dict(os.environ, {}, clear=False)
         mocker.patch.dict(
             os.environ,
@@ -101,7 +101,7 @@ class TestGetTlsDir:
             return_value=Path('/fake/data'),
         )
         mocker.patch(
-            'sethlans_worker_agent.tls_setup.config_store.get_data_dir',
+            'sethlans_worker_agent.tls_setup.config_store.get_identity_dir',
             mock_data_dir,
         )
         from sethlans_worker_agent.tls_setup import get_tls_dir

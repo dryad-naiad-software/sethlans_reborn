@@ -6,8 +6,7 @@ import logging.config
 import os
 from pathlib import Path
 
-from sethlans_manager.state_dir import source_data_dir
-from shared.frozen_paths import get_data_dir, is_frozen
+from shared.frozen_paths import get_data_dir
 
 # BASE_DIR must match settings.py
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,15 +17,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # wins for scenarios where verbose logging is a nuisance.
 LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'DEBUG').upper()
 
-# Create logs directory if it doesn't exist.
-# In frozen mode on Windows, BASE_DIR is inside C:\Program Files\ (read-only).
-# Write logs to the per-user data directory instead.
-# From source, SETHLANS_MANAGER_DATA_DIR moves the logs with the rest of
-# the state (the Docker image: /data/logs); see sethlans_manager.state_dir.
-if is_frozen():
-    LOGS_DIR = get_data_dir('manager') / 'logs'
-else:
-    LOGS_DIR = source_data_dir(BASE_DIR) / 'logs'
+# Create logs directory if it doesn't exist. Logs live in the manager's
+# data folder in every mode (shared.frozen_paths.get_data_dir): the
+# per-user folder when installed, manager/ from source, /data in the
+# Docker image; SETHLANS_DATA_ROOT and [paths] data_dir move them.
+LOGS_DIR = get_data_dir('manager') / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 LOGGING = {

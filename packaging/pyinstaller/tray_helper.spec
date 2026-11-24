@@ -72,6 +72,12 @@ hiddenimports = [
     'shared.tray.topology',
     'shared.topology',
     'shared.frozen_paths',
+    # The settings file (sethlans.ini) reader and its helpers.
+    'shared.settings_file',
+    'shared.settings_file_io',
+    'shared.file_lock',
+    'shared.owner_only_acl',
+    'shared.owner_only_acl_win',
     'launcher.logging_setup',
 ]
 

@@ -5,9 +5,12 @@
 TLS certificate setup and configuration for the Sethlans Manager.
 
 Handles BYO certificate loading, self-signed certificate generation,
-and SSL context construction.  Reads config from ``manager.ini``
-(data dir when frozen; from source, ``SETHLANS_MANAGER_DATA_DIR`` when
-set, else ``MANAGER_DIR`` -- see :mod:`sethlans_manager.state_dir`).
+and SSL context construction.  Reads ``[tls]`` from the settings file
+(:func:`shared.settings_file.settings_path`). The self-signed pair lives
+in the manager's identity folder when frozen
+(:func:`shared.frozen_paths.get_identity_dir`); from source in
+``SETHLANS_MANAGER_DATA_DIR`` when set, else ``MANAGER_DIR`` -- see
+:mod:`sethlans_manager.state_dir`.
 """
 
 import logging
@@ -24,7 +27,8 @@ from sethlans_manager.cert_utils import (
     load_and_validate_cert,
 )
 from sethlans_manager.state_dir import source_data_dir
-from shared.frozen_paths import get_data_dir, is_frozen
+from shared.frozen_paths import get_identity_dir, is_frozen
+from shared.settings_file import read_settings, settings_path
 from shared.tls_utils import build_ssl_context  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -76,24 +80,22 @@ def _enforce_key_permissions(key_path: Path) -> None:
         raise
 
 
-def get_config_file_path(manager_dir: Path) -> Path:
-    """Return the manager.ini path.
+def get_config_file_path() -> Path:
+    """Return the settings file path (the file ``config_loader`` reads).
 
-    Frozen: the per-user data dir. Source: ``SETHLANS_MANAGER_DATA_DIR``
-    when set (same file ``config_loader`` reads), else ``manager_dir``.
+    Delegates to :func:`shared.settings_file.settings_path`, the only
+    resolver of ``sethlans.ini``.
     """
-    if is_frozen():
-        return get_data_dir('manager') / 'manager.ini'
-    return source_data_dir(manager_dir) / 'manager.ini'
+    return settings_path()
 
 
 def get_tls_config(manager_dir: Path):
-    """Read BYO cert/key paths from env vars or manager.ini [tls].
+    """Read BYO cert/key paths from env vars or the settings file [tls].
 
     Returns (cert_file, key_file) -- both None if not configured.
+    ``manager_dir`` is unused; it is kept so every TLS helper takes the
+    same arguments.
     """
-    import configparser
-
     cert_file = os.getenv('SETHLANS_TLS_CERT_FILE')
     key_file = os.getenv('SETHLANS_TLS_KEY_FILE')
 
@@ -101,14 +103,11 @@ def get_tls_config(manager_dir: Path):
         return (cert_file, key_file)
 
     try:
-        config = configparser.ConfigParser()
-        config_file_path = get_config_file_path(manager_dir)
-        if config_file_path.exists():
-            config.read(config_file_path)
-            if not cert_file and config.has_option('tls', 'cert_file'):
-                cert_file = config.get('tls', 'cert_file') or None
-            if not key_file and config.has_option('tls', 'key_file'):
-                key_file = config.get('tls', 'key_file') or None
+        config = read_settings(get_config_file_path())
+        if not cert_file and config.has_option('tls', 'cert_file'):
+            cert_file = config.get('tls', 'cert_file') or None
+        if not key_file and config.has_option('tls', 'key_file'):
+            key_file = config.get('tls', 'key_file') or None
     except Exception as e:
         print(
             f"[WARNING] Could not read TLS config: {e}", file=sys.stderr,
@@ -132,7 +131,8 @@ def get_tls_dir(dev_mode: bool, manager_dir: Path, project_root: Path):
     """Return the TLS directory path based on mode.
 
     ``SETHLANS_TLS_DATA_DIR`` wins in every mode.
-    Frozen mode: <data_dir>/tls/
+    Frozen mode: <identity dir>/tls/ -- the settings folder's
+                 ``manager/tls``; it never moves with the data folder
     Dev mode:    <project_root>/temp/dev-tls/
     Prod mode:   <state dir>/tls/ -- ``SETHLANS_MANAGER_DATA_DIR`` when
                  set (the Docker image: /data/tls), else <manager_dir>/tls/
@@ -147,7 +147,7 @@ def get_tls_dir(dev_mode: bool, manager_dir: Path, project_root: Path):
             )
         return p
     if is_frozen():
-        return get_data_dir('manager') / 'tls'
+        return get_identity_dir('manager') / 'tls'
     if dev_mode:
         return project_root / 'temp' / 'dev-tls'
     return source_data_dir(manager_dir) / 'tls'

@@ -19,7 +19,7 @@ from typing import Optional
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.caddy_template import render_worker_caddyfile
-from sethlans_worker_agent.config_store import get_data_dir
+from sethlans_worker_agent.config_store import get_identity_dir
 from shared.caddy_supervisor import CaddySupervisor
 
 try:  # Source mode: shared/ on sys.path.
@@ -57,7 +57,7 @@ def build_caddy_supervisor(
     constructor arguments from module-level config and the cert/key
     paths resolved by ``tls_setup``.
     """
-    data_dir = Path(get_data_dir())
+    data_dir = Path(get_identity_dir())
     caddyfile_path = data_dir / "caddy" / "Caddyfile"
     binary_path = Path(get_caddy_path())
     template_kwargs = {

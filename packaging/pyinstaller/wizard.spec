@@ -82,6 +82,12 @@ hiddenimports += collect_submodules('sethlans_wizard')
 hiddenimports += [
     'shared.frozen_paths',
     'shared.version',
+    # The settings file (sethlans.ini) reader/writer and its helpers.
+    'shared.settings_file',
+    'shared.settings_file_io',
+    'shared.file_lock',
+    'shared.owner_only_acl',
+    'shared.owner_only_acl_win',
 ]
 
 # Waitress has several submodules PyInstaller's static import walker

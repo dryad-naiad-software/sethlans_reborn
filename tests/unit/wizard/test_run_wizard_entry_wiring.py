@@ -136,7 +136,7 @@ class TestSuccessfulWiring:
         self, tmp_path, monkeypatch,
     ):
         """Malformed ``SETHLANS_WIZARD_PORT`` short-circuits with rc=2."""
-        monkeypatch.setenv("SETHLANS_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(tmp_path))
         monkeypatch.setenv("SETHLANS_WIZARD_PORT", "not-a-port")
         run_wizard = importlib.import_module("run_wizard")
         rc = run_wizard.main([])

@@ -8,7 +8,7 @@ create the admin superuser and ensure an enrollment key exists in the
 
 This is the non-browser counterpart to the standalone setup wizard.  Per
 Spec 2 FR-DEL7 the command is retained as the sole headless / CI
-bootstrap path; the wizard now owns ``manager.ini`` writes
+bootstrap path; the wizard now owns ``sethlans.ini`` writes
 (FR-M2-INI), SECRET_KEY generation (handled by the launcher's
 ``_bootstrap_first_run``), worker UI password hashing (FR-M2-6), and
 DB validation (FR-M2-4), so this command no longer touches any of those.

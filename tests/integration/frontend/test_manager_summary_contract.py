@@ -32,18 +32,19 @@ EXPECTED_FIELDS = {
 
 
 @pytest.fixture
-def summary_data_dir(mocker, tmp_path):
-    """Point the summary view's data dir (``manager.ini``) at tmp."""
-    from workers.views import manager_summary as mod
-    mocker.patch.object(mod, "_data_dir", return_value=tmp_path)
-    return tmp_path
+def summary_settings_file():
+    """The settings file the view reads: the stage conftest's per-test path."""
+    from shared.settings_file import settings_path
+    path = settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 class TestSummaryInterfaceFields:
     """The response must contain exactly the fields of the API contract."""
 
     def test_admin_session_returns_all_fields(
-        self, admin_client, summary_data_dir,
+        self, admin_client, summary_settings_file,
     ):
         resp = admin_client.get(SUMMARY_PATH)
         assert resp.status_code == 200, resp.content
@@ -58,11 +59,11 @@ class TestSummaryInterfaceFields:
                 f"Field {field} is {type(body[field])}, expected str"
             )
 
-    def test_summary_reads_manager_ini_from_data_dir(
-        self, admin_client, summary_data_dir,
+    def test_summary_reads_the_settings_file(
+        self, admin_client, summary_settings_file,
     ):
-        """The URL is built from ``manager.ini`` in the data dir."""
-        (summary_data_dir / "manager.ini").write_text(
+        """The URL is built from ``[server]`` of ``sethlans.ini``."""
+        summary_settings_file.write_text(
             "[server]\nhost = 10.0.0.5\nport = 9443\n", encoding="utf-8",
         )
         body = admin_client.get(SUMMARY_PATH).json()
@@ -71,7 +72,7 @@ class TestSummaryInterfaceFields:
 
 class TestSummaryAuthContract:
 
-    def test_anonymous_returns_401_or_403(self, summary_data_dir):
+    def test_anonymous_returns_401_or_403(self, summary_settings_file):
         """Unauthenticated callers are rejected by DRF."""
         client = APIClient()
         resp = client.get(SUMMARY_PATH)
@@ -79,7 +80,7 @@ class TestSummaryAuthContract:
             f"Expected 401/403 for anonymous, got {resp.status_code}"
         )
 
-    def test_non_admin_user_returns_403(self, summary_data_dir):
+    def test_non_admin_user_returns_403(self, summary_settings_file):
         """An authenticated but non-admin user gets 403."""
         User = get_user_model()
         user = User.objects.create_user(
@@ -91,7 +92,7 @@ class TestSummaryAuthContract:
         resp = client.get(SUMMARY_PATH)
         assert resp.status_code == 403
 
-    def test_token_auth_admin_allowed(self, summary_data_dir):
+    def test_token_auth_admin_allowed(self, summary_settings_file):
         """Admin TokenAuthentication also permits summary access (FR-6a)."""
         from rest_framework.authtoken.models import Token
         User = get_user_model()

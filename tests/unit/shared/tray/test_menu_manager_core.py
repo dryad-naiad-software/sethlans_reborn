@@ -246,13 +246,13 @@ class TestPredicates:
         assert section.setup_token_available() is False
 
     def test_setup_token_available_false_without_ini(self, section):
-        # No sentinel, no manager.ini.
+        # No sentinel, no settings file.
         assert section.setup_token_available() is False
 
     def test_setup_token_available_true_with_valid_ini_token(
         self, section, tmp_path,
     ):
-        ini = tmp_path / "manager" / "manager.ini"
+        ini = tmp_path / "sethlans.ini"
         ini.write_text(
             "[setup]\ntoken = " + "a" * 32 + "\n", encoding="utf-8",
         )

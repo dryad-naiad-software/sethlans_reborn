@@ -5,7 +5,7 @@
 """Unit tests for ``shared/tray/menu_manager_helpers.py``.
 
 Pure helpers (no Qt) consumed by ``menu_manager.ManagerSection``:
-sentinel detection, token read from manager.ini, token shape
+sentinel detection, token read from the settings file, token shape
 validation, and platform-specific log-opener dispatch.
 """
 
@@ -54,14 +54,14 @@ class TestSentinelExists:
 class TestReadToken:
 
     def _write_ini(self, manager_dir, body):
-        path = manager_dir / "manager.ini"
+        path = manager_dir / "sethlans.ini"
         path.write_text(body, encoding="utf-8")
         return path
 
     def test_returns_empty_when_ini_missing(self, tmp_path):
         manager_dir = tmp_path / "manager"
         manager_dir.mkdir()
-        assert read_token(manager_dir) == ""
+        assert read_token(manager_dir / "sethlans.ini") == ""
 
     def test_returns_token_when_present(self, tmp_path):
         manager_dir = tmp_path / "manager"
@@ -70,35 +70,35 @@ class TestReadToken:
             manager_dir,
             "[setup]\ntoken = abc123XYZ_token-1234567890ABCDEF\n",
         )
-        assert read_token(manager_dir) == "abc123XYZ_token-1234567890ABCDEF"
+        assert read_token(manager_dir / "sethlans.ini") == "abc123XYZ_token-1234567890ABCDEF"
 
     def test_returns_empty_when_no_setup_section(self, tmp_path):
         manager_dir = tmp_path / "manager"
         manager_dir.mkdir()
         self._write_ini(manager_dir, "[other]\nfoo = bar\n")
-        assert read_token(manager_dir) == ""
+        assert read_token(manager_dir / "sethlans.ini") == ""
 
     def test_returns_empty_when_setup_has_no_token(self, tmp_path):
         manager_dir = tmp_path / "manager"
         manager_dir.mkdir()
         self._write_ini(manager_dir, "[setup]\nother = value\n")
-        assert read_token(manager_dir) == ""
+        assert read_token(manager_dir / "sethlans.ini") == ""
 
     def test_returns_empty_when_token_empty_string(self, tmp_path):
         manager_dir = tmp_path / "manager"
         manager_dir.mkdir()
         self._write_ini(manager_dir, "[setup]\ntoken =\n")
-        assert read_token(manager_dir) == ""
+        assert read_token(manager_dir / "sethlans.ini") == ""
 
     def test_returns_empty_when_ini_oversized(self, tmp_path, caplog):
         manager_dir = tmp_path / "manager"
         manager_dir.mkdir()
-        # Fabricate an oversized (>1024 byte) ini body.
-        body = "[setup]\ntoken = abc\n" + ("x = " + "y" * 40 + "\n") * 100
+        # Fabricate an oversized (>64 KiB) ini body.
+        body = "[setup]\ntoken = abc\n" + ("x = " + "y" * 40 + "\n") * 2000
         assert len(body.encode("utf-8")) > helpers._MAX_INI_BYTES
         self._write_ini(manager_dir, body)
         with caplog.at_level(logging.WARNING, logger=helpers.logger.name):
-            result = read_token(manager_dir)
+            result = read_token(manager_dir / "sethlans.ini")
         assert result == ""
         assert any(
             "exceeds" in rec.message for rec in caplog.records
@@ -110,10 +110,10 @@ class TestReadToken:
         # No section header — configparser raises MissingSectionHeaderError.
         self._write_ini(manager_dir, "token = oops_no_section\n")
         with caplog.at_level(logging.WARNING, logger=helpers.logger.name):
-            result = read_token(manager_dir)
+            result = read_token(manager_dir / "sethlans.ini")
         assert result == ""
         assert any(
-            "Could not parse manager.ini" in rec.message
+            "Could not parse sethlans.ini" in rec.message
             for rec in caplog.records
         )
 
@@ -124,7 +124,7 @@ class TestReadToken:
         mocker.patch(
             "pathlib.Path.stat", side_effect=OSError("denied"),
         )
-        assert read_token(manager_dir) == ""
+        assert read_token(manager_dir / "sethlans.ini") == ""
 
     def test_returns_empty_when_exists_raises(self, tmp_path, mocker):
         # Python 3.13+ lets OSError (e.g. PermissionError) escape
@@ -134,7 +134,7 @@ class TestReadToken:
         mocker.patch(
             "pathlib.Path.exists", side_effect=OSError("denied"),
         )
-        assert read_token(manager_dir) == ""
+        assert read_token(manager_dir / "sethlans.ini") == ""
 
 
 class TestValidateToken:

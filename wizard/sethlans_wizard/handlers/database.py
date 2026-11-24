@@ -137,10 +137,10 @@ def _handle(
 
     section = _build_section(engine, payload)
     try:
-        update_manager_ini(data_dir, "database", section)
+        update_manager_ini("database", section)
     except OSError as exc:
         logger.error(
-            "Could not write manager.ini under %s: %s", data_dir, exc,
+            "Could not write the settings file: %s", exc,
         )
         return _wsgi.send_json(
             start_response,

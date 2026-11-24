@@ -5,10 +5,11 @@
 """
 Integration tests for Django settings frozen-mode path resolution.
 
-Verifies that ``settings.py`` resolves DATABASES, MEDIA_ROOT,
-STATIC_ROOT, and _config_file_path to the OS-conventional per-user
-data directory when ``is_frozen()`` returns ``True``, and to the
-source-tree directory when it returns ``False``.
+Verifies that ``settings.py`` resolves DATABASES, MEDIA_ROOT and
+STATIC_ROOT to the OS-conventional per-user data directory when
+``is_frozen()`` returns ``True``, and to the source-tree directory when
+it returns ``False``; the settings file is always
+``shared.settings_file.settings_path()``.
 
 These tests reload the settings module under simulated frozen mode
 (by patching ``sys.frozen`` and ``sys._MEIPASS``) to exercise both
@@ -17,6 +18,17 @@ branches without a real PyInstaller bundle.
 
 import importlib
 from pathlib import Path
+
+import pytest
+
+import shared.frozen_paths as _fp_real
+
+# The real helpers, restored for a source-mode reload after a frozen one
+# in the same test (both modes now resolve data through get_data_dir).
+_REAL_HELPERS = {
+    name: getattr(_fp_real, name)
+    for name in ('get_data_dir', 'get_manager_dir', 'get_frontend_dist_dir')
+}
 
 
 def _reload_settings_with_frozen(monkeypatch, tmp_data_dir, frozen=True):
@@ -46,6 +58,8 @@ def _reload_settings_with_frozen(monkeypatch, tmp_data_dir, frozen=True):
         )
     else:
         monkeypatch.setattr(fp_mod, 'is_frozen', lambda: False)
+        for name, real in _REAL_HELPERS.items():
+            monkeypatch.setattr(fp_mod, name, real)
 
     # Ensure the data directories exist so mkdir calls don't fail
     (tmp_data_dir / 'manager').mkdir(parents=True, exist_ok=True)
@@ -64,9 +78,23 @@ def _reload_settings_with_frozen(monkeypatch, tmp_data_dir, frozen=True):
     import sethlans_manager.logging_config as lc_mod
     importlib.reload(lc_mod)
 
+    # db_config binds ``is_frozen`` / ``get_data_dir`` at import; reload it
+    # so the default SQLite path follows the patched helpers.
+    import sethlans_manager.db_config as db_mod
+    importlib.reload(db_mod)
+
     import sethlans_manager.settings as settings_mod
     importlib.reload(settings_mod)
     return settings_mod
+
+
+@pytest.fixture(autouse=True)
+def _restore_db_config(monkeypatch):
+    """Rebind db_config to the real helpers so no later test sees a fake."""
+    yield
+    monkeypatch.undo()
+    import sethlans_manager.db_config as db_mod
+    importlib.reload(db_mod)
 
 
 class TestFrozenModeSettingsPaths:
@@ -97,16 +125,17 @@ class TestFrozenModeSettingsPaths:
         )
         assert str(tmp_path / 'manager') in str(settings.STATIC_ROOT)
 
-    def test_config_file_path_points_to_data_dir(
+    def test_config_file_path_is_the_settings_file(
         self, tmp_path, monkeypatch,
     ):
-        """_config_file_path (manager.ini) is under the data dir."""
-        settings = _reload_settings_with_frozen(
+        """The settings file read is ``settings_path()`` (sethlans.ini)."""
+        from shared.settings_file import settings_path
+        _reload_settings_with_frozen(
             monkeypatch, tmp_path, frozen=True,
         )
-        cfg_path = settings._config_file_path
-        assert str(tmp_path / 'manager') in str(cfg_path)
-        assert cfg_path.name == 'manager.ini'
+        import sethlans_manager.config_loader as cl_mod
+        assert cl_mod._config_file_path == settings_path()
+        assert cl_mod._config_file_path.name == 'sethlans.ini'
 
     def test_base_dir_points_to_manager_dir(
         self, tmp_path, monkeypatch,
@@ -152,14 +181,16 @@ class TestSourceModeSettingsPaths:
     def test_config_file_path_uses_base_dir(
         self, tmp_path, monkeypatch,
     ):
-        """_config_file_path is BASE_DIR / 'manager.ini' in source mode."""
+        """Without env overrides, source mode reads BASE_DIR / 'sethlans.ini'."""
+        for name in ('SETHLANS_SETTINGS_FILE', 'SETHLANS_SETTINGS_DIR',
+                     'SETHLANS_MANAGER_DATA_DIR'):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv('SETHLANS_SECURITY_SECRET_KEY', 'x' * 50)
         settings = _reload_settings_with_frozen(
             monkeypatch, tmp_path, frozen=False,
         )
-        cfg_path = settings._config_file_path
-        assert cfg_path.name == 'manager.ini'
-        # Should not contain our tmp_path
-        assert str(tmp_path) not in str(cfg_path)
+        import sethlans_manager.config_loader as cl_mod
+        assert cl_mod._config_file_path == settings.BASE_DIR / 'sethlans.ini'
 
 
 class TestFrozenModeDoesNotBreakSourceMode:

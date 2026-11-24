@@ -53,7 +53,7 @@ def _mock_all_passing(mocker, blenders=None):
     )
     mocker.patch(
         "sethlans_worker_agent.web_ui.setup.handlers_verify"
-        ".config_store.get_data_dir",
+        ".config_store.get_identity_dir",
         return_value="/fake/dir",
     )
     mocker.patch(

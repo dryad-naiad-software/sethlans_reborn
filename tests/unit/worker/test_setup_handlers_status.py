@@ -45,7 +45,7 @@ class TestHandleSetupStatus:
     def test_returns_complete_when_sentinel_exists(self, mocker):
         mocker.patch(
             "sethlans_worker_agent.web_ui.setup.handlers_status"
-            ".config_store.get_data_dir",
+            ".config_store.get_identity_dir",
             return_value="/fake/dir",
         )
         mocker.patch(
@@ -70,7 +70,7 @@ class TestHandleSetupStatus:
     def test_returns_incomplete_with_in_progress_state(self, mocker):
         mocker.patch(
             "sethlans_worker_agent.web_ui.setup.handlers_status"
-            ".config_store.get_data_dir",
+            ".config_store.get_identity_dir",
             return_value="/fake/dir",
         )
         mocker.patch(
@@ -96,7 +96,7 @@ class TestHandleSetupStatus:
         """Sentinel missing + no in-progress state -> empty snapshot."""
         mocker.patch(
             "sethlans_worker_agent.web_ui.setup.handlers_status"
-            ".config_store.get_data_dir",
+            ".config_store.get_identity_dir",
             return_value="/fake/dir",
         )
         mocker.patch(

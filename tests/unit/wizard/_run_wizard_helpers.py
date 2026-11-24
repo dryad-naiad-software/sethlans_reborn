@@ -52,7 +52,7 @@ def provisioned_data_dir(tmp_path, monkeypatch):
     Mirrors what the launcher's FR-L3a / FR-L4a writes immediately
     before spawning the wizard.
     """
-    monkeypatch.setenv("SETHLANS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(tmp_path))
     wizard_subdir = tmp_path / "wizard"
     wizard_subdir.mkdir(parents=True, exist_ok=True)
 

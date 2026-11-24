@@ -46,7 +46,7 @@ class TestConcurrentReaderWriter:
         """
         mocker.patch(
             "sethlans_worker_agent.web_ui.setup.handlers_status"
-            ".config_store.get_data_dir",
+            ".config_store.get_identity_dir",
             return_value="/fake/dir",
         )
         mocker.patch(
@@ -103,7 +103,7 @@ class TestConcurrentReaderWriter:
         """
         mocker.patch(
             "sethlans_worker_agent.web_ui.setup.handlers_status"
-            ".config_store.get_data_dir",
+            ".config_store.get_identity_dir",
             return_value="/fake/dir",
         )
         mocker.patch(

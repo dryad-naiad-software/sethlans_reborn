@@ -6,9 +6,9 @@ Atomic text-file write helper for the Caddyfile.
 
 Inlined in the ``caddy_supervisor`` package rather than extracted to a
 shared helper because the existing helpers
-(``launcher/setup_helpers.py:atomic_write_ini`` and
+(``shared/settings_file_io.py:atomic_replace`` and
 ``worker/sethlans_worker_agent/config_store/io.py:atomic_write``)
-are typed to ``ConfigParser`` and ``dict`` respectively; a shared
+serve the owner-only settings file and a ``dict`` respectively; a shared
 extraction would churn both modules for no runtime benefit in this
 phase. A future cross-component refactor (Phase 5d or later) could
 promote this to ``shared/atomic_io.py``.

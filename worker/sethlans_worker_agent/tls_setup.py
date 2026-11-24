@@ -57,7 +57,7 @@ def get_tls_config():
 def get_tls_dir():
     """Return the TLS directory path.
 
-    Default: ``<worker_data_dir>/tls/``
+    Default: ``<worker identity dir>/tls/`` (never moves with the data folder)
     Override: ``SETHLANS_WORKER_TLS_DATA_DIR`` env var (must be absolute).
     """
     env_override = os.getenv('SETHLANS_WORKER_TLS_DATA_DIR')
@@ -69,7 +69,7 @@ def get_tls_dir():
                 f"got: {env_override}"
             )
         return p
-    return config_store.get_data_dir() / 'tls'
+    return config_store.get_identity_dir() / 'tls'
 
 
 def _write_fingerprint_file(fingerprint, tls_dir):

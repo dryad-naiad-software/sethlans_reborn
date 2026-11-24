@@ -159,7 +159,7 @@ def smoke_spawn(bundle: pathlib.Path, port: int) -> bool:
 
     env = os.environ.copy()
     env["SETHLANS_WIZARD_PORT"] = str(port)
-    env["SETHLANS_DATA_DIR"] = str(tmp_root)
+    env["SETHLANS_SETTINGS_DIR"] = str(tmp_root)
 
     log_out = tmp_root / "wizard-stdout.log"
     log_err = tmp_root / "wizard-stderr.log"

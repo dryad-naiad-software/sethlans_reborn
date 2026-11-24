@@ -17,13 +17,12 @@ flag is here so this script doesn't need rewriting once it lands.)
 
 Because ``SETHLANS_MANAGER_DATA_DIR`` is set, the source-mode manager
 keeps its state in ``temp/dev-data/manager/`` instead of the source
-tree (see ``sethlans_manager.state_dir``): ``manager.ini``, the default
-SQLite database (next to ``manager.ini``), logs, broadcaster params,
-the secret-key file and FFmpeg. The TLS cert is passed explicitly via
-``SETHLANS_TLS_CERT_FILE`` / ``SETHLANS_TLS_KEY_FILE``.
-``SETHLANS_DATA_DIR`` points the shared data dir (topology, IPC
-markers, the launcher's ``.setup_complete`` marker) at the dev data
-root. For a clean DB,
+tree (see ``sethlans_manager.state_dir``): the default SQLite database,
+logs, broadcaster params, the secret-key file and FFmpeg. The TLS cert
+is passed explicitly via ``SETHLANS_TLS_CERT_FILE`` /
+``SETHLANS_TLS_KEY_FILE``. ``SETHLANS_SETTINGS_DIR`` points the settings
+folder (``sethlans.ini``, topology, IPC markers, the launcher's
+``.setup_complete`` marker) at the dev data root. For a clean DB,
 delete ``temp/dev-data/manager/db.sqlite3`` between runs.
 
 CLI:
@@ -117,7 +116,7 @@ def _build_env(
     """Compose env for ``run_manager.py``."""
     env = {
         "SETHLANS_MANAGER_DATA_DIR": str(manager_data.resolve()),
-        "SETHLANS_DATA_DIR": str(shared_data_dir.resolve()),
+        "SETHLANS_SETTINGS_DIR": str(shared_data_dir.resolve()),
         "SETHLANS_MANAGER_HOST": "0.0.0.0",
         "SETHLANS_MANAGER_PORT": str(port),
         "SETHLANS_TLS_CERT_FILE": str(cert_path.resolve()),

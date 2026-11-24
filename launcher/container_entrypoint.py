@@ -104,6 +104,7 @@ from sethlans_manager.waitress_config import (  # noqa: E402
     get_waitress_public_port,
 )
 from shared.cert_utils import CertificateError  # noqa: E402
+from shared.settings_file import read_settings  # noqa: E402
 
 logger = logging.getLogger("sethlans.container")
 
@@ -119,14 +120,11 @@ def resolve_public_port(ini_path: Path) -> int:
     """Return Caddy's public TLS port.
 
     Same order the manager uses for its advertised port:
-    ``SETHLANS_MANAGER_PORT`` > ``manager.ini [server] port`` > 8080.
+    ``SETHLANS_MANAGER_PORT`` > settings file ``[server] port`` > 8080.
     """
     raw = os.environ.get("SETHLANS_MANAGER_PORT")
-    if not raw and ini_path.is_file():
-        import configparser
-        cfg = configparser.ConfigParser()
-        cfg.read(ini_path)
-        raw = cfg.get("server", "port", fallback=None)
+    if not raw:
+        raw = read_settings(ini_path).get("server", "port", fallback=None)
     if not raw:
         return CADDY_PUBLIC_TLS_PORT
     try:
@@ -146,7 +144,7 @@ def build_supervisor():
     cert_path, key_path, _cert = setup_certificates(
         dev_mode=False, manager_dir=MANAGER_DIR, project_root=PROJECT_ROOT,
     )
-    ini_path = get_config_file_path(MANAGER_DIR)
+    ini_path = get_config_file_path()
     return build_manager_caddy_supervisor(
         caddyfile_path=Path(caddyfile),
         public_tls_port=resolve_public_port(ini_path),

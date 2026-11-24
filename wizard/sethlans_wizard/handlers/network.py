@@ -4,7 +4,7 @@
 r"""``POST /api/wizard/network/`` — Network step (FR-M2-3).
 
 Validates the operator-supplied bind host / port / data-dir, persists
-``[server]`` to ``manager.ini`` via the FR-M2-INI helper, and records
+``[server]`` to the settings file via the FR-M2-INI helper, and records
 the ``network_configured`` checkpoint.
 
 Validation:
@@ -247,7 +247,6 @@ def _handle(
 
     try:
         update_manager_ini(
-            target_data_dir,
             "server",
             {
                 "bind_host": fields["bind_host"],
@@ -256,8 +255,7 @@ def _handle(
             },
         )
     except OSError as exc:
-        logger.error("Could not write manager.ini under %s: %s",
-                     target_data_dir, exc)
+        logger.error("Could not write the settings file: %s", exc)
         return _wsgi.send_json(
             start_response,
             {"error": "could not write manager.ini"},

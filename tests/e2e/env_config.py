@@ -137,7 +137,7 @@ def build_manager_env(
     env["SETHLANS_TLS_DATA_DIR"] = str(tls_data_dir)
     # Anchor the manager's source-mode state dir (``state_dir``) at the
     # per-test tmp tree, the parent of ``tls_data_dir``. Logs,
-    # ``manager.ini``, the bundled FFmpeg install and the other manager
+    # ``sethlans.ini``, the bundled FFmpeg install and the other manager
     # state then land there instead of in ``manager/`` in the repo.
     env["SETHLANS_MANAGER_DATA_DIR"] = str(tls_data_dir.parent)
     return env

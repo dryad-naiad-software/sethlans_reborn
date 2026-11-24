@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Every source-mode state location follows ``SETHLANS_MANAGER_DATA_DIR`` (#297).
 
-The Docker image sets ``SETHLANS_MANAGER_DATA_DIR=/data`` so manager.ini,
-the TLS cert, the setup marker, broadcaster params, logs, the secret key
+The Docker image sets ``SETHLANS_MANAGER_DATA_DIR=/data`` so the settings
+file, the TLS cert, broadcaster params, logs, the database, the secret key
 and FFmpeg all land in the volume. These tests pin each reader to the one
-switch in :mod:`sethlans_manager.state_dir`, and pin the paths that must
+switch in :mod:`sethlans_manager.state_dir` (and the settings file to
+:func:`shared.settings_file.settings_path`), and pin the paths that must
 not change: a frozen (installed) manager, and a source run without the
 variable.
 """
@@ -21,16 +22,19 @@ from pathlib import Path
 
 import pytest
 
-from sethlans_manager import state_dir, tls_setup, waitress_config
+from sethlans_manager import state_dir, tls_setup
+from shared import settings_file
 
 ENV = "SETHLANS_MANAGER_DATA_DIR"
+SETTINGS_ENV = ("SETHLANS_SETTINGS_FILE", "SETHLANS_SETTINGS_DIR")
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MANAGER_DIR = REPO_ROOT / "manager"
 
 
 @pytest.fixture
 def no_env(monkeypatch):
-    for name in (ENV, "SETHLANS_TLS_DATA_DIR"):
+    """No path env var at all, so the settings file follows the real order."""
+    for name in (ENV, "SETHLANS_TLS_DATA_DIR", "SETHLANS_DATA_ROOT") + SETTINGS_ENV:
         monkeypatch.delenv(name, raising=False)
 
 
@@ -43,10 +47,10 @@ def data_env(no_env, monkeypatch, tmp_path):
 
 @pytest.fixture
 def frozen(monkeypatch, tmp_path):
-    """Installed manager: tls_setup sees frozen mode and a per-user dir."""
+    """Installed manager: tls_setup sees frozen mode and a per-user identity dir."""
     user_dir = tmp_path / "user-data"
     monkeypatch.setattr(tls_setup, "is_frozen", lambda: True)
-    monkeypatch.setattr(tls_setup, "get_data_dir", lambda _c: user_dir)
+    monkeypatch.setattr(tls_setup, "get_identity_dir", lambda _c: user_dir)
     return user_dir
 
 
@@ -66,20 +70,20 @@ def test_relative_env_is_rejected(no_env, monkeypatch, tmp_path):
         state_dir.source_data_dir(tmp_path)
 
 
-# -- manager.ini readers agree ------------------------------------------------
+# -- the settings file ----------------------------------------------------
 
-def test_ini_source_without_env_is_unchanged(no_env, tmp_path):
-    assert tls_setup.get_config_file_path(tmp_path) == tmp_path / "manager.ini"
-    assert waitress_config.resolve_ini_path(tmp_path) == tmp_path / "manager.ini"
-
-
-def test_ini_source_with_env(data_env, tmp_path):
-    assert tls_setup.get_config_file_path(tmp_path) == data_env / "manager.ini"
-    assert waitress_config.resolve_ini_path(tmp_path) == data_env / "manager.ini"
+def test_ini_source_without_env(no_env):
+    assert tls_setup.get_config_file_path() == MANAGER_DIR / "sethlans.ini"
 
 
-def test_ini_frozen_is_unchanged(data_env, frozen, tmp_path):
-    assert tls_setup.get_config_file_path(tmp_path) == frozen / "manager.ini"
+def test_ini_source_with_env(data_env):
+    assert tls_setup.get_config_file_path() == data_env / "sethlans.ini"
+
+
+def test_ini_is_settings_path(data_env, monkeypatch, tmp_path):
+    explicit = tmp_path / "elsewhere" / "sethlans.ini"
+    monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(explicit))
+    assert tls_setup.get_config_file_path() == explicit == settings_file.settings_path()
 
 
 # -- TLS dir --------------------------------------------------------------
@@ -102,31 +106,36 @@ def test_tls_explicit_override_still_wins(data_env, monkeypatch, tmp_path):
     assert tls_setup.get_tls_dir(False, tmp_path, tmp_path) == explicit
 
 
-def test_tls_frozen_is_unchanged(data_env, frozen, tmp_path):
+def test_tls_frozen_is_in_the_identity_dir(data_env, frozen, tmp_path):
     assert tls_setup.get_tls_dir(False, tmp_path, tmp_path) == frozen / "tls"
 
 
-# -- Django-side readers (data dir, summary, broadcaster params) ----------
-
-def test_manager_data_dir_follows_env(data_env, settings):
-    from workers.services.data_dir import get_manager_data_dir
-    assert get_manager_data_dir() == data_env
-
-
-def test_manager_data_dir_without_env_is_base_dir(no_env, settings):
-    from workers.services.data_dir import get_manager_data_dir
-    assert get_manager_data_dir() == Path(settings.BASE_DIR)
-
-
-def test_summary_dir_follows_env(data_env):
-    from workers.views.manager_summary import _data_dir
-    assert _data_dir() == data_env
+@pytest.fixture
+def frozen_moved_data(no_env, monkeypatch, tmp_path):
+    """Installed manager whose data folder was moved; returns the settings folder."""
+    settings_dir = tmp_path / "settings"
+    monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(settings_dir))
+    monkeypatch.setenv("SETHLANS_DATA_ROOT", str(tmp_path / "bulk"))
+    monkeypatch.setattr("shared.frozen_paths.is_frozen", lambda: True)
+    monkeypatch.setattr(tls_setup, "is_frozen", lambda: True)
+    monkeypatch.delenv("SETHLANS_MANAGER_PUBLISH_BROADCASTER_PARAMS", raising=False)
+    return settings_dir
 
 
-def test_summary_dir_without_env_is_base_dir(no_env, settings):
-    from workers.views.manager_summary import _data_dir
-    assert _data_dir() == Path(settings.BASE_DIR)
+def test_tls_frozen_never_moves_with_the_data_folder(frozen_moved_data, tmp_path):
+    assert tls_setup.get_tls_dir(False, tmp_path, tmp_path) == frozen_moved_data / "manager" / "tls"
 
+
+def test_broadcaster_params_frozen_stay_in_the_identity_dir(frozen_moved_data):
+    """The launcher reads them from ``<settings folder>/manager``."""
+    from sethlans_manager import runtime_init
+    (frozen_moved_data / "manager").mkdir(parents=True)
+    runtime_init._publish_broadcaster_params()
+    assert (frozen_moved_data / "manager" / "broadcaster_params.json").is_file()
+    assert not (frozen_moved_data.parent / "bulk").exists()
+
+
+# -- broadcaster params ---------------------------------------------------
 
 def test_broadcaster_params_follow_env(data_env, monkeypatch):
     from sethlans_manager import runtime_init
@@ -139,7 +148,7 @@ def test_broadcaster_params_follow_env(data_env, monkeypatch):
 # -- run_manager: enrollment config and the stale-[setup] sweep ------------
 
 @pytest.mark.parametrize("use_env", [True, False])
-def test_prepare_runtime_config_dir(no_env, monkeypatch, tmp_path, use_env):
+def test_prepare_runtime_reads_the_settings_file(no_env, monkeypatch, tmp_path, use_env):
     import run_manager as rm
 
     if use_env:
@@ -148,13 +157,13 @@ def test_prepare_runtime_config_dir(no_env, monkeypatch, tmp_path, use_env):
     monkeypatch.setattr(rm, "is_frozen", lambda: False)
     monkeypatch.setattr("django.setup", lambda: None)
     monkeypatch.setattr("sethlans_manager.logging_config.configure", lambda: None)
-    monkeypatch.setattr(rm, "get_enrollment_config", lambda d: seen.append(d) or {})
+    monkeypatch.setattr(rm, "get_enrollment_config", lambda p: seen.append(p) or {})
     monkeypatch.setattr(rm, "cleanup_stale_setup_section", seen.append)
     monkeypatch.setattr(rm, "initialize_runtime_state", lambda *_a: None)
 
     rm._prepare_runtime(None, "0.0.0.0", "8080")
 
-    expected = tmp_path if use_env else rm.MANAGER_DIR
+    expected = (tmp_path if use_env else MANAGER_DIR) / "sethlans.ini"
     assert seen == [expected, expected]
 
 
@@ -163,21 +172,25 @@ def test_prepare_runtime_config_dir(no_env, monkeypatch, tmp_path, use_env):
 _PROBE = """
 import json, sys
 sys.path[:0] = [{repo!r}, {manager!r}]
-from sethlans_manager import config_loader, logging_config, tls_setup
-from shared.frozen_paths import get_data_dir
+from sethlans_manager import config_loader, db_config, logging_config, tls_setup
+from shared.frozen_paths import get_data_dir, get_identity_dir
 from workers.services.parts_check.ffmpeg_download_pkg.locate import get_ffmpeg_dir
 print(json.dumps({{
     "ini": str(config_loader._config_file_path),
-    "tls_ini": str(tls_setup.get_config_file_path(config_loader.BASE_DIR)),
+    "tls_ini": str(tls_setup.get_config_file_path()),
+    "tls": str(tls_setup.get_tls_dir(False, config_loader.BASE_DIR, config_loader.BASE_DIR.parent)),
+    "db": str(db_config._get_default_sqlite_path()),
     "logs": str(logging_config.LOGS_DIR),
-    "secret_key_dir": str(get_data_dir("manager")),
+    "secret_key_dir": str(get_identity_dir("manager")),
     "ffmpeg": str(get_ffmpeg_dir(get_data_dir("manager"))),
 }}))
 """
 
+_SCRUBBED = (ENV, "SETHLANS_TLS_DATA_DIR", "SETHLANS_DATA_ROOT") + SETTINGS_ENV
+
 
 def _probe(env_dir):
-    env = {k: v for k, v in os.environ.items() if k not in (ENV, "SETHLANS_TLS_DATA_DIR")}
+    env = {k: v for k, v in os.environ.items() if k not in _SCRUBBED}
     if env_dir is not None:
         env[ENV] = str(env_dir)
     code = _PROBE.format(repo=str(REPO_ROOT), manager=str(MANAGER_DIR))
@@ -189,11 +202,14 @@ def _probe(env_dir):
 
 
 def test_module_level_paths_follow_env(tmp_path):
+    """Docker-style env-only start: everything stays under the one folder."""
     data = tmp_path / "data"
     paths = _probe(data)
 
-    assert paths["ini"] == data / "manager.ini"
+    assert paths["ini"] == data / "sethlans.ini"
     assert paths["tls_ini"] == paths["ini"]
+    assert paths["tls"] == data / "tls"
+    assert paths["db"] == data / "db.sqlite3"
     assert paths["logs"] == data / "logs"
     assert paths["logs"].is_dir()
     assert paths["secret_key_dir"] == data

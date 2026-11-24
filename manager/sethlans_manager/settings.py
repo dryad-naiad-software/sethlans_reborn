@@ -8,6 +8,7 @@ import os
 from shared.frozen_paths import (
     get_data_dir,
     get_frontend_dist_dir,
+    get_identity_dir,
     is_frozen,
 )
 
@@ -17,7 +18,6 @@ from sethlans_manager.config_loader import (
     BASE_DIR,
     _INSECURE_DEFAULT_KEY,
     _config,
-    _config_file_path,
     _get_config,
 )
 
@@ -33,16 +33,17 @@ _logger = logging.getLogger('django')
 
 if SECRET_KEY is None:
     # No explicit override — fall back to a persisted, auto-generated
-    # key in the manager data dir. First boot generates it; subsequent
-    # boots read it. See workers.services.secret_key.
+    # key in the manager identity folder, which never moves with the
+    # data folder. First boot generates it; subsequent boots read it.
+    # See workers.services.secret_key.
     from workers.services.secret_key import load_or_create_secret_key
-    SECRET_KEY = load_or_create_secret_key(get_data_dir('manager'))
+    SECRET_KEY = load_or_create_secret_key(get_identity_dir('manager'))
 elif SECRET_KEY == _INSECURE_DEFAULT_KEY:
     # Someone deliberately set the insecure default via env/ini.
     # Warn loudly but don't crash — dev convenience only.
     _logger.warning(
         "SECRET_KEY is set to the known insecure default. Remove the "
-        "override from manager.ini / SETHLANS_SECURITY_SECRET_KEY to "
+        "override from sethlans.ini / SETHLANS_SECURITY_SECRET_KEY to "
         "let the manager auto-generate a unique persisted key."
     )
 
@@ -167,9 +168,9 @@ WSGI_APPLICATION = 'sethlans_manager.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-# Hierarchy: env vars > manager.ini [database] > SQLite default
+# Hierarchy: env vars > settings file [database] > SQLite default
 from .db_config import build_database_config  # noqa: E402
-DATABASES = build_database_config(_config, _config_file_path)
+DATABASES = build_database_config(_config)
 
 
 # Password validation
@@ -195,11 +196,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# Database, media, static files and logs share one data folder in every
+# mode (shared.frozen_paths.get_data_dir; manager/ by default from source).
+STATIC_ROOT = get_data_dir('manager') / 'staticfiles'
 if is_frozen():
-    STATIC_ROOT = get_data_dir('manager') / 'staticfiles'
     _FRONTEND_DIST = get_frontend_dist_dir()
 else:
-    STATIC_ROOT = BASE_DIR / 'staticfiles'
     _FRONTEND_DIST = (
         BASE_DIR / 'frontend' / 'dist' / 'browser' / 'browser'
     )
@@ -248,10 +250,7 @@ from .logging_config import LOGGING  # noqa: E402, F401
 
 # --- Media Files (User Uploads) Configuration ---
 MEDIA_URL = '/media/'
-if is_frozen():
-    _default_media_root = str(get_data_dir('manager') / 'media')
-else:
-    _default_media_root = os.path.join(BASE_DIR, 'media')
+_default_media_root = str(get_data_dir('manager') / 'media')
 MEDIA_ROOT = os.getenv('SETHLANS_MEDIA_ROOT', _default_media_root)
 
 # --- Session Cookie Configuration ---

@@ -4,19 +4,21 @@
 
 """Config-loading machinery for :mod:`sethlans_manager.settings`.
 
-This module centralizes the resolution of ``BASE_DIR`` and the
-``manager.ini`` location, plus the ``_get_config`` helper that enforces
-the hierarchy ``env var > manager.ini > default``.  Extracting it keeps
-``settings.py`` under the 300-line cap (see GitHub issue #103).  Pure
-move — no behavior change.
+This module centralizes the resolution of ``BASE_DIR`` and the settings
+file location, plus the ``_get_config`` helper that enforces the
+hierarchy ``env var > settings file > default``.  Extracting it keeps
+``settings.py`` under the 300-line cap (see GitHub issue #103).
+
+The settings file is ``sethlans.ini`` at
+:func:`shared.settings_file.settings_path`, parsed without
+interpolation (a ``%`` in a value is literal).
 """
 
 from pathlib import Path
-import configparser
 import os
 
-from sethlans_manager.state_dir import source_data_dir
-from shared.frozen_paths import get_data_dir, get_manager_dir, is_frozen
+from shared.frozen_paths import get_manager_dir, is_frozen
+from shared.settings_file import read_settings, settings_path
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -25,25 +27,20 @@ if is_frozen():
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 
-# --- Manager Configuration (manager.ini) ---
-# Hierarchy: env vars > manager.ini > defaults
+# --- Manager configuration (the settings file) ---
+# Hierarchy: env vars > settings file > defaults
 _INSECURE_DEFAULT_KEY = (
     'django-insecure-^&r@p#+r6h*!@!1u=l!0j_z%z!%^n#b=2#h&l16b%c!0609t'
 )
 
-_config = configparser.ConfigParser()
-# Source mode honours SETHLANS_MANAGER_DATA_DIR (Docker image, tests);
-# see sethlans_manager.state_dir.
-if is_frozen():
-    _config_file_path = get_data_dir('manager') / 'manager.ini'
-else:
-    _config_file_path = source_data_dir(BASE_DIR) / 'manager.ini'
-if _config_file_path.exists():
-    _config.read(_config_file_path)
+_config_file_path = settings_path()
+# A file that exists but cannot be read or parsed stops the start, as
+# it did before: running on silent defaults would hide the fault.
+_config = read_settings(_config_file_path)
 
 
 def _get_config(section, key, env_var, default):
-    """Read a setting: env var > manager.ini > default."""
+    """Read a setting: env var > settings file > default."""
     value = os.getenv(env_var)
     if value is not None:
         return value

@@ -183,10 +183,10 @@ class TestInitialPhaseInTrayContext:
         from shared.tray import topology as topo_mod
 
         mocker.patch.object(
-            app, "get_shared_data_dir", return_value=tmp_path,
+            app, "get_settings_dir", return_value=tmp_path,
         )
         mocker.patch.object(
-            app, "get_data_dir",
+            app, "get_identity_dir",
             side_effect=lambda role: tmp_path / role,
         )
         mocker.patch.object(
@@ -209,14 +209,14 @@ class TestInitialPhaseInTrayContext:
 
         # Plant the .setup_complete sentinel.
         (tmp_path / ".setup_complete").write_text("", encoding="utf-8")
-        # And the manager dir, just to keep get_data_dir happy.
+        # And the manager dir, just to keep get_identity_dir happy.
         (tmp_path / "manager").mkdir()
 
         mocker.patch.object(
-            app, "get_shared_data_dir", return_value=tmp_path,
+            app, "get_settings_dir", return_value=tmp_path,
         )
         mocker.patch.object(
-            app, "get_data_dir",
+            app, "get_identity_dir",
             side_effect=lambda role: tmp_path / role,
         )
         mocker.patch.object(
@@ -236,10 +236,10 @@ class TestInitialPhaseInTrayContext:
         strings."""
         from shared.tray import topology as topo_mod
         mocker.patch.object(
-            app, "get_shared_data_dir", return_value=tmp_path,
+            app, "get_settings_dir", return_value=tmp_path,
         )
         mocker.patch.object(
-            app, "get_data_dir",
+            app, "get_identity_dir",
             side_effect=lambda role: tmp_path / role,
         )
         mocker.patch.object(

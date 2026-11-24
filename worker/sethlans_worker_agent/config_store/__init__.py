@@ -6,8 +6,11 @@
 Public API for the worker-side JSON config store (FR-24..FR-28).
 
 Exports:
-  * ``get_data_dir``           — per-OS data directory (also used for
-                                 tools/assets/output paths per FR-24a).
+  * ``get_data_dir``           — the worker's data folder (tools/assets/
+                                 output paths per FR-24a).
+  * ``get_identity_dir``       — the worker's identity folder (config.json,
+                                 tls/, setup state); never moves with the
+                                 data folder.
   * ``SYSTEM_CONFIG_PATH``     — Linux system-wide path constant.
   * ``load``                   — merged dict from system + per-user.
   * ``save``                   — full-dict atomic write (rarely used).
@@ -40,6 +43,7 @@ from .io import (
 from .paths import (
     SYSTEM_CONFIG_PATH,
     get_data_dir,
+    get_identity_dir,
     lockfile_path,
     user_config_path,
 )
@@ -52,6 +56,7 @@ __all__ = [
     "SYSTEM_CONFIG_PATH",
     "get",
     "get_data_dir",
+    "get_identity_dir",
     "load",
     "load_strict",
     "save",

@@ -81,7 +81,7 @@ class ManagerSection:
     def setup_token_available(self) -> bool:
         if sentinel_exists(self.manager_data_dir):
             return False
-        token = read_token(self.manager_data_dir)
+        token = read_token()
         return validate_token(token)
 
     def wizard_visible(self) -> bool:
@@ -114,7 +114,7 @@ class ManagerSection:
         if sentinel_exists(self.manager_data_dir):
             logger.info("Copy token skipped: setup already complete")
             return
-        token = read_token(self.manager_data_dir)
+        token = read_token()
         if not validate_token(token):
             logger.info("Copy token skipped: token not available")
             return

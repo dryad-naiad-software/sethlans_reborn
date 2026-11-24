@@ -17,7 +17,7 @@ from rest_framework import serializers
 class FFmpegDetailsSerializer(serializers.Serializer):
     """The admin-only details block.
 
-    ``source`` is one of: ``"system"`` (PATH or manager.ini override) /
+    ``source`` is one of: ``"system"`` (PATH or settings-file ``[ffmpeg] path`` override) /
     ``"bundled"`` (downloaded by the manager) / ``""`` while installing.
 
     ``status`` is one of: ``"installing"`` / ``"ready"`` / ``"failed"``.

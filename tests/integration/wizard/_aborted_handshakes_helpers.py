@@ -65,7 +65,9 @@ def spawn_wizard(data_dir: Path, loopback_port: int):
     """Spawn ``run_wizard.py`` against *data_dir* on *loopback_port*."""
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
-    env["SETHLANS_DATA_DIR"] = str(data_dir)
+    env["SETHLANS_SETTINGS_DIR"] = str(data_dir)
+    # The stage fixture's settings file would outrank the folder above.
+    env.pop("SETHLANS_SETTINGS_FILE", None)
     env["SETHLANS_WIZARD_PORT"] = str(loopback_port)
     cmd = [sys.executable, "-u", str(RUN_WIZARD)]
     popen_kwargs: dict = {

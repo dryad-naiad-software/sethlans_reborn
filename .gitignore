@@ -176,6 +176,8 @@ manager/staticfiles/
 # Sethlans Reborn specific
 manager/logs/
 manager/manager.ini
+manager/sethlans.ini
+manager/sethlans.ini.lock
 manager/tls/
 manager/bin/
 **/topology.json

@@ -196,11 +196,10 @@ check_loopback_status() {
     local out
     out=$(docker exec "${CUR}" python -c '
 import json, sys, urllib.request
-from pathlib import Path
 sys.path[:0] = ["/app/manager", "/app"]
 from sethlans_manager.tls_setup import get_config_file_path
 from sethlans_manager.waitress_config import get_waitress_internal_port
-port = get_waitress_internal_port(get_config_file_path(Path("/app/manager")))
+port = get_waitress_internal_port(get_config_file_path())
 url = f"http://127.0.0.1:{port}/api/status/public/"
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 try:

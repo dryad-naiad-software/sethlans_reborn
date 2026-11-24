@@ -1,12 +1,45 @@
-# manager.ini.example
+# sethlans.ini.example
 #
-# This is an example configuration file for the Sethlans Manager.
-# To use it, copy this file to 'manager.ini' in the same directory
-# and modify the values as needed.
+# An example of the Sethlans settings file, sethlans.ini. Setup writes
+# this file; to write it by hand, copy this file to 'sethlans.ini' and
+# modify the values as needed.
 #
+# Where the file lives (first match wins):
+#   1. SETHLANS_SETTINGS_FILE (absolute path of the file)
+#   2. SETHLANS_SETTINGS_DIR/sethlans.ini
+#   3. From source with SETHLANS_MANAGER_DATA_DIR set: <that folder>/sethlans.ini
+#      (the Docker image: /data/sethlans.ini)
+#   4. Installed: the per-user Sethlans folder
+#      (%LOCALAPPDATA%\Sethlans\, ~/Library/Application Support/Sethlans/,
+#      $XDG_DATA_HOME/sethlans/ or ~/.local/share/sethlans/)
+#   5. From source: manager/sethlans.ini (this folder)
+#
+# Values are read without interpolation: a '%' is a plain character.
 # Settings in this file will be overridden by environment variables if they are set.
 # For example, setting the SETHLANS_MANAGER_PORT environment variable will take
 # precedence over the 'port' value defined here.
+
+# [setup]
+# Written by setup; setup counts as finished only with all three keys.
+# version = 1
+# One of: manager, manager_worker, worker
+# mode = manager_worker
+# ISO 8601 UTC time setup finished.
+# completed_at = 2025-01-01T00:00:00+00:00
+
+[paths]
+# Root of the data folder (absolute). The manager keeps its database,
+# media, logs and static files in <data_dir>/manager, the worker its
+# tools, assets and renders in <data_dir>/worker. This applies in every
+# mode, source included. Each component's data folder is, first match
+# wins: SETHLANS_MANAGER_DATA_DIR / SETHLANS_WORKER_DATA_DIR >
+# SETHLANS_DATA_ROOT/<component> > data_dir/<component> > the default
+# (<settings folder>/<component>; from source the manager's default stays
+# this manager/ folder). Identity files (TLS keys, the secret key, the
+# worker's config.json) never follow data_dir or SETHLANS_DATA_ROOT; they
+# stay in the settings folder (from source: manager/), or in the
+# component's *_DATA_DIR when that is set.
+# data_dir = D:\SethlansData
 
 [server]
 # Bind address for the manager server.
@@ -35,7 +68,7 @@ port = 8080
 # caddy_loopback_port = 8089
 #
 # Path override for the launcher-templated Caddyfile. Defaults to
-# ``<manager_data_dir>/caddy/Caddyfile``. When
+# ``<settings folder>/manager/caddy/Caddyfile``. When
 # ``SETHLANS_MANAGER_CADDYFILE_PATH`` env var is set at launch time,
 # the launcher skips templating and uses that path verbatim — this is
 # how the Docker image ships a static Caddyfile.
@@ -101,9 +134,13 @@ port = 8080
 # NOTE: The worker enrollment key now lives in the ManagerSettings
 # database row, NOT in this file.  Use `python manage.py show_enrollment_key`
 # to display it, `python manage.py rotate_enrollment_key` to rotate it,
-# or the admin UI ("regenerate enrollment key" button).  The legacy
-# `enrollment_key =` option is read ONCE during the 0017 migration as
-# a compatibility shim and is ignored thereafter.
+# or the admin UI ("regenerate enrollment key" button).  An
+# `enrollment_key =` option here is ignored.
+#
+# The persisted secret key lives in its own file, secret_key, in the
+# manager identity folder (<settings folder>/manager, or
+# SETHLANS_MANAGER_DATA_DIR when set), not in this file; secret_key
+# above is only an override.
 
 [database]
 # Database backend configuration.
@@ -163,3 +200,16 @@ port = 8080
 # builds (NVENC, VAAPI, or other exotic codecs) where a major version >= 8
 # is required.
 # path = /usr/local/bin/ffmpeg
+
+# [first_admin]
+# Written by setup and removed by the manager's first normal start,
+# which creates this administrator. Never hand-write a plain password
+# here; password_hash is a Django password hash.
+# username = admin
+# email = admin@example.com
+# password_hash =
+# replace_password = false
+
+# [launcher]
+# Reserved.
+# start_at_login = false

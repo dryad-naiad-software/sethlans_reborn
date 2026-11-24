@@ -16,6 +16,7 @@ import json
 import os
 import platform
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -58,7 +59,7 @@ class TestHappyPath:
         status, _, body = call_handler(handler, env)
         assert status.startswith("200"), body
         assert body == {"status": "ok"}
-        target = tmp_path / "manager.ini"
+        target = tmp_path / "sethlans.ini"
         assert target.exists()
         parser = configparser.ConfigParser()
         parser.read(str(target))
@@ -407,13 +408,11 @@ class TestDataDirValidation:
 
 
 class TestHandlerOverrideDataDir:
-    """FR-M2-3 — submitting a data_dir override routes the manager.ini
-    write to the canonicalized override path, not the wizard's current
-    data dir."""
+    """FR-M2-3 — a data_dir override is recorded as ``[server] data_dir``
+    in the settings file; the settings file itself never moves into the
+    override folder."""
 
-    def test_override_writes_to_override_dir(self, tmp_path, mocker):
-        # Use a sub-tmpdir as the override and prove manager.ini lands
-        # there instead of the handler's bound data_dir.
+    def test_override_recorded_in_settings_file(self, tmp_path, mocker):
         override = tmp_path / "override"
         override.mkdir()
         handler = network_handler.make_network_handler(tmp_path)
@@ -428,8 +427,11 @@ class TestHandlerOverrideDataDir:
         )
         status, _, body = call_handler(handler, env)
         assert status.startswith("200"), body
-        # manager.ini lands under the override.
-        assert (override / "manager.ini").exists()
+        parser = configparser.RawConfigParser(interpolation=None)
+        parser.read(str(tmp_path / "sethlans.ini"))
+        assert Path(parser.get("server", "data_dir")).resolve() == override.resolve()
+        assert not (override / "sethlans.ini").exists()
+        assert not (override / "manager.ini").exists()
 
     def test_override_invalid_returns_400(self, handler):
         # Coverage expansion: a relative override returns the validation

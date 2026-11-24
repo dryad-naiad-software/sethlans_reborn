@@ -124,7 +124,7 @@ def user_view(request):
 def regenerate_enrollment_key_view(request):
     """Rotate the shared enrollment key and return the new display form.
 
-    The DB row is the authoritative store — ``manager.ini`` is not touched.
+    The DB row is the authoritative store — the settings file is not touched.
     Existing per-worker tokens continue to work; only new enrollments
     need the new key.
     """

@@ -134,7 +134,7 @@ def launch(
         proxies here).
     :param internal_port: Internal-origin plaintext port (Caddy loopback
         vhost proxies here).
-    :param ini_path: Path to ``manager.ini`` — used to resolve tuning
+    :param ini_path: Path to ``sethlans.ini`` — used to resolve tuning
         overrides (see :mod:`sethlans_manager.waitress_config`).
     """
     from sethlans_manager.wsgi import application as wsgi_app

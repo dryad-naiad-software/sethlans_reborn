@@ -51,7 +51,7 @@ def _bind_unused_port() -> int:
 # ----------------------------- Network -----------------------------
 
 def test_network_handler_writes_manager_ini_with_free_port(wizard_process):
-    """Real socket.bind succeeds + manager.ini ``[server]`` is persisted."""
+    """Real socket.bind succeeds + the settings file's ``[server]`` is persisted."""
     wp = wizard_process
     session = open_and_select(wp, topology="manager")
 
@@ -64,8 +64,8 @@ def test_network_handler_writes_manager_ini_with_free_port(wizard_process):
     assert status == 200, parsed
     assert parsed and parsed.get("status") == "ok", parsed
 
-    parser = configparser.ConfigParser()
-    parser.read(str(wp.data_dir / "manager.ini"), encoding="utf-8")
+    parser = configparser.RawConfigParser(interpolation=None)
+    parser.read(str(wp.data_dir / "sethlans.ini"), encoding="utf-8")
     assert parser.has_section("server"), parser.sections()
     assert parser.get("server", "bind_host") == "127.0.0.1"
     assert parser.getint("server", "bind_port") == free_port

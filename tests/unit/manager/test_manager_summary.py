@@ -23,11 +23,23 @@ SUMMARY_KEYS = {
 
 
 @pytest.fixture(autouse=True)
-def _summary_data_dir(mocker, tmp_path):
-    """Point the summary view's data dir at an empty ``tmp_path``."""
-    from workers.views import manager_summary as mod
-    mocker.patch.object(mod, "get_manager_data_dir", return_value=tmp_path)
-    return tmp_path
+def _no_bind_env(monkeypatch):
+    """No inherited manager host/port env; tests set them explicitly."""
+    monkeypatch.delenv("SETHLANS_MANAGER_PORT", raising=False)
+    monkeypatch.delenv("SETHLANS_MANAGER_HOST", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _summary_settings_file():
+    """The settings file the view reads: the unit conftest's per-test path.
+
+    It does not exist until a test writes it.
+    """
+    from shared.settings_file import settings_path
+    path = settings_path()
+    assert not path.exists()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 class TestManagerSummaryAuth:
@@ -74,21 +86,43 @@ class TestManagerSummaryPayload:
         from workers.views import manager_summary as mod
         assert not hasattr(mod, "read_sentinel")
 
-    def test_manager_url_from_manager_ini_in_data_dir(
-        self, admin_client, _summary_data_dir,
+    def test_manager_url_from_the_settings_file(
+        self, admin_client, _summary_settings_file,
     ):
-        (_summary_data_dir / "manager.ini").write_text(
+        _summary_settings_file.write_text(
             "[server]\nhost = 10.0.0.5\nport = 9443\n",
             encoding="utf-8",
         )
         payload = admin_client.get("/api/manager/summary/").json()
         assert payload["manager_url"] == "https://10.0.0.5:9443"
 
-    def test_manager_url_defaults_without_manager_ini(self, admin_client):
+    def test_manager_url_defaults_without_settings_file(self, admin_client):
         payload = admin_client.get("/api/manager/summary/").json()
         assert payload["manager_url"] == "https://localhost:8080"
 
-    def test_data_dir_is_the_shared_manager_data_dir(self, _summary_data_dir):
-        """``_data_dir`` delegates to ``get_manager_data_dir``."""
-        from workers.views import manager_summary as mod
-        assert mod._data_dir() == _summary_data_dir
+    def test_manager_ini_in_base_dir_is_ignored(self, admin_client, settings, tmp_path):
+        """A leftover ``manager.ini`` is never read; only ``sethlans.ini`` counts."""
+        settings.BASE_DIR = tmp_path
+        (tmp_path / "manager.ini").write_text(
+            "[server]\nhost = 10.0.0.9\nport = 7000\n", encoding="utf-8",
+        )
+        payload = admin_client.get("/api/manager/summary/").json()
+        assert payload["manager_url"] == "https://localhost:8080"
+
+    def test_env_beats_the_settings_file(self, admin_client, _summary_settings_file, monkeypatch):
+        """#313: host and port resolve env > file > default, as at the start."""
+        _summary_settings_file.write_text(
+            "[server]\nhost = 10.0.0.5\nport = 9443\n", encoding="utf-8",
+        )
+        monkeypatch.setenv("SETHLANS_MANAGER_PORT", "8443")
+        monkeypatch.setenv("SETHLANS_MANAGER_HOST", "10.0.0.7")
+        payload = admin_client.get("/api/manager/summary/").json()
+        assert payload["manager_url"] == "https://10.0.0.7:8443"
+
+    def test_env_port_with_file_host(self, admin_client, _summary_settings_file, monkeypatch):
+        _summary_settings_file.write_text(
+            "[server]\nhost = 10.0.0.5\nport = 9443\n", encoding="utf-8",
+        )
+        monkeypatch.setenv("SETHLANS_MANAGER_PORT", "8443")
+        payload = admin_client.get("/api/manager/summary/").json()
+        assert payload["manager_url"] == "https://10.0.0.5:8443"

@@ -5,7 +5,7 @@
 Start of the boot-time parts check (issue #294).
 
 The parts check (:mod:`workers.services.parts_check`) finds FFmpeg and,
-when it is not set in ``manager.ini``, not on ``PATH`` and not already
+when it is not set in ``sethlans.ini``, not on ``PATH`` and not already
 bundled, downloads it.  It runs only in a process that serves requests,
 the same processes that start the Blender series fetch (issue #292,
 :mod:`workers.release_cache_startup`):

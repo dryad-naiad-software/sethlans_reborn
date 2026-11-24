@@ -46,7 +46,7 @@ class TestHappyPath:
         status, _, body = call_handler(handler, env)
         assert status.startswith("200"), body
         assert body == {"status": "ok"}
-        target = tmp_path / "manager.ini"
+        target = tmp_path / "sethlans.ini"
         parser = configparser.ConfigParser()
         parser.read(str(target))
         assert parser.get("database", "engine") == "sqlite"
@@ -83,7 +83,7 @@ class TestHappyPath:
         status, _, body = call_handler(handler, env)
         assert status.startswith("200"), body
         parser = configparser.ConfigParser()
-        parser.read(str(tmp_path / "manager.ini"))
+        parser.read(str(tmp_path / "sethlans.ini"))
         assert parser.get("database", "engine") == "postgresql"
         assert parser.get("database", "host") == "db.example"
         assert parser.getint("database", "port") == 5432
@@ -108,7 +108,7 @@ class TestHappyPath:
         status, _, body = call_handler(handler, env)
         assert status.startswith("200"), body
         parser = configparser.ConfigParser()
-        parser.read(str(tmp_path / "manager.ini"))
+        parser.read(str(tmp_path / "sethlans.ini"))
         assert parser.get("database", "engine") == "custom"
         assert parser.get("database", "engine_path") == "django_my_backend"
 

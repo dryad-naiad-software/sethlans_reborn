@@ -119,45 +119,36 @@ class TestIsHeadless:
 
 class TestBootstrapFirstRun:
 
-    def test_creates_manager_data_dir(self, tmp_path, mocker):
-        mocker.patch(
-            'launcher.run_launcher._set_file_permissions',
-        )
+    @pytest.fixture
+    def ini_path(self, tmp_path, monkeypatch):
+        path = tmp_path / "settings" / "sethlans.ini"
+        monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(path))
+        return path
+
+    def test_creates_manager_data_dir(self, tmp_path, ini_path):
         result = _bootstrap_first_run(tmp_path)
         assert result == tmp_path / "manager"
         assert result.is_dir()
 
-    def test_creates_manager_ini(self, tmp_path, mocker):
-        mocker.patch(
-            'launcher.run_launcher._set_file_permissions',
-        )
+    def test_creates_settings_file(self, tmp_path, ini_path):
         _bootstrap_first_run(tmp_path)
-        ini_path = tmp_path / "manager" / "manager.ini"
         assert ini_path.exists()
+        assert not (tmp_path / "manager" / "manager.ini").exists()
         content = ini_path.read_text(encoding="utf-8")
         assert "[security]" in content
         assert "secret_key" in content
         assert "debug = False" in content
         assert f"port = {MANAGER_PORT}" in content
 
-    def test_does_not_overwrite_existing_ini(self, tmp_path, mocker):
-        mocker.patch(
-            'launcher.run_launcher._set_file_permissions',
-        )
-        manager_data = tmp_path / "manager"
-        manager_data.mkdir(parents=True)
-        ini_path = manager_data / "manager.ini"
+    def test_does_not_overwrite_existing_file(self, tmp_path, ini_path):
+        ini_path.parent.mkdir(parents=True)
         ini_path.write_text("existing content", encoding="utf-8")
 
         _bootstrap_first_run(tmp_path)
         assert ini_path.read_text(encoding="utf-8") == "existing content"
 
-    def test_secret_key_is_long_enough(self, tmp_path, mocker):
-        mocker.patch(
-            'launcher.run_launcher._set_file_permissions',
-        )
+    def test_secret_key_is_long_enough(self, tmp_path, ini_path):
         _bootstrap_first_run(tmp_path)
-        ini_path = tmp_path / "manager" / "manager.ini"
         content = ini_path.read_text(encoding="utf-8")
         for line in content.splitlines():
             if line.startswith("secret_key"):
@@ -165,27 +156,20 @@ class TestBootstrapFirstRun:
                 assert len(key) >= 67
                 break
         else:
-            pytest.fail("secret_key not found in manager.ini")
+            pytest.fail("secret_key not found in the settings file")
 
-    def test_sets_file_permissions(self, tmp_path, mocker):
-        mock_perms = mocker.patch(
-            'launcher.run_launcher._set_file_permissions',
-        )
+    def test_file_is_owner_only(self, tmp_path, ini_path):
+        from shared.owner_only_acl import verify_owner_only
         _bootstrap_first_run(tmp_path)
-        ini_path = tmp_path / "manager" / "manager.ini"
-        mock_perms.assert_called_once_with(ini_path)
+        assert verify_owner_only(ini_path)
 
-    def test_writes_waitress_port_keys(self, tmp_path, mocker):
+    def test_writes_waitress_port_keys(self, tmp_path, ini_path):
         # Issue #100 / TR-3: ``_bootstrap_first_run`` must declare both
         # the public-origin and internal-origin Waitress loopback ports
         # so the launcher-side Caddy supervisor can read them from
-        # manager.ini via ``waitress_config`` helpers without falling
-        # through to defaults silently.
-        mocker.patch(
-            'launcher.run_launcher._set_file_permissions',
-        )
+        # the settings file via ``waitress_config`` helpers without
+        # falling through to defaults silently.
         _bootstrap_first_run(tmp_path)
-        ini_path = tmp_path / "manager" / "manager.ini"
         content = ini_path.read_text(encoding="utf-8")
         assert "waitress_loopback_port_public = 8090" in content
         assert "waitress_loopback_port_internal = 8088" in content

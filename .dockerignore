@@ -28,7 +28,11 @@ venv/
 **/*.pem
 **/*.key
 manager/tls/
+manager/bin/
 manager/manager.ini
+manager/sethlans.ini
+manager/sethlans.ini.lock
+manager/.sethlans.ini.*.tmp
 manager/logs/
 manager/media/
 manager/caddy/

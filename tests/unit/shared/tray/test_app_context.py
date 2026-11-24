@@ -85,9 +85,9 @@ class TestRefreshHelpers:
 # ------------------------------------------------------------------ #
 
 def _patch_ctx_deps(mocker, tmp_path, topology):
-    mocker.patch.object(app, "get_shared_data_dir",
+    mocker.patch.object(app, "get_settings_dir",
                         return_value=tmp_path)
-    mocker.patch.object(app, "get_data_dir",
+    mocker.patch.object(app, "get_identity_dir",
                         side_effect=lambda r: tmp_path / r)
     mocker.patch.object(topo_mod, "read_topology",
                         return_value=topology)
@@ -143,32 +143,32 @@ class TestTrayContext:
 
 
 # ------------------------------------------------------------------ #
-# _read_manager_ports — no manager.ini fallback
+# _read_manager_ports — settings file fallback
 # ------------------------------------------------------------------ #
 
 class TestReadManagerPorts:
 
     def test_defaults_when_ini_missing(self, tmp_path):
-        host, main, lb = app._read_manager_ports(tmp_path)
+        host, main, lb = app._read_manager_ports(tmp_path / "sethlans.ini")
         assert host == "localhost"
         assert main == 8080
         assert lb == 8088
 
     def test_reads_values_from_ini(self, tmp_path):
-        (tmp_path / "manager.ini").write_text(
+        (tmp_path / "sethlans.ini").write_text(
             "[server]\nport = 9000\nloopback_port = 9001\n",
             encoding="utf-8",
         )
-        _host, main, lb = app._read_manager_ports(tmp_path)
+        _host, main, lb = app._read_manager_ports(tmp_path / "sethlans.ini")
         assert main == 9000
         assert lb == 9001
 
     def test_malformed_ini_falls_back_to_defaults(self, tmp_path):
-        (tmp_path / "manager.ini").write_text(
+        (tmp_path / "sethlans.ini").write_text(
             "not a valid ini file [[[",
             encoding="utf-8",
         )
-        _host, main, lb = app._read_manager_ports(tmp_path)
+        _host, main, lb = app._read_manager_ports(tmp_path / "sethlans.ini")
         assert main == 8080
         assert lb == 8088
 

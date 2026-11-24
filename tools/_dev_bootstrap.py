@@ -59,7 +59,12 @@ def cmd_enrollment_key(args: argparse.Namespace) -> int:
 
 
 def cmd_generate_config(args: argparse.Namespace) -> int:
-    """Idempotently ensure ``manager.ini`` has server port + secret key.
+    """Idempotently ensure the settings file has server port + secret key.
+
+    The file is ``sethlans.ini`` at
+    :func:`shared.settings_file.settings_path` (from source:
+    ``<manager dir>/sethlans.ini`` unless an env var moves it), written
+    under the settings lock, atomically and owner-only.
 
     Dropped inline into ``sethlans.sh`` previously; moved here so the
     path arrives as an argv value. MSYS/Git-Bash translates ``/c/...``
@@ -70,39 +75,40 @@ def cmd_generate_config(args: argparse.Namespace) -> int:
 
     No Django bootstrap needed — stdlib only.
     """
-    import configparser
     import secrets
 
-    manager_dir = Path(args.manager_dir).resolve()
-    config_path = manager_dir / "manager.ini"
+    project_root = str(Path(args.manager_dir).resolve().parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from shared import settings_file
 
-    config = configparser.ConfigParser()
+    config_path = settings_file.settings_path()
     if config_path.exists():
-        config.read(config_path)
-        print("[OK] Found existing manager.ini")
+        print(f"[OK] Found existing {config_path}")
     else:
-        print("[NEW] Creating manager.ini")
+        print(f"[NEW] Creating {config_path}")
 
-    for section in ("server", "security"):
-        if not config.has_section(section):
-            config.add_section(section)
-    if not config.has_option("server", "port"):
-        config.set("server", "port", str(args.port))
-    if not config.get("security", "secret_key", fallback=""):
-        config.set(
-            "security", "secret_key", secrets.token_urlsafe(50),
-        )
-        print("[OK] Generated SECRET_KEY")
-    if not config.get("security", "debug", fallback=""):
-        config.set("security", "debug", "true")
-    # Strip legacy [security] enrollment_key — it now lives in the
-    # ManagerSettings DB row (migration 0017).
-    if config.has_option("security", "enrollment_key"):
-        config.remove_option("security", "enrollment_key")
-        print("[OK] Removed legacy enrollment_key from manager.ini")
+    def _mutate(config) -> bool:
+        for section in ("server", "security"):
+            if not config.has_section(section):
+                config.add_section(section)
+        if not config.has_option("server", "port"):
+            config.set("server", "port", str(args.port))
+        if not config.get("security", "secret_key", fallback=""):
+            config.set(
+                "security", "secret_key", secrets.token_urlsafe(50),
+            )
+            print("[OK] Generated SECRET_KEY")
+        if not config.get("security", "debug", fallback=""):
+            config.set("security", "debug", "true")
+        # Strip legacy [security] enrollment_key — it now lives in the
+        # ManagerSettings DB row (migration 0017).
+        if config.has_option("security", "enrollment_key"):
+            config.remove_option("security", "enrollment_key")
+            print("[OK] Removed legacy enrollment_key from the settings file")
+        return True
 
-    with open(config_path, "w", encoding="utf-8") as f:
-        config.write(f)
+    settings_file.update_settings(_mutate, config_path)
     return 0
 
 
@@ -155,7 +161,7 @@ def main() -> int:
 
     p_config = sub.add_parser(
         "generate-config",
-        help="Create/update manager.ini with secret_key + port.",
+        help="Create/update the settings file with secret_key + port.",
     )
     p_config.add_argument("--manager-dir", required=True)
     p_config.add_argument("--port", type=int, default=8080)

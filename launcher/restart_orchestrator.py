@@ -13,7 +13,7 @@ is alive.  When the sentinel appears, the launcher:
 2. Sends ``SIGTERM`` to the manager subprocess.
 3. Waits up to 15 seconds for graceful shutdown.
 4. If still alive, escalates to ``SIGKILL``.
-5. Removes the ``[setup]`` section from ``manager.ini`` (atomic).
+5. Removes the ``[setup]`` section from the settings file (atomic).
 6. Purges ``setup_phase=True`` Django sessions (FR-18a / S6).
 7. Respawns the manager via the caller-supplied ``respawn`` callable.
 
@@ -112,12 +112,11 @@ def handle_restart_request(
     _terminate_and_wait(proc)
 
     # Step 5: atomically drop the [setup] section.
-    manager_data = data_dir / "manager"
     try:
-        remove_setup_section(manager_data)
+        remove_setup_section()
     except OSError as exc:
         logger.warning(
-            "Could not remove [setup] from manager.ini: %s", exc,
+            "Could not remove [setup] from the settings file: %s", exc,
         )
 
     # Step 6: purge setup-phase sessions.

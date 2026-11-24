@@ -245,7 +245,7 @@ def spawn_driver(
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
     # Honored by the wizard subprocess via shared.frozen_paths.
-    env["SETHLANS_DATA_DIR"] = str(data_dir)
+    env["SETHLANS_SETTINGS_DIR"] = str(data_dir)
     if extra_env:
         env.update(extra_env)
 

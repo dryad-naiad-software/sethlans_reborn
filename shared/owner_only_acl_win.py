@@ -8,6 +8,8 @@ Windows security-descriptor calls for ``shared.owner_only_acl`` (ctypes only).
 so importing this module is safe on every platform. Callers go through
 ``shared.owner_only_acl``; nothing else should import this module.
 """
+import contextlib
+import sys
 import threading
 from typing import List, Optional, Tuple
 
@@ -26,6 +28,14 @@ _TOKEN_OWNER_CLASS = 4
 _SDDL_REVISION_1 = 1
 _SID_OFFSET_IN_ACE = 8  # ACE_HEADER (4 bytes) + ACCESS_MASK (4 bytes)
 _ERROR_ALREADY_EXISTS = 183
+_GENERIC_READ = 0x80000000
+_GENERIC_WRITE = 0x40000000
+_FILE_SHARE_READ = 0x1
+_FILE_SHARE_WRITE = 0x2
+_CREATE_NEW = 1
+_OPEN_ALWAYS = 4
+_FILE_ATTRIBUTE_NORMAL = 0x80
+_INVALID_HANDLE_VALUE = (1 << 64) - 1 if sys.maxsize > 2 ** 32 else (1 << 32) - 1
 
 # One ACE: (ace_type, ace_flags, sid string or '' for a non-allowed ACE).
 Ace = Tuple[int, int, str]
@@ -62,6 +72,8 @@ def _api():
              [wintypes.LPCWSTR, ctypes.c_int, dword, pvp, pvp, pvp, pvp, pvp], dword),
             (advapi32.GetAce, [vp, dword, pvp], boolean),
             (kernel32.CreateDirectoryW, [wintypes.LPCWSTR, vp], boolean),
+            (kernel32.CreateFileW,
+             [wintypes.LPCWSTR, dword, dword, vp, dword, dword, wintypes.HANDLE], wintypes.HANDLE),
         )
         for func, argtypes, restype in sigs:
             func.argtypes, func.restype = argtypes, restype
@@ -116,12 +128,9 @@ def token_owner_sid() -> str:
     return _token_sid(_TOKEN_OWNER_CLASS)
 
 
-def create_dir(path: str, sddl: str) -> bool:
-    """``CreateDirectoryW`` with ``sddl`` as its security descriptor from birth.
-
-    True when created, False when it already exists (``ERROR_ALREADY_EXISTS``).
-    """
-    api = _api()
+@contextlib.contextmanager
+def _security_attributes(api, sddl: str):
+    """Yield a ``SECURITY_ATTRIBUTES`` pointer for ``sddl`` (freed on exit)."""
     ctypes, wintypes = api['ctypes'], api['wintypes']
 
     class SecurityAttributes(ctypes.Structure):
@@ -134,14 +143,55 @@ def create_dir(path: str, sddl: str) -> bool:
         raise _last_error(api, 'ConvertStringSecurityDescriptorToSecurityDescriptorW')
     try:
         attrs = SecurityAttributes(ctypes.sizeof(SecurityAttributes), psd, False)
-        if api['kernel32'].CreateDirectoryW(path, ctypes.byref(attrs)):
+        yield ctypes.byref(attrs)
+    finally:
+        api['kernel32'].LocalFree(psd)
+
+
+def create_dir(path: str, sddl: str) -> bool:
+    """``CreateDirectoryW`` with ``sddl`` as its security descriptor from birth.
+
+    True when created, False when it already exists (``ERROR_ALREADY_EXISTS``).
+    """
+    api = _api()
+    with _security_attributes(api, sddl) as attrs:
+        if api['kernel32'].CreateDirectoryW(path, attrs):
             return True
-        code = ctypes.get_last_error()
+        code = api['ctypes'].get_last_error()
         if code == _ERROR_ALREADY_EXISTS:
             return False
         raise OSError(code, f"CreateDirectoryW failed (Windows error {code})")
-    finally:
-        api['kernel32'].LocalFree(psd)
+
+
+def create_file(path: str, sddl: str, *, shared: bool = False) -> int:
+    """``CreateFileW`` with ``sddl`` from birth; returns a C runtime file descriptor.
+
+    ``shared=False``: a new file only (``CREATE_NEW``), write access, no
+    sharing, so no other handle can exist before the caller closes it.
+    ``shared=True``: open or create (``OPEN_ALWAYS``) for read and write
+    with read/write sharing, for a lock file other processes also open;
+    an existing file keeps its own descriptor. Raises ``OSError`` (an
+    existing file with ``shared=False`` gives ``FileExistsError``).
+    """
+    import msvcrt
+    import os
+    api = _api()
+    ctypes = api['ctypes']
+    if shared:
+        access, share, disposition = _GENERIC_READ | _GENERIC_WRITE, _FILE_SHARE_READ | _FILE_SHARE_WRITE, _OPEN_ALWAYS
+        fd_flags = os.O_RDWR
+    else:
+        access, share, disposition, fd_flags = _GENERIC_WRITE, 0, _CREATE_NEW, os.O_WRONLY
+    with _security_attributes(api, sddl) as attrs:
+        handle = api['kernel32'].CreateFileW(path, access, share, attrs, disposition, _FILE_ATTRIBUTE_NORMAL, None)
+        if handle is None or handle == _INVALID_HANDLE_VALUE:
+            code = ctypes.get_last_error()
+            raise OSError(0, f"CreateFileW failed (Windows error {code})", path, code)
+    try:
+        return msvcrt.open_osfhandle(handle, fd_flags | os.O_BINARY)
+    except BaseException:
+        api['kernel32'].CloseHandle(handle)
+        raise
 
 
 def set_security(path: str, sddl: str) -> None:

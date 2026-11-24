@@ -30,7 +30,7 @@ CLI:
     SETHLANS_DEV_TLS_REUSE — reuse cached dev certs.
 
 Existing ``SETHLANS_*`` env vars (``SETHLANS_TRAY_IPC_SECRET`` if you
-already exported one, ``SETHLANS_DATA_DIR``) pass through. The IPC
+already exported one, ``SETHLANS_SETTINGS_DIR``) pass through. The IPC
 secret is only auto-generated when the env var is not already set.
 
 Tray IPC: the tray helper reads its IPC secret from
@@ -63,7 +63,7 @@ def _provision_data_dir(data_root: Path) -> Path:
     The launcher resolves its data dir via
     :func:`shared.frozen_paths.get_data_dir`, which honours
     ``SETHLANS_MANAGER_DATA_DIR``. We pin the shared root via
-    ``SETHLANS_DATA_DIR`` so the per-component dirs hang off the same
+    ``SETHLANS_SETTINGS_DIR`` so the per-component dirs hang off the same
     parent.
     """
     data_root.mkdir(parents=True, exist_ok=True)
@@ -85,7 +85,7 @@ def _build_env(
     data_root: Path, ipc_secret: str, log_level: str | None,
 ) -> dict[str, str]:
     env = {
-        "SETHLANS_DATA_DIR": str(data_root.resolve()),
+        "SETHLANS_SETTINGS_DIR": str(data_root.resolve()),
         "SETHLANS_MANAGER_DATA_DIR": str((data_root / "manager").resolve()),
         "SETHLANS_WORKER_DATA_DIR": str((data_root / "worker").resolve()),
         "SETHLANS_TRAY_IPC_SECRET": ipc_secret,

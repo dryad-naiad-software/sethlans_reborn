@@ -48,6 +48,13 @@ from ._topology_page_helpers import (  # noqa: F401
     topology_js,
 )
 
+
+@pytest.fixture(autouse=True)
+def _settings_file_in_tmp(monkeypatch, tmp_path):
+    """The wizard writes ``[server]`` / ``[database]`` to ``<tmp_path>/sethlans.ini``."""
+    monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(tmp_path / "sethlans.ini"))
+
+
 _COMMON_JS_PATH = (
     Path(__file__).resolve().parents[3]
     / "wizard" / "frontend" / "static" / "js" / "common.js"

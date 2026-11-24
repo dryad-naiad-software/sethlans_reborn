@@ -26,10 +26,10 @@ from launcher import container_healthcheck as hc
 
 @pytest.fixture
 def ini(monkeypatch, tmp_path):
-    """No inherited port env; manager.ini in tmp_path."""
+    """No inherited port env; the settings file in tmp_path."""
     monkeypatch.delenv("SETHLANS_MANAGER_PORT", raising=False)
-    path = tmp_path / "manager.ini"
-    monkeypatch.setattr(hc, "get_config_file_path", lambda _d: path)
+    path = tmp_path / "sethlans.ini"
+    monkeypatch.setattr(hc, "get_config_file_path", lambda: path)
     return path
 
 

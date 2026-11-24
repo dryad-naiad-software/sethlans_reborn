@@ -61,7 +61,9 @@ def _spawn_wizard(data_dir: Path, port: int) -> subprocess.Popen:
     _write_secret(wizard_dir / ".ipc_secret", ipc_secret)
 
     env = dict(os.environ)
-    env["SETHLANS_DATA_DIR"] = str(data_dir.resolve())
+    env["SETHLANS_SETTINGS_DIR"] = str(data_dir.resolve())
+    # The stage fixture's settings file would outrank the folder above.
+    env.pop("SETHLANS_SETTINGS_FILE", None)
     env["SETHLANS_WIZARD_PORT"] = str(port)
     # Suppress the user's actual data dir / log fan-out under the temp.
 

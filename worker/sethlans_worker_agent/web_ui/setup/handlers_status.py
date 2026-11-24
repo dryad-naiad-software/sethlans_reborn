@@ -71,7 +71,7 @@ def handle_setup_status(
     environ: dict, start_response: Callable,
 ) -> Iterable[bytes]:
     """GET /api/setup/status/ -- Return current setup state."""
-    data_dir = config_store.get_data_dir()
+    data_dir = config_store.get_identity_dir()
     sentinel = read_sentinel(data_dir)
 
     if sentinel is not None:

@@ -12,7 +12,7 @@ are blocking (``subprocess.run``) per FR-APPLY-ORDERING-SYNC; the
 manager runtime MUST NOT start before the apply exits with code 0.
 
 The ``--data-dir`` value is the **shared** Sethlans data root
-(``shared.frozen_paths.get_shared_data_dir()`` — e.g.
+(``shared.settings_file.get_settings_dir()`` — e.g.
 ``%LOCALAPPDATA%\\Sethlans`` on Windows), NOT the manager component
 subdir. The wizard writes ``pending_setup.json`` to the shared root,
 and ``apply_pending_setup`` writes ``.setup_complete`` next to it;
@@ -255,7 +255,7 @@ def run_apply_pipeline_if_needed(
     """Run migrate + apply only for manager-bearing topologies.
 
     ``data_dir`` is the **shared** Sethlans data root (the value
-    returned by :func:`shared.frozen_paths.get_shared_data_dir`) and is
+    returned by :func:`shared.settings_file.get_settings_dir`) and is
     threaded verbatim into ``apply_pending_setup --data-dir`` — the
     wizard writes ``pending_setup.json`` there and ``apply_pending_setup``
     writes ``.setup_complete`` next to it (issue #195).

@@ -124,7 +124,7 @@ class TestWizardSwitch:
 
     @pytest.fixture
     def wizard(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(config_store, 'get_data_dir', lambda: tmp_path)  # no sentinel
+        monkeypatch.setattr(config_store, 'get_identity_dir', lambda: tmp_path)  # no sentinel
         fake_probes(monkeypatch)
         return fake_saved(monkeypatch)
 

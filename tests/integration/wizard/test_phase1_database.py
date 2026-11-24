@@ -21,7 +21,7 @@ Covers the integration-test agent's deferred item 3:
   text must NEVER reach the HTTP body.
 
 The wizard's database handler is hit through the live subprocess so
-the lazy driver import + the manager.ini write happen end-to-end.
+the lazy driver import + the settings-file write happen end-to-end.
 """
 
 from __future__ import annotations
@@ -47,9 +47,9 @@ def _post_database(wp, session: str, payload: dict, *, timeout: float = 5.0):
     )
 
 
-def _read_manager_ini(data_dir: Path) -> configparser.ConfigParser:
-    target = data_dir / "manager.ini"
-    parser = configparser.ConfigParser()
+def _read_manager_ini(data_dir: Path) -> configparser.RawConfigParser:
+    target = data_dir / "sethlans.ini"
+    parser = configparser.RawConfigParser(interpolation=None)
     if target.exists():
         parser.read(str(target), encoding="utf-8")
     return parser
@@ -58,7 +58,7 @@ def _read_manager_ini(data_dir: Path) -> configparser.ConfigParser:
 # ----------------------- SQLite (always available) -----------------------
 
 def test_database_sqlite_happy_path_writes_ini(wizard_process):
-    """SQLite SELECT 1 round-trip + manager.ini [database] write."""
+    """SQLite SELECT 1 round-trip + settings-file [database] write."""
     wp = wizard_process
     session = open_and_select(wp, topology="manager")
 
@@ -103,7 +103,7 @@ def test_database_sqlite_writes_progress_checkpoint(wizard_process):
 
 
 def test_database_invalid_engine_returns_400(wizard_process):
-    """Out-of-vocabulary engine → 400 with no manager.ini write."""
+    """Out-of-vocabulary engine → 400 with no settings-file write."""
     wp = wizard_process
     session = open_and_select(wp, topology="manager")
 
@@ -111,8 +111,8 @@ def test_database_invalid_engine_returns_400(wizard_process):
         wp, session, {"engine": "definitely_not_a_real_engine"},
     )
     assert status == 400, parsed
-    assert not (wp.data_dir / "manager.ini").exists(), (
-        "manager.ini must NOT be written on validation failure"
+    assert not (wp.data_dir / "sethlans.ini").exists(), (
+        "the settings file must NOT be written on validation failure"
     )
 
 
@@ -159,7 +159,7 @@ def test_database_postgresql_real_connection(wizard_process):
     assert parser.get("database", "engine") == "postgresql"
     assert parser.get("database", "host") == parts["host"]
     assert parser.getint("database", "port") == parts["port"]
-    # Password persists in manager.ini — that's the wizard's contract.
+    # Password persists in the settings file — that's the wizard's contract.
     assert parser.get("database", "password") == parts["password"]
 
 

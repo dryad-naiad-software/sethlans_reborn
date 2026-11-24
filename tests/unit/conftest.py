@@ -22,6 +22,17 @@ from tests._worker_claim_state import reset_worker_claim_state
 
 
 @pytest.fixture(autouse=True)
+def _isolated_settings_file(monkeypatch, tmp_path):
+    """Point the settings file at a per-test path that does not exist yet.
+
+    Without it, source-mode code resolves ``<repo>/manager/sethlans.ini``:
+    readers would see a developer's real file and writers would create
+    one in the checkout. Tests of the resolution order clear this.
+    """
+    monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(tmp_path / "_settings" / "sethlans.ini"))
+
+
+@pytest.fixture(autouse=True)
 def _reset_worker_claim_state():
     reset_worker_claim_state()
     yield

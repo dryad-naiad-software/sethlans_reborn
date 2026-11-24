@@ -4,13 +4,18 @@
 """
 Database configuration builder for ``settings.py``.
 
-Reads the ``[database]`` section from ``manager.ini`` and constructs
+Reads the ``[database]`` section of the settings file (``sethlans.ini``,
+:func:`shared.settings_file.settings_path`) and constructs
 the Django ``DATABASES`` dict.  Environment variables override INI
 values.  Docker secrets are supported via the ``_FILE`` suffix
 convention.
 
 Priority chain:
-    ``SETHLANS_DATABASE_URL`` > individual env vars > manager.ini > SQLite default
+    ``SETHLANS_DATABASE_URL`` > individual env vars > settings file > SQLite default
+
+The default SQLite file is in the manager's data folder, never the
+settings folder: ``get_data_dir('manager')/db.sqlite3`` in every mode
+(from source the data folder defaults to ``manager/``).
 
 Env vars:
     ``SETHLANS_DB_ENGINE``, ``SETHLANS_DB_NAME``, ``SETHLANS_DB_HOST``,
@@ -26,7 +31,7 @@ Phase 4 (Waitress migration) additions
   60 s) and ``CONN_HEALTH_CHECKS=True`` so threaded Waitress request
   handlers reuse connections across requests instead of paying the
   TLS handshake on every request.  The ``conn_max_age`` knob is
-  configurable via ``[database] conn_max_age`` in ``manager.ini`` and
+  configurable via ``[database] conn_max_age`` in the settings file and
   overridable by ``SETHLANS_MANAGER_DB_CONN_MAX_AGE``.
 * SQLite connections now execute the WAL / busy_timeout / synchronous
   PRAGMAs via a ``connection_created`` signal handler registered by
@@ -40,11 +45,11 @@ import logging
 import os
 from pathlib import Path
 
-from shared.frozen_paths import get_data_dir, is_frozen
+from shared.frozen_paths import get_data_dir
 
 logger = logging.getLogger(__name__)
 
-# Engine aliases for user-friendly names in manager.ini
+# Engine aliases for user-friendly names in the settings file
 _ENGINE_MAP = {
     "sqlite": "django.db.backends.sqlite3",
     "postgresql": "django.db.backends.postgresql",
@@ -92,12 +97,9 @@ def _resolve_engine(raw: str) -> str:
     return _ENGINE_MAP.get(raw.lower(), raw)
 
 
-def _get_default_sqlite_path(ini_path: Path) -> str:
-    """Return the default SQLite database path."""
-    if is_frozen():
-        return str(get_data_dir("manager") / "db.sqlite3")
-    # In source mode, put the DB alongside manager.ini's parent.
-    return str(ini_path.parent / "db.sqlite3")
+def _get_default_sqlite_path() -> str:
+    """Return the default SQLite path: ``<manager data folder>/db.sqlite3``."""
+    return str(get_data_dir("manager") / "db.sqlite3")
 
 
 def _resolve_conn_max_age(config: configparser.ConfigParser) -> int:
@@ -124,18 +126,13 @@ def _resolve_conn_max_age(config: configparser.ConfigParser) -> int:
         return _DEFAULT_CONN_MAX_AGE
 
 
-def build_database_config(
-    config: configparser.ConfigParser,
-    ini_path: Path,
-) -> dict:
+def build_database_config(config: configparser.RawConfigParser) -> dict:
     """Build Django DATABASES dict from config + env vars.
 
     Parameters
     ----------
-    config : configparser.ConfigParser
-        Already-parsed ``manager.ini``.
-    ini_path : Path
-        Path to ``manager.ini`` (used to derive default SQLite path).
+    config : configparser.RawConfigParser
+        The already-parsed settings file.
 
     Returns
     -------
@@ -147,9 +144,9 @@ def build_database_config(
     # Check for composite DATABASE_URL first (highest priority).
     database_url = os.getenv("SETHLANS_DATABASE_URL")
     if database_url:
-        return _parse_database_url(database_url, ini_path, conn_max_age)
+        return _parse_database_url(database_url, conn_max_age)
 
-    # Read individual env vars, falling back to manager.ini [database].
+    # Read individual env vars, falling back to the settings file [database].
     def _get(key: str, default: str = "") -> str:
         env_key = f"SETHLANS_DB_{key.upper()}"
         val = os.getenv(env_key)
@@ -168,9 +165,7 @@ def build_database_config(
         password = config.get("database", "password", fallback="")
 
     if engine == "django.db.backends.sqlite3":
-        return _build_sqlite(
-            _get("name", ""), ini_path,
-        )
+        return _build_sqlite(_get("name", ""))
 
     name = _get("name")
     host = _get("host")
@@ -182,7 +177,7 @@ def build_database_config(
     )
 
 
-def _build_sqlite(name: str, ini_path: Path) -> dict:
+def _build_sqlite(name: str) -> dict:
     """Build a SQLite DATABASES config.
 
     ``OPTIONS.timeout`` is the lock-wait the Django SQLite backend
@@ -196,7 +191,7 @@ def _build_sqlite(name: str, ini_path: Path) -> dict:
     """
     db_name = name or os.getenv(
         "SETHLANS_DB_NAME",
-        _get_default_sqlite_path(ini_path),
+        _get_default_sqlite_path(),
     )
     return {
         "default": {
@@ -248,7 +243,6 @@ def _build_external(
 
 def _parse_database_url(
     url: str,
-    ini_path: Path,
     conn_max_age: int = _DEFAULT_CONN_MAX_AGE,
 ) -> dict:
     """Parse a DATABASE_URL string into a DATABASES config.
@@ -272,8 +266,8 @@ def _parse_database_url(
         engine = scheme  # Allow custom engine paths
 
     if engine == "django.db.backends.sqlite3":
-        db_path = parsed.path or _get_default_sqlite_path(ini_path)
-        return _build_sqlite(db_path, ini_path)
+        db_path = parsed.path or _get_default_sqlite_path()
+        return _build_sqlite(db_path)
 
     return _build_external(
         engine=engine,

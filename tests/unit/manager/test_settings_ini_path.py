@@ -2,8 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Unit tests for ``manager.ini`` path resolution in
-``sethlans_manager.settings``.
+Unit tests for the settings file path that ``sethlans_manager.settings``
+reads (``config_loader._config_file_path``, from
+:func:`shared.settings_file.settings_path`).
 
 Uses a subprocess so the module-level env-var read happens cold, the
 same way the real ``manage.py`` / ``run_manager.py`` entry points see
@@ -37,29 +38,40 @@ import django  # noqa: E402
 django.setup()
 
 from django.conf import settings  # noqa: E402
-from sethlans_manager import settings as settings_mod  # noqa: E402
+from sethlans_manager import config_loader  # noqa: E402
 
 out = {{
-    'config_file_path': str(settings_mod._config_file_path),
-    'base_dir': str(settings_mod.BASE_DIR),
+    'config_file_path': str(config_loader._config_file_path),
+    'base_dir': str(settings.BASE_DIR),
     'secret_key_length': len(settings.SECRET_KEY),
 }}
 sys.stdout.write(json.dumps(out))
 """
 
 
-def _run_settings_probe(env_overrides: dict) -> dict:
-    """Cold-import settings in a subprocess, return probed values."""
+def _run_settings_probe(env_overrides: dict, home: Path) -> dict:
+    """Cold-import settings in a subprocess, return probed values.
+
+    *home* stands in for the per-user folders (``LOCALAPPDATA``,
+    ``XDG_DATA_HOME``, ``HOME``), so the generated secret key never lands
+    in the real per-user Sethlans folder.
+    """
     env = os.environ.copy()
     # Scrub overrides that could leak from the parent process (pytest.ini
-    # sets SETHLANS_SECURITY_DEBUG; dev machines may export DATA_DIR).
+    # sets SETHLANS_SECURITY_DEBUG; the unit conftest sets the settings
+    # file; dev machines may export data folders).
     for leaky in (
         "SETHLANS_SECURITY_SECRET_KEY",
         "SETHLANS_MANAGER_DATA_DIR",
+        "SETHLANS_SETTINGS_FILE",
+        "SETHLANS_SETTINGS_DIR",
+        "SETHLANS_DATA_ROOT",
         "SETHLANS_SECURITY_DEBUG",
         "DJANGO_SETTINGS_MODULE",
     ):
         env.pop(leaky, None)
+    for name in ("LOCALAPPDATA", "XDG_DATA_HOME", "HOME", "USERPROFILE"):
+        env[name] = str(home)
     env.update(env_overrides)
     # Keep the child out of DEBUG so it doesn't trip fresh-install guards.
     env.setdefault("SETHLANS_SECURITY_DEBUG", "False")
@@ -82,29 +94,36 @@ def _run_settings_probe(env_overrides: dict) -> dict:
 
 
 def test_ini_path_honors_data_dir_env_var(tmp_path):
-    """With SETHLANS_MANAGER_DATA_DIR set, ini path lives under tmpdir."""
+    """With SETHLANS_MANAGER_DATA_DIR set, the settings file lives under it."""
     data_dir = tmp_path / "manager-data"
 
     probed = _run_settings_probe({
         "SETHLANS_MANAGER_DATA_DIR": str(data_dir),
-    })
+    }, tmp_path / "home")
 
     resolved = Path(probed["config_file_path"])
-    expected = data_dir / "manager.ini"
-    assert resolved == expected, (
-        f"Expected ini path {expected}, got {resolved}"
-    )
+    assert resolved == data_dir / "sethlans.ini"
     # Sanity: not the in-repo dev file.
-    assert resolved != Path(probed["base_dir"]) / "manager.ini"
+    assert resolved != Path(probed["base_dir"]) / "sethlans.ini"
 
 
 def test_ini_path_falls_back_to_base_dir_without_env_var(tmp_path):
-    """Without the env var, ini path preserves BASE_DIR/manager.ini fallback."""
-    # tmp_path unused but kept for symmetry + pytest isolation.
-    probed = _run_settings_probe({})
+    """Without any env var, the source-mode file is BASE_DIR/sethlans.ini."""
+    probed = _run_settings_probe({}, tmp_path / "home")
 
     resolved = Path(probed["config_file_path"])
-    expected = Path(probed["base_dir"]) / "manager.ini"
-    assert resolved == expected, (
-        f"Expected dev fallback {expected}, got {resolved}"
-    )
+    assert resolved == Path(probed["base_dir"]) / "sethlans.ini"
+    # The secret key went to the stand-in per-user folder's manager/.
+    keys = list((tmp_path / "home").rglob("secret_key"))
+    assert [key.parent.name for key in keys] == ["manager"]
+
+
+def test_settings_file_env_wins(tmp_path):
+    """``SETHLANS_SETTINGS_FILE`` outranks ``SETHLANS_MANAGER_DATA_DIR``."""
+    explicit = tmp_path / "explicit" / "sethlans.ini"
+    probed = _run_settings_probe({
+        "SETHLANS_MANAGER_DATA_DIR": str(tmp_path / "manager-data"),
+        "SETHLANS_SETTINGS_FILE": str(explicit),
+    }, tmp_path / "home")
+
+    assert Path(probed["config_file_path"]) == explicit

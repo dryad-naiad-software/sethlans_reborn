@@ -13,7 +13,7 @@ class TestGetLoopbackPort:
 
     def test_env_var_wins(self, monkeypatch):
         monkeypatch.setenv("SETHLANS_MANAGER_LOOPBACK_PORT", "9999")
-        # manager.ini (if any) must not override the env var.
+        # The settings file (if any) must not override the env var.
         assert run_manager.get_loopback_port() == "9999"
 
     def test_manager_ini_override(self, monkeypatch, tmp_path):
@@ -26,7 +26,7 @@ class TestGetLoopbackPort:
         )
         monkeypatch.setattr(
             run_manager, "get_config_file_path",
-            lambda _d: ini_path,
+            lambda: ini_path,
         )
         assert run_manager.get_loopback_port() == "7777"
 
@@ -37,7 +37,7 @@ class TestGetLoopbackPort:
         # Point at a missing ini.
         monkeypatch.setattr(
             run_manager, "get_config_file_path",
-            lambda _d: tmp_path / "does-not-exist.ini",
+            lambda: tmp_path / "does-not-exist.ini",
         )
         assert run_manager.get_loopback_port() == "8088"
 
@@ -48,7 +48,7 @@ class TestGetLoopbackPort:
         )
         monkeypatch.setattr(
             run_manager, "get_config_file_path",
-            lambda _d: ini_path,
+            lambda: ini_path,
         )
         monkeypatch.setenv("SETHLANS_MANAGER_LOOPBACK_PORT", "1234")
         assert run_manager.get_loopback_port() == "1234"

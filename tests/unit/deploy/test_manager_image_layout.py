@@ -149,17 +149,19 @@ def test_caddyfile_placeholders_all_come_from_the_overlay():
     assert placeholders <= set(_MANAGER_ENV_OVERLAY.values())
 
 
-def test_runtime_user_owns_only_volumes_and_static_output():
-    """The runtime user may write the volumes and static output, never code.
+def test_runtime_user_owns_only_the_volumes():
+    """The runtime user may write the volumes, never code.
 
-    Logs moved to /data/logs with the rest of the state (#297), so
-    /app/manager/logs is no longer created or handed over.
+    Logs moved to /data/logs with the rest of the state (#297), and the
+    collected static files to /data/staticfiles (one data folder in
+    every mode), so neither /app/manager/logs nor
+    /app/manager/staticfiles is created or handed over.
     """
     text = _text(DOCKERFILE)
     chowns = re.findall(r"chown\s+(?:-\S+\s+)*sethlans:sethlans((?:[^\n]*\\\n)*[^\n]*)", text)
     assert len(chowns) == 1, "expected exactly one chown in the manager Dockerfile"
     owned = set(chowns[0].replace("\\", " ").split())
-    assert owned == {"/data", "/config", "/certs", "/app/manager/staticfiles"}
+    assert owned == {"/data", "/config", "/certs"}
     assert "chown -R" not in text
     assert "--chown" not in text
     assert "USER sethlans" in text
@@ -193,3 +195,32 @@ def test_publish_runs_boot_smoke_before_pushing_manager():
     assert smoke < job.index("docker/login-action")
     assert smoke < job.index("push: ${{ github.event_name != 'pull_request' }}")
     assert SMOKE_SCRIPT.is_file()
+
+
+# The source-mode settings file, its lock and its atomic-write temp files
+# hold secrets (database password, admin hash) and must never be baked
+# into an image.
+SETTINGS_FILE_IGNORES = (
+    "manager/sethlans.ini",
+    "manager/sethlans.ini.lock",
+    "manager/.sethlans.ini.*.tmp",
+)
+DOCKERIGNORES = (
+    REPO_ROOT / ".dockerignore",
+    DOCKER_DIR / "manager" / "Dockerfile.e2e.dockerignore",
+    DOCKER_DIR / "manager" / "Dockerfile.test.dockerignore",
+)
+
+
+@pytest.mark.parametrize("ignore_file", DOCKERIGNORES, ids=lambda p: p.name)
+def test_dockerignore_excludes_the_settings_file(ignore_file):
+    lines = {line.strip() for line in _text(ignore_file).splitlines()}
+    assert set(SETTINGS_FILE_IGNORES) <= lines
+
+
+@pytest.mark.parametrize("ignore_file", DOCKERIGNORES, ids=lambda p: p.name)
+def test_dockerignore_excludes_the_source_ffmpeg_folder(ignore_file):
+    # From source the manager downloads FFmpeg into manager/bin/; it must
+    # never be copied into an image.
+    lines = {line.strip() for line in _text(ignore_file).splitlines()}
+    assert "manager/bin/" in lines

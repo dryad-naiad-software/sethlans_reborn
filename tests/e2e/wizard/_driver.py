@@ -98,14 +98,18 @@ def _install_cleanup_signals(tracker: ChildTracker) -> None:
 
 
 def _bootstrap_first_run(data_dir: Path) -> Path:
-    """Minimal ``manager.ini`` write — mock runtime doesn't read it.
+    """Minimal settings-file write through the shared writer.
 
-    The launcher's real ``_bootstrap_first_run`` writes a ``manager.ini``
-    so the Django runtime can boot. The mock runtime ignores that file,
-    but we still call this for parity with the production code path.
+    The launcher's real ``_bootstrap_first_run`` writes the settings file
+    (``shared.settings_file.settings_path``, here under the per-test
+    ``SETHLANS_SETTINGS_DIR``) so the Django runtime can boot. The mock
+    runtime does not read it; the driver writes a non-default ``[server]
+    port`` the same way so the hand-off exercises the real writer.
     """
+    from shared import settings_file
     manager_data = data_dir / "manager"
     manager_data.mkdir(parents=True, exist_ok=True)
+    settings_file.set_values("server", {"port": "9443"})
     return manager_data
 
 

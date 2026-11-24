@@ -20,7 +20,7 @@ BOTH = ['0000:01:00.0', '0000:23:00.0']
 
 @pytest.fixture
 def saved(monkeypatch, tmp_path):
-    monkeypatch.setattr(config_store, 'get_data_dir', lambda: tmp_path)
+    monkeypatch.setattr(config_store, 'get_identity_dir', lambda: tmp_path)
     return fake_saved(monkeypatch)
 
 

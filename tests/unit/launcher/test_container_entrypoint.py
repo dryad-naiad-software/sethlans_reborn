@@ -34,11 +34,11 @@ _PORT_ENV = (
 
 @pytest.fixture
 def clean_env(monkeypatch, tmp_path):
-    """No inherited port / TLS / Caddyfile env; manager.ini in tmp_path."""
+    """No inherited port / TLS / Caddyfile env; the settings file in tmp_path."""
     for name in _PORT_ENV:
         monkeypatch.delenv(name, raising=False)
-    ini = tmp_path / "manager.ini"
-    monkeypatch.setattr(ce, "get_config_file_path", lambda _d: ini)
+    ini = tmp_path / "sethlans.ini"
+    monkeypatch.setattr(ce, "get_config_file_path", lambda: ini)
     monkeypatch.setattr(ce, "get_waitress_public_port", lambda _p: 18090)
     monkeypatch.setattr(ce, "get_waitress_internal_port", lambda _p: 18088)
     return ini

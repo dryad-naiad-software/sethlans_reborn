@@ -6,10 +6,9 @@ Frozen-environment path resolution for both PyInstaller and source modes.
 
 This module is the single source of truth for resolving application paths
 across frozen (PyInstaller one-dir) and source (development) environments.
-At build time, the CI pipeline copies this file into both
-``manager/sethlans_manager/frozen_paths.py`` and
-``worker/sethlans_worker_agent/frozen_paths.py`` so each component can
-import it without cross-component ``sys.path`` complexity.
+Every bundle collects the whole ``shared`` package; :func:`get_data_dir`
+and :func:`get_identity_dir` import ``shared.settings_file`` late (it
+imports this module), so this file is not usable copied out on its own.
 
 Functions
 ---------
@@ -30,8 +29,12 @@ get_worker_dir()
     Worker source or bundle directory.
 get_frontend_dist_dir()
     Angular build output directory.
+env_path(name)
+    Absolute path from an env var, or ``None``.
 get_data_dir(component)
-    OS-conventional per-user data directory for a given component.
+    A component's data folder (env > data root > settings file > default).
+get_identity_dir(component)
+    A component's identity folder (never moves with the data folder).
 get_caddy_path()
     Caddy binary path (frozen installer or dev tree).
 get_branding_dir()
@@ -40,8 +43,13 @@ get_branding_dir()
 
 import os
 import platform
+import re
 import sys
 from pathlib import Path
+from typing import Optional
+
+DATA_ROOT_ENV = "SETHLANS_DATA_ROOT"
+_COMPONENT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def is_frozen() -> bool:
@@ -150,65 +158,79 @@ def get_frontend_dist_dir() -> Path:
     )
 
 
-def get_data_dir(component: str) -> Path:
-    """Return the OS-conventional per-user data directory.
+def env_path(name: str) -> Optional[Path]:
+    """Return the absolute path in env var ``name``, or ``None`` when unset/empty.
 
-    Parameters
-    ----------
-    component : str
-        The component name (``'manager'`` or ``'worker'``).
-
-    Returns
-    -------
-    Path
-        A writable directory appropriate for storing mutable state
-        (database, config, media, logs, certs, tools, assets, etc.).
-
-    The hierarchy mirrors the existing worker convention in
-    ``worker/sethlans_worker_agent/config_store/paths.py``:
-
-    - Windows: ``%LOCALAPPDATA%\\Sethlans\\{component}\\``
-    - macOS: ``~/Library/Application Support/Sethlans/{component}/``
-    - Linux: ``$XDG_DATA_HOME/sethlans/{component}/``
-      (default ``~/.local/share/sethlans/{component}/``)
-
-    An environment variable override is supported per component:
-    ``SETHLANS_{COMPONENT}_DATA_DIR`` (e.g., ``SETHLANS_MANAGER_DATA_DIR``
-    or ``SETHLANS_WORKER_DATA_DIR``).
+    A relative value raises ``ValueError`` rather than resolving against
+    the current directory.
     """
-    env_key = f"SETHLANS_{component.upper()}_DATA_DIR"
-    env_override = os.environ.get(env_key)
-    if env_override:
-        p = Path(env_override)
-        if not p.is_absolute():
-            raise ValueError(
-                f"{env_key} must be an absolute path, got: {env_override}"
-            )
-        return p
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.is_absolute():
+        raise ValueError(f"{name} must be an absolute path, got: {raw}")
+    return path
 
-    system = platform.system()
 
-    if system == "Windows":
-        base = os.environ.get("LOCALAPPDATA")
-        if not base:
-            userprofile = os.environ.get("USERPROFILE")
-            if userprofile:
-                base = os.path.join(userprofile, "AppData", "Local")
-            else:
-                base = str(Path.home() / "AppData" / "Local")
-        return Path(base) / "Sethlans" / component
+def _component_env_dir(component: str) -> Optional[Path]:
+    if not _COMPONENT_RE.match(component):
+        raise ValueError(f"Invalid component name: {component!r}")
+    return env_path(f"SETHLANS_{component.upper()}_DATA_DIR")
 
-    if system == "Darwin":
-        return (
-            Path.home() / "Library" / "Application Support"
-            / "Sethlans" / component
-        )
 
-    # Linux / other POSIX
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return Path(xdg) / "sethlans" / component
-    return Path.home() / ".local" / "share" / "sethlans" / component
+def get_data_dir(component: str) -> Path:
+    """Return the data folder of ``component`` (``'manager'``, ``'worker'``).
+
+    The data folder holds bulk, movable state (database, media, logs,
+    tools, assets, renders). First match wins:
+
+    1. ``SETHLANS_{COMPONENT}_DATA_DIR`` (e.g. Docker's ``/data``);
+    2. ``SETHLANS_DATA_ROOT/<component>``;
+    3. ``[paths] data_dir/<component>`` from the settings file
+       (:func:`shared.settings_file.settings_path`);
+    4. ``get_settings_dir()/<component>`` - the OS per-user folder
+       (``%LOCALAPPDATA%\\Sethlans``, ``~/Library/Application
+       Support/Sethlans``, ``$XDG_DATA_HOME/sethlans`` or
+       ``~/.local/share/sethlans``), today's default layout. From source
+       the manager's default is its source folder (``<repo>/manager``),
+       where a source-mode manager has always kept its database, media,
+       static files and logs.
+
+    Identity files (TLS keys, the secret key, the worker's
+    ``config.json``) never move with it: see :func:`get_identity_dir`.
+    """
+    override = _component_env_dir(component)
+    if override is not None:
+        return override
+    root = env_path(DATA_ROOT_ENV)
+    if root is not None:
+        return root / component
+    from shared import settings_file  # late: settings_file imports this module
+    configured = settings_file.configured_data_root()
+    if configured is not None:
+        return configured / component
+    if component == "manager" and not is_frozen():
+        return get_manager_dir()
+    return settings_file.get_settings_dir() / component
+
+
+def get_identity_dir(component: str) -> Path:
+    """Return the folder holding ``component``'s identity files.
+
+    ``SETHLANS_{COMPONENT}_DATA_DIR`` when set (identity stays exactly
+    where it is today, e.g. Docker's ``/data``), else
+    ``get_settings_dir()/<component>``. ``SETHLANS_DATA_ROOT`` and
+    ``[paths] data_dir`` never move it. With no override this equals
+    :func:`get_data_dir`'s default (except for a manager run from
+    source, whose data default is ``<repo>/manager``), so a default
+    install's layout is unchanged.
+    """
+    override = _component_env_dir(component)
+    if override is not None:
+        return override
+    from shared import settings_file  # late: settings_file imports this module
+    return settings_file.get_settings_dir() / component
 
 
 def get_caddy_path() -> Path:
@@ -266,32 +288,3 @@ def get_branding_dir() -> Path:
         meipass = Path(getattr(sys, '_MEIPASS', ''))
         return meipass / 'branding'
     return get_app_dir() / 'packaging' / 'branding'
-
-
-def get_shared_data_dir() -> Path:
-    """Return the shared per-user Sethlans data directory (no component).
-
-    This is the parent of ``get_data_dir("manager")`` and
-    ``get_data_dir("worker")`` and is the canonical location for
-    cross-component state: the setup sentinel, ``topology.json``,
-    the IPC marker files (``.restart_requested`` / ``.quit_requested``),
-    and shared logs.
-
-    Distinct from ``get_data_dir(component).parent`` in that it honours
-    a separate ``SETHLANS_DATA_DIR`` env override — so tests and
-    operators can relocate the shared tree without also overriding each
-    component's dir.  When only per-component overrides are set, we
-    fall back to their common parent.
-    """
-    env_override = os.environ.get("SETHLANS_DATA_DIR")
-    if env_override:
-        p = Path(env_override)
-        if not p.is_absolute():
-            raise ValueError(
-                f"SETHLANS_DATA_DIR must be an absolute path, got: "
-                f"{env_override}"
-            )
-        return p
-    # Derive from the manager component dir; on stock platforms this
-    # resolves to %LOCALAPPDATA%\Sethlans, ~/Library/.../Sethlans, etc.
-    return get_data_dir("manager").parent

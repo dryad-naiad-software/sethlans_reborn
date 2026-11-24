@@ -35,6 +35,12 @@ except Exception:  # pragma: no cover
 LOOPBACK_URL = "http://127.0.0.1:8088/api/status/public/"
 
 
+@pytest.fixture(autouse=True)
+def _settings_file_in_tmp(monkeypatch, tmp_path):
+    """Point the settings file at ``<tmp_path>/sethlans.ini`` for every tray test."""
+    monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(tmp_path / "sethlans.ini"))
+
+
 # ------------------------------------------------------------------
 # Helper functions (imported directly by test modules)
 # ------------------------------------------------------------------
@@ -198,7 +204,7 @@ def section_factory(qapp, tmp_path):
 
     def _make(notify=None, token=None):
         if token is not None:
-            (tmp_path / "manager" / "manager.ini").write_text(
+            (tmp_path / "sethlans.ini").write_text(
                 f"[setup]\ntoken = {token}\n", encoding="utf-8",
             )
         flag = threading.Event()

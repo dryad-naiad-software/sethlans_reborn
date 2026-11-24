@@ -18,49 +18,21 @@ import subprocess
 import sys
 from pathlib import Path
 
+from shared.settings_file import get_settings_dir
+
 
 def get_data_dir() -> Path:
-    """Return the per-OS Sethlans shared data directory.
+    """Return the Sethlans settings folder (lock, topology, IPC markers).
 
-    Honours the ``SETHLANS_DATA_DIR`` env override (issue #181) so the
-    launcher resolves to the same shared root the wizard / manager /
-    worker do via :func:`shared.frozen_paths.get_shared_data_dir`. The
-    override must be an absolute path; relative paths raise ``ValueError``
-    rather than silently mis-resolving against the cwd.
-
-    Without an override, falls back to the per-OS convention:
-    ``%LOCALAPPDATA%\\Sethlans`` on Windows,
+    Delegates to :func:`shared.settings_file.get_settings_dir` so the
+    launcher resolves the same folder as the wizard, manager, worker and
+    tray: ``SETHLANS_SETTINGS_DIR`` (absolute; a relative value raises
+    ``ValueError``), else ``%LOCALAPPDATA%\\Sethlans`` on Windows,
     ``~/Library/Application Support/Sethlans`` on macOS,
     ``$XDG_DATA_HOME/sethlans`` (default ``~/.local/share/sethlans``)
     on Linux.
     """
-    env_override = os.environ.get("SETHLANS_DATA_DIR")
-    if env_override:
-        p = Path(env_override)
-        if not p.is_absolute():
-            raise ValueError(
-                "SETHLANS_DATA_DIR must be an absolute path, got: "
-                f"{env_override}"
-            )
-        return p
-    system = platform.system()
-    if system == "Windows":
-        base = os.environ.get("LOCALAPPDATA")
-        if not base:
-            userprofile = os.environ.get("USERPROFILE")
-            if userprofile:
-                base = os.path.join(userprofile, "AppData", "Local")
-            else:
-                base = str(Path.home() / "AppData" / "Local")
-        return Path(base) / "Sethlans"
-    if system == "Darwin":
-        return (
-            Path.home() / "Library" / "Application Support" / "Sethlans"
-        )
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return Path(xdg) / "sethlans"
-    return Path.home() / ".local" / "share" / "sethlans"
+    return get_settings_dir()
 
 
 def get_install_dir() -> Path:

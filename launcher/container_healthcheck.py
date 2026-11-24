@@ -5,8 +5,8 @@
 
 Probes ``https://127.0.0.1:<port>/api/health/`` where ``<port>`` is the
 port Caddy actually listens on, resolved by the same function the
-container entrypoint uses (``SETHLANS_MANAGER_PORT`` > ``manager.ini
-[server] port`` > 8080). A fixed 8080 reported a healthy container as
+container entrypoint uses (``SETHLANS_MANAGER_PORT`` > settings file
+``[server] port`` > 8080). A fixed 8080 reported a healthy container as
 unhealthy whenever the port was changed.
 
 Exit 0 when the endpoint answers 200, else 1 (Docker's contract).
@@ -26,10 +26,7 @@ for _path in (str(PROJECT_ROOT / "manager"), str(PROJECT_ROOT)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from launcher.container_entrypoint import (  # noqa: E402
-    MANAGER_DIR,
-    resolve_public_port,
-)
+from launcher.container_entrypoint import resolve_public_port  # noqa: E402
 from sethlans_manager.tls_setup import get_config_file_path  # noqa: E402
 
 TIMEOUT_SECONDS = 4.0
@@ -37,7 +34,7 @@ TIMEOUT_SECONDS = 4.0
 
 def health_url() -> str:
     """Return the health URL on the port Caddy serves."""
-    port = resolve_public_port(get_config_file_path(MANAGER_DIR))
+    port = resolve_public_port(get_config_file_path())
     return f"https://127.0.0.1:{port}/api/health/"
 
 

@@ -54,7 +54,7 @@ class TestDefaultSqlite:
         monkeypatch.delenv(
             'SETHLANS_DB_PASSWORD_FILE', raising=False,
         )
-        result = build_database_config(empty_config, ini_path)
+        result = build_database_config(empty_config)
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.sqlite3"
 
@@ -64,11 +64,11 @@ class TestDefaultSqlite:
         monkeypatch.delenv('SETHLANS_DATABASE_URL', raising=False)
         monkeypatch.delenv('SETHLANS_DB_ENGINE', raising=False)
         monkeypatch.delenv('SETHLANS_DB_NAME', raising=False)
-        # Mock is_frozen to return False for source mode
+        # Source mode: the data folder (and so the database) defaults to manager/
         monkeypatch.setattr(
-            'sethlans_manager.db_config.is_frozen', lambda: False,
+            'shared.frozen_paths.is_frozen', lambda: False,
         )
-        result = build_database_config(empty_config, ini_path)
+        result = build_database_config(empty_config)
         db = result["default"]
         assert db["NAME"].endswith("db.sqlite3")
 
@@ -98,7 +98,7 @@ class TestIniDatabaseSection:
         config.set('database', 'port', '5432')
         config.set('database', 'user', 'admin')
         config.set('database', 'password', 'secret')
-        result = build_database_config(config, ini_path)
+        result = build_database_config(config)
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.postgresql"
         assert db["NAME"] == "sethlans_db"
@@ -126,7 +126,7 @@ class TestIniDatabaseSection:
         config.set('database', 'port', '3306')
         config.set('database', 'user', 'root')
         config.set('database', 'password', 'pw')
-        result = build_database_config(config, ini_path)
+        result = build_database_config(config)
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.mysql"
         assert db["OPTIONS"] == {"connect_timeout": 10}
@@ -173,7 +173,7 @@ class TestEnvVarOverrides:
         config.add_section('database')
         config.set('database', 'engine', 'sqlite')
         config.set('database', 'name', 'ini_db')
-        result = build_database_config(config, ini_path)
+        result = build_database_config(config)
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.postgresql"
         assert db["NAME"] == "env_db"
@@ -190,10 +190,10 @@ class TestDatabaseUrl:
             'SETHLANS_DATABASE_URL', 'sqlite:///tmp/test.db',
         )
         monkeypatch.setattr(
-            'sethlans_manager.db_config.is_frozen', lambda: False,
+            'shared.frozen_paths.is_frozen', lambda: False,
         )
         result = build_database_config(
-            configparser.ConfigParser(), ini_path,
+            configparser.ConfigParser(),
         )
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.sqlite3"
@@ -204,7 +204,7 @@ class TestDatabaseUrl:
             'postgres://user:pass@host:5432/mydb',
         )
         result = build_database_config(
-            configparser.ConfigParser(), ini_path,
+            configparser.ConfigParser(),
         )
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.postgresql"
@@ -220,7 +220,7 @@ class TestDatabaseUrl:
             'mysql://admin:secret@db.local:3306/app',
         )
         result = build_database_config(
-            configparser.ConfigParser(), ini_path,
+            configparser.ConfigParser(),
         )
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.mysql"
@@ -232,7 +232,7 @@ class TestDatabaseUrl:
             'postgresql://u:p@h:5432/db',
         )
         result = build_database_config(
-            configparser.ConfigParser(), ini_path,
+            configparser.ConfigParser(),
         )
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.postgresql"
@@ -258,7 +258,7 @@ class TestDockerSecrets:
             'SETHLANS_DB_PASSWORD_FILE', str(secret_file),
         )
         result = build_database_config(
-            configparser.ConfigParser(), ini_path,
+            configparser.ConfigParser(),
         )
         db = result["default"]
         assert db["PASSWORD"] == "docker_secret_pw"
@@ -282,12 +282,12 @@ class TestFallback:
             'SETHLANS_DB_PASSWORD_FILE', raising=False,
         )
         monkeypatch.setattr(
-            'sethlans_manager.db_config.is_frozen', lambda: False,
+            'shared.frozen_paths.is_frozen', lambda: False,
         )
         # Config with a database section but no engine key
         config = configparser.ConfigParser()
         config.add_section('database')
         config.set('database', 'name', '')
-        result = build_database_config(config, ini_path)
+        result = build_database_config(config)
         db = result["default"]
         assert db["ENGINE"] == "django.db.backends.sqlite3"

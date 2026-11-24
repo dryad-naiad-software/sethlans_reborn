@@ -87,7 +87,7 @@ def _spawn_launcher(
     suppresses the open-browser side-effect of FR-L3 / FR-L11.
     """
     env = os.environ.copy()
-    env["SETHLANS_DATA_DIR"] = str(data_dir)
+    env["SETHLANS_SETTINGS_DIR"] = str(data_dir)
     env["SETHLANS_MANAGER_DATA_DIR"] = str(data_dir / "manager")
     env["SETHLANS_WORKER_DATA_DIR"] = str(data_dir / "worker")
 

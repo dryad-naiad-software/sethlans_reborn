@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Unit tests for ``tools/dev_launcher.py`` env propagation (issue #181).
 
-The dev-launcher harness sets ``SETHLANS_DATA_DIR`` so the launcher
+The dev-launcher harness sets ``SETHLANS_SETTINGS_DIR`` so the launcher
 subprocess resolves to ``temp/dev-data/launcher/`` instead of the
 user's real ``%LOCALAPPDATA%\\Sethlans``. These tests pin the env-var
 contract — if the harness drifts (renames the var, drops it, builds it
@@ -30,7 +30,7 @@ class TestDevLauncherEnv:
     """Issue #181 contract: ``_build_env`` sets the canonical env vars.
 
     The launcher's :func:`launcher.paths.get_data_dir` honors
-    ``SETHLANS_DATA_DIR`` — the harness must set the same key. Other
+    ``SETHLANS_SETTINGS_DIR`` — the harness must set the same key. Other
     keys (per-component, IPC secret) are pinned to catch silent
     renames.
     """
@@ -40,7 +40,7 @@ class TestDevLauncherEnv:
         env = dev_launcher._build_env(
             tmp_path, ipc_secret="abc", log_level=None,
         )
-        assert env["SETHLANS_DATA_DIR"] == str(tmp_path.resolve())
+        assert env["SETHLANS_SETTINGS_DIR"] == str(tmp_path.resolve())
 
     def test_build_env_sets_per_component_data_dirs(self, tmp_path):
         dev_launcher = _import_dev_launcher()

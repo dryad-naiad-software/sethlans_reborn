@@ -19,7 +19,6 @@ PySide6).
 
 from __future__ import annotations
 
-import configparser
 import logging
 import os
 import sys
@@ -31,7 +30,8 @@ from PySide6.QtCore import Qt, QTimer, QObject
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from shared.frozen_paths import get_data_dir, get_shared_data_dir
+from shared.frozen_paths import get_identity_dir
+from shared.settings_file import get_settings_dir, read_settings, settings_path
 from shared.tray import app_phase, icons, launcher_watch, notifications
 from shared.tray import phase as phase_mod
 from shared.tray import topology as topo_mod
@@ -47,8 +47,8 @@ _DEFAULT_HOST = "localhost"
 _TOOLTIP = "Sethlans"
 
 
-def _read_manager_ports(manager_data_dir: Path) -> tuple[str, int, int]:
-    """Return ``(host, main_port, loopback_port)`` from ``manager.ini``.
+def _read_manager_ports(ini: Path) -> tuple[str, int, int]:
+    """Return ``(host, main_port, loopback_port)`` from the settings file *ini*.
 
     Defaults ``localhost:8080`` main port and ``8088`` loopback port;
     falls back to defaults on any parse error.
@@ -56,14 +56,12 @@ def _read_manager_ports(manager_data_dir: Path) -> tuple[str, int, int]:
     host = _DEFAULT_HOST
     main_port = _DEFAULT_MAIN_PORT
     loopback_port = _DEFAULT_LOOPBACK_PORT
-    ini = manager_data_dir / "manager.ini"
     if not ini.exists():
         return host, main_port, loopback_port
     try:
-        cfg = configparser.ConfigParser()
-        cfg.read(ini, encoding="utf-8")
-    except (OSError, configparser.Error) as exc:
-        logger.warning("Could not parse manager.ini: %s", exc)
+        cfg = read_settings(ini)
+    except OSError as exc:
+        logger.warning("Could not parse %s: %s", ini.name, exc)
         return host, main_port, loopback_port
     if cfg.has_section("server"):
         main_port = cfg.getint("server", "port", fallback=main_port)
@@ -76,7 +74,7 @@ def _read_manager_ports(manager_data_dir: Path) -> tuple[str, int, int]:
 def _configure_logging() -> None:
     try:
         from launcher.logging_setup import configure as _cfg_log
-        _cfg_log("tray", data_dir=get_shared_data_dir())
+        _cfg_log("tray", data_dir=get_settings_dir())
     except Exception:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -90,13 +88,11 @@ class _TrayContext:
     """
 
     def __init__(self) -> None:
-        self.data_dir = get_shared_data_dir()
-        self.manager_data_dir = get_data_dir("manager")
-        self.worker_data_dir = get_data_dir("worker")
+        self.data_dir = get_settings_dir()
+        self.manager_data_dir = get_identity_dir("manager")
+        self.worker_data_dir = get_identity_dir("worker")
         self.topology = topo_mod.read_topology(self.data_dir)
-        host, main_port, lb_port = _read_manager_ports(
-            self.manager_data_dir,
-        )
+        host, main_port, lb_port = _read_manager_ports(settings_path())
         self.host = host
         self.main_port = main_port
         self.loopback_port = lb_port

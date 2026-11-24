@@ -8,13 +8,14 @@ Unit tests for ``manager/workers/services/auto_enroll.py``.
 Covers:
   - ``auto_enroll_local_worker()`` — happy path, RuntimeError guards,
     hostname defaulting, ORM side effects (Worker/User/Token creation),
-    manager_url construction from manager.ini.
+    manager_url construction from the settings file (``sethlans.ini``).
 """
 
 import pytest
 from rest_framework.authtoken.models import Token
 
 from sethlans_manager import runtime_state
+from shared.settings_file import settings_path
 from workers.models import Worker
 from workers.services.auto_enroll import auto_enroll_local_worker
 
@@ -39,11 +40,25 @@ def _set_runtime_state():
     runtime_state.cert_fingerprint = prev_fp
 
 
+@pytest.fixture(autouse=True)
+def _no_bind_env(monkeypatch):
+    """No inherited manager host/port env; tests set them explicitly."""
+    monkeypatch.delenv("SETHLANS_MANAGER_PORT", raising=False)
+    monkeypatch.delenv("SETHLANS_MANAGER_HOST", raising=False)
+
+
 @pytest.fixture
 def manager_ini(tmp_path, settings):
-    """Point settings.BASE_DIR at tmp_path and create a manager.ini."""
+    """Write ``[server] port`` to the settings file.
+
+    The settings file is the unit conftest's per-test
+    ``SETHLANS_SETTINGS_FILE``. ``BASE_DIR`` gets a decoy ``manager.ini``
+    with another port: the port must come from the settings file only.
+    """
     settings.BASE_DIR = tmp_path
-    ini_path = tmp_path / "manager.ini"
+    (tmp_path / "manager.ini").write_text("[server]\nport = 7070\n", encoding="utf-8")
+    ini_path = settings_path()
+    ini_path.parent.mkdir(parents=True, exist_ok=True)
     ini_path.write_text(
         "[server]\nport = 9090\n", encoding="utf-8",
     )
@@ -52,8 +67,9 @@ def manager_ini(tmp_path, settings):
 
 @pytest.fixture
 def no_manager_ini(tmp_path, settings):
-    """Point settings.BASE_DIR at tmp_path with no manager.ini."""
+    """Point settings.BASE_DIR at tmp_path; no settings file exists."""
     settings.BASE_DIR = tmp_path
+    assert not settings_path().exists()
     return tmp_path
 
 
@@ -210,3 +226,14 @@ class TestManagerUrl:
     def test_url_uses_https_scheme(self, no_manager_ini):
         result = auto_enroll_local_worker(hostname=FAKE_HOSTNAME)
         assert result["manager_url"].startswith("https://")
+
+    def test_env_port_beats_the_settings_file(self, manager_ini, monkeypatch):
+        """#313: ``SETHLANS_MANAGER_PORT`` wins, as at the manager's start."""
+        monkeypatch.setenv("SETHLANS_MANAGER_PORT", "8443")
+        result = auto_enroll_local_worker(hostname=FAKE_HOSTNAME)
+        assert result["manager_url"] == "https://127.0.0.1:8443"
+
+    def test_env_port_without_a_settings_file(self, no_manager_ini, monkeypatch):
+        monkeypatch.setenv("SETHLANS_MANAGER_PORT", "8443")
+        result = auto_enroll_local_worker(hostname=FAKE_HOSTNAME)
+        assert result["manager_url"] == "https://127.0.0.1:8443"

@@ -8,7 +8,7 @@ The launcher's wizard hand-off depends on three things lining up:
 
 1. Both the launcher and the wizard subprocess resolve the SAME shared
    data directory. Pre-#181 the launcher's ``get_data_dir`` ignored
-   ``SETHLANS_DATA_DIR``, so the wizard wrote ``loopback_port`` under
+   ``SETHLANS_SETTINGS_DIR``, so the wizard wrote ``loopback_port`` under
    ``temp/dev-data/wizard/`` while the launcher polled ``%LOCALAPPDATA%
    \\Sethlans\\wizard\\``. The poll always timed out (#180).
 2. The wizard subprocess writes its plain-HTTP loopback port to
@@ -18,7 +18,7 @@ The launcher's wizard hand-off depends on three things lining up:
    timeout.
 
 This test exercises the whole path: spawn the real wizard subprocess
-with ``SETHLANS_DATA_DIR`` set, then run the launcher's poll helper
+with ``SETHLANS_SETTINGS_DIR`` set, then run the launcher's poll helper
 and assert it returns the same port the wizard bound. Catches
 regressions in either direction of the contract (writer rename, polled
 path drift, env-var resolution mismatch).
@@ -33,7 +33,7 @@ def test_launcher_resolves_wizard_loopback_port(wizard_process):
     """Launcher's poll helper resolves the wizard's loopback_port file.
 
     The :data:`wizard_process` fixture (see ``conftest.py``) already
-    sets ``SETHLANS_DATA_DIR=<tmp>/sethlans`` on the wizard subprocess
+    sets ``SETHLANS_SETTINGS_DIR=<tmp>/sethlans`` on the wizard subprocess
     and waits for the HTTP listener to become ready. By the time we
     run, ``<data_dir>/wizard/loopback_port`` exists with the bound port
     inside.
@@ -57,9 +57,9 @@ def test_launcher_resolves_wizard_loopback_port(wizard_process):
 def test_launcher_resolves_wizard_loopback_port_under_dev_data_dir_env(
     wizard_process,
 ):
-    """Issue #181 + #180: ``SETHLANS_DATA_DIR`` is the shared contract.
+    """Issue #181 + #180: ``SETHLANS_SETTINGS_DIR`` is the shared contract.
 
-    The fixture set ``SETHLANS_DATA_DIR`` on the wizard subprocess; the
+    The fixture set ``SETHLANS_SETTINGS_DIR`` on the wizard subprocess; the
     launcher's :func:`launcher.paths.get_data_dir` honors the same env
     var (post-#181) so a developer running ``tools/dev_launcher.py``
     sees both processes agree on the shared root. We assert the
@@ -73,19 +73,19 @@ def test_launcher_resolves_wizard_loopback_port_under_dev_data_dir_env(
 
     from launcher.paths import get_data_dir as launcher_get_data_dir
 
-    # The fixture's subprocess was launched with SETHLANS_DATA_DIR
+    # The fixture's subprocess was launched with SETHLANS_SETTINGS_DIR
     # pointing at wizard_process.data_dir. To prove the launcher would
     # resolve the same path, set it temporarily in this process and
     # call the resolver.
-    prior = os.environ.get("SETHLANS_DATA_DIR")
-    os.environ["SETHLANS_DATA_DIR"] = str(wizard_process.data_dir)
+    prior = os.environ.get("SETHLANS_SETTINGS_DIR")
+    os.environ["SETHLANS_SETTINGS_DIR"] = str(wizard_process.data_dir)
     try:
         resolved = launcher_get_data_dir()
     finally:
         if prior is None:
-            os.environ.pop("SETHLANS_DATA_DIR", None)
+            os.environ.pop("SETHLANS_SETTINGS_DIR", None)
         else:
-            os.environ["SETHLANS_DATA_DIR"] = prior
+            os.environ["SETHLANS_SETTINGS_DIR"] = prior
     assert resolved == wizard_process.data_dir, (
         f"launcher resolved {resolved}; wizard used "
         f"{wizard_process.data_dir}"

@@ -51,7 +51,7 @@ class TestSetup:
         assert answer['blender_check'] == 'not_checked'
 
     def test_post_saves_and_records_checkpoint(self, saved, probes, monkeypatch, tmp_path):
-        monkeypatch.setattr(config_store, 'get_data_dir', lambda: tmp_path)  # no sentinel
+        monkeypatch.setattr(config_store, 'get_identity_dir', lambda: tmp_path)  # no sentinel
         status, answer = _call(SETUP_PATH, 'POST', _body())
         assert status == 200 and answer['revision'] == 1
         assert 'cards_chosen' in answer['checkpoints']
@@ -97,7 +97,7 @@ class TestSetup:
         assert status == 404 and len(probes) == 1
 
     def test_post_probes_fresh_even_with_a_cached_probe(self, saved, probes, monkeypatch, tmp_path):
-        monkeypatch.setattr(config_store, 'get_data_dir', lambda: tmp_path)
+        monkeypatch.setattr(config_store, 'get_identity_dir', lambda: tmp_path)
         _call(SETUP_PATH)
         assert _call(SETUP_PATH, 'POST', _body())[0] == 200
         assert len(probes) == 2

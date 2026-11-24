@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def initialize_setup_gate() -> bool:
     """Initialize the setup gate. Returns True if setup is complete."""
-    data_dir = config_store.get_data_dir()
+    data_dir = config_store.get_identity_dir()
     init_gate(data_dir)
     return not is_in_setup_mode()
 
@@ -32,7 +32,7 @@ def wait_for_browser_setup(shutdown_event, bind_address, port):
     Polls the sentinel file every 5 seconds. Logs the setup URL
     once so the user knows where to go.
     """
-    data_dir = config_store.get_data_dir()
+    data_dir = config_store.get_identity_dir()
     logger.info(
         "Setup wizard available at https://%s:%d/setup",
         bind_address, port,
@@ -98,7 +98,7 @@ def _finalize_setup_after_wizard():
     from sethlans_worker_agent.web_ui.setup.sentinel import (
         create_sentinel, is_setup_complete,
     )
-    data_dir = config_store.get_data_dir()
+    data_dir = config_store.get_identity_dir()
     if not is_setup_complete(data_dir):
         create_sentinel(
             data_dir,
