@@ -9,8 +9,12 @@ The bundled install root is::
     <data_dir>/bin/ffmpeg/<FFMPEG_VERSION>/
 
 The actual binary may be nested several levels deep inside the
-extracted archive (BtbN ships ``ffmpeg-N.NN-latest-...../bin/ffmpeg``);
-``rglob`` walks for the platform-specific binary file name.
+extracted archive (a BtbN archive holds one top-level folder named after
+the asset, e.g. ``ffmpeg-n8.1.3-...-linux64-gpl-8.1/bin/ffmpeg``), so
+``rglob`` walks for the platform-specific binary file name and does not
+depend on that folder name.  The walk stays inside ``install_dir``;
+sibling files such as the ``<install_dir>.checksum-failed`` back-off
+marker are never seen.
 """
 
 from __future__ import annotations

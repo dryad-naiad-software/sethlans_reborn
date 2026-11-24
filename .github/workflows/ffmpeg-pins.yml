@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Downloads every pinned FFmpeg URL and checks it against the pinned
+# SHA-256 in the manager's FFmpeg constants. The unit tests mock the
+# download, so this is what notices an upstream file that has changed.
+
+name: FFmpeg Pin Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Monday 06:17 UTC.
+    - cron: '17 6 * * 1'
+  push:
+    branches: [master]
+    paths:
+      - 'manager/workers/services/parts_check/ffmpeg_download_pkg/constants.py'
+      - 'tools/check_ffmpeg_pins.py'
+      - '.github/workflows/ffmpeg-pins.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'manager/workers/services/parts_check/ffmpeg_download_pkg/constants.py'
+      - 'tools/check_ffmpeg_pins.py'
+      - '.github/workflows/ffmpeg-pins.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check-pins:
+    name: Verify pinned FFmpeg downloads
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Download and verify every pinned FFmpeg URL
+        run: python tools/check_ffmpeg_pins.py

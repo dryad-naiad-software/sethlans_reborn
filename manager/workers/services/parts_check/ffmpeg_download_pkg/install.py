@@ -8,10 +8,15 @@ Orchestrates the per-spec Tech §220-230 sequence:
 
     0. Reject if any pinned SHA-256 constant is the placeholder /
        empty / None  ->  failed("placeholder_sha")
+    0a. Checksum back-off: a valid ``<final_dir>.checksum-failed``
+       marker for the current pins, less than 24 h old, skips the
+       download  ->  failed("checksum_mismatch")  (see
+       ``checksum_backoff``)
     1. HTTPS GET into ``<final_dir>.tmp``
        ->  failed("download_failed") on transport/TLS/HTTP failure
     2. SHA-256 verify against pinned constant
-       ->  failed("checksum_mismatch") on mismatch
+       ->  failed("checksum_mismatch") on mismatch (and the back-off
+       marker is written)
     3. Validate every archive member (tar 'data' filter, zip member walk)
        ->  failed("extraction_unsafe") on traversal violation
     4. Extract to ``<final_dir>.partial``
@@ -21,7 +26,7 @@ Orchestrates the per-spec Tech §220-230 sequence:
        ->  failed("verify_runs_failed") on subprocess error
     7. os.replace('<final_dir>.partial', '<final_dir>')
     8. Delete '<final_dir>.tmp'
-    9. Return ready(source="bundled", ...)
+    9. Remove any back-off marker; return ready(source="bundled", ...)
 
 On every failure path, both ``<final_dir>.tmp`` and
 ``<final_dir>.partial`` are cleaned up before the function returns.
@@ -36,6 +41,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from ..registry import Status
+from . import checksum_backoff
 from .constants import (
     FFMPEG_SHA256, FFMPEG_URLS, FFMPEG_VERSION,
     get_platform_id, is_placeholder,
@@ -119,8 +125,13 @@ def _make_chmod_755(binary_path: Path) -> None:
 
 def _download_and_verify(
     url: str, tmp_archive: Path, expected_sha: str, partial_dir: Path,
+    final_dir: Path,
 ) -> Optional[str]:
-    """Download + SHA-256 verify.  Returns failure error code or None."""
+    """Download + SHA-256 verify.  Returns failure error code or None.
+
+    A checksum mismatch also writes the back-off marker next to
+    ``final_dir`` so the next start does not download again at once.
+    """
     try:
         stream_download(url, tmp_archive)
     except DownloadFailedError:
@@ -129,8 +140,11 @@ def _download_and_verify(
         return "download_failed"
     try:
         verify_sha256(tmp_archive, expected_sha)
-    except ChecksumMismatchError:
+    except ChecksumMismatchError as exc:
         cleanup_paths(tmp_archive, partial_dir)
+        checksum_backoff.record_failure(
+            final_dir, url, expected_sha, exc.actual,
+        )
         return "checksum_mismatch"
     return None
 
@@ -210,10 +224,15 @@ def download_and_install_bundled(install_dir: Path) -> Status:
     final_dir, tmp_archive, url, expected_sha = _resolve_paths(install_dir)
     partial_dir = final_dir.with_name(final_dir.name + ".partial")
 
+    if checksum_backoff.should_skip_download(final_dir, url, expected_sha):
+        return _failed("checksum_mismatch")
+
     final_dir.parent.mkdir(parents=True, exist_ok=True)
     cleanup_paths(tmp_archive, partial_dir)
 
-    err = _download_and_verify(url, tmp_archive, expected_sha, partial_dir)
+    err = _download_and_verify(
+        url, tmp_archive, expected_sha, partial_dir, final_dir,
+    )
     if err:
         return _failed(err)
 
@@ -232,4 +251,5 @@ def download_and_install_bundled(install_dir: Path) -> Status:
             final_dir,
         )
         return _failed("verify_runs_failed")
+    checksum_backoff.clear(final_dir)
     return _ready(str(final_binary))

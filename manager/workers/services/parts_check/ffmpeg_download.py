@@ -11,6 +11,7 @@ Layout:
     extract      — traversal-safe extraction into <final_dir>.partial
     verify       — verify_runs subprocess + version parsing
     install      — orchestrator (download + verify + extract + promote)
+    checksum_backoff — 24 h back-off marker after a checksum failure
 
 This file is the public interface: re-exports the orchestrator and the
 helper accessors callers (``ffmpeg.py``) actually need.
@@ -19,7 +20,8 @@ All HTTPS downloads use the system trust store (``verify=True``).
 ``verify=False`` is forbidden.
 
 Version is pinned to **8.1**.  Updating means bumping ``FFMPEG_VERSION``
-plus all three SHA-256 constants in ``constants.py`` together.
+plus the URLs and SHA-256 constants in ``constants.py`` together (its
+docstring has the re-pin steps).
 """
 
 from .ffmpeg_download_pkg.constants import (

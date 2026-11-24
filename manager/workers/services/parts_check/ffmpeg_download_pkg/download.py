@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import requests
 
@@ -41,7 +41,19 @@ class DownloadFailedError(Exception):
 
 
 class ChecksumMismatchError(Exception):
-    """Raised when the downloaded file's SHA-256 doesn't match."""
+    """Raised when the downloaded file's SHA-256 doesn't match.
+
+    ``expected`` / ``actual`` carry the lowercase-hex digests when the
+    raiser knows them (``verify_sha256`` always does); ``None`` otherwise.
+    """
+
+    def __init__(
+        self, message: str = "sha256 mismatch", *,
+        expected: Optional[str] = None, actual: Optional[str] = None,
+    ) -> None:
+        super().__init__(message)
+        self.expected = expected
+        self.actual = actual
 
 
 def stream_download(
@@ -98,4 +110,7 @@ def verify_sha256(
             "verify_sha256: %s mismatch (expected=%s actual=%s)",
             path, expected, actual,
         )
-        raise ChecksumMismatchError("sha256 mismatch")
+        raise ChecksumMismatchError(
+            "sha256 mismatch",
+            expected=expected.lower(), actual=actual.lower(),
+        )

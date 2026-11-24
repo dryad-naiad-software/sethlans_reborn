@@ -89,6 +89,12 @@ are NOT cleaned automatically on exit — use `dev_clean.py` for that.
 - `_dev_bootstrap.py` — Django + Caddyfile bootstrap helpers used by
   `sethlans.sh` / `sethlans.ps1`.
 - `_dev_common.py` — shared helpers for the five `dev_*.py` scripts.
+- `check_ffmpeg_pins.py` — downloads every pinned FFmpeg URL in the
+  manager's FFmpeg `constants.py` (HTTPS only) and checks its SHA-256
+  against the pin; also fails on empty/placeholder digests or mismatched
+  keys. Run `python tools/check_ffmpeg_pins.py` (`--only <platform-id>`
+  for one platform); exit 0 means all pins match. The `ffmpeg-pins`
+  workflow runs it weekly and when the pins change.
 - `fetch_caddy.py` — populates `.venv-build/caddy/` with the Caddy
   binary used by frozen builds.
 - `wizard_smoke.py` — smoke test for the wizard backend.

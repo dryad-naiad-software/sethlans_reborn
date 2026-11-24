@@ -150,7 +150,7 @@ def test_failure_at_each_stage_cleans_tmp_partial_and_skips_replace(
     elif stage == "verify_runs":
         mocker.patch.object(install_mod, "verify_runs", return_value=False)
 
-    replace_spy = mocker.patch.object(install_mod.os, "replace")
+    replace_spy = mocker.patch.object(install_mod.os, "replace", side_effect=install_mod.os.replace)  # marker writes pass
 
     status = install_mod.download_and_install_bundled(install_dir)
 
@@ -162,7 +162,7 @@ def test_failure_at_each_stage_cleans_tmp_partial_and_skips_replace(
     assert " " not in status.error
     assert not tmp_archive.exists()
     assert not partial_dir.exists()
-    replace_spy.assert_not_called()
+    assert all(Path(c.args[0]) != partial_dir for c in replace_spy.call_args_list)  # promote never ran
 
 
 # ---- Success path: os.replace promotes only after verify_runs --------

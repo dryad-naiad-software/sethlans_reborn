@@ -59,6 +59,10 @@ def cleanup_stale_partials(install_root: Path) -> None:
     the version-pinned install dir).  We sweep every immediate child
     matching ``*.tmp`` or ``*.partial`` regardless of version pin so a
     half-finished prior-version install does not pile up indefinitely.
+
+    The checksum back-off marker (``<install_dir>.checksum-failed``,
+    see ``checksum_backoff``) matches none of these patterns and is
+    deliberately kept: it must survive restarts to do its job.
     """
     if not install_root.exists():
         return
