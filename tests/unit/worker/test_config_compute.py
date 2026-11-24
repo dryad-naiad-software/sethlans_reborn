@@ -162,7 +162,7 @@ class TestEnvironment:
         ('0000:03:00.0,0000:03:00.0', (KEY_A,)),
         ('pci:0000:03:00.0', (KEY_A,)),
         ('PCI:0000:23:00.0,pci:0000:03:00.0', (KEY_B, KEY_A)),
-        ('', ()),
+        ('pci:0000:03:00.0,', (KEY_A,)),
     ])
     def test_cards_accepts_apple_gpu_and_full_or_upper_case_addresses(self, text, keys):
         section = config_compute.parse({'method': 'gpu'}, {ENV_CARDS: text})
@@ -195,7 +195,7 @@ class TestEnvironment:
         assert section.allow_manager_changes is expected
         assert (section.allow_from_env, section.env_override, section.method) == (True, False, 'gpu')
 
-    @pytest.mark.parametrize('text', ['yes', '1', 'on', ''])
+    @pytest.mark.parametrize('text', ['yes', '1', 'on'])  # empty counts as unset: test_config_compute_empty_env.py
     def test_invalid_switch_override_means_false_and_keeps_the_method(self, text):
         section = config_compute.parse(_gpu_file(), {ENV_ALLOW: text})
         assert section.allow_manager_changes is False

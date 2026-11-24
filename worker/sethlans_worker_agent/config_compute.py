@@ -6,7 +6,9 @@ The worker's compute choice: the ``compute`` section of ``config.json`` (FR-CC-1
 
 ``load()`` reads the section and applies the overrides ``SETHLANS_COMPUTE_METHOD``, ``_GPU_MODE``, ``_CARDS``
 (comma-separated PCI addresses) and ``_ALLOW_MANAGER_CHANGES``, each replacing its own key; ``env_override`` is
-true when any of the first three is set. The default method is ``cpu``, as in the original Sethlans. An invalid
+true when any of the first three is set. An empty or blank value (a ``VAR=`` line in a Docker ``.env``) counts
+as unset: no override and not invalid; a ``SETHLANS_COMPUTE_CARDS`` that is not blank but names no card
+(``,``) is invalid. The default method is ``cpu``, as in the original Sethlans. An invalid
 value (file or environment) is logged at ERROR once, naming the key, and the worker runs with ``method = cpu``,
 never a GPU guess; an invalid switch means ``false``. ``SETHLANS_COMPUTE_CARDS`` naming cards of more than one
 brand is invalid too, once an inventory showed it (``cards.env_brands``, FR-PC-BR-3). Only ``cards.store``
@@ -111,13 +113,20 @@ def _from_file(raw: dict, invalid: list) -> dict:
             'alerts': distinct_alerts(_list_of(raw, 'alerts', valid_alert, invalid), logger)}
 
 
+def _set_variables(environ) -> dict:
+    """The four ``SETHLANS_COMPUTE_*`` variables that are set; an empty or blank value counts as unset (#305)."""
+    return {name: environ[name] for name in (ENV_METHOD, ENV_GPU_MODE, ENV_CARDS, ENV_ALLOW)
+            if name in environ and str(environ[name]).strip()}
+
+
 def _apply_env(values: dict, environ, invalid: list) -> dict:
+    environ = _set_variables(environ)
     for name, env_name, allowed in (('method', ENV_METHOD, METHODS), ('gpu_mode', ENV_GPU_MODE, GPU_MODES)):
         if env_name in environ:
             values[name] = _choice(environ[env_name].strip().lower(), allowed, env_name, invalid)
     if ENV_CARDS in environ:
         keys = parse_key_list(environ[ENV_CARDS], MAX_ENTRIES)
-        if keys is None:
+        if not keys:  # None: a bad entry or too many; (): only commas and blanks (``,``), which names no card
             invalid.append(ENV_CARDS)
         values['cards'] = tuple({'key': key} for key in keys or ())
     if ENV_ALLOW in environ:

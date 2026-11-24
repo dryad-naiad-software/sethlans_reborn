@@ -25,7 +25,10 @@ class CapacityProfile:
     tuples ``(key, name, blender_id, backend)`` in PCI address order (D4);
     GPU slots are keyed by card key. ``ignored`` are the Blender ids of the
     detected cards that are not in use (FR-CB-2). ``problem`` is the FR-CK-6
-    text when the method includes GPU but no card is in use.
+    text when the method includes GPU but no card is in use. ``cpu_only_hint``
+    is true when the method is ``cpu``, no card is ticked and graphics cards
+    were found (#305): the profile log then says how to choose one. It is log
+    data only and changes no slot.
     """
     gpu_slot_count: int
     cpu_slot_count: int
@@ -36,6 +39,7 @@ class CapacityProfile:
     cards: tuple = ()
     ignored: Tuple[str, ...] = ()
     problem: str = ''
+    cpu_only_hint: bool = False
 
     @property
     def total(self) -> int:

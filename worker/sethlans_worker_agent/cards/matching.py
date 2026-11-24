@@ -149,7 +149,7 @@ def _blender_cards(section, inv, states, in_use) -> Tuple[Tuple, str]:
                  "this worker takes no GPU jobs until the choice is changed.",
                  ', '.join(sorted({card.backend for card in cards})))
         return (), in_use.COMBINE_PROBLEM_TEXT
-    return cards, in_use.problem_message(section, cards)
+    return cards, in_use.problem_message(section, cards, waiting=in_use.waiting_for_blender(inv, section, states))
 
 
 def evaluate(section, inventory, blender_fresh: Optional[bool] = False,

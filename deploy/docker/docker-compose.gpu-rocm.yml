@@ -13,3 +13,20 @@ services:
     group_add:
       - video
       - render
+    # Graphics cards: the worker starts with no card ticked (CPU only).
+    # Make the card choice from the manager or the worker page, or set
+    # these in .env (see .env.example). Setting any of METHOD, GPU_MODE
+    # or CARDS fixes the whole card choice; the manager and the worker
+    # pages cannot change it. Leave all three unset to choose from the
+    # manager. Each variable is listed by name only, so Compose takes its
+    # value from the shell or .env; one with no value there is left out
+    # of the container. SETHLANS_COMPUTE_CARDS takes comma-separated PCI
+    # addresses as the worker logs them at start (the "Graphics cards
+    # (operating system list ...)" lines), e.g. pci:0000:01:00.0. Read
+    # them with:
+    #   docker compose logs worker | grep "pci:"
+    environment:
+      - SETHLANS_COMPUTE_METHOD
+      - SETHLANS_COMPUTE_GPU_MODE
+      - SETHLANS_COMPUTE_CARDS
+      - SETHLANS_COMPUTE_ALLOW_MANAGER_CHANGES

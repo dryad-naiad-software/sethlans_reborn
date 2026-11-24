@@ -18,8 +18,12 @@ Key rules:
     subkey derivation, and held in memory. The raw user-typed input
     is never used downstream (FR-21).
   * The request uses ``verify=False`` because no pinned fingerprint
-    exists yet; ``InsecureRequestWarning`` is suppressed only for
-    this call (FR-22).
+    exists yet (FR-22). It goes through its own new session
+    (``tls_adapter.unpinned_session``), never the thread-local one,
+    which may be pinned to another manager. urllib3's
+    ``InsecureRequestWarning`` for it is accurate and is not
+    suppressed: ``warnings.catch_warnings`` changes process-wide state
+    and would also hide other threads' warnings (#306).
   * Every response field is validated before the HMAC is verified
     (7 checks per FR-21). Only after all checks pass does the
     function return a payload.
@@ -31,17 +35,15 @@ import hmac
 import json
 import logging
 import secrets
-import warnings
 from typing import Dict
 
 import requests
-from urllib3.exceptions import InsecureRequestWarning
 
 from sethlans_worker_agent.enrollment_key import (
     derive_signing_subkey,
     normalize,
 )
-from sethlans_worker_agent.tls_adapter import get_session
+from sethlans_worker_agent.tls_adapter import unpinned_session
 
 logger = logging.getLogger(__name__)
 
@@ -153,12 +155,14 @@ def _validate_envelope(envelope) -> dict:
 
 
 def _post_enroll(url: str, body: dict) -> requests.Response:
+    """POST through a new unpinned session, closed after the call (#306).
+
+    Not the thread-local session: that one may already be pinned to another
+    manager. The response is read in full before the session closes.
+    """
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", InsecureRequestWarning)
-            return get_session().post(
-                url, json=body, timeout=15, verify=False,
-            )
+        with unpinned_session() as session:
+            return session.post(url, json=body, timeout=15, verify=False)
     except requests.exceptions.RequestException as e:
         raise EnrollmentError(f"Network error: {e}") from e
 

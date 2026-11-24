@@ -69,12 +69,12 @@ def init_capacity() -> capacity_module.WorkerCapacity:
     """
     global _capacity
     system_monitor.get_gpu_device_details()
-    cards_startup_log.log_once_at_start()  # log the OS/Blender card list once
+    start_inv = cards_startup_log.log_once_at_start()  # log the OS/Blender card list once
     generation = rebuild.generation()
     section = cards_store.snapshot()
     selection = card_check.start_check(section)
     section = cards_env_brands.applied(section)  # the start check may find two brands named (FR-PC-BR-3)
-    profile = card_profile.profile_for(section, selection)
+    profile = card_profile.profile_for(section, selection, detected=card_profile.detected_card_count(start_inv))
     card_profile.log_profile(profile)
     _capacity = capacity_module.WorkerCapacity(profile)
     rebuild.mark_built(generation)

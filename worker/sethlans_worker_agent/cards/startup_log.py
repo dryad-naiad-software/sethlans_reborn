@@ -72,18 +72,24 @@ def _log(inv: inventory.Inventory, blender_cards=None) -> None:
         logger.info("  - %s", _describe(card))
 
 
-def log_once_at_start() -> None:
-    """Probe, join and log the card list, the first time only."""
+def log_once_at_start() -> Optional[inventory.Inventory]:
+    """Probe, join and log the card list, the first time only; the inventory logged, else ``None``.
+
+    The caller uses the inventory only to say that cards were found (#305), never to pick cards.
+    """
     global _done
     with _lock:
         if _done:
-            return
+            return None
         _done = True
     try:
         blender_cards, version = cached_blender_list()
-        _log(inventory.build(os_probe.probe(), blender_cards, version), blender_cards)
+        inv = inventory.build(os_probe.probe(), blender_cards, version)
+        _log(inv, blender_cards)
+        return inv
     except Exception:  # information only: never break the capacity build
         logger.warning("The graphics card list could not be logged.", exc_info=True)
+        return None
 
 
 def reset_for_tests() -> None:

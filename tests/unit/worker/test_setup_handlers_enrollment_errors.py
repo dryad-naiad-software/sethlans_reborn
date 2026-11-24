@@ -209,8 +209,9 @@ class TestTimeoutInvariant:
         mock_response.status_code = 503  # -> ServiceUnavailableError
         mock_response.text = "nope"
         mock_session.post.return_value = mock_response
+        mock_session.__enter__.return_value = mock_session  # used as a context manager (#306)
         mocker.patch(
-            "sethlans_worker_agent.enrollment_client.get_session",
+            "sethlans_worker_agent.enrollment_client.unpinned_session",
             return_value=mock_session,
         )
         mocker.patch(

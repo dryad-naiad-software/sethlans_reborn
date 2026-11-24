@@ -22,8 +22,9 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
-from sethlans_worker_agent import enrollment_client, enrollment_key
+from sethlans_worker_agent import enrollment_client, enrollment_key, tls_adapter
 
 
 TEST_KEY = "4F9XK2PBQ7M3N8RT"
@@ -40,6 +41,12 @@ def _sign_payload(payload: dict, normalized_key: str) -> str:
     return hmac.new(subkey, canonical, hashlib.sha256).hexdigest()
 
 
+def _patch_session(mocker, session):
+    """``enrollment_client.unpinned_session`` returns ``session``, used as a context manager."""
+    session.__enter__.return_value = session
+    return mocker.patch.object(enrollment_client, "unpinned_session", return_value=session)
+
+
 def _mock_session_ok(mocker, payload, signature):
     response = MagicMock()
     response.status_code = 200
@@ -49,12 +56,12 @@ def _mock_session_ok(mocker, payload, signature):
     }
     session = MagicMock()
     session.post.return_value = response
-    mocker.patch.object(enrollment_client, "get_session", return_value=session)
+    _patch_session(mocker, session)
     return session, response
 
 
 def _capture_request_nonce(mocker):
-    """Mock get_session so we can later inspect the nonce sent."""
+    """Mock unpinned_session so we can later inspect the nonce sent."""
     captured = {}
 
     def post_side_effect(url, json=None, **kwargs):
@@ -80,7 +87,7 @@ def _capture_request_nonce(mocker):
 
     session = MagicMock()
     session.post.side_effect = post_side_effect
-    mocker.patch.object(enrollment_client, "get_session", return_value=session)
+    _patch_session(mocker, session)
     return captured, session
 
 
@@ -109,9 +116,7 @@ class TestHappyPath:
 class TestNormalizationPreNetwork:
     def test_invalid_key_raises_without_network_call(self, mocker):
         bad_session = MagicMock()
-        mocker.patch.object(
-            enrollment_client, "get_session", return_value=bad_session,
-        )
+        _patch_session(mocker, bad_session)
         with pytest.raises(enrollment_client.InvalidKeyError):
             enrollment_client.enroll(
                 MANAGER_URL, "4F9X-K2PB-Q7M3-N8RI", TEST_HOST,  # trailing I
@@ -120,9 +125,7 @@ class TestNormalizationPreNetwork:
 
     def test_too_short_key_raises_without_network_call(self, mocker):
         bad_session = MagicMock()
-        mocker.patch.object(
-            enrollment_client, "get_session", return_value=bad_session,
-        )
+        _patch_session(mocker, bad_session)
         with pytest.raises(enrollment_client.InvalidKeyError):
             enrollment_client.enroll(MANAGER_URL, "4F9X-K2PB", TEST_HOST)
         bad_session.post.assert_not_called()
@@ -156,9 +159,7 @@ class TestHmacMismatch:
 
         session = MagicMock()
         session.post.side_effect = post_side_effect
-        mocker.patch.object(
-            enrollment_client, "get_session", return_value=session,
-        )
+        _patch_session(mocker, session)
 
         with pytest.raises(enrollment_client.HmacMismatchError):
             enrollment_client.enroll(MANAGER_URL, TEST_KEY, TEST_HOST)
@@ -183,9 +184,7 @@ class TestNonceMismatch:
 
         session = MagicMock()
         session.post.side_effect = post_side_effect
-        mocker.patch.object(
-            enrollment_client, "get_session", return_value=session,
-        )
+        _patch_session(mocker, session)
 
         with pytest.raises(enrollment_client.NonceMismatchError):
             enrollment_client.enroll(MANAGER_URL, TEST_KEY, TEST_HOST)
@@ -209,9 +208,7 @@ class TestMalformedEnvelope:
         }
         session = MagicMock()
         session.post.return_value = response
-        mocker.patch.object(
-            enrollment_client, "get_session", return_value=session,
-        )
+        _patch_session(mocker, session)
         with pytest.raises(enrollment_client.MalformedResponseError):
             enrollment_client.enroll(MANAGER_URL, TEST_KEY, TEST_HOST)
 
@@ -234,9 +231,7 @@ class TestMalformedEnvelope:
 
         session = MagicMock()
         session.post.side_effect = post_side_effect
-        mocker.patch.object(
-            enrollment_client, "get_session", return_value=session,
-        )
+        _patch_session(mocker, session)
         with pytest.raises(enrollment_client.MalformedResponseError):
             enrollment_client.enroll(MANAGER_URL, TEST_KEY, TEST_HOST)
 
@@ -257,9 +252,7 @@ class TestHttpErrorMapping:
         response.json.return_value = {}
         session = MagicMock()
         session.post.return_value = response
-        mocker.patch.object(
-            enrollment_client, "get_session", return_value=session,
-        )
+        _patch_session(mocker, session)
         with pytest.raises(error_cls):
             enrollment_client.enroll(MANAGER_URL, TEST_KEY, TEST_HOST)
 
@@ -270,8 +263,30 @@ class TestHttpErrorMapping:
         response.json.return_value = {"detail": "Replayed nonce."}
         session = MagicMock()
         session.post.return_value = response
-        mocker.patch.object(
-            enrollment_client, "get_session", return_value=session,
-        )
+        _patch_session(mocker, session)
         with pytest.raises(enrollment_client.NonceMismatchError):
             enrollment_client.enroll(MANAGER_URL, TEST_KEY, TEST_HOST)
+
+
+class TestOwnSession:
+    """#306: the POST goes through a new unpinned session, closed after the call, never the thread-local one."""
+
+    def test_session_is_entered_and_exited_around_the_post(self, mocker):
+        _captured, session = _capture_request_nonce(mocker)
+        enrollment_client.enroll(MANAGER_URL, TEST_KEY, TEST_HOST)
+        session.__enter__.assert_called_once_with()
+        session.__exit__.assert_called_once()
+        kwargs = session.post.call_args.kwargs
+        assert (kwargs["timeout"], kwargs["verify"]) == (15, False)
+
+    def test_seam_is_the_tls_adapter_unpinned_session(self):
+        assert enrollment_client.unpinned_session is tls_adapter.unpinned_session
+        assert not hasattr(enrollment_client, "get_session")
+
+    def test_network_error_is_an_enrollment_error(self, mocker):
+        session = MagicMock()
+        session.post.side_effect = requests.exceptions.ConnectionError("refused")
+        _patch_session(mocker, session)
+        with pytest.raises(enrollment_client.EnrollmentError, match="Network error"):
+            enrollment_client.enroll(MANAGER_URL, TEST_KEY, TEST_HOST)
+        session.__exit__.assert_called_once()
