@@ -16,22 +16,18 @@ from rest_framework.test import APIClient
 pytestmark = pytest.mark.django_db
 
 
-SENTINEL_COMPLETE = {
-    "version": 1,
-    "completed_at": "2025-01-15T12:00:00Z",
-    "topology": "manager",
-    "checkpoints": [],
+#: The summary keys since issue #304 dropped ``topology``.
+SUMMARY_KEYS = {
+    "manager_url", "admin_username", "enrollment_key", "cert_fingerprint",
 }
 
 
 @pytest.fixture(autouse=True)
-def _summary_view_state(mocker, tmp_path):
-    """Stub the summary view's data dir + sentinel for predictable output."""
+def _summary_data_dir(mocker, tmp_path):
+    """Point the summary view's data dir at an empty ``tmp_path``."""
     from workers.views import manager_summary as mod
-    mocker.patch.object(mod, "_data_dir", return_value=tmp_path)
-    mocker.patch.object(
-        mod, "read_sentinel", return_value=SENTINEL_COMPLETE,
-    )
+    mocker.patch.object(mod, "get_manager_data_dir", return_value=tmp_path)
+    return tmp_path
 
 
 class TestManagerSummaryAuth:
@@ -57,7 +53,6 @@ class TestManagerSummaryAuth:
         assert "admin_username" in payload
         assert "enrollment_key" in payload
         assert "cert_fingerprint" in payload
-        assert payload["topology"] == "manager"
 
     def test_admin_token_auth_allowed(self, admin_user):
         from rest_framework.authtoken.models import Token
@@ -66,3 +61,34 @@ class TestManagerSummaryAuth:
         client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
         resp = client.get("/api/manager/summary/")
         assert resp.status_code == 200
+
+
+class TestManagerSummaryPayload:
+
+    def test_keys_have_no_topology(self, admin_client):
+        """Issue #304: the summary no longer reads the setup marker."""
+        payload = admin_client.get("/api/manager/summary/").json()
+        assert set(payload) == SUMMARY_KEYS
+
+    def test_view_does_not_read_the_setup_marker(self):
+        from workers.views import manager_summary as mod
+        assert not hasattr(mod, "read_sentinel")
+
+    def test_manager_url_from_manager_ini_in_data_dir(
+        self, admin_client, _summary_data_dir,
+    ):
+        (_summary_data_dir / "manager.ini").write_text(
+            "[server]\nhost = 10.0.0.5\nport = 9443\n",
+            encoding="utf-8",
+        )
+        payload = admin_client.get("/api/manager/summary/").json()
+        assert payload["manager_url"] == "https://10.0.0.5:9443"
+
+    def test_manager_url_defaults_without_manager_ini(self, admin_client):
+        payload = admin_client.get("/api/manager/summary/").json()
+        assert payload["manager_url"] == "https://localhost:8080"
+
+    def test_data_dir_is_the_shared_manager_data_dir(self, _summary_data_dir):
+        """``_data_dir`` delegates to ``get_manager_data_dir``."""
+        from workers.views import manager_summary as mod
+        assert mod._data_dir() == _summary_data_dir

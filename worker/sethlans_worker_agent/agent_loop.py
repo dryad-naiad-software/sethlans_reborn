@@ -90,11 +90,6 @@ def _run_loop_iteration(worker_id):
     if agent._shutdown_event.is_set():  # a shutdown arrived meanwhile: claim nothing (#247)
         return
 
-    from sethlans_worker_agent.agent_setup import check_manager_setup_complete
-    if not check_manager_setup_complete():  # issue #126: skip work until setup done
-        agent._shutdown_event.wait(config.HEARTBEAT_INTERVAL_SECONDS)
-        return
-
     if not is_busy:
         version_sync.process_pending_downloads()
         version_sync.process_pending_removals(active_jobs)

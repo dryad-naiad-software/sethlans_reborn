@@ -10,6 +10,7 @@ Windows behavior is covered by
 import os
 import stat
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -107,7 +108,7 @@ class TestImportSafety:
     def test_no_windows_modules_at_import(self):
         from shared import owner_only_acl_win
         for module in (acl, owner_only_acl_win):
-            source = open(module.__file__, encoding='utf-8').read()
+            source = Path(module.__file__).read_text(encoding='utf-8')
             top_level = [line for line in source.splitlines() if line.startswith(('import ', 'from '))]
             assert not [line for line in top_level if 'ctypes' in line or 'winreg' in line or 'msvcrt' in line]
 

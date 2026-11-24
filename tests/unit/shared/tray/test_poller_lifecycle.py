@@ -242,7 +242,7 @@ class TestNoCoalescing:
         self, poller_factory_configurable,
     ):
         script = [
-            {"boot_id": "b1", "workers_online": i, "setup_mode": True}
+            {"boot_id": "b1", "workers_online": i}
             for i in range(5)
         ]
         p, _stop, _flag, _ = poller_factory_configurable(script=script)

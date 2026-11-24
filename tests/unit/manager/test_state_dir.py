@@ -106,14 +106,14 @@ def test_tls_frozen_is_unchanged(data_env, frozen, tmp_path):
     assert tls_setup.get_tls_dir(False, tmp_path, tmp_path) == frozen / "tls"
 
 
-# -- Django-side readers (setup marker, summary, broadcaster params) ------
+# -- Django-side readers (data dir, summary, broadcaster params) ----------
 
-def test_marker_dir_follows_env(data_env, settings):
+def test_manager_data_dir_follows_env(data_env, settings):
     from workers.services.data_dir import get_manager_data_dir
     assert get_manager_data_dir() == data_env
 
 
-def test_marker_dir_without_env_is_base_dir(no_env, settings):
+def test_manager_data_dir_without_env_is_base_dir(no_env, settings):
     from workers.services.data_dir import get_manager_data_dir
     assert get_manager_data_dir() == Path(settings.BASE_DIR)
 

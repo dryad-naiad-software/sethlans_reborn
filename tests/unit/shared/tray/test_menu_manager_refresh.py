@@ -72,21 +72,31 @@ class TestRefreshText:
         section.refresh()
         assert section._act_setup.text() == "Setup: Ready"
 
-    def test_setup_line_in_progress(
-        self, section, snapshot_holder, make_snapshot,
-    ):
+    def test_setup_line_ready_from_launcher_marker(self, section, tmp_path):
+        """Issue #304: the launcher's ``.setup_complete`` (next to the
+        manager data folder) is what makes the line read Ready."""
         section.build_qmenu()
-        snapshot_holder["snap"] = make_snapshot(setup_mode=True)
+        (tmp_path / ".setup_complete").write_text("{}", encoding="utf-8")
         section.refresh()
-        assert section._act_setup.text() == "Setup: In progress"
+        assert section._act_setup.text() == "Setup: Ready"
 
-    def test_setup_line_needed(
+    def test_setup_line_needed_without_a_marker(
         self, section, snapshot_holder, make_snapshot,
     ):
+        """Issue #304: no marker on disk reads Needed, even while the
+        manager answers as running; there is no "In progress" state."""
         section.build_qmenu()
-        snapshot_holder["snap"] = make_snapshot(setup_mode=False)
+        snapshot_holder["snap"] = make_snapshot(state="running")
         section.refresh()
         assert section._act_setup.text() == "Setup: Needed"
+
+    def test_setup_line_follows_the_marker_appearing(self, section, tmp_path):
+        section.build_qmenu()
+        section.refresh()
+        assert section._act_setup.text() == "Setup: Needed"
+        (tmp_path / ".setup_complete").write_text("{}", encoding="utf-8")
+        section.refresh()
+        assert section._act_setup.text() == "Setup: Ready"
 
     def test_workers_line_reflects_snapshot(
         self, section, snapshot_holder, make_snapshot,

@@ -116,10 +116,9 @@ class TestLoopbackPortSwitchesUrlconf:
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert set(body.keys()) >= {
+        assert set(body.keys()) == {
             "boot_id",
             "version",
-            "setup_mode",
             "workers_online",
             "jobs_queued",
             "jobs_rendering",

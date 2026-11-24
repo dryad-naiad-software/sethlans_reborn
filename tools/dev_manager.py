@@ -18,11 +18,12 @@ flag is here so this script doesn't need rewriting once it lands.)
 Because ``SETHLANS_MANAGER_DATA_DIR`` is set, the source-mode manager
 keeps its state in ``temp/dev-data/manager/`` instead of the source
 tree (see ``sethlans_manager.state_dir``): ``manager.ini``, the default
-SQLite database (next to ``manager.ini``), logs, the setup marker it
-reads, broadcaster params, the secret-key file and FFmpeg. The TLS
-cert is passed explicitly via ``SETHLANS_TLS_CERT_FILE`` /
-``SETHLANS_TLS_KEY_FILE``. ``SETHLANS_DATA_DIR`` points the shared data
-dir (topology, IPC markers) at the dev data root. For a clean DB,
+SQLite database (next to ``manager.ini``), logs, broadcaster params,
+the secret-key file and FFmpeg. The TLS cert is passed explicitly via
+``SETHLANS_TLS_CERT_FILE`` / ``SETHLANS_TLS_KEY_FILE``.
+``SETHLANS_DATA_DIR`` points the shared data dir (topology, IPC
+markers, the launcher's ``.setup_complete`` marker) at the dev data
+root. For a clean DB,
 delete ``temp/dev-data/manager/db.sqlite3`` between runs.
 
 CLI:

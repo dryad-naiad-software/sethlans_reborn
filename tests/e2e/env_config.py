@@ -135,11 +135,10 @@ def build_manager_env(
     tls_data_dir = Path(tls_data_dir)
     tls_data_dir.mkdir(parents=True, exist_ok=True)
     env["SETHLANS_TLS_DATA_DIR"] = str(tls_data_dir)
-    # Anchor the manager data dir at the per-test tmp tree so subprocess
-    # _get_data_dir() (heartbeat, setup gate) reads sentinels written by
-    # the E2E fixture at tls_data_dir.parent (issue #137). Without this
-    # the heartbeat reports manager_setup_complete: false forever, the
-    # worker never claims, and jobs stay QUEUED until E2E times out.
+    # Anchor the manager's source-mode state dir (``state_dir``) at the
+    # per-test tmp tree, the parent of ``tls_data_dir``. Logs,
+    # ``manager.ini``, the bundled FFmpeg install and the other manager
+    # state then land there instead of in ``manager/`` in the repo.
     env["SETHLANS_MANAGER_DATA_DIR"] = str(tls_data_dir.parent)
     return env
 

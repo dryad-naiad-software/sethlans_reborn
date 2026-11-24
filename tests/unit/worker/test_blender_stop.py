@@ -176,8 +176,14 @@ class TestHeartbeat:
 
     def test_periodic_heartbeat_carries_the_boot_id(self, mocker):
         from sethlans_worker_agent import boot_id
-        from tests.unit.worker.test_system_monitor_setup_complete import _patch_common
-        _patch_common(mocker)
+        for name, value in (('get_system_info', {'hostname': 'w1', 'os': 'linux'}),
+                            ('_get_ui_url', 'https://127.0.0.1:8081'),
+                            ('_get_ui_cert_fingerprint', 'ab' * 32),
+                            ('_process_heartbeat_versions', True)):
+            mocker.patch.object(system_monitor, name, return_value=value)
+        mocker.patch('sethlans_worker_agent.config.get_schedule_config', return_value={})
+        mocker.patch('sethlans_worker_agent.config.API_TOKEN', 'test-token-abc')
+        mocker.patch.object(system_monitor, '_versions_ready', False)
         mocker.patch.object(system_monitor, 'WORKER_ID', 7)
         send = mocker.patch('sethlans_worker_agent.api_handler.send_authenticated_heartbeat',
                             return_value={'id': 7})

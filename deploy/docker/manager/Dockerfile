@@ -54,9 +54,8 @@ ENV DJANGO_SETTINGS_MODULE=sethlans_manager.settings \
 
 # All manager state lives in /data (#297): manager.ini, the TLS cert
 # (/data/tls, so the fingerprint survives a new container), the secret
-# key file, FFmpeg (/data/bin/ffmpeg) and the logs (/data/logs); the
-# manager also looks for its setup marker there. From source it
-# resolves each of these through this one setting
+# key file, FFmpeg (/data/bin/ffmpeg) and the logs (/data/logs). From
+# source it resolves each of these through this one setting
 # (sethlans_manager.state_dir). The entrypoint sets /data to 0700.
 ENV SETHLANS_MANAGER_DATA_DIR=/data
 

@@ -30,9 +30,6 @@ from tests.e2e.log_capture import (
     read_log_files,
 )
 from tests.e2e.process_lifecycle import kill_process_tree
-# ``manager/`` is on the pythonpath via pytest.ini, so the manager-side
-# sentinel helper is importable from test code without sys.path tricks.
-from workers.services.sentinel import create_sentinel
 
 logger = logging.getLogger(__name__)
 
@@ -175,21 +172,6 @@ def start_manager(env, port):
     proc._caddy_proc = caddy_proc
     # Lets ``wait_for_manager`` verify TLS against the served cert.
     proc._tls_cert_path = cert_path
-
-    # Mark the manager's setup wizard as complete. After GH #126 the
-    # worker's main loop refuses to claim jobs (or download Blender)
-    # until the heartbeat reports ``manager_setup_complete: true``,
-    # which the manager only does once a sentinel JSON with a truthy
-    # ``completed_at`` is on disk. The e2e harness skips the wizard,
-    # so we synthesise the post-wizard sentinel here. ``manager_worker``
-    # is the closest production analog to the e2e topology (manager +
-    # worker on the same box); the checkpoint list mirrors the
-    # state ``_infer_current_step`` treats as fully done.
-    create_sentinel(
-        manager_data_dir,
-        topology="manager_worker",
-        checkpoints=["topology_chosen", "verified"],
-    )
     return proc
 
 

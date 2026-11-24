@@ -28,6 +28,12 @@ regenerated only by hand on pre-change master with
 ``SETHLANS_UPDATE_BLENDER_SNAPSHOT=1``.  Regeneration refuses to run in
 CI and fails if any raw response already carries a new key name, so it
 cannot silently absorb a chunk 1+ change.
+
+Documented removal (issue #304): the heartbeat no longer sends
+``manager_setup_complete`` (the manager setup-complete gate was removed).
+Regeneration refuses after chunk 1, so that one key was deleted by hand
+from the ``heartbeat`` and ``heartbeat_registration`` captures; nothing
+else in the snapshot changed.
 """
 
 import json
@@ -35,8 +41,6 @@ import os
 from pathlib import Path
 
 import pytest
-
-from workers.views import heartbeat as heartbeat_mod
 
 from .blender_invariance_normalize import (
     canonical, keyed_by_name, new_key_paths, normalize, normalize_pattern,
@@ -64,21 +68,16 @@ POLL_ORDER_EXCEPTION = {
 
 @pytest.fixture
 def invariance_env(settings, tmp_path, monkeypatch):
-    """Isolate uploads and the setup-complete flag from the machine.
+    """Isolate uploads and the manager data dir from the machine.
 
-    Uploaded ``.blend`` files go to a temporary ``MEDIA_ROOT``.  The
-    heartbeat's ``manager_setup_complete`` reads a sentinel in the
-    manager data dir and caches a True result for the process, so the
-    data dir is an empty temporary one and the cache is reset: the flag
-    is always False here, whatever the machine or earlier tests did.
+    Uploaded ``.blend`` files go to a temporary ``MEDIA_ROOT`` and the
+    manager data dir is an empty temporary one, so nothing on the
+    machine or from earlier tests can change the recorded answers.
     """
     settings.MEDIA_ROOT = str(tmp_path / 'media')
     data_dir = tmp_path / 'data'
     data_dir.mkdir()
     monkeypatch.setenv('SETHLANS_MANAGER_DATA_DIR', str(data_dir))
-    heartbeat_mod._reset_setup_complete_cache()
-    yield
-    heartbeat_mod._reset_setup_complete_cache()
 
 
 def _snapshot_document(captures, poll_orders):

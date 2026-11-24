@@ -31,13 +31,10 @@ from rest_framework.authentication import (
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 
-from ..services.data_dir import get_manager_data_dir as _get_data_dir
-
 from ..models import SupportedBlenderVersion, Worker
 from ..permissions import HeartbeatViewSetPermission
 from ..serializers import WorkerSerializer
 from ..services.machine_tests import ensure_for_worker
-from ..services.sentinel import is_setup_complete
 # Module import, attributes read at call time: ``worker_reconcile`` imports
 # ``views.stuck_jobs``, so a ``from`` import here would be an import cycle.
 from ..services import worker_reconcile
@@ -69,38 +66,6 @@ from .token_actions import WorkerTokenActionsMixin
 from .yield_actions import WorkerYieldActionsMixin
 
 logger = logging.getLogger(__name__)
-
-# Sticky-True cache for the setup-complete sentinel.  Mirrors the
-# pattern at ``sethlans_manager/middleware/setup_gate.py:38``: the
-# sentinel is monotonic over a process lifetime (writes are atomic and
-# the file is never deleted under normal operation), so once we observe
-# completion we can short-circuit subsequent heartbeats and skip the
-# stat + read + JSON parse.  Operator deletion of the sentinel would
-# require a manager restart anyway, which clears this flag.
-_setup_complete_cached: bool = False
-
-
-def _is_setup_complete_cached() -> bool:
-    """Return True if setup is complete, caching the True result.
-
-    Once setup completes, every subsequent call returns True without
-    touching the filesystem.  Before completion, each call falls
-    through to ``is_setup_complete`` so the wizard transition is
-    observed promptly.
-    """
-    global _setup_complete_cached
-    if _setup_complete_cached:
-        return True
-    if is_setup_complete(_get_data_dir()):
-        _setup_complete_cached = True
-        return True
-    return False
-
-
-def _reset_setup_complete_cache() -> None:
-    """Reset the sticky cache flag.  Test-only helper."""
-    global _setup_complete_cached
-    _setup_complete_cached = False
 
 
 @extend_schema_view(
@@ -185,12 +150,6 @@ class WorkerHeartbeatViewSet(
                 'series', version=models.F('resolved_version'),
             )
         )
-        # Surface setup-complete state so workers can self-gate on
-        # download/job-claim while the manager wizard is in progress
-        # (issue #126).  Cached via sticky-True flag (issue #130) — the
-        # sentinel is monotonic, so once complete we skip the
-        # stat/read/parse on every subsequent heartbeat.
-        result['manager_setup_complete'] = _is_setup_complete_cached()
         return Response(result, status=status.HTTP_200_OK)
 
     def _handle_full_registration(self, request, worker):

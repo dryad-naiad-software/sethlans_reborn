@@ -16,7 +16,6 @@ import configparser
 import logging
 from pathlib import Path
 
-from django.conf import settings
 from drf_spectacular.utils import extend_schema
 from rest_framework.authentication import (
     SessionAuthentication,
@@ -31,20 +30,17 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from sethlans_manager import runtime_state
-from sethlans_manager.state_dir import source_data_dir
-from shared.frozen_paths import get_data_dir, is_frozen
-from workers.services.sentinel import read_sentinel
+from workers.services.data_dir import get_manager_data_dir
 
 logger = logging.getLogger(__name__)
 
 
 def _data_dir() -> Path:
-    if is_frozen():
-        return get_data_dir("manager")
-    return source_data_dir(settings.BASE_DIR)
+    """Return the manager data dir, where ``manager.ini`` lives."""
+    return get_manager_data_dir()
 
 
-def _build_summary_payload(data_dir: Path, sentinel: dict) -> dict:
+def _build_summary_payload(data_dir: Path) -> dict:
     ini_path = data_dir / "manager.ini"
     config = configparser.ConfigParser()
     if ini_path.exists():
@@ -72,7 +68,6 @@ def _build_summary_payload(data_dir: Path, sentinel: dict) -> dict:
         "admin_username": admin_username,
         "enrollment_key": enrollment_key,
         "cert_fingerprint": runtime_state.cert_fingerprint or "",
-        "topology": sentinel.get("topology", "") if sentinel else "",
     }
 
 
@@ -82,6 +77,4 @@ def _build_summary_payload(data_dir: Path, sentinel: dict) -> dict:
 @permission_classes([IsAuthenticated, IsAdminUser])
 def manager_summary_view(request):
     """GET /api/manager/summary/ — admin-only post-setup summary."""
-    data_dir = _data_dir()
-    sentinel = read_sentinel(data_dir)
-    return Response(_build_summary_payload(data_dir, sentinel or {}))
+    return Response(_build_summary_payload(_data_dir()))

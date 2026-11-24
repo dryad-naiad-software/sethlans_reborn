@@ -5,18 +5,18 @@
 """
 Unit tests for ``manager/workers/services/sentinel.py``.
 
-Covers sentinel read/write, checkpoint append (including thread
-safety), setup-complete detection, and full sentinel creation.
+Covers sentinel read/write, setup-complete detection, and full
+sentinel creation.  The manager no longer appends wizard checkpoints
+or reports setup mode (issue #304).
 """
 
 import json
 import logging
-import threading
 
+from workers.services import sentinel as sentinel_mod
 from workers.services.sentinel import (
     SENTINEL_FILENAME,
     SENTINEL_VERSION,
-    append_checkpoint,
     create_sentinel,
     is_setup_complete,
     read_sentinel,
@@ -131,64 +131,6 @@ class TestWriteSentinel:
         assert result["topology"] == "new"
 
 
-# ---- append_checkpoint() -------------------------------------------------
-
-class TestAppendCheckpoint:
-
-    def test_adds_to_list(self, tmp_path):
-        write_sentinel(tmp_path, {
-            "version": SENTINEL_VERSION,
-            "completed_at": None,
-            "topology": None,
-            "checkpoints": [],
-        })
-        append_checkpoint(tmp_path, "topology_chosen")
-        result = read_sentinel(tmp_path)
-        assert "topology_chosen" in result["checkpoints"]
-
-    def test_no_duplicate_checkpoints(self, tmp_path):
-        write_sentinel(tmp_path, {
-            "version": SENTINEL_VERSION,
-            "completed_at": None,
-            "topology": None,
-            "checkpoints": ["topology_chosen"],
-        })
-        append_checkpoint(tmp_path, "topology_chosen")
-        result = read_sentinel(tmp_path)
-        assert result["checkpoints"].count("topology_chosen") == 1
-
-    def test_creates_sentinel_if_missing(self, tmp_path):
-        append_checkpoint(tmp_path, "first_step")
-        result = read_sentinel(tmp_path)
-        assert result is not None
-        assert "first_step" in result["checkpoints"]
-
-    def test_thread_safety(self, tmp_path):
-        """Spawn concurrent threads that append; verify none lost."""
-        write_sentinel(tmp_path, {
-            "version": SENTINEL_VERSION,
-            "completed_at": None,
-            "topology": None,
-            "checkpoints": [],
-        })
-        names = [f"step_{i}" for i in range(20)]
-        threads = [
-            threading.Thread(
-                target=append_checkpoint,
-                args=(tmp_path, name),
-            )
-            for name in names
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        result = read_sentinel(tmp_path)
-        for name in names:
-            assert name in result["checkpoints"]
-        assert len(result["checkpoints"]) == 20
-
-
 # ---- is_setup_complete() -------------------------------------------------
 
 class TestIsSetupComplete:
@@ -205,9 +147,8 @@ class TestIsSetupComplete:
         assert is_setup_complete(tmp_path) is True
 
     def test_false_when_sentinel_has_no_completed_at(self, tmp_path):
-        # A checkpoint-only sentinel (completed_at=None) must NOT be
-        # treated as complete.  Prevents ``is_setup_mode`` from
-        # disagreeing with ``SetupGateMiddleware._check_sentinel``.
+        # An unfinished record (completed_at=None) must NOT be
+        # treated as complete: the launcher would skip its wizard.
         write_sentinel(tmp_path, {
             "version": SENTINEL_VERSION,
             "completed_at": None,
@@ -245,3 +186,14 @@ class TestCreateSentinel:
         # Should be parseable as ISO format
         from datetime import datetime
         datetime.fromisoformat(result["completed_at"])
+
+
+# ---- removed helpers (issue #304) ----------------------------------------
+
+class TestRemovedHelpers:
+
+    def test_no_setup_mode_or_checkpoint_helpers(self):
+        """Nothing in the manager gates on, or appends to, the marker."""
+        for name in ("is_setup_mode", "append_checkpoint",
+                     "_sentinel_lock", "_new_sentinel_data"):
+            assert not hasattr(sentinel_mod, name), name

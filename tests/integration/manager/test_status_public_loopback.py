@@ -13,14 +13,12 @@ What these tests cover:
 * The loopback listener's URL config
   (``sethlans_manager.urls_loopback``) serves the full payload.
 * Response payload shape is exactly
-  ``{boot_id, version, setup_mode, workers_online, jobs_queued,
-  jobs_rendering}`` with no extra fields.
+  ``{boot_id, version, workers_online, jobs_queued, jobs_rendering}``
+  with no extra fields (``setup_mode`` was dropped, issue #304).
 * ``workers_online`` counts only workers whose status is ``IDLE`` or
   ``RENDERING`` — ``OFFLINE`` workers are excluded.
 * ``jobs_queued`` counts only ``QUEUED`` jobs; ``jobs_rendering`` only
   ``RENDERING``.
-* ``setup_mode`` is ``True`` while the sentinel is absent and ``False``
-  after it is written.
 * The in-process 2 s cache collapses repeat DB COUNTs within a window;
   new data becomes visible after the TTL expires.
 * Changing ``runtime_state.manager_boot_id`` (simulated restart)
@@ -45,7 +43,6 @@ User = get_user_model()
 _EXPECTED_KEYS = {
     "boot_id",
     "version",
-    "setup_mode",
     "workers_online",
     "jobs_queued",
     "jobs_rendering",
@@ -143,7 +140,6 @@ class TestLoopbackStatusPublic:
         assert set(body.keys()) == _EXPECTED_KEYS
         assert isinstance(body["boot_id"], str)
         assert isinstance(body["version"], str)
-        assert isinstance(body["setup_mode"], bool)
         assert isinstance(body["workers_online"], int)
         assert isinstance(body["jobs_queued"], int)
         assert isinstance(body["jobs_rendering"], int)
@@ -174,24 +170,6 @@ class TestLoopbackStatusPublic:
         body = resp.json()
         assert body["jobs_queued"] == 2
         assert body["jobs_rendering"] == 1
-
-    def test_setup_mode_true_when_sentinel_absent(self, tmp_path, mocker):
-        mocker.patch(
-            "workers.views.status_public._get_data_dir",
-            return_value=tmp_path,
-        )
-        resp = Client().get("/api/status/public/")
-        assert resp.json()["setup_mode"] is True
-
-    def test_setup_mode_false_after_sentinel(self, tmp_path, mocker):
-        from workers.services.sentinel import create_sentinel
-        mocker.patch(
-            "workers.views.status_public._get_data_dir",
-            return_value=tmp_path,
-        )
-        create_sentinel(tmp_path, "manager", ["verified"])
-        resp = Client().get("/api/status/public/")
-        assert resp.json()["setup_mode"] is False
 
 
 @pytest.mark.urls("sethlans_manager.urls_loopback")

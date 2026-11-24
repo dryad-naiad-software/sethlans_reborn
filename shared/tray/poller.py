@@ -5,9 +5,8 @@
 """Qt-signal state poller for the tray helper (PySide6).
 
 PySide6-based state poller with 2s cadence, 1.5s HTTP timeout,
-3-consecutive-failure threshold, and edge-triggered state transitions
-plus setup-complete notification.  State changes are delivered to the
-GUI thread via Qt ``Signal`` emits.
+3-consecutive-failure threshold, and edge-triggered state transitions.
+State changes are delivered to the GUI thread via Qt ``Signal`` emits.
 
 Threading model: the polling loop runs in a regular
 ``threading.Thread`` (daemon, named ``tray-state-poller``).  The
@@ -61,7 +60,6 @@ class ManagerSnapshot:
     """Immutable snapshot of manager-side state."""
 
     state: str = "starting"
-    setup_mode: bool = False
     workers_online: int = 0
     jobs_queued: int = 0
     jobs_rendering: int = 0
@@ -99,7 +97,7 @@ class QtStatePoller(QObject):
         ``(prev_state, next_state)``.  Mirrors the legacy
         ``('state_change', prev, nxt)`` queue event.
       - ``notification(NotificationEvent)`` — events derived from
-        state transitions or the one-shot setup-complete edge.
+        state transitions.
       - ``launcher_gone()`` — emitted once when the launcher process
         is detected dead (FR-19c); the connected slot should typically
         call ``QApplication.instance().quit()``.
@@ -123,8 +121,6 @@ class QtStatePoller(QObject):
         self._quit_flag = quit_requested_flag
         self._snapshot = ManagerSnapshot()
         self._consecutive_failures = 0
-        self._setup_notified = False
-        self._saw_setup_mode_true = False
         self._launcher_gone_emitted = False
         self._thread: Optional[threading.Thread] = None
 
@@ -220,9 +216,6 @@ class QtStatePoller(QObject):
         # first so the "Starting -> Running" notification fires.
         new_boot_id = str(data.get("boot_id", ""))
         if new_boot_id and new_boot_id != prev.boot_id and prev.boot_id:
-            # Issue #95: new boot re-arms the setup-complete one-shot so the next setup_mode True->False edge notifies again.
-            self._setup_notified = False
-            self._saw_setup_mode_true = False
             transitional = replace(prev, state="starting",
                                    boot_id=new_boot_id)
             self._emit(prev, transitional)
@@ -231,7 +224,6 @@ class QtStatePoller(QObject):
         nxt = replace(
             prev,
             state="running",
-            setup_mode=bool(data.get("setup_mode")),
             workers_online=int(data.get("workers_online", 0)),
             jobs_queued=int(data.get("jobs_queued", 0)),
             jobs_rendering=int(data.get("jobs_rendering", 0)),
@@ -245,7 +237,6 @@ class QtStatePoller(QObject):
             # the flag so future probe failures flag as Error again.
             self._quit_flag.clear()
         self._emit(prev, nxt)
-        self._maybe_notify_setup_complete(nxt)
 
     def _apply_failure(self, reason: str) -> None:
         self._consecutive_failures += 1
@@ -271,25 +262,6 @@ class QtStatePoller(QObject):
             event = _notification_for(prev.state, nxt.state)
             if event is not None:
                 self.notification.emit(event)
-
-    def _maybe_notify_setup_complete(
-        self, snapshot: ManagerSnapshot,
-    ) -> None:
-        # FR-26 edge: fire exactly once, only on a True -> False
-        # transition observed during THIS tray session.  If the tray
-        # starts after setup is already complete, setup_mode=True is
-        # never observed and the notification must stay silent.
-        if snapshot.setup_mode:
-            self._saw_setup_mode_true = True
-            return
-        if self._setup_notified or not self._saw_setup_mode_true:
-            return
-        self._setup_notified = True
-        self.notification.emit(NotificationEvent(
-            "Sethlans Setup",
-            "Setup complete. Open the dashboard from the tray "
-            "menu.",
-        ))
 
     # ------------------------------------------------------------------
     # Accessors (GUI thread)

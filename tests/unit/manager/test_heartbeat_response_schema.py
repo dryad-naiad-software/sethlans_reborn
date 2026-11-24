@@ -33,8 +33,6 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 from workers.models import Worker
-from workers.services.sentinel import create_sentinel
-from workers.views import heartbeat as heartbeat_mod
 from workers.views.heartbeat_schema import WorkerHeartbeatResponseSerializer
 
 User = get_user_model()
@@ -45,8 +43,8 @@ pytestmark = pytest.mark.django_db
 
 
 # ---------------------------------------------------------------------------
-# Fixtures (mirror tests/unit/manager/test_heartbeat_setup_complete.py so
-# the same auth + sentinel setup is exercised here).
+# Fixtures: a real Worker + token, because heartbeat is a
+# token-authenticated DB-backed view.
 # ---------------------------------------------------------------------------
 
 
@@ -88,29 +86,6 @@ def fresh_worker_client():
     return 'schemafresh', client
 
 
-@pytest.fixture(autouse=True)
-def _reset_heartbeat_setup_cache():
-    """Reset the sticky-True setup-complete cache around every test.
-
-    The heartbeat view caches a True observation of
-    ``is_setup_complete`` at module scope.  Reset before AND after to
-    guarantee no leakage in either direction (other test files in this
-    run can also pollute the flag).
-    """
-    heartbeat_mod._reset_setup_complete_cache()
-    yield
-    heartbeat_mod._reset_setup_complete_cache()
-
-
-@pytest.fixture
-def patch_data_dir(mocker, tmp_path):
-    """Pin heartbeat's ``_get_data_dir`` to ``tmp_path``."""
-    mocker.patch.object(
-        heartbeat_mod, '_get_data_dir', return_value=tmp_path,
-    )
-    return tmp_path
-
-
 # ---------------------------------------------------------------------------
 # Test 2 — fast smoke test (no Django test client)
 # ---------------------------------------------------------------------------
@@ -124,10 +99,25 @@ class TestHeartbeatResponseSerializerSmoke:
     """
 
     def test_serializer_declares_extra_response_fields(self):
-        """The two heartbeat-only fields MUST be on the serializer."""
+        """The heartbeat-only fields MUST be on the serializer."""
         fields = WorkerHeartbeatResponseSerializer().fields
         assert 'required_blender_versions' in fields
-        assert 'manager_setup_complete' in fields
+        assert 'dismissed_card_alerts' in fields
+
+    def test_serializer_does_not_document_manager_setup_complete(self):
+        """Issue #304: the setup-complete flag is gone from the schema."""
+        fields = WorkerHeartbeatResponseSerializer().fields
+        assert 'manager_setup_complete' not in fields
+
+    def test_extra_fields_are_exactly_the_heartbeat_additions(self):
+        """Beyond WorkerSerializer the envelope adds exactly these two."""
+        from workers.serializers import WorkerSerializer
+
+        extra = (
+            set(WorkerHeartbeatResponseSerializer().fields)
+            - set(WorkerSerializer().fields)
+        )
+        assert extra == {'required_blender_versions', 'dismissed_card_alerts'}
 
     def test_serializer_does_not_document_a_token(self):
         """The heartbeat response never carries an API token (#215)."""
@@ -135,7 +125,7 @@ class TestHeartbeatResponseSerializerSmoke:
 
     def test_inherits_worker_serializer_fields(self):
         """The response envelope is the WorkerSerializer payload plus
-        the two injected keys — losing the inheritance would silently
+        the injected keys — losing the inheritance would silently
         drop every Worker field from the documented schema.
         """
         from workers.serializers import WorkerSerializer
@@ -190,18 +180,13 @@ class TestHeartbeatResponseShapeMatchesSchema:
     """
 
     def test_plain_heartbeat_response_keys_match_serializer(
-        self, worker_with_token, patch_data_dir,
+        self, worker_with_token,
     ):
         """Plain-heartbeat path (no ``os`` payload).
 
         ``token`` MUST NOT appear on this response.
         """
         worker, client = worker_with_token
-        # Use a checkpoint sentinel so manager_setup_complete=False, but
-        # the schema-shape assertions are independent of its value.
-        create_sentinel(
-            patch_data_dir, 'manager', ['topology_chosen'],
-        )
 
         resp = client.post(
             HEARTBEAT_URL,
@@ -238,7 +223,7 @@ class TestHeartbeatResponseShapeMatchesSchema:
         )
 
     def test_full_registration_response_keys_match_serializer(
-        self, fresh_worker_client, patch_data_dir,
+        self, fresh_worker_client,
     ):
         """Full-registration path (payload includes ``os``).
 
@@ -247,7 +232,6 @@ class TestHeartbeatResponseShapeMatchesSchema:
         consumer (issue #215).
         """
         hostname, client = fresh_worker_client
-        create_sentinel(patch_data_dir, 'manager', ['verified'])
 
         resp = client.post(
             HEARTBEAT_URL,

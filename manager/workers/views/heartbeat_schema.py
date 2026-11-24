@@ -44,7 +44,7 @@ class WorkerHeartbeatResponseSerializer(WorkerSerializer):
     """Documents the heartbeat response envelope for OpenAPI.
 
     Inherits every field on :class:`WorkerSerializer` and adds the
-    two fields injected by ``_process_heartbeat`` after the base
+    fields injected by ``_process_heartbeat`` after the base
     ``WorkerSerializer`` payload is produced.
 
     .. note::
@@ -63,15 +63,6 @@ class WorkerHeartbeatResponseSerializer(WorkerSerializer):
             "local installations and download missing builds."
         ),
     )
-    manager_setup_complete = serializers.BooleanField(
-        help_text=(
-            "True once the manager's first-run setup wizard has "
-            "finished (sentinel file present).  Workers must self-gate "
-            "Blender downloads and job-claim attempts on this flag — "
-            "see issue #126."
-        ),
-    )
-
     dismissed_card_alerts = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
@@ -99,6 +90,5 @@ class WorkerHeartbeatResponseSerializer(WorkerSerializer):
         # serializer's output for every other consumer.
         fields = list(WorkerSerializer.Meta.fields) + [
             "required_blender_versions",
-            "manager_setup_complete",
             "dismissed_card_alerts",
         ]

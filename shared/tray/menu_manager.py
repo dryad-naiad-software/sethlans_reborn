@@ -163,11 +163,10 @@ class ManagerSection:
         return f"[Manager] {state}"
 
     def setup_line(self) -> str:
-        snap = self.get_snapshot()
+        # The launcher starts the manager only after setup is complete,
+        # so the launcher's marker is the only setup state that matters.
         if sentinel_exists(self.manager_data_dir):
             return "Setup: Ready"
-        if snap.setup_mode:
-            return "Setup: In progress"
         return "Setup: Needed"
 
     def workers_line(self) -> str:

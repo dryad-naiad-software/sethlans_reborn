@@ -12,8 +12,9 @@ Per ``development/specs/tray-helper-unified.md`` FR-22 / FR-22a:
   ``sethlans_manager.urls_loopback`` and is bound to
   ``127.0.0.1:<loopback_port>``.
 * Response shape has EXACTLY these keys:
-  ``boot_id``, ``version``, ``setup_mode``, ``workers_online``,
-  ``jobs_queued``, ``jobs_rendering``.  No extras.
+  ``boot_id``, ``version``, ``workers_online``, ``jobs_queued``,
+  ``jobs_rendering``.  No extras (``setup_mode`` was dropped with the
+  manager setup-complete gate, issue #304).
 * The MAIN 0.0.0.0 listener (``sethlans_manager.urls``) must NOT
   register the path — requests there must 404.
 
@@ -50,7 +51,6 @@ _loopback_urlconf = override_settings(
 EXPECTED_KEYS = frozenset({
     "boot_id",
     "version",
-    "setup_mode",
     "workers_online",
     "jobs_queued",
     "jobs_rendering",
@@ -84,11 +84,11 @@ class TestStatusPublicShape:
         )
 
     def test_no_redundant_state_field(self):
-        """v2 revision dropped ``state`` in favor of ``setup_mode``."""
+        """The v2 revision dropped ``state``; it must not come back."""
         body = _get_via_loopback_urlconf().json()
         assert "state" not in body, (
-            "'state' was explicitly dropped in the v2 revision; it is "
-            "redundant with setup_mode. Did a regression re-add it?"
+            "'state' was explicitly dropped in the v2 revision. "
+            "Did a regression re-add it?"
         )
 
 
@@ -123,47 +123,6 @@ class TestStatusPublicVersion:
             f"Version drift: payload={body['version']!r} "
             f"package={MANAGER_VERSION!r}"
         )
-
-
-@pytest.fixture
-def status_public_setup_mode(mocker, tmp_path):
-    """Patch the status_public view's setup-mode probe.
-
-    ``status_public_view`` reads ``workers.services.sentinel.is_setup_mode``
-    directly (not the middleware's cached ``_setup_complete`` flag), so
-    the shared ``enter_setup_mode``/``exit_setup_mode`` fixtures are
-    insufficient. We patch at the view import site.
-    """
-    from workers.views import status_public as sp_mod
-
-    def _set(value: bool) -> None:
-        mocker.patch.object(sp_mod, "is_setup_mode", return_value=value)
-        mocker.patch.object(sp_mod, "_get_data_dir", return_value=tmp_path)
-
-    return _set
-
-
-class TestStatusPublicSetupMode:
-
-    def test_setup_mode_is_boolean(self, status_public_setup_mode):
-        status_public_setup_mode(True)
-        body = _get_via_loopback_urlconf().json()
-        assert isinstance(body["setup_mode"], bool), (
-            f"setup_mode must be bool (not None, not string); "
-            f"got {type(body['setup_mode']).__name__}"
-        )
-
-    def test_setup_mode_true_during_setup(self, status_public_setup_mode):
-        status_public_setup_mode(True)
-        body = _get_via_loopback_urlconf().json()
-        assert body["setup_mode"] is True
-
-    def test_setup_mode_false_after_setup_complete(
-        self, status_public_setup_mode,
-    ):
-        status_public_setup_mode(False)
-        body = _get_via_loopback_urlconf().json()
-        assert body["setup_mode"] is False
 
 
 class TestStatusPublicCounts:

@@ -4,9 +4,10 @@
 """
 Backend contract tests for ``GET /api/manager/summary/``.
 
-Response shape: the payload must contain every field in
+Response shape: the payload holds exactly the fields in
 ``EXPECTED_FIELDS`` below (manager_url, admin_username, enrollment_key,
-cert_fingerprint, topology), each as a string.
+cert_fingerprint), each as a string.  ``topology`` was dropped with the
+manager setup-complete gate (issue #304).
 
 Auth: admin session or admin TokenAuthentication required.  Anonymous
 -> 401, non-admin authenticated user -> 403.
@@ -27,51 +28,50 @@ EXPECTED_FIELDS = {
     "admin_username",
     "enrollment_key",
     "cert_fingerprint",
-    "topology",
 }
 
 
 @pytest.fixture
-def post_setup_state(mocker, tmp_path):
-    """Drive the summary view into a post-setup, sentinel-present state."""
+def summary_data_dir(mocker, tmp_path):
+    """Point the summary view's data dir (``manager.ini``) at tmp."""
     from workers.views import manager_summary as mod
     mocker.patch.object(mod, "_data_dir", return_value=tmp_path)
-    mocker.patch.object(
-        mod,
-        "read_sentinel",
-        return_value={
-            "version": 1,
-            "completed_at": "2025-01-15T12:00:00Z",
-            "topology": "manager",
-            "checkpoints": [],
-        },
-    )
     return tmp_path
 
 
 class TestSummaryInterfaceFields:
-    """The response must contain every field expected by the API contract."""
+    """The response must contain exactly the fields of the API contract."""
 
     def test_admin_session_returns_all_fields(
-        self, admin_client, post_setup_state,
+        self, admin_client, summary_data_dir,
     ):
         resp = admin_client.get(SUMMARY_PATH)
         assert resp.status_code == 200, resp.content
         body = resp.json()
-        assert set(body.keys()) >= EXPECTED_FIELDS, (
-            f"Response missing fields: {EXPECTED_FIELDS - set(body.keys())}"
+        assert set(body.keys()) == EXPECTED_FIELDS, (
+            f"Missing: {EXPECTED_FIELDS - set(body.keys())}; "
+            f"Extra: {set(body.keys()) - EXPECTED_FIELDS}"
         )
         # Each field must be a string (TS interface is all-string).
         for field in EXPECTED_FIELDS:
             assert isinstance(body[field], str), (
                 f"Field {field} is {type(body[field])}, expected str"
             )
-        assert body["topology"] == "manager"
+
+    def test_summary_reads_manager_ini_from_data_dir(
+        self, admin_client, summary_data_dir,
+    ):
+        """The URL is built from ``manager.ini`` in the data dir."""
+        (summary_data_dir / "manager.ini").write_text(
+            "[server]\nhost = 10.0.0.5\nport = 9443\n", encoding="utf-8",
+        )
+        body = admin_client.get(SUMMARY_PATH).json()
+        assert body["manager_url"] == "https://10.0.0.5:9443"
 
 
 class TestSummaryAuthContract:
 
-    def test_anonymous_returns_401_or_403(self, post_setup_state):
+    def test_anonymous_returns_401_or_403(self, summary_data_dir):
         """Unauthenticated callers are rejected by DRF."""
         client = APIClient()
         resp = client.get(SUMMARY_PATH)
@@ -79,7 +79,7 @@ class TestSummaryAuthContract:
             f"Expected 401/403 for anonymous, got {resp.status_code}"
         )
 
-    def test_non_admin_user_returns_403(self, post_setup_state):
+    def test_non_admin_user_returns_403(self, summary_data_dir):
         """An authenticated but non-admin user gets 403."""
         User = get_user_model()
         user = User.objects.create_user(
@@ -91,7 +91,7 @@ class TestSummaryAuthContract:
         resp = client.get(SUMMARY_PATH)
         assert resp.status_code == 403
 
-    def test_token_auth_admin_allowed(self, post_setup_state):
+    def test_token_auth_admin_allowed(self, summary_data_dir):
         """Admin TokenAuthentication also permits summary access (FR-6a)."""
         from rest_framework.authtoken.models import Token
         User = get_user_model()

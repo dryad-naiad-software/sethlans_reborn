@@ -19,6 +19,12 @@ from workers.views.status_public import status_public_view
 
 pytestmark = pytest.mark.django_db
 
+#: The full response keyset since issue #304 dropped ``setup_mode``.
+EXPECTED_KEYS = {
+    "boot_id", "version",
+    "workers_online", "jobs_queued", "jobs_rendering",
+}
+
 
 @pytest.fixture(autouse=True)
 def _clear_count_cache():
@@ -40,55 +46,36 @@ def _invoke():
 
 class TestResponseFields:
 
-    def test_returns_200(self, mocker, tmp_path):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
+    def test_returns_200(self):
         resp = _invoke()
         assert resp.status_code == 200
 
-    def test_contains_required_fields(self, mocker, tmp_path):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
+    def test_keys_are_exactly_the_five_status_fields(self):
+        """Issue #304: no ``setup_mode`` (or any other extra key)."""
         resp = _invoke()
-        body = resp.data
-        assert set(body.keys()) == {
-            "boot_id", "version", "setup_mode",
-            "workers_online", "jobs_queued", "jobs_rendering",
-        }
+        assert set(resp.data.keys()) == EXPECTED_KEYS
 
-    def test_no_redundant_state_field(self, mocker, tmp_path):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
+    def test_no_setup_mode_field(self):
+        resp = _invoke()
+        assert "setup_mode" not in resp.data
+
+    def test_no_redundant_state_field(self):
         resp = _invoke()
         assert "state" not in resp.data
 
-    def test_setup_mode_true_when_sentinel_absent(self, mocker, tmp_path):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
-        # tmp_path has no .setup_complete
-        resp = _invoke()
-        assert resp.data["setup_mode"] is True
+    def test_schema_does_not_document_setup_mode(self):
+        """The OpenAPI response serializer lists the same five fields."""
+        fields = set(view_mod.StatusPublicResponseSerializer.fields)
+        assert fields == EXPECTED_KEYS
 
-    def test_setup_mode_false_when_sentinel_present(
-        self, mocker, tmp_path,
-    ):
-        from workers.services.sentinel import create_sentinel
-        create_sentinel(tmp_path, "manager", ["verified"])
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
-        resp = _invoke()
-        assert resp.data["setup_mode"] is False
+    def test_view_no_longer_reads_the_setup_marker(self):
+        """Issue #304: the view has no marker-folder lookup at all, so a
+        marker in the wrong folder cannot change its answer."""
+        assert not hasattr(view_mod, "_get_data_dir")
+        assert not hasattr(view_mod, "is_setup_mode")
 
-    def test_boot_id_matches_runtime_state(self, mocker, tmp_path):
+    def test_boot_id_matches_runtime_state(self):
         from sethlans_manager import runtime_state
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
         resp = _invoke()
         assert resp.data["boot_id"] == (
             runtime_state.manager_boot_id or ""
@@ -101,12 +88,7 @@ class TestResponseFields:
 
 class TestDbQueries:
 
-    def test_workers_online_filters_idle_and_rendering(
-        self, mocker, tmp_path,
-    ):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
+    def test_workers_online_filters_idle_and_rendering(self, mocker):
         # Spy on Worker.objects.filter.
         from workers.models import Worker
         spy = mocker.spy(Worker.objects, "filter")
@@ -119,10 +101,7 @@ class TestDbQueries:
             for c in called_kwargs
         )
 
-    def test_jobs_queued_uses_queued_status(self, mocker, tmp_path):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
+    def test_jobs_queued_uses_queued_status(self, mocker):
         from workers.models import Job
         spy = mocker.spy(Job.objects, "filter")
         _invoke()
@@ -137,12 +116,7 @@ class TestDbQueries:
 
 class TestCountCache:
 
-    def test_second_call_within_window_uses_cache(
-        self, mocker, tmp_path,
-    ):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
+    def test_second_call_within_window_uses_cache(self, mocker):
         w_spy = mocker.patch.object(
             view_mod, "_workers_online", return_value=7,
         )
@@ -151,10 +125,7 @@ class TestCountCache:
         # Only one DB fetch — second call served from cache.
         assert w_spy.call_count == 1
 
-    def test_cache_invalidates_on_boot_id_change(self, mocker, tmp_path):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
+    def test_cache_invalidates_on_boot_id_change(self, mocker):
         w_spy = mocker.patch.object(
             view_mod, "_workers_online", return_value=7,
         )
@@ -170,10 +141,7 @@ class TestCountCache:
         finally:
             rt.manager_boot_id = original
 
-    def test_cache_expires_after_ttl(self, mocker, tmp_path):
-        mocker.patch.object(
-            view_mod, "_get_data_dir", return_value=tmp_path,
-        )
+    def test_cache_expires_after_ttl(self, mocker):
         w_spy = mocker.patch.object(
             view_mod, "_workers_online", return_value=7,
         )

@@ -4,11 +4,14 @@
 """
 Setup-complete sentinel file management.
 
-The sentinel file (``.setup_complete``) is a JSON blob that tracks
-wizard progress and marks setup as done.  All writes use atomic
-write-to-temp-then-rename.  Checkpoint appends are serialized with
-a ``threading.Lock`` to prevent concurrent step completion from
-losing data.
+The sentinel file (``.setup_complete``) is a JSON blob that marks
+setup as done.  The launcher runs the setup wizard when the file is
+absent; that check is existence only
+(``launcher.main_dispatch._is_setup_complete``).  Its contents are
+read by ``launcher.setup_sentinel`` and by
+``sethlans_manager.runtime_init.cleanup_stale_setup_section``.
+Workers no longer gate on it (issue #304).  All writes use atomic
+write-to-temp-then-rename.
 
 Sentinel JSON format::
 
@@ -26,7 +29,6 @@ import os
 import platform
 import stat
 import tempfile
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,9 +36,6 @@ logger = logging.getLogger(__name__)
 
 SENTINEL_FILENAME = ".setup_complete"
 SENTINEL_VERSION = 1
-
-# Serializes read-modify-write cycles on the sentinel file.
-_sentinel_lock = threading.Lock()
 
 
 def read_sentinel(data_dir: Path) -> dict | None:
@@ -114,47 +113,15 @@ def write_sentinel(data_dir: Path, data: dict) -> None:
     logger.info("Sentinel written to %s", sentinel_path)
 
 
-def append_checkpoint(
-    data_dir: Path, checkpoint_name: str,
-) -> None:
-    """Append a checkpoint to the sentinel's ``checkpoints`` list.
-
-    Thread-safe: uses ``_sentinel_lock`` to serialize the
-    read-modify-write cycle.
-    """
-    with _sentinel_lock:
-        data = read_sentinel(data_dir)
-        if data is None:
-            data = _new_sentinel_data()
-        checkpoints = data.get("checkpoints", [])
-        if checkpoint_name not in checkpoints:
-            checkpoints.append(checkpoint_name)
-        data["checkpoints"] = checkpoints
-        write_sentinel(data_dir, data)
-
-
 def is_setup_complete(data_dir: Path) -> bool:
     """Return ``True`` only when setup has fully finished.
 
-    A sentinel with a missing/null ``completed_at`` is a mid-wizard
-    checkpoint record (written by :func:`append_checkpoint`) and must
-    NOT be treated as "complete".  Setup-mode no longer relies on a
-    request-time middleware gate; the ``apply_pending_setup`` command
-    is the sole writer that flips this to "complete" by setting a
-    truthy ``completed_at``.
+    A sentinel with a missing/null ``completed_at`` is an incomplete
+    record and must NOT be treated as "complete".  Only
+    :func:`create_sentinel` writes a truthy ``completed_at``.
     """
     data = read_sentinel(data_dir)
     return data is not None and bool(data.get("completed_at"))
-
-
-def is_setup_mode(data_dir: Path) -> bool:
-    """Return ``True`` while setup is still in progress.
-
-    Inverse of :func:`is_setup_complete` — exposed as a first-class
-    helper so the loopback ``/api/status/public/`` view can expose
-    ``setup_mode`` without duplicating the sentinel lookup.
-    """
-    return not is_setup_complete(data_dir)
 
 
 def create_sentinel(
@@ -168,15 +135,3 @@ def create_sentinel(
         "checkpoints": checkpoints,
     }
     write_sentinel(data_dir, data)
-
-
-# ---- Internal helpers ----
-
-def _new_sentinel_data() -> dict:
-    """Return a fresh sentinel dict with no checkpoints."""
-    return {
-        "version": SENTINEL_VERSION,
-        "completed_at": None,
-        "topology": None,
-        "checkpoints": [],
-    }

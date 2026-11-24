@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Unit tests for ``shared/tray/poller.py`` (FR-15..FR-17a, FR-26).
+"""Unit tests for ``shared/tray/poller.py`` (FR-15..FR-17a).
 
 Covers the PySide6-based ``QtStatePoller`` via ``QSignalSpy`` counts
 and payload inspection.  Shared fixtures live in ``conftest.py``;
@@ -46,7 +46,6 @@ class TestManagerSnapshot:
     def test_default_fields(self):
         s = ManagerSnapshot()
         assert s.state == "starting"
-        assert s.setup_mode is False
         assert s.workers_online == 0
         assert s.jobs_queued == 0
         assert s.jobs_rendering == 0
@@ -60,7 +59,7 @@ class TestHappyPath:
 
     def test_first_tick_emits_snapshot_changed(self, poller_factory):
         payload = {
-            "setup_mode": False, "workers_online": 3, "jobs_queued": 12,
+            "workers_online": 3, "jobs_queued": 12,
             "jobs_rendering": 2, "version": "0.1.0", "boot_id": "boot-1",
         }
         p, _stop, _flag = poller_factory(script=[payload])
@@ -77,9 +76,7 @@ class TestHappyPath:
         assert state_changes(state_spy) == [("starting", "running")]
 
     def test_first_tick_fires_running_notification(self, poller_factory):
-        # setup_mode=True suppresses the setup-complete notification so
-        # only the Starting->Running edge notification is observed.
-        payload = {"boot_id": "b1", "version": "x", "setup_mode": True}
+        payload = {"boot_id": "b1", "version": "x"}
         p, _stop, _flag = poller_factory(script=[payload])
         notif_spy = QSignalSpy(p.notification)
         p._tick()
@@ -89,14 +86,13 @@ class TestHappyPath:
 
     def test_snapshot_property_updates(self, poller_factory):
         payload = {
-            "setup_mode": True, "workers_online": 5, "jobs_queued": 7,
+            "workers_online": 5, "jobs_queued": 7,
             "jobs_rendering": 1, "version": "9.9.9", "boot_id": "bx",
         }
         p, _stop, _flag = poller_factory(script=[payload])
         p._tick()
         s = p.snapshot
         assert s.state == "running"
-        assert s.setup_mode is True
         assert s.workers_online == 5
         assert s.jobs_queued == 7
         assert s.jobs_rendering == 1
@@ -132,7 +128,7 @@ class TestFailureThreshold:
     def test_error_notification_fires_on_edge_only(self, poller_factory):
         p, _stop, _flag = poller_factory(
             script=[
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
                 *([RuntimeError("e")] * 5),
             ],
         )
@@ -188,69 +184,29 @@ class TestBootIdTransitions:
         assert ("starting", "running") in seq
 
 
-# Setup-complete edge (FR-26).
-class TestSetupCompleteEdge:
+# No setup state in the poller (issue #304).
+class TestNoSetupState:
 
-    def test_no_notif_when_tray_starts_after_setup_done(
-        self, poller_factory,
-    ):
-        payload = {"boot_id": "b1", "setup_mode": False}
-        p, _stop, _flag = poller_factory(script=[payload] * 3)
-        notif_spy = QSignalSpy(p.notification)
-        for _ in range(3):
-            p._tick()
-        assert setup_msgs(notif_spy) == []
+    def test_snapshot_has_no_setup_mode_field(self):
+        names = {f.name for f in dataclasses.fields(ManagerSnapshot)}
+        assert "setup_mode" not in names
 
-    def test_fires_once_on_true_to_false_edge(self, poller_factory):
+    def test_stale_setup_mode_key_is_ignored(self, poller_factory):
+        """A reply still carrying ``setup_mode`` (an older manager) sends
+        no setup-complete notification on a True -> False change."""
         p, _stop, _flag = poller_factory(
             script=[
-                {"boot_id": "b1", "setup_mode": True},
-                {"boot_id": "b1", "setup_mode": False},
+                {"boot_id": "old", "setup_mode": True},
+                {"boot_id": "old", "setup_mode": False},
             ],
         )
         notif_spy = QSignalSpy(p.notification)
         p._tick()
-        assert setup_msgs(notif_spy) == []
         p._tick()
-        assert len(setup_msgs(notif_spy)) == 1
-
-    def test_does_not_refire_on_subsequent_false_ticks(
-        self, poller_factory,
-    ):
-        p, _stop, _flag = poller_factory(
-            script=[
-                {"boot_id": "b1", "setup_mode": True},
-                {"boot_id": "b1", "setup_mode": False},
-                {"boot_id": "b1", "setup_mode": False},
-                {"boot_id": "b1", "setup_mode": False},
-            ],
-        )
-        notif_spy = QSignalSpy(p.notification)
-        for _ in range(4):
-            p._tick()
-        assert len(setup_msgs(notif_spy)) == 1
-
-    def test_setup_complete_refires_on_new_boot_id(self, poller_factory):
-        # Regression: new manager boot re-arms the one-shot so the next
-        # setup_mode True->False edge fires again in the same session.
-        p, _stop, _flag = poller_factory(
-            script=[
-                {"boot_id": "boot-A", "setup_mode": True},
-                {"boot_id": "boot-A", "setup_mode": False},
-                {"boot_id": "boot-B", "setup_mode": True},
-                {"boot_id": "boot-B", "setup_mode": False},
-            ],
-        )
-        notif_spy = QSignalSpy(p.notification)
-        p._tick()  # boot-A, setup in progress
         assert setup_msgs(notif_spy) == []
-        p._tick()  # boot-A, setup complete -> fire #1
-        assert len(setup_msgs(notif_spy)) == 1 and p._setup_notified
-        p._tick()  # boot-B, back in setup (flag reset on boot change)
-        assert len(setup_msgs(notif_spy)) == 1
-        assert p._setup_notified is False
-        p._tick()  # boot-B, setup complete -> fire #2
-        assert len(setup_msgs(notif_spy)) == 2
+        assert not hasattr(p.snapshot, "setup_mode")
+        assert not hasattr(p, "_setup_notified")
+        assert not hasattr(p, "_maybe_notify_setup_complete")
 
 
 # Notification edges — all three mapped edges in one sequence.
@@ -259,9 +215,9 @@ class TestNotificationEdges:
     def test_running_to_error_to_running_sequence(self, poller_factory):
         p, _stop, _flag = poller_factory(
             script=[
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
                 RuntimeError("e"), RuntimeError("e"), RuntimeError("e"),
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
             ],
         )
         notif_spy = QSignalSpy(p.notification)

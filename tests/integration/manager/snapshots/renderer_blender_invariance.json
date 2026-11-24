@@ -1253,7 +1253,6 @@
         "is_active": true,
         "last_heartbeat": "<timestamp>",
         "last_seen": "<timestamp>",
-        "manager_setup_complete": false,
         "os": "Linux",
         "required_blender_versions": [
           {
@@ -1291,7 +1290,6 @@
         "is_active": true,
         "last_heartbeat": "<timestamp>",
         "last_seen": "<timestamp>",
-        "manager_setup_complete": false,
         "os": "Linux",
         "required_blender_versions": [
           {

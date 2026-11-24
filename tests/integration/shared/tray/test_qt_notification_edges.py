@@ -151,10 +151,8 @@ class TestNotificationEdgesSingle:
     """One edge per test -- exactly one notification per edge."""
 
     def test_starting_to_running_fires_one(self, make_poller):
-        # setup_mode=True suppresses the setup-complete edge so the
-        # 'manager started' notification is the only one we see.
         poller, _stop, _flag = make_poller(
-            script=[{"boot_id": "b1", "setup_mode": True}],
+            script=[{"boot_id": "b1"}],
         )
         spy = QSignalSpy(poller.notification)
         poller._tick()
@@ -165,7 +163,7 @@ class TestNotificationEdgesSingle:
     def test_running_to_error_fires_one(self, make_poller):
         poller, _stop, _flag = make_poller(
             script=[
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
                 RuntimeError("net"),
                 RuntimeError("net"),
                 RuntimeError("net"),
@@ -183,11 +181,11 @@ class TestNotificationEdgesSingle:
     def test_error_to_running_fires_one(self, make_poller):
         poller, _stop, _flag = make_poller(
             script=[
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
                 RuntimeError("e"),
                 RuntimeError("e"),
                 RuntimeError("e"),
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
             ],
         )
         poller._tick()  # running
@@ -208,11 +206,11 @@ class TestNotificationEdgesCombined:
     ):
         poller, _stop, _flag = make_poller(
             script=[
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
                 RuntimeError("e"),
                 RuntimeError("e"),
                 RuntimeError("e"),
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
             ],
         )
         spy = QSignalSpy(poller.notification)
@@ -232,9 +230,9 @@ class TestNotificationEdgesCombined:
         """
         poller, _stop, _flag = make_poller(
             script=[
-                {"boot_id": "b1", "setup_mode": True},
-                {"boot_id": "b1", "setup_mode": True},
-                {"boot_id": "b1", "setup_mode": True},
+                {"boot_id": "b1"},
+                {"boot_id": "b1"},
+                {"boot_id": "b1"},
             ],
         )
         spy = QSignalSpy(poller.notification)
@@ -264,7 +262,7 @@ class TestNotificationDispatchToTrayIcon:
         show_message = mocker.patch.object(tray_icon, "showMessage")
 
         poller, _stop, _flag = make_poller(
-            script=[{"boot_id": "b1", "setup_mode": True}],
+            script=[{"boot_id": "b1"}],
         )
 
         def _on_notify(event: NotificationEvent) -> None:

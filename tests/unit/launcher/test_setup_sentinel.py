@@ -100,7 +100,13 @@ class TestDoesNotWrite:
     def test_incomplete_checkpoint_record_is_completed(self, tmp_path):
         """A mid-wizard record (``completed_at: null``) is not "complete";
         it is replaced by a completed sentinel."""
-        _sentinel_module().append_checkpoint(tmp_path, "topology_chosen")
+        (tmp_path / SENTINEL).write_text(json.dumps({
+            "version": _sentinel_module().SENTINEL_VERSION,
+            "completed_at": None,
+            "topology": None,
+            "checkpoints": ["topology_chosen"],
+        }), encoding="utf-8")
+        assert _sentinel_module().is_setup_complete(tmp_path) is False
         assert setup_sentinel.record_setup_complete(
             tmp_path, "worker_only",
         ) is True

@@ -130,9 +130,9 @@ def test_compose_documents_the_bind_mount_chown():
     readme = _text(REPO_ROOT / "README.md")
     assert f"mkdir -p ./data/manager ./config/manager && {HOST_FIX}" in readme
     assert "full access" in readme
-    # #301: the container writes its setup marker and documents it.
-    assert "On first start it counts as set up" in readme
-    assert "code 4 means it could write the folder but not its setup marker" in readme
+    # #304: no setup-marker step, so no "counts as set up" or exit 4.
+    assert "counts as set up" not in readme
+    assert "code 4" not in readme
     assert "python manage.py show_enrollment_key" in readme
     assert "python manage.py createsuperuser" in readme
 

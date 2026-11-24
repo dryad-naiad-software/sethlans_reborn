@@ -139,7 +139,6 @@ def _make_snapshot(**overrides):
     """Build a ``ManagerSnapshot`` with sensible defaults for tests."""
     defaults = dict(
         state="running",
-        setup_mode=False,
         workers_online=3,
         jobs_queued=7,
         jobs_rendering=2,

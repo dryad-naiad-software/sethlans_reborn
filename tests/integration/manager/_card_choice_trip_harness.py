@@ -132,7 +132,7 @@ def _route(monkeypatch, trip):
     monkeypatch.setattr(system_monitor, '_process_heartbeat_versions', lambda *args, **kwargs: True)
     monkeypatch.setattr(config, 'get_schedule_config', lambda: {})
     monkeypatch.setattr(config, 'API_TOKEN', 'token')
-    for name in ('WORKER_ID', '_versions_ready', '_manager_setup_complete'):
+    for name in ('WORKER_ID', '_versions_ready'):
         monkeypatch.setattr(system_monitor, name, getattr(system_monitor, name))  # restored after the test
 
 

@@ -34,9 +34,7 @@ from rest_framework.response import Response
 
 from sethlans_manager import __version__ as _MANAGER_VERSION
 from sethlans_manager import runtime_state
-from workers.services.data_dir import get_manager_data_dir as _get_data_dir
 from workers.models import Job, Worker
-from workers.services.sentinel import is_setup_mode
 
 # In-process cache for the three DB COUNT(*) queries.  A long-lived
 # tray client polls every 2s; multiple dashboard tabs would otherwise
@@ -94,9 +92,6 @@ StatusPublicResponseSerializer = inline_serializer(
         "version": serializers.CharField(
             help_text="Manager package version.",
         ),
-        "setup_mode": serializers.BooleanField(
-            help_text="True while the setup wizard has not completed.",
-        ),
         "workers_online": serializers.IntegerField(
             help_text="Workers in IDLE or RENDERING state.",
         ),
@@ -116,7 +111,7 @@ StatusPublicResponseSerializer = inline_serializer(
     description=(
         "Served only by the manager's loopback listener on "
         "``127.0.0.1:<loopback_port>``.  Returns boot identity, "
-        "version, setup mode, and lightweight operational counts.  "
+        "version, and lightweight operational counts.  "
         "DB counts are cached in-process for 2 seconds."
     ),
     responses={200: StatusPublicResponseSerializer},
@@ -132,11 +127,9 @@ def status_public_view(request):
     the urlconf-origin middleware on the internal-origin Waitress
     listener).
     """
-    data_dir = _get_data_dir()
     payload = {
         "boot_id": runtime_state.manager_boot_id or "",
         "version": _MANAGER_VERSION,
-        "setup_mode": is_setup_mode(data_dir),
         "workers_online": _cached_count(
             "workers_online", _workers_online,
         ),
