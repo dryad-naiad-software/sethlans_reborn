@@ -8,6 +8,10 @@ The fake_project fixture materializes a Sethlans-like layout under tmp_path
 and copies the real platform-appropriate clean script into it. The scripts
 resolve $PSScriptRoot / $BASH_SOURCE from their own location, so once copied
 they automatically treat tmp_path as the project root with no patching.
+
+``clean`` also removes the per-user Sethlans folder it finds from
+LOCALAPPDATA / HOME / XDG_DATA_HOME, so run_clean() never lets the child
+inherit those variables (issue #311); see ``_clean_env``.
 """
 
 import shutil
@@ -16,6 +20,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from ._clean_env import assert_env_isolated, isolated_env, real_user_data_dirs
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -62,8 +68,52 @@ def fake_project(tmp_path):
     return tmp_path
 
 
-def run_clean(project_root: Path) -> subprocess.CompletedProcess:
-    """Invoke the clean command on the platform-appropriate fake script."""
+def _top_level_entries(folder: Path):
+    """Names directly inside ``folder``, or None when it does not exist."""
+    if not folder.is_dir():
+        return None
+    return {child.name for child in folder.iterdir()}
+
+
+@pytest.fixture(autouse=True)
+def _real_user_data_dir_survives():
+    """
+    Fail loudly if a test in this package removes the developer's real
+    per-user Sethlans folder or anything directly inside it (#311).
+    Creating it (Django settings do on load) is allowed.
+    """
+    before = {folder: _top_level_entries(folder) for folder in real_user_data_dirs()}
+    yield
+    for folder, entries in before.items():
+        if entries is None:
+            continue
+        after = _top_level_entries(folder)
+        if after is None or not entries <= after:
+            lost = sorted(entries - (after or set()))
+            pytest.fail(f"real per-user folder {folder} was damaged; lost: {lost or 'the folder itself'}")
+
+
+def user_dirs_base(project_root: Path) -> Path:
+    """Per-test folder that holds the redirected per-user folders."""
+    return project_root / "user-dirs"
+
+
+def clean_env(project_root: Path) -> dict:
+    """Child environment with the per-user folder variables under the fake project."""
+    return isolated_env(user_dirs_base(project_root))
+
+
+def run_clean(project_root: Path, env=None) -> subprocess.CompletedProcess:
+    """
+    Invoke the clean command on the platform-appropriate fake script.
+
+    The child always gets a per-test environment (``clean_env``). An ``env``
+    passed in is checked first and refused, before anything is spawned, if
+    the script would reach a folder outside ``user_dirs_base(project_root)``.
+    """
+    if env is None:
+        env = clean_env(project_root)
+    assert_env_isolated(env, user_dirs_base(project_root))
     if IS_WINDOWS:
         script = project_root / "tools" / "sethlans.ps1"
         cmd = [
@@ -80,6 +130,7 @@ def run_clean(project_root: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd,
         cwd=str(project_root),
+        env=env,
         capture_output=True,
         text=True,
         timeout=SCRIPT_TIMEOUT,
