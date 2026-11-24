@@ -54,7 +54,9 @@ def read_sentinel(data_dir: Path) -> dict | None:
     try:
         text = sentinel_path.read_text(encoding="utf-8")
         data = json.loads(text)
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        # UnicodeDecodeError: bytes that are not valid UTF-8 (a UTF-16
+        # file, a torn write) are a malformed marker like bad JSON.
         logger.warning(
             "Sentinel file at %s is malformed: %s",
             sentinel_path, exc,

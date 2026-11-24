@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# Boot smoke for the manager production Docker image (#296, #297, #298).
+# Boot smoke for the manager production Docker image (#296, #297, #298,
+# #301).
 #
 # Starts the image the way a deployment would (random secret key, named
 # volumes for /data, /config and /certs, the port published on loopback)
@@ -12,11 +13,16 @@
 #      Docker reports "healthy"; https://127.0.0.1:<mapped>/api/health/
 #      answers from the runner; Caddy serves /data/tls/cert.pem; the
 #      FFmpeg parts check uses the copy in /data and nothing lands in the
-#      runtime user's home; /data is mode 700; `docker stop` exits 0.
+#      runtime user's home; /data is mode 700; the setup-complete
+#      marker /data/.setup_complete is there (version 1, completed_at
+#      set, topology "manager") and the loopback status endpoint says
+#      setup_mode false (#301); `docker stop` exits 0.
 #   B. Recreate (#297): `docker rm`, then a new container on the same
 #      volumes. Healthy again, same cert fingerprint, same FFmpeg file
-#      (same inode: not downloaded again), state files still in /data.
-#      Killing the manager process ends the container (exit 137).
+#      (same inode: not downloaded again), state files still in /data,
+#      setup-complete marker not rewritten (same completed_at) and
+#      setup_mode still false. Killing the manager process ends the
+#      container (exit 137).
 #   C. Other port (#298): SETHLANS_MANAGER_PORT=9443 -> healthy, and
 #      HTTPS answers on the mapped 9443.
 #   D. Root-owned bind mount (#297): /data on a host folder owned by
@@ -186,6 +192,71 @@ ffmpeg_inode() {
     docker exec "${CUR}" stat -c %i "${FFMPEG_PATH}" 2>/dev/null || echo "missing"
 }
 
+# Check the setup-complete marker the entrypoint writes on first start
+# (#301; format in manager/workers/services/sentinel.py). Workers take
+# no work until the heartbeat reports it. Sets MARKER_AT to its
+# completed_at so step B can require that it was not rewritten.
+check_setup_marker() {
+    local out
+    out=$(docker exec "${CUR}" python -c '
+import json, sys
+path = "/data/.setup_complete"
+try:
+    text = open(path, encoding="utf-8").read()
+except OSError as exc:
+    sys.exit(f"{path} is missing or unreadable: {exc}")
+try:
+    data = json.loads(text)
+except ValueError as exc:
+    sys.exit(f"{path} is not valid JSON ({exc}): {text[:200]!r}")
+if not isinstance(data, dict):
+    sys.exit(f"{path} is not a JSON object: {text[:200]!r}")
+ver, done, topo = (data.get(k) for k in ("version", "completed_at", "topology"))
+bad = []
+if ver != 1:
+    bad.append(f"version={ver!r}, expected 1")
+if not isinstance(done, str) or not done.strip():
+    bad.append(f"completed_at={done!r}, expected a non-empty string")
+if topo != "manager":
+    bad.append(f"topology={topo!r}, expected \"manager\"")
+if bad:
+    sys.exit(f"{path}: " + "; ".join(bad))
+print(done)
+' 2>&1) || fail "setup-complete marker: ${out}"
+    MARKER_AT="${out}"
+    echo "OK: /data/.setup_complete is version 1, topology manager, completed_at ${MARKER_AT}"
+}
+
+# Ask the manager's loopback-only status endpoint (internal Waitress
+# listener, reachable only from inside the container) whether it is
+# still in setup mode; it must say false once the marker is there.
+check_status_not_setup_mode() {
+    local out
+    out=$(docker exec "${CUR}" python -c '
+import json, sys, urllib.request
+from pathlib import Path
+sys.path[:0] = ["/app/manager", "/app"]
+from sethlans_manager.tls_setup import get_config_file_path
+from sethlans_manager.waitress_config import get_waitress_internal_port
+port = get_waitress_internal_port(get_config_file_path(Path("/app/manager")))
+url = f"http://127.0.0.1:{port}/api/status/public/"
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+try:
+    with opener.open(url, timeout=10) as resp:
+        body = resp.read().decode("utf-8", "replace")
+except OSError as exc:
+    sys.exit(f"GET {url} failed: {exc}")
+try:
+    mode = json.loads(body).get("setup_mode")
+except (ValueError, AttributeError):
+    sys.exit(f"GET {url} did not return a JSON object: {body[:200]!r}")
+if mode is not False:
+    sys.exit(f"GET {url} reports setup_mode={mode!r}, expected false: {body[:300]}")
+print(url)
+' 2>&1) || fail "loopback status: ${out}"
+    echo "OK: ${out} reports setup_mode false"
+}
+
 for vol in "${VOLUMES[@]}"; do
     docker volume create "${vol}" >/dev/null
 done
@@ -227,6 +298,9 @@ inode=$(ffmpeg_inode)
 mode=$(docker exec "${CUR}" stat -c %a /data 2>/dev/null || echo "?")
 [ "${mode}" = "700" ] || fail "/data has mode ${mode}, expected 700"
 echo "OK: /data is mode 700"
+check_setup_marker
+first_marker_at="${MARKER_AT}"
+check_status_not_setup_mode
 docker stop -t 20 "${CUR}" >/dev/null || fail "docker stop failed"
 rc=$(state_of '{{.State.ExitCode}}')
 [ "${rc}" = "0" ] || fail "exit code ${rc} after docker stop, expected 0"
@@ -244,6 +318,11 @@ check_ffmpeg_from_data
 docker exec "${CUR}" sh -c 'test -s /data/db.sqlite3 && test -s /data/tls/key.pem && ls /data/logs/*.log >/dev/null' \
     || fail "state files missing from /data after recreate"
 echo "OK: FFmpeg not downloaded again; database, key and logs in /data"
+check_setup_marker
+[ "${MARKER_AT}" = "${first_marker_at}" ] \
+    || fail "setup-complete marker was rewritten on recreate (completed_at ${first_marker_at} -> ${MARKER_AT})"
+echo "OK: setup-complete marker unchanged after recreate"
+check_status_not_setup_mode
 killed=$(docker exec "${CUR}" python -c '
 import os, signal
 for pid in filter(str.isdigit, os.listdir("/proc")):

@@ -11,6 +11,7 @@ isolation.
 """
 
 import json
+import logging
 import threading
 from unittest.mock import patch
 
@@ -23,6 +24,8 @@ from sethlans_worker_agent.web_ui.setup.sentinel import (
     is_setup_complete,
     create_sentinel,
 )
+
+SENTINEL_LOGGER = "sethlans_worker_agent.web_ui.setup.sentinel"
 
 
 # -------------------------------------------------------------------
@@ -73,6 +76,24 @@ class TestReadSentinel:
             json.dumps(data), encoding="utf-8",
         )
         assert read_sentinel(tmp_path) is None
+
+    def test_non_utf8_bytes_return_none_with_warning(self, tmp_path, caplog):
+        # Issue #303: used to raise UnicodeDecodeError.
+        sentinel = tmp_path / SENTINEL_FILENAME
+        sentinel.write_bytes(b"\xff\xfe{\x00}\x00")
+        with caplog.at_level(logging.WARNING, logger=SENTINEL_LOGGER):
+            assert read_sentinel(tmp_path) is None
+            assert is_setup_complete(tmp_path) is False
+        warnings = [
+            r.getMessage() for r in caplog.records
+            if r.name == SENTINEL_LOGGER and r.levelno == logging.WARNING
+        ]
+        assert len(warnings) == 2  # one per read
+        assert all(
+            w.startswith(f"Sentinel file at {sentinel} is malformed:")
+            for w in warnings
+        )
+        assert "can't decode byte 0xff" in warnings[0]
 
 
 # -------------------------------------------------------------------

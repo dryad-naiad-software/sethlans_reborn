@@ -277,7 +277,7 @@ Images are published to GitHub Container Registry:
 
 All containers run as non-root (uid 1000). Manager and CPU worker images support `linux/amd64` and `linux/arm64`.
 
-The compose file bind-mounts `deploy/docker/data/` and `deploy/docker/config/`. On a Linux host Docker creates missing host folders owned by root, which uid 1000 cannot write; the manager then exits with code 3 and says so. Give the folders to uid 1000 once, from `deploy/docker`:
+The compose file bind-mounts `deploy/docker/data/` and `deploy/docker/config/`. On a Linux host Docker creates missing host folders owned by root, which uid 1000 cannot write; the manager then exits with code 3 and says so (code 4 means it could write the folder but not its setup marker, for example on a full disk). Give the folders to uid 1000 once, from `deploy/docker`:
 
 ```bash
 mkdir -p ./data/manager ./config/manager && sudo chown -R 1000:1000 ./data ./config && sudo chmod 700 ./data/manager
@@ -286,6 +286,14 @@ mkdir -p ./data/manager ./config/manager && sudo chown -R 1000:1000 ./data ./con
 Whichever host user has uid 1000 then has full access to the manager's state, including its database and TLS private key.
 
 The manager keeps its state (database, media, `manager.ini`, TLS certificate, downloaded FFmpeg, logs) in its `/data` volume, so recreating the container (for example on an image upgrade) keeps it, including the certificate fingerprint workers have pinned. If you set `SETHLANS_MANAGER_PORT`, the manager serves and health-checks on that port inside the container; publish the same port.
+
+The container has no setup wizard; its environment is its setup. On first start it counts as set up, so enrolled workers take work. To enroll workers, set `SETHLANS_SECURITY_ENROLLMENT_KEY` on the manager and the same value as `SETHLANS_WORKER_ENROLLMENT_KEY` on the workers (both are in `.env.example`). The key is 16 Crockford base32 characters (`0-9` and `A-Z` without `I`, `L`, `O`, `U`; hyphens are ignored). If the manager variable is unset, the manager makes a random key on first start. Generate a key, read the manager's current key, and create the admin login with:
+
+```bash
+python -c "import secrets; print(''.join(secrets.choice('0123456789ABCDEFGHJKMNPQRSTVWXYZ') for _ in range(16)))"
+docker exec <manager container> python manage.py show_enrollment_key
+docker exec -it <manager container> python manage.py createsuperuser
+```
 
 ---
 

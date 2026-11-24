@@ -10,7 +10,9 @@ launcher main loop, so this module does the same job in the container:
 0. Check the data folder (``SETHLANS_MANAGER_DATA_DIR``, ``/data`` in
    the image): missing or relative -> exit 2; not writable -> exit 3 with
    a one-paragraph chown fix; then restrict it to mode 0700 (see
-   :mod:`launcher.container_checks`).
+   :mod:`launcher.container_checks`). Then make sure the folder holds a
+   completed setup-complete marker, so enrolled workers take work; a
+   write failure exits 4 (see :mod:`launcher.container_setup_marker`).
 1. Resolve the TLS cert and key exactly as the manager does (BYO via
    ``SETHLANS_TLS_CERT_FILE`` / ``SETHLANS_TLS_KEY_FILE``, else a
    self-signed pair in ``<data folder>/tls``), so Caddy has them
@@ -88,6 +90,7 @@ from launcher.caddy_launcher import (  # noqa: E402
     build_manager_caddy_supervisor,
 )
 from launcher.container_checks import data_dir_problem  # noqa: E402
+from launcher.container_setup_marker import setup_marker_problem  # noqa: E402
 from launcher.setup_helpers import (  # noqa: E402
     CADDY_LOOPBACK_PORT,
     CADDY_PUBLIC_TLS_PORT,
@@ -95,6 +98,7 @@ from launcher.setup_helpers import (  # noqa: E402
 from sethlans_manager.runtime_init import (  # noqa: E402
     PUBLISH_BROADCASTER_PARAMS_ENV,
 )
+from sethlans_manager.state_dir import source_data_dir  # noqa: E402
 from sethlans_manager.tls_setup import (  # noqa: E402
     get_config_file_path,
     setup_certificates,
@@ -228,7 +232,9 @@ def main(
     args = list(sys.argv[1:] if argv is None else argv)
     stop = _STOP if stop is None else stop
     install_signal_handlers(stop)
-    problem = data_dir_problem()
+    problem = data_dir_problem() or setup_marker_problem(
+        source_data_dir(MANAGER_DIR),
+    )
     if problem:
         code, message = problem
         logger.error("%s", message)
