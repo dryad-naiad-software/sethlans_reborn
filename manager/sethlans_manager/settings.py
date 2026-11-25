@@ -2,10 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-import logging
-import os
+# First: the MySQL driver, password validators, time, language and the
+# logging switch, shared with setup mode (``settings_setup``).
+from sethlans_manager.settings_base import *  # noqa: F401,F403
 
-from shared.frozen_paths import (
+import logging  # noqa: E402
+import os  # noqa: E402
+
+from shared.frozen_paths import (  # noqa: E402
     get_data_dir,
     get_frontend_dist_dir,
     get_identity_dir,
@@ -14,7 +18,7 @@ from shared.frozen_paths import (
 
 # Config-loading machinery lives in ``config_loader`` so ``settings.py``
 # stays under the 300-line cap.  See GitHub issue #103.
-from sethlans_manager.config_loader import (
+from sethlans_manager.config_loader import (  # noqa: E402
     BASE_DIR,
     _INSECURE_DEFAULT_KEY,
     _config,
@@ -173,23 +177,7 @@ from .db_config import build_database_config  # noqa: E402
 DATABASES = build_database_config(_config)
 
 
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
-
-_PW_VALIDATION = 'django.contrib.auth.password_validation'
-AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': f'{_PW_VALIDATION}.UserAttributeSimilarityValidator'},
-    {'NAME': f'{_PW_VALIDATION}.MinimumLengthValidator'},
-    {'NAME': f'{_PW_VALIDATION}.CommonPasswordValidator'},
-    {'NAME': f'{_PW_VALIDATION}.NumericPasswordValidator'},
-]
-
-
-# Internationalization — https://docs.djangoproject.com/en/5.2/topics/i18n/
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
-USE_I18N = True
-USE_TZ = True
+# Password validators, hashers, time and language: ``settings_base``.
 
 
 # Static files (CSS, JavaScript, Images)
@@ -231,21 +219,15 @@ if WHITENOISE_ROOT is None:
 _dev_mode_env = os.getenv('SETHLANS_DEV_MODE', '').lower() in ('1', 'true', 'yes')
 WHITENOISE_AUTOREFRESH = bool(DEBUG or _dev_mode_env)
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-
 # --- Logging Configuration ---
-# Disable Django's built-in logging bootstrap so it never tries to apply
-# ``DEFAULT_LOGGING`` (which references ``django.utils.log.AdminEmailHandler``
-# and the ``django.core.mail`` import chain).  In PyInstaller bundles that
-# import chain isn't fully collected, which would otherwise crash startup
-# with "Unable to configure handler 'mail_admins'".  We call
+# ``LOGGING_CONFIG = None`` (``settings_base``) disables Django's built-in
+# logging bootstrap so it never tries to apply ``DEFAULT_LOGGING`` (which
+# references ``django.utils.log.AdminEmailHandler`` and the
+# ``django.core.mail`` import chain).  In PyInstaller bundles that import
+# chain isn't fully collected, which would otherwise crash startup with
+# "Unable to configure handler 'mail_admins'".  We call
 # ``sethlans_manager.logging_config.configure()`` ourselves after
 # ``django.setup()`` — see that module for details.
-LOGGING_CONFIG = None
 from .logging_config import LOGGING  # noqa: E402, F401
 
 # --- Media Files (User Uploads) Configuration ---

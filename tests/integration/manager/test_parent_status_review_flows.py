@@ -20,6 +20,8 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from tests.row_lock_sql import captured_sql
+
 from workers.constants import TilingConfiguration
 from workers.models import (
     Animation, AnimationFrame, AnimationFrameStatus, Job, JobStatus,
@@ -188,8 +190,8 @@ class TestCancelAllUsesSharedRules:
         with CaptureQueriesContext(connection) as ctx:
             assert self._cancel_all(admin_client, project) == 1
         update = next(
-            q['sql'] for q in ctx.captured_queries
-            if q['sql'].startswith('UPDATE "workers_job"')
+            sql for sql in captured_sql(ctx)
+            if sql.startswith('UPDATE "workers_job"')
         )
         assert '"workers_job"."status" IN' in update
         assert 'FROM "workers_job"' not in update  # no self-subquery

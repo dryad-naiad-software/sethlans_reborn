@@ -28,6 +28,7 @@ from sethlans_manager.db_config import (
     build_database_config,
 )
 from sethlans_manager.db_hooks import _apply_sqlite_pragmas
+from tests.db_env import clear_db_env
 
 
 @pytest.fixture
@@ -37,19 +38,8 @@ def ini_path(tmp_path):
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    for key in (
-        "SETHLANS_DATABASE_URL",
-        "SETHLANS_DB_ENGINE",
-        "SETHLANS_DB_NAME",
-        "SETHLANS_DB_HOST",
-        "SETHLANS_DB_PORT",
-        "SETHLANS_DB_USER",
-        "SETHLANS_DB_PASSWORD",
-        "SETHLANS_DB_PASSWORD_FILE",
-        "SETHLANS_MANAGER_DB_CONN_MAX_AGE",
-    ):
-        monkeypatch.delenv(key, raising=False)
-    return monkeypatch
+    """No database override at all (also the TLS keys and any other ``SETHLANS_DB_*``)."""
+    return clear_db_env(monkeypatch)
 
 
 def _pg_config() -> configparser.ConfigParser:

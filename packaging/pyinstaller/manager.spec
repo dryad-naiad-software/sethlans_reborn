@@ -85,6 +85,41 @@ hiddenimports += [
     '_sqlite3',
 ]
 
+# MySQL / MariaDB through PyMySQL (pure Python). sethlans_manager.mysql_driver
+# calls pymysql.install_as_MySQLdb(), so Django's MySQL backend imports
+# PyMySQL under the name MySQLdb; the frozen importer resolves
+# MySQLdb.constants etc. through pymysql.__path__. collect_submodules('django')
+# already lists the backend (only packages are imported while collecting,
+# and django/db/backends/mysql/__init__.py is empty); naming it here keeps
+# it in the bundle if that collection ever fails. The padding module serves
+# caching_sha2_password / sha256_password over a non-TLS connection.
+hiddenimports += collect_submodules('pymysql')
+hiddenimports += [
+    'pymysql',
+    'django.db.backends.mysql',
+    'django.db.backends.mysql.base',
+    'cryptography.hazmat.primitives.asymmetric.padding',
+]
+
+# Setup mode (run_manager --setup). settings_setup is picked by name at run
+# time through DJANGO_SETTINGS_MODULE, and setup_mode loads its submodules
+# lazily, so static analysis of run_manager.py alone may not reach them.
+# collect_submodules('sethlans_manager') / ('shared') list them too; naming
+# them here keeps them in the bundle if that collection ever fails (a
+# missing name is logged as "Hidden import ... not found").
+hiddenimports += [
+    'sethlans_manager.settings_base',
+    'sethlans_manager.settings_setup',
+    'sethlans_manager.mysql_driver',
+    'sethlans_manager.db_tls',
+    'sethlans_manager.setup_mode',
+    'sethlans_manager.setup_mode.entry',
+    'sethlans_manager.setup_mode.urls',
+    'sethlans_manager.setup_mode.middleware',
+    'shared.data_folder',
+    'shared.data_folder_rules',
+]
+
 # Pillow image codec plugins for image assembly
 hiddenimports += [
     'PIL.JpegImagePlugin',

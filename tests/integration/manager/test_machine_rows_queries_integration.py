@@ -19,6 +19,8 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from tests.row_lock_sql import captured_sql
+
 from workers.models import Worker
 
 from .fits_nowhere_helpers import dnf_record
@@ -34,7 +36,7 @@ def _count(client, url, params=None):
     with CaptureQueriesContext(connection) as ctx:
         resp = client.get(url, params or {})
     assert resp.status_code == 200, resp.data
-    return [query['sql'] for query in ctx.captured_queries], resp
+    return captured_sql(ctx), resp
 
 
 def _renders(resp):

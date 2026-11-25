@@ -23,11 +23,11 @@ pytestmark = pytest.mark.django_db
 
 class TestHealthShape:
 
-    def test_keys_are_exactly_boot_id_and_version(self):
+    def test_keys_are_exactly_mode_boot_id_and_version(self):
         resp = APIClient().get("/api/health/")
         assert resp.status_code == 200
         body = resp.json()
-        assert set(body.keys()) == {"boot_id", "version"}, (
+        assert set(body.keys()) == {"mode", "boot_id", "version"}, (
             f"Health payload shape drifted: {body!r}"
         )
 

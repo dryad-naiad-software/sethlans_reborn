@@ -64,7 +64,10 @@ class TestRevisionIdStored:
         del entry['revision_id']
         stored = _send(make_worker_client, 'rev-absent', entry)
         assert stored == [card(revision_id=None)]
-        assert list(stored[0]).index('revision_id') == list(card()).index('revision_id')  # the stored order
+        # Stored exactly like a card that sent ``revision_id``, key order included. The order is
+        # the database's (MySQL JSON and PostgreSQL jsonb sort the keys; SQLite and MariaDB keep them).
+        reference = _send(make_worker_client, 'rev-absent-ref', card(revision_id=None))
+        assert list(stored[0]) == list(reference[0])
 
     def test_revisions_are_per_card(self, make_worker_client):
         stored = _send(make_worker_client, 'rev-two', card(revision_id=0xA1), card(key=KEY_2, revision_id=0xC8))

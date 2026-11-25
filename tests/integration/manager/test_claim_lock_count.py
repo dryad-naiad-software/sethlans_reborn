@@ -22,7 +22,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import locked_tables, postgres_lock_error
+from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error
 from workers.models import Job, JobStatus
 
 JOBS_URL = '/api/jobs/'
@@ -63,7 +63,7 @@ def test_standalone_claim_issues_exactly_one_lock(worker_with_token, asset, lock
         resp = client.post(f'{JOBS_URL}{job.pk}/claim/', data={'worker_id': worker.pk}, format='json')
 
     assert resp.status_code == (200 if outcome == 'claimed' else 409), resp.data
-    locks = [q['sql'] for q in ctx.captured_queries if 'FOR UPDATE' in q['sql']]
+    locks = [sql for sql in captured_sql(ctx) if 'FOR UPDATE' in sql]
     assert len(locks) == 1, locks
     sql = locks[0]
     assert 'FROM "workers_job"' in sql

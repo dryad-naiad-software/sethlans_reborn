@@ -153,7 +153,7 @@ class TestRefusals:
         other = unreal_asset(job.asset.project, name='MtRetryCapFill')
         for worker in (worker_a, worker_b):
             for n in range(machine_tests.MAX_OPEN_PILOTS):
-                pair_record(other, f'{worker.pk:02x}{n:062x}', worker, pilot='QUEUED')
+                pair_record(other, f'{worker.pk:016x}{n:048x}', worker, pilot='QUEUED')
         before = _pilot_pks(job)
         resp = _retry(admin_client, job)
         assert (resp.status_code, resp.data) == (409, {'error': AT_LIMIT})

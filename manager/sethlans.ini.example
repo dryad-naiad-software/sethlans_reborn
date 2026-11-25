@@ -171,6 +171,15 @@ port = 8080
 # port = 3306
 # user = sethlans
 # password = your-password-here
+# (MySQL and MariaDB go through PyMySQL, pure Python, on every OS.)
+#
+# --- TLS to the database (external DBs only) ---
+# tls: default false (env SETHLANS_DB_TLS). tls_ca_file is needed for
+# MySQL/MariaDB, and for PostgreSQL verify-full / verify-ca. tls_mode is
+# PostgreSQL only: verify-full (default), verify-ca or require.
+# tls = true
+# tls_ca_file = /path/to/ca.pem
+# tls_mode = verify-full
 #
 # --- Persistent connections (external DBs only) ---
 # Django CONN_MAX_AGE — how long (seconds) to reuse a pooled database

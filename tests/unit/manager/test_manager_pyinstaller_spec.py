@@ -5,7 +5,8 @@
 """Static-analysis regression tests for ``packaging/pyinstaller/manager.spec``.
 
 These tests verify that key data resources are declared in the manager
-spec's ``datas`` list. They do NOT invoke PyInstaller itself; the live
+spec's ``datas`` list and that setup mode and PyMySQL are in its
+``hiddenimports``. They do NOT invoke PyInstaller itself; the live
 build-time guard lives in the install smoke (issue #197 — the apply
 pipeline exercises ``validate_password`` end-to-end, which fails fast if
 the password resource is missing).
@@ -17,6 +18,7 @@ resources only.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -106,3 +108,119 @@ def test_manager_spec_bundles_django_common_passwords_resource(
         "— the file would not be bundled. Confirm the datas entry is "
         "present and correct (issue #196)."
     )
+
+
+# --- Hidden imports (setup mode, PyMySQL) ---------------------------------
+#
+# The spec is parsed with ``ast`` rather than grepped, so a name that only
+# appears in a comment does not count. The live check that these names land
+# in PyInstaller's analysis needs PyInstaller itself (a build dependency),
+# so it is not part of the unit suite.
+
+
+def _hidden_import_sources(spec_text: str) -> tuple[set[str], list[ast.Call]]:
+    """Return (literal hidden-import names, collect_submodules calls).
+
+    Only statements that assign or extend ``hiddenimports`` count.
+    """
+    names: set[str] = set()
+    calls: list[ast.Call] = []
+    for node in ast.walk(ast.parse(spec_text)):
+        if isinstance(node, ast.AugAssign):
+            target, value = node.target, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        else:
+            continue
+        if not (isinstance(target, ast.Name) and target.id == "hiddenimports"):
+            continue
+        if isinstance(value, ast.List):
+            names.update(
+                elt.value for elt in value.elts
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+            )
+        elif (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "collect_submodules"
+        ):
+            calls.append(value)
+    return names, calls
+
+
+def _collected_packages(calls: list[ast.Call]) -> dict[str, ast.Call]:
+    return {
+        call.args[0].value: call for call in calls
+        if call.args and isinstance(call.args[0], ast.Constant)
+    }
+
+
+@pytest.fixture(scope="module")
+def hidden_sources(spec_text: str):
+    return _hidden_import_sources(spec_text)
+
+
+@pytest.mark.parametrize("package", ["pymysql", "sethlans_manager", "shared", "django"])
+def test_manager_spec_collects_package_submodules(hidden_sources, package: str):
+    """PyMySQL and every in-tree / Django submodule are collected."""
+    _, calls = hidden_sources
+    assert package in _collected_packages(calls), (
+        f"manager.spec must add collect_submodules({package!r}) to hiddenimports"
+    )
+
+
+def test_manager_spec_django_collection_is_unfiltered(hidden_sources):
+    """A filter on the Django collection could drop django.db.backends.mysql."""
+    _, calls = hidden_sources
+    call = _collected_packages(calls)["django"]
+    assert len(call.args) == 1 and not call.keywords, (
+        "collect_submodules('django') must take no filter: the MySQL backend "
+        "is loaded by name from DATABASES['default']['ENGINE']"
+    )
+
+
+@pytest.mark.parametrize("module", [
+    "pymysql",
+    "django.db.backends.mysql",
+    "django.db.backends.mysql.base",
+    "cryptography.hazmat.primitives.asymmetric.padding",
+    "sethlans_manager.settings_base",
+    "sethlans_manager.settings_setup",
+    "sethlans_manager.mysql_driver",
+    "sethlans_manager.db_tls",
+    "sethlans_manager.setup_mode",
+    "sethlans_manager.setup_mode.entry",
+    "sethlans_manager.setup_mode.urls",
+    "sethlans_manager.setup_mode.middleware",
+    "shared.data_folder",
+])
+def test_manager_spec_names_hidden_import(hidden_sources, module: str):
+    """Modules loaded by name at run time are named explicitly."""
+    names, _ = hidden_sources
+    assert module in names, f"manager.spec hiddenimports must name {module!r}"
+
+
+@pytest.mark.parametrize("module", [
+    "sethlans_manager.settings_base",
+    "sethlans_manager.settings_setup",
+    "sethlans_manager.mysql_driver",
+    "sethlans_manager.db_tls",
+    "sethlans_manager.setup_mode.entry",
+    "sethlans_manager.setup_mode.urls",
+    "sethlans_manager.setup_mode.middleware",
+    "shared.data_folder",
+])
+def test_manager_spec_hidden_import_exists_in_source(module: str):
+    """Every in-tree name in the spec is a real module (no stale names)."""
+    root = PROJECT_ROOT if module.startswith("shared.") else PROJECT_ROOT / "manager"
+    path = root.joinpath(*module.split("."))
+    assert path.with_suffix(".py").is_file() or (path / "__init__.py").is_file(), (
+        f"{module!r} is named in manager.spec but has no source file"
+    )
+
+
+def test_manager_requirements_pin_pymysql():
+    """The build venv installs manager/requirements.txt; PyMySQL must be in it."""
+    reqs = (PROJECT_ROOT / "manager" / "requirements.txt").read_text(encoding="utf-8")
+    pins = {line.split("==")[0].strip().lower() for line in reqs.splitlines() if "==" in line}
+    assert "pymysql" in pins

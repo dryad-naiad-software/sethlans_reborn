@@ -17,11 +17,13 @@ deletes.
 
 import contextlib
 import re
+import uuid
 from unittest.mock import patch
 
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
+from tests.row_lock_sql import captured_sql, runnable
 from workers.models import Job, Project, SequenceDiscovery, SequenceSubmission
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS
@@ -62,7 +64,7 @@ def delete_captured(client, url, of=True, undo=False):
                     raise Undo
         except Undo:
             pass
-    return status, [q['sql'] for q in ctx.captured_queries]
+    return status, captured_sql(ctx)
 
 
 def lock_statements(sqls):
@@ -76,10 +78,16 @@ def collector_writes(sqls):
 
 
 def locked_pks(sql):
-    """Run a captured lock again (its lock clause is a comment here); the pks it selects."""
+    """Run a captured lock again (its lock clause is a comment here); the pks it selects.
+
+    A UUID pk comes back as ``uuid.UUID`` on every database: the raw column is
+    32-digit hex on SQLite and MySQL, dashed text in MariaDB's native UUID type
+    and a ``uuid.UUID`` from PostgreSQL.
+    """
     with connection.cursor() as cursor:
-        cursor.execute(sql)
-        return [row[0] for row in cursor.fetchall()]
+        cursor.execute(runnable(sql))
+        pks = [row[0] for row in cursor.fetchall()]
+    return [pk if isinstance(pk, int) else uuid.UUID(str(pk)) for pk in pks]
 
 
 def sequence_rows(asset, versions):

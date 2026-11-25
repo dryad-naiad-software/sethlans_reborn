@@ -17,6 +17,8 @@ from datetime import timedelta
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+
+from tests.row_lock_sql import captured_sql
 from django.utils import timezone
 
 from workers.constants import WORKER_STALENESS_SECONDS
@@ -81,4 +83,4 @@ def sweep_sql(client, worker, capture):
     with emulated_row_locks(), CaptureQueriesContext(connection) as ctx:
         for callback in callbacks:
             callback()
-    return [query['sql'] for query in ctx.captured_queries]
+    return captured_sql(ctx)

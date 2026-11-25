@@ -16,8 +16,11 @@ RUN apt-get update && \
 RUN groupadd -g 1000 sethlans && \
     useradd -u 1000 -g 1000 -m -s /bin/bash sethlans
 
+# The import check fails the build if a database driver did not install
+# (PyMySQL for MySQL and MariaDB, psycopg for PostgreSQL).
 COPY manager/requirements.txt /tmp/manager-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/manager-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/manager-requirements.txt && \
+    python -c "import pymysql, psycopg"
 
 # Pre-fetched by CI (tools/fetch_caddy.py --multi-arch linux-amd64,linux-arm64).
 # TARGETARCH is BuildKit-provided. Placed where

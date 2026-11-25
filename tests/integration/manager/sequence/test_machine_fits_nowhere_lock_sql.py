@@ -26,7 +26,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import locked_tables, postgres_lock_error
+from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error, runnable
 
 from workers.models import Job, Project, UnrealMeasurement
 
@@ -65,7 +65,7 @@ def version(admin_client, asset, worker_with_token):
 def _captured(job, **kwargs):
     with emulated_row_locks(), CaptureQueriesContext(connection) as ctx:
         stopped = check_key(job, **kwargs)
-    return stopped, [q['sql'] for q in ctx.captured_queries]
+    return stopped, captured_sql(ctx)
 
 
 def _locks(sql):
@@ -82,7 +82,7 @@ def _first_write(sql):
 
 def _locked_pks(query):
     with connection.cursor() as cursor:
-        cursor.execute(query)
+        cursor.execute(runnable(query))
         return [row[0] for row in cursor.fetchall()]
 
 

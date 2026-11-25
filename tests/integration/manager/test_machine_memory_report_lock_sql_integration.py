@@ -30,7 +30,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import locked_tables, postgres_lock_error
+from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error, runnable
 
 from workers.models import Job, UnrealMeasurement
 
@@ -65,7 +65,7 @@ def _captured(client, job, body, code=200):
     with emulated_row_locks(), CaptureQueriesContext(connection) as ctx:
         resp = post_report(client, job, body)
     assert resp.status_code == code, resp.data
-    return [(_FROM.search(q['sql']).group(1), q['sql']) for q in ctx.captured_queries if 'FOR UPDATE' in q['sql']]
+    return [(_FROM.search(sql).group(1), sql) for sql in captured_sql(ctx) if 'FOR UPDATE' in sql]
 
 
 def _tables(locks):
@@ -74,7 +74,7 @@ def _tables(locks):
 
 def _locked_pks(sql):
     with connection.cursor() as cursor:
-        cursor.execute(sql)
+        cursor.execute(runnable(sql))
         return [row[0] for row in cursor.fetchall()]
 
 

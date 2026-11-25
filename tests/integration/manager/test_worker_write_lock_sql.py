@@ -17,7 +17,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import locked_tables, postgres_lock_error
+from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error
 from workers.models import Job
 
 from .worker_write_race_helpers import (
@@ -54,8 +54,8 @@ def media_root(settings, tmp_path):
 
 
 def _single_job_lock(ctx, supports_of):
-    locks = [q['sql'] for q in ctx.captured_queries
-             if 'FOR UPDATE' in q['sql'] and 'FROM "workers_job"' in q['sql']]
+    locks = [sql for sql in captured_sql(ctx)
+             if 'FOR UPDATE' in sql and 'FROM "workers_job"' in sql]
     assert len(locks) == 1, locks
     sql = locks[0]
     assert postgres_lock_error(sql) is None, sql

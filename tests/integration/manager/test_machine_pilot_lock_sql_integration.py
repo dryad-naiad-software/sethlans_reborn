@@ -26,7 +26,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import locked_tables, postgres_lock_error
+from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error, runnable
 
 from .machine_test_helpers import KIND_AMD, emulated_row_locks, kind_card, pair_record, set_cards
 from .machine_verdict_helpers import NEW_DRIVER, OLD_DRIVER
@@ -50,7 +50,7 @@ def pilot(admin_client, asset, worker_with_token):
 
 def _locks(ctx):
     """``[(table, sql)]`` of the captured locking statements, in order."""
-    return [(_FROM.search(q['sql']).group(1), q['sql']) for q in ctx.captured_queries if 'FOR UPDATE' in q['sql']]
+    return [(_FROM.search(sql).group(1), sql) for sql in captured_sql(ctx) if 'FOR UPDATE' in sql]
 
 
 def _post_captured(client, job, body):
@@ -63,7 +63,7 @@ def _post_captured(client, job, body):
 def _locked_pks(sql):
     """Run a captured record lock again (its lock clause is a comment here); the pks it selects."""
     with connection.cursor() as cursor:
-        cursor.execute(sql)
+        cursor.execute(runnable(sql))
         return [row[0] for row in cursor.fetchall()]
 
 

@@ -26,7 +26,7 @@ import pytest
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import locked_tables
+from tests.row_lock_sql import captured_sql, locked_tables
 from workers.models import Job, Worker
 from workers.services.worker_locks import lock_workers
 
@@ -57,7 +57,7 @@ def _locked(sql):
 
 
 def _worker_locks(ctx):
-    return [q['sql'] for q in ctx.captured_queries if _locked(q['sql']) == WORKER_TABLE]
+    return [sql for sql in captured_sql(ctx) if _locked(sql) == WORKER_TABLE]
 
 
 def _assert_all_workers_ascending(sql):
@@ -71,7 +71,7 @@ def _assert_workers_first(ctx, min_records=1, plans=True):
 
     ``plans``: the request creates pilots, so the cap is counted (after the lock).
     """
-    statements = [q['sql'] for q in ctx.captured_queries]
+    statements = captured_sql(ctx)
     workers = [i for i, sql in enumerate(statements) if _locked(sql) == WORKER_TABLE]
     assert len(workers) == 1, [statements[i] for i in workers]
     _assert_all_workers_ascending(statements[workers[0]])

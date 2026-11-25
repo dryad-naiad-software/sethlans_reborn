@@ -9,7 +9,8 @@ name: Sethlans Reborn CI
 # images. This workflow covers ONLY the native GitHub-hosted matrix
 # (ubuntu/windows/macos) — catches platform-specific regressions Docker
 # cannot (e.g. Windows path handling, macOS PySide6 splash segfaults,
-# native Linux without containerization) — plus the Angular unit tests.
+# native Linux without containerization) — plus the Angular unit tests
+# and the manager tests against MySQL and MariaDB service containers.
 #
 # Node 24: Angular 21 accepts ^20.19 || ^22.12 || >=24, but hdrify (a
 # manager/frontend dependency) declares node >=24. Keep node-version in
@@ -220,3 +221,225 @@ jobs:
             test_artifacts/
             !**/*.blend
           if-no-files-found: ignore
+
+  # --- Manager tests against MySQL 8.4 and MariaDB 11.4 (PyMySQL) ---
+  # The manager unit and integration tests run with the default database
+  # on a real MySQL or MariaDB server, through PyMySQL (Django's MySQL
+  # backend loads it as MySQLdb; mysqlclient is not installed). The
+  # settings come from the SETHLANS_DB_* env vars that db_config.py
+  # reads; pytest-django creates and drops test_<name>, so the tests
+  # connect as root. SQLite-only tests skip on these servers.
+  #
+  # The setup-mode database probe tests (tests/integration/manager/
+  # setup_mode/) also run here. They read
+  # SETHLANS_TEST_<ENGINE>_HOST/PORT/USER/PASSWORD and optional
+  # SETHLANS_TEST_<ENGINE>_TLS_CA (a CA file path) for MYSQL, MARIADB
+  # and POSTGRES, and skip when HOST is unset. They need an account
+  # that may CREATE and DROP DATABASE, PostgreSQL 13 or newer, a server
+  # certificate whose SAN names HOST (127.0.0.1), plain connections
+  # still accepted next to TLS, and a password of 8 characters or more
+  # (the log check runs only then). The MySQL leg also starts
+  # PostgreSQL 17 for those probes only (the manager suite does not run
+  # on PostgreSQL here). tools/ci_db_tls.sh turns TLS on in each server
+  # with a throwaway CA once the containers are healthy, and checks a
+  # verified TLS session with PyMySQL and psycopg.
+  #
+  # Only the native Linux runner: service containers need Docker, which
+  # GitHub provides on ubuntu runners only. The password is a throwaway
+  # for these containers; it is not a secret.
+  manager-external-db:
+    name: Manager tests on ${{ matrix.label }} (PyMySQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: mysql
+            label: MySQL 8.4
+            image: mysql:8.4
+            health_cmd: mysqladmin ping -h 127.0.0.1
+            expect_server: MySQL
+            postgres_image: postgres:17
+          - engine: mariadb
+            label: MariaDB 11.4
+            image: mariadb:11.4
+            health_cmd: healthcheck.sh --connect --innodb_initialized
+            expect_server: MariaDB
+            postgres_image: ''
+    services:
+      db:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: sethlans-ci-throwaway
+          MYSQL_DATABASE: sethlans
+          MARIADB_ROOT_PASSWORD: sethlans-ci-throwaway
+          MARIADB_DATABASE: sethlans
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "${{ matrix.health_cmd }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+      # An empty image (MariaDB leg) means the service is not started.
+      postgres:
+        image: ${{ matrix.postgres_image }}
+        env:
+          POSTGRES_PASSWORD: sethlans-ci-throwaway
+          POSTGRES_DB: sethlans
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      SETHLANS_DISABLE_RELEASE_FETCH: "1"
+      SETHLANS_CI_DB_PASSWORD: sethlans-ci-throwaway
+      SETHLANS_DB_ENGINE: mysql
+      SETHLANS_DB_NAME: sethlans
+      SETHLANS_DB_HOST: 127.0.0.1
+      SETHLANS_DB_PORT: "3306"
+      SETHLANS_DB_USER: root
+      SETHLANS_DB_PASSWORD: sethlans-ci-throwaway
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      # pytest-qt (requirements-dev.txt) loads PySide6 QtGui when pytest
+      # starts, which needs these libraries even with QT_QPA_PLATFORM=offscreen
+      # (pytest.ini). Same list as the main matrix's Linux step.
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libdbus-1-3 \
+            libegl1 \
+            libfontconfig1 \
+            libgl1 \
+            libglib2.0-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-keysyms1 \
+            libxcb-shape0 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libx11-6 \
+            libxxf86vm1 \
+            libxrender1 \
+            libxi6 \
+            libglu1-mesa \
+            libsm6 \
+            libice6 \
+            libxfixes3 \
+            libxcursor1 \
+            libxinerama1 \
+            libxrandr2 \
+            xvfb
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r manager/requirements.txt -r worker/requirements.txt -r requirements-dev.txt
+
+      # Tests that start a real manager behind Caddy skip without it.
+      - name: Cache Caddy binary
+        uses: actions/cache@v5
+        with:
+          path: .venv-build/caddy
+          key: caddy-${{ hashFiles('tools/caddy.lock') }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Fetch Caddy
+        run: python tools/fetch_caddy.py --target-dir .venv-build/caddy --platform linux-amd64
+
+      - name: Turn on database TLS
+        env:
+          DB_CONTAINER: ${{ job.services.db.id }}
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+          ENGINE: ${{ matrix.engine }}
+        run: |
+          args=("${ENGINE}=${DB_CONTAINER}")
+          if [ -n "${PG_CONTAINER}" ]; then
+            args+=("postgres=${PG_CONTAINER}")
+          fi
+          bash tools/ci_db_tls.sh "${RUNNER_TEMP}/sethlans-db-tls" "${args[@]}"
+
+      - name: Export probe test settings
+        env:
+          ENGINE: ${{ matrix.engine }}
+          HAS_POSTGRES: ${{ matrix.postgres_image != '' }}
+        run: |
+          ca="${RUNNER_TEMP}/sethlans-db-tls/ca.pem"
+          prefix=$(echo "${ENGINE}" | tr '[:lower:]' '[:upper:]')
+          {
+            echo "SETHLANS_TEST_${prefix}_HOST=127.0.0.1"
+            echo "SETHLANS_TEST_${prefix}_PORT=3306"
+            echo "SETHLANS_TEST_${prefix}_USER=root"
+            echo "SETHLANS_TEST_${prefix}_PASSWORD=${SETHLANS_CI_DB_PASSWORD}"
+            echo "SETHLANS_TEST_${prefix}_TLS_CA=${ca}"
+            if [ "${HAS_POSTGRES}" = "true" ]; then
+              echo "SETHLANS_TEST_POSTGRES_HOST=127.0.0.1"
+              echo "SETHLANS_TEST_POSTGRES_PORT=5432"
+              echo "SETHLANS_TEST_POSTGRES_USER=postgres"
+              echo "SETHLANS_TEST_POSTGRES_PASSWORD=${SETHLANS_CI_DB_PASSWORD}"
+              echo "SETHLANS_TEST_POSTGRES_TLS_CA=${ca}"
+            fi
+          } >> "${GITHUB_ENV}"
+
+      # The manager's settings must pick MySQL through PyMySQL and reach
+      # the expected server, or the test run below proves nothing.
+      - name: Check the manager uses PyMySQL on ${{ matrix.label }}
+        env:
+          EXPECT_SERVER: ${{ matrix.expect_server }}
+          SETHLANS_SETTINGS_DIR: ${{ runner.temp }}/sethlans-settings-check
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import os
+          import sys
+
+          sys.path[:0] = ["manager", "."]
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "sethlans_manager.settings")
+          import django
+
+          django.setup()
+          import MySQLdb
+          from django.db import connection
+
+          try:
+              importlib.metadata.distribution("mysqlclient")
+              sys.exit("FAIL: mysqlclient is installed")
+          except importlib.metadata.PackageNotFoundError:
+              pass
+          assert MySQLdb.__name__ == "pymysql", MySQLdb.__name__
+          assert connection.vendor == "mysql", connection.vendor
+          with connection.cursor() as cur:
+              cur.execute("SELECT VERSION()")
+              version = cur.fetchone()[0]
+          is_mariadb = "mariadb" in version.lower()
+          if is_mariadb != (os.environ["EXPECT_SERVER"] == "MariaDB"):
+              sys.exit(f"FAIL: expected {os.environ['EXPECT_SERVER']}, server says {version}")
+          print(f"OK: Django {django.get_version()} -> {MySQLdb.__name__} -> {version}")
+          PY
+
+      - name: Run manager unit tests
+        run: pytest tests/unit/manager
+
+      - name: Run manager integration tests
+        run: pytest tests/integration/manager

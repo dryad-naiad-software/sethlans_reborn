@@ -114,7 +114,7 @@ class TestCapWarning:
         filler = unreal_asset(uasset.project, name='MtCapWarnFill')
         for worker in workers:
             for n in range(machine_tests.MAX_OPEN_PILOTS):
-                pair_record(filler, f'{worker.pk:02x}{n:062x}', worker, pilot='QUEUED')
+                pair_record(filler, f'{worker.pk:016x}{n:048x}', worker, pilot='QUEUED')
         clock = [1000.0]
         mocker.patch.object(machine_tests, 'time', types.SimpleNamespace(monotonic=lambda: clock[0]))
         warning = mocker.patch.object(machine_tests.logger, 'warning')

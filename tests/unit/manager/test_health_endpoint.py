@@ -26,7 +26,8 @@ class TestHealthResponse:
     def test_body_shape(self):
         resp = APIClient().get("/api/health/")
         body = resp.json()
-        assert set(body.keys()) == {"boot_id", "version"}
+        assert set(body.keys()) == {"mode", "boot_id", "version"}
+        assert body["mode"] == "normal"
 
     def test_boot_id_matches_runtime_state(self):
         from sethlans_manager import runtime_state

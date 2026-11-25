@@ -31,6 +31,8 @@ import pytest
 from django.db import connection, connections
 from django.test.utils import CaptureQueriesContext
 
+from tests.row_lock_sql import captured_sql, runnable
+
 from workers.models import ManagerSettings
 from workers.services import fits_nowhere
 from workers.services.unreal_target import Target
@@ -63,14 +65,14 @@ def test_a_pilot_claim_writes_the_worker_fk_the_check_holds(worker_with_token, m
     job, pilot, second, second_client = _setup(worker_with_token, make_worker_client)
     with emulated_row_locks(), CaptureQueriesContext(connection) as ctx:
         assert check_key(job) == 1
-    [worker_lock] = [q['sql'] for q in ctx.captured_queries
-                     if 'FOR UPDATE' in q['sql'] and 'FROM "workers_worker"' in q['sql']]
+    [worker_lock] = [sql for sql in captured_sql(ctx)
+                     if 'FOR UPDATE' in sql and 'FROM "workers_worker"' in sql]
     with connection.cursor() as cursor:
-        cursor.execute(worker_lock)
+        cursor.execute(runnable(worker_lock))
         assert second.pk in [row[0] for row in cursor.fetchall()]
     with emulated_row_locks(), CaptureQueriesContext(connection) as ctx:
         assert claim(second_client, pilot, second).status_code == 200
-    assert [q for q in ctx.captured_queries if _ASSIGN.match(q['sql'])], ctx.captured_queries
+    assert [sql for sql in captured_sql(ctx) if _ASSIGN.match(sql)], ctx.captured_queries
 
 
 @pytest.fixture

@@ -8,13 +8,22 @@ Verifies that ``build_database_config()`` correctly resolves the
 priority chain: ``SETHLANS_DATABASE_URL`` > individual env vars >
 the settings file's ``[database]`` > SQLite default.  Each test passes
 its parsed settings in and uses ``monkeypatch`` for env vars so nothing
-leaks between tests.
+leaks between tests. The run-time database overrides of the environment
+(a CI job against MySQL/MariaDB sets them) are removed before each test.
 """
 
 import configparser
 from pathlib import Path
 
+import pytest
+
 from sethlans_manager.db_config import build_database_config
+from tests.db_env import clear_db_env
+
+
+@pytest.fixture(autouse=True)
+def _no_database_env(monkeypatch):
+    clear_db_env(monkeypatch)
 
 
 def _empty_config() -> configparser.ConfigParser:

@@ -92,7 +92,7 @@ class TestUnrealDeleteLocks:
         status, sqls = delete_captured(admin_client, url, undo=True)
         assert status == 204
         locks = {table: sql for _i, table, sql in lock_statements(sqls)}
-        assert locked_pks(locks['workers_project']) == [scene.project.pk.hex]
+        assert locked_pks(locks['workers_project']) == [scene.project.pk]
         assert {table: locked_pks(locks[table]) for table in expected} == expected
         assert scene.workers['idle'].pk not in locked_pks(locks['workers_worker'])
 

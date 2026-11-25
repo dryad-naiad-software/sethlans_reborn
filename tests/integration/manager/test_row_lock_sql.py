@@ -26,7 +26,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import workers.views.stuck_jobs as stuck_jobs_module
-from tests.row_lock_sql import locked_tables, postgres_lock_error
+from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error
 from workers.models import Job, JobStatus
 from workers.views.stuck_jobs import requeue_stuck_jobs
 
@@ -61,7 +61,7 @@ def locking_backend(request):
 
 
 def _lock_queries(ctx):
-    return [q['sql'] for q in ctx.captured_queries if 'FOR UPDATE' in q['sql']]
+    return [sql for sql in captured_sql(ctx) if 'FOR UPDATE' in sql]
 
 
 def _assert_locks_only_jobs(sql, supports_of):
