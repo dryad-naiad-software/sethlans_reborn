@@ -1,28 +1,26 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""``shared.data_folder.prepare_data_root`` and ``ensure_configured_data_root``."""
+"""``shared.data_folder.prepare_data_root`` and ``ensure_configured_data_root``.
+
+Existing roots are made with ``own_dir`` (owner-only, owned by this user),
+so the tests hold on an elevated Windows runner too (see the helpers).
+"""
 import os
 import stat
-import sys
 
 import pytest
 
 from shared import data_folder, owner_only_acl
 from tests.unit._off_system_tmp import off_system_tmp_path_fixture
+from tests.unit.shared._data_folder_helpers import (
+    WINDOWS, make_link, override_owner, own_dir, posix_only, windows_only, windows_owner,
+)
 
 # On macOS pytest's tmp_path is under /private/var, a refused system folder.
 tmp_path = off_system_tmp_path_fixture()
 
-WINDOWS = sys.platform == "win32"
-posix_only = pytest.mark.skipif(WINDOWS, reason="POSIX mode bits and symlinks")
-windows_only = pytest.mark.skipif(not WINDOWS, reason="Windows junctions")
-
-
-def _junction(link, target):
-    import _winapi
-
-    _winapi.CreateJunction(str(target), str(link))
+NOT_MINE = "belongs to another account; choose a folder you own."
 
 
 @pytest.fixture(autouse=True)
@@ -63,8 +61,13 @@ class TestCreate:
         assert (root / "manager" / "db.sqlite3").read_text() == "data"
         assert _all_owner_only(root) == [True, True, True]
 
+    def test_existing_owner_only_root_is_adopted(self, root):
+        own_dir(root)
+        assert data_folder.prepare_data_root(root) == root
+        assert _all_owner_only(root) == [True, True, True]
+
     def test_existing_marker_is_left_alone(self, root):
-        root.mkdir(parents=True)
+        own_dir(root)
         (root / ".sethlans-data").write_bytes(b"older marker")
         data_folder.prepare_data_root(root)
         assert (root / ".sethlans-data").read_bytes() == b"older marker"
@@ -72,9 +75,11 @@ class TestCreate:
 
 class TestAdopt:
 
-    def test_existing_loose_folder_is_made_owner_only(self, root):
+    def test_existing_loose_folder_is_made_owner_only(self, root, mocker):
         root.mkdir(parents=True)
-        if not WINDOWS:
+        if WINDOWS:  # a plain mkdir is Administrators-owned on an elevated runner
+            override_owner(mocker, "is_owned_by_token_user", {root: True})
+        else:
             os.chmod(root, 0o755)
         assert owner_only_acl.verify_owner_only(root) is False
         data_folder.prepare_data_root(root)
@@ -87,12 +92,14 @@ class TestAdopt:
         data_folder.prepare_data_root(root)
         assert stat.S_IMODE(os.stat(root).st_mode) == 0o700
 
+    @windows_only
     def test_folder_that_stays_loose_is_refused(self, root, mocker):
-        root.mkdir(parents=True)
+        own_dir(root)
         mocker.patch.object(owner_only_acl, "verify_owner_only", return_value=False)
         apply = mocker.patch.object(owner_only_acl, "apply_owner_only")
-        with pytest.raises(data_folder.DataFolderError, match="Could not limit .* to the current user"):
+        with pytest.raises(data_folder.DataFolderError) as info:
             data_folder.prepare_data_root(root)
+        assert str(info.value) == f"Could not limit {root} to the current user."
         apply.assert_called_once_with(root)
 
     def test_already_owner_only_is_not_touched(self, root, mocker):
@@ -110,66 +117,78 @@ class TestRefusals:
             data_folder.prepare_data_root("relative")
         create.assert_not_called()
 
-    def test_other_owner_is_refused(self, root, mocker):
-        root.mkdir(parents=True)
-        mocker.patch.object(owner_only_acl, "is_owned_by_current_user", return_value=False)
-        with pytest.raises(data_folder.DataFolderError, match="belongs to another account"):
+    def test_other_owner_is_refused_before_any_change(self, root, mocker):
+        own_dir(root)
+        override_owner(mocker, "is_owned_by_token_user", {root: False})
+        apply = mocker.spy(owner_only_acl, "apply_owner_only")
+        create = mocker.spy(owner_only_acl, "create_owner_only_dir")
+        with pytest.raises(data_folder.DataFolderError) as info:
             data_folder.prepare_data_root(root)
-
-    def test_component_that_is_a_file_is_refused(self, root):
-        root.mkdir(parents=True)
-        (root / "worker").write_text("x")
-        with pytest.raises(data_folder.DataFolderError, match="worker is a link or not a folder"):
-            data_folder.prepare_data_root(root)
-
-    def test_marker_that_is_a_folder_is_refused(self, root):
-        (root / ".sethlans-data").mkdir(parents=True)
-        with pytest.raises(data_folder.DataFolderError, match="exists and is not a regular file"):
-            data_folder.prepare_data_root(root)
-
-    @posix_only
-    def test_marker_that_is_a_link_is_refused(self, root, tmp_path):
-        root.mkdir(parents=True)
-        (tmp_path / "elsewhere").write_text("x")
-        os.symlink(tmp_path / "elsewhere", root / ".sethlans-data")
-        with pytest.raises(data_folder.DataFolderError, match="exists and is not a regular file"):
-            data_folder.prepare_data_root(root)
-
-    @posix_only
-    def test_component_that_is_a_link_is_refused(self, root, tmp_path):
-        root.mkdir(parents=True)
-        (tmp_path / "other").mkdir()
-        os.symlink(tmp_path / "other", root / "manager")
-        with pytest.raises(data_folder.DataFolderError, match="manager is a link or not a folder"):
-            data_folder.prepare_data_root(root)
+        assert str(info.value) == f"{root} {NOT_MINE}"
+        apply.assert_not_called()
+        create.assert_not_called()
+        assert list(root.iterdir()) == []
 
     @windows_only
-    def test_root_that_is_a_junction_is_refused(self, root, tmp_path):
+    def test_administrators_owned_root_is_refused_and_never_tightened(self, root, mocker):
+        own_dir(root)
+        windows_owner(mocker, root, owner_only_acl.ADMINISTRATORS_SID)
+        apply = mocker.spy(owner_only_acl, "apply_owner_only")
+        with pytest.raises(data_folder.DataFolderError) as info:
+            data_folder.prepare_data_root(root)
+        assert str(info.value) == f"{root} {NOT_MINE}"
+        apply.assert_not_called()
+
+    @windows_only
+    def test_administrators_owned_component_is_refused(self, root, mocker):
+        own_dir(root)
+        own_dir(root / "manager")
+        windows_owner(mocker, root / "manager", owner_only_acl.ADMINISTRATORS_SID)
+        apply = mocker.spy(owner_only_acl, "apply_owner_only")
+        with pytest.raises(data_folder.DataFolderError) as info:
+            data_folder.prepare_data_root(root)
+        assert str(info.value) == f"{root / 'manager'} {NOT_MINE}"
+        assert all(c.args[0] != root / "manager" for c in apply.call_args_list)
+
+    def test_component_that_is_a_file_is_refused(self, root):
+        own_dir(root)
+        (root / "worker").write_text("x")
+        with pytest.raises(data_folder.DataFolderError) as info:
+            data_folder.prepare_data_root(root)
+        assert str(info.value) == f"{root / 'worker'} is a link or not a folder; choose a plain folder."
+
+    def test_marker_that_is_a_folder_is_refused(self, root):
+        own_dir(root)
+        (root / ".sethlans-data").mkdir()
+        with pytest.raises(data_folder.DataFolderError) as info:
+            data_folder.prepare_data_root(root)
+        assert str(info.value) == f"{root / '.sethlans-data'} exists and is not a regular file."
+
+    def test_root_that_is_a_link_is_refused(self, root, tmp_path):
         real = tmp_path / "real"
         real.mkdir()
         root.parent.mkdir(parents=True)
-        _junction(root, real)
+        make_link(root, real)
         with pytest.raises(data_folder.DataFolderError, match="sethlans-data is a link or not a folder"):
             data_folder.prepare_data_root(root)
-        assert list(real.iterdir()) == []  # nothing was created through the junction
+        assert list(real.iterdir()) == []  # nothing was created through the link
 
-    @windows_only
-    def test_component_that_is_a_junction_is_refused(self, root, tmp_path, mocker):
+    def test_component_that_is_a_link_is_refused(self, root, tmp_path, mocker):
         real = tmp_path / "other"
         real.mkdir()
-        root.mkdir(parents=True)
-        _junction(root / "manager", real)
+        own_dir(root)
+        make_link(root / "manager", real)
         apply = mocker.spy(owner_only_acl, "apply_owner_only")
         with pytest.raises(data_folder.DataFolderError, match="manager is a link or not a folder"):
             data_folder.prepare_data_root(root)
-        assert all(call.args[0] != root / "manager" for call in apply.call_args_list)
+        assert all(c.args[0] != root / "manager" for c in apply.call_args_list)
         assert list(real.iterdir()) == []
 
     @windows_only
     def test_is_link_sees_a_junction(self, tmp_path):
         real = tmp_path / "real"
         real.mkdir()
-        _junction(tmp_path / "j", real)
+        make_link(tmp_path / "j", real)
         assert data_folder.is_link(tmp_path / "j") is True
         assert data_folder.is_link(real) is False
 

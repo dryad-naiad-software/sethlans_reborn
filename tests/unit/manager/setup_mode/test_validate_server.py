@@ -82,6 +82,9 @@ class TestServer:
         ("abc", "The port must be a whole number."),
         (True, "The port must be a whole number."),
         (8080.5, "The port must be a whole number."),
+        ("8²", "The port must be a whole number."),
+        ("٣٣٣٣", "The port must be a whole number."),
+        ("+9443", "The port must be a whole number."),
         (None, "The port is required."),
     ])
     def test_port_errors(self, check, tmp_path, port, message):

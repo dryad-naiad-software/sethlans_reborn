@@ -82,6 +82,19 @@ def child_env(tmp_path: Path, **extra) -> dict:
     return env
 
 
+def write_owner_only(path: Path, data: bytes) -> Path:
+    """Write ``data`` to a new owner-only file, as the launcher writes the setup token."""
+    from shared import owner_only_acl
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = owner_only_acl.create_owner_only_file(path)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+    return path
+
+
 def open_session(client, remote_addr="127.0.0.1") -> str:
     """Authenticate ``client``; return the session token (the cookie is now set)."""
     response = client.post("/api/setup/auth/", {"token": TOKEN}, content_type="application/json",

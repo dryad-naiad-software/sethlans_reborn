@@ -106,6 +106,16 @@ class TestDefaults:
         free.return_value = free_value
         assert _get(setup_client, session).json()["data_folder"]["low_space"] is low
 
+    @pytest.mark.parametrize("raw, server_port, db_port", [
+        (" 9443 ", 9443, 9443), ("8²", 8080, None), ("٣٣٣٣", 8080, None), ("abc", 8080, None),
+    ])
+    def test_stored_ports_need_ascii_digits(self, setup_client, session, ini_path, accounts, free,
+                                            raw, server_port, db_port):
+        ini_path.parent.mkdir(parents=True)
+        ini_path.write_text(f"[server]\nport = {raw}\n[database]\nport = {raw}\n", encoding="utf-8")
+        body = _get(setup_client, session).json()
+        assert (body["server"]["port"], body["database"]["port"]) == (server_port, db_port)
+
 
 class TestEarlierValues:
 

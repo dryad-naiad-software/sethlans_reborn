@@ -117,6 +117,7 @@ hiddenimports += [
     'sethlans_manager.setup_mode.urls',
     'sethlans_manager.setup_mode.middleware',
     'shared.data_folder',
+    'shared.data_folder_rules',
 ]
 
 # Pillow image codec plugins for image assembly

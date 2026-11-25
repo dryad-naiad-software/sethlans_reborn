@@ -19,7 +19,7 @@ import pytest
 from sethlans_manager.setup_mode.validate_admin import ACCOUNT_EXISTS, NO_ACCOUNT_TO_KEEP
 
 from .probe_pipeline import digests, probe, sqlite_db
-from .setup_process import ADMIN_PASSWORD, EXIT_SAVED, Client, manager_answers
+from .setup_process import ADMIN_PASSWORD, EXIT_SAVED, Client, fields_of, manager_answers
 
 
 def _sqlite(path):
@@ -81,6 +81,14 @@ class TestSqliteProbeIntegration:
 
         assert (found.accounts_exist, found.username_exists) == (False, True)
 
+    def test_inactive_superuser_is_no_admin_to_keep(self, django_db_blocker, tmp_path):
+        path = tmp_path / "db.sqlite3"
+        sqlite_db(path, users=[("farmadmin", True, False)])
+
+        found = probe(django_db_blocker, _sqlite(path), tmp_path / "data", "farmadmin")
+
+        assert (found.accounts_exist, found.username_exists) == (False, True)
+
     def test_default_file_follows_the_planned_data_folder(self, django_db_blocker, tmp_path):
         data_root = tmp_path / "data"
         sqlite_db(data_root / "manager" / "db.sqlite3", users=[("farmadmin", True)])
@@ -117,7 +125,7 @@ class TestSqliteAdminChoicesThroughSetupIntegration:
                                               {**admin, "replace_password": True}))
 
         assert refused.status == 400, refused.raw
-        assert refused.json() == {"admin.username": [ACCOUNT_EXISTS]}
+        assert fields_of(refused) == {"admin.username": [ACCOUNT_EXISTS]}
         assert saved.status == 200, saved.raw
         assert proc.wait(timeout=10) == EXIT_SAVED
         stored = configparser.RawConfigParser(interpolation=None)
@@ -126,9 +134,11 @@ class TestSqliteAdminChoicesThroughSetupIntegration:
         assert stored.get("database", "name") == str(path)
         assert digests(path) == before
 
-    def test_keep_existing_needs_a_superuser(self, setup_process, tmp_path, data_root):
+    def test_keep_existing_needs_an_active_superuser(self, setup_process, tmp_path, data_root):
         missing = tmp_path / "none" / "db.sqlite3"
+        inactive = tmp_path / "inactive" / "db.sqlite3"
         present = tmp_path / "db" / "db.sqlite3"
+        sqlite_db(inactive, users=[("farmadmin", True, False), ("operator", False)])
         sqlite_db(present, users=[("farmadmin", True)])
         proc = setup_process()
         client = Client(proc.waitress_port)
@@ -136,10 +146,11 @@ class TestSqliteAdminChoicesThroughSetupIntegration:
         keep = {"keep_existing": True}
 
         refused = client.submit(manager_answers(data_root, proc.setup_port, _sqlite(missing), keep))
+        refused_inactive = client.submit(manager_answers(data_root, proc.setup_port, _sqlite(inactive), keep))
         saved = client.submit(manager_answers(data_root, proc.setup_port, _sqlite(present), keep))
 
-        assert refused.status == 400, refused.raw
-        assert refused.json() == {"admin.keep_existing": [NO_ACCOUNT_TO_KEEP]}
+        assert fields_of(refused) == {"admin.keep_existing": [NO_ACCOUNT_TO_KEEP]}
+        assert fields_of(refused_inactive) == {"admin.keep_existing": [NO_ACCOUNT_TO_KEEP]}
         assert saved.status == 200, saved.raw
         assert saved.json()["first_admin"] is None
         assert proc.wait(timeout=10) == EXIT_SAVED

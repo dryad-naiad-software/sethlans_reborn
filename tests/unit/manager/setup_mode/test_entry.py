@@ -3,11 +3,12 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """``setup_mode.entry``: arguments, the settings guard, the setup port and the start order."""
 import os
+import sys
 
 import pytest
 
 from sethlans_manager.setup_mode import entry
-from tests.unit.manager.setup_mode._helpers import TOKEN
+from tests.unit.manager.setup_mode._helpers import TOKEN, write_owner_only
 
 
 class TestArgumentProblems:
@@ -81,13 +82,19 @@ class TestSetupPort:
         ini_path.write_text("[server]\nport = 9443\n")
         assert entry.setup_port(ini_path) == 9443
 
+    @pytest.mark.parametrize("raw", ["8²", "٣٣٣٣", "94 43", "0x20FB", "+9443"])
+    def test_env_with_non_ascii_digits_falls_back(self, monkeypatch, ini_path, raw):
+        monkeypatch.setenv("SETHLANS_SETUP_PORT", raw)
+        assert entry.setup_port(ini_path) == 8080
+
     def test_default_without_file(self, ini_path):
         assert entry.setup_port(ini_path) == 8080
 
-    @pytest.mark.parametrize("text", ["[server]\nport = nope\n", "not an ini file"])
+    @pytest.mark.parametrize("text", ["[server]\nport = nope\n", "not an ini file", "[server]\nport = 8²\n",
+                                      "[server]\nport = ٣٣٣٣\n", "[server]\nport = -9443\n"])
     def test_default_for_unusable_values(self, ini_path, text):
         ini_path.parent.mkdir(parents=True)
-        ini_path.write_text(text)
+        ini_path.write_text(text, encoding="utf-8")
         assert entry.setup_port(ini_path) == 8080
 
 
@@ -107,9 +114,7 @@ def start(mocker, settings, tmp_path):
 
 
 def _write_token(settings_dir, data=TOKEN.encode()):
-    folder = settings_dir / "setup"
-    folder.mkdir(parents=True)
-    (folder / "setup_token").write_bytes(data)
+    write_owner_only(settings_dir / "setup" / "setup_token", data)
 
 
 class TestServeSetup:
@@ -135,6 +140,19 @@ class TestServeSetup:
         _write_token(settings_dir)
         entry.serve_setup()
         assert auth.current().attempt(TOKEN, "127.0.0.1") == auth.OK
+
+    def test_loose_token_file_exits_2(self, start, settings_dir, caplog):
+        calls, configure = start
+        token = settings_dir / "setup" / "setup_token"
+        token.parent.mkdir(parents=True)
+        token.write_bytes(TOKEN.encode())
+        if not sys.platform.startswith("win"):
+            token.chmod(0o644)
+        assert entry.serve_setup() == entry.EXIT_USAGE
+        assert calls == ["leftovers"]
+        configure.assert_not_called()
+        assert "can be read by other accounts" in caplog.text
+        assert TOKEN not in caplog.text
 
     def test_frozen_without_the_page_exits_2(self, start, mocker, settings_dir):
         calls, _configure = start

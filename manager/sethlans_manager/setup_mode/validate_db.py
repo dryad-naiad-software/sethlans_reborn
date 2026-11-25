@@ -25,6 +25,12 @@ ENGINES = ("sqlite", "postgresql", "mysql")
 DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
 MAX_CA_FILE_BYTES = 1024 * 1024
 UNENCRYPTED_WARNING = "The database connection to {host} is not encrypted (TLS is off)."
+TLS_MODE_WARNINGS = {
+    "require": ("TLS mode require encrypts the connection to {host} but does not check its certificate, "
+                "so another server could pose as it; verify-full checks both."),
+    "verify-ca": ("TLS mode verify-ca checks the certificate of {host} but not its host name; "
+                  "verify-full checks both."),
+}
 
 
 def _ca_file(answers: dict, engine: str, mode: str, errors: fields.Errors) -> str:
@@ -57,6 +63,8 @@ def _tls(answers: dict, engine: str, host: str, errors: fields.Errors, warnings:
             or DEFAULT_POSTGRES_TLS_MODE
         if mode not in POSTGRES_TLS_MODES:
             errors.add("database.tls_mode", f"Choose one of {', '.join(POSTGRES_TLS_MODES)}.")
+        elif mode in TLS_MODE_WARNINGS:
+            warnings.append(TLS_MODE_WARNINGS[mode].format(host=host))
         values["tls_mode"] = mode
     ca = _ca_file(answers, engine, mode, errors)
     if ca:

@@ -33,7 +33,7 @@ AUTH_USER_SQLITE = (
 MANAGER_SETTINGS_SQLITE = 'CREATE TABLE "workers_managersettings" ("id" integer NOT NULL PRIMARY KEY)'
 INSERT_USER = (
     'INSERT INTO "auth_user" ("password", "is_superuser", "username", "last_name", "email", '
-    '"is_staff", "is_active", "date_joined", "first_name") VALUES (?, ?, ?, \'\', \'\', ?, 1, '
+    '"is_staff", "is_active", "date_joined", "first_name") VALUES (?, ?, ?, \'\', \'\', ?, ?, '
     '\'2025-01-01 00:00:00\', \'\')'
 )
 
@@ -59,7 +59,7 @@ def open_probe_connection(entry: dict):
 
 def sqlite_db(path: Path, *, users=(), tables=("auth_user", "workers_managersettings"), wal=False,
               keep_open=False):
-    """Create a SQLite file; ``users`` is ``(username, is_superuser)`` pairs.
+    """Create a SQLite file; ``users`` holds ``(username, is_superuser[, is_active])``.
 
     With ``keep_open`` the writing connection is returned still open
     (in WAL mode the rows then sit in the ``-wal`` file, not yet
@@ -75,8 +75,9 @@ def sqlite_db(path: Path, *, users=(), tables=("auth_user", "workers_managersett
         conn.execute(AUTH_USER_SQLITE)
     if "workers_managersettings" in tables:
         conn.execute(MANAGER_SETTINGS_SQLITE)
-    for username, superuser in users:
-        conn.execute(INSERT_USER, ("!", int(superuser), username, int(superuser)))
+    for username, superuser, *active in users:
+        is_active = active[0] if active else True
+        conn.execute(INSERT_USER, ("!", int(superuser), username, int(superuser), int(is_active)))
     conn.commit()
     if keep_open:
         return conn

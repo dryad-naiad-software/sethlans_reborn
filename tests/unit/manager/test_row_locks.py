@@ -110,15 +110,28 @@ class TestNoForUpdateOfPath:
 
 
 class TestSqlitePath:
-    """SQLite ignores FOR UPDATE; the joins are kept (same query count)."""
+    """SQLite ignores FOR UPDATE; the joins are kept (same query count).
+
+    The features come from Django's SQLite backend, not from the test
+    database, so the path is tested whatever backend the suite runs on.
+    """
+
+    def _sqlite(self):
+        from django.db.backends.sqlite3.features import DatabaseFeatures
+
+        names = ('has_select_for_update', 'has_select_for_update_of', 'has_select_for_update_skip_locked')
+        return SimpleNamespace(features=SimpleNamespace(**{name: getattr(DatabaseFeatures, name) for name in names}))
+
+    def test_sqlite_has_no_for_update(self):
+        assert self._sqlite().features.has_select_for_update is False
 
     def test_keeps_select_related(self):
-        qs = lock_own_rows(Job.objects, *CLAIM_RELATED)
+        qs = _lock_with(self._sqlite(), *CLAIM_RELATED)
         assert qs.query.select_for_update
         assert qs.query.select_for_update_of == ('self',)
         assert set(qs.query.select_related) == {'blender_version', 'asset'}
 
     def test_no_related(self):
-        qs = lock_own_rows(Job.objects)
+        qs = _lock_with(self._sqlite())
         assert qs.query.select_related is False
         assert qs.query.select_for_update_of == ('self',)

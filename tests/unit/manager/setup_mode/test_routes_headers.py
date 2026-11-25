@@ -62,6 +62,9 @@ class TestSecurityHeaders:
         assert headers == FRAME_HEADERS
 
 
+BAD_HOST = {"error": "bad_host", "message": "This host name is not one of this machine's names."}
+
+
 class TestAllowedHosts:
 
     @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "setuphost", LAN_ADDRESS, "127.0.0.1:8080"])
@@ -69,25 +72,77 @@ class TestAllowedHosts:
         assert setup_client.get("/api/health/", HTTP_HOST=host).status_code == 200
 
     @pytest.mark.parametrize("host", ["evil.example", "10.9.9.9", "setuphost.evil.example"])
-    def test_other_names_get_400(self, setup_client, host):
+    def test_other_names_get_a_json_400(self, setup_client, host):
         response = setup_client.get("/api/health/", HTTP_HOST=host)
         assert response.status_code == 400
-        assert b"setup" not in response.content
+        assert response.json() == BAD_HOST
+
+    @pytest.mark.parametrize("path", ["/api/health/", "/setup/", "/nope/"])
+    def test_bad_host_response_has_every_security_header(self, setup_client, path):
+        response = setup_client.get(path, HTTP_HOST="evil.example")
+        for name, value in FRAME_HEADERS.items():
+            assert response[name] == value
+        if path != "/nope/":
+            assert response["Cache-Control"] == "no-store"
+
+    def test_bad_host_is_logged_truncated_to_100_characters(self, setup_client, caplog):
+        caplog.set_level("WARNING", logger=middleware.__name__)
+        setup_client.get("/api/health/", HTTP_HOST="a" * 150 + ".example")
+        records = [r for r in caplog.records if r.name == middleware.__name__]
+        assert [r.levelname for r in records] == ["WARNING"]
+        assert repr("a" * 100) in records[0].getMessage()
+        assert "a" * 101 not in records[0].getMessage()
+
+    def test_bad_host_never_reaches_a_view(self, setup_client, mocker):
+        health = mocker.patch.object(views.leftovers, "last_failure")
+        setup_client.get("/api/health/", HTTP_HOST="evil.example")
+        health.assert_not_called()
 
     def test_forwarded_host_is_not_trusted(self, setup_client):
         response = setup_client.get("/api/health/", HTTP_HOST="evil.example", HTTP_X_FORWARDED_HOST="127.0.0.1")
         assert response.status_code == 400
 
 
+class TestErrorHandlers:
+
+    def test_handlers_are_setup_modes_own(self):
+        assert urls.handler400 == "sethlans_manager.setup_mode.views.bad_request"
+        assert urls.handler403 == "sethlans_manager.setup_mode.views.permission_denied"
+
+    def test_suspicious_operation_is_a_json_400(self, setup_client, mocker):
+        from django.core.exceptions import SuspiciousOperation
+
+        mocker.patch.object(views.leftovers, "last_failure", side_effect=SuspiciousOperation("odd"))
+        response = setup_client.get("/api/health/")
+        assert response.status_code == 400
+        assert response.json() == {"error": "bad_request", "message": "The request was refused."}
+        assert response["X-Frame-Options"] == "DENY"
+
+    def test_permission_denied_is_a_json_403(self, setup_client, mocker):
+        from django.core.exceptions import PermissionDenied
+
+        mocker.patch.object(views.leftovers, "last_failure", side_effect=PermissionDenied("no"))
+        response = setup_client.get("/api/health/")
+        assert response.status_code == 403
+        assert response.json() == {"error": "forbidden", "message": "Not allowed."}
+
+
 class TestHealth:
 
     def test_body(self, setup_client):
+        from sethlans_manager import __version__
+
         body = setup_client.get("/api/health/").json()
-        assert set(body) == {"mode", "boot_id", "last_failure"}
-        assert body["mode"] == "setup"
+        assert set(body) == {"mode", "boot_id", "version", "last_failure"}
+        assert (body["mode"], body["version"], body["last_failure"]) == ("setup", __version__, None)
         assert re.fullmatch(r"[0-9a-f]{32}", body["boot_id"])
         assert body["boot_id"] == views.BOOT_ID
-        assert body["last_failure"] is None
+
+    def test_head_is_answered(self, setup_client):
+        response = setup_client.head("/api/health/")
+        assert response.status_code == 200
+        assert response.content == b""
+        assert response["Cache-Control"] == "no-store"
 
     def test_last_failure_text(self, setup_client, settings_dir):
         (settings_dir / "setup").mkdir(parents=True)
@@ -97,10 +152,12 @@ class TestHealth:
     def test_no_session_needed(self, setup_client):
         assert setup_client.get("/api/health/").status_code == 200
 
-    def test_post_is_405(self, setup_client):
-        response = setup_client.post("/api/health/")
+    @pytest.mark.parametrize("method", ["post", "put", "delete", "patch"])
+    def test_other_methods_are_405(self, setup_client, method):
+        response = getattr(setup_client, method)("/api/health/")
         assert response.status_code == 405
-        assert response["Allow"] == "GET"
+        assert response["Allow"] == "GET, HEAD"
+        assert response.json()["message"] == "Use GET or HEAD."
 
 
 class TestSetupPage:

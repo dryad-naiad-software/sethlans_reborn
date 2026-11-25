@@ -18,5 +18,7 @@ urlpatterns = [
     path("setup/", views.setup_page, name="setup-page"),
 ]
 
+handler400 = "sethlans_manager.setup_mode.views.bad_request"
+handler403 = "sethlans_manager.setup_mode.views.permission_denied"
 handler404 = "sethlans_manager.setup_mode.views.not_found"
 handler500 = "sethlans_manager.setup_mode.views.server_error"

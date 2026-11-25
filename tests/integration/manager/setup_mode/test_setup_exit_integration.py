@@ -12,7 +12,7 @@ import time
 import pytest
 
 from .caddy_front import client_context
-from .setup_process import ADMIN_PASSWORD, EXIT_SAVED, Client, free_port, manager_answers, request
+from .setup_process import ADMIN_PASSWORD, EXIT_SAVED, Client, fields_of, free_port, manager_answers, request
 
 EXIT_WITHIN_S = 5.0
 DATA_FOLDER_SHAPE = 'The data folder must be sent as {"path": "<absolute folder>"}, as the form gives it.'
@@ -117,7 +117,7 @@ class TestSetupExitIntegration:
         refused = client.submit(bad)
 
         assert refused.status == 400
-        assert "admin.password" in refused.json()
+        assert "admin.password" in fields_of(refused)
         assert proc.proc.poll() is None  # still serving
         assert not proc.ini_path.exists()  # nothing written after a refusal
         resp = client.submit(manager_answers(data_root, proc.setup_port))
@@ -155,9 +155,9 @@ class TestSetupExitIntegration:
         refused_relative = client.submit(relative)
 
         assert refused_plain.status == 400, refused_plain.raw
-        assert refused_plain.json() == {"data_folder": [DATA_FOLDER_SHAPE]}
+        assert fields_of(refused_plain) == {"data_folder": [DATA_FOLDER_SHAPE]}
         assert refused_relative.status == 400, refused_relative.raw
-        assert list(refused_relative.json()) == ["data_folder.path"]
+        assert list(fields_of(refused_relative)) == ["data_folder.path"]
         assert not (data_root).exists()
         assert proc.proc.poll() is None
 

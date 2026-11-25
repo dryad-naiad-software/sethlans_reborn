@@ -1,21 +1,26 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""``POST /api/setup/submit/``: body cap, 409s, the state machine and the streamed 200."""
+"""``POST /api/setup/submit/``: body cap, 409s, the state machine, error shapes and the streamed 200."""
 import json
 import threading
 
 import pytest
 
-from sethlans_manager.setup_mode import state, views
+from sethlans_manager.setup_mode import state, submit, views
 
 SUBMIT = "/api/setup/submit/"
 OK_BODY = {"ok": True, "mode": "manager", "restarting": True}
+CONFLICT = {"error": "conflict", "message": "Setup is already being saved, or was saved."}
+
+
+def _saved(body=None):
+    return submit.Outcome(200, json.dumps(OK_BODY if body is None else body).encode("utf-8"), saved=True)
 
 
 @pytest.fixture
 def apply(mocker):
-    return mocker.patch.object(views, "apply_answers", return_value=(200, dict(OK_BODY)))
+    return mocker.patch.object(views, "apply_answers", return_value=_saved())
 
 
 def _submit(client, session, body=b"{}", **extra):
@@ -56,7 +61,7 @@ class TestConflicts:
         assert _submit(setup_client, session).status_code == 200
         response = _submit(setup_client, session)
         assert response.status_code == 409
-        assert response.json()["error"] == "conflict"
+        assert response.json() == CONFLICT
         assert apply.call_count == 1
         assert state.STATE.value == state.SAVED
 
@@ -66,7 +71,7 @@ class TestConflicts:
         def slow_apply(*_args):
             entered.set()
             assert release.wait(10)
-            return 200, dict(OK_BODY)
+            return _saved()
 
         mocker.patch.object(views, "apply_answers", side_effect=slow_apply)
         results = {}
@@ -80,6 +85,7 @@ class TestConflicts:
             release.set()
             first.join(10)
         assert second.status_code == 409
+        assert second.json() == CONFLICT
         assert results["first"].status_code == 200
         assert state.STATE.value == state.SAVED
 
@@ -92,17 +98,20 @@ class TestConflicts:
 class TestBackToIdle:
 
     def test_validation_errors_are_400_and_idle(self, setup_client, session, apply):
-        apply.return_value = (400, {"admin.username": ["The username is required."]})
+        apply.return_value = submit.invalid({"admin.username": ["The username is required."]})
         response = _submit(setup_client, session)
         assert response.status_code == 400
-        assert response.json() == {"admin.username": ["The username is required."]}
+        assert response.json() == {"error": "invalid", "fields": {"admin.username": ["The username is required."]}}
         assert state.STATE.value == state.IDLE
-        apply.return_value = (200, dict(OK_BODY))
+        apply.return_value = _saved()
         assert _submit(setup_client, session).status_code == 200
 
     def test_write_failure_is_500_and_idle(self, setup_client, session, apply):
-        apply.return_value = (500, {"non_field_errors": ["Could not write the settings file: denied"]})
-        assert _submit(setup_client, session).status_code == 500
+        apply.return_value = submit.settings_unwritable("Could not write the settings file x: PermissionError: no")
+        response = _submit(setup_client, session)
+        assert response.status_code == 500
+        assert response.json() == {"error": "settings_unwritable",
+                                   "message": "Could not write the settings file x: PermissionError: no"}
         assert state.STATE.value == state.IDLE
 
     def test_an_exception_resets_to_idle(self, setup_client, session, apply):
@@ -117,17 +126,28 @@ class TestBackToIdle:
         ini_path.write_text("garbage without a section")
         response = _submit(setup_client, session)
         assert response.status_code == 500
-        assert response.json()["non_field_errors"][0].startswith("The settings file could not be read")
+        body = response.json()
+        assert body["error"] == "settings_unwritable"
+        assert body["message"].startswith("The settings file could not be read: ")
         apply.assert_not_called()
         assert state.STATE.value == state.IDLE
+
+    def test_only_an_unsaved_outcome_resets(self, setup_client, session, apply):
+        apply.return_value = submit.invalid({"mode": ["x"]})
+        _submit(setup_client, session)
+        assert state.STATE.value == state.IDLE
+        apply.return_value = _saved()
+        _submit(setup_client, session)
+        assert state.STATE.value == state.SAVED
 
 
 class TestSavedResponse:
 
-    def test_streamed_json_and_no_connection_header(self, setup_client, session, apply):
+    def test_streams_the_encoded_body_as_is(self, setup_client, session, apply):
+        apply.return_value = submit.Outcome(200, b'{"ok": true, "x": 1}', saved=True)
         response = _submit(setup_client, session, HTTP_HOST="setuphost:18443")
         assert response.streaming is True
-        assert json.loads(b"".join(response.streaming_content)) == OK_BODY
+        assert b"".join(response.streaming_content) == b'{"ok": true, "x": 1}'
         assert response["Content-Type"] == "application/json"
         assert not response.has_header("Connection")
         assert not response.has_header("Content-Length")
@@ -141,7 +161,7 @@ class TestSavedResponse:
         assert response.wsgi_request.META[views.SAVED_ENVIRON_KEY] is True
 
     def test_failed_submit_does_not_mark_the_environ(self, setup_client, session, apply):
-        apply.return_value = (400, {"mode": ["x"]})
+        apply.return_value = submit.invalid({"mode": ["x"]})
         response = _submit(setup_client, session)
         assert views.SAVED_ENVIRON_KEY not in response.wsgi_request.META
 

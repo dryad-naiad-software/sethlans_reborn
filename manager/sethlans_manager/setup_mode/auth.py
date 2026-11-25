@@ -61,6 +61,9 @@ def load_token(path=None) -> str:
         raise SetupTokenError(f"Cannot read the setup token at {path}: {exc.strerror}") from None
     if not owner_only_acl.is_owned_by_current_user(path):
         raise SetupTokenError(f"The setup token at {path} is not owned by the current user")
+    if not owner_only_acl.verify_owner_only(path):
+        raise SetupTokenError(f"The setup token at {path} can be read by other accounts; "
+                              "start setup again from the launcher")
     if len(data) > MAX_TOKEN_BYTES:
         raise SetupTokenError(f"The setup token at {path} is too long")
     try:

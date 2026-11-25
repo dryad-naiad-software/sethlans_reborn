@@ -45,6 +45,10 @@ import sys
 from shared import owner_only_acl_win as _win
 
 SYSTEM_SID = 'S-1-5-18'
+ADMINISTRATORS_SID = 'S-1-5-32-544'  # BUILTIN\Administrators
+# NT SERVICE\TrustedInstaller: the owner of C:\ and C:\Windows on Windows 11.
+TRUSTED_INSTALLER_SID = 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
+SYSTEM_OWNER_SIDS = frozenset({SYSTEM_SID, ADMINISTRATORS_SID, TRUSTED_INSTALLER_SID})
 _ACCESS_ALLOWED_ACE_TYPE = 0
 _REQUIRED_ACE_FLAGS = 0x1 | 0x2  # OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
 
@@ -167,6 +171,45 @@ def is_owned_by_current_user(path) -> bool:
         return os.lstat(path).st_uid == os.geteuid()
     except (OSError, ValueError):
         return False
+
+
+def is_owned_by_token_user(path) -> bool:
+    """True only when ``path``'s owner is exactly this process's user.
+
+    Windows: the token user's SID; unlike ``is_owned_by_current_user``, an
+    elevated process's default owner (``BUILTIN\\Administrators``) does not
+    count. POSIX: the effective uid (``lstat``, a link is not followed).
+    """
+    try:
+        if _is_windows():
+            return _win_read_security(os.fspath(path))[1] == current_user_sid()
+        return os.lstat(path).st_uid == os.geteuid()
+    except (OSError, ValueError):
+        return False
+
+
+def is_owned_by_system(path) -> bool:
+    """True when the operating system owns ``path`` itself (a link is not followed).
+
+    Windows: ``SYSTEM_OWNER_SIDS`` (SYSTEM, Administrators, TrustedInstaller);
+    ``GetNamedSecurityInfoW`` on a junction returns the junction's own owner,
+    not its target's. POSIX: root (``lstat``).
+    """
+    try:
+        if _is_windows():
+            return _win_read_security(os.fspath(path))[1] in SYSTEM_OWNER_SIDS
+        return os.lstat(path).st_uid == 0
+    except (OSError, ValueError):
+        return False
+
+
+def is_owned_by_user_or_system(path) -> bool:
+    """True when ``path``'s owner is this process or the operating system.
+
+    ``is_owned_by_current_user`` (the token user or its default owner) or
+    ``is_owned_by_system``; the object itself is read, never a link's target.
+    """
+    return is_owned_by_current_user(path) or is_owned_by_system(path)
 
 
 def _acl_is_owner_only(user_sid: str, protected: bool, owner: str, aces,

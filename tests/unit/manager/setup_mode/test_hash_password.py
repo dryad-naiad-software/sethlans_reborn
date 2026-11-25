@@ -119,3 +119,16 @@ class TestHashPasswordRefusals:
         assert (code, out) == (entry.EXIT_INVALID, "")
         assert message in err.splitlines()
         assert password not in err.replace(message, "")
+
+
+class TestSensitiveVariables:
+
+    @pytest.mark.parametrize("function, names", [
+        (entry.hash_password, ("password",)),
+        (entry._read_password, ("raw", "password")),
+    ])
+    def test_marked_for_django_error_reports(self, function, names):
+        import inspect
+
+        assert function.__code__.co_name == "sensitive_variables_wrapper"
+        assert inspect.getclosurevars(function).nonlocals["variables"] == names

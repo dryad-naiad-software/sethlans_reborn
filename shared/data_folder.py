@@ -9,12 +9,19 @@ without changing anything (the setup form uses it). :func:`prepare_data_root`
 runs the same checks again at the moment it creates or adopts the folder,
 so no caller can create a data folder that skipped them:
 
-* the root, ``manager/`` and ``worker/`` are created with
-  ``shared.owner_only_acl.create_owner_only_dir`` when missing;
-* an existing one must be a folder owned by this process's user
-  (``is_owned_by_current_user``); it is made owner-only
-  (``apply_owner_only``) unless ``verify_owner_only`` already passes,
-  and ``verify_owner_only`` must pass afterwards;
+* where it may go, and what its parent folders must be, is in
+  ``shared.data_folder_rules`` (system folders, the install folder,
+  parents owned by this user or the system, no planted links);
+* missing parent folders are created one level at a time with
+  ``shared.owner_only_acl.create_owner_only_dir``, each checked again for
+  a link or a foreign owner, so none inherits a loose drive-root ACL;
+* the root, ``manager/`` and ``worker/`` are created the same way when
+  missing; an existing one must be a plain folder owned by exactly this
+  process's user (``is_owned_by_token_user``: an elevated run does not
+  take over an Administrators-owned folder). It is made owner-only unless
+  it already is: Windows ``apply_owner_only`` and ``verify_owner_only``;
+  POSIX ``fchmod`` on a descriptor opened with ``O_NOFOLLOW|O_DIRECTORY``,
+  so a folder swapped for a link after the check is refused, not followed;
 * the marker file ``.sethlans-data`` is written in the root.
 
 Any failure raises :class:`DataFolderError` with a message fit for the
@@ -24,6 +31,7 @@ setup form; nothing is taken over half-way silently.
 data folder chosen in setup (``[paths] data_dir``): the manager calls it
 before it creates its own folders under the data folder.
 """
+import errno
 import os
 import shutil
 import stat
@@ -32,87 +40,28 @@ from pathlib import Path
 from typing import List, Optional
 
 from shared import frozen_paths, owner_only_acl
+from shared.data_folder_rules import (  # noqa: F401 - re-exported API
+    DataFolderError,
+    install_dir,
+    is_link,
+    link_message,
+    location_problems,
+    parent_problem,
+    parent_problems,
+)
 
 MARKER_NAME = ".sethlans-data"
 MARKER_TEXT = b"This folder holds Sethlans data (manager/ and worker/).\n"
 COMPONENTS = ("manager", "worker")
 LOW_SPACE_BYTES = 20 * 1000 ** 3  # 20 GB: below this the form warns
-# Folders the operating system owns: the four FR-DF-2 names; their macOS
-# targets (/etc and /var are links into /private, and the resolved form is
-# checked too); macOS's own system roots; and the boot, binary and kernel
-# trees. /tmp is not here (nor /private/tmp), so neither is its alias.
-_POSIX_SYSTEM_PREFIXES = (
-    "/usr", "/etc", "/opt", "/var",
-    "/private/etc", "/private/var",
-    "/System", "/Library", "/Applications",
-    "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/boot", "/dev", "/proc", "/sys", "/run",
-)
 
 
-class DataFolderError(Exception):
-    """A data folder that must not be used, or could not be made owner-only."""
+def _not_plain(folder: Path) -> str:
+    return f"{folder} is a link or not a folder; choose a plain folder."
 
 
-def install_dir() -> Optional[Path]:
-    """The install folder data must stay out of, or ``None`` from source.
-
-    Frozen: the parent of the cross-component ``bin/`` folder
-    (``frozen_paths.get_install_root``). From source there is no install,
-    and the checkout itself is no system folder, so nothing is excluded.
-    """
-    if not frozen_paths.is_frozen():
-        return None
-    return frozen_paths.get_install_root().parent
-
-
-def _is_under(path: Path, parent: Path) -> bool:
-    try:
-        return os.path.normcase(os.path.commonpath([str(path), str(parent)])) == os.path.normcase(str(parent))
-    except ValueError:  # different drives
-        return False
-
-
-def _windows_system_problem(path: Path) -> Optional[str]:
-    parts = path.parts
-    if len(parts) < 2:
-        return None
-    top = parts[1].casefold()
-    if top == "windows" or top.startswith("program files"):
-        return f"{path} is inside a system folder ({Path(parts[0]) / parts[1]})"
-    for env in ("SystemRoot", "windir", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
-        value = os.environ.get(env)
-        if value and _is_under(path, Path(value)):
-            return f"{path} is inside a system folder ({value})"
-    return None
-
-
-def _system_problem(path: Path) -> Optional[str]:
-    if path == Path(path.anchor):
-        return f"{path} is the root of a drive or file system"
-    if sys.platform == "win32":
-        return _windows_system_problem(path)
-    for prefix in _POSIX_SYSTEM_PREFIXES:
-        if _is_under(path, Path(prefix)):
-            return f"{path} is inside a system folder ({prefix})"
-    return None
-
-
-def is_link(path: Path) -> bool:
-    """True for a symbolic link, a Windows junction or any other reparse point."""
-    if path.is_symlink() or path.is_junction():
-        return True
-    try:
-        attributes = getattr(os.lstat(path), "st_file_attributes", 0)
-    except OSError:
-        return False
-    return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
-
-
-def _forms(path: Path) -> List[Path]:
-    """The path as given (normalised) and its resolved form, when they differ."""
-    given = Path(os.path.normpath(path))
-    resolved = Path(os.path.realpath(given))
-    return [given] if resolved == given else [given, resolved]
+def _not_mine(folder: Path) -> str:
+    return f"{folder} belongs to another account; choose a folder you own."
 
 
 def check_data_root(path) -> List[str]:
@@ -120,30 +69,28 @@ def check_data_root(path) -> List[str]:
 
     Absolute; not a file-system root; not under ``C:\\Windows``,
     ``C:\\Program Files*`` (or the folders the OS names for them) or a
-    POSIX system folder (``_POSIX_SYSTEM_PREFIXES``), as given or
-    resolved; not inside the install folder; and, when it exists, a plain
-    folder (no symbolic link, junction or other reparse point) owned by
-    this process's user. Changes nothing.
+    POSIX system folder, as given or resolved; not inside the install
+    folder (``data_folder_rules.location_problems``); existing parents
+    owned by this user or the system and free of planted links
+    (``parent_problems``); and, when it exists, a plain folder (no symbolic
+    link, junction or other reparse point) owned by exactly this process's
+    user. Changes nothing.
     """
     raw = os.fspath(path) if path is not None else ""
     if not raw or not os.path.isabs(raw):
         return ["The data folder must be an absolute path."]
-    problems: List[str] = []
-    install = install_dir()
-    for form in _forms(Path(raw)):
-        problem = _system_problem(form)
-        if problem is None and install is not None and _is_under(form, install):
-            problem = f"{form} is inside the install folder ({install})"
-        if problem and problem not in problems:
-            problems.append(problem)
+    problems = location_problems(raw)
     if problems:
         return problems
     target = Path(os.path.normpath(raw))
+    problems = parent_problems(target)
+    if problems:
+        return problems
     if target.exists() or is_link(target):
         if is_link(target) or not target.is_dir():
-            return [f"{target} is a link or not a folder; choose a plain folder."]
-        if not owner_only_acl.is_owned_by_current_user(target):
-            return [f"{target} belongs to another account; choose a folder you own."]
+            return [_not_plain(target)]
+        if not owner_only_acl.is_owned_by_token_user(target):
+            return [_not_mine(target)]
     return []
 
 
@@ -160,15 +107,56 @@ def free_bytes(path) -> Optional[int]:
         return None
 
 
+def _make_parents(folder: Path) -> None:
+    """Create the missing parents of ``folder`` owner-only, top down, one level at a time."""
+    missing = []
+    level = folder.parent
+    while not (level.exists() or is_link(level)) and level.parent != level:
+        missing.append(level)
+        level = level.parent
+    for level in reversed(missing):
+        created = owner_only_acl.create_owner_only_dir(level)
+        if is_link(level) or not level.is_dir():
+            raise DataFolderError(link_message(level))
+        problem = None if created else parent_problem(level)  # someone else made it first
+        if problem:
+            raise DataFolderError(problem)
+
+
+def _adopt_posix(folder: Path) -> None:
+    """Check and tighten ``folder`` through a descriptor that never follows a link."""
+    try:
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR, errno.EMLINK):  # EMLINK: FreeBSD's O_NOFOLLOW
+            raise DataFolderError(_not_plain(folder)) from None
+        raise
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISDIR(info.st_mode):
+            raise DataFolderError(_not_plain(folder))
+        if info.st_uid != os.geteuid():
+            raise DataFolderError(_not_mine(folder))
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            os.fchmod(fd, 0o700)
+            if stat.S_IMODE(os.fstat(fd).st_mode) & 0o077:
+                raise DataFolderError(f"Could not limit {folder} to the current user.")
+    finally:
+        os.close(fd)
+
+
 def _adopt_dir(folder: Path) -> None:
     """Create ``folder`` owner-only, or check and tighten an existing one."""
     if not folder.exists() and not is_link(folder):
-        folder.parent.mkdir(parents=True, exist_ok=True)
+        _make_parents(folder)
         owner_only_acl.create_owner_only_dir(folder)
+    if sys.platform != "win32":
+        _adopt_posix(folder)
+        return
     if is_link(folder) or not folder.is_dir():
-        raise DataFolderError(f"{folder} is a link or not a folder; choose a plain folder.")
-    if not owner_only_acl.is_owned_by_current_user(folder):
-        raise DataFolderError(f"{folder} belongs to another account; choose a folder you own.")
+        raise DataFolderError(_not_plain(folder))
+    if not owner_only_acl.is_owned_by_token_user(folder):
+        raise DataFolderError(_not_mine(folder))
     if not owner_only_acl.verify_owner_only(folder):
         owner_only_acl.apply_owner_only(folder)
         if not owner_only_acl.verify_owner_only(folder):
@@ -177,13 +165,17 @@ def _adopt_dir(folder: Path) -> None:
 
 def _write_marker(root: Path) -> None:
     marker = root / MARKER_NAME
+    message = f"{marker} exists and is not a regular file."
     if is_link(marker) or (marker.exists() and not marker.is_file()):
-        raise DataFolderError(f"{marker} exists and is not a regular file.")
+        raise DataFolderError(message)
     if marker.exists():
         return
     try:
         fd = owner_only_acl.create_owner_only_file(marker)
     except FileExistsError:
+        # Another process won the race: accept only a plain file.
+        if is_link(marker) or not marker.is_file():
+            raise DataFolderError(message) from None
         return
     try:
         os.write(fd, MARKER_TEXT)

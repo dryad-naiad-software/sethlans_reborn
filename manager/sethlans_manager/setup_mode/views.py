@@ -2,16 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-The setup-mode routes (FR-SM-3). Every API answer is JSON.
+The setup-mode routes (FR-SM-3). Every API answer is JSON, and every
+error body has an ``error`` key (most also a ``message``).
 
-* ``GET /api/health/``: ``{"mode": "setup", "boot_id", "last_failure"}``.
+* ``GET`` or ``HEAD /api/health/``: ``{"mode": "setup", "boot_id",
+  "version", "last_failure"}``.
 * ``POST /api/setup/auth/``: ``{"token"}`` -> 200 ``{"session_token"}`` and
   the session cookie; 403 wrong token; 429 after 10 wrong ones in 60 s.
 * ``GET /api/setup/form/``: the pre-filled form (session needed).
-* ``POST /api/setup/submit/``: the answers (session needed); 409 while a
-  submit runs or after one was saved. The 200 is streamed, so Waitress
-  sends it with ``Connection: close`` (a WSGI app may not set that
-  header), and ``serve`` exits 10 once it has left.
+* ``POST /api/setup/submit/``: the answers (session needed); 400
+  ``{"error": "invalid", "fields": {...}}``; 409 while a submit runs or
+  after one was saved; 500 ``{"error": "settings_unwritable", ...}``.
+  The 200 is streamed, so Waitress sends it with ``Connection: close`` (a
+  WSGI app may not set that header), and ``serve`` exits 10 once it has
+  left.
 * ``GET /setup/``: the setup page from the built front end.
 """
 import json
@@ -51,9 +55,10 @@ def _error(status: int, code: str, message: str, **headers) -> JsonResponse:
     return response
 
 
-def _method(request, allowed: str):
-    if request.method != allowed:
-        return _error(405, "method_not_allowed", f"Use {allowed}.", Allow=allowed)
+def _method(request, *allowed: str):
+    if request.method not in allowed:
+        names = ", ".join(allowed)
+        return _error(405, "method_not_allowed", f"Use {' or '.join(allowed)}.", Allow=names)
     return None
 
 
@@ -85,9 +90,12 @@ def _current_settings():
 
 
 def health(request):
-    return _method(request, "GET") or JsonResponse({
+    from sethlans_manager import __version__
+
+    return _method(request, "GET", "HEAD") or JsonResponse({
         "mode": "setup",
         "boot_id": BOOT_ID,
+        "version": __version__,
         "last_failure": leftovers.last_failure(),
     })
 
@@ -145,18 +153,18 @@ def submit_view(request):
         parser, read_errors = _current_settings()
         if read_errors:
             state.STATE.reset()
-            return JsonResponse({"non_field_errors": read_errors}, status=500)
+            return _error(500, "settings_unwritable", read_errors[0])
         ctx = Context(parser, _server["setup_port"], _server["reserved_ports"])
-        status, body = apply_answers(data, ctx, _request_host(request))
-    except BaseException:
+        outcome = apply_answers(data, ctx, _request_host(request))
+    except BaseException:  # apply_answers raises only before anything is written
         state.STATE.reset()
         raise
-    if status != 200:
+    if not outcome.saved:
         state.STATE.reset()
-        return JsonResponse(body, status=status)
+        return JsonResponse(outcome.body, status=outcome.status)
     state.STATE.mark_saved()
     request.META[SAVED_ENVIRON_KEY] = True  # the WSGI environ: ``serve`` exits after this response
-    return StreamingHttpResponse(iter([json.dumps(body).encode("utf-8")]), content_type="application/json")
+    return StreamingHttpResponse(iter([outcome.body]), content_type="application/json")
 
 
 def setup_page(request):
@@ -169,6 +177,16 @@ def setup_page(request):
     except OSError:
         return HttpResponse("The setup page is not built (manager/frontend).", status=503,
                             content_type="text/plain; charset=utf-8")
+
+
+def bad_request(request, exception=None):
+    """``handler400``: a SuspiciousOperation (too many fields, a bad header...)."""
+    return _error(400, "bad_request", "The request was refused.")
+
+
+def permission_denied(request, exception=None):
+    """``handler403``: a PermissionDenied raised anywhere."""
+    return _error(403, "forbidden", "Not allowed.")
 
 
 def not_found(request, exception=None):

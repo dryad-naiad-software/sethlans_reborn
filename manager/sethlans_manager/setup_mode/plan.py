@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 
 from shared import settings_file
 from shared.frozen_paths import DATA_ROOT_ENV, env_path
-from shared.settings_parse import check_value, new_parser
+from shared.settings_parse import check_value, new_parser, serialise
 
 from sethlans_manager.db_config import build_database_config
 
@@ -90,9 +90,32 @@ def completed_at_now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
-def write_settings(plan: Plan, path=None) -> Path:
-    """Write ``plan`` into ``sethlans.ini`` (module doc); return the file's path."""
+@dataclass
+class WriteResult:
+    """``replaced``: the file now holds the plan, even if a later step (the
+    folder ``fsync``) failed; ``error``: what failed, if anything."""
+
+    path: Path
+    replaced: bool
+    error: Optional[str] = None
+
+
+def _holds(path: Path, expected: Optional[bytes]) -> bool:
+    try:
+        return expected is not None and path.read_bytes() == expected
+    except OSError:
+        return False
+
+
+def write_settings(plan: Plan, path=None) -> WriteResult:
+    """Write ``plan`` into ``sethlans.ini`` (module doc). Never raises.
+
+    After a failure the file is read back: when it already holds exactly
+    the new content (the replace went through and a step after it
+    failed), the result says ``replaced`` with the error beside it.
+    """
     path = settings_file.settings_path() if path is None else Path(path)
+    written = {}
 
     def mutate(parser) -> bool:
         _replace_database(parser, plan.database)
@@ -112,7 +135,11 @@ def write_settings(plan: Plan, path=None) -> Path:
             settings_file.KEY_SETUP_MODE: plan.mode,
             settings_file.KEY_SETUP_COMPLETED_AT: completed_at_now(),
         })
+        written["content"] = serialise(parser)  # what update_settings writes
         return True
 
-    settings_file.update_settings(mutate, path)
-    return path
+    try:
+        settings_file.update_settings(mutate, path)
+    except Exception as exc:  # noqa: BLE001 - reported to the caller, never raised
+        return WriteResult(path, _holds(path, written.get("content")), f"{type(exc).__name__}: {exc}")
+    return WriteResult(path, True)

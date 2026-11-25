@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from shared import data_folder
+from shared import data_folder, owner_only_acl
 from tests.unit._off_system_tmp import off_system_tmp_path_fixture
+from tests.unit.shared._data_folder_helpers import make_link, override_owner, own_dir, windows_owner
 
 # On macOS pytest's tmp_path is under /private/var, a refused system folder.
 tmp_path = off_system_tmp_path_fixture()
@@ -50,7 +51,7 @@ class TestBasicRefusals:
         assert not target.parent.exists()
 
     def test_existing_own_folder_is_fine(self, tmp_path):
-        assert data_folder.check_data_root(tmp_path) == []
+        assert data_folder.check_data_root(own_dir(tmp_path / "data")) == []
 
     def test_a_file_is_refused(self, tmp_path):
         target = tmp_path / "file"
@@ -58,23 +59,47 @@ class TestBasicRefusals:
         assert data_folder.check_data_root(target) == [f"{target} is a link or not a folder; choose a plain folder."]
 
     def test_other_owner_is_refused(self, tmp_path, mocker):
-        owned = mocker.patch.object(data_folder.owner_only_acl, "is_owned_by_current_user", return_value=False)
-        assert data_folder.check_data_root(tmp_path) == [f"{tmp_path} belongs to another account; choose a folder "
-                                                         "you own."]
-        owned.assert_called_once_with(tmp_path)
+        target = own_dir(tmp_path / "data")
+        owned = override_owner(mocker, "is_owned_by_token_user", {target: False})
+        assert data_folder.check_data_root(target) == [f"{target} belongs to another account; choose a folder "
+                                                       "you own."]
+        assert [c.args[0] for c in owned.call_args_list] == [target]
+
+    def test_exact_owner_is_asked_not_the_loose_one(self, tmp_path, mocker):
+        target = own_dir(tmp_path / "data")
+        loose = mocker.spy(data_folder.owner_only_acl, "is_owned_by_current_user")
+        exact = mocker.spy(data_folder.owner_only_acl, "is_owned_by_token_user")
+        data_folder.check_data_root(target)
+        assert target in [c.args[0] for c in exact.call_args_list]
+        assert target not in [c.args[0] for c in loose.call_args_list]
 
     def test_a_link_is_refused(self, tmp_path):
         real = tmp_path / "real"
         real.mkdir()
-        link = tmp_path / "link"
-        _symlink(link, real)
-        problems = data_folder.check_data_root(link)
-        assert problems == [f"{link} is a link or not a folder; choose a plain folder."]
+        link = make_link(tmp_path / "link", real)
+        assert data_folder.check_data_root(link) == [f"{link} is a link or not a folder; choose a plain folder."]
 
     def test_dangling_link_is_refused(self, tmp_path):
-        link = tmp_path / "dangling"
-        _symlink(link, tmp_path / "missing")
+        gone = tmp_path / "gone"
+        gone.mkdir()
+        link = make_link(tmp_path / "dangling", gone)
+        gone.rmdir()
         assert data_folder.check_data_root(link) == [f"{link} is a link or not a folder; choose a plain folder."]
+
+
+@windows_only
+class TestAdministratorsOwnedRoot:
+
+    def test_administrators_owned_root_is_refused(self, tmp_path, mocker):
+        target = own_dir(tmp_path / "data")
+        windows_owner(mocker, target, owner_only_acl.ADMINISTRATORS_SID)
+        assert data_folder.check_data_root(target) == [f"{target} belongs to another account; choose a folder "
+                                                       "you own."]
+
+    def test_administrators_owned_parent_is_fine(self, tmp_path, mocker):
+        parent = own_dir(tmp_path / "parent")
+        windows_owner(mocker, parent, owner_only_acl.ADMINISTRATORS_SID)
+        assert data_folder.check_data_root(parent / "data") == []
 
 
 @windows_only

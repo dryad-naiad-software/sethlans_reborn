@@ -21,6 +21,7 @@ from shared.settings_file import (
 from sethlans_manager.db_config import build_database_config
 from sethlans_manager.db_tls import DEFAULT_POSTGRES_TLS_MODE, tls_enabled
 from sethlans_manager.setup_mode import db_probe, leftovers, net
+from sethlans_manager.setup_mode.fields import ascii_int
 from sethlans_manager.setup_mode.plan import stored
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def _database(parser) -> dict:
         "engine": engine,
         "name": stored(parser, "database", "name"),
         "host": stored(parser, "database", "host"),
-        "port": int(port) if port.isdigit() else None,
+        "port": ascii_int(port),
         "user": stored(parser, "database", "user"),
         "password": "",
         "password_set": bool(stored(parser, "database", "password")),
@@ -91,7 +92,7 @@ def build_form(parser, read_errors=()) -> dict:
         "bind_addresses": net.bind_addresses(),
         "server": {
             "host": stored(parser, "server", "host") or net.ANY_ADDRESS,
-            "port": int(port) if port.isdigit() else DEFAULT_PORT,
+            "port": ascii_int(port) or DEFAULT_PORT,
         },
         "data_folder": _data_folder(parser),
         "database": _database(parser),

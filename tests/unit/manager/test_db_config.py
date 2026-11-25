@@ -18,6 +18,13 @@ from sethlans_manager.db_config import (
     _resolve_engine,
     build_database_config,
 )
+from tests.db_env import clear_db_env
+
+
+@pytest.fixture(autouse=True)
+def _no_database_env(monkeypatch):
+    """Each test starts with no database override; tests set the ones they need."""
+    clear_db_env(monkeypatch)
 
 
 @pytest.fixture

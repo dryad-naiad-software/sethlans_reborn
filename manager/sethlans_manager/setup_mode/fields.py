@@ -66,16 +66,29 @@ def text(data: dict, key: str, field: str, errors: Errors, *, required=False, ma
     return value
 
 
+def ascii_int(text) -> Optional[int]:
+    """``int`` of a string of ASCII digits 0-9 (spaces around allowed), else ``None``.
+
+    ``str.isdigit`` also accepts characters such as "²" that ``int`` refuses.
+    """
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    if not text or not text.isascii() or not text.isdecimal():
+        return None
+    return int(text)
+
+
 def integer(data: dict, key: str, field: str, errors: Errors, *, low: int, high: int,
             default: Optional[int] = None, label="This field") -> Optional[int]:
-    """An int (or a string of digits) within ``low..high``."""
+    """An int (or a string of ASCII digits) within ``low..high``."""
     value = data.get(key)
     if value is None or value == "":
         if default is None:
             errors.add(field, f"{label} is required.")
         return default
-    if isinstance(value, str) and value.strip().isdigit():
-        value = int(value.strip())
+    if isinstance(value, str) and ascii_int(value) is not None:
+        value = ascii_int(value)
     if isinstance(value, bool) or not isinstance(value, int):
         errors.add(field, f"{label} must be a whole number.")
         return None

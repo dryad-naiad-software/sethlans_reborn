@@ -160,6 +160,21 @@ class TestTls:
         options = probe.call_args.args[0]["OPTIONS"]
         assert (options["sslmode"], options["sslrootcert"]) == ("verify-full", ca_file)
 
+    @pytest.mark.parametrize("mode, warning", [
+        ("require", "TLS mode require encrypts the connection to db.example but does not check its certificate, "
+                    "so another server could pose as it; verify-full checks both."),
+        ("verify-ca", "TLS mode verify-ca checks the certificate of db.example but not its host name; "
+                      "verify-full checks both."),
+    ])
+    def test_weaker_postgres_modes_warn(self, check, tmp_path, ca_file, mode, warning):
+        errors, plan = _db(check, tmp_path, pg_database(host="db.example", tls=True, tls_mode=mode,
+                                                        tls_ca_file=ca_file))
+        assert errors == {} and plan.warnings == [warning]
+
+    def test_verify_full_does_not_warn(self, check, tmp_path, ca_file):
+        _errors, plan = _db(check, tmp_path, pg_database(host="db.example", tls=True, tls_ca_file=ca_file))
+        assert plan.warnings == []
+
     def test_bad_postgres_mode(self, check, tmp_path, ca_file):
         errors, _plan = _db(check, tmp_path, pg_database(tls=True, tls_mode="allow", tls_ca_file=ca_file))
         assert errors == {"database.tls_mode": ["Choose one of verify-full, verify-ca, require."]}

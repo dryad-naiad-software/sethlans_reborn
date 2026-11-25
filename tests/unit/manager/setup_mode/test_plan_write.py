@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """``plan.write_settings`` and ``submit.apply_answers``: what ``sethlans.ini`` holds after a save."""
 import datetime
+import json
 from pathlib import Path
 
 import pytest
@@ -81,7 +82,8 @@ class TestWriteSettings:
         assert not read_settings(old_file).has_section("first_admin")
 
     def test_new_file_is_owner_only(self, ini_path, tmp_path):
-        assert plan_module.write_settings(_plan(tmp_path / "data", ADMIN)) == ini_path
+        result = plan_module.write_settings(_plan(tmp_path / "data", ADMIN))
+        assert result == plan_module.WriteResult(ini_path, True, None)
         assert owner_only_acl.verify_owner_only(ini_path)
 
     def test_external_database_keys(self, ini_path, tmp_path):
@@ -90,10 +92,55 @@ class TestWriteSettings:
         plan_module.write_settings(_plan(tmp_path / "data", ADMIN, database=database))
         assert dict(read_settings(ini_path)["database"]) == database
 
-    def test_value_with_a_newline_is_refused(self, ini_path, tmp_path):
-        with pytest.raises(ValueError):
-            plan_module.write_settings(_plan(tmp_path / "data", dict(ADMIN, username="a\nb")))
+
+class TestWriteResult:
+
+    def test_value_with_a_newline_is_reported_not_raised(self, ini_path, tmp_path):
+        result = plan_module.write_settings(_plan(tmp_path / "data", dict(ADMIN, username="a\nb")))
+        assert (result.path, result.replaced) == (ini_path, False)
+        assert result.error.startswith("ValueError: ")
         assert not ini_path.exists()
+
+    def test_failure_before_the_replace_keeps_the_old_file(self, old_file, tmp_path, mocker):
+        mocker.patch.object(plan_module.settings_file, "update_settings", side_effect=PermissionError(13, "denied"))
+        result = plan_module.write_settings(_plan(tmp_path / "data", ADMIN))
+        assert result == plan_module.WriteResult(old_file, False, "PermissionError: [Errno 13] denied")
+        assert old_file.read_text() == OLD
+
+    def test_failure_after_the_replace_counts_as_replaced(self, old_file, tmp_path, mocker):
+        real = plan_module.settings_file.update_settings
+
+        def replace_then_fail(mutate, path):
+            real(mutate, path)
+            raise OSError(5, "fsync of the folder failed")
+
+        mocker.patch.object(plan_module.settings_file, "update_settings", side_effect=replace_then_fail)
+        result = plan_module.write_settings(_plan(tmp_path / "data", ADMIN))
+        assert (result.replaced, result.error) == (True, "OSError: [Errno 5] fsync of the folder failed")
+        assert read_settings(old_file)["setup"]["mode"] == "manager"
+
+    def test_file_that_differs_after_a_failure_is_not_replaced(self, old_file, tmp_path, mocker):
+        real = plan_module.settings_file.update_settings
+
+        def replace_then_change(mutate, path):
+            real(mutate, path)
+            Path(path).write_text(OLD)
+            raise OSError(5, "late")
+
+        mocker.patch.object(plan_module.settings_file, "update_settings", side_effect=replace_then_change)
+        assert plan_module.write_settings(_plan(tmp_path / "data", ADMIN)).replaced is False
+
+    def test_unreadable_after_a_failure_is_not_replaced(self, old_file, tmp_path, mocker):
+        real = plan_module.settings_file.update_settings
+
+        def replace_then_fail(mutate, path):
+            real(mutate, path)
+            mocker.patch.object(Path, "read_bytes", side_effect=OSError("gone"))
+            raise RuntimeError("lock")
+
+        mocker.patch.object(plan_module.settings_file, "update_settings", side_effect=replace_then_fail)
+        result = plan_module.write_settings(_plan(tmp_path / "data", ADMIN))
+        assert (result.replaced, result.error) == (False, "RuntimeError: lock")
 
 
 @pytest.fixture
@@ -109,14 +156,14 @@ class TestApplyAnswers:
 
     def test_saved_file_has_a_hash_and_no_plain_password(self, saving, ctx, ini_path, tmp_path, caplog):
         caplog.set_level("DEBUG")
-        status, body = submit.apply_answers(answers(tmp_path), ctx, "setuphost")
-        assert status == 200
+        outcome = submit.apply_answers(answers(tmp_path), ctx, "setuphost")
+        assert (outcome.status, outcome.saved) == (200, True)
         raw = ini_path.read_bytes()
         assert GOOD_PASSWORD.encode() not in raw
         admin = read_settings(ini_path)["first_admin"]
         assert admin["password_hash"].startswith("pbkdf2_sha256$1000000$")
         assert admin["replace_password"] == "false"
-        assert GOOD_PASSWORD not in caplog.text and GOOD_PASSWORD not in repr(body)
+        assert GOOD_PASSWORD not in caplog.text and GOOD_PASSWORD.encode() not in outcome.body
 
     def test_data_root_is_prepared_owner_only(self, saving, ctx, tmp_path, hasher):
         submit.apply_answers(answers(tmp_path), ctx, "setuphost")
@@ -125,27 +172,49 @@ class TestApplyAnswers:
             assert folder.is_dir() and owner_only_acl.verify_owner_only(folder)
         assert (root / ".sethlans-data").is_file()
 
-    def test_finish_body(self, saving, ctx, tmp_path, hasher):
-        status, body = submit.apply_answers(answers(tmp_path), ctx, "setuphost")
-        assert (status, body) == (200, {
+    def test_finish_body_is_encoded_json(self, saving, ctx, tmp_path, hasher):
+        outcome = submit.apply_answers(answers(tmp_path), ctx, "setuphost")
+        assert isinstance(outcome.body, bytes)
+        assert json.loads(outcome.body) == {
             "ok": True, "mode": "manager", "restarting": True, "url": "https://setuphost:18444/",
-            "port_changed": True, "first_admin": "boss", "warnings": [], "leftovers": []})
+            "port_changed": True, "first_admin": "boss", "warnings": [], "leftovers": []}
+
+    def test_body_is_encoded_before_the_write(self, saving, ctx, tmp_path, hasher, mocker):
+        def write(plan):
+            plan.warnings.append("added during the write")
+            return plan_module.WriteResult(Path("x.ini"), True)
+
+        mocker.patch.object(submit, "write_settings", side_effect=write)
+        outcome = submit.apply_answers(answers(tmp_path), ctx, "h")
+        assert json.loads(outcome.body)["warnings"] == []
 
     def test_validation_errors_write_nothing(self, saving, ctx, ini_path, tmp_path):
-        status, body = submit.apply_answers(answers(tmp_path, mode="bogus"), ctx, "h")
-        assert status == 400 and list(body) == ["mode"]
+        outcome = submit.apply_answers(answers(tmp_path, mode="bogus"), ctx, "h")
+        assert (outcome.status, outcome.saved, outcome.body["error"]) == (400, False, "invalid")
+        assert list(outcome.body["fields"]) == ["mode"]
         assert not ini_path.exists() and not (tmp_path / "sethlans-data").exists()
 
     def test_data_folder_failure_is_400(self, saving, ctx, ini_path, tmp_path, hasher, mocker):
         mocker.patch.object(data_folder, "prepare_data_root", side_effect=data_folder.DataFolderError("nope"))
-        assert submit.apply_answers(answers(tmp_path), ctx, "h") == (400, {"data_folder.path": ["nope"]})
+        outcome = submit.apply_answers(answers(tmp_path), ctx, "h")
+        assert outcome == submit.Outcome(400, {"error": "invalid", "fields": {"data_folder.path": ["nope"]}})
         assert not ini_path.exists()
 
-    def test_write_failure_is_500(self, saving, ctx, tmp_path, hasher, mocker):
-        mocker.patch.object(submit, "write_settings", side_effect=PermissionError(13, "denied"))
-        status, body = submit.apply_answers(answers(tmp_path), ctx, "h")
-        assert status == 500
-        assert body["non_field_errors"][0].startswith("Could not write the settings file:")
+    def test_write_failure_is_500_and_unsaved(self, saving, ctx, tmp_path, hasher, mocker, caplog):
+        mocker.patch.object(submit, "write_settings",
+                            return_value=plan_module.WriteResult(Path("s.ini"), False, "PermissionError: denied"))
+        outcome = submit.apply_answers(answers(tmp_path), ctx, "h")
+        message = f"Could not write the settings file {Path('s.ini')}: PermissionError: denied"
+        assert outcome == submit.Outcome(500, {"error": "settings_unwritable", "message": message})
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+
+    def test_replaced_with_a_later_error_is_saved(self, saving, ctx, tmp_path, hasher, mocker, caplog):
+        mocker.patch.object(submit, "write_settings",
+                            return_value=plan_module.WriteResult(Path("s.ini"), True, "OSError: fsync"))
+        caplog.set_level("INFO")
+        outcome = submit.apply_answers(answers(tmp_path), ctx, "h")
+        assert (outcome.status, outcome.saved) == (200, True)
+        assert [r.levelname for r in caplog.records if "was replaced, but" in r.getMessage()] == ["WARNING"]
 
 
 class TestFinishInfo:

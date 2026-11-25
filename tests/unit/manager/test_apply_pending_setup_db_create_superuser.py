@@ -38,6 +38,9 @@ User = get_user_model()
 STRONG_PASSWORD = "Tr0pical!Mongoose-Hops42"
 
 
+POST_SAVEPOINT_KEY = "POSTSAVEPOINT_OK"
+
+
 class TestSavepointPreservesOuterAtomic:
     """Issue #200: idempotent create must not poison the outer atomic."""
 
@@ -96,14 +99,15 @@ class TestSavepointPreservesOuterAtomic:
             # Outer atomic must still accept writes. Pre-fix, this
             # raised ``TransactionManagementError``.
             row, _created = ManagerSettings.objects.get_or_create(pk=1)
-            row.enrollment_key = "POST_SAVEPOINT_OK"
+            # 16 characters: the column is max_length=16 (MySQL/MariaDB enforce it).
+            row.enrollment_key = POST_SAVEPOINT_KEY
             row.save(update_fields=[
                 "enrollment_key", "enrollment_key_updated_at",
             ])
 
         assert (
             ManagerSettings.objects.get(pk=1).enrollment_key
-            == "POST_SAVEPOINT_OK"
+            == POST_SAVEPOINT_KEY
         )
 
 

@@ -245,6 +245,9 @@ def main():
     if '--dev' in sys.argv:
         _dispatch_dev_mode()
 
+    from sethlans_manager.data_folder_check import require_usable_data_folder
+    require_usable_data_folder()  # exit 13 with one line, before the settings load
+
     try:
         cert_path, key_path, cert = setup_certificates(
             dev_mode=False,

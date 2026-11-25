@@ -17,7 +17,7 @@ from django.contrib.auth.hashers import check_password
 
 from shared.owner_only_acl import verify_owner_only
 
-from .setup_process import ADMIN_PASSWORD, EXIT_SAVED, Client, free_port, manager_answers
+from .setup_process import ADMIN_PASSWORD, EXIT_SAVED, Client, fields_of, free_port, manager_answers
 
 DB_PASSWORD = "Plain-Db-Secret-3b8d2e61"
 MESSAGES_UNREACHABLE = (
@@ -47,7 +47,7 @@ def _refused_postgres_submit(client, proc, data_root):
                 "user": "sethlans", "password": DB_PASSWORD, "tls": False}
     resp = client.submit(manager_answers(data_root, proc.setup_port, database=database))
     assert resp.status == 400, resp.raw
-    assert resp.json()["database"][0] in MESSAGES_UNREACHABLE
+    assert fields_of(resp)["database"][0] in MESSAGES_UNREACHABLE
     return resp
 
 

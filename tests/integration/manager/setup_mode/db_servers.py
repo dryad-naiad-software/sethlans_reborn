@@ -127,6 +127,11 @@ def scratch_database(server: Server, users=(), tables=True):
         _run(server, [(drop, None)])
 
 
+def run_sql(server: Server, sql: str, database: Optional[str] = None) -> None:
+    """One statement on a fresh admin connection."""
+    _run(server, [(sql, None)], database)
+
+
 def table_names(server: Server, database: str):
     conn = _connect(server, database)
     try:
@@ -136,6 +141,34 @@ def table_names(server: Server, database: str):
             else:
                 cursor.execute("SHOW TABLES")
             return sorted(row[0] for row in cursor.fetchall())
+    finally:
+        conn.close()
+
+
+# The server setting that refuses a table without a primary key.
+REQUIRE_PRIMARY_KEY = {"mysql": "sql_require_primary_key", "mariadb": "innodb_force_primary_key"}
+
+
+@contextmanager
+def primary_key_required(server: Server):
+    """Turn the server's primary-key requirement on for new sessions; skip when not allowed."""
+    name = REQUIRE_PRIMARY_KEY.get(server.kind)
+    if name is None:
+        pytest.skip(f"{server.kind} has no primary-key requirement setting")
+    conn = _connect(server)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(f"SELECT @@GLOBAL.{name}")
+            before = cursor.fetchone()[0]
+            try:
+                cursor.execute(f"SET GLOBAL {name} = ON")
+            except Exception as exc:  # noqa: BLE001 - the account may not change globals
+                pytest.skip(f"cannot SET GLOBAL {name} with this account: {exc}")
+        try:
+            yield name
+        finally:
+            with conn.cursor() as cursor:
+                cursor.execute(f"SET GLOBAL {name} = %s", (before,))
     finally:
         conn.close()
 

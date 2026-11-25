@@ -93,25 +93,73 @@ class TestDrain:
         assert serve.drain(server, channel, timeout=60) is True
 
 
+class _Thread:
+    def __init__(self, alive=True):
+        self.alive = alive
+
+    def is_alive(self):
+        return self.alive
+
+
+def _stop(is_set):
+    stop = MagicMock()
+    stop.is_set.return_value = is_set
+    return stop
+
+
+@pytest.fixture
+def fast(monkeypatch):
+    monkeypatch.setattr(serve, "POLL_SECONDS", 0.001)
+
+
+def _saved_state(monkeypatch, seconds):
+    monkeypatch.setattr(state, "STATE", SimpleNamespace(saved_for=lambda: seconds))
+
+
 class TestWait:
 
     def test_saved(self):
         wrapper = serve.ExitAfterSaved(None)
         wrapper.saved.set()
-        assert serve._wait(wrapper, MagicMock()) == serve.EXIT_SAVED
+        assert serve._wait(wrapper, _stop(False), _Thread()) == serve.EXIT_SAVED
 
-    def test_stopped_by_a_signal(self, monkeypatch):
-        monkeypatch.setattr(serve, "POLL_SECONDS", 0.001)
-        stop = MagicMock()
-        stop.is_set.return_value = True
-        assert serve._wait(serve.ExitAfterSaved(None), stop) == serve.EXIT_STOPPED
+    def test_signal_before_the_save_is_exit_0(self, fast):
+        assert serve._wait(serve.ExitAfterSaved(None), _stop(True), _Thread()) == serve.EXIT_STOPPED
 
-    def test_exits_saved_when_close_never_comes(self, monkeypatch):
-        monkeypatch.setattr(serve, "POLL_SECONDS", 0.001)
-        monkeypatch.setattr(state, "STATE", SimpleNamespace(saved_for=lambda: serve.SAVED_FALLBACK_SECONDS + 1))
-        stop = MagicMock()
-        stop.is_set.return_value = False
-        assert serve._wait(serve.ExitAfterSaved(None), stop) == serve.EXIT_SAVED
+    def test_signal_after_the_save_is_exit_10(self, fast, monkeypatch, caplog):
+        _saved_state(monkeypatch, 0.5)
+        caplog.set_level("INFO", logger=serve.__name__)
+        assert serve._wait(serve.ExitAfterSaved(None), _stop(True), _Thread()) == serve.EXIT_SAVED
+        assert "Stop signal after setup was saved" in caplog.text
+
+    def test_dead_loop_before_the_save_is_exit_2(self, fast, caplog):
+        caplog.set_level("ERROR", logger=serve.__name__)
+        assert serve._wait(serve.ExitAfterSaved(None), _stop(False), _Thread(alive=False)) == serve.EXIT_FAILED
+        assert "The setup server stopped serving before setup was saved" in caplog.text
+
+    def test_dead_loop_after_the_save_is_exit_10(self, fast, monkeypatch):
+        _saved_state(monkeypatch, 0.5)
+        assert serve._wait(serve.ExitAfterSaved(None), _stop(False), _Thread(alive=False)) == serve.EXIT_SAVED
+
+    def test_exits_saved_when_close_never_comes(self, fast, monkeypatch):
+        _saved_state(monkeypatch, serve.SAVED_FALLBACK_SECONDS + 1)
+        assert serve._wait(serve.ExitAfterSaved(None), _stop(False), _Thread()) == serve.EXIT_SAVED
+
+
+class TestServeForever:
+
+    def test_crash_is_logged_not_raised(self, caplog):
+        server = MagicMock()
+        server.run.side_effect = RuntimeError("loop broke")
+        caplog.set_level("ERROR", logger=serve.__name__)
+        serve._serve_forever(server)
+        assert "The setup server's loop crashed" in caplog.text
+        assert "loop broke" in caplog.text
+
+    def test_normal_end_logs_nothing(self, caplog):
+        caplog.set_level("DEBUG", logger=serve.__name__)
+        serve._serve_forever(MagicMock())
+        assert caplog.records == []
 
 
 @pytest.fixture
@@ -194,4 +242,23 @@ class TestRun:
         drain = mocker.patch.object(serve, "drain")
         assert serve.run(18090) == serve.EXIT_STOPPED
         drain.assert_not_called()
+        server.close.assert_called_once()
+
+    def test_signal_after_save_drains_and_exits_10(self, mocker):
+        server = MagicMock(active_channels={})
+        mocker.patch.object(serve, "create_server", return_value=server)
+        mocker.patch.object(serve, "_wait", return_value=serve.EXIT_SAVED)
+        drain = mocker.patch.object(serve, "drain", return_value=True)
+        assert serve.run(18090) == serve.EXIT_SAVED
+        drain.assert_called_once()
+
+    def test_loop_that_dies_before_the_save_is_exit_2(self, mocker, monkeypatch, caplog):
+        monkeypatch.setattr(serve, "POLL_SECONDS", 0.001)
+        server = MagicMock(active_channels={})
+        server.run.side_effect = RuntimeError("loop broke")
+        mocker.patch.object(serve, "create_server", return_value=server)
+        caplog.set_level("ERROR", logger=serve.__name__)
+        assert serve.run(18090) == serve.EXIT_FAILED
+        assert "The setup server's loop crashed" in caplog.text
+        assert "stopped serving before setup was saved" in caplog.text
         server.close.assert_called_once()

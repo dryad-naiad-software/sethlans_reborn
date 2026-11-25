@@ -16,6 +16,7 @@ from django.utils import timezone
 PILOT_REPLACED = "Replaced by per-machine memory tests."
 AUDIO_WITHOUT_PIECES = "Canceled: per-machine memory tests need the version's pieces, and it has none."
 _ACTIVE = ('QUEUED', 'RENDERING')
+_UPDATE_CHUNK = 500
 
 
 # A frozen copy of ``shared.unreal.validation.target_sha256`` as it is in this
@@ -84,9 +85,14 @@ def machine_results_data(apps, schema_editor):
         Subquery(pieces.order_by('pk').values('unreal_target_sha256')[:1]), Value(''),
     ))
     piece_of_own = Job.objects.filter(sequence_submission=OuterRef('sequence_submission'), unreal_kind='render')
-    Job.objects.filter(unreal_kind='audio', status='QUEUED').filter(~Exists(piece_of_own)).update(
-        status='CANCELED', error_message=AUDIO_WITHOUT_PIECES, completed_at=now,
-    )
+    # MySQL refuses an UPDATE whose WHERE reads the same table (error 1093, #318): select the keys
+    # first, then update by a plain list of them.
+    audio = list(Job.objects.filter(unreal_kind='audio', status='QUEUED').filter(~Exists(piece_of_own))
+                 .order_by('pk').values_list('pk', flat=True))
+    for start in range(0, len(audio), _UPDATE_CHUNK):
+        Job.objects.filter(pk__in=audio[start:start + _UPDATE_CHUNK], status='QUEUED').update(
+            status='CANCELED', error_message=AUDIO_WITHOUT_PIECES, completed_at=now,
+        )
 
 
 class Migration(migrations.Migration):

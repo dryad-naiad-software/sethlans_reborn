@@ -8,6 +8,7 @@ import ipaddress
 import logging
 import os
 import socket
+import threading
 from typing import List
 
 import psutil
@@ -37,21 +38,66 @@ def ipv4_addresses() -> List[str]:
     return sorted(found, key=ipaddress.IPv4Address)
 
 
+def ipv6_addresses() -> List[str]:
+    """This machine's IPv6 addresses, loopback and link-local excluded (a
+    link-local address needs a zone, which a browser's Host cannot carry)."""
+    found = set()
+    try:
+        interfaces = psutil.net_if_addrs()
+    except OSError:  # pragma: no cover - psutil failure, logged by ipv4_addresses
+        return []
+    for addrs in interfaces.values():
+        for addr in addrs:
+            if addr.family != socket.AF_INET6:
+                continue
+            try:
+                address = ipaddress.IPv6Address(addr.address.split("%", 1)[0])
+            except ValueError:
+                continue
+            if not (address.is_loopback or address.is_link_local):
+                found.add(address.compressed)
+    return sorted(found)
+
+
 def bind_addresses() -> List[str]:
     """The addresses a manager may bind: any, loopback, or one of this machine's."""
     return [ANY_ADDRESS, LOOPBACK] + ipv4_addresses()
 
 
-def allowed_hosts(extra_host: str = "") -> List[str]:
-    """``ALLOWED_HOSTS`` for setup mode (FR-SM-8)."""
+def _add_fqdn_later(hosts: List[str]) -> None:
+    """Append ``socket.getfqdn()`` to ``hosts`` from a daemon thread.
+
+    The lookup can wait on DNS for many seconds, so it never runs on the
+    importing thread. Django reads ``ALLOWED_HOSTS`` (this same list) on
+    each request, so the name is accepted from the moment it is known.
+    """
+    def lookup():
+        try:
+            fqdn = socket.getfqdn()
+        except OSError:
+            return
+        if fqdn and fqdn not in hosts:
+            hosts.append(fqdn)
+
+    threading.Thread(target=lookup, name="setup-fqdn", daemon=True).start()
+
+
+def allowed_hosts(extra_host: str = "", *, look_up_fqdn: bool = True) -> List[str]:
+    """``ALLOWED_HOSTS`` for setup mode (FR-SM-8).
+
+    Names and IPv4 literals as sent; IPv6 literals in brackets, which is
+    how Django compares them (``[::1]``, ``[2001:db8::5]``).
+    """
     name = hostname()
-    hosts = ["localhost", LOOPBACK, name, f"{name}.local"]
-    fqdn = socket.getfqdn()
-    if fqdn and fqdn not in hosts:
-        hosts.append(fqdn)
+    hosts = ["localhost", LOOPBACK, "[::1]", name, f"{name}.local"]
     hosts += ipv4_addresses()
-    if extra_host and extra_host != ANY_ADDRESS and extra_host not in hosts:
-        hosts.append(extra_host)
+    hosts += [f"[{address}]" for address in ipv6_addresses()]
+    if extra_host and extra_host != ANY_ADDRESS:
+        literal = f"[{extra_host}]" if ":" in extra_host and not extra_host.startswith("[") else extra_host
+        if literal not in hosts:
+            hosts.append(literal)
+    if look_up_fqdn:
+        _add_fqdn_later(hosts)
     return hosts
 
 

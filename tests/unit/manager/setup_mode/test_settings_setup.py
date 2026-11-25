@@ -20,10 +20,23 @@ def machine(monkeypatch):
     monkeypatch.setattr(net.socket, "gethostname", lambda: "box")
     monkeypatch.setattr(net.socket, "getfqdn", lambda: "box.lan.example")
     monkeypatch.setattr(net.psutil, "net_if_addrs", lambda: {
-        "eth0": [Addr(socket.AF_INET, "192.168.1.20"), Addr(socket.AF_INET6, "fe80::1")],
-        "lo": [Addr(socket.AF_INET, "127.0.0.1")],
-        "wg0": [Addr(socket.AF_INET, "10.0.0.3")],
+        "eth0": [Addr(socket.AF_INET, "192.168.1.20"), Addr(socket.AF_INET6, "fe80::1%eth0"),
+                 Addr(socket.AF_INET6, "2001:db8:0:0::5")],
+        "lo": [Addr(socket.AF_INET, "127.0.0.1"), Addr(socket.AF_INET6, "::1")],
+        "wg0": [Addr(socket.AF_INET, "10.0.0.3"), Addr(socket.AF_INET6, "fd00::7"), Addr(socket.AF_INET6, "junk")],
     })
+
+
+class _InlineThread:
+    """``threading.Thread`` that runs its target on ``start`` (the FQDN lookup, in order)."""
+
+    def __init__(self, target, name=None, daemon=None):
+        self._target = target
+        self.name = name
+        self.daemon = daemon
+
+    def start(self):
+        self._target()
 
 
 def _load_setup_settings():
@@ -32,22 +45,60 @@ def _load_setup_settings():
     return importlib.reload(module)
 
 
+BASE_HOSTS = ["localhost", "127.0.0.1", "[::1]", "box", "box.local", "10.0.0.3", "192.168.1.20",
+              "[2001:db8::5]", "[fd00::7]"]
+
+
 class TestAllowedHosts:
 
     def test_names_and_addresses(self, machine):
-        assert net.allowed_hosts() == ["localhost", "127.0.0.1", "box", "box.local", "box.lan.example",
-                                       "10.0.0.3", "192.168.1.20"]
+        assert net.allowed_hosts(look_up_fqdn=False) == BASE_HOSTS
 
-    def test_earlier_server_host_is_added_once(self, machine):
-        assert net.allowed_hosts("192.168.1.99")[-1] == "192.168.1.99"
-        assert net.allowed_hosts("10.0.0.3").count("10.0.0.3") == 1
+    def test_ipv6_skips_loopback_link_local_and_junk(self, machine):
+        assert net.ipv6_addresses() == ["2001:db8::5", "fd00::7"]
 
-    def test_any_address_is_never_a_host(self, machine):
-        assert "0.0.0.0" not in net.allowed_hosts("0.0.0.0")
+    def test_fqdn_is_appended_by_a_background_lookup(self, machine, monkeypatch):
+        monkeypatch.setattr(net.threading, "Thread", _InlineThread)
+        assert net.allowed_hosts() == BASE_HOSTS + ["box.lan.example"]
+
+    def test_fqdn_lookup_runs_on_a_daemon_thread(self, machine, monkeypatch):
+        started = []
+
+        class Recorder(_InlineThread):
+            def start(self):
+                started.append((self.name, self.daemon))
+
+        monkeypatch.setattr(net.threading, "Thread", Recorder)
+        hosts = net.allowed_hosts()
+        assert started == [("setup-fqdn", True)]
+        assert "box.lan.example" not in hosts  # not known yet; nothing waits for DNS
+
+    def test_failed_fqdn_lookup_adds_nothing(self, machine, monkeypatch):
+        def fail():
+            raise OSError("no DNS")
+
+        monkeypatch.setattr(net.socket, "getfqdn", fail)
+        monkeypatch.setattr(net.threading, "Thread", _InlineThread)
+        assert net.allowed_hosts() == BASE_HOSTS
 
     def test_fqdn_equal_to_the_hostname_is_not_repeated(self, machine, monkeypatch):
         monkeypatch.setattr(net.socket, "getfqdn", lambda: "box")
+        monkeypatch.setattr(net.threading, "Thread", _InlineThread)
         assert net.allowed_hosts().count("box") == 1
+
+    def test_earlier_server_host_is_added_once(self, machine):
+        assert net.allowed_hosts("192.168.1.99", look_up_fqdn=False)[-1] == "192.168.1.99"
+        assert net.allowed_hosts("10.0.0.3", look_up_fqdn=False).count("10.0.0.3") == 1
+
+    @pytest.mark.parametrize("host, expected", [("2001:db8::9", "[2001:db8::9]"), ("[2001:db8::9]", "[2001:db8::9]")])
+    def test_earlier_ipv6_server_host_is_bracketed(self, machine, host, expected):
+        assert net.allowed_hosts(host, look_up_fqdn=False)[-1] == expected
+
+    def test_earlier_ipv6_host_already_listed_is_not_repeated(self, machine):
+        assert net.allowed_hosts("2001:db8::5", look_up_fqdn=False).count("[2001:db8::5]") == 1
+
+    def test_any_address_is_never_a_host(self, machine):
+        assert "0.0.0.0" not in net.allowed_hosts("0.0.0.0", look_up_fqdn=False)
 
     def test_bind_addresses(self, machine):
         assert net.bind_addresses() == ["0.0.0.0", "127.0.0.1", "10.0.0.3", "192.168.1.20"]
@@ -76,11 +127,12 @@ class TestSettingsSetupModule:
         module = _load_setup_settings()
         assert module.DATA_UPLOAD_MAX_MEMORY_SIZE == 65536
 
-    def test_hosts_include_the_earlier_server_host(self, machine, ini_path):
+    def test_hosts_include_the_earlier_server_host(self, machine, ini_path, monkeypatch):
         ini_path.parent.mkdir(parents=True)
         ini_path.write_text("[server]\nhost = 192.168.1.77\n")
+        monkeypatch.setattr(net.threading, "Thread", _InlineThread)
         module = _load_setup_settings()
-        assert module.ALLOWED_HOSTS[-1] == "192.168.1.77"
+        assert module.ALLOWED_HOSTS == BASE_HOSTS + ["192.168.1.77", "box.lan.example"]
         assert module.USE_X_FORWARDED_HOST is False
 
     def test_unreadable_settings_file_still_loads(self, machine, ini_path):

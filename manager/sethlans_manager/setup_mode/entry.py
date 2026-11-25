@@ -17,6 +17,9 @@ port taken), 10 setup saved.
 import os
 import sys
 
+# Importable before django.setup(): it reads no setting at import.
+from django.views.decorators.debug import sensitive_variables
+
 from shared.frozen_paths import is_frozen
 
 SETUP_SETTINGS = "sethlans_manager.settings_setup"
@@ -63,6 +66,7 @@ def _setup_django() -> str:
     return ""
 
 
+@sensitive_variables("raw", "password")
 def _read_password(stdin):
     """``(password, "")`` or ``(None, problem)``: one line ending stripped, then the cap."""
     # Room for the password and one line ending; the cap is on the password.
@@ -82,6 +86,7 @@ def _read_password(stdin):
     return (password, "") if password else (None, "No password on stdin.")
 
 
+@sensitive_variables("password")
 def hash_password(stdin, stdout, stderr) -> int:
     """Read one password on stdin, print its ``pbkdf2_sha256$`` hash (FR-UA-2)."""
     from django.contrib.auth.hashers import make_password
@@ -114,7 +119,9 @@ def setup_port(ini_path) -> int:
             raw = read_settings(ini_path).get("server", "port", fallback="").strip()
         except (SettingsFileError, OSError):
             raw = ""
-    return int(raw) if raw.isdigit() else DEFAULT_SETUP_PORT
+    from sethlans_manager.setup_mode.fields import ascii_int
+
+    return ascii_int(raw) or DEFAULT_SETUP_PORT
 
 
 def serve_setup() -> int:

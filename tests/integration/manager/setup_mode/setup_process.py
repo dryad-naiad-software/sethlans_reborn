@@ -216,6 +216,14 @@ class Client:
         return self.call("POST", "/api/setup/submit/", answers)
 
 
+def fields_of(resp: Response) -> dict:
+    """The field errors of a 400 ``{"error": "invalid", "fields": {...}}``."""
+    assert resp.status == 400, resp.raw
+    body = resp.json()
+    assert body["error"] == "invalid", body
+    return body["fields"]
+
+
 def manager_answers(data_root: Path, port: int, database=None, admin=None) -> dict:
     """A valid ``manager`` submit: loopback bind, SQLite unless given."""
     return {

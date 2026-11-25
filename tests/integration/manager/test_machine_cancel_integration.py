@@ -25,7 +25,7 @@ from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from tests.row_lock_sql import locked_tables
+from tests.row_lock_sql import captured_sql, locked_tables
 from workers.constants import WORKER_STALENESS_SECONDS
 from workers.models import Job, UnrealMeasurement, Worker
 from workers.services.machine_test_cancel import cancel_ineligible_pilots, release_records
@@ -157,8 +157,8 @@ class TestOtherReasons:
         _untick_amd(worker)
         with emulated_row_locks(), CaptureQueriesContext(connection) as ctx:
             assert _cancel(made[KIND].asset) == [made[KIND_AMD].pk]
-        tables = [(locked_tables(q['sql']), 'SKIP LOCKED' in q['sql'])
-                  for q in ctx.captured_queries if 'FOR UPDATE' in q['sql']]
+        tables = [(locked_tables(sql), 'SKIP LOCKED' in sql)
+                  for sql in captured_sql(ctx) if 'FOR UPDATE' in sql]
         assert tables == [({'workers_project'}, False), ({'workers_job'}, True), ({'workers_worker'}, False),
                           ({'workers_unrealmeasurement'}, False)], tables
         assert record_of(made[KIND_AMD]).current is False

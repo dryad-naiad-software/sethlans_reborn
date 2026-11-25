@@ -142,11 +142,29 @@ def drain(server, channel, timeout: float = DRAIN_SECONDS) -> bool:
         time.sleep(POLL_SECONDS)
 
 
-def _wait(wrapper: ExitAfterSaved, stop: threading.Event) -> int:
+def _serve_forever(server) -> None:
+    """The loop thread: an unexpected end is logged, and ``_wait`` sees the thread gone."""
+    try:
+        server.run()
+    except Exception:  # noqa: BLE001 - logged; the main thread returns EXIT_FAILED
+        logger.exception("The setup server's loop crashed")
+
+
+def _wait(wrapper: ExitAfterSaved, stop: threading.Event, thread: threading.Thread) -> int:
+    """10 once saved (also when a signal or a dead loop comes after the save),
+    0 on a signal before it, 2 when the server loop ends before it."""
     while not wrapper.saved.wait(POLL_SECONDS * 5):
-        if stop.is_set():
-            return EXIT_STOPPED
         saved_for = state.STATE.saved_for()
+        if stop.is_set():
+            if saved_for is None:
+                return EXIT_STOPPED
+            logger.info("Stop signal after setup was saved; exiting as saved")
+            return EXIT_SAVED
+        if not thread.is_alive():
+            if saved_for is not None:
+                return EXIT_SAVED
+            logger.error("The setup server stopped serving before setup was saved")
+            return EXIT_FAILED
         if saved_for is not None and saved_for > SAVED_FALLBACK_SECONDS:
             logger.warning("The saving response was never closed; exiting anyway")
             return EXIT_SAVED
@@ -154,7 +172,8 @@ def _wait(wrapper: ExitAfterSaved, stop: threading.Event) -> int:
 
 
 def run(port: int) -> int:
-    """Serve until setup is saved (10) or a signal stops it (0); 2 when it cannot start."""
+    """Serve until setup is saved (10) or a signal stops it (0); 2 when it cannot
+    start, or when the server loop ends before setup was saved."""
     wrapper = build_app()
     try:
         server = create_server(wrapper, port)
@@ -163,11 +182,11 @@ def run(port: int) -> int:
         return EXIT_FAILED
     stop = threading.Event()
     _install_signal_handlers(stop)
-    thread = threading.Thread(target=server.run, name="setup-waitress", daemon=True)
+    thread = threading.Thread(target=_serve_forever, args=(server,), name="setup-waitress", daemon=True)
     thread.start()
     logger.info("Setup mode listening on http://127.0.0.1:%s/ (Caddy serves HTTPS in front)", port)
     try:
-        code = _wait(wrapper, stop)
+        code = _wait(wrapper, stop, thread)
         if code == EXIT_SAVED and not drain(server, wrapper.channel):
             logger.warning("The saving response's connection was still open after %.0f s", DRAIN_SECONDS)
         return code

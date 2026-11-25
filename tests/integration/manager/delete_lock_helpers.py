@@ -22,6 +22,7 @@ from unittest.mock import patch
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
+from tests.row_lock_sql import captured_sql
 from workers.models import Job, Project, SequenceDiscovery, SequenceSubmission
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS
@@ -62,7 +63,7 @@ def delete_captured(client, url, of=True, undo=False):
                     raise Undo
         except Undo:
             pass
-    return status, [q['sql'] for q in ctx.captured_queries]
+    return status, captured_sql(ctx)
 
 
 def lock_statements(sqls):
