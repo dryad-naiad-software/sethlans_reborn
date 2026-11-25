@@ -8,7 +8,6 @@ never ``$HOME`` or ``Path.home()``, and it exempts only when it is an
 existing folder owned by the effective uid, at least two levels deep.
 """
 import os
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -104,18 +103,45 @@ class TestAccountHome:
 
 class TestNoExemption:
 
-    @pytest.mark.parametrize("pw_dir", [
-        "/",
-        pytest.param("/var", marks=pytest.mark.xfail(
-            sys.platform == "darwin", strict=True,
-            reason="product gap: the depth rule is applied after resolving, and /var resolves to /private/var")),
-    ])
+    @pytest.mark.parametrize("pw_dir", ["/", "/var", "/private"])
     def test_shallow_home_exempts_nothing(self, monkeypatch, pw_dir):
+        # Depth of the given form; macOS /var resolving to /private/var (three parts) does not count.
         _account(monkeypatch, pw_dir)
         _owned(monkeypatch, pw_dir)
         assert data_folder_rules._user_folders() == []
         assert _refused("/var/lib/sethlans")
         assert _refused("/private/var/db/sethlans", "/private/var")
+
+    def test_resolved_form_that_is_a_system_folder_is_dropped(self, monkeypatch):
+        _account(monkeypatch, "/home/me")
+        _owned(monkeypatch, "/home/me")
+        _links(monkeypatch, {"/home/me": "/private/var"})
+        assert data_folder_rules._user_folders() == [Path("/home/me")]
+        assert _refused("/private/var/db/sethlans", "/private/var")
+
+    def test_resolved_form_above_a_system_folder_is_dropped(self, monkeypatch):
+        _account(monkeypatch, "/home/me")
+        _owned(monkeypatch, "/home/me")
+        _links(monkeypatch, {"/home/me": "/private"})
+        assert data_folder_rules._user_folders() == [Path("/home/me")]
+        assert _refused("/private/etc/sethlans", "/private/etc")
+
+    def test_resolved_form_inside_a_system_folder_is_kept(self, monkeypatch):
+        # /var/home/me only lies inside /var; it covers no prefix (Fedora Atomic).
+        _account(monkeypatch, "/home/me")
+        _owned(monkeypatch, "/home/me")
+        _links(monkeypatch, {"/home/me": "/var/home/me"})
+        folders = data_folder_rules._user_folders()
+        assert folders[0] == Path("/home/me") and str(folders[1]).endswith("/var/home/me")
+
+    @pytest.mark.parametrize("folder, covers", [
+        ("/", True), ("/var", True), ("/private", True), ("/private/var", True), ("/usr", True),
+        ("/System", True), ("/run", True),
+        ("/home/me", False), ("/var/home/me", False), ("/usr/lib/x", False), ("/usrdata", False),
+        ("/private/tmp", False), ("/Users/me", False), ("/runner", False),
+    ])
+    def test_covers_a_prefix(self, folder, covers):
+        assert data_folder_rules._covers_a_prefix(Path(folder)) is covers
 
     @pytest.mark.parametrize("pw_dir", ["", None, "home/me", "./me"])
     def test_empty_or_relative_home(self, monkeypatch, pw_dir):
