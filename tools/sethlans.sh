@@ -14,7 +14,9 @@
 # Commands:
 #   dev      Full dev environment: config + deps + admin + frontend +
 #            Caddyfile + start (manager + caddy + worker)
-#   clean    Nuke all development artifacts (no confirmation)
+#   clean    Remove the development artifacts inside the repo (no
+#            confirmation); `clean --all` also removes the per-user
+#            data folder
 #   start    Start caddy + manager + worker (assumes already set up)
 #   manager  Start caddy + manager only
 #   worker   Start worker only
@@ -52,7 +54,9 @@ usage() {
     echo "Usage: bash tools/sethlans.sh <command>"
     echo ""
     echo "  dev      Setup everything from scratch and start services"
-    echo "  clean    Remove all development artifacts"
+    echo "  clean    Remove the development artifacts inside the repo"
+    echo "           --all  also remove the per-user data folder (identity"
+    echo "                  files of an installed manager/worker)"
     echo "  start    Start caddy + manager + worker (must run dev first)"
     echo "  manager  Start caddy + manager in the background"
     echo "  worker   Start worker in the background"
@@ -167,7 +171,273 @@ cmd_dev() {
 }
 
 # -- clean ---------------------------------------------------------------
+# The per-user data folder (identity files of an installed manager or
+# worker on this account). Sets USER_DATA_DIR, or USER_DATA_DIR_ERROR
+# with the reason when the environment gives no safe absolute path: an
+# empty HOME / LOCALAPPDATA or a relative base is refused, never turned
+# into a relative or root-based path. A relative XDG_DATA_HOME is
+# refused too (the XDG spec says to ignore relative values).
+resolve_user_data_dir() {
+    USER_DATA_DIR=""
+    USER_DATA_DIR_ERROR=""
+    local base name="sethlans"
+    case "$(uname -s)" in
+        Darwin)
+            name="Sethlans"
+            if [ -z "${HOME:-}" ]; then USER_DATA_DIR_ERROR="HOME is empty"; return; fi
+            base="$HOME/Library/Application Support" ;;
+        MINGW*|MSYS*|CYGWIN*)
+            name="Sethlans"
+            if [ -z "${LOCALAPPDATA:-}" ]; then USER_DATA_DIR_ERROR="LOCALAPPDATA is empty"; return; fi
+            # Check the raw Windows value first (same rule as sethlans.ps1):
+            # cygpath would turn a drive-less "\rooted" into "/d/rooted".
+            local win_abs_re='^([A-Za-z]:[\/]|\\\\[^\/]+[\/][^\/]+)'
+            if ! [[ "$LOCALAPPDATA" =~ $win_abs_re ]]; then
+                USER_DATA_DIR_ERROR="LOCALAPPDATA is not an absolute path: '$LOCALAPPDATA'"; return
+            fi
+            if ! command -v cygpath >/dev/null 2>&1; then
+                USER_DATA_DIR_ERROR="cygpath not found, cannot convert LOCALAPPDATA ($LOCALAPPDATA)"; return
+            fi
+            base="$(cygpath -u "$LOCALAPPDATA")" ;;
+        *)
+            if [ -n "${XDG_DATA_HOME:-}" ]; then
+                base="$XDG_DATA_HOME"
+            elif [ -n "${HOME:-}" ]; then
+                base="$HOME/.local/share"
+            else
+                USER_DATA_DIR_ERROR="HOME is empty and XDG_DATA_HOME is unset"; return
+            fi ;;
+    esac
+    case "$base" in
+        /*) ;;
+        *) USER_DATA_DIR_ERROR="base folder is not an absolute path: '$base'"; return ;;
+    esac
+    local dir="$base/$name"
+    if [ "$(basename "$dir")" != "$name" ]; then
+        USER_DATA_DIR_ERROR="last folder of '$dir' is not '$name'"; return
+    fi
+    USER_DATA_DIR="$dir"
+}
+
+# True when path $2 starts an argument of command line $1: at the start
+# of the line, or right after a space or a quote. So "/x/repo" never
+# matches inside "/other/x/repo".
+arg_starts_with() {
+    case "$1" in
+        "$2"*|*" $2"*|*"\"$2"*|*"'$2"*) return 0 ;;
+    esac
+    return 1
+}
+
+# True when command line $2 belongs to this checkout's $1 (python or
+# caddy) process. $3 is the project root in the same path form as the
+# command line. Fixed-string match on the full script / Caddyfile path
+# under the root, anchored at the start of an argument, so another
+# checkout (including a sibling folder whose name starts with this
+# one's, or a folder that merely ends with this path) never matches.
+cmdline_is_ours() {
+    local c="$2" r="$3"
+    case "$1" in
+        python)
+            arg_starts_with "$c" "$r/manager/run_manager.py" && return 0
+            arg_starts_with "$c" "$r/worker/run_worker.py" && return 0
+            if arg_starts_with "$c" "$r/manager/manage.py"; then
+                case "$c" in *"$r/manager/manage.py"*runserver*) return 0 ;; esac
+            fi ;;
+        caddy)
+            arg_starts_with "$c" "$r/manager/caddy/Caddyfile" && return 0 ;;
+    esac
+    return 1
+}
+
+is_windows_bash() {
+    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
+    return 1
+}
+
+# Windows form of cmdline_is_ours: '\' becomes '/' and the compare is
+# case-insensitive, against the root in D:/... form. PowerShell starts
+# processes with D:\... paths, Git Bash with D:/... paths.
+win_cmdline_is_ours() {
+    local root rc=1 restore_nocase=true
+    command -v cygpath >/dev/null 2>&1 || return 1
+    root=$(cygpath -m "$PROJECT_ROOT") || return 1
+    root="${root%/}"
+    [ -n "$root" ] || return 1
+    shopt -q nocasematch && restore_nocase=false
+    shopt -s nocasematch
+    cmdline_is_ours "$1" "${2//\\//}" "$root" && rc=0
+    [ "$restore_nocase" = true ] && shopt -u nocasematch
+    return $rc
+}
+
+# Process name of PID $1 without folder or .exe: MSYS /proc exename (Git
+# Bash), Linux /proc comm, else ps (macOS). Fails when it cannot be read.
+proc_name() {
+    local n=""
+    if [ -r "/proc/$1/exename" ]; then
+        n=$(cat "/proc/$1/exename" 2>/dev/null) || return 1
+    elif [ -r "/proc/$1/comm" ]; then
+        n=$(cat "/proc/$1/comm" 2>/dev/null) || return 1
+    else
+        n=$(ps -o comm= -p "$1" 2>/dev/null) || return 1
+    fi
+    n="${n##*/}"; n="${n%.exe}"
+    [ -n "$n" ] || return 1
+    printf '%s' "$n"
+}
+
+# Full command line of PID $1 (/proc on Linux and Git Bash, ps on
+# macOS). Fails when it cannot be read or is empty.
+proc_cmdline() {
+    local c=""
+    if [ -r "/proc/$1/cmdline" ]; then
+        c=$(tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null) || return 1
+    else
+        c=$(ps -ww -o args= -p "$1" 2>/dev/null) || return 1
+    fi
+    [ -n "$c" ] || return 1
+    printf '%s' "$c"
+}
+
+# True when PID $1 is this checkout's $2 (python or caddy): the process
+# name must be python / python3* / Python (macOS framework) or caddy,
+# and its command line must pass the checkout match. An editor, pager
+# or `tail -f` with the script path open is never ours. A process whose
+# name or command line cannot be read is not ours.
+pid_is_ours() {
+    local name args
+    name=$(proc_name "$1") || return 1
+    case "$2" in
+        python) case "$name" in python|python3*|Python) ;; *) return 1 ;; esac ;;
+        caddy) [ "$name" = "caddy" ] || return 1 ;;
+        *) return 1 ;;
+    esac
+    args=$(proc_cmdline "$1") || return 1
+    if is_windows_bash; then
+        win_cmdline_is_ours "$2" "$args"
+    else
+        cmdline_is_ours "$2" "$args" "$PROJECT_ROOT"
+    fi
+}
+
+# PIDs of this checkout's $1 (python or caddy) processes found by pgrep.
+# No-op where pgrep is missing (Git Bash).
+posix_our_pids() {
+    command -v pgrep >/dev/null 2>&1 || return 0
+    local pattern pid
+    case "$1" in
+        python) pattern='run_manager\.py|run_worker\.py|manage\.py' ;;
+        caddy) pattern='Caddyfile' ;;
+        *) return 0 ;;
+    esac
+    for pid in $(pgrep -f "$pattern" 2>/dev/null || true); do
+        [ "$pid" = "$$" ] && continue
+        pid_is_ours "$pid" "$1" && echo "$pid"
+    done
+    return 0
+}
+
+# PowerShell script for windows_process_list: one line per python.exe /
+# caddy.exe, "Name<TAB>ProcessId<TAB>CommandLine", with CR, LF and TAB
+# inside the command line turned into spaces, written as UTF-8 with LF.
+# Read from a plain heredoc, not $(cat <<...): macOS bash 3.2 mis-parses
+# the backticks of a heredoc body inside a command substitution. read
+# returns 1 at end of input, hence `|| true`.
+IFS= read -r -d '' WIN_PROC_PS <<'PS' || true
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='caddy.exe'" | ForEach-Object {
+    $c = [string]$_.CommandLine -replace "[\r\n\t]", " "
+    [Console]::Out.Write($_.Name + "`t" + $_.ProcessId + "`t" + $c + "`n")
+}
+PS
+# Drop the final newline, as $( ) used to.
+_nl='
+'
+WIN_PROC_PS=${WIN_PROC_PS%"$_nl"}
+unset _nl
+
+# "Name<TAB>ProcessId<TAB>CommandLine" lines from powershell.exe (Git
+# Bash). The script goes in as -EncodedCommand (base64 UTF-16LE) so no
+# quoting survives MSYS-to-Windows argument passing; the MSYS variables
+# stop Git Bash from rewriting any argument as a path. No output when
+# powershell.exe, iconv or base64 is missing.
+windows_process_list() {
+    command -v powershell.exe >/dev/null 2>&1 || return 0
+    command -v iconv >/dev/null 2>&1 || return 0
+    command -v base64 >/dev/null 2>&1 || return 0
+    local encoded
+    encoded=$(printf '%s' "$WIN_PROC_PS" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\r\n') || return 0
+    MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 \
+        powershell.exe -NoProfile -NonInteractive -EncodedCommand "$encoded" 2>/dev/null \
+        | tr -d '\r' || true
+}
+
+# "<kind> <pid>" for this checkout's python.exe / caddy.exe processes on
+# Windows (Git Bash). Fixed-string match, see win_cmdline_is_ours.
+windows_our_procs() {
+    is_windows_bash || return 0
+    local name pid cmd kind
+    while IFS=$'\t' read -r name pid cmd; do
+        case "$name" in
+            [Pp][Yy][Tt][Hh][Oo][Nn].[Ee][Xx][Ee]) kind=python ;;
+            [Cc][Aa][Dd][Dd][Yy].[Ee][Xx][Ee]) kind=caddy ;;
+            *) continue ;;
+        esac
+        case "$pid" in ''|*[!0-9]*) continue ;; esac
+        win_cmdline_is_ours "$kind" "$cmd" && echo "$kind $pid"
+    done < <(windows_process_list)
+    return 0
+}
+
+# POSIX sweep of this checkout's orphaned processes (see pid_is_ours).
+sweep_posix_processes() {
+    local pid killed=false
+    for pid in $(posix_our_pids python); do
+        echo "[KILL] Stopping PID $pid"; kill "$pid" 2>/dev/null || true; killed=true
+    done
+    for pid in $(posix_our_pids caddy); do
+        echo "[KILL] Stopping Caddy PID $pid"; kill "$pid" 2>/dev/null || true; killed=true
+    done
+    [ "$killed" = true ] && sleep 1
+    return 0
+}
+
+# Windows sweep (Git Bash) for this checkout's python.exe / caddy.exe
+# that slipped past the PID files. No-op when powershell.exe or taskkill
+# is missing.
+sweep_windows_processes() {
+    command -v taskkill >/dev/null 2>&1 || return 0
+    local kind pid killed=false
+    while read -r kind pid; do
+        [ -n "$pid" ] || continue
+        echo "[KILL] Taskkill $kind PID $pid"
+        taskkill //F //PID "$pid" >/dev/null 2>&1 || true
+        killed=true
+    done < <(windows_our_procs)
+    [ "$killed" = true ] && sleep 1
+    return 0
+}
+
 cmd_clean() {
+    local remove_user_dir=false arg
+    for arg in "$@"; do
+        case "$arg" in
+            --all) remove_user_dir=true ;;
+            *) echo "[ERROR] Unknown option for clean: $arg"; usage; exit 1 ;;
+        esac
+    done
+    resolve_user_data_dir
+    # A link would send the removal somewhere else: refuse it.
+    if [ "$remove_user_dir" = true ] && [ -z "$USER_DATA_DIR_ERROR" ] && [ -L "$USER_DATA_DIR" ]; then
+        USER_DATA_DIR_ERROR="$USER_DATA_DIR is a symbolic link or junction"
+    fi
+    # Refuse before touching anything when --all cannot name a safe folder.
+    if [ "$remove_user_dir" = true ] && [ -n "$USER_DATA_DIR_ERROR" ]; then
+        echo "[ERROR] Refusing to remove the per-user data folder: $USER_DATA_DIR_ERROR"
+        echo "        Nothing was removed."
+        exit 1
+    fi
     echo "============================================================"
     echo "  Sethlans Reborn -- Clean"
     echo "============================================================"
@@ -176,46 +446,12 @@ cmd_clean() {
     # pgrep doesn't enumerate native Windows Python processes).
     cmd_stop
     sleep 1
-    # Belt-and-suspenders: try pgrep too in case a stray MSYS process
-    # exists (no-op on Windows-native children).
-    local victims
-    victims=$(pgrep -f "$PROJECT_ROOT.*(manage\.py runserver|run_manager\.py|run_worker\.py)" 2>/dev/null || true)
-    if [ -n "$victims" ]; then
-        for pid in $victims; do
-            echo "[KILL] Stopping PID $pid"; kill "$pid" 2>/dev/null || true
-        done
-        sleep 1
-    fi
-    local caddy_victims
-    caddy_victims=$(pgrep -f "caddy.*$MANAGER_DIR/caddy/Caddyfile" 2>/dev/null || true)
-    if [ -n "$caddy_victims" ]; then
-        for pid in $caddy_victims; do
-            echo "[KILL] Stopping Caddy PID $pid"; kill "$pid" 2>/dev/null || true
-        done
-        sleep 1
-    fi
-    # On Windows, also sweep any run_manager.py/run_worker.py/caddy.exe
-    # that slipped past the PID-file path (e.g. ran from a prior session
-    # with a different PID file layout). Uses wmic/taskkill — no-ops on
-    # POSIX systems where they don't exist.
-    if command -v wmic >/dev/null 2>&1 && command -v taskkill >/dev/null 2>&1; then
-        # Match on run_manager.py / run_worker.py substrings in the
-        # commandline; both are unique enough that they won't pick up
-        # unrelated python.exe processes.
-        local pids
-        pids=$(wmic process where "name='python.exe' and (commandline like '%%run_manager.py%%' or commandline like '%%run_worker.py%%')" get processid 2>/dev/null | tr -d '\r' | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' || true)
-        for p in $pids; do
-            echo "[KILL] Taskkill python PID $p"
-            taskkill //F //PID "$p" >/dev/null 2>&1 || true
-        done
-        local cpids
-        cpids=$(wmic process where "name='caddy.exe'" get processid 2>/dev/null | tr -d '\r' | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' || true)
-        for p in $cpids; do
-            echo "[KILL] Taskkill caddy PID $p"
-            taskkill //F //PID "$p" >/dev/null 2>&1 || true
-        done
-        sleep 1
-    fi
+    # Belt-and-suspenders: sweep this checkout's orphaned manager /
+    # worker / Caddy processes not covered by PID files (POSIX via
+    # pgrep, Windows via powershell.exe; each is a no-op where its
+    # tools are missing).
+    sweep_posix_processes
+    sweep_windows_processes
     rm -f "$PID_DIR/manager.pid" "$PID_DIR/worker.pid" "$PID_DIR/caddy.pid"
     # Manager artifacts — source-mode state lives inside manager/.
     rm -f "$CONFIG_FILE" "$MANAGER_DIR/db.sqlite3-journal"
@@ -225,9 +461,11 @@ cmd_clean() {
     if [ -e "$MANAGER_DIR/db.sqlite3" ]; then
         if ! rm -f "$MANAGER_DIR/db.sqlite3"; then
             echo "[ERROR] Failed to delete database file: $MANAGER_DIR/db.sqlite3"
+            # Same matcher as the sweep (posix_our_pids / windows_our_procs).
             local still
-            still=$(pgrep -f "$PROJECT_ROOT.*(manage\.py runserver|run_manager\.py|run_worker\.py)" 2>/dev/null || true)
-            [ -n "$still" ] && echo "        Still running: PID(s) $(echo "$still" | tr '\n' ' ')"
+            still=$({ posix_our_pids python; windows_our_procs | awk '$1 == "python" { print $2 }'; } | tr '\n' ' ')
+            still="${still% }"
+            [ -n "$still" ] && echo "        Still running: PID(s) $still"
             exit 1
         fi
     fi
@@ -244,19 +482,22 @@ cmd_clean() {
     rm -rf "$AGENT_DIR/managed_tools" "$AGENT_DIR/managed_assets" "$AGENT_DIR/worker_output"
     rm -rf "$AGENT_DIR/temp" "$AGENT_DIR/logs"
     find "$WORKER_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-    # Belt-and-suspenders: if the user previously ran a frozen-mode
-    # build or a Docker worker that used the default per-OS data dir,
-    # sweep that too so `clean` really means clean.
-    local shared_data_dir
-    case "$(uname -s)" in
-        Darwin) shared_data_dir="$HOME/Library/Application Support/Sethlans" ;;
-        *)      shared_data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/sethlans" ;;
-    esac
-    if [ -d "$shared_data_dir" ]; then
-        rm -rf "$shared_data_dir"
-        echo "[OK] Shared data dir removed ($shared_data_dir)"
-    fi
     echo "[OK] Worker artifacts removed"
+    # The per-user data folder holds the identity files (TLS keys,
+    # secret key, worker enrollment) of any installed manager or worker
+    # on this account, so it is removed only with --all.
+    if [ "$remove_user_dir" = true ]; then
+        if [ -e "$USER_DATA_DIR" ] || [ -L "$USER_DATA_DIR" ]; then
+            rm -rf "$USER_DATA_DIR"
+            if [ -e "$USER_DATA_DIR" ] || [ -L "$USER_DATA_DIR" ]; then
+                echo "[ERROR] Could not remove the per-user data folder ($USER_DATA_DIR)"
+                exit 1
+            fi
+            echo "[OK] Shared data dir removed ($USER_DATA_DIR)"
+        fi
+    elif [ -n "$USER_DATA_DIR" ] && [ -d "$USER_DATA_DIR" ]; then
+        echo "[OK] Shared data dir kept ($USER_DATA_DIR); remove it with: bash tools/sethlans.sh clean --all"
+    fi
     # Shared artifacts
     rm -rf "$PROJECT_ROOT/temp" "$PROJECT_ROOT/.pytest_cache" "$PROJECT_ROOT/sethlans_e2e_cache"
     rm -f "$PROJECT_ROOT/test_e2e_db.sqlite3"
@@ -378,26 +619,33 @@ cmd_worker() {
 }
 
 # -- stop ----------------------------------------------------------------
+# Stop the process in PID file $1 (worker, caddy, manager) when it is
+# this checkout's $2 (python or caddy, see pid_is_ours); $3 is the label.
+# A live PID that is not ours, or whose name or command line cannot be
+# read, is a stale PID file: warn, drop the file, leave the process.
+# Returns 0 only when something was stopped.
+stop_tracked() {
+    local pid; pid=$(get_saved_pid "$1")
+    [ -n "$pid" ] || return 1
+    if ! pid_is_ours "$pid" "$2"; then
+        echo "[WARN] Stale PID file for $1 (PID $pid is not ours); not stopping it"
+        remove_pid "$1"
+        return 1
+    fi
+    kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+    remove_pid "$1"; echo "[OK] $3 stopped (PID $pid)"
+    return 0
+}
+
 cmd_stop() {
     local stopped=false
     # Stop worker first so it doesn't log enrollment failures when
     # Caddy/Manager go away mid-heartbeat.
-    local worker_pid; worker_pid=$(get_saved_pid "worker")
-    if [ -n "$worker_pid" ]; then
-        kill "$worker_pid" 2>/dev/null; wait "$worker_pid" 2>/dev/null || true
-        remove_pid "worker"; echo "[OK] Worker stopped (PID $worker_pid)"; stopped=true
-    fi
-    local caddy_pid; caddy_pid=$(get_saved_pid "caddy")
-    if [ -n "$caddy_pid" ]; then
-        kill "$caddy_pid" 2>/dev/null; wait "$caddy_pid" 2>/dev/null || true
-        remove_pid "caddy"; echo "[OK] Caddy stopped (PID $caddy_pid)"; stopped=true
-    fi
-    local manager_pid; manager_pid=$(get_saved_pid "manager")
-    if [ -n "$manager_pid" ]; then
-        kill "$manager_pid" 2>/dev/null; wait "$manager_pid" 2>/dev/null || true
-        remove_pid "manager"; echo "[OK] Manager stopped (PID $manager_pid)"; stopped=true
-    fi
-    [ "$stopped" = false ] && echo "[OK] No running services found"
+    if stop_tracked worker python "Worker"; then stopped=true; fi
+    if stop_tracked caddy caddy "Caddy"; then stopped=true; fi
+    if stop_tracked manager python "Manager"; then stopped=true; fi
+    if [ "$stopped" = false ]; then echo "[OK] No running services found"; fi
+    return 0
 }
 
 # -- status --------------------------------------------------------------
@@ -411,9 +659,15 @@ cmd_status() {
 }
 
 # -- Main ----------------------------------------------------------------
-case "${1:-}" in
+COMMAND="${1:-}"
+[ $# -gt 0 ] && shift
+# Only `clean` takes options.
+if [ "$COMMAND" != "clean" ] && [ $# -gt 0 ]; then
+    echo "[ERROR] '$COMMAND' takes no options"; usage; exit 1
+fi
+case "$COMMAND" in
     dev)     cmd_dev ;;
-    clean)   cmd_clean ;;
+    clean)   cmd_clean "$@" ;;
     start)   cmd_start ;;
     manager) cmd_manager ;;
     worker)  cmd_worker ;;

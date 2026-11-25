@@ -5,48 +5,37 @@
 Issue #311: the clean-script tests must never reach the developer's real
 per-user Sethlans folder.
 
-``clean`` removes ``%LOCALAPPDATA%\\Sethlans`` (sethlans.ps1) or the macOS /
-XDG equivalent (sethlans.sh). These tests check that run_clean() points the
-child at a per-test folder, that the script removes the redirected folder and
-nothing next to it, and that an environment reaching anywhere else is refused
-before a child is spawned.
+``clean --all`` (``-All``) removes ``%LOCALAPPDATA%\\Sethlans`` (sethlans.ps1)
+or the macOS / XDG / Git Bash equivalent (sethlans.sh); a plain ``clean``
+keeps it (issue #315). These tests check that run_clean() points the child at
+a per-test folder, that the flag form removes the redirected folder and
+nothing next to it, that the default form keeps it, and that an environment
+reaching anywhere else is refused before a child is spawned.
 """
 
 import os
-import sys
 from pathlib import Path
 
 import pytest
 
 from . import _clean_env
+from ._clean_asserts import (
+    assert_exit,
+    assert_identity_files_kept,
+    seed_identity_files,
+    seed_sibling_marker,
+)
 from ._clean_env import (
     UnsafeCleanEnvironment,
     assert_env_isolated,
+    assert_vars_safe,
     isolated_env,
     script_data_dir,
 )
-from .conftest import IS_WINDOWS, clean_env, run_clean, user_dirs_base
+from ._clean_runner import shown_path
+from .conftest import DEFAULT_SHELL, IS_WINDOWS, clean_env, run_clean, user_dirs_base
 
-
-def _assert_ok(result):
-    assert result.returncode == 0, (
-        f"clean exited {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-
-
-def _seed_identity_files(data_dir: Path):
-    """Stand-ins for the real identity files clean would wipe."""
-    (data_dir / "manager").mkdir(parents=True)
-    (data_dir / "manager" / "secret_key").write_text("fake secret")
-    (data_dir / "worker").mkdir()
-    (data_dir / "worker" / "config.json").write_text('{"api_token": "fake"}')
-
-
-def _seed_sibling_marker(data_dir: Path) -> Path:
-    marker = data_dir.parent / "UnrelatedApp" / "marker.txt"
-    marker.parent.mkdir(parents=True)
-    marker.write_text("keep me")
-    return marker
+_ALL_FLAG = "-All" if DEFAULT_SHELL == "ps1" else "--all"
 
 
 class TestCleanRemovesOnlyRedirectedFolder:
@@ -55,29 +44,27 @@ class TestCleanRemovesOnlyRedirectedFolder:
     def test_removes_redirected_folder_and_spares_sibling(self, fake_project):
         env = clean_env(fake_project)
         data_dir = assert_env_isolated(env, user_dirs_base(fake_project))
-        _seed_identity_files(data_dir)
-        marker = _seed_sibling_marker(data_dir)
+        seed_identity_files(data_dir)
+        marker = seed_sibling_marker(data_dir)
 
-        result = run_clean(fake_project, env)
+        result = run_clean(fake_project, env, [_ALL_FLAG])
 
-        _assert_ok(result)
-        assert not data_dir.exists(), "clean should remove the redirected per-user folder"
+        assert_exit(result, 0)
+        assert not data_dir.exists(), "clean --all should remove the redirected per-user folder"
         assert marker.read_text() == "keep me", "clean must not touch a sibling folder"
-        assert f"Shared data dir removed ({data_dir})" in result.stdout
+        shown = shown_path(DEFAULT_SHELL, data_dir.parent, data_dir.name)
+        assert f"Shared data dir removed ({shown})" in result.stdout
 
-    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="XDG lookup is the Linux branch")
-    def test_xdg_data_home_wins_over_home_on_linux(self, fake_project):
+    def test_default_clean_keeps_redirected_folder(self, fake_project):
         env = clean_env(fake_project)
-        xdg_dir = Path(env["XDG_DATA_HOME"]) / "sethlans"
-        home_dir = Path(env["HOME"]) / ".local" / "share" / "sethlans"
-        _seed_identity_files(xdg_dir)
-        _seed_identity_files(home_dir)
+        data_dir = assert_env_isolated(env, user_dirs_base(fake_project))
+        seed_identity_files(data_dir)
 
         result = run_clean(fake_project, env)
 
-        _assert_ok(result)
-        assert not xdg_dir.exists()
-        assert (home_dir / "manager" / "secret_key").read_text() == "fake secret"
+        assert_exit(result, 0)
+        assert_identity_files_kept(data_dir)
+        assert "Shared data dir removed" not in result.stdout
 
 
 class TestScriptDataDir:
@@ -104,15 +91,11 @@ class TestScriptDataDir:
 
 
 class TestIsolatedEnv:
-    @pytest.mark.parametrize("platform, names", [
-        ("win32", ["LOCALAPPDATA"]),
-        ("darwin", ["HOME", "XDG_DATA_HOME"]),
-        ("linux", ["HOME", "XDG_DATA_HOME"]),
-    ])
-    def test_points_every_lookup_variable_under_base(self, tmp_path, platform, names):
+    @pytest.mark.parametrize("platform", ["win32", "darwin", "linux"])
+    def test_points_every_lookup_variable_under_base(self, tmp_path, platform):
         env = isolated_env(tmp_path, platform)
 
-        for name in names:
+        for name in ("LOCALAPPDATA", "HOME", "XDG_DATA_HOME"):
             assert Path(env[name]).is_dir()
             assert Path(env[name]).parent == tmp_path
         assert tmp_path in script_data_dir(env, platform).parents
@@ -182,3 +165,53 @@ class TestRunCleanEnvironment:
             run_clean(fake_project, dict(os.environ))
 
         run.assert_not_called()
+
+    def test_passes_extra_arguments_after_the_command(self, fake_project, mocker):
+        run = mocker.patch("subprocess.run")
+
+        run_clean(fake_project, args=[_ALL_FLAG])
+
+        assert run.call_args.args[0][-2:] == ["clean", _ALL_FLAG]
+
+    @pytest.mark.parametrize("name", ["LOCALAPPDATA", "HOME", "XDG_DATA_HOME"])
+    def test_refuses_any_lookup_variable_outside_base(self, fake_project, tmp_path_factory, mocker, name):
+        run = mocker.patch("subprocess.run")
+        env = clean_env(fake_project)
+        env[name] = str(tmp_path_factory.mktemp("elsewhere"))
+
+        with pytest.raises(UnsafeCleanEnvironment, match=name):
+            run_clean(fake_project, env)
+
+        run.assert_not_called()
+
+    def test_unsafe_values_mode_still_refuses_absolute_outside_base(self, fake_project, tmp_path_factory, mocker):
+        run = mocker.patch("subprocess.run")
+        env = clean_env(fake_project)
+        env["HOME"] = str(tmp_path_factory.mktemp("elsewhere"))
+
+        with pytest.raises(UnsafeCleanEnvironment, match="HOME"):
+            run_clean(fake_project, env, unsafe_values=True)
+
+        run.assert_not_called()
+
+
+class TestAssertVarsSafe:
+    @pytest.mark.parametrize("value", [None, "", "relative"])
+    def test_unsafe_values_mode_allows_unset_empty_relative(self, tmp_path, value):
+        env = isolated_env(tmp_path)
+        if value is None:
+            env.pop("HOME")
+        else:
+            env["HOME"] = value
+
+        assert_vars_safe(env, tmp_path, allow_unsafe_values=True)
+
+        with pytest.raises(UnsafeCleanEnvironment, match="HOME"):
+            assert_vars_safe(env, tmp_path)
+
+    def test_refuses_value_reaching_a_real_folder(self, tmp_path, mocker):
+        env = isolated_env(tmp_path)
+        mocker.patch.object(_clean_env, "real_user_data_dirs", return_value={tmp_path / "home"})
+
+        with pytest.raises(UnsafeCleanEnvironment, match="real per-user folder"):
+            assert_vars_safe(env, tmp_path)

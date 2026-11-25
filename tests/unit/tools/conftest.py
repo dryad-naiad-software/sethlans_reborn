@@ -5,13 +5,16 @@
 Shared fixtures and helpers for tools/sethlans.{ps1,sh} clean script tests.
 
 The fake_project fixture materializes a Sethlans-like layout under tmp_path
-and copies the real platform-appropriate clean script into it. The scripts
-resolve $PSScriptRoot / $BASH_SOURCE from their own location, so once copied
-they automatically treat tmp_path as the project root with no patching.
+and copies both real scripts into it. The scripts resolve $PSScriptRoot /
+$BASH_SOURCE from their own location, so once copied they automatically
+treat tmp_path as the project root with no patching.
 
-``clean`` also removes the per-user Sethlans folder it finds from
-LOCALAPPDATA / HOME / XDG_DATA_HOME, so run_clean() never lets the child
-inherit those variables (issue #311); see ``_clean_env``.
+A plain ``clean`` keeps the per-user Sethlans folder it finds from
+LOCALAPPDATA / HOME / XDG_DATA_HOME; ``clean --all`` (``-All``) removes it
+(issue #315). Either way run_clean() never lets the child inherit those
+variables (issue #311): every one of them points under the fake project,
+and the environment is checked before anything is spawned; see
+``_clean_env`` and ``_clean_runner``.
 """
 
 import shutil
@@ -21,7 +24,14 @@ from pathlib import Path
 
 import pytest
 
-from ._clean_env import assert_env_isolated, isolated_env, real_user_data_dirs
+from . import _clean_runner as runner
+from ._clean_env import (
+    all_real_user_data_dirs,
+    assert_env_isolated,
+    assert_vars_safe,
+    isolated_env,
+    script_data_dir,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -36,16 +46,19 @@ if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
 IS_WINDOWS = sys.platform == "win32"
+DEFAULT_SHELL = "ps1" if IS_WINDOWS else "sh"
 
 # Generous timeout — first PowerShell invocation can be slow on cold caches.
 SCRIPT_TIMEOUT = 60
+
+_UNAME_PLATFORM = {"Linux": "linux", "Darwin": "darwin"}
 
 
 @pytest.fixture
 def fake_project(tmp_path):
     """
-    Build a fake Sethlans project layout under tmp_path and copy the
-    real platform-appropriate clean script into tmp_path/tools/.
+    Build a fake Sethlans project layout under tmp_path and copy both real
+    scripts into tmp_path/tools/.
     """
     (tmp_path / "tools").mkdir()
     (tmp_path / "manager").mkdir()
@@ -60,10 +73,8 @@ def fake_project(tmp_path):
     (tmp_path / "manager" / "sethlans.ini").write_text("[server]\nport = 9443\n")
     (tmp_path / "manager" / "media" / "assets" / "test" / "foo.blend").write_bytes(b"fake blend")
 
-    if IS_WINDOWS:
-        shutil.copy2(REAL_PS1, tmp_path / "tools" / "sethlans.ps1")
-    else:
-        shutil.copy2(REAL_SH, tmp_path / "tools" / "sethlans.sh")
+    shutil.copy2(REAL_PS1, tmp_path / "tools" / "sethlans.ps1")
+    shutil.copy2(REAL_SH, tmp_path / "tools" / "sethlans.sh")
 
     return tmp_path
 
@@ -79,10 +90,11 @@ def _top_level_entries(folder: Path):
 def _real_user_data_dir_survives():
     """
     Fail loudly if a test in this package removes the developer's real
-    per-user Sethlans folder or anything directly inside it (#311).
-    Creating it (Django settings do on load) is allowed.
+    per-user Sethlans folder or anything directly inside it (#311), under
+    any of the scripts' lookups. Creating it (Django settings do on load)
+    is allowed.
     """
-    before = {folder: _top_level_entries(folder) for folder in real_user_data_dirs()}
+    before = {folder: _top_level_entries(folder) for folder in all_real_user_data_dirs()}
     yield
     for folder, entries in before.items():
         if entries is None:
@@ -103,32 +115,65 @@ def clean_env(project_root: Path) -> dict:
     return isolated_env(user_dirs_base(project_root))
 
 
-def run_clean(project_root: Path, env=None) -> subprocess.CompletedProcess:
+def _effective_env(env, inner_env):
+    effective = dict(env)
+    for name, value in (inner_env or {}).items():
+        if value is None:
+            effective.pop(name, None)
+        else:
+            effective[name] = value
+    return effective
+
+
+def _check_env(effective, base, shell, uname, unsafe_values):
+    """Refuse, before anything is spawned, an env that could reach outside ``base``."""
+    assert_vars_safe(effective, base, allow_unsafe_values=unsafe_values)
+    platform = "win32" if shell in runner.PS_SHELLS else _UNAME_PLATFORM.get(uname, sys.platform)
+    target = script_data_dir(effective, platform)
+    if unsafe_values and (target is None or not target.is_absolute()):
+        return
+    assert_env_isolated(effective, base, platform)
+
+
+def run_clean(project_root: Path, env=None, args=(), *, command="clean", shell=None,
+              uname=None, inner_env=None, unsafe_values=False) -> subprocess.CompletedProcess:
     """
-    Invoke the clean command on the platform-appropriate fake script.
+    Run ``command`` (default ``clean``; ``None`` for none) with extra ``args``
+    (``--all``, ``-All``, ...) on one of the fake project's scripts.
+
+    ``shell`` is "ps1" (Windows PowerShell), "pwsh" or "sh" (default: the
+    platform's own script); the test is skipped when that shell is missing.
+    sh runs always get a fake ``powershell.exe`` and ``taskkill`` first on
+    PATH (``_clean_runner.install_fake_sweep``) unless the test installed
+    its own. ``uname`` puts a fake ``uname``
+    printing that value first on PATH (sh only). ``inner_env`` sets (or, with
+    ``None``, unsets) variables inside bash, after Git Bash's start-up
+    rewrite. ``unsafe_values`` allows a per-user variable to be unset, empty
+    or relative, for tests where the script must refuse it.
 
     The child always gets a per-test environment (``clean_env``). An ``env``
     passed in is checked first and refused, before anything is spawned, if
-    the script would reach a folder outside ``user_dirs_base(project_root)``.
+    the script could reach a folder outside ``user_dirs_base(project_root)``.
     """
+    shell = shell or DEFAULT_SHELL
     if env is None:
         env = clean_env(project_root)
-    assert_env_isolated(env, user_dirs_base(project_root))
-    if IS_WINDOWS:
-        script = project_root / "tools" / "sethlans.ps1"
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", str(script),
-            "clean",
-        ]
-    else:
-        script = project_root / "tools" / "sethlans.sh"
-        cmd = ["bash", str(script), "clean"]
-
+    base = user_dirs_base(project_root)
+    _check_env(_effective_env(env, inner_env), base, shell, uname, unsafe_values)
+    argv = runner.build_command(shell, project_root, [command, *args] if command else list(args), inner_env)
+    env = dict(env)
+    if shell == "sh":
+        if uname:
+            runner.install_fake_uname(project_root, uname)
+        if not (runner.fake_bin(project_root) / "taskkill").exists():
+            runner.install_fake_sweep(project_root)
+        if IS_WINDOWS:
+            xdg = env.get("XDG_DATA_HOME")
+            if xdg and Path(xdg).is_absolute() and "XDG_DATA_HOME" not in (inner_env or {}):
+                env["XDG_DATA_HOME"] = runner.bash_path(xdg)
+        env["PATH"] = runner.child_path(shell, project_root, env)
     return subprocess.run(
-        cmd,
+        argv,
         cwd=str(project_root),
         env=env,
         capture_output=True,
