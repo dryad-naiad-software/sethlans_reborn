@@ -80,7 +80,13 @@ def test_ps1_refuses_relative_localappdata(fake_project, value, shell):
     assert_refused(result, fake_project, f"LOCALAPPDATA is not an absolute path: '{value}'")
 
 
-@pytest.mark.parametrize("value", [r"relative\dir", "C:relative", r"\rooted", "/rooted"])
+@pytest.mark.parametrize("value", [
+    r"relative\dir", "C:relative", r"\rooted",
+    # An absolute path off Windows, so the harness guard refuses it there
+    # before the script runs; the guard is not loosened for it.
+    pytest.param("/rooted", marks=pytest.mark.skipif(
+        not IS_WINDOWS, reason="'/rooted' is absolute on POSIX and the harness guard refuses it")),
+])
 def test_sh_git_bash_branch_refuses_relative_localappdata(fake_project, value):
     """
     The raw value is checked before cygpath, which would make ``\\rooted``

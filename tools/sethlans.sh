@@ -341,14 +341,21 @@ posix_our_pids() {
 # PowerShell script for windows_process_list: one line per python.exe /
 # caddy.exe, "Name<TAB>ProcessId<TAB>CommandLine", with CR, LF and TAB
 # inside the command line turned into spaces, written as UTF-8 with LF.
-WIN_PROC_PS=$(cat <<'PS'
+# Read from a plain heredoc, not $(cat <<...): macOS bash 3.2 mis-parses
+# the backticks of a heredoc body inside a command substitution. read
+# returns 1 at end of input, hence `|| true`.
+IFS= read -r -d '' WIN_PROC_PS <<'PS' || true
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='caddy.exe'" | ForEach-Object {
     $c = [string]$_.CommandLine -replace "[\r\n\t]", " "
     [Console]::Out.Write($_.Name + "`t" + $_.ProcessId + "`t" + $c + "`n")
 }
 PS
-)
+# Drop the final newline, as $( ) used to.
+_nl='
+'
+WIN_PROC_PS=${WIN_PROC_PS%"$_nl"}
+unset _nl
 
 # "Name<TAB>ProcessId<TAB>CommandLine" lines from powershell.exe (Git
 # Bash). The script goes in as -EncodedCommand (base64 UTF-16LE) so no
