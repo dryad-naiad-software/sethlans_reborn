@@ -24,6 +24,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.unit._off_system_tmp import off_system_tmp_path_fixture
+
+# The manager refuses a ``[paths] data_dir`` in a system folder, and on macOS
+# pytest's tmp_path is under /private/var (FR-DF-2).
+tmp_path = off_system_tmp_path_fixture()
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MANAGER_DIR = REPO_ROOT / "manager"
 

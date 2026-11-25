@@ -23,8 +23,7 @@ import zipfile
 from unittest import mock
 
 import pytest
-from django.core.signals import request_finished
-from django.db import close_old_connections
+from django.db import connections
 from django.test import Client
 
 from workers.models import SequenceFrame, SequenceShot, SequenceSubmission
@@ -70,19 +69,18 @@ def _url(submission, action, index=None):
 
 
 def _close(resp):
-    """Close a streamed response the way the test client does after reading it.
+    """Close a streamed response the way the WSGI server does.
 
     ``close()`` sends ``request_finished``, whose ``close_old_connections``
     closes a connection inside the test's transaction on MySQL, MariaDB and
     PostgreSQL (SQLite's in-memory test database ignores it), which breaks
-    every later query of the test. The test client takes it off around the
-    close; so does this.
+    every later query of the test. Taking that receiver off is not enough:
+    for a stream read part-way, the test client's close wrapper runs inside
+    this close and connects it again before the signal goes out. So the
+    connection's close check does nothing here.
     """
-    request_finished.disconnect(close_old_connections)
-    try:
+    with mock.patch.object(connections['default'], 'close_if_unusable_or_obsolete'):
         resp.close()
-    finally:
-        request_finished.connect(close_old_connections)
 
 
 def _body(resp):

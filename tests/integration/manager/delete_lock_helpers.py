@@ -17,6 +17,7 @@ deletes.
 
 import contextlib
 import re
+import uuid
 from unittest.mock import patch
 
 from django.db import connection, transaction
@@ -77,10 +78,16 @@ def collector_writes(sqls):
 
 
 def locked_pks(sql):
-    """Run a captured lock again (its lock clause is a comment here); the pks it selects."""
+    """Run a captured lock again (its lock clause is a comment here); the pks it selects.
+
+    A UUID pk comes back as ``uuid.UUID`` on every database: the raw column is
+    32-digit hex on SQLite and MySQL, dashed text in MariaDB's native UUID type
+    and a ``uuid.UUID`` from PostgreSQL.
+    """
     with connection.cursor() as cursor:
         cursor.execute(runnable(sql))
-        return [row[0] for row in cursor.fetchall()]
+        pks = [row[0] for row in cursor.fetchall()]
+    return [pk if isinstance(pk, int) else uuid.UUID(str(pk)) for pk in pks]
 
 
 def sequence_rows(asset, versions):

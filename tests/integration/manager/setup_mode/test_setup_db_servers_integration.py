@@ -31,6 +31,7 @@ def server(request):
     return server_or_skip(request.param)
 
 
+@pytest.mark.django_db  # in-process probes run ahead of Playwright's loop (issue #277)
 class TestDatabaseServerProbeIntegration:
     def test_connection_test_passes_and_leaves_no_probe_table(self, server, django_db_blocker, tmp_path):
         with scratch_database(server) as name:

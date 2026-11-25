@@ -43,6 +43,7 @@ def unrelated_ca(tmp_path_factory):
     return str(cert)
 
 
+@pytest.mark.django_db  # in-process probes run ahead of Playwright's loop (issue #277)
 class TestDatabaseTlsServerIntegration:
     def test_good_ca_passes_and_the_connection_is_encrypted(self, tls_server, django_db_blocker, tmp_path):
         with scratch_database(tls_server, users=[("farmadmin", True)]) as name:

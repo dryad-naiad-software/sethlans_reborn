@@ -26,6 +26,10 @@ def _sqlite(path):
     return {"engine": "sqlite", "name": str(path)}
 
 
+# ``django_db`` sorts these in-process probes with the database tests, ahead of
+# the Playwright tests, whose event loop stays running on the main thread and
+# makes Django refuse the probe's connection there (issue #277).
+@pytest.mark.django_db
 class TestSqliteProbeIntegration:
     def test_wal_database_with_open_writer_shows_its_superuser(self, django_db_blocker, tmp_path):
         path = tmp_path / "db" / "db.sqlite3"

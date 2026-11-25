@@ -22,6 +22,7 @@ from .probe_pipeline import probe
 PROBE_TABLE_PREFIX = "sethlans_setup_probe_"
 
 
+@pytest.mark.django_db  # in-process probes run ahead of Playwright's loop (issue #277)
 class TestProbeConnectionDetailsIntegration:
     @pytest.mark.parametrize("write_test", [False, True], ids=["read-only", "with-connection-test"])
     def test_postgres_probe_runs_with_a_5_s_statement_timeout(self, django_db_blocker, tmp_path, monkeypatch,
