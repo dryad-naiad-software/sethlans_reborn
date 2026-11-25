@@ -89,12 +89,12 @@ class TestLoadToken:
         token_file.mkdir()
         assert _error(token_file).startswith(f"Cannot read the setup token at {token_file}: ")
 
-    @pytest.mark.parametrize("data", [b"a" * 513, "tokén-secret".encode()])
-    def test_message_never_quotes_the_content(self, token_file, data):
-        write_owner_only(token_file, data)
-        message = _error(token_file)
-        assert "aaaa" not in message
-        assert "secret" not in message
+    @pytest.mark.parametrize("content", ["QZXJ" * 128 + "Q", "QZXJé"], ids=["too long", "not ASCII"])
+    def test_message_never_quotes_the_content(self, token_file, content):
+        """FR-SEC-1. Without the path (a random folder name), no token character is in the message."""
+        write_owner_only(token_file, content.encode("utf-8"))
+        message = _error(token_file).replace(str(token_file), "").lower()
+        assert not set(content.lower()) & set(message)
 
 
 class TestConfigure:
