@@ -95,6 +95,10 @@ are NOT cleaned automatically on exit — use `dev_clean.py` for that.
   keys. Run `python tools/check_ffmpeg_pins.py` (`--only <platform-id>`
   for one platform); exit 0 means all pins match. The `ffmpeg-pins`
   workflow runs it weekly and when the pins change.
+- `ci_db_tls.sh` — CI only (`python-ci.yml`, MySQL/MariaDB job): makes a
+  throwaway CA and a server certificate for 127.0.0.1, turns TLS on in
+  the MySQL, MariaDB and PostgreSQL service containers, and checks a
+  verified TLS session with PyMySQL and psycopg. Linux runners only.
 - `fetch_caddy.py` — populates `.venv-build/caddy/` with the Caddy
   binary used by frozen builds.
 - `wizard_smoke.py` — smoke test for the wizard backend.

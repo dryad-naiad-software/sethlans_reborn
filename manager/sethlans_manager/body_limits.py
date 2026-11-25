@@ -161,6 +161,16 @@ BODY_CLASSES = (UPLOAD_CLASS, FRAME_CLASS, SOUND_CLASS, RESULT_CLASS)
 check_disjoint(BODY_CLASSES)
 
 
+# Setup mode (``run_manager --setup``) serves only ``/api/setup/*`` and
+# its page, so its one server takes no body above this limit, and Django
+# there checks the same number (``settings_setup``). Not in BODY_CLASSES:
+# the running manager has no setup paths (they answer 404), and the
+# classes there all sit above the small limit.
+SETUP_BODY_LIMIT = 64 * 1024
+SETUP_PATHS = ('/api/setup/*',)
+SETUP_CLASS = BodyClass('setup', SETUP_BODY_LIMIT, SETUP_PATHS)
+
+
 def body_class_for_path(path: str) -> BodyClass | None:
     """Return the first class of :data:`BODY_CLASSES` whose patterns match *path*."""
     for body_class in BODY_CLASSES:

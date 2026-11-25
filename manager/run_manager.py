@@ -15,6 +15,8 @@ Usage:
     python manager/run_manager.py --dev            # Dev hot-reload
     python manager/run_manager.py --manage <cmd>   # Run a Django mgmt
                                                    # subcommand and exit
+    python manager/run_manager.py --setup          # Setup mode (exit 10 saved)
+    python manager/run_manager.py --hash-password  # Password on stdin -> hash
 
 Phase 6 replaced the ``--dev`` fail-fast stub with a watchdog-based
 parent/child wrapper. The parent process owns the filesystem observer
@@ -55,6 +57,22 @@ from shared.frozen_paths import (  # noqa: E402
 
 if is_frozen():
     MANAGER_DIR = get_manager_dir()
+
+
+def _dispatch_setup_mode(argv) -> None:
+    """``--setup`` / ``--hash-password``: run before any run-time import.
+
+    Setup mode loads ``settings_setup`` (no database, no ``workers``
+    app), so it must start before the imports below pull in the running
+    manager's modules. Never returns when one of the two flags is given.
+    """
+    if '--setup' not in argv and '--hash-password' not in argv:
+        return
+    from sethlans_manager.setup_mode import main as setup_main
+    sys.exit(setup_main(argv))
+
+
+_dispatch_setup_mode(sys.argv[1:])
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sethlans_manager.settings')
 

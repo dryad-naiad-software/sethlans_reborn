@@ -6,6 +6,7 @@ import logging.config
 import os
 from pathlib import Path
 
+from shared.data_folder import ensure_configured_data_root
 from shared.frozen_paths import get_data_dir
 
 # BASE_DIR must match settings.py
@@ -21,6 +22,10 @@ LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'DEBUG').upper()
 # data folder in every mode (shared.frozen_paths.get_data_dir): the
 # per-user folder when installed, manager/ from source, /data in the
 # Docker image; SETHLANS_DATA_ROOT and [paths] data_dir move them.
+# This is the first folder the manager makes under its data folder, so a
+# data folder chosen in setup ([paths] data_dir) is checked and made
+# owner-only here first (FR-DF-2); a folder that fails stops the start.
+ensure_configured_data_root('manager')
 LOGS_DIR = get_data_dir('manager') / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 

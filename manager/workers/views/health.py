@@ -27,16 +27,19 @@ from sethlans_manager import runtime_state
 @authentication_classes([])
 @permission_classes([AllowAny])
 def health_view(request):
-    """Return ``{"boot_id": str, "version": str}``.
+    """Return ``{"mode": "normal", "boot_id": str, "version": str}``.
 
     ``boot_id`` changes on every manager start — the Angular done-step
-    polls this to detect a completed restart (FR-15).
+    polls this to detect a completed restart (FR-15). Setup mode answers
+    the same path with ``"mode": "setup"``, so the setup page can tell
+    the two apart.
     """
     # Imported lazily so tests can stub the module-level version.
     from sethlans_manager import __version__ as manager_version
 
     boot_id = runtime_state.manager_boot_id or ""
     return Response({
+        "mode": "normal",
         "boot_id": boot_id,
         "version": manager_version,
     })

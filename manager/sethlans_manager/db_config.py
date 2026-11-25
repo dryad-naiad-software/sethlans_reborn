@@ -45,6 +45,7 @@ import logging
 import os
 from pathlib import Path
 
+from sethlans_manager.db_tls import tls_options, warn_if_url_overrides_tls
 from shared.frozen_paths import get_data_dir
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,7 @@ def build_database_config(config: configparser.RawConfigParser) -> dict:
     # Check for composite DATABASE_URL first (highest priority).
     database_url = os.getenv("SETHLANS_DATABASE_URL")
     if database_url:
+        warn_if_url_overrides_tls(config)
         return _parse_database_url(database_url, conn_max_age)
 
     # Read individual env vars, falling back to the settings file [database].
@@ -172,9 +174,12 @@ def build_database_config(config: configparser.RawConfigParser) -> dict:
     port = _get("port", _DEFAULT_PORTS.get(engine, ""))
     user = _get("user")
 
-    return _build_external(
+    databases = _build_external(
         engine, name, host, port, user, password, conn_max_age,
     )
+    # TLS keys (tls, tls_ca_file, tls_mode): see db_tls.
+    databases["default"]["OPTIONS"].update(tls_options(engine, _get))
+    return databases
 
 
 def _build_sqlite(name: str) -> dict:
