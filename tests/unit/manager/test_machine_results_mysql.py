@@ -8,10 +8,11 @@ MySQL refused the audio step (error 1093): an ``UPDATE workers_job`` whose
 ``WHERE NOT EXISTS`` read ``workers_job``. The step now selects the keys
 first and updates by a plain list of them, in chunks.
 
-The data step runs on the SQLite test database with the real models. Its
-audio rows must match what the old single statement gave, and every
-``UPDATE``/``DELETE`` it runs, compiled for MySQL, must not read its own
-table in a subquery.
+The data step runs on the test database with the real models. Its audio
+rows must match the old statement's rule, worked out in Python from the
+fixture rows (the old statement is never sent: MySQL refuses it), and
+every ``UPDATE``/``DELETE`` it runs, compiled for MySQL, must not read its
+own table in a subquery.
 """
 
 import importlib
@@ -20,7 +21,6 @@ from unittest.mock import patch
 
 import pytest
 from django.apps import apps as django_apps
-from django.db import transaction
 from django.db.models import Exists, OuterRef
 
 from tests.mysql_self_ref_sql import (
@@ -105,13 +105,18 @@ def _run_data_step():
 
 
 def _old_rows():
-    """The rows the pre-#318 statement gives, rolled back afterwards."""
-    with transaction.atomic():
-        queryset, values = _old_audio_step(NOW)
-        queryset.update(**values)
-        rows = _rows()
-        transaction.set_rollback(True)
-    return rows
+    """The rows the pre-#318 statement gives, from the fixture rows (SELECTs only).
+
+    QUEUED audio jobs with no render job in the same submission (none for a job
+    without a submission: ``NULL = NULL`` never matches) become CANCELED.
+    """
+    jobs = list(Job.objects.exclude(unreal_kind='pilot').values('name', 'unreal_kind', 'sequence_submission_id', *_ROW))
+    with_pieces = {job['sequence_submission_id'] for job in jobs
+                   if job['unreal_kind'] == 'render' and job['sequence_submission_id'] is not None}
+    canceled = ('CANCELED', MIGRATION.AUDIO_WITHOUT_PIECES, NOW)
+    return {job['name']: canceled if (job['unreal_kind'], job['status']) == ('audio', 'QUEUED')
+            and job['sequence_submission_id'] not in with_pieces else tuple(job[field] for field in _ROW)
+            for job in jobs}
 
 
 @pytest.mark.django_db
@@ -161,7 +166,8 @@ class TestMysqlCompiledSql:
         assert errors == []
 
     def test_checks_see_the_old_statement(self, seeded):
-        with mysql_write_checks() as errors:
+        with mysql_write_checks(execute=False) as errors:
             queryset, values = _old_audio_step(NOW)
-            queryset.update(**values)
+            queryset.update(**values)  # compiled and checked, never sent
         assert len(errors) == 1 and 'workers_job' in errors[0]
+        assert _rows()['audio-alone'] == ('QUEUED', '', None)

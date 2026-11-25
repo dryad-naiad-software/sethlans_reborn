@@ -134,22 +134,23 @@ def _mysql_error(query, conn):
 
 
 @contextmanager
-def mysql_write_checks():
+def mysql_write_checks(execute=True):
     """While active, every UPDATE/DELETE that runs is also compiled for MySQL.
 
-    Yields the list of 1093 reasons found; the statements still run on the
-    test database as usual.
+    Yields the list of 1093 reasons found. The statements still run on the
+    test database, unless ``execute`` is False: then they are only compiled
+    and checked (for a statement the test database itself may refuse).
     """
     conn, errors = mysql_compile_connection(), []
     run_update, run_delete = SQLUpdateCompiler.execute_sql, SQLDeleteCompiler.execute_sql
 
     def update(compiler, *args, **kwargs):
         errors.extend(filter(None, [_mysql_error(compiler.query, conn)]))
-        return run_update(compiler, *args, **kwargs)
+        return run_update(compiler, *args, **kwargs) if execute else 0
 
     def delete(compiler, *args, **kwargs):
         errors.extend(filter(None, [_mysql_error(compiler.query, conn)]))
-        return run_delete(compiler, *args, **kwargs)
+        return run_delete(compiler, *args, **kwargs) if execute else 0
 
     with patch.object(SQLUpdateCompiler, 'execute_sql', update), \
             patch.object(SQLDeleteCompiler, 'execute_sql', delete):
