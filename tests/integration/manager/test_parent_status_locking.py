@@ -20,6 +20,8 @@ import pytest
 from django.core.files.base import ContentFile
 from django.db import OperationalError, connection
 from django.test.utils import CaptureQueriesContext
+
+from tests.row_lock_sql import captured_sql
 from PIL import Image
 
 from workers import image_assembler
@@ -37,8 +39,8 @@ LOCK_SENTINEL = '__write_lock__'
 
 def _statements(ctx):
     return [
-        q['sql'] for q in ctx.captured_queries
-        if not q['sql'].upper().startswith(('SAVEPOINT', 'RELEASE SAVEPOINT'))
+        sql for sql in captured_sql(ctx)
+        if not sql.upper().startswith(('SAVEPOINT', 'RELEASE SAVEPOINT'))
     ]
 
 

@@ -46,9 +46,29 @@ def ansi_quoted(sql):
     return sql.replace('`', '"')
 
 
+class CapturedSql(str):
+    """A captured statement for matching (names quoted ``"name"``); ``.raw`` is what the database ran.
+
+    MySQL and MariaDB read ``"x"`` as a string, not a name, so a test that
+    runs a captured statement again must run :func:`runnable` of it.
+    """
+
+    raw = ''
+
+    def __new__(cls, raw):
+        text = super().__new__(cls, ansi_quoted(raw))
+        text.raw = raw
+        return text
+
+
+def runnable(sql):
+    """The SQL text to execute again: the original of a :class:`CapturedSql`."""
+    return sql.raw if isinstance(sql, CapturedSql) else sql
+
+
 def captured_sql(ctx):
-    """The statements of a ``CaptureQueriesContext``, names quoted with ``"``."""
-    return [ansi_quoted(query['sql']) for query in ctx.captured_queries]
+    """The statements of a ``CaptureQueriesContext`` as :class:`CapturedSql`."""
+    return [CapturedSql(query['sql']) for query in ctx.captured_queries]
 
 
 def outer_joined_tables(sql):

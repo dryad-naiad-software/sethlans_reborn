@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""POSIX data-folder rules (home and ``/run/media`` exceptions, descriptor adopt) and the marker race.
+"""POSIX data-folder rules (``/run/media`` exception, descriptor adopt) and the marker race.
+
+The home exception is in ``test_data_folder_posix_home``.
 
 The POSIX classes run only on Linux and macOS CI.
 """
@@ -26,62 +28,10 @@ def _isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(tmp_path / "settings"))
 
 
-def _home(monkeypatch, home, links=None):
-    """``Path.home()`` is ``home``; ``links`` maps a fake link to its target for ``realpath``."""
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path(home)))
-    if links:
-        real = os.path.realpath
-
-        def realpath(path, **kwargs):
-            text = os.fspath(path)
-            for link, target in links.items():
-                if text == link or text.startswith(link + "/"):
-                    return real(target + text[len(link):], **kwargs)  # macOS: /var is /private/var
-            return real(path, **kwargs)
-
-        monkeypatch.setattr(os.path, "realpath", realpath)
-
-
 def _media_user(monkeypatch, name):
     import pwd
 
     monkeypatch.setattr(pwd, "getpwuid", lambda uid: type("P", (), {"pw_name": name})())
-
-
-@posix_only
-class TestHomeException:
-
-    def test_home_under_var_is_usable(self, monkeypatch):
-        _home(monkeypatch, "/var/home/me")
-        assert data_folder_rules.location_problems("/var/home/me/sethlans") == []
-
-    def test_home_link_to_var_home_is_usable(self, monkeypatch):
-        _home(monkeypatch, "/home/me", links={"/home": "/var/home"})
-        assert data_folder_rules.location_problems("/home/me/sethlans") == []
-
-    def test_other_users_home_under_var_is_refused(self, monkeypatch):
-        _home(monkeypatch, "/var/home/me")
-        # [0]: on macOS the resolved /private/var form adds a second line.
-        problems = data_folder_rules.location_problems("/var/home/other/x")
-        assert problems[0] == "/var/home/other/x is inside a system folder (/var)"
-
-    @pytest.mark.parametrize("home", ["/", "/var"])
-    def test_shallow_home_exempts_nothing(self, monkeypatch, home):
-        _home(monkeypatch, home)
-        problems = data_folder_rules.location_problems("/var/lib/sethlans")
-        assert problems[0] == "/var/lib/sethlans is inside a system folder (/var)"
-
-    @pytest.mark.parametrize("path, prefix", [("/var/lib/x", "/var"), ("/run/x", "/run"), ("/var/home/x", "/var")])
-    def test_rest_of_var_and_run_is_refused(self, monkeypatch, path, prefix):
-        _home(monkeypatch, "/home/me")
-        assert data_folder_rules.location_problems(path)[0] == f"{path} is inside a system folder ({prefix})"
-
-    def test_home_lookup_failure_exempts_nothing(self, monkeypatch):
-        def fail(cls):
-            raise RuntimeError("no home")
-
-        monkeypatch.setattr(Path, "home", classmethod(fail))
-        assert data_folder_rules._user_folders() == []
 
 
 @posix_only

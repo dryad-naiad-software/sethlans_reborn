@@ -22,7 +22,7 @@ from unittest.mock import patch
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import captured_sql
+from tests.row_lock_sql import captured_sql, runnable
 from workers.models import Job, Project, SequenceDiscovery, SequenceSubmission
 
 from .unreal_helpers import BUILD, RENDER_SETTINGS
@@ -79,7 +79,7 @@ def collector_writes(sqls):
 def locked_pks(sql):
     """Run a captured lock again (its lock clause is a comment here); the pks it selects."""
     with connection.cursor() as cursor:
-        cursor.execute(sql)
+        cursor.execute(runnable(sql))
         return [row[0] for row in cursor.fetchall()]
 
 

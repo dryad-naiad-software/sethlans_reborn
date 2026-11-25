@@ -26,7 +26,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error
+from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error, runnable
 
 from workers.models import Job, Project, UnrealMeasurement
 
@@ -82,7 +82,7 @@ def _first_write(sql):
 
 def _locked_pks(query):
     with connection.cursor() as cursor:
-        cursor.execute(query)
+        cursor.execute(runnable(query))
         return [row[0] for row in cursor.fetchall()]
 
 

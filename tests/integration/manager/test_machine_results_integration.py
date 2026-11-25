@@ -22,6 +22,8 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from tests.row_lock_sql import captured_sql
+
 from workers import signals
 from workers.models import Job, JobStatus, UnrealMeasurement, Worker
 
@@ -146,10 +148,10 @@ class TestWorkerDeletion:
 def _results_queries(ctx):
     """Statements whose outermost FROM is the measurement table (the results load)."""
     found = []
-    for query in ctx.captured_queries:
-        head = query['sql'].split(' FROM ', 1)
+    for sql in captured_sql(ctx):
+        head = sql.split(' FROM ', 1)
         if len(head) == 2 and head[1].startswith('"workers_unrealmeasurement"'):
-            found.append(query['sql'])
+            found.append(sql)
     return found
 
 

@@ -23,6 +23,8 @@ import zipfile
 from unittest import mock
 
 import pytest
+from django.core.signals import request_finished
+from django.db import close_old_connections
 from django.test import Client
 
 from workers.models import SequenceFrame, SequenceShot, SequenceSubmission
@@ -67,9 +69,25 @@ def _url(submission, action, index=None):
     return f'{SUBMISSIONS}{submission.pk}/{shot}{action}/'
 
 
+def _close(resp):
+    """Close a streamed response the way the test client does after reading it.
+
+    ``close()`` sends ``request_finished``, whose ``close_old_connections``
+    closes a connection inside the test's transaction on MySQL, MariaDB and
+    PostgreSQL (SQLite's in-memory test database ignores it), which breaks
+    every later query of the test. The test client takes it off around the
+    close; so does this.
+    """
+    request_finished.disconnect(close_old_connections)
+    try:
+        resp.close()
+    finally:
+        request_finished.connect(close_old_connections)
+
+
 def _body(resp):
     data = b''.join(resp.streaming_content)
-    resp.close()
+    _close(resp)
     return data
 
 
@@ -165,7 +183,7 @@ class TestZip:
                 "render its shot again.")})
         other = admin_client.get(_url(done, 'download-frames', 1))
         assert other.status_code == 200
-        other.close()
+        _close(other)
         SequenceFrame.objects.filter(pk=frame.pk).update(file='../../outside.png')
         assert admin_client.get(_url(done, 'download-frames')).status_code == 409
 
@@ -179,22 +197,22 @@ class TestZip:
         third = admin_client.get(_url(done, 'download-frames'))
         assert (first.status_code, second.status_code) == (200, 200)
         assert (third.status_code, third.data) == (429, {'error': "Too many zip downloads at once; try again shortly."})
-        first.close()
-        second.close()
+        _close(first)
+        _close(second)
         again = admin_client.get(_url(done, 'download-frames'))
         assert again.status_code == 200
-        again.close()
+        _close(again)
 
     def test_disconnect_frees_the_slot(self, admin_client, done):
         """AC-39: a client that drops a started zip frees its slot, so two more downloads start."""
         dropped = admin_client.get(_url(done, 'download-frames'))
         held = admin_client.get(_url(done, 'download-frames'))
         assert next(iter(dropped.streaming_content))
-        dropped.close()
+        _close(dropped)
         never_read = admin_client.get(_url(done, 'download-frames'))
         assert never_read.status_code == 200
-        never_read.close()
-        held.close()
+        _close(never_read)
+        _close(held)
         two = [admin_client.get(_url(done, 'download-frames')) for _ in range(2)]
         assert [resp.status_code for resp in two] == [200, 200]
         for resp in two:

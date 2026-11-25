@@ -162,8 +162,11 @@ class TestPosixSystemFolders:
         # /etc, merged /usr on Linux) the resolved form may add a second line.
         assert data_folder.check_data_root(value)[0] == f"{value} is inside a system folder ({prefix})"
 
-    @pytest.mark.parametrize("value", ["/usrdata/x", "/home/user/sethlans", "/srv/sethlans", "/tmp/sethlans",
-                                       "/private/tmp/sethlans", "/libdata/x", "/runner/x", "/Users/someone/x"])
+    # macOS: /home is the automounter folder; realpath makes it /System/Volumes/Data/home,
+    # which /System rightly refuses, so /Users stands for the users' folders there.
+    @pytest.mark.parametrize("value", ["/usrdata/x", "/srv/sethlans", "/tmp/sethlans", "/private/tmp/sethlans",
+                                       "/libdata/x", "/runner/x", "/Users/someone/x"]
+                             + ([] if sys.platform == "darwin" else ["/home/user/sethlans"]))
     def test_similar_names_and_temp_are_fine(self, value):
         assert all("system folder" not in problem for problem in data_folder.check_data_root(value))
 

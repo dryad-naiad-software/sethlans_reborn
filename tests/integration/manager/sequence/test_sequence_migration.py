@@ -13,7 +13,7 @@ new tables; ``makemigrations --check`` finds nothing to do.
 
 import pytest
 from django.core.management import call_command
-from django.db import IntegrityError, connection, transaction
+from django.db import DataError, IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 
 BEFORE = [('workers', '0027_sequence_discovery')]
@@ -84,7 +84,9 @@ class TestMigration:
     def test_lead_in_column_refuses_negative(self, at_0027):
         _project_pk, job_pk = _seed(at_0027)
         apps = _migrate(AFTER)
-        with pytest.raises(IntegrityError), transaction.atomic():
+        # SQLite and PostgreSQL: the CHECK constraint (IntegrityError); MySQL and MariaDB: the
+        # UNSIGNED column in strict mode (DataError 1264). Either way the row is refused.
+        with pytest.raises((IntegrityError, DataError)), transaction.atomic():
             apps.get_model('workers', 'Job').objects.filter(pk=job_pk).update(unreal_lead_in_frames=-1)
 
 

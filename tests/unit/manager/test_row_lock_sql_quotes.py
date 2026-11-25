@@ -10,7 +10,7 @@ and returned "no problem" for SQL PostgreSQL would reject.
 import pytest
 
 from tests.row_lock_sql import (
-    ansi_quoted, captured_sql, locked_tables, outer_joined_tables, postgres_lock_error,
+    ansi_quoted, captured_sql, locked_tables, outer_joined_tables, postgres_lock_error, runnable,
 )
 
 MYSQL_JOIN = (
@@ -59,3 +59,15 @@ def test_captured_sql_turns_backticks_into_ansi_quotes():
     assert captured_sql(Ctx()) == [ANSI_JOIN, 'SELECT 1 FROM "t"']
     assert 'FROM "workers_job"' in ANSI_JOIN
     assert "`" not in ANSI_JOIN
+
+
+def test_runnable_gives_back_what_the_database_ran():
+    """MySQL reads ``"x"`` as a string: a captured statement runs again in its own quoting."""
+    class Ctx:
+        captured_queries = [{"sql": MYSQL_JOIN, "time": "0.001"}]
+
+    [sql] = captured_sql(Ctx())
+    assert sql == ANSI_JOIN
+    assert runnable(sql) == MYSQL_JOIN
+    assert runnable(ANSI_JOIN) == ANSI_JOIN  # plain text is left as it is
+    assert runnable(dict([("t", sql)])["t"]) == MYSQL_JOIN  # kept through containers

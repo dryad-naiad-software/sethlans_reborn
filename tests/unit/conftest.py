@@ -18,7 +18,15 @@ import sys
 
 import pytest
 
+from tests._home_scratch import sweep_stale
 from tests._worker_claim_state import reset_worker_claim_state
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sweep_stale_home_scratch():
+    """macOS: remove scratch folders older than a day that killed runs left (``tests._home_scratch``)."""
+    if sys.platform == "darwin":
+        sweep_stale()
 
 
 @pytest.fixture(autouse=True)

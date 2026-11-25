@@ -12,15 +12,15 @@ processes started here are always ended at teardown.
 
 ``data_root`` is the data folder a submit names. Setup refuses system
 folders, and on macOS ``tmp_path`` is under ``/private/var``, so there it
-is a unique folder under the home folder, removed at teardown.
+is a unique folder under ``~/.cache/sethlans-tests`` (``tests._home_scratch``),
+removed at teardown; stale ones from killed runs are swept once per session.
 """
 import os
-import shutil
 import sys
-import uuid
-from pathlib import Path
 
 import pytest
+
+from tests._home_scratch import scratch_folder, sweep_stale
 
 from .caddy_front import CaddyFront, caddy_binary_or_skip, make_cert
 from .setup_process import SetupProcess
@@ -39,18 +39,21 @@ def _isolated_user_folders(monkeypatch, tmp_path):
         monkeypatch.delenv(key, raising=False)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _sweep_stale_home_scratch():
+    """macOS: remove scratch folders older than a day that killed runs left (``tests._home_scratch``)."""
+    if sys.platform == "darwin":
+        sweep_stale()
+
+
 @pytest.fixture
 def data_root(tmp_path):
     """A data folder (not yet created) that setup's system-folder check accepts."""
     if sys.platform != "darwin":
         yield tmp_path / "data"
         return
-    holder = Path.home() / ".cache" / "sethlans-tests" / uuid.uuid4().hex
-    holder.mkdir(parents=True)
-    try:
+    for holder in scratch_folder():
         yield holder / "data"
-    finally:
-        shutil.rmtree(holder, ignore_errors=True)
 
 
 @pytest.fixture

@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """The data folder's parent folders: the owner/link walk and their owner-only creation."""
+import os
 import uuid
 from pathlib import Path
 
@@ -72,10 +73,16 @@ class TestParentOwners:
 
 
 class TestParentLinks:
+    """A link the test makes is owned by whoever runs it; as root that is the
+    system, so the user-owned cases pin the link to a non-system owner."""
 
-    def test_own_link_parent_is_refused(self, tmp_path):
+    def _user_link(self, mocker, link):
+        override_owner(mocker, "is_owned_by_system", {link: False})
+        return link
+
+    def test_own_link_parent_is_refused(self, tmp_path, mocker):
         real = own_dir(tmp_path / "real")
-        link = make_link(tmp_path / "link", real)
+        link = self._user_link(mocker, make_link(tmp_path / "link", real))
         assert data_folder.check_data_root(link / "data") == [link_message(link)]
 
     def test_system_owned_link_parent_is_accepted(self, tmp_path, mocker):
@@ -84,15 +91,22 @@ class TestParentLinks:
         override_owner(mocker, "is_owned_by_system", {link: True})
         assert data_folder.check_data_root(link / "data") == []
 
-    def test_dangling_link_parent_is_refused(self, tmp_path):
+    @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() != 0, reason="runs as root only")
+    def test_link_made_by_root_is_system_owned_and_accepted(self, tmp_path):
+        real = own_dir(tmp_path / "real")
+        link = make_link(tmp_path / "link", real)
+        assert owner_only_acl.is_owned_by_system(link) is True
+        assert data_folder.check_data_root(link / "data") == []
+
+    def test_dangling_link_parent_is_refused(self, tmp_path, mocker):
         gone = own_dir(tmp_path / "gone")
-        link = make_link(tmp_path / "link", gone)
+        link = self._user_link(mocker, make_link(tmp_path / "link", gone))
         gone.rmdir()
         assert data_folder.check_data_root(link / "data") == [link_message(link)]
 
-    def test_prepare_refuses_and_creates_nothing_through_the_link(self, tmp_path):
+    def test_prepare_refuses_and_creates_nothing_through_the_link(self, tmp_path, mocker):
         real = own_dir(tmp_path / "real")
-        link = make_link(tmp_path / "link", real)
+        link = self._user_link(mocker, make_link(tmp_path / "link", real))
         with pytest.raises(data_folder.DataFolderError) as info:
             data_folder.prepare_data_root(link / "data")
         assert str(info.value) == link_message(link)

@@ -16,6 +16,8 @@ import pytest
 from django.db import connection, connections
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.utils import CaptureQueriesContext
+
+from tests.row_lock_sql import captured_sql
 from rest_framework.test import APIClient
 
 from workers.models import Asset, Job, ManagerSettings, UnrealMeasurement
@@ -153,8 +155,7 @@ _KEY_TABLES = ('"workers_job"', '"workers_asset"', '"workers_unrealmeasurement"'
 def _transactions(ctx):
     """The statements of each top-level transaction (nested savepoints included)."""
     found, stack = [], []
-    for query in ctx.captured_queries:
-        sql = query['sql']
+    for sql in captured_sql(ctx):
         upper = sql.upper()
         if upper.startswith(_CLOSES):
             done = stack.pop()

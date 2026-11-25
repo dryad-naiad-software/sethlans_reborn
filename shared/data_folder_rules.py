@@ -13,8 +13,8 @@ Where a data folder may go (FR-DF-2), stdlib only; used by ``shared.data_folder`
   Windows SYSTEM, Administrators or TrustedInstaller, e.g.
   ``C:\\Documents and Settings``).
 
-On POSIX a path inside the user's home folder (``Path.home()``, as given or
-resolved) or under ``/run/media/<user>/`` (udisks2 mounts) skips the
+On POSIX a path inside the user's home folder (the account's ``pw_dir``,
+never ``$HOME``; as given or resolved) or under ``/run/media/<user>/`` (udisks2 mounts) skips the
 system-folder prefixes, so ``/var/home/<user>`` (Fedora Atomic) is usable;
 the rest of ``/var`` and ``/run`` stays refused.
 """
@@ -95,31 +95,55 @@ def _windows_system_problem(path: Path) -> Optional[str]:
     return None
 
 
-def _user_folders() -> List[Path]:
-    """POSIX folders of this user that skip the system prefixes.
-
-    The home folder as given and resolved (only when it is at least two
-    levels deep, so a home of ``/`` or ``/var`` exempts nothing), and the
-    inside of ``/run/media/<user>`` (checked by :func:`_posix_exempt`).
-    """
-    folders: List[Path] = []
-    try:
-        home = Path(os.path.normpath(Path.home()))
-    except (RuntimeError, KeyError, OSError):
-        return folders
-    for form in forms(home):
-        if len(form.parts) >= 3 and form not in folders:
-            folders.append(form)
-    return folders
-
-
-def _run_media_user() -> Optional[Path]:
+def _account():
+    """This process's password-database entry (effective uid), or ``None``."""
     try:
         import pwd
 
-        return _RUN_MEDIA / pwd.getpwuid(os.geteuid()).pw_name
+        return pwd.getpwuid(os.geteuid())
     except (ImportError, KeyError, OSError):
         return None
+
+
+def _is_own_folder(path: Path) -> bool:
+    """An existing folder (links followed) owned by the effective uid."""
+    try:
+        info = os.stat(path)
+    except (OSError, ValueError):
+        return False
+    return stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+
+
+def _user_folders() -> List[Path]:
+    """The POSIX home folder that skips the system prefixes, as given and resolved.
+
+    From the account's ``pw_dir``, never ``$HOME`` (a system account with
+    ``HOME=/var/lib`` must not exempt ``/var/lib``); only when it exists,
+    is owned by the effective uid and the given form is at least two levels
+    deep, so a home of ``/`` or ``/var`` exempts nothing. A form (given or
+    resolved) that is a system prefix or a parent of one is dropped too
+    (macOS: ``/var`` resolves to ``/private/var``, three parts). Fedora
+    Atomic: ``/var/home/<user>``, or ``/home/<user>`` with ``/home`` ->
+    ``var/home``.
+    """
+    entry = _account()
+    pw_dir = getattr(entry, "pw_dir", None)
+    if not pw_dir or not os.path.isabs(pw_dir):
+        return []
+    home = Path(os.path.normpath(pw_dir))
+    if len(home.parts) < 3 or not _is_own_folder(home):  # depth of the given form, before resolving
+        return []
+    return [form for form in forms(home) if len(form.parts) >= 3 and not _covers_a_prefix(form)]
+
+
+def _covers_a_prefix(folder: Path) -> bool:
+    """True when ``folder`` is a system prefix or a parent of one."""
+    return any(is_under(Path(prefix), folder) for prefix in _POSIX_SYSTEM_PREFIXES)
+
+
+def _run_media_user() -> Optional[Path]:
+    name = getattr(_account(), "pw_name", None)
+    return _RUN_MEDIA / name if name else None
 
 
 def _posix_exempt(path: Path) -> bool:

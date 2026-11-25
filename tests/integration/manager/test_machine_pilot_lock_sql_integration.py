@@ -26,7 +26,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error
+from tests.row_lock_sql import captured_sql, locked_tables, postgres_lock_error, runnable
 
 from .machine_test_helpers import KIND_AMD, emulated_row_locks, kind_card, pair_record, set_cards
 from .machine_verdict_helpers import NEW_DRIVER, OLD_DRIVER
@@ -63,7 +63,7 @@ def _post_captured(client, job, body):
 def _locked_pks(sql):
     """Run a captured record lock again (its lock clause is a comment here); the pks it selects."""
     with connection.cursor() as cursor:
-        cursor.execute(sql)
+        cursor.execute(runnable(sql))
         return [row[0] for row in cursor.fetchall()]
 
 
