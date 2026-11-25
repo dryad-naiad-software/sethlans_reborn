@@ -10,8 +10,15 @@
 # 8088). The worker connects to https://127.0.0.1:8080 just like a
 # real deployment.
 #
-# Usage: .\tools\sethlans.ps1 {dev|clean|start|manager|worker|stop|status}
-param([Parameter(Position = 0)] [string]$Command)
+# Usage: .\tools\sethlans.ps1 {dev|clean [-All]|start|manager|worker|stop|status}
+#
+# `clean` removes the development artifacts inside the repo; `clean -All`
+# (or `clean --all`) also removes the per-user data folder.
+param(
+    [Parameter(Position = 0)] [string]$Command,
+    [switch]$All,
+    [Parameter(Position = 1, ValueFromRemainingArguments = $true)] [string[]]$ExtraArgs
+)
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..") | Select-Object -ExpandProperty Path
@@ -42,7 +49,9 @@ $WaitressInternalPort = 8088
 function Show-Usage {
     Write-Host "Usage: .\tools\sethlans.ps1 <command>"
     Write-Host "  dev      Setup everything from scratch and start services"
-    Write-Host "  clean    Remove all development artifacts"
+    Write-Host "  clean    Remove the development artifacts inside the repo"
+    Write-Host "           -All (or --all)  also remove the per-user data folder"
+    Write-Host "                            (identity files of an installed manager/worker)"
     Write-Host "  start    Start caddy + manager + worker (must run dev first)"
     Write-Host "  manager  Start caddy + manager in the background"
     Write-Host "  worker   Start worker in the background"
@@ -121,24 +130,77 @@ function Invoke-StartServices {
 }
 
 # -- Sethlans process filter (used by clean) -------------------------------
+# Command lines are compared as fixed strings with '\' turned into '/' and
+# case-insensitively: this script starts processes with D:\... paths, Git
+# Bash starts them with D:/... paths. The match is on the full script /
+# Caddyfile path under this checkout's root, anchored at the start of an
+# argument (start of the line, or after a space or quote), so another
+# checkout (including a sibling folder whose name starts with this one's,
+# or a folder that merely ends with this path) never matches.
+function ConvertTo-CmdKey([string]$Text) {
+    return ($Text -replace '\\', '/').ToLowerInvariant()
+}
+$RootKey = (ConvertTo-CmdKey $ProjectRoot).TrimEnd('/')
+
+function Test-ArgStartsWith([string]$Key, [string]$Path) {
+    return $Key.StartsWith($Path) -or $Key.Contains(" $Path") -or
+        $Key.Contains("`"$Path") -or $Key.Contains("'$Path")
+}
+
+function Test-OurPythonCmd([string]$CommandLine) {
+    if (-not $CommandLine) { return $false }
+    $c = ConvertTo-CmdKey $CommandLine
+    if (Test-ArgStartsWith $c "$RootKey/manager/run_manager.py") { return $true }
+    if (Test-ArgStartsWith $c "$RootKey/worker/run_worker.py") { return $true }
+    if (-not (Test-ArgStartsWith $c "$RootKey/manager/manage.py")) { return $false }
+    $i = $c.IndexOf("$RootKey/manager/manage.py")
+    return $c.IndexOf("runserver", $i) -ge 0
+}
+
+function Test-OurCaddyCmd([string]$CommandLine) {
+    if (-not $CommandLine) { return $false }
+    return Test-ArgStartsWith (ConvertTo-CmdKey $CommandLine) "$RootKey/manager/caddy/caddyfile"
+}
+
+# True when PID $ProcId is this checkout's $Kind (python or caddy): image
+# name python.exe / caddy.exe and a command line that passes the matcher.
+# A process whose command line cannot be read is not ours.
+function Test-OurPid([int]$ProcId, [string]$Kind) {
+    $p = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcId" -ErrorAction SilentlyContinue
+    if (-not $p) { return $false }
+    if ($Kind -eq "caddy") { return ($p.Name -eq "caddy.exe") -and (Test-OurCaddyCmd $p.CommandLine) }
+    return ($p.Name -eq "python.exe") -and (Test-OurPythonCmd $p.CommandLine)
+}
+
 function Get-SethlansProcesses {
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object {
-            $cmd = $_.CommandLine
-            $cmd -and ($cmd -like "*$ProjectRoot*") -and (
-                ($cmd -like "*manage.py*runserver*") -or
-                ($cmd -like "*run_manager.py*") -or
-                ($cmd -like "*run_worker.py*")
-            )
-        }
+        Where-Object { Test-OurPythonCmd $_.CommandLine }
 }
 
 function Get-CaddyProcesses {
     Get-CimInstance Win32_Process -Filter "Name='caddy.exe'" -ErrorAction SilentlyContinue |
-        Where-Object {
-            $cmd = $_.CommandLine
-            $cmd -and ($cmd -like "*$Caddyfile*")
-        }
+        Where-Object { Test-OurCaddyCmd $_.CommandLine }
+}
+
+# -- Per-user data folder (used by clean) ----------------------------------
+# Identity files (TLS keys, secret key, worker enrollment) of an installed
+# manager or worker on this account. Returns @{ Path; Error }: Error names
+# the reason when LOCALAPPDATA gives no safe absolute path. An empty or
+# relative LOCALAPPDATA is refused, never resolved against the current
+# directory. [IO.Path] is used instead of Join-Path, which fails on a
+# drive that does not exist.
+function Resolve-UserDataDir {
+    $name = "Sethlans"
+    $base = $env:LOCALAPPDATA
+    if (-not $base) { return @{ Path = $null; Error = "LOCALAPPDATA is empty" } }
+    if ($base -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)') {
+        return @{ Path = $null; Error = "LOCALAPPDATA is not an absolute path: '$base'" }
+    }
+    $dir = [System.IO.Path]::Combine($base, $name)
+    if ([System.IO.Path]::GetFileName($dir) -cne $name) {
+        return @{ Path = $null; Error = "last folder of '$dir' is not '$name'" }
+    }
+    return @{ Path = $dir; Error = $null }
 }
 
 # -- dev -------------------------------------------------------------------
@@ -184,7 +246,26 @@ function Invoke-Dev {
 }
 
 # -- clean -----------------------------------------------------------------
-function Invoke-Clean {
+function Invoke-Clean([bool]$RemoveUserDir) {
+    $userDir = Resolve-UserDataDir
+    # A junction or symlink as the folder itself is refused. Defence in
+    # depth: Remove-Item -LiteralPath -Recurse -Force was checked not to
+    # follow junctions (Windows PowerShell 5.1.26100, pwsh 7.6), but a link
+    # here means the folder is not what clean expects. GetAttributes does
+    # not follow the link, so a dangling one is caught too.
+    if ($RemoveUserDir -and -not $userDir.Error) {
+        $attrs = $null
+        try { $attrs = [System.IO.File]::GetAttributes($userDir.Path) } catch { $attrs = $null }
+        if ($null -ne $attrs -and ($attrs -band [System.IO.FileAttributes]::ReparsePoint)) {
+            $userDir.Error = "$($userDir.Path) is a symbolic link or junction"
+        }
+    }
+    # Refuse before touching anything when -All cannot name a safe folder.
+    if ($RemoveUserDir -and $userDir.Error) {
+        Write-Host "[ERROR] Refusing to remove the per-user data folder: $($userDir.Error)"
+        Write-Host "        Nothing was removed."
+        exit 1
+    }
     Write-Host "============================================================"
     Write-Host "  Sethlans Reborn -- Clean"
     Write-Host "============================================================"
@@ -254,15 +335,23 @@ function Invoke-Clean {
     }
     Get-ChildItem -Path $WorkerDir -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    # Belt-and-suspenders: if the user previously ran a frozen-mode
-    # build or a Docker worker that used the default per-OS data dir,
-    # sweep that too so `clean` really means clean.
-    $sharedDataDir = Join-Path $env:LOCALAPPDATA "Sethlans"
-    if (Test-Path $sharedDataDir) {
-        Remove-Item -Recurse -Force $sharedDataDir -ErrorAction SilentlyContinue
-        Write-Host "[OK] Shared data dir removed ($sharedDataDir)"
-    }
     Write-Host "[OK] Worker artifacts removed"
+    # The per-user data folder holds the identity files (TLS keys, secret
+    # key, worker enrollment) of any installed manager or worker on this
+    # account, so it is removed only with -All.
+    if ($RemoveUserDir) {
+        $dir = $userDir.Path
+        if (Test-Path -LiteralPath $dir) {
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $dir) {
+                Write-Host "[ERROR] Could not remove the per-user data folder ($dir)"
+                exit 1
+            }
+            Write-Host "[OK] Shared data dir removed ($dir)"
+        }
+    } elseif ($userDir.Path -and (Test-Path -LiteralPath $userDir.Path -PathType Container)) {
+        Write-Host "[OK] Shared data dir kept ($($userDir.Path)); remove it with: .\tools\sethlans.ps1 clean -All"
+    }
     # Shared artifacts
     foreach ($item in @("temp", ".pytest_cache", "sethlans_e2e_cache", "test_artifacts", "manual_test_output")) {
         $p = Join-Path $ProjectRoot $item
@@ -393,25 +482,29 @@ function Invoke-Worker {
 }
 
 # -- stop ------------------------------------------------------------------
+# Stop the process in PID file $Name when it is this checkout's $Kind
+# (Test-OurPid). A live PID that is not ours is a stale PID file: warn,
+# drop the file, leave the process. Returns $true only when it stopped one.
+function Stop-Tracked([string]$Name, [string]$Kind, [string]$Label) {
+    $procId = Get-SavedPid $Name
+    if (-not $procId) { return $false }
+    if (-not (Test-OurPid $procId $Kind)) {
+        Write-Host "[WARN] Stale PID file for $Name (PID $procId is not ours); not stopping it"
+        Remove-Pid $Name
+        return $false
+    }
+    Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    Remove-Pid $Name; Write-Host "[OK] $Label stopped (PID $procId)"
+    return $true
+}
+
 function Invoke-Stop {
     $stopped = $false
     # Stop worker first so it doesn't log enrollment failures when
     # Caddy/Manager go away mid-heartbeat.
-    $workerPid = Get-SavedPid "worker"
-    if ($workerPid) {
-        Stop-Process -Id $workerPid -Force -ErrorAction SilentlyContinue
-        Remove-Pid "worker"; Write-Host "[OK] Worker stopped (PID $workerPid)"; $stopped = $true
-    }
-    $caddyPid = Get-SavedPid "caddy"
-    if ($caddyPid) {
-        Stop-Process -Id $caddyPid -Force -ErrorAction SilentlyContinue
-        Remove-Pid "caddy"; Write-Host "[OK] Caddy stopped (PID $caddyPid)"; $stopped = $true
-    }
-    $managerPid = Get-SavedPid "manager"
-    if ($managerPid) {
-        Stop-Process -Id $managerPid -Force -ErrorAction SilentlyContinue
-        Remove-Pid "manager"; Write-Host "[OK] Manager stopped (PID $managerPid)"; $stopped = $true
-    }
+    if (Stop-Tracked "worker" "python" "Worker") { $stopped = $true }
+    if (Stop-Tracked "caddy" "caddy" "Caddy") { $stopped = $true }
+    if (Stop-Tracked "manager" "python" "Manager") { $stopped = $true }
     if (-not $stopped) { Write-Host "[OK] No running services found" }
 }
 
@@ -429,9 +522,22 @@ function Invoke-Status {
 }
 
 # -- Main dispatch ---------------------------------------------------------
+# No command (e.g. only -All): the normal usage error.
+if (-not $Command) { Show-Usage; exit 1 }
+# Only `clean` takes options: -All, or --all for parity with sethlans.sh.
+$CleanAll = [bool]$All
+foreach ($arg in @($ExtraArgs | Where-Object { $_ -ne $null })) {
+    if ($Command -eq "clean" -and $arg -ceq "--all") { $CleanAll = $true; continue }
+    if ($Command -eq "clean") { Write-Host "[ERROR] Unknown option for clean: $arg" }
+    else { Write-Host "[ERROR] '$Command' takes no options" }
+    Show-Usage; exit 1
+}
+if ($All -and $Command -ne "clean") {
+    Write-Host "[ERROR] '$Command' takes no options"; Show-Usage; exit 1
+}
 switch ($Command) {
     "dev"     { Invoke-Dev }
-    "clean"   { Invoke-Clean }
+    "clean"   { Invoke-Clean $CleanAll }
     "start"   { Invoke-Start }
     "manager" { Invoke-Manager }
     "worker"  { Invoke-Worker }
