@@ -70,6 +70,8 @@ class TestDefaultCleanKeepsUserFolder:
     def test_a_file_in_place_of_the_folder_is_kept_without_a_message(self, fake_project, shell):
         env = clean_env(fake_project)
         data_dir = own_branch_data_dir(env, shell)
+        # The macOS parent (home/Library/Application Support) does not exist yet.
+        data_dir.parent.mkdir(parents=True, exist_ok=True)
         data_dir.write_text("not a folder")
 
         result = run_clean(fake_project, env, shell=shell)
