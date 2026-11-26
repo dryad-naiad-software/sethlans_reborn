@@ -25,6 +25,7 @@ from ..models import (
 )
 from ..permissions import IsAdminOrWorkerReadOnly
 from ..serializers import SupportedBlenderVersionSerializer
+from ..services.blender_cache import runner as blender_cache_runner
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,16 @@ class SupportedBlenderVersionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrWorkerReadOnly]
     serializer_class = SupportedBlenderVersionSerializer
     queryset = SupportedBlenderVersion.objects.all()
+
+    # BS-MGR-5: after a supported-version change commits, the manager's
+    # Blender cache reconciles its rows (and wakes its runner).
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        transaction.on_commit(blender_cache_runner.reconcile_and_wake, robust=True)
+
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        transaction.on_commit(blender_cache_runner.reconcile_and_wake, robust=True)
 
     @extend_schema(tags=['Management UI'])
     @action(detail=False, methods=['get'], url_path='available_series')
@@ -167,6 +178,7 @@ class SupportedBlenderVersionViewSet(viewsets.ModelViewSet):
             new_default = target.series
 
         locked.delete()
+        transaction.on_commit(blender_cache_runner.reconcile_and_wake, robust=True)
 
         total_jobs = job_count + tiled_count + anim_count
         logger.info(

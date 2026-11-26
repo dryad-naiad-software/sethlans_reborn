@@ -20,7 +20,9 @@ from workers.renderers.blender import BlenderStrategy
 from workers.renderers.unreal import UnrealStrategy
 
 JOBS_URL = '/api/jobs/'
-POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+# BS-MGR-15: a worker poll gets a Blender job only for a version it reports
+# exactly; 4.2.19 is the ``default_version`` fixture behind ``asset``.
+POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true', 'available_versions': '4.2.19'}
 BUILD = '5.8.4-58902052'
 
 

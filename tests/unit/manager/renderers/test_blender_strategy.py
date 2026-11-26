@@ -5,14 +5,14 @@
 Unit tests: ``BlenderStrategy`` is a pure delegation of the pre-renderer
 behavior (spec FR-MR-9, FR-T-4 "Blender strategy parity").
 
-The pre-change ``JobViewSet._apply_version_filter`` and the claim view's
-version check are reproduced below as oracles; the strategy must give
-the same filter, the same errors and the same messages on a table of
-inputs.  Database-backed behavior (``prepare_project_create``) is covered
-by the integration tests.
+The pre-change claim view's version check is reproduced below as an
+oracle; the strategy must give the same messages on a table of inputs.
+The poll filter is the exact-version rule of BS-MGR-15 (D12), which
+replaced the old series-level match so the poll agrees with the claim
+check.  Database-backed behavior (``prepare_project_create``, the poll
+view's queryset) is covered by the integration tests.
 """
 
-import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -22,25 +22,6 @@ from django.http import QueryDict
 from rest_framework.exceptions import ValidationError
 
 from workers.renderers import get_strategy
-
-_OLD_VERSION_REGEX = re.compile(r'^\d+\.\d+\.\d+$')
-
-
-def _old_version_filter_q(param):
-    """Oracle: the pre-change ``_apply_version_filter`` as a ``Q`` (or None)."""
-    if not param:
-        return None
-    versions = [v.strip() for v in param.split(',') if v.strip()]
-    if len(versions) > 20:
-        raise ValidationError("Maximum 20 versions allowed.")
-    for v in versions:
-        if not _OLD_VERSION_REGEX.match(v):
-            raise ValidationError(f"Invalid version format: {v}")
-    series_list = list({'.'.join(v.split('.')[:2]) for v in versions})
-    return (
-        Q(blender_version__series__in=series_list)
-        | Q(blender_version__isnull=True, asset__project__blender_version__series__in=series_list)
-    )
 
 
 def _old_claim_message(job, worker):
@@ -66,33 +47,50 @@ def blender():
     return get_strategy('BLENDER')
 
 
-POLL_INPUTS = [
-    None, '', '4.2.19', '4.2.19,4.5.8', ' 4.2.19 , 4.2.1 ', '4.2.19,,',
-    '4.2', 'not-a-version', '4.2.19,bad',
-    ','.join(f'4.{n}.0' for n in range(20)),
-    ','.join(f'4.{n}.0' for n in range(21)),
-    ','.join(['x'] * 21),
-]
+TWENTY = [f'4.{n}.0' for n in range(20)]
 
 
-class TestPollParity:
+def _versions(param):
+    params = QueryDict(mutable=True)
+    params['available_versions'] = param
+    return params
 
-    @pytest.mark.parametrize('param', POLL_INPUTS)
-    def test_poll_q_matches_old_filter(self, blender, param):
-        params = QueryDict(mutable=True)
-        if param is not None:
-            params['available_versions'] = param
-        old = _errors(_old_version_filter_q, param)
-        new = _errors(blender.poll_q, params)
-        if old[0] == 'error':
-            assert new == old
-            return
-        expected = Q(renderer='BLENDER') if old[1] is None else Q(renderer='BLENDER') & old[1]
-        assert new == ('ok', expected)
 
-    def test_other_params_are_ignored(self, blender):
-        params = QueryDict('device_prefs=BANANA&unreal_builds=junk&renderers=BLENDER')
-        assert blender.poll_q(params) == Q(renderer='BLENDER')
+def _exact(versions):
+    """The BS-MGR-15 filter: the job's own resolved version, or with none its project's, is listed."""
+    return Q(renderer='BLENDER') & (
+        Q(blender_version__resolved_version__in=versions)
+        | Q(blender_version__isnull=True, asset__project__blender_version__resolved_version__in=versions)
+    )
+
+
+class TestPollExactVersion:
+
+    @pytest.mark.parametrize('param, versions', [
+        ('4.5.8', ['4.5.8']),
+        (' 4.2.19 , 4.2.1 ,,', ['4.2.19', '4.2.1']),
+        (','.join(TWENTY), TWENTY),
+    ], ids=['one', 'spaces-and-empties', 'twenty'])
+    def test_matches_only_the_listed_exact_versions(self, blender, param, versions):
+        """BS-MGR-15 (D12): a poll matches a Blender job only by its exact X.Y.Z, never by series, so a
+        worker reporting 4.5.8 is not offered a 4.5.9 job its claim would refuse."""
+        assert blender.poll_q(_versions(param)) == _exact(versions)
+
+    @pytest.mark.parametrize('query', ['', 'available_versions=', 'device_prefs=BANANA&unreal_builds=junk'],
+                             ids=['absent', 'empty', 'other-params-only'])
+    def test_a_poll_without_versions_matches_no_blender_job(self, blender, query):
+        """BS-MGR-15: a worker poll without ``available_versions`` matches no Blender job."""
+        assert blender.poll_q(QueryDict(query)) == Q(renderer='BLENDER') & Q(pk__in=[])
+
+    @pytest.mark.parametrize('param, message', [
+        ('4.2', "Invalid version format: 4.2"),
+        ('4.2.19,bad', "Invalid version format: bad"),
+        (','.join(TWENTY + ['4.20.0']), "Maximum 20 versions allowed."),
+    ], ids=['series-only', 'one-bad', 'twenty-one'])
+    def test_bad_version_lists_are_refused(self, blender, param, message):
+        """BS-MGR-15: the poll's version list is still checked (X.Y.Z each, at most 20)."""
+        assert _errors(blender.poll_q, QueryDict(f'available_versions={param}')) == (
+            'error', [message])
 
 
 class TestClaimParity:

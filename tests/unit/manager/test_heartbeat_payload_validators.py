@@ -4,8 +4,11 @@
 """
 Unit tests for the self-reported heartbeat field validators added with
 issue #215: ``_validate_ip_address``, ``_sanitize_os`` and
-``_validate_available_tools`` in ``workers.views.heartbeat_validators``.
+``_validate_available_tools`` in ``workers.views.heartbeat_validators``,
+and ``_validate_blender_platform`` (BS-MGR-1).
 """
+
+import logging
 
 import pytest
 
@@ -14,6 +17,7 @@ from workers.views.heartbeat_validators import (
     MAX_OS_LENGTH,
     _sanitize_os,
     _validate_available_tools,
+    _validate_blender_platform,
     _validate_ip_address,
 )
 
@@ -72,3 +76,20 @@ class TestValidateAvailableTools:
         # '{"k":"' + body + '"}' is 8 bytes of overhead.
         tools = {'k': 'x' * (MAX_AVAILABLE_TOOLS_BYTES - 8)}
         assert _validate_available_tools(tools) is tools
+
+
+class TestValidateBlenderPlatform:
+
+    @pytest.mark.parametrize('value', ['linux-x64', 'windows-arm64'])
+    def test_a_known_platform_is_stored(self, value):
+        """BS-MGR-1: a valid platform id from full registration is stored as sent."""
+        assert _validate_blender_platform(value) == value
+
+    @pytest.mark.parametrize('value', ['solaris-sparc', 'Linux-x64', '', None, 42])
+    def test_an_unknown_platform_is_stored_empty_with_a_warning(self, monkeypatch, caplog, value):
+        """BS-MGR-1: anything but one of the six ids is stored as '' with one WARNING."""
+        monkeypatch.setattr(logging.getLogger('workers'), 'propagate', True)
+        caplog.set_level(logging.WARNING, logger='workers.views.heartbeat_validators')
+
+        assert _validate_blender_platform(value) == ''
+        assert [r.levelno for r in caplog.records] == [logging.WARNING]

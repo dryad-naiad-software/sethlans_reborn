@@ -114,6 +114,7 @@ class TestWaitressLaunchResets:
         mocker.patch('workers.parts_check_startup.start_for_server')
         mocker.patch('workers.video_startup.on_server_start')
         mocker.patch('workers.release_cache_startup.start_release_cache_populate')
+        mocker.patch('workers.services.blender_cache.runner.start_for_server')  # Blender sources BS-MGR-5/6
         self.thread = mocker.MagicMock()
         self.thread.is_alive.return_value = False
         mocker.patch.object(waitress_launcher.threading, 'Thread', return_value=self.thread)

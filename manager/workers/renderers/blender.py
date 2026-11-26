@@ -107,14 +107,17 @@ class BlenderStrategy(RendererStrategy):
         return validated
 
     def poll_q(self, params, worker=None):
-        """Today's ``available_versions`` series filter, Blender jobs only.
+        """Blender jobs whose effective resolved version the poll's ``available_versions`` holds exactly.
 
-        ``worker`` is ignored, so Blender poll results are unchanged.
+        BS-MGR-15 (D12): the job's own version, or with none its project's,
+        must be one of the reported ``X.Y.Z`` versions, so the poll agrees
+        with :meth:`claim_rejection`. A poll without the parameter matches
+        no Blender job. ``worker`` is ignored.
         """
         q = Q(renderer=self.renderer)
         param = params.get('available_versions')
         if not param:
-            return q
+            return q & Q(pk__in=[])
 
         versions = [v.strip() for v in param.split(',') if v.strip()]
         if len(versions) > MAX_AVAILABLE_VERSIONS:
@@ -125,13 +128,11 @@ class BlenderStrategy(RendererStrategy):
             if not VERSION_REGEX.match(v):
                 raise ValidationError(f"Invalid version format: {v}")
 
-        # Extract series from full versions for series-level matching
-        series_list = list({'.'.join(v.split('.')[:2]) for v in versions})
         return q & (
-            Q(blender_version__series__in=series_list)
+            Q(blender_version__resolved_version__in=versions)
             | Q(
                 blender_version__isnull=True,
-                asset__project__blender_version__series__in=series_list,
+                asset__project__blender_version__resolved_version__in=versions,
             )
         )
 

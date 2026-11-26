@@ -268,3 +268,11 @@ class GraceOutcome(models.TextChoices):
     """Outcome of the grace period after a yield trigger."""
     FINISHED = 'finished', 'Finished'
     ABORTED = 'aborted', 'Aborted'
+
+
+class BlenderBuildStatus(models.TextChoices):
+    """State of one cached Blender build on the manager (BS-MGR-3)."""
+    QUEUED = 'QUEUED', 'Queued'
+    FETCHING = 'FETCHING', 'Fetching'
+    READY = 'READY', 'Ready'
+    FAILED = 'FAILED', 'Failed'

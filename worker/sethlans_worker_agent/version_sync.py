@@ -11,17 +11,17 @@ Handles:
 - Cleaning up versions no longer required by the manager.
 - Deferring downloads/cleanup when the worker is busy rendering.
 
-Thread safety: installs go through ``blender_install.install`` (``blocking=False``,
-``stop`` = the agent's shutdown event; a busy or stopped install is skipped this
-round with no back-off, BS-WK-3). Cleanup uses ToolManager.
+Thread safety: installs go through ``blender_wait.attempt``, which skips a
+version in back-off or waiting for the manager and otherwise calls
+``blender_install.install`` without blocking (BS-WK-3, BS-WK-9, BS-WK-10).
+Cleanup uses ToolManager.
 """
 
 import logging
-import time
 import threading
 from typing import Dict, List, Set
 
-from sethlans_worker_agent import blender_install
+from sethlans_worker_agent import blender_wait
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
@@ -33,40 +33,6 @@ _pending_lock = threading.Lock()
 # Queued version removals deferred because of active renders (P5-F6).
 _pending_removals: List[str] = []
 _pending_removals_lock = threading.Lock()
-
-# Backoff tracking for failed downloads.
-_failed_versions: Dict[str, Dict] = {}
-_failed_lock = threading.Lock()
-_BACKOFF_BASE, _BACKOFF_MAX = 60, 1800  # seconds
-_NOT_TRIED = (blender_install.InstallOutcome.BUSY, blender_install.InstallOutcome.STOPPED)
-
-
-def _install(version):
-    """Non-blocking install that ends on agent shutdown (BS-WK-3)."""
-    from sethlans_worker_agent.agent_shutdown import _shutdown_event  # lazy: agent_shutdown loads the web UI
-    return blender_install.install(version, blocking=False, stop=_shutdown_event)
-
-
-def _is_in_backoff(version):
-    with _failed_lock:
-        info = _failed_versions.get(version)
-        return bool(info and time.time() < info['next_retry'])
-
-
-def _record_failure(version):
-    with _failed_lock:
-        info = _failed_versions.get(version, {'attempts': 0})
-        info['attempts'] += 1
-        delay = min(_BACKOFF_BASE * 2 ** info['attempts'], _BACKOFF_MAX)
-        info['next_retry'] = time.time() + delay
-        _failed_versions[version] = info
-        attempts = info['attempts']
-    logger.warning(f"Blender {version} failed (attempt {attempts}). Retry in {delay}s.")
-
-
-def _clear_failure(version):
-    with _failed_lock:
-        _failed_versions.pop(version, None)
 
 
 def parse_required_versions(heartbeat_response):
@@ -147,19 +113,14 @@ def download_versions(actions):
         version = action.get('version', '')
         if not version:
             continue
-        if _is_in_backoff(version):
-            logger.info(f"Skipping Blender {version} -- in backoff period.")
+        skipped = blender_wait.skip_reason(version)
+        if skipped:
+            logger.info(f"Skipping Blender {version} -- {skipped}.")
             continue
         logger.info(f"Downloading required Blender version {version}...")
-        result = _install(version)
-        if result.outcome in _NOT_TRIED:
-            continue  # another install holds the version's lock, or shutdown: skip, no back-off (BS-WK-3)
-        if result.ok:
+        if blender_wait.attempt(version):
             success_count += 1
-            _clear_failure(version)
             logger.info(f"Successfully installed Blender {version}.")
-        else:
-            _record_failure(version)
     return success_count
 
 
@@ -175,20 +136,15 @@ def upgrade_patch_versions(actions, installed_versions):
             continue
         if _version_tuple(new_version) <= _version_tuple(old_version):
             continue
-        if _is_in_backoff(new_version):
-            logger.info(f"Skipping upgrade to {new_version} -- in backoff period.")
+        skipped = blender_wait.skip_reason(new_version)
+        if skipped:
+            logger.info(f"Skipping upgrade to {new_version} -- {skipped}.")
             continue
-        _clear_failure(old_version)
+        blender_wait.clear_failure(old_version)
         logger.info(f"Upgrading {series}: {old_version} -> {new_version}")
-        result = _install(new_version)
-        if result.outcome in _NOT_TRIED:
-            continue  # another install holds the version's lock, or shutdown: skip, no back-off (BS-WK-3)
-        if result.ok:
+        if blender_wait.attempt(new_version):
             tool_manager_instance.remove_blender_version(old_version)
-            _clear_failure(new_version)
             success_count += 1
-        else:
-            _record_failure(new_version)
     return success_count
 
 
@@ -268,6 +224,7 @@ def sync_versions(heartbeat_response, is_busy, active_jobs):
 
     installed = get_installed_versions()
     actions = compute_download_actions(required, installed)
+    blender_wait.keep_waits(a['version'] for a in actions)  # a version no longer to download waits no more
 
     # Separate new installs from patch upgrades.
     new_installs = [a for a in actions if a['series'] not in installed]

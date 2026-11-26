@@ -14,7 +14,9 @@ from .unreal_helpers import BUILD, SHARE, caps, set_share, unreal_asset
 from .unreal_pilot_helpers import live_card, measure_key
 
 URL = '/api/jobs/'
-POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+# BS-MGR-15: a poll gets a Blender job only for a version it reports exactly;
+# 4.2.19 is the ``default_version`` fixture behind ``asset``.
+POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true', 'available_versions': '4.2.19'}
 UNREAL = {**POLL, 'renderers': 'BLENDER,UNREAL', 'unreal_builds': BUILD}
 
 
@@ -64,6 +66,12 @@ class TestRouting:
         worker, client = ready_worker
         _set_caps(worker, builds=(BUILD, '5.8.4-1'))
         assert _names(client.get(URL, {**UNREAL, 'unreal_builds': '5.8.4-1'})) == ['PollBlender']
+
+    def test_without_available_versions_only_the_unreal_job(self, ready_worker, jobs):
+        """BS-MGR-15: a BLENDER,UNREAL poll that reports no Blender versions gets no Blender job."""
+        _worker, client = ready_worker
+        params = {key: value for key, value in UNREAL.items() if key != 'available_versions'}
+        assert _names(client.get(URL, params)) == ['PollUnreal']
 
     def test_unreal_builds_is_ignored_without_unreal(self, ready_worker, jobs):
         _worker, client = ready_worker

@@ -13,19 +13,13 @@ from io import StringIO
 import pytest
 from django.core.management import call_command
 from django.db import connection, migrations
-from django.db.migrations.executor import MigrationExecutor
+
+from .migration_helpers import migrate_to, migrate_to_latest
 
 BEFORE = [('workers', '0025_worker_card_choice')]
 AFTER = [('workers', '0026_unrealmeasurement_render_context')]
 NEW_COLUMNS = {'game_overrides', 'texture_streaming'}
 BUILD = '5.8.4-58902052'
-
-
-def _migrate(targets):
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(targets)
-    return executor.loader.project_state(targets).apps
 
 
 def _columns():
@@ -36,11 +30,9 @@ def _columns():
 @pytest.fixture
 def at_0025(transactional_db):
     try:
-        yield _migrate(BEFORE)
+        yield migrate_to(BEFORE)
     finally:
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        migrate_to_latest()
 
 
 def _seed(apps):
@@ -63,7 +55,7 @@ class TestMigration:
     def test_existing_records_read_blank_and_keep_their_results(self, at_0025):
         measured_pk, pending_pk = _seed(at_0025)
         assert not NEW_COLUMNS & _columns()
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         assert NEW_COLUMNS <= _columns()
         records = apps.get_model('workers', 'UnrealMeasurement').objects
         for pk in (measured_pk, pending_pk):
@@ -75,8 +67,8 @@ class TestMigration:
     def test_reverse_drops_only_the_two_columns(self, at_0025):
         measured_pk, _pending_pk = _seed(at_0025)
         before = _columns()
-        _migrate(AFTER)
-        apps = _migrate(BEFORE)
+        migrate_to(AFTER)
+        apps = migrate_to(BEFORE)
         assert _columns() == before
         assert apps.get_model('workers', 'UnrealMeasurement').objects.get(pk=measured_pk).peak_mb == 8102
 

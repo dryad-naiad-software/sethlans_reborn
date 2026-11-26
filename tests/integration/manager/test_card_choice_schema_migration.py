@@ -13,7 +13,6 @@ from types import SimpleNamespace
 import pytest
 from django.contrib import admin
 from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
 from django.test import Client, RequestFactory
 from django.test.utils import CaptureQueriesContext
 
@@ -21,16 +20,11 @@ from workers.models import Worker
 from workers.serializers import WorkerSerializer
 from workers.views.heartbeat_schema import WorkerHeartbeatResponseSerializer
 
+from .migration_helpers import migrate_to, migrate_to_latest
+
 BEFORE = [('workers', '0024_worker_card_status')]
 AFTER = [('workers', '0025_worker_card_choice')]
 CHOICE_COLUMNS = {'card_choice_request', 'card_choice_issued', 'card_choice_outcome'}
-
-
-def _migrate(targets):
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(targets)
-    return executor.loader.project_state(targets).apps
 
 
 def _columns():
@@ -41,11 +35,9 @@ def _columns():
 @pytest.fixture
 def at_0024(transactional_db):
     try:
-        yield _migrate(BEFORE)
+        yield migrate_to(BEFORE)
     finally:
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        migrate_to_latest()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -53,11 +45,11 @@ class TestMigration:
 
     def test_existing_rows_get_empty_values_and_reverse_drops_the_columns(self, at_0024):
         at_0024.get_model('workers', 'Worker').objects.create(hostname='old-row', card_status={'schema': 1})
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         found = apps.get_model('workers', 'Worker').objects.get(hostname='old-row')
         assert (found.card_choice_request, found.card_choice_issued, found.card_choice_outcome) == ({}, [], {})
         assert found.card_status == {'schema': 1}
-        _migrate(BEFORE)
+        migrate_to(BEFORE)
         assert not CHOICE_COLUMNS & _columns()
 
 

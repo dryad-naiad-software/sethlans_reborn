@@ -34,6 +34,15 @@ Documented removal (issue #304): the heartbeat no longer sends
 Regeneration refuses after chunk 1, so that one key was deleted by hand
 from the ``heartbeat`` and ``heartbeat_registration`` captures; nothing
 else in the snapshot changed.
+
+Documented change (Blender sources BS-MGR-15): a
+worker poll matches a Blender job only for a version it reports exactly,
+and a poll without ``available_versions`` matches none. The two captures
+that poll without it, ``poll_without_available_versions`` and
+``poll_device_cpu_only``, were edited by hand to an empty body (and their
+``pre_change_order`` entries to empty lists); nothing else in the
+snapshot changed. The worker and heartbeat answers gain
+``blender_platform`` (BS-MGR-1), stripped through ``NEW_KEYS_BY_KIND``.
 """
 
 import json

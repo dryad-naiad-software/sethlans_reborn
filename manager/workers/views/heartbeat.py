@@ -38,6 +38,7 @@ from ..services.machine_tests import ensure_for_worker
 # Module import, attributes read at call time: ``worker_reconcile`` imports
 # ``views.stuck_jobs``, so a ``from`` import here would be an import cycle.
 from ..services import worker_reconcile
+from ..services.blender_cache import runner as blender_cache_runner
 from . import heartbeat_card_sync
 from .card_actions import WorkerCardActionsMixin
 from .heartbeat_auth import bind_heartbeat_caller
@@ -56,6 +57,7 @@ from .heartbeat_validators import (  # noqa: F401
     _sanitize_cpu_name,
     _sanitize_os,
     _validate_available_tools,
+    _validate_blender_platform,
     _validate_ip_address,
     _validate_ui_cert_fingerprint,
     _validate_ui_url,
@@ -179,11 +181,15 @@ class WorkerHeartbeatViewSet(
         worker.ui_cert_fingerprint = _validate_ui_cert_fingerprint(
             request.data.get('ui_cert_fingerprint', ''),
         )
+        old_platform = worker.blender_platform
+        worker.blender_platform = _validate_blender_platform(request.data.get('blender_platform'))
         worker.save(update_fields=[
             'ip_address', 'os', 'available_tools', 'last_seen',
             'is_active', 'ui_url', 'cpu_name', 'gpu_name', 'status',
-            'ui_cert_fingerprint',
+            'ui_cert_fingerprint', 'blender_platform',
         ] + apply_unreal_registration(worker, request.data) + apply_card_report(worker, request.data))
+        if worker.blender_platform != old_platform:  # the wanted builds may change (BS-MGR-5, D7)
+            transaction.on_commit(blender_cache_runner.reconcile_and_wake, robust=True)
         boot_id = _validate_boot_id(request.data.get('worker_boot_id'))
         if boot_id is not None:
             worker_reconcile.reconcile_worker_restart(worker, boot_id)

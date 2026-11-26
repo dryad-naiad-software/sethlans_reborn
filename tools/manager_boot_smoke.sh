@@ -13,7 +13,9 @@
 #      answers from the runner; Caddy serves /data/tls/cert.pem; the
 #      FFmpeg parts check uses the copy in /data and nothing lands in the
 #      runtime user's home; /data is mode 700; the loopback-only status
-#      endpoint answers 200 with a JSON object; `docker stop` exits 0.
+#      endpoint answers 200 with a JSON object; the Blender build cache
+#      runner started with its folder under /data (nothing in the image
+#      turns Blender fetching off); `docker stop` exits 0.
 #   B. Recreate (#297): `docker rm`, then a new container on the same
 #      volumes. Healthy again, same cert fingerprint, same FFmpeg file
 #      (same inode: not downloaded again), state files still in /data,
@@ -184,6 +186,21 @@ check_ffmpeg_from_data() {
     echo "OK: FFmpeg found in /data; nothing under the home folder"
 }
 
+# The Blender build cache runner must start like on a native manager,
+# with its folder in the data volume. No download is needed for this:
+# no worker has registered, so nothing is wanted yet.
+check_blender_cache_runner() {
+    local end=$((SECONDS + LOG_WAIT_S)) line=""
+    while [ "${SECONDS}" -lt "${end}" ]; do
+        line=$(docker logs "${CUR}" 2>&1 | grep -m 1 "blender_cache: runner started root=" || true)
+        [ -n "${line}" ] && break
+        sleep 2
+    done
+    [ -n "${line}" ] || fail "the Blender cache runner did not start within ${LOG_WAIT_S}s (fetching turned off?)"
+    grep -q "root=/data/blender" <<< "${line}" || fail "the Blender cache is not under /data: ${line}"
+    echo "OK: Blender cache runner started under /data/blender"
+}
+
 ffmpeg_inode() {
     docker exec "${CUR}" stat -c %i "${FFMPEG_PATH}" 2>/dev/null || echo "missing"
 }
@@ -263,6 +280,7 @@ mode=$(docker exec "${CUR}" stat -c %a /data 2>/dev/null || echo "?")
 [ "${mode}" = "700" ] || fail "/data has mode ${mode}, expected 700"
 echo "OK: /data is mode 700"
 check_loopback_status
+check_blender_cache_runner
 docker stop -t 20 "${CUR}" >/dev/null || fail "docker stop failed"
 rc=$(state_of '{{.State.ExitCode}}')
 [ "${rc}" = "0" ] || fail "exit code ${rc} after docker stop, expected 0"

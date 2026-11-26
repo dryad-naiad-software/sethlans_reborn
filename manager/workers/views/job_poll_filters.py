@@ -51,8 +51,10 @@ LIST_PARAMETERS = [
         required=False,
         description=(
             "Comma-separated list of installed Blender versions "
-            "(e.g. ``4.5.8,4.4.3``) for worker-poll version filtering. "
-            "Matches at the series level (major.minor)."
+            "(e.g. ``4.5.8,4.4.3``, at most 20) for worker-poll version "
+            "filtering. Matches the exact version (X.Y.Z): a Blender job "
+            "is returned only when its resolved version is listed. A "
+            "worker poll without this parameter returns no Blender job."
         ),
     ),
     OpenApiParameter(
@@ -103,8 +105,8 @@ def _parse_renderers(params):
 def apply_worker_poll_filters(queryset, params, worker=None):
     """Restrict a worker poll to the requested renderers, oldest first.
 
-    Each renderer's strategy contributes one ``Q`` (Blender: today's
-    ``available_versions`` series filter), OR-ed together.  ``worker`` is
+    Each renderer's strategy contributes one ``Q`` (Blender: the exact
+    ``available_versions`` filter, BS-MGR-15), OR-ed together.  ``worker`` is
     the polling caller's ``Worker`` row, or ``None`` for a non-worker
     caller; it lets a strategy leave out jobs its claim check would
     refuse for that worker (FR-MS-5).

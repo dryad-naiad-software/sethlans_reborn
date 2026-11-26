@@ -57,6 +57,8 @@ NEW_KEYS_BY_KIND = {
         'unreal_capabilities', 'gpu_memory',
         'card_status', 'card_alert_dismissals', 'dismissed_card_alerts',
         'card_choice_request', 'card_choice_outcome',
+        # Blender sources BS-MGR-1: the platform whose build the manager keeps for the worker.
+        'blender_platform',
     }),
 }
 NEW_KEY_NAMES = frozenset().union(*NEW_KEYS_BY_KIND.values())

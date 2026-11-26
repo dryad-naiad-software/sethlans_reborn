@@ -23,9 +23,10 @@ final status other than 200 fails the source. Requests always stream and ask
 for ``Accept-Encoding: identity``; a compressed answer fails the source before
 a byte of its body is read, so the callers' byte caps count the bytes that
 reach memory or disk (a small gzip body can unpack to gigabytes).
-``get_checked`` follows redirects itself, one request at a time, and closes
-each 3xx unread: requests 2.32.4 reads and decodes the whole body of every
-3xx it sees, even with ``stream=True`` and ``allow_redirects=False``
+``get_checked`` follows redirects itself, one request at a time
+(:func:`send_without_redirects`, which the worker's manager step uses too),
+and closes each 3xx unread: requests 2.32.4 reads and decodes the whole body
+of every 3xx it sees, even with ``stream=True`` and ``allow_redirects=False``
 (``Session.send`` builds ``Response.next`` through ``resolve_redirects``,
 which reads ``resp.content``), so ``Session.get`` is not used at all.
 """
@@ -154,15 +155,19 @@ def check_identity_encoding(response) -> None:
         raise SourceFailure("compressed response")
 
 
-def _send(session, url: str, timeout):
+def send_without_redirects(session, url: str, timeout, headers=None):
     """One streamed GET of ``url`` through the session's transport adapter; no redirect is followed.
 
     The same steps as ``Session.request`` (session headers, environment proxies
     and CA bundle, mounted adapter) without ``Session.send``, whose redirect
-    handling reads a 3xx body in full (see the module docstring).
+    handling reads a 3xx body in full (see the module docstring). ``headers``
+    are sent on top of the session's; ``Accept-Encoding: identity`` always
+    wins. A 3xx is returned unread; requests exceptions propagate. The body is
+    not read yet; the response is the caller's to close.
     """
-    prepared = session.prepare_request(requests.Request("GET", url, headers=IDENTITY_HEADERS))
-    settings = session.merge_environment_settings(prepared.url, {}, True, None, None)
+    request = requests.Request("GET", url, headers={**(headers or {}), **IDENTITY_HEADERS})
+    prepared = session.prepare_request(request)
+    settings = session.merge_environment_settings(prepared.url, {}, True, None, None)  # stream=True
     return session.get_adapter(prepared.url).send(prepared, timeout=timeout, **settings)
 
 
@@ -192,7 +197,7 @@ def get_checked(session, url: str, timeout):
     current, followed = url, 0
     while True:
         try:
-            response = _send(session, current, timeout)
+            response = send_without_redirects(session, current, timeout)
         except requests.exceptions.RequestException as exc:
             raise SourceFailure(request_failure_reason(exc, timeout)) from None
         try:

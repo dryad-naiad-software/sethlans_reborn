@@ -96,6 +96,7 @@ class WorkerSerializer(serializers.ModelSerializer):
             'unreal_capabilities', 'gpu_memory',
             'card_status', 'card_alert_dismissals',
             'card_choice_request', 'card_choice_outcome',
+            'blender_platform',
         ]
         read_only_fields = [
             'last_seen', 'last_heartbeat', 'has_token',
@@ -103,6 +104,7 @@ class WorkerSerializer(serializers.ModelSerializer):
             'unreal_capabilities', 'gpu_memory',
             'card_status', 'card_alert_dismissals',
             'card_choice_request', 'card_choice_outcome',
+            'blender_platform',
         ]
 
     def get_status(self, obj):
