@@ -222,7 +222,7 @@ class TestThumbnailAndExecutorDevice:
         mocker.patch('sethlans_worker_agent.asset_manager.ensure_asset_is_available',
                      return_value=str(tmp_path / 'scene.blend'))
         manager = 'sethlans_worker_agent.tool_manager.tool_manager_instance'
-        mocker.patch(f'{manager}.ensure_blender_version_available', return_value=str(tmp_path / 'blender'))
+        mocker.patch(f'{manager}.get_blender_executable_path', return_value=str(tmp_path / 'blender'))
         mocker.patch(f'{manager}.acquire_version')
         mocker.patch(f'{manager}.release_version')
         mocker.patch('sethlans_worker_agent.api_handler.get_job_status', return_value='RENDERING')

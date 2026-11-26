@@ -6,8 +6,10 @@
 Integration tests for ToolManager lifecycle operations.
 
 Exercises scan discovery with real filesystem structures, cache
-TTL behavior, download exclusion filtering, cache invalidation,
-and reference counting for safe version removal.
+TTL behavior, download exclusion filtering, cache invalidation on
+removal, and reference counting for safe version removal. Cache
+invalidation after an install is checked by the real install in
+``test_blender_install_mirror_fallback.py``.
 """
 
 import time
@@ -106,32 +108,6 @@ def test_scan_excludes_downloading_versions(tool_manager):
     assert '4.1.1' in versions
     assert '4.3.0' in versions
     assert '4.2.0' not in versions
-
-
-# -- Cache invalidated after download --
-
-def test_cache_invalidated_after_download(tool_manager, mocker):
-    """ensure_blender_version_available invalidates scan cache."""
-    tool_manager._scan_cache = [
-        {'version': '4.1.1', 'platform': 'windows-x64'},
-    ]
-
-    mocker.patch.object(
-        tool_manager, '_resolve_version', return_value='4.2.0',
-    )
-    mocker.patch.object(
-        tool_manager, 'get_blender_executable_path',
-        return_value=None,
-    )
-    mocker.patch.object(
-        tool_manager, '_download_and_install',
-        return_value='/fake/blender',
-    )
-
-    tool_manager.ensure_blender_version_available('4.2')
-
-    # Cache should be cleared (set to None before download)
-    assert tool_manager._scan_cache is None
 
 
 # -- Cache invalidated after remove --

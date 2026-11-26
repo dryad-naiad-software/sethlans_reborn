@@ -5,57 +5,12 @@
 """
 Unit tests for the platform_utils module.
 
-Tests platform identifier detection and executable path construction.
+Tests executable path construction. Platform ids are tested with
+``shared.blender_sources.platforms`` (BS-SRC-6).
 """
 from pathlib import Path
 
-from sethlans_worker_agent.platform_utils import (
-    get_platform_identifier,
-    get_executable_path_for_blender,
-)
-
-
-class TestGetPlatformIdentifier:
-
-    def test_windows_amd64(self, mocker):
-        mocker.patch('platform.system', return_value='Windows')
-        mocker.patch('platform.machine', return_value='AMD64')
-        assert get_platform_identifier() == 'windows-x64'
-
-    def test_windows_x86_64(self, mocker):
-        mocker.patch('platform.system', return_value='Windows')
-        mocker.patch('platform.machine', return_value='x86_64')
-        assert get_platform_identifier() == 'windows-x64'
-
-    def test_linux_x86_64(self, mocker):
-        mocker.patch('platform.system', return_value='Linux')
-        mocker.patch('platform.machine', return_value='x86_64')
-        assert get_platform_identifier() == 'linux-x64'
-
-    def test_linux_aarch64(self, mocker):
-        mocker.patch('platform.system', return_value='Linux')
-        mocker.patch('platform.machine', return_value='aarch64')
-        assert get_platform_identifier() == 'linux-arm64'
-
-    def test_linux_unsupported_arch(self, mocker):
-        mocker.patch('platform.system', return_value='Linux')
-        mocker.patch('platform.machine', return_value='i686')
-        assert get_platform_identifier() is None
-
-    def test_macos_x86_64(self, mocker):
-        mocker.patch('platform.system', return_value='Darwin')
-        mocker.patch('platform.machine', return_value='x86_64')
-        assert get_platform_identifier() == 'macos-x64'
-
-    def test_macos_arm64(self, mocker):
-        mocker.patch('platform.system', return_value='Darwin')
-        mocker.patch('platform.machine', return_value='arm64')
-        assert get_platform_identifier() == 'macos-arm64'
-
-    def test_unsupported_os(self, mocker):
-        mocker.patch('platform.system', return_value='FreeBSD')
-        mocker.patch('platform.machine', return_value='x86_64')
-        assert get_platform_identifier() is None
+from sethlans_worker_agent.platform_utils import get_executable_path_for_blender
 
 
 class TestGetExecutablePathForBlender:

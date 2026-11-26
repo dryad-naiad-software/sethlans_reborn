@@ -64,9 +64,13 @@ def execute_blender_job(job_data, reservation=None,  # noqa: C901
             and starts a YieldMonitor. Called after the subprocess launches.
         shutdown_event: The worker's shutdown event. The job's own stop
             event (``blender_stop.register_card_stop``) is checked with it
-            at every stop point: before the download, before the render,
-            during it, in the yield abort check, after it and in the
-            thumbnail pass.
+            at every stop point: before the asset download, before the
+            render, during it, in the yield abort check, after it and in
+            the thumbnail pass.
+
+    The job path never downloads Blender (BS-WK-11): when the job's exact
+    version is not installed, no render starts and the job is handed back
+    with ``blender_version_missing`` (``blender_hand_back``).
 
     Returns (success, was_canceled, was_yielded, stdout, stderr,
              error_msg, output_path, thumbnail_path, yield_monitor,
@@ -99,16 +103,16 @@ def execute_blender_job(job_data, reservation=None,  # noqa: C901
     shutdown_event = blender_stop.job_stop(shutdown_event, job_data)  # also this job's own stop (FR-CL-5)
     if blender_stop.stopped_before_start(shutdown_event, job_id, job_data):  # #247: before any download
         return _STOPPED_RESULT
+    blender_to_use = tool_manager_instance.get_blender_executable_path(blender_version_req)
+    if not blender_to_use:  # BS-WK-11: installed versions only; hand the job back
+        logger.warning(f"[Job {job_id}] Blender {blender_version_req} is not installed; handing the job back.")
+        job_data[blender_stop.STOPPED_KEY] = blender_stop.BLENDER_VERSION_MISSING
+        return _STOPPED_RESULT
     local_blend_file_path = asset_manager.ensure_asset_is_available(job_data.get('asset'))
     if not local_blend_file_path:
         return (False, False, False, "", "",
                 "Failed to download or find the required .blend file asset.",
                 None, None, None, None)
-
-    blender_to_use = tool_manager_instance.ensure_blender_version_available(blender_version_req)
-    if not blender_to_use:
-        msg = f"Could not find or acquire Blender version '{blender_version_req}'. Aborting job."
-        return (False, False, False, "", "", msg, None, None, None, None)
     if blender_stop.stopped_before_start(shutdown_event, job_id, job_data):  # #247: no new render
         return _STOPPED_RESULT
     # Acquire a reference count on this version to prevent cleanup

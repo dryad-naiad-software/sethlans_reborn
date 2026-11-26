@@ -12,6 +12,7 @@ import time
 
 import pytest
 
+from shared.blender_sources import AllSourcesFailedError
 from sethlans_worker_agent.tool_manager import ToolManager
 
 
@@ -123,27 +124,21 @@ class TestResolveVersion:
         result = tm._resolve_version('4.1')
         assert result == '4.1.2'  # highest patch
 
-    def test_partial_version_falls_back_to_web(self, tm, mocker):
-        mocker.patch.object(
-            tm, 'scan_for_local_blenders', return_value=[]
-        )
-        mocker.patch.object(
-            tm, '_get_blender_download_info',
-            return_value={
-                '4.1.0': {}, '4.1.3': {}, '4.1.1': {},
-                '4.2.0': {},
-            }
-        )
-        result = tm._resolve_version('4.1')
-        assert result == '4.1.3'
+    def test_partial_version_falls_back_to_latest_patch(self, tm, mocker):
+        """BS-WK-2: with no local match, ``X.Y`` resolves through ``latest_patch``."""
+        mocker.patch.object(tm, 'scan_for_local_blenders', return_value=[])
+        lookup = mocker.patch('sethlans_worker_agent.tool_manager.latest_patch', return_value='4.1.3')
+        assert tm._resolve_version('4.1') == '4.1.3'
+        lookup.assert_called_once_with('4.1')
 
-    def test_partial_version_no_match_returns_none(self, tm, mocker):
-        mocker.patch.object(
-            tm, 'scan_for_local_blenders', return_value=[]
-        )
-        mocker.patch.object(
-            tm, '_get_blender_download_info', return_value={}
-        )
+    @pytest.mark.parametrize('error', [
+        AllSourcesFailedError('Blender release list (series page) 9.9', []),
+        ValueError('not a Blender series'),
+    ], ids=['all-sources-failed', 'bad-series'])
+    def test_partial_version_no_match_returns_none(self, tm, mocker, error):
+        """BS-WK-2: a series no source lists resolves to None, never raises."""
+        mocker.patch.object(tm, 'scan_for_local_blenders', return_value=[])
+        mocker.patch('sethlans_worker_agent.tool_manager.latest_patch', side_effect=error)
         assert tm._resolve_version('9.9') is None
 
 

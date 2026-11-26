@@ -93,8 +93,8 @@ class TestEnumValues:
     """Verify enum DB values match the spec."""
 
     def test_yield_reason_count(self):
-        """Six YieldReason values per FR-9b, plus the two worker stops (#247)."""
-        assert len(YieldReason.choices) == 8
+        """Six YieldReason values per FR-9b, the two worker stops (#247) and BS-WK-11's missing version."""
+        assert len(YieldReason.choices) == 9
 
     def test_yield_reason_db_values(self):
         expected = {
@@ -106,6 +106,7 @@ class TestEnumValues:
             "schedule_window_closed",
             "worker_shutdown",
             "worker_hardware_changed",
+            "blender_version_missing",
         }
         actual = {choice[0] for choice in YieldReason.choices}
         assert actual == expected

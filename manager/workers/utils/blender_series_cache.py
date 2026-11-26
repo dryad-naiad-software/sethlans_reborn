@@ -2,17 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-In-memory cache of available Blender series from download.blender.org.
+In-memory cache of the available Blender series (4.0 and later).
 
-Populated on manager startup via a background thread, and refreshed
-when the settings page is visited. If the refresh fails, the cached
-data from startup is still served.
+The series come from the release index of the first Blender source that
+lists one (``shared.blender_sources.list_series``: the official site, then
+the mirrors, or the configured list). Populated on manager startup via a
+background thread, and refreshed when the settings page is visited. If the
+refresh fails, the cached data from startup is still served.
 """
 
 import logging
 import threading
 
-from .blender_release_parser import get_blender_releases
+from shared.blender_sources import BlenderSourcesError, list_series
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +24,10 @@ _cache_ready: bool = False
 _refresh_in_progress: bool = False
 
 # Hard ceiling on how long ``populate_cache`` is allowed to wait on
-# the parser before giving up and marking the cache ready with whatever
-# (possibly empty) series list it already had. Prevents a stalled
-# download.blender.org connection from holding the daemon thread open
-# indefinitely (issue #113). Module-level so tests can patch it.
+# the release index before giving up and marking the cache ready with
+# whatever (possibly empty) series list it already had. Prevents stalled
+# sources from holding the daemon thread open indefinitely (issue #113).
+# Module-level so tests can patch it.
 POPULATE_CACHE_BUDGET_SECONDS: float = 60.0
 
 
@@ -42,6 +44,8 @@ def _safe_log(level, msg, *args):
     try:
         if level == 'info':
             logger.info(msg, *args)
+        elif level == 'warning':
+            logger.warning(msg, *args)
         elif level == 'exception':
             logger.exception(msg, *args)
     except (ValueError, OSError):
@@ -51,26 +55,26 @@ def _safe_log(level, msg, *args):
 def _populate_cache_body():
     """Actual fetch + store logic. Split out from :func:`populate_cache`
     so the outer wrapper can enforce an overall time budget via
-    ``Thread.join(timeout=...)`` — the parser's per-request timeouts
-    alone aren't enough because the parser loops over dozens of URLs.
+    ``Thread.join(timeout=...)`` — the per-request timeouts alone aren't
+    enough because the lookup may ask every configured source in turn.
     """
     global _cached_series, _cache_ready
     try:
-        releases = get_blender_releases()
-        series = sorted(
-            {".".join(v.split(".")[:2]) for v in releases},
-            key=lambda s: [int(p) for p in s.split(".")],
-        )
+        series = list_series()
         with _cache_lock:
             _cached_series = series
             _cache_ready = True
         _safe_log('info', "Blender series cache populated: %s", series)
+        return
+    except BlenderSourcesError as exc:
+        # One line naming every source and its failure (BS-LOG-2).
+        _safe_log('warning', "Failed to populate Blender series cache: %s", exc)
     except Exception:
         _safe_log('exception', "Failed to populate Blender series cache")
-        with _cache_lock:
-            # Mark ready so endpoint doesn't appear stuck, but preserve
-            # any previously cached data rather than overwriting with [].
-            _cache_ready = True
+    with _cache_lock:
+        # Mark ready so endpoint doesn't appear stuck, but preserve
+        # any previously cached data rather than overwriting with [].
+        _cache_ready = True
 
 
 def populate_cache():
@@ -78,8 +82,8 @@ def populate_cache():
 
     Runs :func:`_populate_cache_body` on a short-lived inner daemon
     thread and waits up to :data:`POPULATE_CACHE_BUDGET_SECONDS` for
-    it to finish. If the budget is exceeded (e.g. download.blender.org
-    stalls mid-scrape — see issue #113), this function marks the
+    it to finish. If the budget is exceeded (e.g. every source stalls,
+    see issue #113), this function marks the
     cache ready with whatever it already has and returns cleanly.
     The inner thread is left running as a daemon; it will not block
     interpreter shutdown.

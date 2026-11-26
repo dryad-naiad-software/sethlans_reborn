@@ -16,6 +16,7 @@ import configparser
 from pathlib import Path
 
 from sethlans_worker_agent import config_store
+from shared.blender_sources.platforms import current_platform_id
 
 logger = logging.getLogger(__name__)
 
@@ -214,36 +215,15 @@ ANIMATION_BLEND_FILE_PATH = REPO_ROOT / 'tests' / 'assets' / 'animation.blend'
 
 
 # --- Tool Discovery & Download Configuration ---
-# The base URL for the official Blender downloads.
-BLENDER_RELEASES_URL = "https://download.blender.org/release/"
-
-# A list of mirror URLs for redundant download sources.
-BLENDER_MIRROR_BASE_URLS = [
-    "https://mirror.clarkson.edu/blender/release/",
-    "http://ftp.halifax.rwth-aachen.de/blender/release/",
-    "http://ftp.nluug.nl/pub/graphics/blender/release/",
-]
+# Blender sources (official site and mirrors) are set in sethlans.ini
+# ``[blender] sources`` or ``SETHLANS_BLENDER_SOURCES`` and read by
+# ``shared.blender_sources`` at each fetch (BS-CFG-1).
 
 # The local file path for the cached list of available Blender versions.
 BLENDER_VERSIONS_CACHE_FILE = MANAGED_TOOLS_DIR / 'blender_versions_cache.json'
 
-
-# Keyed by (platform.system(), platform.machine().lower()).
-_W = {'download_ext': '.zip', 'executable_path_in_folder': 'blender.exe'}
-_L = {'download_ext': '.tar.xz', 'executable_path_in_folder': 'blender'}
-_M = {'download_ext': '.dmg', 'executable_path_in_folder': 'blender.app/Contents/MacOS/blender'}
-PLATFORM_BLENDER_MAP = {
-    ('Windows', 'amd64'): {**_W, 'download_suffix': 'windows-x64'},
-    ('Windows', 'arm64'): {**_W, 'download_suffix': 'windows-arm64'},
-    ('Linux', 'x86_64'): {**_L, 'download_suffix': 'linux-x64'},
-    ('Linux', 'aarch64'): {**_L, 'download_suffix': 'linux-arm64'},
-    ('Darwin', 'x86_64'): {**_M, 'download_suffix': 'macos-x64'},
-    ('Darwin', 'arm64'): {**_M, 'download_suffix': 'macos-arm64'},
-}
-
-CURRENT_PLATFORM_BLENDER_DETAILS = PLATFORM_BLENDER_MAP.get(
-    (platform.system(), platform.machine().lower()))
-if not CURRENT_PLATFORM_BLENDER_DETAILS:
+# The platform id comes from the one table in shared.blender_sources (BS-SRC-6).
+if current_platform_id() is None:
     print(f"[WARNING] Unsupported OS/Arch for Blender: "
           f"({platform.system()}, {platform.machine().lower()}).")
 

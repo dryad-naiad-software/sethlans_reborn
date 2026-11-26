@@ -7,7 +7,8 @@ Blender adapter over ``blender_executor.execute_blender_job`` (FR-WX-2/3).
 ``execute_blender_job`` is looked up on the module at call time, so tests
 that patch ``sethlans_worker_agent.blender_executor.execute_blender_job``
 keep working. A render the executor stopped for a worker shutdown becomes
-``stopped`` (blender_stop.py, #246/#247).
+``stopped`` (blender_stop.py, #246/#247), as does a job whose Blender
+version is not installed (``blender_version_missing``, BS-WK-11).
 """
 from typing import Optional
 

@@ -61,6 +61,9 @@ logger = logging.getLogger(__name__)
 STOPPED_KEY = '_stopped_by_worker'
 STARTED_AT_KEY = '_blender_started_at'
 NOT_ASSIGNED = 'no_longer_assigned'
+# The job's exact Blender version is not installed (BS-WK-11): handed back
+# with this yield reason, counted by the manager like a hardware change.
+BLENDER_VERSION_MISSING = 'blender_version_missing'
 CANCELED = 'canceled'
 STOP_WAIT_SECONDS = 10
 STOPPED_MESSAGE = "Stopped by the worker."

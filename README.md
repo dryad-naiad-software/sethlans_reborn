@@ -62,7 +62,7 @@ The features below describe the Blender pipeline as implemented so far (alpha). 
 - **Distributed Rendering** — Deploy worker agents on any machine (Windows, macOS, Linux) to process render jobs in parallel across your network.
 - **Tiled Rendering** — Split high-resolution frames into a grid of tiles (2x2 up to 5x5) for parallel rendering, with automatic assembly of the final image.
 - **Animation Support** — Render animation sequences frame-by-frame across workers, with optional per-frame tiling and FFmpeg video assembly (MP4 / WebM / MOV).
-- **Automatic Blender Management** — Workers discover, download, verify (SHA256), and cache any required Blender version on demand. Supported versions are managed via a database registry, defaulting to the latest LTS.
+- **Automatic Blender Management** — Each worker's version sync installs the Blender versions the manager requires, from the configured Blender sources. A job runs only with its exact installed version; a job whose version is missing goes back to the queue. Supported versions are managed via a database registry, defaulting to the latest LTS.
 - **GPU-Aware Job Routing** — Jobs requiring GPU rendering are only offered to workers with GPU capabilities. Supports CUDA, OptiX, HIP, Metal, and oneAPI backends.
 - **GPU Split Mode** — Workers can run GPU and CPU renders simultaneously, with thread-safe resource locking and automatic CPU thread scaling.
 - **HTTPS Transport** — All communication is encrypted via TLS. The manager auto-generates a self-signed certificate at first run, with support for bring-your-own certificates.
@@ -314,6 +314,26 @@ Unreal Engine settings will be documented here once the renderer lands.
 | Render Settings | JSON overrides for any `bpy` property path (samples, resolution, etc.) |
 | Output Formats | PNG, JPEG, TIFF, EXR, HDR, TGA |
 | Video Assembly | MP4, WebM, MOV (via FFmpeg) |
+
+### Blender sources
+
+The manager and the workers get Blender's release list and builds from an ordered list of download sites. The default list is the official site, then three mirrors:
+
+```
+https://download.blender.org/release/
+https://mirror.clarkson.edu/blender/release/
+https://ftp.halifax.rwth-aachen.de/blender/release/
+https://ftp.nluug.nl/pub/graphics/blender/release/
+```
+
+The release list and its SHA-256 checksums come from the first site that answers. A download moves on to the next site after any failure, a checksum mismatch included. To use other sites, set `sources` in the `[blender]` section of `sethlans.ini`, or the `SETHLANS_BLENDER_SOURCES` environment variable (which wins over the file), to comma-separated URLs. Either one replaces the whole default list. Only `https://` URLs are accepted. For example, a farm with its own mirror:
+
+```ini
+[blender]
+sources = https://mirror.example.lan/blender/release/
+```
+
+With only your own mirror listed, the checksums also come from that mirror, so trust it as you would the official site.
 
 ---
 

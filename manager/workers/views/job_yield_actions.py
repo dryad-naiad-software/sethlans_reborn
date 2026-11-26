@@ -14,10 +14,11 @@ VALID_STATUS_TRANSITIONS — it is only permitted through this
 dedicated endpoint.
 
 Counting (#246, #247): a yield is not a failure, so it does not count
-against the auto-requeue limit, except ``worker_hardware_changed``: it
-goes through ``requeue_or_fail`` (shared ``auto_requeue_count``, ERROR
-above the limit), because a scene that itself resets the GPU driver reads
-as a hardware change and would otherwise be handed back for ever.
+against the auto-requeue limit, except ``worker_hardware_changed`` and
+``blender_version_missing``: they go through ``requeue_or_fail`` (shared
+``auto_requeue_count``, ERROR above the limit). A scene that itself resets
+the GPU driver reads as a hardware change, and a job whose exact Blender
+version no worker has installed would otherwise be handed back for ever.
 
 Old process (#247): a hand-back that carries a ``worker_boot_id`` other
 than the worker's current one comes from a process that has since been
@@ -42,6 +43,13 @@ from .stuck_jobs import requeue_or_fail
 logger = logging.getLogger(__name__)
 
 HARDWARE_CHANGED_MESSAGE = "Auto-requeued: worker hardware changed"
+BLENDER_VERSION_MISSING_MESSAGE = "Auto-requeued: Blender version missing on worker"
+
+# Counted hand-backs: reason -> requeue message (auto_requeue_count).
+COUNTED_REASONS = {
+    YieldReason.WORKER_HARDWARE_CHANGED: HARDWARE_CHANGED_MESSAGE,
+    YieldReason.BLENDER_VERSION_MISSING: BLENDER_VERSION_MISSING_MESSAGE,
+}
 
 
 def _get_worker_for_request(request):
@@ -77,10 +85,10 @@ def _conflict(job, worker, boot_id):
 
 def _hand_back(job, reason):
     """Return the locked ``job`` to the queue; return its new status."""
-    if reason == YieldReason.WORKER_HARDWARE_CHANGED:
+    if reason in COUNTED_REASONS:
         # Counted, and not a yield_requeue_count: each hand-back is in
         # exactly one counter (auto_requeue_count holds the counted ones).
-        return requeue_or_fail(job, HARDWARE_CHANGED_MESSAGE)
+        return requeue_or_fail(job, COUNTED_REASONS[reason])
     job.status = JobStatus.QUEUED
     job.assigned_worker = None
     job.started_at = None
@@ -113,8 +121,9 @@ class JobYieldActionsMixin:
 
         Returns:
             200 ``{"status": "requeued"}``, or ``{"status": "error"}`` when
-                a counted hand-back (``worker_hardware_changed``) exceeded
-                the auto-requeue limit and the job is now ERROR.
+                a counted hand-back (``worker_hardware_changed``,
+                ``blender_version_missing``) exceeded the auto-requeue
+                limit and the job is now ERROR.
             404 if job not found.
             409 if the boot id is not the worker's current one, the job is
                 not RENDERING, or the worker is not the owner.

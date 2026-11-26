@@ -59,7 +59,7 @@ def executor_env(mocker, tmp_path):
         return_value=str(tmp_path / 'scene.blend'),
     )
     tm = 'sethlans_worker_agent.tool_manager.tool_manager_instance'
-    mocker.patch(f'{tm}.ensure_blender_version_available',
+    mocker.patch(f'{tm}.get_blender_executable_path',
                  return_value=str(tmp_path / 'blender'))
     mocks = {
         'acquire': mocker.patch(f'{tm}.acquire_version'),

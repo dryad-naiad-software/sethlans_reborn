@@ -12,7 +12,8 @@ patch version upgrades.
 
 import time
 
-from sethlans_worker_agent import version_sync
+from sethlans_worker_agent import agent_shutdown, version_sync
+from sethlans_worker_agent.blender_install import InstallOutcome, InstallResult
 from sethlans_worker_agent.version_sync import (
     sync_versions,
     process_pending_downloads,
@@ -182,15 +183,12 @@ def test_backoff_skips_download(mocker):
     version = '4.5.0'
     _record_failure(version)
 
-    ensure_mock = mocker.patch.object(
-        version_sync.tool_manager_instance,
-        'ensure_blender_version_available',
-    )
+    install_mock = mocker.patch.object(version_sync.blender_install, 'install')
 
     actions = [{'series': '4.5', 'version': version}]
     version_sync.download_versions(actions)
 
-    ensure_mock.assert_not_called()
+    install_mock.assert_not_called()
 
 
 # -- Upgrade patch version --
@@ -200,15 +198,9 @@ def test_upgrade_removes_old_version(mocker):
     installed = {'4.1': '4.1.0'}
     actions = [{'series': '4.1', 'version': '4.1.2'}]
 
-    mocker.patch.object(
-        version_sync.tool_manager_instance,
-        'ensure_blender_version_available',
-        return_value='/fake/blender-4.1.2',
-    )
-    mocker.patch.object(
-        version_sync.tool_manager_instance,
-        'get_blender_executable_path',
-        return_value='/fake/blender-4.1.2/blender',
+    install_mock = mocker.patch.object(
+        version_sync.blender_install, 'install',
+        return_value=InstallResult(InstallOutcome.INSTALLED, exe_path='/fake/blender-4.1.2/blender'),
     )
     remove_mock = mocker.patch.object(
         version_sync.tool_manager_instance,
@@ -218,6 +210,7 @@ def test_upgrade_removes_old_version(mocker):
     count = version_sync.upgrade_patch_versions(actions, installed)
 
     assert count == 1
+    install_mock.assert_called_once_with('4.1.2', blocking=False, stop=agent_shutdown._shutdown_event)
     remove_mock.assert_called_once_with('4.1.0')
 
 
@@ -226,12 +219,9 @@ def test_upgrade_no_op_when_same_version(mocker):
     installed = {'4.1': '4.1.1'}
     actions = [{'series': '4.1', 'version': '4.1.1'}]
 
-    ensure_mock = mocker.patch.object(
-        version_sync.tool_manager_instance,
-        'ensure_blender_version_available',
-    )
+    install_mock = mocker.patch.object(version_sync.blender_install, 'install')
 
     count = version_sync.upgrade_patch_versions(actions, installed)
 
     assert count == 0
-    ensure_mock.assert_not_called()
+    install_mock.assert_not_called()

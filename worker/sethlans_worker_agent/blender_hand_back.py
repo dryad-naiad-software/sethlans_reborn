@@ -6,7 +6,9 @@ Handing a Blender job the worker stopped back to the queue (#246, #247).
 
 For a stop caused by the worker shutting down, the job thread posts
 ``POST jobs/{id}/yield-requeue/`` with reason ``worker_shutdown`` or
-``worker_hardware_changed`` and this process's ``worker_boot_id``. The
+``worker_hardware_changed`` and this process's ``worker_boot_id``. A job
+whose exact Blender version is not installed is handed back the same way
+with ``blender_version_missing`` (BS-WK-11; no render was started). The
 manager answers 409 when the job is already gone from this worker (requeued
 meanwhile, or a newer worker process registered): that counts as done. A
 hardware-change hand-back counts against the job's auto-requeue limit; at
@@ -31,7 +33,7 @@ is rendered again.
 import logging
 
 from sethlans_worker_agent import config
-from sethlans_worker_agent.blender_stop import WORKER_HARDWARE_CHANGED, WORKER_SHUTDOWN
+from sethlans_worker_agent.blender_stop import BLENDER_VERSION_MISSING, WORKER_HARDWARE_CHANGED, WORKER_SHUTDOWN
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +52,10 @@ def _answer_status(response):
 def hand_back(job_id, reason) -> bool:
     """Return a job the worker stopped to the queue; never raises.
 
-    Only for the worker-shutdown reasons. Returns True when the manager took
-    it back or it was already gone (409).
+    Only for the worker-shutdown reasons and a missing Blender version.
+    Returns True when the manager took it back or it was already gone (409).
     """
-    if reason not in (WORKER_SHUTDOWN, WORKER_HARDWARE_CHANGED):
+    if reason not in (WORKER_SHUTDOWN, WORKER_HARDWARE_CHANGED, BLENDER_VERSION_MISSING):
         logger.info("Job %s is no longer assigned to this worker; not reporting it.", job_id)
         return False
     from sethlans_worker_agent import api_handler, boot_id

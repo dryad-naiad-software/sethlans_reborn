@@ -51,11 +51,11 @@ class TestStopPoints:
         job = dict(_gpu_check._gpu_job(), render_device='CPU')
         blender_stop.register_card_stop(job)
 
-        def download(_version):
-            blender_stop.request_card_stop(job['id'])  # the card goes while Blender is fetched
+        def lookup(_version):
+            blender_stop.request_card_stop(job['id'])  # the card goes while the installed Blender is looked up
             return str(tmp_path / 'blender')
-        mocker.patch('sethlans_worker_agent.tool_manager.tool_manager_instance.ensure_blender_version_available',
-                     side_effect=download)
+        mocker.patch('sethlans_worker_agent.tool_manager.tool_manager_instance.get_blender_executable_path',
+                     side_effect=lookup)
 
         result = blender_executor.execute_blender_job(job, shutdown_event=threading.Event())
 

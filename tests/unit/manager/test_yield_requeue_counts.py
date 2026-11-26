@@ -18,8 +18,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from workers.constants import YieldReason
 from workers.models.jobs import JobStatus
-from workers.views.job_yield_actions import JobYieldActionsMixin
+from workers.views import stuck_jobs
+from workers.views.job_yield_actions import BLENDER_VERSION_MISSING_MESSAGE, JobYieldActionsMixin, _hand_back
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +172,29 @@ class TestYieldRequeueCountIncrement:
             "unreal_memory_report",
         }
         assert set(update_fields) == expected
+
+
+# ---------------------------------------------------------------------------
+# BS-WK-11: a missing Blender version is a counted hand-back
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("count, expected", [
+    (stuck_jobs._MAX_AUTO_REQUEUE - 1, JobStatus.QUEUED),
+    (stuck_jobs._MAX_AUTO_REQUEUE, JobStatus.ERROR),
+], ids=["below-limit", "at-limit"])
+def test_blender_version_missing_is_counted_by_requeue_or_fail(mock_job, count, expected):
+    """BS-WK-11: ``blender_version_missing`` goes through ``requeue_or_fail`` (``auto_requeue_count``, not
+    ``yield_requeue_count``), so a job no worker has the version for reaches ERROR at the limit."""
+    mock_job.auto_requeue_count = count
+    with patch.object(stuck_jobs, "transaction") as tx:
+        tx.get_connection.return_value.in_atomic_block = True
+        status = _hand_back(mock_job, YieldReason.BLENDER_VERSION_MISSING)
+
+    assert status == expected and mock_job.status == expected
+    assert (mock_job.auto_requeue_count, mock_job.yield_requeue_count) == (count + 1, 0)
+    if expected == JobStatus.QUEUED:
+        assert mock_job.error_message == BLENDER_VERSION_MISSING_MESSAGE
 
 
 # ---------------------------------------------------------------------------

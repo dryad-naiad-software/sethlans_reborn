@@ -51,7 +51,7 @@ class SupportedBlenderVersionViewSet(viewsets.ModelViewSet):
     @extend_schema(tags=['Management UI'])
     @action(detail=False, methods=['get'], url_path='available_series')
     def available_series(self, request):
-        """Return Blender series from download.blender.org, minus already-added."""
+        """Return Blender series from the first configured Blender source, minus already-added."""
         trigger_background_refresh()
         data = get_available_series()
         existing = set(

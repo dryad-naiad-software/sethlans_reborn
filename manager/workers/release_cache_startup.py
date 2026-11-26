@@ -5,7 +5,8 @@
 Start of the background Blender series fetch (issue #292).
 
 The fetch (:func:`workers.utils.blender_series_cache.populate_cache`,
-which contacts download.blender.org) runs only in a process that serves
+which reads the series from the first configured Blender source through
+``shared.blender_sources.list_series``) runs only in a process that serves
 requests:
 
 * the Waitress serving process — ``sethlans_manager.waitress_launcher.launch``
