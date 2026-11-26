@@ -17,9 +17,10 @@ on the data and drops the new columns.
 
 import pytest
 from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
 
 from shared.unreal.validation import target_sha256
+
+from .migration_helpers import migrate_to, migrate_to_latest
 
 BEFORE = [('workers', '0031_unrealmeasurement_ram')]
 AFTER = [('workers', '0032_machine_results')]
@@ -31,13 +32,6 @@ OLD_HASH = 'a' * 64
 PILOT_REPLACED = "Replaced by per-machine memory tests."
 
 
-def _migrate(targets):
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(targets)
-    return executor.loader.project_state(targets).apps
-
-
 def _columns(table):
     with connection.cursor() as cursor:
         return {c.name for c in connection.introspection.get_table_description(cursor, table)}
@@ -46,11 +40,9 @@ def _columns(table):
 @pytest.fixture
 def at_0031(transactional_db):
     try:
-        yield _migrate(BEFORE)
+        yield migrate_to(BEFORE)
     finally:
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        migrate_to_latest()
 
 
 class _Seed:
@@ -125,7 +117,7 @@ def _get(apps, model, pk):
 class TestDataStep:
 
     def test_records_stay_as_history(self, seeded):
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         for name in ('record_measured', 'record_open'):
             record = _get(apps, 'UnrealMeasurement', seeded[name].pk)
             assert (record.current, record.card_kind, record.verdict, record.stale_reason) == (False, '', '', '')
@@ -134,7 +126,7 @@ class TestDataStep:
             8102, seeded['record_measured'].worker_id, seeded['pilot_done'].pk)
 
     def test_open_pilots_canceled_finished_untouched(self, seeded):
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         for name in ('pilot_queued', 'pilot_rendering'):
             pilot = _get(apps, 'Job', seeded[name].pk)
             assert (pilot.status, pilot.error_message) == ('CANCELED', PILOT_REPLACED)
@@ -143,7 +135,7 @@ class TestDataStep:
         assert _get(apps, 'Job', seeded['pilot_error'].pk).status == 'ERROR'
 
     def test_piece_keys_and_draft_rehash(self, seeded):
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         plain_pk, drafted_pk, empty_pk = seeded['submissions']
         drafted_key = target_sha256(BUILD, MAP, SEQUENCE, PRESET, None, SHOT_SET, DRAFT)
         assert _get(apps, 'Job', seeded['draft_piece'].pk).unreal_target_sha256 == drafted_key
@@ -155,7 +147,7 @@ class TestDataStep:
         assert {_get(apps, 'SequenceSubmission', pk).measured_ranges for pk in seeded['submissions']} == {None}
 
     def test_audio_of_a_submission_without_pieces(self, seeded):
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         queued = _get(apps, 'Job', seeded['empty_audio_queued'].pk)
         assert queued.status == 'CANCELED' and 'pieces' in queued.error_message
         assert _get(apps, 'Job', seeded['empty_audio_done'].pk).status == 'DONE'
@@ -163,9 +155,9 @@ class TestDataStep:
         assert _get(apps, 'Job', seeded['plain_piece'].pk).status == 'QUEUED'
 
     def test_reverse_keeps_the_data_and_drops_the_columns(self, seeded):
-        _migrate(AFTER)
+        migrate_to(AFTER)
         assert {'target_worker_id', 'unreal_memory_report'} <= _columns('workers_job')
-        apps = _migrate(BEFORE)
+        apps = migrate_to(BEFORE)
         assert not {'target_worker_id', 'unreal_memory_report'} & _columns('workers_job')
         assert not {'current', 'card_kind', 'verdict'} & _columns('workers_unrealmeasurement')
         assert 'piece_target_sha256' not in _columns('workers_sequencesubmission')

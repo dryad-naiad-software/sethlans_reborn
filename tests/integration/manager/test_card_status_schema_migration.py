@@ -13,22 +13,16 @@ import pytest
 from django.contrib import admin
 from django.core.management import call_command
 from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
 from django.test import Client, RequestFactory
 
 from workers.models import Worker
 from workers.serializers import WorkerSerializer
 
+from .migration_helpers import migrate_to, migrate_to_latest
+
 BEFORE = [('workers', '0023_yield_reason_worker_stops')]
 AFTER = [('workers', '0024_worker_card_status')]
 CARD_COLUMNS = {'card_status', 'card_alert_dismissals'}
-
-
-def _migrate(targets):
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(targets)
-    return executor.loader.project_state(targets).apps
 
 
 def _columns():
@@ -39,11 +33,9 @@ def _columns():
 @pytest.fixture
 def at_0023(transactional_db):
     try:
-        yield _migrate(BEFORE)
+        yield migrate_to(BEFORE)
     finally:
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        migrate_to_latest()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -51,10 +43,10 @@ class TestMigration:
 
     def test_existing_rows_get_empty_values_and_reverse_drops_the_columns(self, at_0023):
         at_0023.get_model('workers', 'Worker').objects.create(hostname='old-row')
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         row = apps.get_model('workers', 'Worker').objects.get(hostname='old-row')
         assert (row.card_status, row.card_alert_dismissals) == ({}, [])
-        _migrate(BEFORE)
+        migrate_to(BEFORE)
         assert not CARD_COLUMNS & _columns()
 
     def test_no_model_change_lacks_a_migration(self):

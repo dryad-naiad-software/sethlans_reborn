@@ -12,10 +12,11 @@ import importlib
 
 import pytest
 from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
 from django.test.utils import CaptureQueriesContext
 
 from shared.unreal.validation import overrides_sha256, target_sha256
+
+from .migration_helpers import migrate_to, migrate_to_latest
 
 BEFORE = [('workers', '0021_unreal_renderer_foundation')]
 AFTER = [('workers', '0022_unreal_measurement')]
@@ -24,21 +25,12 @@ BUILD = '5.8.4-58902052'
 SETTINGS = {'unreal.map': '/Game/M.M', 'unreal.sequence': '/Game/S.S', 'unreal.preset': '/Game/P.P'}
 
 
-def _migrate(targets):
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(targets)
-    return executor.loader.project_state(targets).apps
-
-
 @pytest.fixture
 def at_0021(transactional_db):
     try:
-        yield _migrate(BEFORE)
+        yield migrate_to(BEFORE)
     finally:
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        migrate_to_latest()
 
 
 def _seed(apps):
@@ -59,7 +51,7 @@ class TestForward:
 
     def test_fills_hashes_and_creates_no_pilot(self, at_0021):
         project_pk, job_pk = _seed(at_0021)
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         project = apps.get_model('workers', 'Project').objects.get(pk=project_pk)
         job = apps.get_model('workers', 'Job').objects.get(pk=job_pk)
         assert project.unreal_overrides_sha256 == overrides_sha256({'r.Streaming.PoolSize': '3000'})
@@ -90,11 +82,11 @@ class TestReverse:
     @pytest.mark.parametrize('make', ['_pilot', '_record'])
     def test_refused_before_any_ddl(self, at_0021, make):
         _seed(at_0021)
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         getattr(self, make)(apps)
         with CaptureQueriesContext(connection) as ctx:
             with pytest.raises(RuntimeError, match='Cannot unapply 0022_unreal_measurement'):
-                _migrate(BEFORE)
+                migrate_to(BEFORE)
         assert [q['sql'] for q in ctx.captured_queries if q['sql'].upper().startswith(DDL_MARKERS)] == []
         if make == '_record':
             apps.get_model('workers', 'UnrealMeasurement').objects.all().delete()
@@ -103,8 +95,8 @@ class TestReverse:
 
     def test_reverse_succeeds_without_measurements(self, at_0021):
         project_pk, _job_pk = _seed(at_0021)
-        _migrate(AFTER)
-        apps = _migrate(BEFORE)
+        migrate_to(AFTER)
+        apps = migrate_to(BEFORE)
         assert apps.get_model('workers', 'Project').objects.filter(pk=project_pk).exists()
         columns = {c.name for c in connection.introspection.get_table_description(
             connection.cursor(), 'workers_project')}
@@ -115,9 +107,9 @@ class TestReverse:
         if connection.vendor != 'sqlite':
             pytest.skip('SQLite feature flag')
         project_pk, _job_pk = _seed(at_0021)
-        _migrate(AFTER)
+        migrate_to(AFTER)
         monkeypatch.setattr(connection.features, 'can_alter_table_drop_column', False)
-        apps = _migrate(BEFORE)
+        apps = migrate_to(BEFORE)
         project = apps.get_model('workers', 'Project').objects.get(pk=project_pk)
         assert project.unreal_cvar_overrides == {'r.Streaming.PoolSize': '3000'}
         columns = {c.name for c in connection.introspection.get_table_description(

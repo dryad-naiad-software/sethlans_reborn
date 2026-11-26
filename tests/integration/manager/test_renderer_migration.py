@@ -23,33 +23,21 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test.utils import CaptureQueriesContext
 
+from .migration_helpers import migrate_to, migrate_to_latest
+
 BEFORE = [('workers', '0020_parent_error_message')]
 AFTER = [('workers', '0021_unreal_renderer_foundation')]
 DDL_MARKERS = ('CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'CREATE INDEX', 'DROP INDEX')
 SUBMITTED = datetime(2025, 5, 1, 12, 0, tzinfo=dt_timezone.utc)
 
 
-def _migrate(targets):
-    """Migrate to *targets*; return the historical apps at that state."""
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(targets)
-    return MigrationExecutor(connection).loader.project_state(targets).apps
-
-
-def _migrate_to_latest():
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(executor.loader.graph.leaf_nodes())
-
-
 @pytest.fixture
 def at_0020(transactional_db):
     """Historical apps at 0020; restores the latest schema afterwards."""
     try:
-        yield _migrate(BEFORE)
+        yield migrate_to(BEFORE)
     finally:
-        _migrate_to_latest()
+        migrate_to_latest()
 
 
 def _seed_0020(apps):
@@ -81,7 +69,7 @@ class TestForward:
 
     def test_existing_rows_keep_values_and_get_defaults(self, at_0020):
         pks = _seed_0020(at_0020)
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
 
         project = apps.get_model('workers', 'Project').objects.get(pk=pks['project'])
         assert (project.name, project.blender_version_id) == ('LegacyProject', pks['version'])
@@ -185,12 +173,12 @@ class TestReverse:
     ], ids=['unreal-project', 'shared-project-asset', 'unreal-job', 'blender-project-without-version'])
     def test_reverse_refused_before_any_ddl(self, at_0020, make_unreal_row):
         _seed_0020(at_0020)
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         make_unreal_row(apps)
 
         with CaptureQueriesContext(connection) as ctx:
             with pytest.raises(RuntimeError, match='Cannot unapply 0021: Unreal data exists'):
-                _migrate(BEFORE)
+                migrate_to(BEFORE)
         ddl = [q['sql'] for q in ctx.captured_queries if q['sql'].upper().startswith(DDL_MARKERS)]
         assert ddl == []
 
@@ -201,8 +189,8 @@ class TestReverse:
 
     def test_reverse_succeeds_without_unreal_data(self, at_0020):
         pks = _seed_0020(at_0020)
-        _migrate(AFTER)
-        apps = _migrate(BEFORE)
+        migrate_to(AFTER)
+        apps = migrate_to(BEFORE)
 
         columns = {c.name for c in connection.introspection.get_table_description(
             connection.cursor(), 'workers_project')}

@@ -11,19 +11,13 @@ import importlib
 
 import pytest
 from django.db import connection, migrations, models
-from django.db.migrations.executor import MigrationExecutor
+
+from .migration_helpers import migrate_to, migrate_to_latest
 
 BEFORE = [('workers', '0030_sequence_videos')]
 AFTER = [('workers', '0031_unrealmeasurement_ram')]
 NEW_COLUMNS = {'ram', 'ram_process_commit_peak_mb', 'shared_machine'}
 BUILD = '5.8.4-58902052'
-
-
-def _migrate(targets):
-    executor = MigrationExecutor(connection)
-    executor.loader.build_graph()
-    executor.migrate(targets)
-    return executor.loader.project_state(targets).apps
 
 
 def _columns():
@@ -34,11 +28,9 @@ def _columns():
 @pytest.fixture
 def at_0030(transactional_db):
     try:
-        yield _migrate(BEFORE)
+        yield migrate_to(BEFORE)
     finally:
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        migrate_to_latest()
 
 
 def _seed(apps):
@@ -59,7 +51,7 @@ class TestMigration:
     def test_existing_records_read_null_and_keep_their_results(self, at_0030):
         pk = _seed(at_0030)
         assert not NEW_COLUMNS & _columns()
-        apps = _migrate(AFTER)
+        apps = migrate_to(AFTER)
         assert NEW_COLUMNS <= _columns()
         record = apps.get_model('workers', 'UnrealMeasurement').objects.get(pk=pk)
         assert (record.ram, record.ram_process_commit_peak_mb, record.shared_machine) == (None, None, None)
@@ -68,8 +60,8 @@ class TestMigration:
     def test_reverse_drops_only_the_three_columns(self, at_0030):
         pk = _seed(at_0030)
         before = _columns()
-        _migrate(AFTER)
-        apps = _migrate(BEFORE)
+        migrate_to(AFTER)
+        apps = migrate_to(BEFORE)
         assert _columns() == before
         assert apps.get_model('workers', 'UnrealMeasurement').objects.get(pk=pk).peak_mb == 8102
 
