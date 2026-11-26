@@ -6,22 +6,17 @@
 Integration tests for the version_sync module.
 
 Exercises sync_versions end-to-end flow including download triggering,
-busy queuing, pending download processing, backoff tracking, and
-patch version upgrades.
+busy queuing, pending download processing, skipping a version in backoff,
+and patch version upgrades.
 """
 
-import time
-
-from sethlans_worker_agent import agent_shutdown, version_sync
+from sethlans_worker_agent import agent_shutdown, blender_wait, version_sync
 from sethlans_worker_agent.blender_install import InstallOutcome, InstallResult
+from sethlans_worker_agent.blender_wait import record_failure as _record_failure
 from sethlans_worker_agent.version_sync import (
     sync_versions,
     process_pending_downloads,
     queue_pending_downloads,
-    _record_failure,
-    _clear_failure,
-    _is_in_backoff,
-    _failed_versions,
     _pending_downloads,
     _pending_lock,
 )
@@ -134,56 +129,14 @@ def test_process_pending_no_op_when_empty(mocker):
     download_mock.assert_not_called()
 
 
-# -- Backoff tracking --
-
-def test_backoff_recorded_on_failure():
-    """Failed download records backoff with exponential delay."""
-    version = '4.5.0'
-
-    assert _is_in_backoff(version) is False
-
-    _record_failure(version)
-    assert _is_in_backoff(version) is True
-
-    # Check backoff info
-    info = _failed_versions[version]
-    assert info['attempts'] == 1
-    assert info['next_retry'] > time.time()
-
-
-def test_backoff_increases_exponentially():
-    """Successive failures increase backoff delay."""
-    version = '4.5.0'
-
-    _record_failure(version)
-    first_retry = _failed_versions[version]['next_retry']
-
-    _record_failure(version)
-    second_retry = _failed_versions[version]['next_retry']
-
-    # Second retry should be later than first
-    assert second_retry > first_retry
-    assert _failed_versions[version]['attempts'] == 2
-
-
-def test_backoff_cleared_on_success():
-    """Successful download clears backoff tracking."""
-    version = '4.5.0'
-
-    _record_failure(version)
-    assert _is_in_backoff(version) is True
-
-    _clear_failure(version)
-    assert _is_in_backoff(version) is False
-    assert version not in _failed_versions
-
+# -- Backoff --
 
 def test_backoff_skips_download(mocker):
     """Version in backoff is skipped during download_versions."""
     version = '4.5.0'
     _record_failure(version)
 
-    install_mock = mocker.patch.object(version_sync.blender_install, 'install')
+    install_mock = mocker.patch.object(blender_wait.blender_install, 'install')
 
     actions = [{'series': '4.5', 'version': version}]
     version_sync.download_versions(actions)
@@ -199,7 +152,7 @@ def test_upgrade_removes_old_version(mocker):
     actions = [{'series': '4.1', 'version': '4.1.2'}]
 
     install_mock = mocker.patch.object(
-        version_sync.blender_install, 'install',
+        blender_wait.blender_install, 'install',
         return_value=InstallResult(InstallOutcome.INSTALLED, exe_path='/fake/blender-4.1.2/blender'),
     )
     remove_mock = mocker.patch.object(
@@ -210,7 +163,10 @@ def test_upgrade_removes_old_version(mocker):
     count = version_sync.upgrade_patch_versions(actions, installed)
 
     assert count == 1
-    install_mock.assert_called_once_with('4.1.2', blocking=False, stop=agent_shutdown._shutdown_event)
+    # Version sync waits for a fetching manager until 30 min have passed (BS-WK-10).
+    install_mock.assert_called_once_with(
+        '4.1.2', blocking=False, stop=agent_shutdown._shutdown_event, wait_for_manager=True,
+    )
     remove_mock.assert_called_once_with('4.1.0')
 
 
@@ -219,7 +175,7 @@ def test_upgrade_no_op_when_same_version(mocker):
     installed = {'4.1': '4.1.1'}
     actions = [{'series': '4.1', 'version': '4.1.1'}]
 
-    install_mock = mocker.patch.object(version_sync.blender_install, 'install')
+    install_mock = mocker.patch.object(blender_wait.blender_install, 'install')
 
     count = version_sync.upgrade_patch_versions(actions, installed)
 

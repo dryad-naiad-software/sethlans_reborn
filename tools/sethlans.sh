@@ -473,7 +473,7 @@ cmd_clean() {
     rm -rf "$MANAGER_DIR/staticfiles" "$MANAGER_DIR/logs" "$MANAGER_DIR/tls" \
            "$MANAGER_DIR/caddy"
     rm -rf "$FRONTEND_DIR/dist" "$FRONTEND_DIR/.angular" "$FRONTEND_DIR/node_modules"
-    rm -rf "${MANAGER_DIR:?}/media"
+    rm -rf "${MANAGER_DIR:?}/media" "${MANAGER_DIR:?}/blender"
     find "$MANAGER_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
     echo "[OK] Manager artifacts removed"
     # Worker — wipe the in-repo dev data dir (logs, tools, assets,

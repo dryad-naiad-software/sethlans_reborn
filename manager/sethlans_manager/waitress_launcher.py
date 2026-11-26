@@ -53,6 +53,8 @@ logger = logging.getLogger(__name__)
 _servers: list = []
 _threads: list = []
 _shutdown_event = threading.Event()
+# How long shutdown waits for the Blender cache runner thread to end.
+BLENDER_CACHE_JOIN_SECONDS = 5.0
 
 
 def _listener_thread_main(server, label: str) -> None:
@@ -220,6 +222,10 @@ def launch(
     # process only, never from apps.ready() for management commands.
     from workers.release_cache_startup import start_release_cache_populate
     start_release_cache_populate()
+    # The Blender build cache (re-queue, reconcile, runner thread) starts
+    # in the serving process only; each step logs and swallows its error.
+    from workers.services.blender_cache import runner as blender_cache_runner
+    blender_cache_runner.start_for_server()
     public_thread.start()
     internal_thread.start()
 
@@ -240,4 +246,9 @@ def launch(
         # can actually run.
         _shutdown_event.wait()
     finally:
-        stop_waitress_listeners()
+        try:
+            stop_waitress_listeners()
+        finally:
+            # A download in progress stops between chunks and goes back to
+            # QUEUED before the process ends (BS-MGR-6).
+            blender_cache_runner.stop(join_timeout=BLENDER_CACHE_JOIN_SECONDS)

@@ -6,9 +6,9 @@
 Unit tests for worker agent version_sync module.
 
 Tests version parsing, download action computation, removable version
-detection, and backoff tracking.
+detection and pending work. The back-off moved to `blender_wait`
+(`test_blender_wait.py`).
 """
-import time
 
 from sethlans_worker_agent import version_sync
 
@@ -132,52 +132,6 @@ class TestComputeRemovableVersions:
         )
         assert removable == []
         assert deferred == []
-
-
-# --- Backoff tracking ---
-
-class TestBackoffTracking:
-
-    def test_not_in_backoff_initially(self):
-        assert version_sync._is_in_backoff('4.1.1') is False
-
-    def test_record_failure_puts_version_in_backoff(self):
-        version_sync._record_failure('4.1.1')
-        assert version_sync._is_in_backoff('4.1.1') is True
-
-    def test_clear_failure_removes_backoff(self):
-        version_sync._record_failure('4.1.1')
-        version_sync._clear_failure('4.1.1')
-        assert version_sync._is_in_backoff('4.1.1') is False
-
-    def test_backoff_delay_increases_with_attempts(self):
-        version_sync._record_failure('4.1.1')
-        with version_sync._failed_lock:
-            info1 = version_sync._failed_versions['4.1.1'].copy()
-
-        version_sync._record_failure('4.1.1')
-        with version_sync._failed_lock:
-            info2 = version_sync._failed_versions['4.1.1'].copy()
-
-        # Second retry should be further in the future
-        assert info2['next_retry'] > info1['next_retry']
-        assert info2['attempts'] == 2
-
-    def test_backoff_capped_at_max(self):
-        # Record many failures to exceed the cap
-        for _ in range(20):
-            version_sync._record_failure('4.1.1')
-
-        with version_sync._failed_lock:
-            info = version_sync._failed_versions['4.1.1']
-        # The delay should not exceed _BACKOFF_MAX
-        max_delay = version_sync._BACKOFF_MAX
-        # next_retry should be at most time.time() + _BACKOFF_MAX + margin
-        assert info['next_retry'] <= time.time() + max_delay + 1
-
-    def test_clear_nonexistent_version_is_noop(self):
-        version_sync._clear_failure('nonexistent')
-        assert version_sync._is_in_backoff('nonexistent') is False
 
 
 # --- _version_tuple ---

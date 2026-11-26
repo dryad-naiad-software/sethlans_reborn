@@ -234,6 +234,9 @@ from .logging_config import LOGGING  # noqa: E402, F401
 MEDIA_URL = '/media/'
 _default_media_root = str(get_data_dir('manager') / 'media')
 MEDIA_ROOT = os.getenv('SETHLANS_MEDIA_ROOT', _default_media_root)
+# Cached Blender builds for workers: never under MEDIA_ROOT, which /media/
+# serves to anyone (workers.services.blender_cache).
+BLENDER_CACHE_ROOT = get_data_dir('manager') / 'blender'
 
 # --- Session Cookie Configuration ---
 SESSION_COOKIE_HTTPONLY = True  # Default, but explicit for clarity

@@ -15,7 +15,8 @@ import types
 import pytest
 
 from shared.blender_sources import BuildEntry
-from sethlans_worker_agent import agent_shutdown, blender_install, version_sync
+from sethlans_worker_agent import agent_shutdown, blender_install, blender_wait, version_sync
+from sethlans_worker_agent.blender_from_manager import ManagerAnswer, ManagerResult
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.utils import file_operations
 
@@ -34,8 +35,14 @@ def installer(monkeypatch, tmp_path):
     monkeypatch.setattr(tool_manager_instance, '_create_tools_directory_if_not_exists', lambda: None)
     monkeypatch.setattr(tool_manager_instance, 'blender_dir', tmp_path)
     monkeypatch.setattr(blender_install, 'current_platform_id', lambda: 'linux-x64')
-    monkeypatch.setattr(blender_install, 'find_build', lambda *_a, **_kw: BuildEntry(
-        VERSION, 'linux-x64', 'blender-4.5.8-linux-x64.tar.xz', 'ab' * 32, 'https://a.test/release/'))
+    monkeypatch.setattr(blender_install.blender_from_manager, 'fetch',
+                        lambda *_a, **_kw: ManagerResult(ManagerAnswer.UNAVAILABLE))  # BS-WK-4: online next
+    state.lookups = 0
+
+    def find(*_a, **_kw):
+        state.lookups += 1
+        return BuildEntry(VERSION, 'linux-x64', 'blender-4.5.8-linux-x64.tar.xz', 'ab' * 32, 'https://a.test/release/')
+    monkeypatch.setattr(blender_install, 'find_build', find)
 
     def download(_entry, dest_dir, stop=None):
         state.downloads += 1
@@ -87,16 +94,17 @@ def test_a_caller_that_waited_for_the_lock_finds_it_installed(installer, monkeyp
 ], ids=['download', 'upgrade'])
 def test_version_sync_skips_a_busy_version_with_no_back_off(monkeypatch, mocker, sync, outcome):
     """BS-WK-3: a BUSY install, or one STOPPED by agent shutdown, is skipped this round: no failure, no
-    back-off, nothing removed. The install is non-blocking and ends on the agent's shutdown event."""
-    install = mocker.patch.object(version_sync.blender_install, 'install',
-                                  return_value=blender_install.InstallResult(outcome))
+    back-off, nothing removed. The install (through ``blender_wait``) is non-blocking, ends on the agent's
+    shutdown event and waits for a fetching manager (BS-WK-10)."""
+    install = mocker.patch.object(blender_install, 'install', return_value=blender_install.InstallResult(outcome))
     remove = mocker.patch.object(tool_manager_instance, 'remove_blender_version')
 
     assert sync() == 0
 
-    install.assert_called_once_with(VERSION, blocking=False, stop=agent_shutdown._shutdown_event)
+    install.assert_called_once_with(VERSION, blocking=False, stop=agent_shutdown._shutdown_event,
+                                    wait_for_manager=True)
     remove.assert_not_called()
-    assert version_sync._is_in_backoff(VERSION) is False
+    assert blender_wait.is_in_backoff(VERSION) is False
 
 
 def test_a_version_being_installed_is_not_reported_and_a_second_install_is_busy(monkeypatch, tmp_path):
@@ -162,3 +170,36 @@ def test_a_blocking_install_waiting_for_the_lock_ends_when_stopped(installer, mo
     assert (result.outcome, result.error) == (blender_install.InstallOutcome.STOPPED, 'Cancelled')
     assert installer.downloads == 0
     assert still_held
+
+
+@pytest.mark.parametrize('answer, state, online, outcome', [
+    (ManagerAnswer.SUPPLIED, 'ready', 0, blender_install.InstallOutcome.INSTALLED),
+    (ManagerAnswer.UNAVAILABLE, 'failed', 1, blender_install.InstallOutcome.INSTALLED),
+    (ManagerAnswer.WAIT, 'queued', 0, blender_install.InstallOutcome.WAITING),
+], ids=['manager-ready', 'manager-unavailable', 'manager-fetching'])
+def test_the_manager_is_asked_before_the_online_sources(installer, monkeypatch, tmp_path, answer, state, online,
+                                                        outcome):
+    """BS-WK-4, BS-WK-7, BS-WK-10: the manager is asked first. A build it supplies is extracted with no
+    online request (release list included); only an unavailable manager sends the install online; a
+    fetching manager ends a waiting install at once with WAITING, nothing online and nothing extracted."""
+    installer.release.set()
+    supplied = tmp_path / 'blender-4.5.8-linux-x64.tar.xz'
+    asked, extracted = [], []
+
+    def fetch(version, platform_id, dest_dir, *, stop=None, wait=False):
+        asked.append((version, platform_id, dest_dir, wait))
+        return ManagerResult(answer, state=state, archive=supplied if answer is ManagerAnswer.SUPPLIED else None)
+    monkeypatch.setattr(blender_install.blender_from_manager, 'fetch', fetch)
+
+    def extract(archive, _dest):
+        extracted.append(archive)
+        installer.installed = True
+    monkeypatch.setattr(file_operations, 'extract_archive', extract)
+
+    result = blender_install.install(VERSION, blocking=False, wait_for_manager=True)
+
+    assert (result.outcome, result.manager_state) == (outcome, state)
+    assert asked == [(VERSION, 'linux-x64', tmp_path, True)]
+    assert (installer.lookups, installer.downloads) == (online, online)
+    assert extracted == ([] if outcome is blender_install.InstallOutcome.WAITING else [str(supplied)])
+    assert VERSION not in tool_manager_instance._downloading_versions

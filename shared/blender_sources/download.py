@@ -64,8 +64,16 @@ def _check_entry(entry: BuildEntry) -> None:
         raise BlenderSourcesError(f"no SHA-256 published for {entry.file}")
 
 
-def _write_body(response, part: Path, sha256: str, max_bytes: int, stop) -> None:
-    """Stream the body into ``part``; raise ``SourceFailure`` for source faults."""
+def write_verified_body(response, part: Path, sha256: str, max_bytes: int, stop) -> None:
+    """Stream the body into ``part`` and check it against ``sha256``.
+
+    Raises ``SourceFailure`` for source faults (``Content-Length`` or bytes
+    over ``max_bytes``, a request error, the stall budget, a checksum
+    mismatch), ``DownloadStoppedError`` when ``stop`` is set and ``OSError``
+    for a local write error. Also used by the worker's manager step (BS-WK-5),
+    with the manager's ``size`` as ``max_bytes``. The caller removes ``part``
+    on failure.
+    """
     declared = response.headers.get("Content-Length")
     if declared is not None and declared.isdigit() and int(declared) > max_bytes:
         raise SourceFailure("too large")
@@ -97,7 +105,7 @@ def _attempt(session, source: str, entry: BuildEntry, part: Path, max_bytes: int
     url = f"{source}Blender{series_of(entry.version)}/{entry.file}"
     response = sources.get_checked(session, url, DOWNLOAD_TIMEOUT)
     try:
-        _write_body(response, part, entry.sha256, max_bytes, stop)
+        write_verified_body(response, part, entry.sha256, max_bytes, stop)
     finally:
         response.close()
 

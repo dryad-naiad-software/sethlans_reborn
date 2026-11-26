@@ -20,6 +20,7 @@ from collections import defaultdict
 
 import psutil
 
+from shared.blender_sources import current_platform_id
 from sethlans_worker_agent.cpu_detection import get_cpu_name  # noqa: F401
 from sethlans_worker_agent.gpu_select_helper import KNOWN_BACKENDS
 from sethlans_worker_agent.tool_manager import tool_manager_instance
@@ -282,6 +283,7 @@ def get_system_info():
         "ip_address": IP_ADDRESS,
         "os": OS_INFO,
         "cpu_name": get_cpu_name(),
+        "blender_platform": current_platform_id(),  # the build the manager keeps for this worker (BS-WK-8)
         "available_tools": {
             "blender": [v['version'] for v in available_blenders],
             "gpu_devices": gpu_devices,

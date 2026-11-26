@@ -73,7 +73,7 @@ def _unreadable(*_args, **_kwargs):
         "verify-none", "verify-zero", "verify-empty-path"])
 def test_a_bad_setting_or_session_raises_and_sends_nothing(
         monkeypatch, settings, tmp_path, env_value, unreadable, verify, call, error, message):
-    """BS-CFG-2, BS-SRC-3, BS-DL-7, AC-3: no fallback to the defaults and no request; the error names the
+    """BS-CFG-2, BS-SRC-3, BS-DL-7: no fallback to the defaults and no request; the error names the
     setting and the entry's position. BS-DL-7: any ``verify`` other than ``True`` or a CA bundle path is
     refused (``None``, ``0`` and ``""`` turn checks off in ``requests`` as ``False`` does)."""
     if env_value is not None:
@@ -128,7 +128,7 @@ _CHAINS = {
 
 @pytest.mark.parametrize("chain", list(_CHAINS))
 def test_get_checked_follows_redirects_without_reading_them(chain):
-    """BS-SRC-4 (security review: ``requests`` reads the whole body of every 3xx it follows): redirects
+    """BS-SRC-4 (``requests`` reads the whole body of every 3xx it follows): redirects
     are followed one request at a time, absolute or relative, at most ``MAX_REDIRECTS``; no 3xx body is
     read (reading one fails the test), every response not returned is closed, and a 3xx with no usable
     ``Location`` fails the source. Each request streams and asks for ``Accept-Encoding: identity``."""
@@ -149,6 +149,22 @@ def test_get_checked_follows_redirects_without_reading_them(chain):
     assert session.urls == requested
     assert all(response.closed for response in routes.values() if response is not final)
     assert all(streamed_identity(call) for call in session.calls)
+
+
+def test_send_without_redirects_adds_the_callers_headers_and_returns_a_3xx_unread():
+    """BS-SRC-4, BS-WK-5: one streamed request with the caller's headers (the worker's token);
+    ``Accept-Encoding: identity`` wins over a caller's own; a 3xx comes back as it is, not followed, its
+    body unread (reading it fails the test) and still open for the caller."""
+    answer = redirect(302, "https://b.test/elsewhere")
+    session = FakeSession({START: answer})
+
+    response = sources.send_without_redirects(
+        session, START, (5, 15), {"Authorization": "Token t0ken", "Accept-Encoding": "gzip"})
+
+    assert response is answer and not answer.closed
+    [(url, timeout, _stream, headers)] = session.calls
+    assert (url, timeout, headers["Authorization"]) == (START, (5, 15), "Token t0ken")
+    assert streamed_identity(session.calls[0])
 
 
 @pytest.mark.parametrize("value, expected", [

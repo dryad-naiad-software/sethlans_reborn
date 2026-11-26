@@ -317,7 +317,8 @@ function Invoke-Clean([bool]$RemoveUserDir) {
         (Join-Path $ManagerDir "staticfiles"), (Join-Path $ManagerDir "logs"),
         (Join-Path $ManagerDir "tls"), (Join-Path $ManagerDir "caddy"),
         (Join-Path $FrontendDir "dist"), (Join-Path $FrontendDir ".angular"),
-        (Join-Path $FrontendDir "node_modules"), (Join-Path $ManagerDir "media")
+        (Join-Path $FrontendDir "node_modules"), (Join-Path $ManagerDir "media"),
+        (Join-Path $ManagerDir "blender")
     )) {
         if (Test-Path $d) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
     }

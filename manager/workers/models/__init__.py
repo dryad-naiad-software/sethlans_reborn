@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 from .blender_versions import SupportedBlenderVersion
+from .blender_builds import BlenderBuild
 from .projects import Project, Asset
 from .workers import Worker
 from .jobs import JobStatus, TiledJobStatus, TiledJob, Job
@@ -16,6 +17,7 @@ from .sequence_parts import SequenceFrame, SequenceShot
 
 __all__ = [
     "SupportedBlenderVersion",
+    "BlenderBuild",
     "Project", "Asset",
     "Worker",
     "JobStatus", "TiledJobStatus", "TiledJob", "Job",

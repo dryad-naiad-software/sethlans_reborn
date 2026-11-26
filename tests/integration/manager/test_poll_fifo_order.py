@@ -20,7 +20,9 @@ from .unreal_helpers import BUILD, SHARE, caps, set_share
 from .unreal_pilot_helpers import live_card, measure_key
 
 JOBS_URL = '/api/jobs/'
-POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true'}
+# BS-MGR-15: a worker poll gets a Blender job only for a version it reports
+# exactly; 4.2.19 is the ``default_version`` fixture every Blender job here uses.
+POLL = {'status': 'QUEUED', 'assigned_worker__isnull': 'true', 'available_versions': '4.2.19'}
 BASE = datetime(2025, 3, 1, tzinfo=dt_timezone.utc)
 
 

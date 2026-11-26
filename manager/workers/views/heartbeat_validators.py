@@ -18,6 +18,8 @@ import re
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 
+from shared.blender_sources import is_platform_id
+
 from ..constants import WorkerStatus
 
 logger = logging.getLogger(__name__)
@@ -127,6 +129,17 @@ def _validate_ui_cert_fingerprint(raw_value):
         )
         return ''
     return raw_value
+
+
+def _validate_blender_platform(raw_value):
+    """Return the reported Blender platform id if it is one of the six, else ``''`` with a WARNING (BS-MGR-1)."""
+    if is_platform_id(raw_value):
+        return raw_value
+    logger.warning(
+        "Worker reported no valid blender_platform (%r); storing ''.",
+        raw_value[:40] if isinstance(raw_value, str) else type(raw_value).__name__,
+    )
+    return ''
 
 
 def _extract_gpu_name(available_tools):

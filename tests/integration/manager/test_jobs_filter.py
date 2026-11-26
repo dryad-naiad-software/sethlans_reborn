@@ -20,6 +20,9 @@ import pytest
 from workers.models import Job
 
 JOBS_URL = '/api/jobs/'
+# BS-MGR-15: a worker poll gets a Blender job only for a version it reports
+# exactly; 4.2.19 is the ``default_version`` fixture behind ``asset``.
+WORKER_BLENDER = '4.2.19'
 
 
 @pytest.fixture
@@ -264,6 +267,7 @@ class TestDevicePrefsFilterWithWorkerPoll:
                 'status': 'QUEUED',
                 'assigned_worker__isnull': 'true',
                 'device_prefs': 'GPU,ANY',
+                'available_versions': WORKER_BLENDER,
             },
         )
         assert resp.status_code == 200
@@ -281,6 +285,7 @@ class TestDevicePrefsFilterWithWorkerPoll:
             {
                 'status': 'QUEUED',
                 'assigned_worker__isnull': 'true',
+                'available_versions': WORKER_BLENDER,
             },
         )
         assert resp.status_code == 200

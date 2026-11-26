@@ -159,6 +159,16 @@ class Worker(models.Model):
             "reconciliation). Not exposed through the API."
         ),
     )
+    blender_platform = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        help_text=(
+            "Blender platform id reported at full registration (e.g. "
+            "'linux-x64'), '' when unknown. Self-reported; decides which "
+            "Blender builds the manager keeps."
+        ),
+    )
 
     def has_blender_version(self, version_str):
         """Check if this worker has a specific Blender version installed."""

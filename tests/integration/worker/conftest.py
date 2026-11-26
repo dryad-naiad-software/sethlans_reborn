@@ -54,16 +54,14 @@ def _reset_api_auth_state():
 @pytest.fixture(autouse=True)
 def _reset_version_sync_state():
     """Reset version_sync module-level state between tests."""
-    from sethlans_worker_agent import version_sync
-    with version_sync._failed_lock:
-        version_sync._failed_versions.clear()
+    from sethlans_worker_agent import blender_wait, version_sync
+    blender_wait.reset()
     with version_sync._pending_lock:
         version_sync._pending_downloads.clear()
     with version_sync._pending_removals_lock:
         version_sync._pending_removals.clear()
     yield
-    with version_sync._failed_lock:
-        version_sync._failed_versions.clear()
+    blender_wait.reset()
     with version_sync._pending_lock:
         version_sync._pending_downloads.clear()
     with version_sync._pending_removals_lock:
