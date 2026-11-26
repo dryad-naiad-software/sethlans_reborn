@@ -11,9 +11,9 @@ Handles:
 - Cleaning up versions no longer required by the manager.
 - Deferring downloads/cleanup when the worker is busy rendering.
 
-Thread safety: download and cleanup operations are safe to call from
-the main loop. They interact with ToolManager which tracks in-progress
-downloads via _downloading_versions (protected by _download_lock).
+Thread safety: installs go through ``blender_install.install`` (``blocking=False``,
+``stop`` = the agent's shutdown event; a busy or stopped install is skipped this
+round with no back-off, BS-WK-3). Cleanup uses ToolManager.
 """
 
 import logging
@@ -21,6 +21,7 @@ import time
 import threading
 from typing import Dict, List, Set
 
+from sethlans_worker_agent import blender_install
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,13 @@ _pending_removals_lock = threading.Lock()
 _failed_versions: Dict[str, Dict] = {}
 _failed_lock = threading.Lock()
 _BACKOFF_BASE, _BACKOFF_MAX = 60, 1800  # seconds
+_NOT_TRIED = (blender_install.InstallOutcome.BUSY, blender_install.InstallOutcome.STOPPED)
+
+
+def _install(version):
+    """Non-blocking install that ends on agent shutdown (BS-WK-3)."""
+    from sethlans_worker_agent.agent_shutdown import _shutdown_event  # lazy: agent_shutdown loads the web UI
+    return blender_install.install(version, blocking=False, stop=_shutdown_event)
 
 
 def _is_in_backoff(version):
@@ -97,7 +105,6 @@ def compute_download_actions(required_versions, installed_versions):
         required_ver = req.get('version', '')
         if not series or not required_ver:
             continue
-
         installed_ver = installed_versions.get(series)
         if not installed_ver:
             # Missing entirely -- need to download (P2-F2).
@@ -119,8 +126,7 @@ def compute_removable_versions(required_versions, installed_versions, active_job
         if bv:
             in_use_series.add('.'.join(bv.split('.')[:2]))
 
-    removable = []
-    deferred = []
+    removable, deferred = [], []
     for series, version in installed_versions.items():
         if series not in required_series:
             if series in in_use_series:
@@ -145,8 +151,10 @@ def download_versions(actions):
             logger.info(f"Skipping Blender {version} -- in backoff period.")
             continue
         logger.info(f"Downloading required Blender version {version}...")
-        result = tool_manager_instance.ensure_blender_version_available(version)
-        if result:
+        result = _install(version)
+        if result.outcome in _NOT_TRIED:
+            continue  # another install holds the version's lock, or shutdown: skip, no back-off (BS-WK-3)
+        if result.ok:
             success_count += 1
             _clear_failure(version)
             logger.info(f"Successfully installed Blender {version}.")
@@ -171,17 +179,14 @@ def upgrade_patch_versions(actions, installed_versions):
             logger.info(f"Skipping upgrade to {new_version} -- in backoff period.")
             continue
         _clear_failure(old_version)
-
         logger.info(f"Upgrading {series}: {old_version} -> {new_version}")
-        result = tool_manager_instance.ensure_blender_version_available(new_version)
-        if result:
-            new_exe = tool_manager_instance.get_blender_executable_path(new_version)
-            if new_exe:
-                tool_manager_instance.remove_blender_version(old_version)
-                _clear_failure(new_version)
-                success_count += 1
-            else:
-                _record_failure(new_version)
+        result = _install(new_version)
+        if result.outcome in _NOT_TRIED:
+            continue  # another install holds the version's lock, or shutdown: skip, no back-off (BS-WK-3)
+        if result.ok:
+            tool_manager_instance.remove_blender_version(old_version)
+            _clear_failure(new_version)
+            success_count += 1
         else:
             _record_failure(new_version)
     return success_count
@@ -287,10 +292,7 @@ def sync_versions(heartbeat_response, is_busy, active_jobs):
     else:
         remove_unrequired_versions(removable)
         queue_pending_removals(deferred)
-
-    # Process any previously deferred removals.
-    if not is_busy:
-        process_pending_removals(active_jobs)
+        process_pending_removals(active_jobs)  # also the removals deferred earlier
 
     # Check if at least one required version is installed.
     installed = get_installed_versions()

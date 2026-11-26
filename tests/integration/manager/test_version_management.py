@@ -11,6 +11,7 @@ confirmed delete with migration, and cannot-delete-last guard.
 import pytest
 from unittest.mock import patch
 
+from shared.blender_sources import AllSourcesFailedError
 from workers.models import (
     SupportedBlenderVersion, Project, Job, Asset,
 )
@@ -31,7 +32,7 @@ def _clean_versions(db):
 class TestVersionCreate:
 
     @patch(
-        'workers.serializers.blender_versions.resolve_latest_patch',
+        'workers.serializers.blender_versions.latest_patch',
         return_value='4.3.5',
     )
     def test_create_version_resolves_patch(
@@ -51,13 +52,16 @@ class TestVersionCreate:
         mock_resolve.assert_called_once_with('4.3', timeout=5)
 
     @patch(
-        'workers.serializers.blender_versions.resolve_latest_patch',
-        return_value=None,
+        'workers.serializers.blender_versions.latest_patch',
+        side_effect=AllSourcesFailedError(
+            'Blender release list (series page) 9.9',
+            [('https://download.blender.org/release/', 'not listed')],
+        ),
     )
     def test_create_version_no_patch_returns_400(
         self, mock_resolve, admin_client, default_version,
     ):
-        """Series with no patches returns 400."""
+        """No source lists the series: 400, not 500 (BS-REL-9)."""
         resp = admin_client.post(
             VERSIONS_URL,
             data={'series': '9.9'},

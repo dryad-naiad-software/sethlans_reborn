@@ -170,7 +170,8 @@ def install_render_path(mocker, monkeypatch, tmp_path, overlap=0):
     mocker.patch.object(config, 'WORKER_OUTPUT_DIR', str(tmp_path / 'output'))
     mocker.patch.object(config, 'IDLE_DETECTION_ENABLED', False)
     mocker.patch.object(asset_manager, 'ensure_asset_is_available', return_value=str(blend))
-    mocker.patch.object(tool_manager_instance, 'ensure_blender_version_available', return_value='fake-blender')
+    # The job path only looks up installed versions (BS-WK-11): report the job's version as installed.
+    mocker.patch.object(tool_manager_instance, 'get_blender_executable_path', return_value='fake-blender')
     mocker.patch.object(tool_manager_instance, 'acquire_version')
     mocker.patch.object(tool_manager_instance, 'release_version')
     blender = FakeBlender(monkeypatch, overlap=overlap)

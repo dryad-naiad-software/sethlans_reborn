@@ -46,7 +46,7 @@ class TestCommandConstruction:
         )
         mocker.patch(
             'sethlans_worker_agent.tool_manager.tool_manager_instance'
-            '.ensure_blender_version_available',
+            '.get_blender_executable_path',
             return_value=str(tmp_path / 'blender')
         )
         mocker.patch(
@@ -150,7 +150,7 @@ class TestCommandConstruction:
         )
         mocker.patch(
             'sethlans_worker_agent.tool_manager.tool_manager_instance'
-            '.ensure_blender_version_available',
+            '.get_blender_executable_path',
             return_value=str(tmp_path / 'blender')
         )
         mocker.patch(

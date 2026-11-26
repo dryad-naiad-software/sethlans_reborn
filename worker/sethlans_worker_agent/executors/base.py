@@ -80,9 +80,10 @@ class RenderResult:
     # report and the upload. Blender never sets it.
     released: bool = False
     # The worker stopped the render (#246, #247): the lifecycle sends no
-    # status and no upload. ``stop_reason`` is ``worker_shutdown`` or
-    # ``worker_hardware_changed`` (the job is handed back with yield-requeue)
-    # or ``no_longer_assigned`` (nothing is sent). Blender only.
+    # status and no upload. ``stop_reason`` is ``worker_shutdown``,
+    # ``worker_hardware_changed`` or ``blender_version_missing`` (the job is
+    # handed back with yield-requeue) or ``no_longer_assigned`` (nothing is
+    # sent). Blender only.
     stopped: bool = False
     stop_reason: Optional[str] = None
     # Called by the lifecycle after the status report (or after a released

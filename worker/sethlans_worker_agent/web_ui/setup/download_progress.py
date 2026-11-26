@@ -13,7 +13,7 @@ The ``cancel_event`` on each ``DownloadProgress`` is a mutable
 ``threading.Event`` that the download thread checks between chunks.
 It is excluded from frozen-dataclass comparison.
 
-Ported from ``manager/workers/services/download_progress.py``.
+Formerly a port of a manager module that has since been removed.
 """
 
 import secrets

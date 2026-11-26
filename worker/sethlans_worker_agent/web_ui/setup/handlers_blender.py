@@ -10,7 +10,7 @@ POST /api/setup/blender/cancel/         -- cancel active download
 
 Downloads run in a background thread managed via the download
 progress registry. The actual download delegates to
-:mod:`blender_download` which wraps the existing ``tool_manager``.
+:mod:`blender_download` which wraps ``blender_install.install``.
 
 Phase 4e of the Waitress migration: handlers are sync WSGI
 ``(environ, start_response) -> Iterable[bytes]`` callables.

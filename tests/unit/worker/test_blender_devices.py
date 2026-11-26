@@ -23,7 +23,6 @@ from sethlans_worker_agent import hardware_detection
 from sethlans_worker_agent.cards import os_probe
 from sethlans_worker_agent.cards.os_probe import OsCard
 from sethlans_worker_agent.tool_manager import tool_manager_instance
-from sethlans_worker_agent.utils import file_operations
 from sethlans_worker_agent.web_ui.setup import blender_download, blender_devices, handlers_blender
 from tests.unit.worker._card_choice import AMD, KEY_XT_23, XT_23_ID
 from tests.unit.worker._card_pages import SETUP_PATH, call
@@ -181,6 +180,28 @@ def _tm(tmp_path, exe):
                                  _scan_cache=None)
 
 
+@pytest.fixture
+def setup_install(monkeypatch):
+    """The download thread's task and tool manager, with ``blender_install.install`` replaced by a fake.
+
+    Set ``outcome`` before running; ``calls`` records each install call's arguments.
+    """
+    from sethlans_worker_agent import blender_install
+    fake = types.SimpleNamespace(cancel=threading.Event(), calls=[], outcome=None)
+    monkeypatch.setattr(blender_download, 'get_task', lambda _tid: types.SimpleNamespace(cancel_event=fake.cancel))
+    monkeypatch.setattr(tool_manager_instance, '_resolve_version', lambda _v: '4.5.0')
+    monkeypatch.setattr(tool_manager_instance, 'get_blender_executable_path', lambda _v: None)
+
+    def install(version, **kwargs):
+        fake.calls.append((version, kwargs))
+        for step in ('downloading', 'verifying', 'extracting'):
+            kwargs['on_step'](step)
+        return blender_install.InstallResult(fake.outcome, error=None if fake.outcome.value == 'installed' else 'x')
+    monkeypatch.setattr(blender_install, 'install', install)
+    fake.Outcome = blender_install.InstallOutcome
+    return fake
+
+
 class TestBlenderStepStartsTheCheck:
 
     def test_already_installed_request(self, monkeypatch, tmp_path, order):
@@ -193,25 +214,22 @@ class TestBlenderStepStartsTheCheck:
 
     def test_installed_found_by_the_download_thread(self, tmp_path, order):
         tm = _tm(tmp_path, os.path.join(str(tmp_path), 'blender'))
-        assert blender_download._resolve_download_spec('t1', tm, '4.5', threading.Event()) is None
+        assert blender_download._resolve_version('t1', tm, '4.5', threading.Event()) is None
         # checkpoint first; the check starts before "complete" sends the wizard on to the card step
         assert order == ['task:downloading', 'blender_installed', 'device_check', 'task:complete']
 
-    def test_finished_download(self, monkeypatch, tmp_path, order):
-        archive = os.path.join(str(tmp_path), 'blender.tar.xz')
-        monkeypatch.setattr(file_operations, 'download_file', lambda _url, _dir: archive)
-        monkeypatch.setattr(file_operations, 'verify_hash', lambda _path, _hash: True)
-        monkeypatch.setattr(file_operations, 'extract_archive', lambda _path, _dir: None)
-        monkeypatch.setattr(file_operations, 'cleanup_archive', lambda _path: None)
-        blender_download._run_download_pipeline('t1', _tm(tmp_path, None), '4.5.0', 'https://example.invalid/b',
-                                                'ab' * 32, threading.Event())
-        assert order[-3:] == ['blender_installed', 'device_check', 'task:complete']
+    def test_finished_download(self, setup_install, order):
+        """BS-WK-3 (D9): the setup thread installs through ``install(..., blocking=True)`` with its cancel event."""
+        setup_install.outcome = setup_install.Outcome.INSTALLED
+        blender_download.download_blender_with_progress('t1', '4.5')
+        [(version, kwargs)] = setup_install.calls
+        assert (version, kwargs['blocking'], kwargs['stop']) == ('4.5.0', True, setup_install.cancel)
+        assert order[-6:] == ['task:downloading', 'task:verifying', 'task:extracting',
+                              'blender_installed', 'device_check', 'task:complete']
 
-    def test_failed_download_starts_no_check(self, monkeypatch, tmp_path, order):
-        archive = os.path.join(str(tmp_path), 'blender.tar.xz')
-        monkeypatch.setattr(file_operations, 'download_file', lambda _url, _dir: archive)
-        monkeypatch.setattr(file_operations, 'verify_hash', lambda _path, _hash: False)
-        blender_download._run_download_pipeline('t1', _tm(tmp_path, None), '4.5.0', 'https://example.invalid/b',
-                                                'ab' * 32, threading.Event())
+    def test_failed_download_starts_no_check(self, setup_install, order):
+        """BS-WK-3 (D9): a failed install fails the task and starts no device check."""
+        setup_install.outcome = setup_install.Outcome.FAILED
+        blender_download.download_blender_with_progress('t1', '4.5')
         assert 'device_check' not in order and 'blender_installed' not in order
         assert order[-1] == 'task:failed'

@@ -5,13 +5,15 @@
 Unit tests for manager/workers/serializers/blender_versions.py.
 
 Tests the SERIES_REGEX validation and create() logic with mocked
-resolve_latest_patch.
+``latest_patch`` (``shared.blender_sources``).
 """
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import serializers
+
+from shared.blender_sources import AllSourcesFailedError, BlenderSourcesConfigError
 
 from workers.serializers.blender_versions import (
     SERIES_REGEX,
@@ -75,20 +77,27 @@ class TestSeriesValidation:
 class TestSerializerCreate:
     """Test the create() method that resolves patch versions."""
 
-    @patch(
-        "workers.serializers.blender_versions.resolve_latest_patch"
-    )
-    def test_create_raises_on_unresolvable_series(
-        self, mock_resolve
-    ):
-        mock_resolve.return_value = None
+    @pytest.mark.parametrize("error, blames_series", [
+        (AllSourcesFailedError("Blender release list (series page) 99.99", [
+            ("https://download.blender.org/release/", "HTTP 403"),
+        ]), True),
+        (ValueError("not a Blender series: '99.99'"), True),
+        (BlenderSourcesConfigError("SETHLANS_BLENDER_SOURCES entry 1 must use https"), False),
+    ], ids=["all-sources-failed", "bad-series", "bad-source-setting"])
+    def test_create_turns_a_source_error_into_a_400(self, error, blames_series):
+        """BS-REL-9: a ``BlenderSourcesError`` (or ``ValueError``) on create is a 400 on ``series``, not a 500.
+        BS-CFG-2: a bad source setting says the setting is invalid, not that the series may not exist."""
         s = SupportedBlenderVersionSerializer()
-        with pytest.raises(serializers.ValidationError) as exc_info:
-            s.create({"series": "99.99", "is_default": False})
-        assert "series" in exc_info.value.detail
+        with patch("workers.serializers.blender_versions.latest_patch", side_effect=error):
+            with pytest.raises(serializers.ValidationError) as exc_info:
+                s.create({"series": "99.99", "is_default": False})
+        message = str(exc_info.value.detail["series"])
+        assert str(error) in message
+        assert ("Verify the series exists" in message) is blames_series
+        assert ("the Blender source setting is invalid" in message) is not blames_series
 
     @patch(
-        "workers.serializers.blender_versions.resolve_latest_patch"
+        "workers.serializers.blender_versions.latest_patch"
     )
     @patch.object(
         SupportedBlenderVersionSerializer,

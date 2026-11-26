@@ -215,7 +215,7 @@ class TestBoundedWaitAndEarlyChecks:
     def test_shutdown_before_the_downloads_starts_nothing(self, mocker, executor_env):
         asset = mocker.patch('sethlans_worker_agent.asset_manager.ensure_asset_is_available')
         version = mocker.patch(
-            'sethlans_worker_agent.tool_manager.tool_manager_instance.ensure_blender_version_available')
+            'sethlans_worker_agent.tool_manager.tool_manager_instance.get_blender_executable_path')
         shutdown = threading.Event()
         shutdown.set()
         job = _cpu_job()

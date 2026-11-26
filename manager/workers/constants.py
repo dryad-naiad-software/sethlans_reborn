@@ -237,6 +237,10 @@ class YieldReason(models.TextChoices):
     ``auto_requeue_count``, ERROR above the limit, "Auto-requeued: worker
     hardware changed"): a scene that itself resets the GPU driver reads
     as a lost card, and uncounted it would be handed back for ever.
+    ``blender_version_missing`` (the worker does not have the job's exact
+    Blender version installed, so no render started) is counted the same
+    way ("Auto-requeued: Blender version missing on worker"), so a job
+    cannot bounce between workers for ever.
     Restart reconciliation stays the counted backstop for crashes.
     """
     ARTIST_RETURN_GPU_CONTENTION = (
@@ -256,6 +260,8 @@ class YieldReason(models.TextChoices):
         'worker_shutdown', 'Worker Shutdown')
     WORKER_HARDWARE_CHANGED = (
         'worker_hardware_changed', 'Worker Hardware Changed')
+    BLENDER_VERSION_MISSING = (
+        'blender_version_missing', 'Blender Version Missing')
 
 
 class GraceOutcome(models.TextChoices):

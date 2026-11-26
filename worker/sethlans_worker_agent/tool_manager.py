@@ -2,24 +2,23 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Manages Blender version discovery, download, and local caching.
+Manages local Blender installs: discovery, version resolution and removal.
 
 Includes reference counting to prevent version cleanup from deleting
-directories while renders are in progress.
+directories while renders are in progress. Installing a version is
+``blender_install.install`` (BS-WK-1, BS-WK-3); the job path only looks up
+installed versions (BS-WK-11).
 """
 
 import logging
-import platform
-import os
 import re
 import shutil
-import stat
 import time
 import threading
 from pathlib import Path
+from shared.blender_sources import BlenderSourcesError, current_platform_id, is_version, latest_patch
 from . import config
-from .utils import file_operations, blender_release_parser
-from .platform_utils import get_platform_identifier, get_executable_path_for_blender
+from .platform_utils import get_executable_path_for_blender
 
 logger = logging.getLogger(__name__)
 
@@ -102,15 +101,33 @@ class ToolManager:
         return [b for b in found if b['version'] not in downloading]
 
     def _get_platform_identifier(self):
-        """Return the platform identifier string (e.g., 'windows-x64')."""
-        return get_platform_identifier()
+        """Return the platform identifier string (e.g., 'windows-x64'), or None (BS-SRC-6)."""
+        return current_platform_id()
 
     def _get_executable_path_for_install(self, install_dir_name):
         """Return the full path to the Blender executable in an install folder."""
         return get_executable_path_for_blender(self.blender_dir, install_dir_name)
 
     def get_blender_executable_path(self, version_str):
-        """Return the executable path for an installed version, or None."""
+        """Return the executable path for an installed ``X.Y.Z`` version, or None.
+
+        None while the version is being installed (``_downloading_versions``),
+        so no caller outside the install sees a half-extracted folder.
+        """
+        if not is_version(version_str):
+            return None
+        with self._download_lock:
+            if version_str in self._downloading_versions:
+                return None
+        return self._installed_exe_path(version_str)
+
+    def _installed_exe_path(self, version_str):
+        """The executable path when its file exists, ignoring an install in progress.
+
+        Only ``blender_install`` uses this, while it holds the version's lock.
+        """
+        if not is_version(version_str):
+            return None
         platform_id = self._get_platform_identifier()
         install_dir_name = f"blender-{version_str}-{platform_id}"
         exe_path = self._get_executable_path_for_install(install_dir_name)
@@ -120,23 +137,6 @@ class ToolManager:
 
         logger.debug(f"Executable not found at expected path: {exe_path}")
         return None
-
-    def _get_blender_download_info(self):
-        """Fetch or load Blender download info from cache or the web."""
-        if os.path.exists(config.BLENDER_VERSIONS_CACHE_FILE):
-            try:
-                with open(config.BLENDER_VERSIONS_CACHE_FILE, 'r') as f:
-                    logger.debug("Loading Blender download info from cache.")
-                    return file_operations.load_json(f)
-            except Exception as e:
-                logger.warning(f"Could not load Blender versions cache file: {e}. Refetching.")
-
-        info = blender_release_parser.get_blender_releases()
-
-        with open(config.BLENDER_VERSIONS_CACHE_FILE, 'w') as f:
-            file_operations.dump_json(info, f)
-            logger.info(f"Saved generated Blender download info to local cache: {config.BLENDER_VERSIONS_CACHE_FILE}.")
-        return info
 
     def _resolve_version(self, requested_version):
         """Resolve a partial X.Y version to full X.Y.Z, or pass through X.Y.Z."""
@@ -158,93 +158,14 @@ class ToolManager:
             logger.info(f"Resolved '{requested_version}' to latest local version: {latest_local}")
             return latest_local
 
-        # If not found locally, check the web for the latest patch
-        all_releases = self._get_blender_download_info()
-        matching_web_patches = [v for v in all_releases if v.startswith(requested_version + '.')]
-        if matching_web_patches:
-            latest_web = sorted(matching_web_patches, key=lambda v: [int(p) for p in v.split('.')], reverse=True)[0]
-            logger.info(f"Resolved '{requested_version}' to latest available web version: {latest_web}")
-            return latest_web
-
-        logger.error(f"Could not find any patch versions for series '{requested_version}'.")
-        return None
-
-    def ensure_blender_version_available(self, requested_version):
-        """Ensure a Blender version is installed, downloading if necessary."""
-        self._create_tools_directory_if_not_exists()
-
-        full_version = self._resolve_version(requested_version)
-        if not full_version:
-            return None
-
-        logger.info(f"Checking for Blender version {full_version} availability.")
-
-        # 1. Check if it's already installed
-        exe_path = self.get_blender_executable_path(full_version)
-        if exe_path:
-            logger.info(f"Blender version {full_version} already available locally. Path: {exe_path}")
-            return exe_path
-
-        # 2. If not, find download URL
-        logger.info(f"Version {full_version} not found locally. Attempting to download.")
-
-        with self._download_lock:  # Mark as downloading so scan excludes it (P2-F5).
-            self._downloading_versions.add(full_version)
-        self._scan_cache = None
+        # Not installed: ask the sources for the latest patch (BS-WK-2).
         try:
-            result = self._download_and_install(full_version)
-        finally:
-            with self._download_lock:
-                self._downloading_versions.discard(full_version)
-
-        return result
-
-    def _download_and_install(self, full_version):
-        """Download, verify, extract, and set permissions for a Blender version."""
-        blender_releases = self._get_blender_download_info()
-        platform_id = self._get_platform_identifier()
-
-        release_info = blender_releases.get(full_version, {}).get(platform_id)
-        if not release_info:
-            logger.error(f"Could not find release info for Blender {full_version} on platform {platform_id}.")
+            latest_web = latest_patch(requested_version)
+        except (BlenderSourcesError, ValueError) as e:
+            logger.error(f"Could not find any patch versions for series '{requested_version}': {e}")
             return None
-
-        url = release_info.get('url')
-        expected_hash = release_info.get('sha256')
-
-        if not url:
-            logger.error(f"Could not find a download URL for Blender {full_version} on platform {platform_id}.")
-            return None
-
-        try:
-            download_path = file_operations.download_file(url, self.blender_dir)
-
-            if not expected_hash:
-                logger.error(
-                    f"No SHA256 hash found for {os.path.basename(download_path)}. Deleting unverified file for security.")
-                os.remove(download_path)
-                return None
-
-            if not file_operations.verify_hash(download_path, expected_hash):
-                logger.error("Hash verification failed. Deleting corrupt file.")
-                os.remove(download_path)
-                return None
-
-            file_operations.extract_archive(download_path, self.blender_dir)
-            file_operations.cleanup_archive(download_path)
-            self._scan_cache = None
-
-        except Exception as e:
-            logger.critical(f"An error occurred during download/extraction: {e}", exc_info=True)
-            return None
-
-        final_exe_path = self.get_blender_executable_path(full_version)
-        if final_exe_path and platform.system() != "Windows":
-            logger.info(f"Setting execute permission on {final_exe_path}")
-            st = os.stat(final_exe_path)
-            os.chmod(final_exe_path, st.st_mode | stat.S_IEXEC)
-
-        return final_exe_path
+        logger.info(f"Resolved '{requested_version}' to latest available web version: {latest_web}")
+        return latest_web
 
     def remove_blender_version(self, version_str):
         """

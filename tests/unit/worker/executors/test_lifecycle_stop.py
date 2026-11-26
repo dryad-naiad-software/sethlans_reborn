@@ -74,10 +74,14 @@ def _assert_nothing_reported(api, cap):
 
 class TestHandBack:
 
-    @pytest.mark.parametrize('reason', [blender_stop.WORKER_SHUTDOWN, blender_stop.WORKER_HARDWARE_CHANGED])
+    @pytest.mark.parametrize('reason', [
+        blender_stop.WORKER_SHUTDOWN, blender_stop.WORKER_HARDWARE_CHANGED, blender_stop.BLENDER_VERSION_MISSING,
+    ])
     def test_shutdown_stop_posts_yield_requeue_with_its_reason(self, api, mocker, reason):
+        """#246, #247; BS-WK-11: a missing Blender version is handed back once with ``blender_version_missing``."""
         cap = _run_stopped(api, mocker, reason)
 
+        api['post'].assert_called_once()
         method, url = api['post'].call_args.args
         assert (method, url) == ('post', 'https://m:8080/api/jobs/5/yield-requeue/')
         assert api['post'].call_args.kwargs['json'] == {'reason': reason, 'worker_boot_id': boot_id.BOOT_ID}

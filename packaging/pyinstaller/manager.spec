@@ -120,6 +120,22 @@ hiddenimports += [
     'shared.data_folder_rules',
 ]
 
+# Blender sources (official site and mirrors, release list, download with
+# fallback), shared by the worker and the manager. collect_submodules('shared')
+# lists them too; naming them keeps them in the bundle if that collection
+# ever fails (a missing name is logged as "Hidden import ... not found").
+hiddenimports += [
+    'shared.blender_sources',
+    'shared.blender_sources.download',
+    'shared.blender_sources.errors',
+    'shared.blender_sources.listing',
+    'shared.blender_sources.platforms',
+    'shared.blender_sources.release_cache',
+    'shared.blender_sources.release_list',
+    'shared.blender_sources.sources',
+    'bs4',
+]
+
 # Pillow image codec plugins for image assembly
 hiddenimports += [
     'PIL.JpegImagePlugin',

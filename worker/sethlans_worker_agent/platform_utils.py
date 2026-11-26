@@ -4,37 +4,12 @@
 """
 Platform-specific utility functions for tool management.
 
-Provides standalone functions for determining the current platform identifier
-and constructing the correct Blender executable path for the current OS.
+Builds the path of the Blender executable inside an install folder for the
+current OS. The platform id itself (``windows-x64`` and so on) comes from the
+one table in ``shared.blender_sources.platforms`` (BS-SRC-6).
 """
 import platform
 from pathlib import Path
-
-
-def get_platform_identifier():
-    """
-    Determines the platform identifier string (e.g., 'windows-x64').
-
-    This is used to match the worker's OS and architecture with the correct
-    Blender download file.
-
-    Returns:
-        str or None: The platform identifier string, or None if the platform
-                     is not supported.
-    """
-    system = platform.system().lower()
-    arch = platform.machine().lower()
-
-    if system == "windows":
-        return "windows-x64" if "64" in arch else "windows-x86"
-    elif system == "linux":
-        if arch == "x86_64":
-            return "linux-x64"
-        elif arch == "aarch64":
-            return "linux-arm64"
-    elif system == "darwin":  # macOS
-        return "macos-arm64" if "arm" in arch or "aarch64" in arch else "macos-x64"
-    return None
 
 
 def get_executable_path_for_blender(base_dir, install_dir_name):

@@ -26,13 +26,14 @@ try:
 finally:
     sys.argv = _saved_argv
 
-from sethlans_worker_agent import config, hardware_detection  # noqa: E402
+from sethlans_worker_agent import hardware_detection  # noqa: E402
 from sethlans_worker_agent.capacity import (  # noqa: E402
     CapacityProfile, WorkerCapacity, card_check, drift as drift_module, rebuild,
 )
 from sethlans_worker_agent.tool_manager import tool_manager_instance  # noqa: E402
 from tests.unit.worker._card_check_env import CardEnv  # noqa: E402
 from tests.unit.worker.executors._fakes import fake_cards  # noqa: E402
+from shared.blender_sources import PLATFORM_EXTENSIONS  # noqa: E402
 
 DRIFT = drift_module.__name__
 
@@ -88,11 +89,14 @@ class TestChooseFallbackBlender:
         assert drift_module._choose_fallback_blender('5.0.1') is None
 
 
-@pytest.mark.parametrize('suffix', sorted({d['download_suffix'] for d in config.PLATFORM_BLENDER_MAP.values()}))
+# The executable inside a managed install folder, per OS (platform_utils.get_executable_path_for_blender).
+_EXE_IN_FOLDER = {'windows': 'blender.exe', 'linux': 'blender', 'macos': 'Blender.app/Contents/MacOS/Blender'}
+
+
+@pytest.mark.parametrize('suffix', sorted(PLATFORM_EXTENSIONS))
 def test_installed_version_of_managed_paths(suffix):
-    layout = next(d for d in config.PLATFORM_BLENDER_MAP.values() if d['download_suffix'] == suffix)
     exe = os.path.join('managed_tools', 'blender', f'blender-4.5.16-{suffix}',
-                       *layout['executable_path_in_folder'].split('/'))
+                       *_EXE_IN_FOLDER[suffix.split('-')[0]].split('/'))
     assert drift_module.installed_version_of(exe) == '4.5.16'
 
 
