@@ -75,7 +75,7 @@ class TestSwitchEndpoint:
     def test_failed_write_is_503(self, monkeypatch, auth):
         fake_saved(monkeypatch)
 
-        def fail(_pairs):
+        def fail(_pairs, expect=None):
             raise OSError('disk full')
 
         monkeypatch.setattr(config_store, 'set_many', fail)
