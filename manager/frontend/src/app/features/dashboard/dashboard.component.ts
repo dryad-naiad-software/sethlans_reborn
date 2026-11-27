@@ -9,13 +9,16 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Subscription } from 'rxjs';
 import { StatsService, DashboardStats } from '../../core/services/stats.service';
+import { EnrollmentKeyNoticeComponent } from './enrollment-key-notice.component';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, MatCardModule, MatIconModule, MatProgressSpinnerModule],
+  imports: [CommonModule, MatCardModule, MatIconModule, MatProgressSpinnerModule,
+    EnrollmentKeyNoticeComponent],
   template: `
     <h1>Dashboard</h1>
+    <app-enrollment-key-notice />
     @if (loading) {
       <mat-spinner diameter="40" />
     } @else if (stats) {

@@ -9,10 +9,17 @@ error body has an ``error`` key (most also a ``message``).
   "version", "last_failure"}``.
 * ``POST /api/setup/auth/``: ``{"token"}`` -> 200 ``{"session_token"}`` and
   the session cookie; 403 wrong token; 429 after 10 wrong ones in 60 s.
-* ``GET /api/setup/form/``: the pre-filled form (session needed).
+* ``GET /api/setup/form/``: the pre-filled form (session needed); it
+  checks the configured database read-only, then runs the worker
+  program's ``--setup-cards`` and ``--setup-discover``, so it takes about
+  5 s and up to about 10 s (``form``). ``errors`` is a list of
+  ``{"part": "worker" | "database" | "settings", "message"}``.
 * ``POST /api/setup/submit/``: the answers (session needed); 400
-  ``{"error": "invalid", "fields": {...}}``; 409 while a submit runs or
-  after one was saved; 500 ``{"error": "settings_unwritable", ...}``.
+  ``{"error": "invalid", "message", "fields": {...}, "codes": {...}}``
+  (``submit``) or a worker refusal
+  ``{"error": <code>, "message", "fields"}``; 409 while a submit runs or
+  after one was saved; 500 ``{"error": "settings_unwritable", ...}`` or a
+  broken worker command (``submit``).
   The 200 is streamed, so Waitress sends it with ``Connection: close`` (a
   WSGI app may not set that header), and ``serve`` exits 10 once it has
   left.
@@ -156,7 +163,10 @@ def submit_view(request):
             return _error(500, "settings_unwritable", read_errors[0])
         ctx = Context(parser, _server["setup_port"], _server["reserved_ports"])
         outcome = apply_answers(data, ctx, _request_host(request))
-    except BaseException:  # apply_answers raises only before anything is written
+    except BaseException:
+        # apply_answers raises only before sethlans.ini is replaced, so setup is
+        # not finished and may be submitted again; the worker's own settings
+        # may already be saved by --setup-apply (a new submit saves them again).
         state.STATE.reset()
         raise
     if not outcome.saved:

@@ -28,7 +28,9 @@ from sethlans_manager.setup_mode import fields
 from sethlans_manager.setup_mode.db_probe import AdminAccounts
 
 ACCOUNT_EXISTS = "This account exists. Replace its password?"
+ACCOUNT_EXISTS_CODE = "account_exists"
 NO_ACCOUNT_TO_KEEP = "The chosen database has no admin account to keep."
+NO_ACCOUNT_TO_KEEP_CODE = "no_account_to_keep"
 MAX_PASSWORD_LENGTH = 4096
 
 
@@ -90,7 +92,7 @@ def first_admin(answers: dict, accounts: Optional[AdminAccounts],
     admin = fields.section(answers, "admin", errors)
     if fields.boolean(admin, "keep_existing", "admin.keep_existing", errors, default=False):
         if accounts is not None and not accounts.accounts_exist:
-            errors.add("admin.keep_existing", NO_ACCOUNT_TO_KEEP)
+            errors.add("admin.keep_existing", NO_ACCOUNT_TO_KEEP, NO_ACCOUNT_TO_KEEP_CODE)
         return None
     username = _username(admin, errors)
     email = _email(admin, errors)
@@ -98,7 +100,7 @@ def first_admin(answers: dict, accounts: Optional[AdminAccounts],
     password = admin.get("password")
     valid = check_password(password, username, email, "admin.password", errors)
     if username and accounts is not None and accounts.username_exists and not replace:
-        errors.add("admin.username", ACCOUNT_EXISTS)
+        errors.add("admin.username", ACCOUNT_EXISTS, ACCOUNT_EXISTS_CODE)
     if errors or not valid or not username:
         return None  # no plan is made after any error, so nothing is hashed
     exists = bool(accounts and accounts.username_exists)

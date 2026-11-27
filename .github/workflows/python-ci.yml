@@ -34,6 +34,8 @@ jobs:
   angular-unit-tests:
     name: Angular unit tests (ubuntu-latest)
     runs-on: ubuntu-latest
+    # Normally under a minute; a Karma or Chrome hang stops here.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: manager/frontend
@@ -68,6 +70,10 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.14"]
     runs-on: ${{ matrix.os }}
+    # A hung test would otherwise run to GitHub's 360-minute default.
+    # Normal runs take 40-65 minutes (Windows slowest); 100 leaves room
+    # for a slow runner and suite growth.
+    timeout-minutes: 100
     env:
       # Belt-and-suspenders: pytest.ini also sets this, but mirror the
       # self-hosted jobs' env-declaration style for visibility.

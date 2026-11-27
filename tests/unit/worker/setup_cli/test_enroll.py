@@ -40,14 +40,18 @@ class TestManagerUrl:
         assert str(caught.value).endswith('.')
 
 
-def test_enroll_pairs_builds_the_api_url_and_the_pairs(mocker):
-    """FR-WK-1: one enrollment gives the five ``config.json`` pairs; an IPv6 host goes in brackets."""
+@pytest.mark.parametrize('name_args, stored_name', [((), None), (('Studio',), 'Studio')],
+                         ids=['no-name', 'name-given'])
+def test_enroll_pairs_builds_the_api_url_and_the_pairs(mocker, name_args, stored_name):
+    """FR-WK-1, FR-RS-3: one enrollment gives six ``config.json`` pairs; ``manager.name`` is always written (the
+    name given, else ``None``, so an earlier manager's name is never kept); an IPv6 host goes in brackets."""
     call = mocker.patch.object(enrollment_client, 'enroll', return_value=dict(ANSWER, status='pending'))
-    answer, pairs = enroll.enroll_pairs('fd00::5', 8443, 'KEY-TEXT', 'render-node')
+    answer, pairs = enroll.enroll_pairs('fd00::5', 8443, 'KEY-TEXT', 'render-node', *name_args)
     call.assert_called_once_with('https://[fd00::5]:8443/api/', 'KEY-TEXT', 'render-node')
     assert answer['status'] == 'pending'
     assert pairs == [('manager.api_token', ANSWER['api_token']), ('manager.cert_fingerprint', ANSWER['cert_fingerprint']),
-                     ('manager.manager_id', ANSWER['manager_id']), ('manager.host', 'fd00::5'), ('manager.port', 8443)]
+                     ('manager.manager_id', ANSWER['manager_id']), ('manager.host', 'fd00::5'), ('manager.port', 8443),
+                     ('manager.name', stored_name)]
 
 
 def _unreachable():

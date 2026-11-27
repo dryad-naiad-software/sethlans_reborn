@@ -10,6 +10,11 @@ folder the data-folder checks refuse, so such tests use a unique
 ``<uuid hex>`` folder in the home folder instead. Nothing outside
 ``~/.cache/sethlans-tests`` is ever touched.
 
+On POSIX that home is the account's (``pwd``), never ``$HOME``: the
+data-folder checks exempt only the account's home, and fixtures such as
+``tls_manager`` point ``$HOME`` at ``tmp_path`` before ``data_root`` is
+made (#343).
+
 * :func:`scratch_folder` (a generator for fixtures) makes one and, at
   teardown, removes it and the parent when that is left empty;
 * :func:`sweep_stale` (once per session) removes ``<uuid hex>`` folders
@@ -19,6 +24,7 @@ A cleanup that fails raises :class:`ScratchCleanupError`, so the teardown
 (or the session start) fails instead of leaving files behind quietly.
 """
 import errno
+import os
 import re
 import shutil
 import time
@@ -34,8 +40,18 @@ class ScratchCleanupError(OSError):
     """A scratch folder could not be removed."""
 
 
+def account_home() -> Path:
+    """The account's home folder (``pwd``) on POSIX, whatever ``$HOME`` says; ``Path.home()`` without
+    ``pwd`` or without a passwd entry for this uid (as ``shared.data_folder_rules._account``)."""
+    try:
+        import pwd
+        return Path(pwd.getpwuid(os.geteuid()).pw_dir)
+    except (ImportError, KeyError):
+        return Path.home()
+
+
 def home_scratch_root() -> Path:
-    return Path.home() / ".cache" / "sethlans-tests"
+    return account_home() / ".cache" / "sethlans-tests"
 
 
 def remove_tree(folder: Path) -> None:

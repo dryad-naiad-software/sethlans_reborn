@@ -77,6 +77,14 @@ class ManagerSettings(models.Model):
             "start last applied, '' when none. Never the hash itself."
         ),
     )
+    enrollment_key_notice_dismissed = models.BooleanField(
+        default=False,
+        help_text=(
+            "True once an administrator dismissed the one-time dashboard "
+            "notice that shows the enrollment key (setup-rebuild FR-WZ-9). "
+            "A key rotation does not reset it."
+        ),
+    )
 
     class Meta:
         verbose_name = "Manager settings"

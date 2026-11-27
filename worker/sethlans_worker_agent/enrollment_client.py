@@ -155,7 +155,7 @@ def _post_enroll(url: str, body: dict) -> requests.Response:
                 url, json=body, timeout=15, verify=False, allow_redirects=False,
             )
     except requests.exceptions.RequestException as e:
-        raise EnrollmentError(f"Network error: {e}") from e
+        raise EnrollmentError(f"Network error: {_server_text(e)}") from e
 
 
 def _parse_envelope(resp: requests.Response) -> dict:

@@ -8,6 +8,13 @@ import { authGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
   {
+    // Served by setup mode at /setup/ (FR-WZ-10): no guard, no layout.
+    path: 'setup',
+    loadComponent: () =>
+      import('./features/setup/setup-page.component')
+        .then(m => m.SetupPageComponent),
+  },
+  {
     path: '',
     loadComponent: () =>
       import('./layout/layout.component').then(m => m.LayoutComponent),

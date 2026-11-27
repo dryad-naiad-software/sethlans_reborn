@@ -9,6 +9,7 @@ Every test points the helpers at a root under ``tmp_path``; the real
 import os
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -29,8 +30,14 @@ def _entry(root, age, name=None):
 
 class TestRoot:
 
-    def test_root_is_under_the_home_cache(self):
-        assert scratch.home_scratch_root() == Path.home() / ".cache" / "sethlans-tests"
+    def test_root_is_in_the_account_home_whatever_home_env_says(self, monkeypatch, tmp_path):
+        """#343: ``tls_manager`` points ``$HOME`` at ``tmp_path`` (under ``/private/var`` on macOS, a
+        folder setup refuses); the root stays in the account's home, the one the data-folder checks exempt."""
+        pwd = pytest.importorskip("pwd")
+        account = tmp_path / "account-home"
+        monkeypatch.setattr(pwd, "getpwuid", lambda uid: SimpleNamespace(pw_dir=str(account)))
+        monkeypatch.setenv("HOME", str(tmp_path / "patched-home"))
+        assert scratch.home_scratch_root() == account / ".cache" / "sethlans-tests"
 
 
 class TestScratchFolder:

@@ -11,11 +11,16 @@ setup port are free ports picked here. The setup token is written
 owner-only at ``<settings>/setup/setup_token`` before the start.
 
 Output goes to files (no pipe can fill up), and :meth:`SetupProcess.stop`
-always ends the child, so a failing test leaves nothing running.
+ends a running child and every process it started (the worker commands it
+runs), so a failing test leaves nothing running (#343). On POSIX the child
+leads its own process group for that. A child that already ended on its
+own has waited for its worker commands itself; its group is not signalled
+then, because once reaped its id may name someone else's group.
 """
 import json
 import os
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -25,11 +30,14 @@ from http.client import HTTPConnection, HTTPSConnection
 from pathlib import Path
 from typing import Optional
 
+import psutil
+
 from shared import owner_only_acl
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 RUN_MANAGER = REPO_ROOT / "manager" / "run_manager.py"
 READY_TIMEOUT_S = 60.0
+KILL_WAIT_S = 10.0
 EXIT_SAVED = 10
 ADMIN_PASSWORD = "Plain-Admin-Secret-7c4e1f9a"
 SESSION_COOKIE = "sethlans_setup_session"
@@ -49,17 +57,55 @@ def distinct_free_ports(count: int, host: str = "127.0.0.1"):
 
 
 def write_token(settings_dir: Path, token: str) -> Path:
-    """Write the setup token owner-only, as the launcher does."""
+    """Write a fresh setup token owner-only, as the launcher does (an earlier one is replaced)."""
     for folder in (settings_dir, settings_dir / "setup"):
         if not folder.exists():
             owner_only_acl.create_owner_only_dir(folder)
     path = settings_dir / "setup" / "setup_token"
+    path.unlink(missing_ok=True)
     fd = owner_only_acl.create_owner_only_file(path)
     try:
         os.write(fd, token.encode("ascii"))
     finally:
         os.close(fd)
     return path
+
+
+def end_tree(proc: subprocess.Popen, wait: float = KILL_WAIT_S) -> None:
+    """Kill a running ``proc`` and its descendants, waiting at most ``wait`` s for it (#343).
+
+    Its descendants are listed before anything is killed, so a worker command
+    it runs is not left orphaned. On POSIX ``proc`` leads its own process
+    group (``process_group=0``); ``killpg`` is sent before ``proc.kill()``
+    (which polls, and so may reap it), while the group is surely still its
+    own, so members orphaned earlier end too. A ``proc`` that already ended
+    is left alone (module doc).
+    """
+    if proc.poll() is not None:
+        return
+    _kill_descendants(proc.pid)
+    if os.name != "nt":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    proc.kill()
+    try:
+        proc.wait(timeout=wait)
+    except subprocess.TimeoutExpired:  # pragma: no cover - a stuck kill
+        pass
+
+
+def _kill_descendants(pid: int) -> None:
+    try:
+        descendants = psutil.Process(pid).children(recursive=True)
+    except psutil.Error:
+        return
+    for child in descendants:
+        try:
+            child.kill()
+        except psutil.Error:
+            pass
 
 
 def child_env(tmp_path: Path, settings_dir: Path, extra: dict) -> dict:
@@ -142,10 +188,11 @@ class SetupProcess:
         out = open(self.tmp_path / "setup.stdout.log", "wb")
         err = open(self.tmp_path / "setup.stderr.log", "wb")
         self._outputs = (out, err)
-        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+        group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+                 else {"process_group": 0})
         self.proc = subprocess.Popen(  # nosec B603 - fixed argv
             [sys.executable, str(RUN_MANAGER), "--setup"], cwd=str(REPO_ROOT), env=env,
-            stdin=subprocess.DEVNULL, stdout=out, stderr=err, creationflags=flags)
+            stdin=subprocess.DEVNULL, stdout=out, stderr=err, **group)
         self._wait_ready()
         return self
 
@@ -177,12 +224,8 @@ class SetupProcess:
         return self.proc.wait(timeout=timeout)
 
     def stop(self) -> None:
-        if self.proc is not None and self.proc.poll() is None:
-            self.proc.kill()
-            try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:  # pragma: no cover - a stuck kill
-                pass
+        if self.proc is not None:
+            end_tree(self.proc)
         for handle in self._outputs:
             handle.close()
         self._outputs = ()

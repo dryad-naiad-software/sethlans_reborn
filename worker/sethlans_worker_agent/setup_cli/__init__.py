@@ -18,6 +18,13 @@ stdout and logs only to the worker log. Exit codes:
 - 2: a usage error (``usage_error``: other arguments) or an internal error
   (``internal_error``, details in the worker log), in the same shape.
 
+``--setup-cards`` also answers ``enrollment`` (``null``, or the stored
+manager's ``manager_id``, ``manager_name``, ``host`` and ``port``, never the
+token or fingerprint) and ``ui_password_set``, for Reset setup; it answers
+``config_unreadable`` when ``config.json`` cannot be read for them.
+``--setup-apply`` saves its optional ``manager_name`` as ``manager.name``
+only when it enrolls.
+
 None of them starts the agent loop, Waitress or Caddy. Secrets come only on
 stdin (setup-rebuild FR-WK-2). While a command runs, ``sys.stdout`` points at
 stderr, so a stray ``print`` cannot break the one-object answer.

@@ -69,7 +69,7 @@ class TestSuccess:
 
         assert answer == {'enrolled': True, 'manager_id': MANAGER_ID, 'manager_name': 'Studio',
                           'cert_fingerprint': FINGERPRINT, 'status': None}
-        world.enroll.assert_called_once_with('manager.example', 8080, KEY, 'render-node')
+        world.enroll.assert_called_once_with('manager.example', 8080, KEY, 'render-node', 'Studio')
         [(pairs,), _kwargs] = world.set_many.call_args
         assert world.set_many.call_count == 1
         assert pairs == [
@@ -90,15 +90,18 @@ class TestSuccess:
         world.enroll.return_value = (result, list(ENROLL_PAIRS))
         assert apply_cmd.run(_request())['status'] == shown
 
-    def test_without_a_key_and_a_new_password_only_the_choice_is_saved(self, world):
-        """FR-WK-1, FR-WK-3: no enrollment; ``ui_password`` null keeps the stored hash."""
+    @pytest.mark.parametrize('name', [_DROP, 'Other'], ids=['no-name', 'name-without-key'])
+    def test_without_a_key_and_a_new_password_only_the_choice_is_saved(self, world, name):
+        """FR-WK-1, FR-WK-3: no enrollment; ``ui_password`` null keeps the stored hash. FR-RS-3: no ``manager.*``
+        is written, so a stored ``manager.name`` stays, even when a ``manager_name`` is sent."""
         answer = apply_cmd.run(_request(manager_url=_DROP, enrollment_key=_DROP, ui_password=None,
-                                        manager_name=_DROP))
+                                        manager_name=name))
         assert answer == {'enrolled': False, 'manager_id': None, 'manager_name': None, 'cert_fingerprint': None,
                           'status': None}
         world.enroll.assert_not_called()
-        dotted = [name for name, _value in world.set_many.call_args.args[0]]
-        assert 'worker.ui_password_hash' not in dotted and 'manager.api_token' not in dotted
+        dotted = [key for key, _value in world.set_many.call_args.args[0]]
+        assert 'worker.ui_password_hash' not in dotted
+        assert not any(key.startswith('manager.') for key in dotted)
 
     def test_environment_set_choices_are_not_saved(self, world, monkeypatch):
         """FR-WK-1: the card choice and the Unreal switch are left alone while environment variables set them."""
