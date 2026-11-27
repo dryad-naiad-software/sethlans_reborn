@@ -65,6 +65,16 @@ def _int_in(value, low, high) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
 
 
+def saved_revision(value) -> int:
+    """``compute.revision`` as ``load`` reads it: the stored number, or 0 when missing or invalid."""
+    return value if _int_in(value, 0, MAX_REVISION) else 0
+
+
+def revision_is(expected: int):
+    """A ``config_store.set_many`` ``expect`` check: the saved revision is still ``expected`` (cross-process)."""
+    return lambda value: saved_revision(value) == expected
+
+
 def _valid_record(record) -> bool:
     if not isinstance(record, dict) or not is_card_key(record.get('key')):
         return False

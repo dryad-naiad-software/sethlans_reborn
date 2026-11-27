@@ -82,6 +82,14 @@ services:
       - SETHLANS_MANAGER_PORT=${SETHLANS_MANAGER_PORT:-8080}
       # Enrollment key for unattended registration
       - SETHLANS_WORKER_ENROLLMENT_KEY=${SETHLANS_WORKER_ENROLLMENT_KEY:-}
+      # The worker page password (it guards the control actions on the
+      # worker page, port 8081), from the worker_ui_password secret
+      # below (the password is never a variable). The worker reads it
+      # at every start and keeps only a hash; a password that breaks
+      # the page password rules stops the worker with an error.
+      - SETHLANS_WORKER_UI_PASSWORD_FILE=/run/secrets/worker_ui_password
+    secrets:
+      - worker_ui_password
     depends_on:
       manager:
         condition: service_healthy
@@ -95,3 +103,11 @@ secrets:
   # Once the admin exists the file may be emptied, but it must exist.
   sethlans_admin_password:
     file: ./secrets/admin_password
+  # The worker page password, on one line in ./secrets/worker_ui_password:
+  # at least 8 characters, not all digits, not like the worker's host
+  # name. The worker runs as uid 1000 and must be able to read the file:
+  #   chmod 600 ./secrets/worker_ui_password &&
+  #     sudo chown 1000:1000 ./secrets/worker_ui_password
+  # To change the password, edit the file and restart the worker.
+  worker_ui_password:
+    file: ./secrets/worker_ui_password

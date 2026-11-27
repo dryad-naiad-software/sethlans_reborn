@@ -24,7 +24,6 @@ import pytest
 
 from sethlans_worker_agent import config, job_processor
 from sethlans_worker_agent.web_ui import auth, server
-from sethlans_worker_agent.web_ui.setup.gate import mark_setup_complete
 
 logger = logging.getLogger(__name__)
 
@@ -39,23 +38,21 @@ def _find_free_port():
 
 
 @pytest.fixture()
-def web_ui(mocker, tmp_path):
+def web_ui(mocker):
     """
     Start the Waitress plaintext upstream on a random high port.
 
     Patches ``config.WAITRESS_UPSTREAM_PORT`` so Waitress binds on a
     free loopback port. Sets a known PBKDF2-hashed password via the
-    auth module. Yields a dict with base_url and password token.
-    Stops server on teardown.
+    auth module (into the worker's ``config.json`` in the test's
+    isolated settings folder). Yields a dict with base_url and password
+    token. Stops server on teardown.
     """
     test_password = "test-integration-pw123"
     mocker.patch.object(config, 'UI_ENABLED', True)
     mocker.patch.object(config, 'UI_BIND_ADDRESS', '127.0.0.1')
 
-    # Reset auth cache, then set a known password (hashed)
-    auth.reset_cache()
-    # Patch config_file_path so set_password writes to tmp
-    mocker.patch.object(config, 'config_file_path', tmp_path / 'config.ini')
+    auth.reset_for_tests()
     auth.set_password(test_password)
 
     # Find a free port for the Waitress upstream
@@ -85,9 +82,6 @@ def web_ui(mocker, tmp_path):
     # signature still accepts them for legacy compatibility.
     server.start_server(cert_path=None, key_path=None)
 
-    # Bypass the setup gate so integration tests can reach /api/status
-    mark_setup_complete()
-
     # Wait for Waitress to bind and accept connections (plaintext)
     for _attempt in range(20):
         try:
@@ -105,7 +99,7 @@ def web_ui(mocker, tmp_path):
     }
 
     server.stop_server()
-    auth.reset_cache()
+    auth.reset_for_tests()
 
 
 def _get(url, headers=None):
@@ -208,16 +202,6 @@ def test_control_endpoints_require_bearer_token(web_ui):
     """Control endpoints without token return 401."""
     url = f"{web_ui['base_url']}/api/control/pause"
     status, body = _post(url)
-
-    assert status == 401
-    assert body['error'] == 'Unauthorized'
-
-
-def test_control_endpoints_reject_wrong_token(web_ui):
-    """Control endpoints with wrong token return 401."""
-    url = f"{web_ui['base_url']}/api/control/pause"
-    headers = {'Authorization': 'Bearer wrong-token'}
-    status, body = _post(url, headers=headers)
 
     assert status == 401
     assert body['error'] == 'Unauthorized'

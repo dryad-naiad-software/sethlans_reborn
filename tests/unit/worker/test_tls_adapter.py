@@ -17,6 +17,7 @@ import requests
 import requests.adapters
 
 from sethlans_worker_agent import config_store, tls_adapter
+from sethlans_worker_agent.peer_cert import PeerCertAdapter
 from sethlans_worker_agent.tls_adapter import (
     PinningHTTPAdapter,
     PinUnavailableError,
@@ -200,10 +201,12 @@ class TestPinTable:
 class TestUnpinnedSession:
 
     def test_new_unpinned_session_each_call(self, mocker):
+        """#306; setup-rebuild FR-WK-8: unpinned, never reads the store, captures the peer certificate on https."""
         load = _store(mocker, 'a1' * 32, token='tok')
         with unpinned_session() as first, unpinned_session() as second:
             assert first is not second
             assert first.verify is False and _pin_of(first) is None
+            assert isinstance(first.get_adapter('https://manager.local:8080'), PeerCertAdapter)
         load.assert_not_called()  # it never reads the store
 
     def test_leaves_the_thread_session_alone(self, mocker):

@@ -60,12 +60,15 @@ services:
       - SETHLANS_MANAGER_HOST=manager
       - SETHLANS_MANAGER_PORT=8080
 
-# The dev admin's password file. tools/docker-dev.sh and docker-dev.ps1
-# make it (random, under .tmp/docker-dev/), set SETHLANS_ADMIN_USERNAME
-# (default "admin") and print where the password is.
+# The dev admin's and the dev worker page's password files.
+# tools/docker-dev.sh and docker-dev.ps1 make them (random, under
+# .tmp/docker-dev/), set SETHLANS_ADMIN_USERNAME (default "admin") and
+# print where the passwords are.
 secrets:
   sethlans_admin_password:
     file: ${SETHLANS_DEV_ADMIN_PASSWORD_FILE:?Start the dev stack with tools/docker-dev.sh or tools/docker-dev.ps1}
+  worker_ui_password:
+    file: ${SETHLANS_DEV_WORKER_UI_PASSWORD_FILE:?Start the dev stack with tools/docker-dev.sh or tools/docker-dev.ps1}
 
 volumes:
   dev-db:

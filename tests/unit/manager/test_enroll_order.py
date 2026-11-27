@@ -2,44 +2,40 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Regression tests for the FR-18 request-processing order.
+Regression tests for the FR-18 request-processing order, with the
+setup-rebuild FR-WK-8 key proof.
 
 The enroll view commits to this exact ordering:
 
-    rate-limit → serializer → runtime_state → key validation →
-    nonce check-and-record → atomic DB → sign → return
+    rate-limit → legacy-key 400 → shapes 400 → runtime_state 503 →
+    key proof 403 → nonce check-and-record 400 → atomic DB → envelope
 
 The invariants this file pins:
 
-1. An invalid-key attempt does NOT consume the nonce (AC-9a).
-   Reason: key validation runs BEFORE ``nonce_store.check_and_record``,
-   so a bad key rejects without touching the store.  A subsequent
-   request with the same nonce + valid key still succeeds.
+1. A wrong-proof attempt does NOT consume the nonce (AC-9a, FR-WK-8).
+   The proof is checked BEFORE ``nonce_store.check_and_record``, so a
+   bad proof rejects without touching the store, and the same nonce with
+   a good proof still succeeds.
 
 2. A replayed-nonce attempt does NOT increment the rate limiter
-   (per FR-13 / AC-10).  Reason: the replay check happens after key
-   validation — if the key is valid on the second call, no invalid-
-   key branch runs, and the limiter stays untouched.
+   (FR-13 / AC-10).
 
-3. ``runtime_state.manager_id is None`` → 503 BEFORE any DB query.
-   Reason: the readiness check runs before key validation, which is
-   the first thing that touches ``ManagerSettings``.  If readiness
-   fails, the view must not hit the ORM at all.
+3. Readiness failure → 503 BEFORE any DB query (AC-43): the proof check
+   is the first step that touches ``ManagerSettings``.
+
+4. Shape checks (legacy key, field shapes) answer 400 before readiness.
 """
-
-import base64
-import secrets
 
 import pytest
 from rest_framework.test import APIClient
 
 from sethlans_manager import runtime_state
+from tests.unit.manager._enroll_body import KEY, OTHER_KEY, enroll_body
 from workers.models import ManagerSettings
 from workers.views import enroll as enroll_module
 
-
-TEST_KEY_CANONICAL = "4F9XK2PBQ7M3N8RT"
 TEST_HOSTNAME = "order-test-host"
+ORM_GET = "workers.models.ManagerSettings.objects.get"
 
 
 @pytest.fixture
@@ -74,56 +70,34 @@ def _ready_runtime_state():
 @pytest.fixture
 def seeded_enrollment_key(db):
     row = ManagerSettings.objects.get(pk=1)
-    row.enrollment_key = TEST_KEY_CANONICAL
+    row.enrollment_key = KEY
     row.save(
         update_fields=["enrollment_key", "enrollment_key_updated_at"],
     )
-    return TEST_KEY_CANONICAL
+    return KEY
 
 
-def _nonce() -> str:
-    return base64.urlsafe_b64encode(
-        secrets.token_bytes(16),
-    ).rstrip(b"=").decode("ascii")
+def _post(api_client, body):
+    return api_client.post("/api/enroll/", body, format="json")
 
 
-def _post(api_client, enrollment_key, nonce, hostname=TEST_HOSTNAME):
-    return api_client.post(
-        "/api/enroll/",
-        {
-            "enrollment_key": enrollment_key,
-            "hostname": hostname,
-            "nonce": nonce,
-        },
-        format="json",
-    )
-
-
-# ---------------------------------------------------------------------------
-# AC-9a regression: invalid-key attempt must NOT consume the nonce
-# ---------------------------------------------------------------------------
+def _limiter_attempts():
+    with enroll_module._rate_limiter._lock:
+        return len(enroll_module._rate_limiter._attempts)
 
 
 @pytest.mark.django_db
-class TestAC9aInvalidKeyDoesNotConsumeNonce:
-    def test_bad_key_then_good_key_same_nonce_succeeds(
+class TestAC9aWrongProofDoesNotConsumeNonce:
+    def test_bad_proof_then_good_proof_same_nonce_succeeds(
         self, api_client, seeded_enrollment_key,
     ):
-        shared_nonce = _nonce()
-        # 1st attempt: valid nonce, WRONG key → 403.
-        bad = _post(api_client, "00000000000000PP", shared_nonce)
-        assert bad.status_code == 403
-        # Store must still be empty — nonce not consumed.
+        """AC-9a / FR-WK-8: the proof is checked before the nonce is recorded."""
+        bad = enroll_body(TEST_HOSTNAME, key=OTHER_KEY)
+        assert _post(api_client, bad).status_code == 403
         with enroll_module._nonce_store._lock:
-            assert shared_nonce not in enroll_module._nonce_store._seen
-        # 2nd attempt: same nonce, correct key → 200.
-        good = _post(api_client, TEST_KEY_CANONICAL, shared_nonce)
-        assert good.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# Replayed-nonce attempt must NOT bump the rate limiter
-# ---------------------------------------------------------------------------
+            assert bad["nonce"] not in enroll_module._nonce_store._seen
+        good = enroll_body(TEST_HOSTNAME, nonce=bad["nonce"])
+        assert _post(api_client, good).status_code == 200
 
 
 @pytest.mark.django_db
@@ -131,55 +105,45 @@ class TestReplayedNonceSkipsRateLimiter:
     def test_replayed_nonce_does_not_increment_limiter(
         self, api_client, seeded_enrollment_key,
     ):
-        nonce = _nonce()
-        # 1st: valid key + fresh nonce → 200 (no limiter bump).
-        first = _post(api_client, TEST_KEY_CANONICAL, nonce)
-        assert first.status_code == 200
-        with enroll_module._rate_limiter._lock:
-            count_before = len(enroll_module._rate_limiter._attempts)
-        # 2nd: same nonce + valid key → 400 replayed.
-        second = _post(api_client, TEST_KEY_CANONICAL, nonce)
+        """FR-13 / AC-10: only failed proofs count against the limit."""
+        body = enroll_body(TEST_HOSTNAME)
+        assert _post(api_client, body).status_code == 200
+        second = _post(api_client, body)
         assert second.status_code == 400
         assert second.json() == {"detail": "Replayed nonce."}
-        # The rate-limiter attempts dict is unchanged.
-        with enroll_module._rate_limiter._lock:
-            count_after = len(enroll_module._rate_limiter._attempts)
-        assert count_before == count_after
-
-
-# ---------------------------------------------------------------------------
-# readiness=None short-circuits BEFORE any ORM work (AC-43)
-# ---------------------------------------------------------------------------
+        assert _limiter_attempts() == 0
 
 
 @pytest.mark.django_db
 class TestReadinessShortCircuitsBeforeDB:
-    def test_no_db_query_when_manager_id_none(
-        self, api_client, seeded_enrollment_key, mocker,
+    @pytest.mark.parametrize("missing", ["manager_id", "cert_fingerprint"])
+    def test_not_ready_is_503_with_no_db_query_and_no_limit_count(
+        self, api_client, seeded_enrollment_key, mocker, missing,
     ):
-        """503 path must not touch ``ManagerSettings.objects.get``."""
-        runtime_state.manager_id = None
-        # Spy on the ORM — any call means the order contract is broken.
+        """AC-14b / AC-43: 503 before the ORM is touched; the limiter is not charged."""
+        setattr(runtime_state, missing, None)
         get_mock = mocker.patch(
-            "workers.models.ManagerSettings.objects.get",
+            ORM_GET,
             side_effect=AssertionError(
                 "ORM was queried before the readiness check",
             ),
         )
-        resp = _post(api_client, TEST_KEY_CANONICAL, _nonce())
+        resp = _post(api_client, enroll_body(TEST_HOSTNAME))
         assert resp.status_code == 503
+        assert resp.json() == {"detail": "Enrollment service not ready."}
         get_mock.assert_not_called()
+        assert _limiter_attempts() == 0
 
-    def test_no_db_query_when_cert_fingerprint_none(
-        self, api_client, seeded_enrollment_key, mocker,
+
+@pytest.mark.django_db
+class TestShapeChecksBeforeReadiness:
+    @pytest.mark.parametrize("body", [
+        {"enrollment_key": KEY, "hostname": TEST_HOSTNAME, "nonce": "A" * 22},
+        {"hostname": TEST_HOSTNAME, "nonce": "A" * 32, "proof": "0" * 64},
+    ], ids=["legacy-key", "bad-nonce-shape"])
+    def test_refused_body_is_400_even_when_not_ready(
+        self, api_client, seeded_enrollment_key, body,
     ):
-        runtime_state.cert_fingerprint = None
-        get_mock = mocker.patch(
-            "workers.models.ManagerSettings.objects.get",
-            side_effect=AssertionError(
-                "ORM was queried before the readiness check",
-            ),
-        )
-        resp = _post(api_client, TEST_KEY_CANONICAL, _nonce())
-        assert resp.status_code == 503
-        get_mock.assert_not_called()
+        """FR-WK-8 order: legacy-key and shape 400s come before the readiness 503."""
+        runtime_state.manager_id = None
+        assert _post(api_client, body).status_code == 400

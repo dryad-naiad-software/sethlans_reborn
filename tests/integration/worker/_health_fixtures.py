@@ -22,7 +22,6 @@ import urllib.request
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent.web_ui import auth, server
-from sethlans_worker_agent.web_ui.setup.gate import init_gate
 
 
 # --- Test helpers --------------------------------------------------
@@ -55,9 +54,7 @@ def _get(url):
 def _wait_for_bind(port, path, expect_status_in):
     """Poll ``http://127.0.0.1:<port><path>`` until Waitress is up.
 
-    The gate-closed fixture variant cannot probe ``/api/status``
-    (it returns 503 before bind is even relevant), so callers pass
-    the path + acceptable status-code set explicitly.
+    Callers pass the path + acceptable status-code set explicitly.
     """
     url = f'http://127.0.0.1:{port}{path}'
     for _attempt in range(40):
@@ -78,22 +75,17 @@ def _wait_for_bind(port, path, expect_status_in):
 def _bring_up_wsgi(mocker, tmp_path, *, password='test-pw-int-health'):
     """Patch config + auth + hardware mocks; start Waitress.
 
-    Returns ``(port, password)``.  The caller decides whether to
-    ``mark_setup_complete()`` (setup-complete variant) or leave the
-    gate closed (sentinel-absent variant).  In both variants we call
-    ``init_gate(<empty data_dir>)`` so the gate's module-level
-    ``_setup_complete`` flag starts from a known-false state derived
-    from a sentinel-free directory -- this is the DevOps-LOW-5 hygiene
-    requirement so the test isn't accidentally piggybacking on a
-    sibling test's leaked gate-open flag.
+    Returns ``(port, password)``. The page password's hash goes into the
+    worker's ``config.json`` in the test's isolated settings folder
+    (``SETHLANS_SETTINGS_DIR``, or ``SETHLANS_WORKER_DATA_DIR`` when the
+    caller set it).
     """
     mocker.patch.object(config, 'UI_ENABLED', True)
     mocker.patch.object(config, 'UI_BIND_ADDRESS', '127.0.0.1')
 
-    # Auth setup -- a known password so ``/api/control/*`` (not used in
-    # these tests) wouldn't surprise-401 a future addition.
-    auth.reset_cache()
-    mocker.patch.object(config, 'config_file_path', tmp_path / 'config.ini')
+    # A known page password, so ``/api/control/*`` answers 200 to the
+    # right Bearer instead of 403 (no password set, FR-WK-4).
+    auth.reset_for_tests()
     auth.set_password(password)
 
     # Random loopback port -- avoids contention with other tests.
@@ -117,14 +109,6 @@ def _bring_up_wsgi(mocker, tmp_path, *, password='test-pw-int-health'):
         '.scan_for_local_blenders',
         return_value=[],
     )
-
-    # Reset the gate against an empty data dir so the module-level
-    # ``_setup_complete`` flag starts False (sentinel absent).  The
-    # autouse ``_reset_setup_gate`` fixture in conftest already does
-    # this, but calling ``init_gate`` here documents the intent.
-    empty_data_dir = tmp_path / 'empty_data_dir'
-    empty_data_dir.mkdir()
-    init_gate(empty_data_dir)
 
     # Plaintext Waitress upstream; cert/key args ignored.
     server.start_server(cert_path=None, key_path=None)

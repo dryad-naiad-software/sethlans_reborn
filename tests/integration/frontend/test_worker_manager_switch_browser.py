@@ -4,10 +4,10 @@
 """
 The manager-changes switch and the "Last change from the manager" line in a real browser (card selection D18, S2).
 
-Chromium drives ``/`` and ``/setup`` of the real worker WSGI app (``_worker_cards_browser``):
-``GET /api/cards/``, the Bearer-checked ``POST /api/control/cards/manager-changes``
-and ``GET``/``POST /api/setup/worker/cards/`` are the real handlers, and a save
-lands in the real ``config.json`` (``compute.allow_manager_changes``).
+Chromium drives ``/`` of the real worker WSGI app (``_worker_cards_browser``):
+``GET /api/cards/`` and the Bearer-checked ``POST /api/control/cards/manager-changes``
+are the real handlers, and a save lands in the real ``config.json``
+(``compute.allow_manager_changes``).
 ``SETHLANS_COMPUTE_ALLOW_MANAGER_CHANGES`` is unset unless a test sets it.
 """
 
@@ -16,10 +16,8 @@ import pytest
 from sethlans_worker_agent import config_compute
 
 from . import _worker_cards_browser as ui
-from ._worker_cards_browser import HIP_1
 
 SWITCH_PATH = '/api/control/cards/manager-changes'
-SETUP_CARDS = '/api/setup/worker/cards/'
 SAVED_TEXT = "Saved. The manager's next graphics card change follows this switch."
 ENV_TEXT = "This switch is set by an environment variable on this worker."
 HELP_TEXT = "Alerts can still be dismissed from the manager."
@@ -29,12 +27,6 @@ REQUESTED_AT = '2026-11-19T08:00:00+00:00'
 
 @pytest.fixture
 def settings_ui(monkeypatch, mocker, tmp_path):
-    with ui.served_worker_ui(monkeypatch, mocker, tmp_path, setup_complete=True, checkpoints=()) as served:
-        yield served
-
-
-@pytest.fixture
-def wizard_ui(monkeypatch, mocker, tmp_path):
     with ui.served_worker_ui(monkeypatch, mocker, tmp_path) as served:
         yield served
 
@@ -44,13 +36,6 @@ def _open_settings(page, base_url):
     page.add_init_script(f"sessionStorage.setItem('workerUIPassword', {ui.PASSWORD!r})")
     page.goto(f'{base_url}/')
     page.wait_for_selector('#gc-mgr', state='visible')
-    return errors
-
-
-def _open_wizard(page, base_url):
-    errors = ui.watch_page(page)
-    page.goto(f'{base_url}/setup')
-    page.wait_for_selector('#step-cards.active #cards-form', state='visible')
     return errors
 
 
@@ -159,42 +144,4 @@ def test_slow_poll_refreshes_line_and_read_only_state_but_keeps_unsaved_flip(pag
     page.wait_for_selector('#gc-mgr-env', state='visible')
     assert page.is_checked('#gc-mgr-on') and page.is_disabled('#gc-mgr-on')  # the variable wins
     assert not page.locator('#gc-mgr-save').is_visible()
-    assert errors == []
-
-
-def test_wizard_sends_the_switch(page, wizard_ui):
-    base_url, data_dir = wizard_ui
-    errors = _open_wizard(page, base_url)
-    posts = ui.record_posts(page, SETUP_CARDS)
-    assert page.is_checked('#cards-allow') and page.is_enabled('#cards-allow')  # default on (D18)
-    assert page.inner_text('#cards-allow-help') == HELP_TEXT
-    assert not page.locator('#cards-allow-env').is_visible()
-    page.uncheck('#cards-allow')
-    page.click('#btn-cards-next')
-    page.wait_for_selector('#step-verify.active')
-    assert posts[0][0]['allow_manager_changes'] is False
-    assert _saved_switch(data_dir) is False
-    assert errors == []
-
-
-def test_wizard_shows_the_saved_switch(page, wizard_ui):
-    base_url, data_dir = wizard_ui
-    ui.pages.seed(data_dir, {'allow_manager_changes': False, 'method': 'gpu', 'cards': [ui.record_of(HIP_1)],
-                             'known': [ui.key_of(HIP_1)], 'revision': 1})
-    errors = _open_wizard(page, base_url)
-    assert not page.is_checked('#cards-allow')
-    assert errors == []
-
-
-def test_wizard_switch_set_by_environment_is_read_only_and_not_sent(page, wizard_ui, monkeypatch):
-    base_url, data_dir = wizard_ui
-    monkeypatch.setenv(config_compute.ENV_ALLOW, 'false')
-    errors = _open_wizard(page, base_url)
-    posts = ui.record_posts(page, SETUP_CARDS)
-    assert not page.is_checked('#cards-allow') and page.is_disabled('#cards-allow')
-    assert page.inner_text('#cards-allow-env') == ENV_TEXT
-    page.click('#btn-cards-next')
-    page.wait_for_selector('#step-verify.active')
-    assert 'allow_manager_changes' not in posts[0][0]
-    assert _saved_switch(data_dir) is None
     assert errors == []

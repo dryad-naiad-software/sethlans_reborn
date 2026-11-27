@@ -145,7 +145,7 @@ class TestMatching:
 class TestSettingsEndpoint:
 
     @pytest.fixture(autouse=True)
-    def _open(self, setup_complete, monkeypatch):
+    def _open(self, monkeypatch):
         fake_saved(monkeypatch, {'method': 'gpu', 'gpu_mode': 'split', 'revision': 3,
                                  'cards': [in_use.record_of(_card(0))], 'known': list(KEYS)})
         fake_probes(monkeypatch, INVENTORY)

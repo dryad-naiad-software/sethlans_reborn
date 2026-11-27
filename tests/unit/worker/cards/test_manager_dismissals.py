@@ -125,7 +125,7 @@ class TestIgnored:
     def test_failed_write_is_logged_and_changes_nothing(self, saved, monkeypatch, caplog):
         state, _writes = saved
 
-        def locked(pairs):
+        def locked(pairs, expect=None):
             raise ConfigLockTimeoutError('busy')
         monkeypatch.setattr('sethlans_worker_agent.config_store.set_many', locked)
 

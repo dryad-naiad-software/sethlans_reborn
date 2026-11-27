@@ -211,5 +211,5 @@ temp/
 *.exe
 *.run
 *.dmg
-# Admin password file for the compose stack (a Compose secret)
+# Admin and worker page password files for the compose stack (Compose secrets)
 deploy/docker/secrets/

@@ -20,17 +20,19 @@ Exports:
   * ``get(dotted_key, default)`` — lock-free nested read.
   * ``set(dotted_key, value)``   — thread-safe AND cross-process-safe
                                    load -> mutate -> save cycle.
+  * ``set_many(pairs, expect=None)`` — several keys in one write;
+                                   ``expect`` makes it a compare-and-set.
   * ``ConfigLockTimeoutError`` — raised when the file lock cannot be
                                  acquired within the timeout.
+  * ``ConfigChangedError``     — an ``expect`` check failed; nothing written.
 
 ``set()`` MUST NEVER log argument values — NF-5 / FR-13. Only the
 dotted key is logged.
 """
 
-import json
 import logging
 import threading
-from typing import Any, Tuple
+from typing import Any, Callable, Mapping, Optional, Tuple
 
 from .io import (
     ConfigLockTimeoutError,
@@ -38,6 +40,7 @@ from .io import (
     atomic_write,
     deep_merge,
     load_system_config,
+    parse_json_file,
     read_json_file,
 )
 from .paths import (
@@ -51,6 +54,7 @@ from .paths import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "ConfigChangedError",
     "ConfigLockTimeoutError",
     "ConfigReadError",
     "SYSTEM_CONFIG_PATH",
@@ -72,6 +76,18 @@ class ConfigReadError(OSError):
     """The per-user config file exists but could not be read or parsed."""
 
 
+class ConfigChangedError(Exception):
+    """A ``set_many`` ``expect`` check failed: another writer changed ``key`` since the caller read it.
+
+    ``value`` is the stored value found (``None`` when missing). Nothing was written.
+    """
+
+    def __init__(self, key: str, value: Any):
+        super().__init__(f"{key} was changed by another writer")
+        self.key = key
+        self.value = value
+
+
 def load() -> dict:
     """Return the merged config dict (per-user overlays system-wide)."""
     system_cfg = load_system_config()
@@ -88,8 +104,7 @@ def load_strict() -> dict:
     """
     path = user_config_path()
     try:
-        with open(path, "r", encoding="utf-8") as fh:
-            user_cfg = json.load(fh)
+        user_cfg = parse_json_file(path)
     except FileNotFoundError:
         user_cfg = {}
     except (OSError, ValueError, RecursionError) as error:  # ValueError: JSONDecodeError, UnicodeDecodeError
@@ -146,19 +161,31 @@ def set(dotted_key: str, value: Any) -> None:  # noqa: A001 - module API
     set_many([(dotted_key, value)])
 
 
-def set_many(pairs) -> None:
+def set_many(pairs, expect: Optional[Mapping[str, Callable[[Any], bool]]] = None) -> None:
     """Write multiple dotted keys in a single lock-acquire-write cycle.
 
     Prevents half-configured state on crash — all mutations land in
     one atomic file write. ``pairs`` is an iterable of
     ``(dotted_key, value)`` tuples. Values are NEVER logged (NF-5).
+
+    ``expect`` (compare-and-set) maps dotted keys to checks: inside both
+    locks, after the file is read again, each check gets the stored value
+    as ``load`` merges it (``None`` when missing); one returning false raises
+    ``ConfigChangedError`` and nothing is written.
     """
+    pairs = list(pairs)
     resolved = [(_split_dotted(k), v) for k, v in pairs]
+    checks = [(dotted, _split_dotted(dotted), check) for dotted, check in (expect or {}).items()]
     keys_only = [k for k, _ in pairs]
     logger.debug("config_store.set_many keys=%s", keys_only)
     with _config_lock:
         with CrossProcessLock(lockfile_path()):
             current = read_json_file(user_config_path())
+            merged = deep_merge(load_system_config(), current) if checks else current
+            for dotted, parts, check in checks:
+                stored = _get_nested(merged, parts, None)
+                if not check(stored):
+                    raise ConfigChangedError(dotted, stored)
             for parts, value in resolved:
                 _set_nested(current, parts, value)
             atomic_write(user_config_path(), current)

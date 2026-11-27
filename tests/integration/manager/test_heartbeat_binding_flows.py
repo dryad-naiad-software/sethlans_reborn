@@ -20,7 +20,7 @@ from rest_framework.test import APIClient
 from workers.models import Worker
 from workers.services.auto_enroll import auto_enroll_local_worker
 
-from .conftest import TEST_ENROLLMENT_KEY_CANONICAL, fresh_nonce
+from .conftest import enroll_body, reply_token
 from .heartbeat_binding_helpers import (
     ENROLL_URL,
     FULL_REGISTRATION,
@@ -172,16 +172,10 @@ class TestLegitimateFlowsStillWork:
         default_version,
     ):
         enroll = APIClient().post(
-            ENROLL_URL,
-            {
-                'enrollment_key': TEST_ENROLLMENT_KEY_CANONICAL,
-                'hostname': 'flow-host',
-                'nonce': fresh_nonce(),
-            },
-            format='json',
+            ENROLL_URL, enroll_body(hostname='flow-host'), format='json',
         )
         assert enroll.status_code == 200
-        api_token = enroll.json()['payload']['api_token']
+        api_token = reply_token(enroll.json())
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Token {api_token}')
 

@@ -52,8 +52,11 @@ $env:SETHLANS_SECURITY_SECRET_KEY = "dev-insecure-key-for-local-development-only
 # On Windows: inherited entries removed, full control for the current
 # user and SYSTEM only (Docker Desktop reads bind-mount files as the
 # signed-in user). Elsewhere: mode 700, as tools/docker-dev.sh does.
+# The worker page password (the worker_ui_password secret) is made the
+# same way, in the same folder.
 $DevAdminDir = Join-Path $ProjectRoot ".tmp" "docker-dev"
 $env:SETHLANS_DEV_ADMIN_PASSWORD_FILE = Join-Path $DevAdminDir "admin_password"
+$env:SETHLANS_DEV_WORKER_UI_PASSWORD_FILE = Join-Path $DevAdminDir "worker_ui_password"
 if (-not $env:SETHLANS_ADMIN_USERNAME) { $env:SETHLANS_ADMIN_USERNAME = "admin" }
 
 function Protect-DevAdminDir {
@@ -70,13 +73,18 @@ function Protect-DevAdminDir {
     }
 }
 
-function Ensure-DevAdminPassword {
-    $file = $env:SETHLANS_DEV_ADMIN_PASSWORD_FILE
-    New-Item -ItemType Directory -Force -Path $DevAdminDir | Out-Null
-    Protect-DevAdminDir
+# Write a random 24-character password to $file unless it already holds one.
+function Ensure-DevPasswordFile([string]$file) {
     if ((Test-Path $file) -and (Get-Item $file).Length -gt 0) { return }
     $bytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(18)
     [IO.File]::WriteAllText($file, [Convert]::ToBase64String($bytes))
+}
+
+function Ensure-DevPasswords {
+    New-Item -ItemType Directory -Force -Path $DevAdminDir | Out-Null
+    Protect-DevAdminDir
+    Ensure-DevPasswordFile $env:SETHLANS_DEV_ADMIN_PASSWORD_FILE
+    Ensure-DevPasswordFile $env:SETHLANS_DEV_WORKER_UI_PASSWORD_FILE
 }
 
 # The manager and worker images COPY a pre-fetched Caddy binary from
@@ -115,8 +123,9 @@ $composeFlags = @("-f", $ComposeBase, "-f", $ComposeDev, "--project-directory", 
 switch ($Command) {
     "up" {
         Ensure-CaddyBinaries
-        Ensure-DevAdminPassword
+        Ensure-DevPasswords
         Write-Host "--- Dev admin: $env:SETHLANS_ADMIN_USERNAME, password in $env:SETHLANS_DEV_ADMIN_PASSWORD_FILE ---"
+        Write-Host "--- Dev worker page password in $env:SETHLANS_DEV_WORKER_UI_PASSWORD_FILE ---"
         docker compose @composeFlags up --build @ExtraArgs
     }
     "down" {

@@ -69,7 +69,7 @@ def worker(mocker):
                          'cards': [saved_record(KEY_A), saved_record(KEY_C)],
                          'known': [key for key, _n, _d in _CARDS]}}
 
-    def set_many(pairs):
+    def set_many(pairs, expect=None):
         for dotted, value in pairs:
             state['compute'][dotted.split('.')[1]] = copy.deepcopy(value)
 

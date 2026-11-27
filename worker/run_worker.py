@@ -34,6 +34,18 @@ def _run_list_unreal_editors_if_requested(argv) -> None:
         sys.exit(unreal_editor_list.main(list(argv[2:])))
 
 
+# Reserved first arguments (setup-rebuild FR-WK-1): the one-shot setup
+# commands setup mode runs. JSON on stdin and stdout; they never start the
+# agent loop, Waitress or Caddy.
+SETUP_COMMANDS = ('--setup-cards', '--setup-discover', '--setup-apply')
+
+
+def _run_setup_command_if_requested(argv) -> None:
+    if len(argv) > 1 and argv[1] in SETUP_COMMANDS:
+        from sethlans_worker_agent import setup_cli
+        sys.exit(setup_cli.main(list(argv[1:])))
+
+
 # In frozen mode PyInstaller handles sys.path; only add the worker
 # directory and project root when running from source.
 if not getattr(sys, 'frozen', False):
@@ -48,5 +60,6 @@ if not getattr(sys, 'frozen', False):
 if __name__ == "__main__":
     _run_known_folder_probe_if_requested(sys.argv)
     _run_list_unreal_editors_if_requested(sys.argv)
+    _run_setup_command_if_requested(sys.argv)
     from sethlans_worker_agent.agent import main
     main()

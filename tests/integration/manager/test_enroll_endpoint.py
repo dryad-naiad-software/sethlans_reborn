@@ -32,8 +32,8 @@ from workers.models import Worker
 
 from .conftest import (
     TEST_ENROLLMENT_KEY_CANONICAL,
-    TEST_ENROLLMENT_KEY_HYPHENATED,
-    fresh_nonce,
+    enroll_body,
+    reply_token,
 )
 
 User = get_user_model()
@@ -42,13 +42,9 @@ ENROLL_URL = '/api/enroll/'
 HEARTBEAT_URL = '/api/heartbeat/'
 
 
-def _valid_body(hostname='integration-host', nonce=None, key=None):
-    """Return a valid enrollment request body."""
-    return {
-        'enrollment_key': key or TEST_ENROLLMENT_KEY_CANONICAL,
-        'hostname': hostname,
-        'nonce': nonce or fresh_nonce(),
-    }
+def _valid_body(hostname='integration-host'):
+    """Return a valid enrollment request body (key proof, FR-WK-8)."""
+    return enroll_body(hostname=hostname)
 
 
 def _verify_signature(payload, signature, normalized_key):
@@ -72,7 +68,11 @@ class TestEnrollHappyPath:
         ready_runtime_state,
         reset_enroll_module_state,
     ):
-        """``POST /api/enroll/`` with a valid body returns ``{payload, signature}``."""
+        """``POST /api/enroll/`` with a valid body returns ``{payload, signature}``.
+
+        FR-WK-8: the payload carries the token only encrypted
+        (``api_token_nonce``, ``api_token_ct``), never ``api_token`` in clear.
+        """
         client = APIClient()
         body = _valid_body(hostname='happy-host')
         resp = client.post(ENROLL_URL, body, format='json')
@@ -83,12 +83,13 @@ class TestEnrollHappyPath:
 
         payload = data['payload']
         assert set(payload.keys()) == {
-            'api_token', 'cert_fingerprint', 'manager_id', 'nonce',
+            'api_token_ct', 'api_token_nonce', 'cert_fingerprint',
+            'manager_id', 'nonce',
         }
         assert payload['nonce'] == body['nonce']
         assert payload['manager_id'] == ready_runtime_state.manager_id
         assert payload['cert_fingerprint'] == ready_runtime_state.cert_fingerprint
-        assert len(payload['api_token']) == 40  # DRF token length
+        assert len(reply_token(data)) == 40  # DRF token length
 
     def test_signature_verifies_under_shared_subkey_derivation(
         self,
@@ -114,21 +115,6 @@ class TestEnrollHappyPath:
             data['payload'], data['signature'],
             TEST_ENROLLMENT_KEY_CANONICAL,
         )
-
-    def test_hyphenated_key_accepted_through_router(
-        self,
-        seeded_enrollment_key,
-        ready_runtime_state,
-        reset_enroll_module_state,
-    ):
-        """``4F9X-K2PB-Q7M3-N8RT`` is normalised and accepted."""
-        client = APIClient()
-        body = _valid_body(
-            hostname='hyphen-host',
-            key=TEST_ENROLLMENT_KEY_HYPHENATED,
-        )
-        resp = client.post(ENROLL_URL, body, format='json')
-        assert resp.status_code == 200
 
 
 @pytest.mark.django_db
@@ -164,7 +150,7 @@ class TestEnrollWorkerRowCreated:
         assert worker.available_tools == {}
         # Token round-trip: the returned api_token must match the DB row.
         token = Token.objects.get(user=worker.user)
-        assert resp.json()['payload']['api_token'] == token.key
+        assert reply_token(resp.json()) == token.key
 
     def test_existing_worker_hostname_refreshes_rather_than_duplicates(
         self,
@@ -180,7 +166,7 @@ class TestEnrollWorkerRowCreated:
             format='json',
         )
         assert first.status_code == 200
-        first_token = first.json()['payload']['api_token']
+        first_token = reply_token(first.json())
 
         # Second enrollment with the same hostname but a fresh nonce.
         second = client.post(
@@ -188,7 +174,7 @@ class TestEnrollWorkerRowCreated:
             format='json',
         )
         assert second.status_code == 200
-        second_token = second.json()['payload']['api_token']
+        second_token = reply_token(second.json())
         # Every enrollment rotates the token (issue #221): the first
         # key is gone and only the second one remains.
         assert first_token != second_token
@@ -222,7 +208,7 @@ class TestEnrollTokenRoundTrip:
             format='json',
         )
         assert enroll_resp.status_code == 200
-        api_token = enroll_resp.json()['payload']['api_token']
+        api_token = reply_token(enroll_resp.json())
 
         # Immediately after: full-registration heartbeat using the token.
         hb_client = APIClient()

@@ -14,7 +14,6 @@ import pytest
 from sethlans_worker_agent.tool_manager import ToolManager
 from sethlans_worker_agent import system_monitor
 from sethlans_worker_agent.web_ui import auth, server
-from sethlans_worker_agent.web_ui.setup.gate import mark_setup_complete
 
 from ._health_fixtures import _bring_up_wsgi, _wait_for_bind
 
@@ -154,15 +153,9 @@ def _isolated_compute_section(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_setup_blender_device_check(monkeypatch):
-    """No real Blender device check from the wizard's Blender step; no cached card probe.
-
-    Same as the unit-suite fixture.
-    """
+def _no_cached_card_probe():
+    """No cached card probe carried over from another test (same as the unit-suite fixture)."""
     from sethlans_worker_agent.web_ui import cards_cache
-    from sethlans_worker_agent.web_ui.setup import blender_devices
-    monkeypatch.setattr(blender_devices, 'start_device_check', lambda: None)
-    monkeypatch.setattr(blender_devices, '_failed', False)
     cards_cache.reset_for_tests()
     yield
     cards_cache.reset_for_tests()
@@ -187,44 +180,30 @@ def _no_card_probe_in_heartbeats(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _reset_web_ui_auth():
-    """Reset the web_ui auth module's cached state between tests."""
-    from sethlans_worker_agent.web_ui import auth
-    auth.reset_cache()
+    """Forget the web_ui auth module's failure counts, cache and warnings between tests."""
+    auth.reset_for_tests()
     yield
-    auth.reset_cache()
+    auth.reset_for_tests()
 
 
-@pytest.fixture(autouse=True)
-def _reset_setup_gate():
-    """Reset the setup gate module-level state between tests."""
-    from sethlans_worker_agent.web_ui.setup import gate
-    gate._setup_complete = False
-    yield
-    gate._setup_complete = False
-
-
-# --- /api/health/ integration test fixtures ------------------------
+# --- Served worker web UI fixture ----------------------------------
 # Bring-up plumbing lives in ``_health_fixtures._bring_up_wsgi``;
-# fixtures live here so pytest auto-discovers them in the worker
+# the fixture lives here so pytest auto-discovers it in the worker
 # integration test package without forcing test modules to import
-# (and therefore F811-shadow) the fixture names.
+# (and therefore F811-shadow) the fixture name.
 
 @pytest.fixture()
-def web_ui_setup_complete(mocker, tmp_path):
-    """Bring up the WSGI app with the setup gate **open**.
+def web_ui_served(mocker, tmp_path):
+    """Bring up the real worker WSGI app on Waitress, with a page password set.
 
     Fixes ``system_monitor.WORKER_ID`` to a known sentinel string so
-    the test asserts the post-enrollment branch.  Restores the
-    original value on teardown.
+    the test asserts the enrolled branch.  Restores the original value
+    on teardown.
     """
     original_worker_id = system_monitor.WORKER_ID
     system_monitor.WORKER_ID = 'integration-worker-id-42'
 
     port, password = _bring_up_wsgi(mocker, tmp_path)
-
-    # Setup-complete variant -- gate is open.
-    mark_setup_complete()
-
     _wait_for_bind(port, '/api/health/', expect_status_in={200})
 
     yield {
@@ -233,33 +212,5 @@ def web_ui_setup_complete(mocker, tmp_path):
     }
 
     server.stop_server()
-    auth.reset_cache()
-    system_monitor.WORKER_ID = original_worker_id
-
-
-@pytest.fixture()
-def web_ui_setup_pending(mocker, tmp_path):
-    """Bring up the WSGI app with the setup gate **closed**.
-
-    Forces ``system_monitor.WORKER_ID`` to ``None`` so the handler
-    exercises the pre-enrollment branch (FR-H-7).  ``mark_setup_complete``
-    is intentionally NOT called -- this is the DevOps-LOW-5 inversion
-    of the standard harness and is the entire point of this fixture.
-    """
-    original_worker_id = system_monitor.WORKER_ID
-    system_monitor.WORKER_ID = None
-
-    port, password = _bring_up_wsgi(mocker, tmp_path)
-
-    # Sanity: gate is closed -- ``/api/health/`` is the only path that
-    # should reply 200; everything else replies 503.
-    _wait_for_bind(port, '/api/health/', expect_status_in={200})
-
-    yield {
-        'base_url': f'http://127.0.0.1:{port}',
-        'token': password,
-    }
-
-    server.stop_server()
-    auth.reset_cache()
+    auth.reset_for_tests()
     system_monitor.WORKER_ID = original_worker_id

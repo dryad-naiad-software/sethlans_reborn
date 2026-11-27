@@ -27,7 +27,7 @@ RESTART_TEXT = "Restart the worker for this change to take effect."
 
 @pytest.fixture
 def worker_ui(monkeypatch, mocker, tmp_path):
-    with ui.served_worker_ui(monkeypatch, mocker, tmp_path, setup_complete=True, checkpoints=()) as served:
+    with ui.served_worker_ui(monkeypatch, mocker, tmp_path) as served:
         yield served
 
 

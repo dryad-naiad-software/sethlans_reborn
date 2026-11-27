@@ -143,13 +143,14 @@ class TestHardeningInvariants:
         assert 'log {' not in out
         assert 'log\n' not in out
 
-    def test_setup_paths_404_on_public_vhost(self, worker_paths):
-        out = render_worker_caddyfile(**_valid_kwargs(worker_paths))
-        # /setup/* and /api/setup/* must be explicitly matched and
-        # 404'd on the public vhost.
-        assert '/setup' in out
-        assert '/api/setup' in out
-        assert 'respond @setup_paths 404' in out
+    def test_no_setup_rule_and_the_page_site_stays(self, worker_paths):
+        """setup-rebuild FR-WK-7, OQ-3: the ``/setup*`` 404 rule is gone; the HTTPS page site on 8081 stays."""
+        kwargs = dict(_valid_kwargs(worker_paths), public_tls_port=8081)
+        out = render_worker_caddyfile(**kwargs)
+        assert '/setup' not in out and 'setup_paths' not in out
+        site = out[out.index(':8081 {'):]
+        site = site[:site.index('\n}\n')]
+        assert 'reverse_proxy 127.0.0.1:28443' in site and 'tls ' in site
 
     def test_loopback_vhost_uses_127_0_0_1(self, worker_paths):
         out = render_worker_caddyfile(**_valid_kwargs(worker_paths))

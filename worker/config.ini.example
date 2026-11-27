@@ -62,14 +62,17 @@ ui_port = 8081
 # Bind address for the web UI.
 # Default: 0.0.0.0 (all interfaces - accessible from network).
 # Set to 127.0.0.1 to restrict to localhost only.
-# NOTE: Control endpoints require password authentication.
-# Change the default password via the dashboard on first use.
+# NOTE: Control endpoints require the worker page password, which setup
+# stores as a hash in config.json (not here). With none set they are refused.
+# A worker that never runs setup (Docker, scripts) can take it from the
+# environment at every start instead:
+#   SETHLANS_WORKER_UI_PASSWORD_FILE = path to a file holding the password
+#       (a Docker secret); read as UTF-8, one trailing line end dropped.
+#   SETHLANS_WORKER_UI_PASSWORD = the password itself.
+# The file wins when both are set. The password must pass the same rules as
+# setup; only its hash is saved, and a changed value replaces the stored one
+# on the next start. An unusable value stops the worker with exit code 5.
 ui_bind_address = 0.0.0.0
-# Password hash and salt for control endpoint authentication.
-# These are written automatically when you set a password at first startup.
-# Do NOT edit these manually. To reset, delete both lines and restart.
-ui_password_hash =
-ui_password_salt =
 
 [worker_tls]
 # BYO certificate for the worker web UI.

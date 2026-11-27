@@ -69,7 +69,7 @@ class CardEnv:
             raise config_store.ConfigReadError('could not read config.json: busy')
         return copy.deepcopy(self.compute)
 
-    def _set_many(self, pairs):
+    def _set_many(self, pairs, expect=None):
         pairs = list(pairs)
         self.writes.append(pairs)
         if self.fail_write is not None:

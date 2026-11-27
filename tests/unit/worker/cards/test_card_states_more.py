@@ -38,7 +38,7 @@ def saved(monkeypatch):
                          'cards': [record_of(xt_03())], 'known': [KEY_XT_03]}}
     hooks = {'before_write': None}
 
-    def set_many(pairs):
+    def set_many(pairs, expect=None):
         if hooks['before_write'] is not None:
             hooks['before_write']()
         for dotted, value in pairs:

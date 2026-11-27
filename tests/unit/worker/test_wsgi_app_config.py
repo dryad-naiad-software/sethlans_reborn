@@ -12,6 +12,9 @@ cap shared by both.
 
 import json
 
+import pytest
+
+from sethlans_worker_agent.web_ui import password_rules
 from sethlans_worker_agent.web_ui import wsgi_app as wsgi_app_module
 
 from tests.unit.worker._wsgi_helpers import (
@@ -20,17 +23,22 @@ from tests.unit.worker._wsgi_helpers import (
     make_environ,
 )
 
-# Fixtures ``setup_complete``, ``fresh_shutdown_event``, and
-# ``bearer_header`` are declared in ``conftest.py``.
+# Fixtures ``fresh_shutdown_event`` and ``bearer_header`` are declared
+# in ``conftest.py``.
+
+
+@pytest.fixture
+def set_pw(mocker):
+    """``auth.set_password`` replaced; the computer name fixed for the similarity rule."""
+    mocker.patch('sethlans_worker_agent.web_ui.wsgi_app.socket.gethostname', return_value='render-node')
+    return mocker.patch('sethlans_worker_agent.web_ui.auth.set_password')
 
 
 class TestControlSetPassword:
     def test_valid_password_set(
-        self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
+        self, fresh_shutdown_event, bearer_header, set_pw,
     ):
-        set_pw = mocker.patch(
-            'sethlans_worker_agent.web_ui.wsgi_app.set_password',
-        )
+        """FR-WK-4: a password that passes the rules is stored."""
         payload = json.dumps({'password': 'newpw123'}).encode()
         rec = StartResponseRecorder()
         body = drain(
@@ -47,12 +55,10 @@ class TestControlSetPassword:
         set_pw.assert_called_once_with('newpw123')
 
     def test_short_password_rejected(
-        self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
+        self, fresh_shutdown_event, bearer_header, set_pw,
     ):
-        set_pw = mocker.patch(
-            'sethlans_worker_agent.web_ui.wsgi_app.set_password',
-        )
-        payload = json.dumps({'password': 'abc'}).encode()
+        """FR-WK-4: the runtime action applies the setup rules (8 characters, not the old 4)."""
+        payload = json.dumps({'password': 'abcdefx'}).encode()
         rec = StartResponseRecorder()
         body = drain(
             wsgi_app_module.app(
@@ -64,11 +70,11 @@ class TestControlSetPassword:
             ),
         )
         assert rec.status_code == 400
-        assert 'at least 4' in json.loads(body)['error']
+        assert json.loads(body)['error'] == password_rules.TOO_SHORT
         set_pw.assert_not_called()
 
     def test_invalid_json_rejected(
-        self, setup_complete, fresh_shutdown_event, bearer_header,
+        self, fresh_shutdown_event, bearer_header,
     ):
         rec = StartResponseRecorder()
         body = drain(
@@ -86,7 +92,7 @@ class TestControlSetPassword:
 
 class TestControlConfigUpdate:
     def test_allowed_key_updates(
-        self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
+        self, fresh_shutdown_event, bearer_header, mocker,
     ):
         apply = mocker.patch(
             'sethlans_worker_agent.web_ui.wsgi_app.apply_config_change',
@@ -111,7 +117,7 @@ class TestControlConfigUpdate:
         apply.assert_called_once_with('POLLING_INTERVAL', 30)
 
     def test_disallowed_key_rejected(
-        self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
+        self, fresh_shutdown_event, bearer_header, mocker,
     ):
         apply = mocker.patch(
             'sethlans_worker_agent.web_ui.wsgi_app.apply_config_change',
@@ -134,7 +140,7 @@ class TestControlConfigUpdate:
         apply.assert_not_called()
 
     def test_invalid_value_returns_400(
-        self, setup_complete, fresh_shutdown_event, bearer_header, mocker,
+        self, fresh_shutdown_event, bearer_header, mocker,
     ):
         mocker.patch(
             'sethlans_worker_agent.web_ui.wsgi_app.apply_config_change',
@@ -159,7 +165,7 @@ class TestControlConfigUpdate:
 
 class TestControlBodyCap:
     def test_body_over_4k_returns_413(
-        self, setup_complete, fresh_shutdown_event, bearer_header,
+        self, fresh_shutdown_event, bearer_header,
     ):
         # Send CONTENT_LENGTH over the 4 KB cap; read_body_wsgi
         # short-circuits and returns the oversize sentinel.

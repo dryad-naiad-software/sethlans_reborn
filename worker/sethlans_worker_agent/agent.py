@@ -13,7 +13,6 @@ import logging
 import signal
 import sys
 
-from sethlans_worker_agent import config
 from sethlans_worker_agent import runtime_state  # noqa: F401  # bind boot_id at agent-module import time (FR-RT-5)
 from sethlans_worker_agent.agent_logging import configure_logging
 from sethlans_worker_agent.web_ui import start_server
@@ -35,10 +34,12 @@ def _parse_args(argv=None):
 
 
 def _run_setup_phase():
-    """Handle TLS, web server start, and setup gate / wizard.
+    """Handle TLS, web server and Caddy start, then enrollment.
 
-    Returns ``True`` if setup completed and the main loop should
-    proceed, or ``False`` if shutdown was requested during setup.
+    Returns ``True`` once the worker is enrolled and the main loop should
+    proceed, or ``False`` if shutdown was requested first. Exits 4 when
+    enrollment with ``SETHLANS_WORKER_ENROLLMENT_KEY`` failed every try.
+    Without a token or a key the worker waits for setup (FR-WK-7).
     """
     # TLS setup — once, before the web server.
     from sethlans_worker_agent import tls_setup
@@ -58,30 +59,14 @@ def _run_setup_phase():
     supervisor.start()
     agent_shutdown.set_caddy_supervisor(supervisor)
 
-    # Initialize setup gate (reads sentinel to decide mode).
-    from sethlans_worker_agent.agent_setup import (
-        initialize_setup_gate,
-        run_first_run_wizard_if_needed,
-        wait_for_browser_setup,
-    )
-    setup_done = initialize_setup_gate()
-
-    if not setup_done:
-        if sys.stdin.isatty():
-            wait_for_browser_setup(
-                _shutdown_event, config.UI_BIND_ADDRESS, config.UI_PORT,
-            )
-            if _shutdown_event.is_set():
-                return False
-        else:
-            wizard_code = run_first_run_wizard_if_needed()
-            if wizard_code != 0:
-                sys.exit(wizard_code)
-    else:
-        wizard_code = run_first_run_wizard_if_needed()
-        if wizard_code != 0:
-            sys.exit(wizard_code)
-
+    # Enrollment (setup-rebuild FR-WK-6, FR-WK-7): a saved token, the
+    # SETHLANS_WORKER_ENROLLMENT_KEY path (taken in main), or wait for setup.
+    from sethlans_worker_agent import enrollment_start
+    code = enrollment_start.wait_until_enrolled(_shutdown_event)
+    if code == enrollment_start.SHUTDOWN:
+        return False
+    if code != enrollment_start.ENROLLED:
+        sys.exit(code)
     return True
 
 
@@ -90,6 +75,16 @@ def main(argv=None):
     """Main loop: parse args, configure logging, register, heartbeat, poll, dispatch, shutdown."""
     args = _parse_args(argv)
     configure_logging(args.loglevel)
+
+    # The page password from SETHLANS_WORKER_UI_PASSWORD[_FILE]: both are
+    # removed from os.environ here, before any thread, child process, the
+    # worker page or enrollment starts. Exits 5 when the value is unusable.
+    from sethlans_worker_agent import ui_password_env
+    ui_password_env.apply_or_exit()
+    # SETHLANS_WORKER_ENROLLMENT_KEY likewise: removed from os.environ and kept
+    # in enrollment_start for wait_until_enrolled, so no child inherits it.
+    from sethlans_worker_agent import enrollment_start
+    enrollment_start.take_key()
 
     signal.signal(signal.SIGINT, _shutdown_handler)
     signal.signal(signal.SIGTERM, _shutdown_handler)

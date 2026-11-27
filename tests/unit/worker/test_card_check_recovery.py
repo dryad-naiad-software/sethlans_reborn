@@ -126,7 +126,7 @@ class TestRebuildDuringUnreal:
 
 class TestHandEditedTexts:
 
-    def test_get_normalises_alert_and_missing_card_texts(self, monkeypatch, setup_complete):
+    def test_get_normalises_alert_and_missing_card_texts(self, monkeypatch):
         alert = {'id': 'ab' * 16, 'kind': 'card_lost', 'key': KEY_XT_23, 'name': ['not', 'text'],
                  'detail': 'line\nbreak ' + 'x' * 300, 'raised_at': 'y' * 100}
         record = {'key': 'pci:0000:41:00.0', 'name': 'Card\x1b[31m red\x00'}

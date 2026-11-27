@@ -16,7 +16,7 @@ import pytest
 
 from sethlans_worker_agent import config_compute
 from sethlans_worker_agent.web_ui import cards_view
-from tests.unit.worker._card_pages import RUNTIME_POST, SETUP_PATH, body, call, fake_probes, fake_saved
+from tests.unit.worker._card_pages import RUNTIME_POST, body, call, fake_probes, fake_saved
 
 NOT_OBJECT = "The request body must be a JSON object."
 UNKNOWN = "The request has a field this page does not accept."
@@ -95,7 +95,7 @@ REFUSED = [
 class TestRefusedOverRuntimePost:
 
     @pytest.fixture(autouse=True)
-    def _open(self, setup_complete, fresh_shutdown_event, bearer_header, monkeypatch):
+    def _open(self, fresh_shutdown_event, bearer_header, monkeypatch):
         self.auth = bearer_header
         self.saved = fake_saved(monkeypatch)
         self.probes = fake_probes(monkeypatch)
@@ -110,24 +110,6 @@ class TestRefusedOverRuntimePost:
         monkeypatch.setenv(config_compute.ENV_METHOD, 'cpu')
         status, answer = call(RUNTIME_POST, 'POST', body(revision=-1), self.auth)
         assert (status, answer['error']) == (400, REVISION)
-        assert self.saved[1] == []
-
-
-class TestSetupPostOrder:
-
-    @pytest.fixture(autouse=True)
-    def _fakes(self, monkeypatch):
-        self.saved = fake_saved(monkeypatch)
-        self.probes = fake_probes(monkeypatch)
-
-    def test_bad_body_under_env_override_is_400(self, monkeypatch):
-        monkeypatch.setenv(config_compute.ENV_CARDS, '0000:23:00.0')
-        assert call(SETUP_PATH, 'POST', body(method='Gpu')) == (400, {'error': BAD_METHOD})
-        assert self.saved[1] == [] and self.probes == []
-
-    def test_good_body_under_env_override_is_409(self, monkeypatch):
-        monkeypatch.setenv(config_compute.ENV_GPU_MODE, 'split')
-        assert call(SETUP_PATH, 'POST', body()) == (409, {'error': cards_view.ENV_OVERRIDE_TEXT})
         assert self.saved[1] == []
 
 

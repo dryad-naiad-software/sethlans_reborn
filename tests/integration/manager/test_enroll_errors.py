@@ -31,21 +31,19 @@ from workers.views import enroll as enroll_module
 
 from .conftest import (
     TEST_ENROLLMENT_KEY_CANONICAL,
+    enroll_body,
     fresh_nonce,
 )
 
 ENROLL_URL = '/api/enroll/'
 
-# A valid-shape but-wrong key (16 Crockford chars, not the seeded value).
+# A valid-shape but-wrong key (16 Crockford chars, not the seeded value):
+# its proof is well formed, so the manager answers 403, not 400 (FR-WK-8).
 BAD_BUT_VALID_SHAPE_KEY = "00000000000000PP"
 
 
 def _body(hostname='err-host', nonce=None, key=None):
-    return {
-        'enrollment_key': key or TEST_ENROLLMENT_KEY_CANONICAL,
-        'hostname': hostname,
-        'nonce': nonce or fresh_nonce(),
-    }
+    return enroll_body(key or TEST_ENROLLMENT_KEY_CANONICAL, hostname, nonce)
 
 
 @pytest.mark.django_db
@@ -167,7 +165,7 @@ class TestRateLimitExhaustion:
         ready_runtime_state,
         reset_enroll_module_state,
     ):
-        """5 invalid-key attempts from the same IP → 6th returns 429."""
+        """5 wrong-proof attempts from the same IP → 6th returns 429."""
         client = APIClient()
         for _ in range(5):
             resp = client.post(

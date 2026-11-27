@@ -103,6 +103,15 @@ if WEB_UI_STATIC.exists():
         'sethlans_worker_agent/web_ui/static',
     ))
 
+# Setup rebuild FR-WK-3: Django's common-password list (BSD-3-Clause, with its
+# licence notice) read by web_ui/password_rules.py. Without it every page
+# password check fails, so a missing file stops the build.
+COMMON_PASSWORDS = WORKER_DIR / 'sethlans_worker_agent' / 'web_ui' / 'common_passwords'
+for _list_file in ('common-passwords.txt.gz', 'LICENSE.txt'):
+    if not (COMMON_PASSWORDS / _list_file).is_file():
+        raise SystemExit(f"Common-password list file missing: {COMMON_PASSWORDS / _list_file}")
+    datas.append((str(COMMON_PASSWORDS / _list_file), 'sethlans_worker_agent/web_ui/common_passwords'))
+
 # Unreal foundation FR-UE-20: the scripts UE's embedded Python runs (prep,
 # warm-up, and the preset facts, shot helpers and duplicate edits the prep
 # loads by file path). They import ``unreal``, so they are data, never

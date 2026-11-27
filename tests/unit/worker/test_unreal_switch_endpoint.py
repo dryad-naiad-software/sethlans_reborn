@@ -8,7 +8,7 @@ The Unreal switch on the settings page (card selection O14, C-27 a).
 Bearer password, shutdown guard and body cap of the other card actions,
 saves ``unreal.enabled`` in the JSON config store for the next start (one
 INFO line), answers 409 while ``SETHLANS_UNREAL_ENABLED`` sets it and 400
-for anything but a JSON boolean. Both card GETs report ``unreal_enabled``,
+for anything but a JSON boolean. The card GET reports ``unreal_enabled``,
 ``unreal_enabled_env`` and ``unreal_restart_needed``.
 """
 import logging
@@ -17,7 +17,7 @@ import pytest
 
 from sethlans_worker_agent import config_store, config_unreal, unreal_switch
 from sethlans_worker_agent.web_ui.runtime import handlers_cards
-from tests.unit.worker._card_pages import RUNTIME_GET, SETUP_PATH, call, fake_probes
+from tests.unit.worker._card_pages import RUNTIME_GET, call, fake_probes
 
 SWITCH = '/api/control/cards/unreal'
 
@@ -40,7 +40,7 @@ def saved_config(monkeypatch):
 
 
 @pytest.fixture
-def auth(setup_complete, fresh_shutdown_event, bearer_header):
+def auth(fresh_shutdown_event, bearer_header):
     return bearer_header
 
 
@@ -76,8 +76,9 @@ class TestSave:
         status, answer = call(SWITCH, 'POST', value, auth)
         assert status == 400 and answer['error'].endswith('.') and writes == []
 
-    def test_needs_the_password(self, saved_config, setup_complete, fresh_shutdown_event):
-        assert call(SWITCH, 'POST', {'enabled': True})[0] == 401 and saved_config[1] == []
+    def test_needs_the_password(self, saved_config, fresh_shutdown_event, no_page_password):
+        """FR-WK-4: with no page password stored the switch is refused (403)."""
+        assert call(SWITCH, 'POST', {'enabled': True})[0] == 403 and saved_config[1] == []
 
     def test_refused_during_shutdown(self, saved_config, auth, fresh_shutdown_event):
         fresh_shutdown_event.set()
@@ -90,14 +91,9 @@ class TestSave:
 
 class TestGetFields:
 
-    @pytest.mark.parametrize('path', [RUNTIME_GET, SETUP_PATH])
-    def test_both_card_gets_report_the_switch(self, saved_config, monkeypatch, path, request):
-        if path == RUNTIME_GET:
-            request.getfixturevalue('setup_complete')   # the setup GET answers until setup is complete
+    def test_card_get_reports_the_switch(self, saved_config, monkeypatch):
         fake_probes(monkeypatch)
-        from sethlans_worker_agent.web_ui import cards_cache
-        cards_cache.reset_for_tests()
-        answer = call(path)[1]
+        answer = call(RUNTIME_GET)[1]
         assert (answer['unreal_enabled'], answer['unreal_enabled_env'], answer['unreal_restart_needed']) == \
             (False, False, False)
 

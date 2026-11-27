@@ -7,9 +7,8 @@ The manager-changes switch and the last manager change on the worker (FR-CM-1, F
 - ``POST /api/control/cards/manager-changes`` ``{"allow": bool}``: 401 without the password, 400 for any other
   body, 409 under ``SETHLANS_COMPUTE_ALLOW_MANAGER_CHANGES``, 503 when it cannot be written, else 200 with one
   INFO line; the revision does not change.
-- Both card GETs report ``allow_manager_changes``, ``allow_manager_changes_env``, ``manager_changes_allowed``
+- The card GET reports ``allow_manager_changes``, ``allow_manager_changes_env``, ``manager_changes_allowed``
   and ``last_request``; the heartbeat report carries ``request_outcome`` without the requester.
-- The wizard POST accepts the optional switch and saves it after the choice.
 - ``send_heartbeat`` hands the answer to ``cards.remote``; registration does not (FR-CM-3).
 """
 import logging
@@ -19,8 +18,7 @@ import pytest
 from sethlans_worker_agent import config_compute, config_store, system_monitor
 from sethlans_worker_agent.cards import payload, remote
 from sethlans_worker_agent.web_ui.runtime import handlers_cards
-from sethlans_worker_agent.web_ui.setup import handlers_cards as setup_cards
-from tests.unit.worker._card_pages import RUNTIME_GET, SETUP_PATH, body, call, fake_probes, fake_saved
+from tests.unit.worker._card_pages import RUNTIME_GET, call, fake_probes, fake_saved
 
 SWITCH = '/api/control/cards/manager-changes'
 RECORD = {'id': 'ef' * 16, 'result': 'refused', 'code': 'not_allowed', 'reason': 'switched off', 'revision': 4,
@@ -29,7 +27,7 @@ RECORD = {'id': 'ef' * 16, 'result': 'refused', 'code': 'not_allowed', 'reason':
 
 
 @pytest.fixture
-def auth(setup_complete, fresh_shutdown_event, bearer_header):
+def auth(fresh_shutdown_event, bearer_header):
     return bearer_header
 
 
@@ -48,7 +46,7 @@ class TestSwitchEndpoint:
         assert lines == [f"Manager changes to the graphics card choice allowed: {'yes' if allow else 'no'} (set on "
                          f"the settings page)."]
 
-    def test_needs_the_password(self, monkeypatch, setup_complete, fresh_shutdown_event):
+    def test_needs_the_password(self, monkeypatch, auth):
         _state, writes = fake_saved(monkeypatch)
         assert call(SWITCH, 'POST', {'allow': False})[0] == 401
         assert writes == []
@@ -77,7 +75,7 @@ class TestSwitchEndpoint:
     def test_failed_write_is_503(self, monkeypatch, auth):
         fake_saved(monkeypatch)
 
-        def fail(_pairs):
+        def fail(_pairs, expect=None):
             raise OSError('disk full')
 
         monkeypatch.setattr(config_store, 'set_many', fail)
@@ -86,7 +84,7 @@ class TestSwitchEndpoint:
 
 class TestGetFields:
 
-    def test_runtime_get_reports_the_switch_and_the_last_change(self, monkeypatch, setup_complete):
+    def test_runtime_get_reports_the_switch_and_the_last_change(self, monkeypatch):
         fake_saved(monkeypatch, {'revision': 4, 'allow_manager_changes': False, 'last_request': dict(RECORD)})
         fake_probes(monkeypatch)
         answer = call(RUNTIME_GET)[1]
@@ -94,7 +92,7 @@ class TestGetFields:
                 answer['manager_changes_allowed']) == (False, False, False)
         assert answer['last_request'] == RECORD
 
-    def test_defaults_and_env(self, monkeypatch, setup_complete):
+    def test_defaults_and_env(self, monkeypatch):
         fake_saved(monkeypatch)
         fake_probes(monkeypatch)
         monkeypatch.setenv(config_compute.ENV_ALLOW, 'true')
@@ -103,7 +101,7 @@ class TestGetFields:
                 answer['manager_changes_allowed'], answer['last_request']) == (True, True, True, None)
 
     @pytest.mark.parametrize('change', [{'requested_by': 'alice'}, {'requested_by': None}])
-    def test_a_requester_that_is_not_a_user_id_is_not_shown(self, monkeypatch, setup_complete, change):
+    def test_a_requester_that_is_not_a_user_id_is_not_shown(self, monkeypatch, change):
         fake_saved(monkeypatch, {'revision': 4, 'last_request': dict(RECORD, **change)})
         fake_probes(monkeypatch)
         assert call(RUNTIME_GET)[1]['last_request']['requested_by'] is None
@@ -118,46 +116,6 @@ class TestGetFields:
     def test_a_broken_saved_outcome_is_not_reported(self, monkeypatch, record):
         fake_saved(monkeypatch, {'revision': 4, 'last_request': record})
         assert payload.build()['request_outcome'] is None
-
-
-class TestWizardSwitch:
-
-    @pytest.fixture
-    def wizard(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(config_store, 'get_identity_dir', lambda: tmp_path)  # no sentinel
-        fake_probes(monkeypatch)
-        return fake_saved(monkeypatch)
-
-    def test_saves_the_switch_after_the_choice(self, wizard):
-        state, writes = wizard
-        status, answer = call(SETUP_PATH, 'POST', body(allow_manager_changes=False))
-        assert status == 200 and answer['revision'] == 1
-        assert writes[-1] == [('compute.allow_manager_changes', False)] and state['compute']['revision'] == 1
-
-    def test_without_the_switch_only_the_choice_is_saved(self, wizard):
-        _state, writes = wizard
-        assert call(SETUP_PATH, 'POST', body())[0] == 200
-        assert len(writes) == 1
-
-    def test_the_environment_variable_wins_quietly(self, wizard, monkeypatch):
-        _state, writes = wizard
-        monkeypatch.setenv(config_compute.ENV_ALLOW, 'true')
-        assert call(SETUP_PATH, 'POST', body(allow_manager_changes=False))[0] == 200
-        assert len(writes) == 1
-
-    def test_switch_not_written_is_503_with_the_revision(self, wizard, monkeypatch):
-        _state, writes = wizard
-        real_set_many = config_store.set_many
-
-        def fail_switch(pairs):
-            if pairs[0][0] == 'compute.allow_manager_changes':
-                raise OSError('disk full')
-            return real_set_many(pairs)
-
-        monkeypatch.setattr(config_store, 'set_many', fail_switch)
-        status, answer = call(SETUP_PATH, 'POST', body(allow_manager_changes=False))
-        assert status == 503 and answer['error'] == setup_cards.SWITCH_NOT_SAVED_TEXT and answer['revision'] == 1
-        assert 'cards_chosen' in answer['checkpoints']
 
 
 class TestHeartbeatWiring:

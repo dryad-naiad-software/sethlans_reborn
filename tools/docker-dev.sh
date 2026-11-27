@@ -38,19 +38,29 @@ export SETHLANS_SECURITY_SECRET_KEY="dev-insecure-key-for-local-development-only
 # Linux uid, rootless Docker, Docker Desktop), so it ends up 644; the
 # Compose secret is a bind mount of the file, so the container never
 # passes through the 700 folder.
+# The worker page password (the worker_ui_password secret) is made the
+# same way, in the same folder.
 DEV_ADMIN_DIR="$PROJECT_ROOT/.tmp/docker-dev"
 export SETHLANS_DEV_ADMIN_PASSWORD_FILE="$DEV_ADMIN_DIR/admin_password"
+export SETHLANS_DEV_WORKER_UI_PASSWORD_FILE="$DEV_ADMIN_DIR/worker_ui_password"
 export SETHLANS_ADMIN_USERNAME="${SETHLANS_ADMIN_USERNAME:-admin}"
 
-ensure_dev_admin_password() {
+# Write a random 24-character password to $1 unless it already holds one.
+ensure_dev_password_file() {
+    local file="$1"
+    if [ -s "$file" ]; then
+        return
+    fi
+    (umask 077 && head -c 18 /dev/urandom | base64 | tr -d '\n' > "$file")
+    chmod 644 "$file"
+}
+
+ensure_dev_passwords() {
     mkdir -p "$(dirname "$DEV_ADMIN_DIR")"
     (umask 077 && mkdir -p "$DEV_ADMIN_DIR")
     chmod 700 "$DEV_ADMIN_DIR"
-    if [ -s "$SETHLANS_DEV_ADMIN_PASSWORD_FILE" ]; then
-        return
-    fi
-    (umask 077 && head -c 18 /dev/urandom | base64 | tr -d '\n' > "$SETHLANS_DEV_ADMIN_PASSWORD_FILE")
-    chmod 644 "$SETHLANS_DEV_ADMIN_PASSWORD_FILE"
+    ensure_dev_password_file "$SETHLANS_DEV_ADMIN_PASSWORD_FILE"
+    ensure_dev_password_file "$SETHLANS_DEV_WORKER_UI_PASSWORD_FILE"
 }
 
 # The manager and worker images COPY a pre-fetched Caddy binary from
@@ -93,8 +103,9 @@ shift
 case "$CMD" in
     up)
         ensure_caddy_binaries
-        ensure_dev_admin_password
+        ensure_dev_passwords
         echo "--- Dev admin: $SETHLANS_ADMIN_USERNAME, password in $SETHLANS_DEV_ADMIN_PASSWORD_FILE ---"
+        echo "--- Dev worker page password in $SETHLANS_DEV_WORKER_UI_PASSWORD_FILE ---"
         docker compose \
             -f "$COMPOSE_BASE" \
             -f "$COMPOSE_DEV" \

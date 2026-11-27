@@ -88,21 +88,24 @@ jobs:
   worker-cpu-boot-smoke:
     # Image-startup smoke for the worker-cpu production image (#144).
     # Build, run, assert the worker boots through five critical-path
-    # log markers (imports + TLS + Waitress + Caddy spawn + expected
-    # unattended-enrollment exit), and confirm the container exits
-    # rc=4 as designed when SETHLANS_WORKER_ENROLLMENT_KEY is unset.
+    # log markers (imports + TLS + Waitress + Caddy spawn + "not
+    # enrolled; run setup"), and confirm the container keeps running
+    # when SETHLANS_WORKER_ENROLLMENT_KEY is unset (setup-rebuild
+    # FR-WK-7, FR-DK-5: it waits for setup instead of exiting 4).
+    # The container also gets a throwaway worker page password through
+    # SETHLANS_WORKER_UI_PASSWORD_FILE (a read-only file under
+    # /run/secrets/, as the compose secret is); the smoke checks the
+    # worker takes it, stores only its hash, and never logs it.
     #
-    # Why not HEALTHCHECK validation: the worker is designed to refuse
-    # to start without enrollment config (production deployment expects
-    # the env var via docker-compose), so polling for HEALTHCHECK=
-    # healthy without standing up a stub manager would never succeed.
-    # Real-manager smoke is a separate scope (potential follow-on).
+    # Why not HEALTHCHECK validation: an unenrolled worker never
+    # registers, so polling for HEALTHCHECK=healthy without standing up
+    # a stub manager would never succeed. Real-manager smoke is a
+    # separate scope (potential follow-on).
     #
     # Catches the same class of regressions as the original #144 design
     # intended: missing repo packages (#157), wrong artifact paths
     # (#158), import-time exceptions in the worker entrypoint chain,
-    # Caddy supervisor mis-spawn, and setup-gate / wizard regressions
-    # that change the unattended exit path.
+    # Caddy supervisor mis-spawn, and enrollment-start regressions.
     name: worker-cpu boot smoke
     runs-on: ubuntu-latest
     steps:
@@ -130,10 +133,10 @@ jobs:
           tags: sethlans-worker-cpu:test
           cache-from: type=gha,scope=worker-cpu
           cache-to: type=gha,scope=worker-cpu,mode=max
-      - name: Run worker-cpu container (no enrollment key — expect rc=4)
-        run: docker run -d --name sethlans-worker-test sethlans-worker-cpu:test
-      - name: Verify boot path + expected unattended-key exit
-        run: tools/worker_boot_smoke.sh sethlans-worker-test 30
+      # The smoke starts the container itself: no enrollment key (expect
+      # it to wait for setup) and a throwaway page password file.
+      - name: Verify boot path + page password file + wait for setup
+        run: tools/worker_boot_smoke.sh sethlans-worker-cpu:test sethlans-worker-test 30
       - name: Cleanup
         if: always()
         run: |

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-The card GET answer (``cards_view.view``) shared by both card pages.
+The card GET answer (``cards_view.view``) of the settings page.
 
 Covers the ``blender_check`` states (C-22c), the two distinct Blender notes
 (C-19), the backend family, the label address, the probe-failed flag and a
@@ -16,11 +16,9 @@ from sethlans_worker_agent import config_compute
 from sethlans_worker_agent.cards import inventory
 from sethlans_worker_agent.cards.os_probe import OsCard
 from sethlans_worker_agent.web_ui import cards_view
-from sethlans_worker_agent.web_ui.setup import blender_devices
 from tests.unit.worker._card_choice import (
     AMD, KEY_RTX_A, KEY_XT_23, XT_23_ID, card, inv, rtx_a, section, xt_03, xt_23,
 )
-from tests.unit.worker._card_pages import SETUP_PATH, call, fake_probes, fake_saved
 
 NOT_CHECKED = 'Blender not checked yet'
 CHECK_FAILED = 'Blender could not list its devices; see the log'
@@ -49,12 +47,6 @@ class TestBlenderCheck:
     ], ids=['not-checked', 'running', 'failed', 'failed-while-running', 'done-empty', 'done'])
     def test_state(self, blender_cards, checking, state):
         assert _view(blender_cards, checking=checking)['blender_check'] == state
-
-    def test_setup_get_reports_running_check(self, monkeypatch):
-        fake_saved(monkeypatch)
-        fake_probes(monkeypatch, blender_cards=None)
-        monkeypatch.setattr(blender_devices, 'check_state', lambda: 'running')
-        assert call(SETUP_PATH)[1]['blender_check'] == 'running'
 
 
 class TestNotes:
