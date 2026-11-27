@@ -21,7 +21,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .. import enrollment_key
-from ..permissions import IsAdmin
+from ..permissions import IsAdmin, IsAdminNotWorker
 from ..rate_limiter import InMemoryRateLimiter
 from ._helpers import client_ip as _get_client_ip
 
@@ -110,8 +110,7 @@ def user_view(request):
         200: OpenApiResponse(
             description="New enrollment key in hyphenated display form.",
         ),
-        401: OpenApiResponse(description="Unauthenticated"),
-        403: OpenApiResponse(description="Not an administrator"),
+        403: OpenApiResponse(description="Not logged in, or not an administrator"),
     },
     description=(
         "Rotate the shared worker enrollment key.  Writes the new key "
@@ -120,7 +119,7 @@ def user_view(request):
     ),
 )
 @api_view(['POST'])
-@permission_classes([IsAdmin])
+@permission_classes([IsAdminNotWorker])
 def regenerate_enrollment_key_view(request):
     """Rotate the shared enrollment key and return the new display form.
 

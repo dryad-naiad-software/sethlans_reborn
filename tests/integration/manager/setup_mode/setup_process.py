@@ -49,11 +49,12 @@ def distinct_free_ports(count: int, host: str = "127.0.0.1"):
 
 
 def write_token(settings_dir: Path, token: str) -> Path:
-    """Write the setup token owner-only, as the launcher does."""
+    """Write a fresh setup token owner-only, as the launcher does (an earlier one is replaced)."""
     for folder in (settings_dir, settings_dir / "setup"):
         if not folder.exists():
             owner_only_acl.create_owner_only_dir(folder)
     path = settings_dir / "setup" / "setup_token"
+    path.unlink(missing_ok=True)
     fd = owner_only_acl.create_owner_only_file(path)
     try:
         os.write(fd, token.encode("ascii"))

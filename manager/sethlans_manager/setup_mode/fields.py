@@ -6,7 +6,8 @@ Small typed readers for the submitted form, and the error collector.
 
 Errors are keyed by dotted field names (``admin.username``,
 ``database.port``) plus ``non_field_errors``; each key holds a list of
-messages (FR-WZ-2).
+messages (FR-WZ-2). A message may carry a machine code (``account_exists``),
+kept per key in ``codes`` for the setup page.
 """
 import unicodedata
 from typing import Dict, List, Optional
@@ -17,9 +18,12 @@ NON_FIELD = "non_field_errors"
 class Errors:
     def __init__(self):
         self.by_field: Dict[str, List[str]] = {}
+        self.codes: Dict[str, List[str]] = {}
 
-    def add(self, field: str, message: str) -> None:
+    def add(self, field: str, message: str, code: Optional[str] = None) -> None:
         self.by_field.setdefault(field, []).append(message)
+        if code is not None:
+            self.codes.setdefault(field, []).append(code)
 
     def has(self, prefix: str) -> bool:
         """True when ``prefix`` or a field under it (``prefix.x``) has an error."""

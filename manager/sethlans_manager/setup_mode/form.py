@@ -8,7 +8,19 @@ Defaults, or the earlier answers from ``sethlans.ini``, never a stored
 secret: the database password shows only as ``password_set``, and no
 password hash is returned. The admin accounts come from the configured
 database, opened read-only (FR-WZ-11). Problems found while filling the
-form go into ``errors``; the form is still returned.
+form go into ``errors``, a list of ``{"part", "message"}``: ``part`` is
+``"worker"`` for the worker program's commands (``worker_form``),
+``"database"`` for the read-only admin/database check and ``"settings"``
+for anything else (an unreadable ``sethlans.ini``); the form is still
+returned.
+
+The database check runs first (at most its 5 s connect timeout), then the
+worker commands (about 5 s), so the form can take about 10 s.
+
+The worker parts (``cards``, ``worker``, ``managers``, ``enrollment``)
+come from the worker program (``worker_form``); ``manager`` is the worker
+only mode's manager choice, with ``keep_enrollment`` ticked when the
+worker is already enrolled (FR-RS-3).
 """
 import logging
 
@@ -20,7 +32,7 @@ from shared.settings_file import (
 
 from sethlans_manager.db_config import build_database_config
 from sethlans_manager.db_tls import DEFAULT_POSTGRES_TLS_MODE, tls_enabled
-from sethlans_manager.setup_mode import db_probe, leftovers, net
+from sethlans_manager.setup_mode import db_probe, leftovers, net, worker_form
 from sethlans_manager.setup_mode.fields import ascii_int
 from sethlans_manager.setup_mode.plan import stored
 
@@ -28,6 +40,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODE = "manager_worker"
 DEFAULT_PORT = 8080
+PART_DATABASE = "database"
+PART_SETTINGS = "settings"
+
+
+def _error(part: str, message: str) -> dict:
+    return {"part": part, "message": message}
 
 
 def _engine(raw: str) -> str:
@@ -62,9 +80,9 @@ def _accounts(parser, errors: list) -> bool:
         entry = build_database_config(parser)["default"]
         return db_probe.check_database(entry, write_test=False).accounts_exist
     except ValueError as exc:
-        errors.append(f"The stored database settings are not usable: {exc}")
+        errors.append(_error(PART_DATABASE, f"The stored database settings are not usable: {exc}"))
     except db_probe.ProbeError as exc:
-        errors.append(f"Could not read the configured database: {exc.message}")
+        errors.append(_error(PART_DATABASE, f"Could not read the configured database: {exc.message}"))
     return False
 
 
@@ -79,11 +97,13 @@ def _data_folder(parser) -> dict:
 
 
 def build_form(parser, read_errors=()) -> dict:
-    """The form as JSON-ready data; ``parser`` is the current ``sethlans.ini``."""
-    errors = list(read_errors)
+    """The form as JSON-ready data; ``parser`` is the current ``sethlans.ini``
+    and ``read_errors`` the messages from reading it (``"settings"`` errors)."""
+    errors = [_error(PART_SETTINGS, message) for message in read_errors]
     mode = stored(parser, SECTION_SETUP, KEY_SETUP_MODE)
     port = stored(parser, "server", "port")
     accounts_exist = _accounts(parser, errors)
+    worker = worker_form.form_parts(errors)
     return {
         "mode": mode if mode in SETUP_MODES else DEFAULT_MODE,
         "modes": sorted(SETUP_MODES),
@@ -104,8 +124,17 @@ def build_form(parser, read_errors=()) -> dict:
             "password": "",
             "replace_password": False,
         },
-        "cards": [],
-        "managers": [],
+        "worker": worker["worker"],
+        "cards": worker["cards"],
+        "cards_os_probe_failed": worker["cards_os_probe_failed"],
+        "managers": worker["managers"],
+        "enrollment": worker["enrollment"],
+        "manager": {
+            "url": "",
+            "name": "",
+            "enrollment_key": "",
+            "keep_enrollment": worker["enrollment"] is not None,
+        },
         "leftovers": leftovers.leftover_paths(),
         "last_failure": leftovers.last_failure(),
         "errors": errors,

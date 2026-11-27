@@ -10,6 +10,17 @@ replace), done last, after every check (D9). It sets ``[setup]``,
 ``[paths]``, ``[server] host/port``, replaces ``[database]`` (keeping
 ``conn_max_age``) and sets or removes ``[first_admin]``. Every other
 section and key is kept. The admin password is in it only as a hash.
+
+The ``worker`` mode runs no manager: its plan has no server, database or
+admin, and the write sets only ``[setup]`` and ``[paths]``, removes
+``[first_admin]`` (no first start will read it) and leaves ``[server]``
+and ``[database]`` as they were, for a later Reset setup back to a
+manager mode (FR-RS-4). The launcher starts only the worker for it.
+
+``worker_apply`` is the checked ``--setup-apply`` payload (it may hold the
+worker page password and the enrollment key; never written here, never
+in ``repr``); ``worker_result`` the command's answer once it ran, and
+``enrollment`` the enrollment the worker keeps (``keep_enrollment``).
 """
 import datetime
 import os
@@ -31,11 +42,18 @@ KEPT_DATABASE_KEYS = ("conn_max_age",)
 class Plan:
     mode: str
     data_root: Path
-    server_host: str
-    server_port: int
-    database: Dict[str, str]
+    server_host: Optional[str]           # None in the worker mode
+    server_port: Optional[int]
+    database: Optional[Dict[str, str]]
     first_admin: Optional[Dict[str, str]] = None
     warnings: List[str] = field(default_factory=list)
+    worker_apply: Optional[dict] = field(default=None, repr=False)
+    worker_result: Optional[dict] = None
+    enrollment: Optional[dict] = None
+
+    @property
+    def runs_manager(self) -> bool:
+        return self.mode != "worker"
 
 
 def planned_manager_data_dir(data_root: Path) -> Path:
@@ -118,11 +136,12 @@ def write_settings(plan: Plan, path=None) -> WriteResult:
     written = {}
 
     def mutate(parser) -> bool:
-        _replace_database(parser, plan.database)
-        _set_all(parser, settings_file.SECTION_SERVER, {
-            settings_file.KEY_SERVER_HOST: plan.server_host,
-            settings_file.KEY_SERVER_PORT: plan.server_port,
-        })
+        if plan.runs_manager:
+            _replace_database(parser, plan.database)
+            _set_all(parser, settings_file.SECTION_SERVER, {
+                settings_file.KEY_SERVER_HOST: plan.server_host,
+                settings_file.KEY_SERVER_PORT: plan.server_port,
+            })
         _set_all(parser, settings_file.SECTION_PATHS, {settings_file.KEY_DATA_DIR: str(plan.data_root)})
         parser.remove_section(settings_file.SECTION_FIRST_ADMIN)
         if plan.first_admin is not None:

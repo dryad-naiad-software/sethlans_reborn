@@ -15,43 +15,19 @@ AC coverage:
   * AC-5 — listener exits cleanly after timeout with empty dict
   * AC-6 — malformed datagrams dropped silently
   * FR-9 — duplicate manager_id deduped by most-recent-wins
-  * FR-34 — wrong ``v`` warned once per ``(manager_id, v)`` pair
+
+The version guard (FR-34) is in ``test_multicast_version_guard.py``.
 """
 
-import json
-import logging
 import socket
 import struct
 
 import pytest
 
 from sethlans_worker_agent import multicast_listener as ml
+from tests.unit.worker._multicast import encode as _encode, good_payload as _good_payload
 
-
-@pytest.fixture(autouse=True)
-def _reset_warned_versions():
-    """Clear the module-level warn-once set between tests."""
-    ml._warned_versions.clear()
-    yield
-    ml._warned_versions.clear()
-
-
-def _good_payload(**overrides):
-    base = {
-        "v": 1,
-        "manager_id": "00000000-0000-0000-0000-000000000001",
-        "name": "Test Manager",
-        "host": "manager.example",
-        "ip": "10.0.0.1",
-        "port": 8080,
-        "version": "0.1.0",
-    }
-    base.update(overrides)
-    return base
-
-
-def _encode(obj) -> bytes:
-    return json.dumps(obj).encode("utf-8")
+pytestmark = pytest.mark.usefixtures("multicast_state")
 
 
 # ---------------------------------------------------------------------------
@@ -117,45 +93,25 @@ class TestParseInto:
             seen["00000000-0000-0000-0000-000000000001"]["port"] == 9090
         )
 
-
-# ---------------------------------------------------------------------------
-# Version guard (FR-34)
-# ---------------------------------------------------------------------------
-
-
-class TestVersionGuard:
-    @pytest.mark.parametrize("bad_v", [0, 2, 99, "1", "invalid"])
-    def test_bad_version_dropped(self, bad_v):
+    @pytest.mark.parametrize("manager_id, kept", [
+        ("m" * 64, True), ("m" * 65, False), ("id\nforged", False), (42, False),
+    ], ids=["64-kept", "65", "control-char", "not-text"])
+    def test_manager_id_is_printable_text_of_at_most_64(self, manager_id, kept):
+        """FR-SEC-9 [security review N3]: an id that is not printable text of at most 64 characters is dropped."""
         seen = {}
-        ml.MulticastListener._parse_into(
-            _encode(_good_payload(v=bad_v)), seen,
-        )
-        assert seen == {}
+        ml.MulticastListener._parse_into(_encode(_good_payload(manager_id=manager_id)), seen)
+        assert list(seen) == ([manager_id] if kept else [])
 
-    def test_warning_logged_once_per_pair(self, mocker):
-        """Same (manager_id, v) pair → warning fires exactly once."""
-        warning_spy = mocker.patch.object(ml.logger, "warning")
+    def test_at_most_32_managers_the_first_heard(self):
+        """FR-WZ-1 (at most 32 entries) [SR nit 11, security review N3]: a flood of new ids cannot push out the
+        managers already heard; an id already held still updates."""
         seen = {}
-        bad = _good_payload(v=2)
-        ml.MulticastListener._parse_into(_encode(bad), seen)
-        ml.MulticastListener._parse_into(_encode(bad), seen)
-        ml.MulticastListener._parse_into(_encode(bad), seen)
-        assert warning_spy.call_count == 1
-
-    def test_different_pairs_warn_separately(self, mocker):
-        warning_spy = mocker.patch.object(ml.logger, "warning")
-        seen = {}
-        ml.MulticastListener._parse_into(
-            _encode(_good_payload(v=2)), seen,
-        )
-        ml.MulticastListener._parse_into(
-            _encode(_good_payload(
-                v=3,
-                manager_id="00000000-0000-0000-0000-000000000002",
-            )), seen,
-        )
-        assert warning_spy.call_count == 2
-
+        for n in range(ml.MAX_MANAGERS + 1):
+            ml.MulticastListener._parse_into(_encode(_good_payload(manager_id=f"id-{n}")), seen)
+        ml.MulticastListener._parse_into(_encode(_good_payload(manager_id="id-0", port=9090)), seen)
+        assert ml.MAX_MANAGERS == 32
+        assert list(seen) == [f"id-{n}" for n in range(32)]
+        assert seen["id-0"]["port"] == 9090
 
 # ---------------------------------------------------------------------------
 # Discover path: timeout and socket options
@@ -282,15 +238,16 @@ class TestDiscover:
             result["00000000-0000-0000-0000-000000000001"]["v"] == 1
         )
 
-
-# ---------------------------------------------------------------------------
-# Silence the ``logger`` warnings we trigger on purpose
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _quiet_logger():
-    logging.getLogger("sethlans_worker_agent.multicast_listener").setLevel(
-        logging.CRITICAL,
-    )
-    yield
+    @pytest.mark.parametrize("bad_id", [["a", "b"], {"a": 1}], ids=["list", "object"])
+    def test_unhashable_id_with_unsupported_version_keeps_the_others(self, mocker, bad_id):
+        """#339, fixes the discovery crash: a JSON list or object ``manager_id`` with an unsupported version raised
+        ``TypeError`` (unhashable) out of ``discover()``; now it is dropped and the other managers are kept."""
+        fake = _FakeSocket()
+        fake.recv_queue = [(_encode(_good_payload(manager_id=bad_id, v=2)), ("10.0.0.9", 1)),
+                           (_encode(_good_payload()), ("10.0.0.1", 1))]
+        mocker.patch("sethlans_worker_agent.multicast_listener.socket.socket", return_value=fake)
+        mocker.patch("sethlans_worker_agent.multicast_listener.select.select", return_value=([fake], [], []))
+        clock = iter(range(1000, 2000))
+        mocker.patch("sethlans_worker_agent.multicast_listener.time.monotonic", side_effect=lambda: next(clock))
+        result = ml.MulticastListener(timeout=6.0).discover()
+        assert list(result) == ["00000000-0000-0000-0000-000000000001"]

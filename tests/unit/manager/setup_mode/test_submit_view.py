@@ -101,7 +101,8 @@ class TestBackToIdle:
         apply.return_value = submit.invalid({"admin.username": ["The username is required."]})
         response = _submit(setup_client, session)
         assert response.status_code == 400
-        assert response.json() == {"error": "invalid", "fields": {"admin.username": ["The username is required."]}}
+        assert response.json() == {"error": "invalid", "message": submit.INVALID_MESSAGE,
+                                   "fields": {"admin.username": ["The username is required."]}, "codes": {}}
         assert state.STATE.value == state.IDLE
         apply.return_value = _saved()
         assert _submit(setup_client, session).status_code == 200

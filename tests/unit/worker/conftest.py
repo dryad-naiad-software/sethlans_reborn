@@ -208,6 +208,20 @@ def page_password(worker_home):
 
 
 @pytest.fixture()
+def multicast_state():
+    """Multicast listener tests: an empty warn-once set and a quiet listener log, both put back after."""
+    import logging
+    from sethlans_worker_agent import multicast_listener
+    log = logging.getLogger(multicast_listener.__name__)
+    level = log.level
+    multicast_listener._warned_versions.clear()
+    log.setLevel(logging.CRITICAL)
+    yield
+    log.setLevel(level)
+    multicast_listener._warned_versions.clear()
+
+
+@pytest.fixture()
 def fresh_shutdown_event():
     """Bind a fresh ``threading.Event`` as the agent's shutdown event.
 

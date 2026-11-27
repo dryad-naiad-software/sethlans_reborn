@@ -18,7 +18,7 @@ export interface paths {
          *     and automatically spawn a child `Job` for each frame in the sequence,
          *     or a grid of `Job`s for tiled animations.
          */
-        get: operations["api_animations_list"];
+        get: operations["animations_list"];
         put?: never;
         /**
          * @description API endpoint for creating and managing multi-frame animation jobs.
@@ -27,7 +27,7 @@ export interface paths {
          *     and automatically spawn a child `Job` for each frame in the sequence,
          *     or a grid of `Job`s for tiled animations.
          */
-        post: operations["api_animations_create"];
+        post: operations["animations_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -48,7 +48,7 @@ export interface paths {
          *     and automatically spawn a child `Job` for each frame in the sequence,
          *     or a grid of `Job`s for tiled animations.
          */
-        get: operations["api_animations_retrieve"];
+        get: operations["animations_retrieve"];
         /**
          * @description API endpoint for creating and managing multi-frame animation jobs.
          *
@@ -56,7 +56,7 @@ export interface paths {
          *     and automatically spawn a child `Job` for each frame in the sequence,
          *     or a grid of `Job`s for tiled animations.
          */
-        put: operations["api_animations_update"];
+        put: operations["animations_update"];
         post?: never;
         /**
          * @description API endpoint for creating and managing multi-frame animation jobs.
@@ -65,7 +65,7 @@ export interface paths {
          *     and automatically spawn a child `Job` for each frame in the sequence,
          *     or a grid of `Job`s for tiled animations.
          */
-        delete: operations["api_animations_destroy"];
+        delete: operations["animations_destroy"];
         options?: never;
         head?: never;
         /**
@@ -75,7 +75,115 @@ export interface paths {
          *     and automatically spawn a child `Job` for each frame in the sequence,
          *     or a grid of `Job`s for tiled animations.
          */
-        patch: operations["api_animations_partial_update"];
+        patch: operations["animations_partial_update"];
+        trace?: never;
+    };
+    "/api/animations/{id}/download/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Download a zip archive of all completed frame output files for this animation. */
+        get: operations["animations_download_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/animations/{id}/download-video/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Download the assembled video file for this animation. */
+        get: operations["animations_download_video_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/animations/{id}/pause/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cascade pause: pause all QUEUED child jobs. */
+        post: operations["animations_pause_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/animations/{id}/requeue/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Cascade requeue: requeue all ERROR/CANCELED child jobs.
+         *
+         *     Always refreshes the parent afterwards, even when nothing was
+         *     requeued, so a parent left out of date (e.g. RENDERING with every
+         *     child DONE) catches up: it can be assembled or completed here.
+         */
+        post: operations["animations_requeue_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/animations/{id}/retry-video/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Retry failed video assembly for this animation. */
+        post: operations["animations_retry_video_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/animations/{id}/unpause/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cascade unpause: unpause all paused QUEUED child jobs. */
+        post: operations["animations_unpause_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/assets/": {
@@ -89,13 +197,13 @@ export interface paths {
          * @description API endpoint for uploading and managing .blend file assets.
          *     Assets are uploaded as multipart/form-data.
          */
-        get: operations["api_assets_list"];
+        get: operations["assets_list"];
         put?: never;
         /**
          * @description API endpoint for uploading and managing .blend file assets.
          *     Assets are uploaded as multipart/form-data.
          */
-        post: operations["api_assets_create"];
+        post: operations["assets_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -113,25 +221,229 @@ export interface paths {
          * @description API endpoint for uploading and managing .blend file assets.
          *     Assets are uploaded as multipart/form-data.
          */
-        get: operations["api_assets_retrieve"];
+        get: operations["assets_retrieve"];
         /**
          * @description API endpoint for uploading and managing .blend file assets.
          *     Assets are uploaded as multipart/form-data.
          */
-        put: operations["api_assets_update"];
+        put: operations["assets_update"];
         post?: never;
         /**
          * @description API endpoint for uploading and managing .blend file assets.
          *     Assets are uploaded as multipart/form-data.
          */
-        delete: operations["api_assets_destroy"];
+        delete: operations["assets_destroy"];
         options?: never;
         head?: never;
         /**
          * @description API endpoint for uploading and managing .blend file assets.
          *     Assets are uploaded as multipart/form-data.
          */
-        patch: operations["api_assets_partial_update"];
+        patch: operations["assets_partial_update"];
+        trace?: never;
+    };
+    "/api/auth/csrf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Bootstrap the CSRF cookie for the Angular app.
+         *
+         *     The @ensure_csrf_cookie decorator forces Django to set the
+         *     csrftoken cookie even on a GET request with no form.
+         */
+        get: operations["auth_csrf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/enrollment_key_notice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Whether the dashboard shows the one-time enrollment key notice; the key in display form while it is shown, else null. Admin-only; the response carries `Cache-Control: no-store`. */
+        get: operations["auth_enrollment_key_notice_retrieve"];
+        put?: never;
+        /** @description Dismiss the enrollment key notice for good. Admin-only; the response carries `Cache-Control: no-store`. */
+        post: operations["auth_enrollment_key_notice_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Authenticate via username/password and create a session.
+         *
+         *     Rate-limited: 10 failed attempts per IP within 5 minutes.
+         */
+        post: operations["auth_login_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Destroy the current session. */
+        post: operations["auth_logout_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/regenerate_enrollment_key/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Rotate the shared worker enrollment key.  Writes the new key to the ManagerSettings singleton row and returns the hyphenated display form.  Admin-only. */
+        post: operations["auth_regenerate_enrollment_key_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/user/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Return the current authenticated user's info. */
+        get: operations["auth_user_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/blender-builds/{version}/{platform}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Metadata of one cached Blender build, for enrolled workers. */
+        get: operations["blender_builds_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/blender-builds/{version}/{platform}/archive/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The archive of one READY cached Blender build, for enrolled workers. */
+        get: operations["blender_builds_archive_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/enroll/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description HMAC-bootstrapped worker enrollment with a key proof: the worker sends {hostname, nonce, proof}, never the key.  See development/specs/worker-enrollment.md and development/specs/setup-rebuild.md FR-WK-8. */
+        post: operations["enroll_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ffmpeg-status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Role-aware FFmpeg / video-assembly status. Regular users get a single boolean (`video_assembly_ready`); staff users additionally get an `ffmpeg` block with source, version, path, status, and error. Status changes at most once per process lifetime; the response carries `Cache-Control: no-store`. */
+        get: operations["ffmpeg_status_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/health/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Return ``{"mode": "normal", "boot_id": str, "version": str}``.
+         *
+         *     ``boot_id`` changes on every manager start — the Angular done-step
+         *     polls this to detect a completed restart (FR-15). Setup mode answers
+         *     the same path with ``"mode": "setup"``, so the setup page can tell
+         *     the two apart.
+         */
+        get: operations["health_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/heartbeat/": {
@@ -141,19 +453,120 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Lists all registered workers. */
-        get: operations["api_heartbeat_retrieve"];
+        /** @description Lists all registered workers with has_token status. */
+        get: operations["heartbeat_retrieve"];
         put?: never;
         /**
-         * @description Handles worker registration and periodic heartbeats.
+         * @description Worker heartbeat or full re-registration of the caller's own row.
          *
-         *     Args:
-         *         request: The request object containing worker data.
-         *
-         *     Returns:
-         *         A Response containing the worker's data.
+         *     Only token-authenticated worker users may call this; the
+         *     target ``Worker`` is the caller's own (issue #215).  See
+         *     ``heartbeat_auth.bind_heartbeat_caller``.
          */
-        post: operations["api_heartbeat_create"];
+        post: operations["heartbeat_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heartbeat/{id}/card-choice/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Send (POST) or withdraw (DELETE) a graphics card change; the worker answers in a heartbeat. */
+        post: operations["heartbeat_card_choice_create"];
+        /** @description Send (POST) or withdraw (DELETE) a graphics card change; the worker answers in a heartbeat. */
+        delete: operations["heartbeat_card_choice_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heartbeat/{id}/dismiss-card-alert/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Dismiss a card alert the worker reported; the worker applies it next heartbeat. */
+        post: operations["heartbeat_dismiss_card_alert_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heartbeat/{id}/force_reenroll/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Revoke token so the worker re-enrolls on next heartbeat. */
+        post: operations["heartbeat_force_reenroll_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heartbeat/{id}/regenerate_token/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Delete old token and create a new one. Returns new key. */
+        post: operations["heartbeat_regenerate_token_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heartbeat/{id}/revoke_token/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Delete the DRF Token associated with a worker's User. */
+        post: operations["heartbeat_revoke_token_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heartbeat/{id}/yield-event/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Record a yield event for this worker. */
+        post: operations["heartbeat_yield_event_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -173,7 +586,7 @@ export interface paths {
          *     Workers use this endpoint to poll for new jobs, claim them for rendering,
          *     and update their status and final output.
          */
-        get: operations["api_jobs_list"];
+        get: operations["jobs_list"];
         put?: never;
         /**
          * @description API endpoint that allows render jobs to be viewed or created.
@@ -181,7 +594,7 @@ export interface paths {
          *     Workers use this endpoint to poll for new jobs, claim them for rendering,
          *     and update their status and final output.
          */
-        post: operations["api_jobs_create"];
+        post: operations["jobs_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -201,14 +614,14 @@ export interface paths {
          *     Workers use this endpoint to poll for new jobs, claim them for rendering,
          *     and update their status and final output.
          */
-        get: operations["api_jobs_retrieve"];
+        get: operations["jobs_retrieve"];
         /**
          * @description API endpoint that allows render jobs to be viewed or created.
          *
          *     Workers use this endpoint to poll for new jobs, claim them for rendering,
          *     and update their status and final output.
          */
-        put: operations["api_jobs_update"];
+        put: operations["jobs_update"];
         post?: never;
         /**
          * @description API endpoint that allows render jobs to be viewed or created.
@@ -216,16 +629,17 @@ export interface paths {
          *     Workers use this endpoint to poll for new jobs, claim them for rendering,
          *     and update their status and final output.
          */
-        delete: operations["api_jobs_destroy"];
+        delete: operations["jobs_destroy"];
         options?: never;
         head?: never;
         /**
-         * @description API endpoint that allows render jobs to be viewed or created.
+         * @description Worker checks before validation, in this order.
          *
-         *     Workers use this endpoint to poll for new jobs, claim them for rendering,
-         *     and update their status and final output.
+         *     A job not assigned to the calling worker gets 409 (#247); keys
+         *     outside the renderer's allowlist get 400 (FR-RT-14); a report on a
+         *     job that is already finished gets 409 (#225).
          */
-        patch: operations["api_jobs_partial_update"];
+        patch: operations["jobs_partial_update"];
         trace?: never;
     };
     "/api/jobs/{id}/cancel/": {
@@ -240,14 +654,13 @@ export interface paths {
         /**
          * @description Cancels a render job, setting its status to 'CANCELED'.
          *
-         *     Args:
-         *         request: The request object.
-         *         pk: The primary key of the job to cancel.
+         *     Uses SELECT FOR UPDATE to prevent a race where a worker completes
+         *     a job between the status check and the status mutation.
          *
          *     Returns:
          *         A Response containing the updated job data.
          */
-        post: operations["api_jobs_cancel_create"];
+        post: operations["jobs_cancel_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -271,13 +684,279 @@ export interface paths {
          *
          *     Expects a JSON body with `worker_id` (the Worker primary key).
          *
+         *     The renderer strategy decides whether this worker may render the
+         *     job (``claim_rejection``) and whether a repeated claim by the
+         *     assignee is acknowledged (``idempotent_reclaim``; Blender: no).
+         *
          *     Returns:
          *         200 on success with updated job data.
          *         400 if worker_id is missing or invalid.
          *         404 if job not found.
-         *         409 if job is already claimed or not in QUEUED status.
+         *         409 if job is already claimed or not in QUEUED status, or the
+         *             renderer strategy rejects this worker.
          */
-        post: operations["api_jobs_claim_create"];
+        post: operations["jobs_claim_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/frames/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Store one kept frame of a piece (FR-SS-2b); idempotent per (shot, frame).
+         *
+         *     Returns:
+         *         200 ``{"frame": n, "shot": index, "replaced": bool, "kept_newer": bool}``; 400 for a
+         *         frame outside the kept range or the piece's shots, or a bad
+         *         file; 404 for an unknown job; 409 when the job is not a piece
+         *         rendering on this worker; 413 for a file over 512 MiB.
+         */
+        post: operations["jobs_frames_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/memory-report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Record a render or audio job's memory report: job peak, spill and driver (FR-MT-S-3).
+         *
+         *     Returns:
+         *         200 ``{"result": <pair state>}``; 400 for the body, a card kind
+         *         other than the caller's card's, or a record that is not the
+         *         caller's for this job; 404 for an unknown job; 409 when the job
+         *         is not an Unreal render or audio job rendering on this worker,
+         *         or a different report was already accepted.
+         */
+        post: operations["jobs_memory_report_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/pause/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Pause a QUEUED job so it is skipped during worker polling.
+         *
+         *     Uses SELECT FOR UPDATE to prevent races. Only QUEUED, non-paused
+         *     jobs can be paused.
+         *
+         *     Returns:
+         *         200 on success with updated job data.
+         *         404 if job not found.
+         *         409 if job status does not allow pause or already paused.
+         */
+        post: operations["jobs_pause_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/piece-result/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Finish a piece whose frames are all stored and record its timings (FR-SS-4).
+         *
+         *     Returns:
+         *         200 ``{"status": "DONE", "frames": n}``; 400 for the body or
+         *         shots that do not match the piece; 404 for an unknown job; 409
+         *         when the job is not a piece rendering on this worker, or a
+         *         frame is missing (named).  A repeat gets 409.
+         */
+        post: operations["jobs_piece_result_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/pilot-result/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Store a successful pilot's measurement and finish the pilot (FR-PM-4).
+         *
+         *     Returns:
+         *         200 ``{"status": "DONE", "peak_mb": n}`` (verdict ``fits`` or ``does_not_fit``);
+         *         400 for the body or a job-dependent rule; 404 for an unknown
+         *         job; 409 when the job is not rendering on this worker, is not
+         *         a pilot, or rendered other CVars.  A repeat gets 409.
+         */
+        post: operations["jobs_pilot_result_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/release/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Return the caller's RENDERING job to the queue (D4).
+         *
+         *     Returns:
+         *         200 ``{"status": "QUEUED" | "ERROR", "auto_requeue_count": n}``;
+         *             ERROR means the auto-requeue limit was exceeded.
+         *         400 for a ``reason`` other than shutdown, dispatch_failed,
+         *             share_unavailable, local_conflict or worker_hardware_changed.
+         *         404 if the job does not exist.
+         *         409 if the job is not RENDERING on this worker (checked first),
+         *             or its renderer does not support release.  A repeated
+         *             release after success gets 409, which the worker treats as
+         *             done.
+         */
+        post: operations["jobs_release_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/requeue/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Requeue a failed or canceled job, resetting it to QUEUED status.
+         *
+         *     Uses SELECT FOR UPDATE to prevent races with concurrent worker
+         *     updates. Only jobs in ERROR or CANCELED status can be requeued.
+         *
+         *     Returns:
+         *         200 on success with updated job data.
+         *         404 if job not found.
+         *         409 if job status does not allow requeue.
+         */
+        post: operations["jobs_requeue_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/shots-result/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Store a ``shots`` job's discovery result and finish the job (FR-SD-8).
+         *
+         *     Returns:
+         *         200 ``{"status": "DONE", "discovery": id, "shots": n}``; 400 for
+         *         the body; 404 for an unknown job; 409 when the job is not
+         *         rendering on this worker, is not a shots job, or its discovery
+         *         no longer waits.  A repeat gets 409.
+         */
+        post: operations["jobs_shots_result_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/sound-result/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Store an audio job's ``.wav`` and offset and finish the job (FR-SA-6).
+         *
+         *     Returns:
+         *         200 ``{"status": "DONE", "applied_samples": n, "applied_source": s}``;
+         *         400 for the fields, the file or the offset; 404 for an unknown
+         *         job; 409 when the job is not an audio job rendering on this
+         *         worker (a repeat too); 413 for a file over 4 GiB.
+         */
+        post: operations["jobs_sound_result_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/unpause/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Unpause a paused job so it becomes available for worker polling.
+         *
+         *     Uses SELECT FOR UPDATE to prevent races.
+         *
+         *     Returns:
+         *         200 on success with updated job data.
+         *         404 if job not found.
+         *         409 if job is not paused.
+         */
+        post: operations["jobs_unpause_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -296,11 +975,90 @@ export interface paths {
         /**
          * @description Action for a worker to upload the final rendered output file for a job.
          *
-         *     Expects a multipart/form-data request with a file field named `output_file`.
-         *     Validates the file is a valid image within the configured size limit.
-         *     Saving the file will trigger a signal to generate the thumbnail.
+         *     Expects a multipart/form-data request with a file field named ``output_file``
+         *     and an optional ``thumbnail`` file field (PNG). Validates both files.
+         *     Saving the output file triggers a post_save signal for thumbnail generation.
+         *
+         *     Issue #217: the files are stored first, then the job row is locked
+         *     and re-checked (still RENDERING, still assigned to this worker)
+         *     and only ``output_file``/``thumbnail`` are saved.  A job canceled
+         *     or requeued meanwhile gets 409, an unchanged row and no stored
+         *     files.  ``post_save`` defers server-side thumbnail generation to
+         *     ``transaction.on_commit`` (#118), and SQLite lock errors retry the
+         *     locked write (``run_with_lock_retry``).
          */
-        post: operations["api_jobs_upload_output_create"];
+        post: operations["jobs_upload_output_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/yield-requeue/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Atomically yield-requeue a job. Worker ownership verified.
+         *
+         *     Uses SELECT FOR UPDATE to lock the job row. Verifies the job
+         *     is in RENDERING status and the requesting worker is the
+         *     assigned_worker. An optional ``worker_boot_id`` must match the
+         *     worker's current one.
+         *
+         *     Returns:
+         *         200 ``{"status": "requeued"}``, or ``{"status": "error"}`` when
+         *             a counted hand-back (``worker_hardware_changed``,
+         *             ``blender_version_missing``) exceeded the auto-requeue
+         *             limit and the job is now ERROR.
+         *         404 if job not found.
+         *         409 if the boot id is not the worker's current one, the job is
+         *             not RENDERING, or the worker is not the owner.
+         */
+        post: operations["jobs_yield_requeue_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/manager-defaults/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description GET /api/manager-defaults/ (FR-MA1).
+         *
+         *     Returns the default Blender version and render engine.
+         */
+        get: operations["manager_defaults_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/manager/summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/manager/summary/ — admin-only post-setup summary. */
+        get: operations["manager_summary_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -318,17 +1076,21 @@ export interface paths {
          * @description API endpoint for creating, retrieving, and managing rendering projects.
          *
          *     Projects serve as the top-level organizational entity for assets and jobs.
-         *     They can be paused to temporarily stop workers from processing their jobs.
+         *     Create-time rules (for Blender: at least one supported version must
+         *     exist, and the default version is used when none is given) live in
+         *     the renderer strategy and run from ``ProjectSerializer.create``.
          */
-        get: operations["api_projects_list"];
+        get: operations["projects_list"];
         put?: never;
         /**
          * @description API endpoint for creating, retrieving, and managing rendering projects.
          *
          *     Projects serve as the top-level organizational entity for assets and jobs.
-         *     They can be paused to temporarily stop workers from processing their jobs.
+         *     Create-time rules (for Blender: at least one supported version must
+         *     exist, and the default version is used when none is given) live in
+         *     the renderer strategy and run from ``ProjectSerializer.create``.
          */
-        post: operations["api_projects_create"];
+        post: operations["projects_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -346,36 +1108,44 @@ export interface paths {
          * @description API endpoint for creating, retrieving, and managing rendering projects.
          *
          *     Projects serve as the top-level organizational entity for assets and jobs.
-         *     They can be paused to temporarily stop workers from processing their jobs.
+         *     Create-time rules (for Blender: at least one supported version must
+         *     exist, and the default version is used when none is given) live in
+         *     the renderer strategy and run from ``ProjectSerializer.create``.
          */
-        get: operations["api_projects_retrieve"];
+        get: operations["projects_retrieve"];
         /**
          * @description API endpoint for creating, retrieving, and managing rendering projects.
          *
          *     Projects serve as the top-level organizational entity for assets and jobs.
-         *     They can be paused to temporarily stop workers from processing their jobs.
+         *     Create-time rules (for Blender: at least one supported version must
+         *     exist, and the default version is used when none is given) live in
+         *     the renderer strategy and run from ``ProjectSerializer.create``.
          */
-        put: operations["api_projects_update"];
+        put: operations["projects_update"];
         post?: never;
         /**
          * @description API endpoint for creating, retrieving, and managing rendering projects.
          *
          *     Projects serve as the top-level organizational entity for assets and jobs.
-         *     They can be paused to temporarily stop workers from processing their jobs.
+         *     Create-time rules (for Blender: at least one supported version must
+         *     exist, and the default version is used when none is given) live in
+         *     the renderer strategy and run from ``ProjectSerializer.create``.
          */
-        delete: operations["api_projects_destroy"];
+        delete: operations["projects_destroy"];
         options?: never;
         head?: never;
         /**
          * @description API endpoint for creating, retrieving, and managing rendering projects.
          *
          *     Projects serve as the top-level organizational entity for assets and jobs.
-         *     They can be paused to temporarily stop workers from processing their jobs.
+         *     Create-time rules (for Blender: at least one supported version must
+         *     exist, and the default version is used when none is given) live in
+         *     the renderer strategy and run from ``ProjectSerializer.create``.
          */
-        patch: operations["api_projects_partial_update"];
+        patch: operations["projects_partial_update"];
         trace?: never;
     };
-    "/api/projects/{id}/pause/": {
+    "/api/projects/{id}/cancel_all_jobs/": {
         parameters: {
             query?: never;
             header?: never;
@@ -385,23 +1155,25 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * @description Pauses a project, preventing workers from picking up any of its jobs.
+         * @description Cancel all QUEUED and RENDERING jobs for this project.
          *
-         *     Args:
-         *         request: The request object.
-         *         pk: The primary key of the project to pause.
+         *     Uses a single bulk update for efficiency and wraps the entire
+         *     operation in a transaction. After canceling jobs, refreshes the
+         *     parent TiledJob / AnimationFrame / Animation of each canceled job
+         *     with the shared parent-status rules (ERROR once all children are
+         *     terminal and one did not finish).
          *
          *     Returns:
-         *         A Response containing the updated project data.
+         *         {"canceled": <count>} with the number of jobs affected.
          */
-        post: operations["api_projects_pause_create"];
+        post: operations["projects_cancel_all_jobs_create"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/projects/{id}/unpause/": {
+    "/api/projects/{id}/unreal-measurement/retry/": {
         parameters: {
             query?: never;
             header?: never;
@@ -411,16 +1183,381 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * @description Unpauses a project, allowing workers to resume processing its jobs.
+         * @description Create a new pilot for one measurement key of this project.
          *
-         *     Args:
-         *         request: The request object.
-         *         pk: The primary key of the project to unpause.
+         *     Body (optional): ``{"job_id": <int>, "remeasure": <bool>, "worker": <int>}``.
          *
          *     Returns:
-         *         A Response containing the updated project data.
+         *         201 ``{"pilot_job_id": n, "measurement_id": n}``; 400 for a bad
+         *         body, a Blender project, a ``job_id`` that is not a normal
+         *         Unreal job of this project or a ``worker`` that cannot test
+         *         the key now; 403 for a non-admin or a worker; 404 for an
+         *         unknown project; 409 when the key is pending, measured
+         *         (without ``remeasure``), every machine is at the open-test
+         *         limit, no held job needs one, or the project has no Unreal
+         *         asset.
          */
-        post: operations["api_projects_unpause_create"];
+        post: operations["projects_unreal_measurement_retry_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue-settings/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Return the current queue pause state. */
+        get: operations["queue_settings_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue-settings/pause/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Pause the global job queue. */
+        post: operations["queue_settings_pause_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue-settings/resume/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Resume the global job queue. */
+        post: operations["queue_settings_resume_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-discoveries/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Summaries newest first, filtered by ``project`` and ``asset``; the page's stale rows settled first. */
+        get: operations["sequence_discoveries_list"];
+        put?: never;
+        /** @description Start or reuse the reading of a sequence's shots (FR-SD-2). */
+        post: operations["sequence_discoveries_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-discoveries/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One record; an open record whose job ended is settled first (FR-SD-9). */
+        get: operations["sequence_discoveries_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Versions of Unreal sequence renders (admin only). */
+        get: operations["sequence_submissions_list"];
+        put?: never;
+        /** @description Submit a sequence render: a new version (FR-SQ-2, FR-SQ-4). */
+        post: operations["sequence_submissions_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Versions of Unreal sequence renders (admin only). */
+        get: operations["sequence_submissions_retrieve"];
+        put?: never;
+        post?: never;
+        /**
+         * @description Delete the version, its jobs, shots, frames and files (FR-SS-7).
+         *
+         *     Returns:
+         *         204; 404 for an unknown version; 409 while a render of it runs or
+         *         a video or sound file of it is being built.
+         */
+        delete: operations["sequence_submissions_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Cancel the version's queued and running pieces and audio jobs (FR-SS-6).
+         *
+         *     The shared shots job and pilot are left alone.  Returns 200
+         *     ``{"status", "canceled"}``; 404 for an unknown version; 409 when it
+         *     has already finished.
+         */
+        post: operations["sequence_submissions_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/download-frames/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The frames of every DONE shot as a streamed zip (FR-SL-1, FR-SL-2). */
+        get: operations["sequence_submissions_download_frames_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/download-sound/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The whole version's sound as ``.wav`` (FR-SL-1). */
+        get: operations["sequence_submissions_download_sound_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/download-video/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The whole version's video; ``?sound=1`` the copy with the sound merged in (FR-SL-1). */
+        get: operations["sequence_submissions_download_video_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/merge-sound/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Merge the sound into the shot videos and the whole video (FR-SV-6).
+         *
+         *     Returns 200 ``{"status": <version status>}``; 400 for a version
+         *     without video or sound; 404 for an unknown version; 409 when it was
+         *     canceled.
+         */
+        post: operations["sequence_submissions_merge_sound_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/retry-sound/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Requeue the version's failed or canceled audio jobs and clear their sound items (FR-SV-8).
+         *
+         *     Returns 200 ``{"requeued": n}``; 404 for an unknown version; 409 when
+         *     the version was canceled or no sound render of it failed.
+         */
+        post: operations["sequence_submissions_retry_sound_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/retry-video/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Build the version's failed videos, sound cuts and merged copies again (FR-SV-8).
+         *
+         *     Returns 200 ``{"reset": n}``; 404 for an unknown version; 409 when
+         *     the version was canceled or no build of it failed.
+         */
+        post: operations["sequence_submissions_retry_video_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/shots/{index}/download-frames/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One DONE shot's frames as a streamed zip (FR-SL-1, FR-SL-2). */
+        get: operations["sequence_submissions_shots_download_frames_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/shots/{index}/download-sound/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One shot's sound as ``.wav`` (FR-SL-1). */
+        get: operations["sequence_submissions_shots_download_sound_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/shots/{index}/download-video/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One shot's video; ``?sound=1`` the merged copy (FR-SL-1). */
+        get: operations["sequence_submissions_shots_download_video_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sequence-submissions/{id}/shots/{index}/rerender/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Render a failed or canceled shot again (FR-SS-5, Q9).
+         *
+         *     Returns 200 ``{"status", "requeued"}``; 404 for an unknown version or
+         *     shot; 409 for a canceled version or a shot that did not fail.
+         */
+        post: operations["sequence_submissions_shots_rerender_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sethlans-share/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Return ``{"sethlans_share": "<canonical root or ''>"}``. */
+        get: operations["sethlans_share_retrieve"];
+        /** @description Store the share root in canonical form; ``""`` clears it. */
+        put: operations["sethlans_share_update"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -439,9 +1576,117 @@ export interface paths {
          *
          *     All counts use database-level aggregation to avoid N+1 queries.
          */
-        get: operations["api_stats_retrieve"];
+        get: operations["stats_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/supported-versions/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description CRUD endpoint for supported Blender versions.
+         *
+         *     DELETE requires ``?confirm=true`` to execute; without it, returns a
+         *     dry-run preview of affected projects and jobs.
+         */
+        get: operations["supported_versions_list"];
+        put?: never;
+        /**
+         * @description CRUD endpoint for supported Blender versions.
+         *
+         *     DELETE requires ``?confirm=true`` to execute; without it, returns a
+         *     dry-run preview of affected projects and jobs.
+         */
+        post: operations["supported_versions_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/supported-versions/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description CRUD endpoint for supported Blender versions.
+         *
+         *     DELETE requires ``?confirm=true`` to execute; without it, returns a
+         *     dry-run preview of affected projects and jobs.
+         */
+        get: operations["supported_versions_retrieve"];
+        /**
+         * @description CRUD endpoint for supported Blender versions.
+         *
+         *     DELETE requires ``?confirm=true`` to execute; without it, returns a
+         *     dry-run preview of affected projects and jobs.
+         */
+        put: operations["supported_versions_update"];
+        post?: never;
+        /**
+         * @description CRUD endpoint for supported Blender versions.
+         *
+         *     DELETE requires ``?confirm=true`` to execute; without it, returns a
+         *     dry-run preview of affected projects and jobs.
+         */
+        delete: operations["supported_versions_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description CRUD endpoint for supported Blender versions.
+         *
+         *     DELETE requires ``?confirm=true`` to execute; without it, returns a
+         *     dry-run preview of affected projects and jobs.
+         */
+        patch: operations["supported_versions_partial_update"];
+        trace?: never;
+    };
+    "/api/supported-versions/available_series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Return Blender series from the first configured Blender source, minus already-added. */
+        get: operations["supported_versions_available_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/shutdown/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Trigger a graceful shutdown of the Django manager process.
+         *
+         *     Sends SIGINT to the current process after a short delay so the
+         *     HTTP response can be delivered to the client first.  This is
+         *     equivalent to the user pressing Ctrl+C in the terminal.
+         */
+        post: operations["system_shutdown_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -462,7 +1707,7 @@ export interface paths {
          *     automatically spawn a child `Job` for each tile in the specified grid.
          *     These tile jobs contain the necessary render border overrides.
          */
-        get: operations["api_tiled_jobs_list"];
+        get: operations["tiled_jobs_list"];
         put?: never;
         /**
          * @description API endpoint for creating and managing Tiled Render jobs.
@@ -471,7 +1716,7 @@ export interface paths {
          *     automatically spawn a child `Job` for each tile in the specified grid.
          *     These tile jobs contain the necessary render border overrides.
          */
-        post: operations["api_tiled_jobs_create"];
+        post: operations["tiled_jobs_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -492,7 +1737,7 @@ export interface paths {
          *     automatically spawn a child `Job` for each tile in the specified grid.
          *     These tile jobs contain the necessary render border overrides.
          */
-        get: operations["api_tiled_jobs_retrieve"];
+        get: operations["tiled_jobs_retrieve"];
         /**
          * @description API endpoint for creating and managing Tiled Render jobs.
          *
@@ -500,7 +1745,7 @@ export interface paths {
          *     automatically spawn a child `Job` for each tile in the specified grid.
          *     These tile jobs contain the necessary render border overrides.
          */
-        put: operations["api_tiled_jobs_update"];
+        put: operations["tiled_jobs_update"];
         post?: never;
         /**
          * @description API endpoint for creating and managing Tiled Render jobs.
@@ -509,7 +1754,7 @@ export interface paths {
          *     automatically spawn a child `Job` for each tile in the specified grid.
          *     These tile jobs contain the necessary render border overrides.
          */
-        delete: operations["api_tiled_jobs_destroy"];
+        delete: operations["tiled_jobs_destroy"];
         options?: never;
         head?: never;
         /**
@@ -519,7 +1764,64 @@ export interface paths {
          *     automatically spawn a child `Job` for each tile in the specified grid.
          *     These tile jobs contain the necessary render border overrides.
          */
-        patch: operations["api_tiled_jobs_partial_update"];
+        patch: operations["tiled_jobs_partial_update"];
+        trace?: never;
+    };
+    "/api/tiled-jobs/{id}/pause/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cascade pause: pause all QUEUED child jobs. */
+        post: operations["tiled_jobs_pause_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tiled-jobs/{id}/requeue/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Cascade requeue: requeue all ERROR/CANCELED child jobs.
+         *
+         *     Always refreshes the parent afterwards, even when nothing was
+         *     requeued, so a parent left out of date (e.g. RENDERING with every
+         *     child DONE) catches up: it can be assembled or completed here.
+         */
+        post: operations["tiled_jobs_requeue_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tiled-jobs/{id}/unpause/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cascade unpause: unpause all paused QUEUED child jobs. */
+        post: operations["tiled_jobs_unpause_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }
@@ -535,7 +1837,7 @@ export interface components {
         Animation: {
             readonly id: number;
             name: string;
-            readonly status: components["schemas"]["Status1b9Enum"];
+            readonly status: components["schemas"]["StatusFfeEnum"];
             /** @description Human-readable progress string (e.g., '3 of 10 frames complete'). */
             readonly progress: string;
             /** @description The total number of frames in the animation. */
@@ -554,15 +1856,15 @@ export interface components {
             end_frame: number;
             /**
              * Format: int64
-             * @description Number of frames to advance animation between renders (e.g., a step of 2 renders every other frame).
+             * @description Number of frames to advance between renders.
              */
             frame_step?: number;
-            /** @description e.g., '4.5' or '4.1.1' */
-            blender_version?: string;
+            blender_version?: number | null;
+            readonly effective_blender_version: components["schemas"]["EffectiveBlenderVersion"];
             render_engine?: components["schemas"]["RenderEngineEnum"];
             render_device?: components["schemas"]["RenderDeviceEnum"];
             cycles_feature_set?: components["schemas"]["CyclesFeatureSetEnum"];
-            /** @description Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920} */
+            /** @description Blender render settings overrides. */
             render_settings?: unknown;
             /**
              * @description Grid size for tiled rendering of each frame.
@@ -578,7 +1880,7 @@ export interface components {
             readonly submitted_at: string;
             /** Format: date-time */
             readonly completed_at: string | null;
-            /** @description The cumulative render time of all completed frames in this animation. */
+            /** @description Cumulative render time of all completed frames. */
             readonly total_render_time_seconds: number;
             /**
              * Format: uri
@@ -587,6 +1889,26 @@ export interface components {
             readonly thumbnail: string | null;
             /** @description List of child frames for tiled animations. */
             readonly frames: components["schemas"]["AnimationFrame"][];
+            /** @description Video assembly config: preset, container, codec, etc. */
+            video_settings?: unknown;
+            /**
+             * @description Current state of video assembly.
+             *
+             *     * `PENDING` - Pending
+             *     * `ASSEMBLING` - Assembling
+             *     * `DONE` - Done
+             *     * `ERROR` - Error
+             */
+            readonly video_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            /**
+             * Format: uri
+             * @description The assembled video file.
+             */
+            readonly video_file: string | null;
+            /** @description Error message from failed video assembly. */
+            readonly video_error: string;
+            /** @description Why the animation is in ERROR (failed frames). */
+            readonly error_message: string;
         };
         /** @description Serializer for the individual, assembled frames of a tiled animation. */
         AnimationFrame: {
@@ -606,6 +1928,8 @@ export interface components {
             thumbnail?: string | null;
             /** Format: int64 */
             render_time_seconds?: number;
+            /** @description Why the frame is in ERROR (failed tiles or assembly failure). */
+            error_message?: string;
         };
         /**
          * @description * `PENDING` - Pending
@@ -622,15 +1946,84 @@ export interface components {
             /** @description A unique name for the asset file. */
             name: string;
             /**
+             * @description How the scene data reaches the workers. Cannot change after creation.
+             *
+             *     * `blend_file` - Uploaded .blend file
+             *     * `shared_project` - Project archive on a share
+             */
+            source_type?: components["schemas"]["SourceTypeEnum"];
+            /**
              * Format: uri
-             * @description The uploaded .blend file.
+             * @description The uploaded .blend file (required for blend_file assets).
              */
             blend_file: string;
+            /** @description Path of the project .zip relative to the Sethlans share root, '/'-separated. */
+            archive_path?: string;
+            /** @description Relative path of the .uproject inside the archive. */
+            uproject_path?: string;
+            /** @description Lowercase hex SHA-256 of the archive bytes (mandatory for shared_project assets). */
+            archive_sha256?: string;
+            /** @description Optional overlay directory relative to the Sethlans share root. */
+            overlay_path?: string;
+            /** @description Overlay digest (mandatory whenever overlay_path is set). */
+            overlay_sha256?: string;
             /** Format: date-time */
             readonly created_at: string;
             /** Format: uuid */
             project: string;
             readonly project_details: components["schemas"]["Project"];
+        };
+        BlenderBuildMetadata: {
+            version: string;
+            platform: string;
+            file_name: string;
+            /** @description Official SHA-256 of the archive (64 hex). */
+            sha256: string;
+            /** @description Archive size in bytes. */
+            size: number;
+        };
+        BlenderBuildState: {
+            /** @description 202: 'queued' or 'fetching' (ask again later). 404: 'failed' or 'not_wanted' (fetch the build elsewhere); the archive route answers 404 'not_ready' when no READY build with its file exists. */
+            status: string;
+        };
+        CardActionDetail: {
+            detail: string;
+        };
+        CardChoiceBody: {
+            method: components["schemas"]["WorkerCardMethodEnum"];
+            gpu_mode: components["schemas"]["WorkerCardGpuModeEnum"];
+            cards: components["schemas"]["CardChoiceBodyCard"][];
+            shown: string[];
+            base_revision: number;
+        };
+        CardChoiceBodyCard: {
+            /** @description Card key: pci:dddd:bb:dd.f or apple-gpu. */
+            key: string;
+            vendor_id: number | null;
+            device_id: number | null;
+        };
+        CardChoiceSendResponse: {
+            card_choice_request: components["schemas"]["CardChoiceSentRequest"];
+            /** @description Id of the pending change this one replaced. */
+            replaced: string | null;
+        };
+        CardChoiceSentCard: {
+            /** @description Card key: pci:dddd:bb:dd.f or apple-gpu. */
+            key: string;
+            vendor_id: number | null;
+            device_id: number | null;
+        };
+        CardChoiceSentRequest: {
+            method: components["schemas"]["WorkerCardMethodEnum"];
+            gpu_mode: components["schemas"]["WorkerCardGpuModeEnum"];
+            cards: components["schemas"]["CardChoiceSentCard"][];
+            shown: string[];
+            base_revision: number;
+            id: string;
+            /** @description "user id=<pk>", never a username. */
+            requested_by: string;
+            /** Format: date-time */
+            requested_at: string;
         };
         /**
          * @description * `SUPPORTED` - Supported
@@ -650,6 +2043,147 @@ export interface components {
             };
             recent_completions: unknown[];
         };
+        DismissCardAlertRequest: {
+            /** @description Id of an alert the worker reported (32 hex). */
+            alert_id: string;
+        };
+        DismissCardAlertResponse: {
+            readonly card_status: components["schemas"]["WorkerCardStatus"] | null;
+            /** @description Ids of card alerts dismissed by an admin, until the worker stops reporting them. */
+            readonly card_alert_dismissals: string[];
+        };
+        /** @description FR-SL-4: which downloads are available (by status; a missing file still answers 404). */
+        Downloads: {
+            /** @description download-video/ */
+            video: boolean;
+            /** @description download-video/?sound=1 */
+            video_sound: boolean;
+            /** @description download-sound/ */
+            sound: boolean;
+            /** @description download-frames/ */
+            frames: boolean;
+        };
+        /**
+         * @description Read-only nested representation of a resolved Blender version.
+         *
+         *     Used on Job, TiledJob, and Animation serializers to expose the
+         *     ``effective_blender_version`` property.
+         */
+        EffectiveBlenderVersion: {
+            readonly series: string;
+            readonly resolved_version: string;
+        };
+        /**
+         * @description The 400 answer (schema only).
+         *
+         *     Either a field-error map (each failing field with its messages) or a
+         *     ``{"detail": ...}`` answer for a legacy ``enrollment_key`` body or a
+         *     replayed nonce.
+         */
+        EnrollmentBadRequest: {
+            hostname?: string[];
+            nonce?: string[];
+            proof?: string[];
+            non_field_errors?: string[];
+            detail?: string;
+        };
+        /** @description A ``{"detail": ...}`` error answer (schema only). */
+        EnrollmentDetail: {
+            detail: string;
+        };
+        /** @description The enroll answer: payload plus its HMAC-SHA256 hex signature. */
+        EnrollmentEnvelope: {
+            payload: components["schemas"]["EnrollmentPayload"];
+            signature: string;
+        };
+        EnrollmentKeyNotice: {
+            show: boolean;
+            enrollment_key: string | null;
+        };
+        /** @description The signed payload of the enroll answer (schema only). */
+        EnrollmentPayload: {
+            cert_fingerprint: string;
+            manager_id: string;
+            nonce: string;
+            /** @description AES-GCM nonce: 12 random bytes as 24 lowercase hex. */
+            api_token_nonce: string;
+            /** @description Standard base64 (padded) AES-GCM ciphertext of the API token under the token subkey; associated data is nonce + '\n' + manager_id. */
+            api_token_ct: string;
+        };
+        /** @description Request body for ``POST /api/enroll/``. */
+        EnrollmentRequest: {
+            /** @description 1-253 characters of A-Z, a-z, 0-9, '.', '_' and '-'. */
+            hostname: string;
+            /** @description 16 random bytes as 32 lowercase hex characters. */
+            nonce: string;
+            /** @description Lowercase hex HMAC-SHA256 of nonce + '\n' + hostname under the proof subkey of the enrollment key. */
+            proof: string;
+        };
+        ErrorEnvelope: {
+            error: {
+                /** @enum {string} */
+                code: "invalid_token" | "rate_limited" | "setup_complete" | "setup_in_progress" | "precondition_unmet" | "setup_session_conflict" | "invalid_input" | "internal_error";
+                message: string;
+                details: {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        /**
+         * @description The admin-only details block.
+         *
+         *     ``source`` is one of: ``"system"`` (PATH or settings-file ``[ffmpeg] path`` override) /
+         *     ``"bundled"`` (downloaded by the manager) / ``""`` while installing.
+         *
+         *     ``status`` is one of: ``"installing"`` / ``"ready"`` / ``"failed"``.
+         *
+         *     ``error`` is ``null`` unless ``status == "failed"``, in which case
+         *     it is a closed-vocabulary string defined in spec FR §70-79.
+         */
+        FFmpegDetails: {
+            source: string;
+            version: string;
+            path: string;
+            status: components["schemas"]["FFmpegDetailsStatusEnum"];
+            error?: string | null;
+        };
+        /**
+         * @description * `installing` - installing
+         *     * `ready` - ready
+         *     * `failed` - failed
+         * @enum {string}
+         */
+        FFmpegDetailsStatusEnum: "installing" | "ready" | "failed";
+        /** @description Regular-user payload.  Boolean only — no detail leak. */
+        FFmpegStatus: {
+            video_assembly_ready: boolean;
+        };
+        /** @description Admin payload — boolean PLUS the ``ffmpeg`` details block. */
+        FFmpegStatusAdmin: {
+            video_assembly_ready: boolean;
+            ffmpeg: components["schemas"]["FFmpegDetails"];
+        };
+        FFmpegStatusResponse: components["schemas"]["FFmpegStatus"] | components["schemas"]["FFmpegStatusAdmin"];
+        /** @description ``POST /api/jobs/{id}/frames/`` (multipart; schema only). */
+        FrameUploadRequest: {
+            /** @description The edit frame number (a kept frame of the piece). */
+            frame: number;
+            /**
+             * Format: uri
+             * @description The frame: .png or .exr as the piece renders, at most 512 MiB.
+             */
+            file: string;
+        };
+        /** @description ``frames/`` success body. */
+        FrameUploadResponse: {
+            frame: number;
+            /** @description The shot index the frame belongs to. */
+            shot: number;
+            /** @description True when an earlier upload of the frame was replaced. */
+            replaced: boolean;
+            /** @description True when a job that started later already stored this frame; this upload was dropped. */
+            kept_newer: boolean;
+        };
         /**
          * @description Serializer for the `Job` model.
          *
@@ -667,13 +2201,43 @@ export interface components {
             asset_id: number;
             /** @description Output file path pattern (e.g., //render/#.png) */
             output_file_pattern: string;
+            /**
+             * @description Derived from the asset's project at creation; read-only.
+             *
+             *     * `BLENDER` - Blender
+             *     * `UNREAL` - Unreal Engine
+             */
+            readonly renderer: components["schemas"]["RendererEnum"];
+            /** @description Unreal jobs: the effective engine build, pinned at submission. Create-only. */
+            engine_build?: string;
+            /** @description Why a queued job is not being picked up by any worker, or null. Always null for worker-authenticated requests. */
+            readonly routing_note: string | null;
+            /**
+             * @description 'render' for a normal Unreal job; manager-created jobs are 'pilot' (a memory measurement), 'shots' (shot discovery) or 'audio' (a sound render).
+             *
+             *     * `render` - Render
+             *     * `pilot` - Pilot
+             *     * `audio` - Audio
+             *     * `shots` - Shots
+             */
+            readonly unreal_kind: components["schemas"]["UnrealKindEnum"];
+            /** @description Unreal render and audio jobs, for worker-token requests: the caller's own memory results that fit, one per card kind (per-machine memory test FR-MT-T-3); [] when it has none. Null for other callers and for Blender, pilot and shots jobs. */
+            readonly unreal_machine_results: components["schemas"]["MachineResult"][] | null;
+            /** @description Unreal render and audio jobs, on GET /api/jobs/{id}/ only: every machine and card kind of the job's key with its memory test state (per-machine memory test FR-MT-U-1). Null in lists, for worker-token requests and for other jobs. */
+            readonly unreal_machines: components["schemas"]["MachineRow"][] | null;
+            /** @description Unreal sequence pieces and audio jobs: their submission (a piece may span frames). */
+            readonly sequence_submission: number;
+            /** @description Unreal pieces: frames rendered before start_frame and thrown away (sequence FR-SP-4). */
+            readonly unreal_lead_in_frames: number;
             /** Format: int64 */
             start_frame?: number;
             /** Format: int64 */
             end_frame?: number;
-            status?: components["schemas"]["Status1b9Enum"];
+            status?: components["schemas"]["StatusFfeEnum"];
             /** @description The human-readable status of the job. */
             readonly status_display: string;
+            /** @description If true, this job is skipped during worker polling. */
+            readonly is_paused: boolean;
             readonly assigned_worker: number | null;
             /** @description The hostname of the worker assigned to this job. */
             readonly assigned_worker_hostname: string;
@@ -687,8 +2251,8 @@ export interface components {
             started_at?: string | null;
             /** Format: date-time */
             completed_at?: string | null;
-            /** @description e.g., '4.5' or '4.1.1' */
-            blender_version?: string;
+            blender_version?: number | null;
+            readonly effective_blender_version: components["schemas"]["EffectiveBlenderVersion"] | null;
             render_engine?: components["schemas"]["RenderEngineEnum"];
             render_device?: components["schemas"]["RenderDeviceEnum"];
             cycles_feature_set?: components["schemas"]["CyclesFeatureSetEnum"];
@@ -712,6 +2276,195 @@ export interface components {
              */
             readonly thumbnail: string | null;
         };
+        JobReleaseError: {
+            error: string;
+        };
+        /**
+         * @description * `shutdown` - shutdown
+         *     * `dispatch_failed` - dispatch_failed
+         *     * `share_unavailable` - share_unavailable
+         *     * `local_conflict` - local_conflict
+         *     * `worker_hardware_changed` - worker_hardware_changed
+         * @enum {string}
+         */
+        JobReleaseReasonEnum: "shutdown" | "dispatch_failed" | "share_unavailable" | "local_conflict" | "worker_hardware_changed";
+        /** @description Body of ``POST /api/jobs/{id}/release/``. */
+        JobReleaseRequest: {
+            reason: components["schemas"]["JobReleaseReasonEnum"];
+        };
+        JobReleaseResponse: {
+            status: components["schemas"]["JobReleaseResponseStatusEnum"];
+            auto_requeue_count: number;
+        };
+        /**
+         * @description * `QUEUED` - QUEUED
+         *     * `ERROR` - ERROR
+         * @enum {string}
+         */
+        JobReleaseResponseStatusEnum: "QUEUED" | "ERROR";
+        /** @description One ``unreal_machine_results`` entry (OpenAPI schema only). */
+        MachineResult: {
+            measurement_id: number;
+            card_kind: string;
+            /** @description The result peak: max(pilot peak, largest reported job peak). */
+            peak_mb: number;
+            ram: components["schemas"]["UnrealRam"] | null;
+            shared_peak_mb: number | null;
+            driver_version: string | null;
+        };
+        /** @description One (machine, card kind) pair of a measurement key (OpenAPI schema only). */
+        MachineRow: {
+            /** @description The worker's id; null when the record has no worker. */
+            worker: number | null;
+            hostname: string;
+            /** @description Seen within the worker staleness window. */
+            online: boolean;
+            /** @description vvvv:dddd:rrrr (PCI vendor, device, revision or 'none'). */
+            card_kind: string;
+            card_name: string | null;
+            card_total_mb: number | null;
+            state: components["schemas"]["MachineStateEnum"];
+            /** @description The result peak: max(pilot peak, largest reported job peak); null until measured. */
+            peak_mb: number | null;
+            /** @description does_not_fit: the need is at least this many MB. */
+            lower_bound_mb: number | null;
+            driver_version: string | null;
+            /** @description Why the memory test failed (failed only). */
+            reason: string | null;
+            /** @description The result was derived from a covering result of the same machine (D8). */
+            covered: boolean;
+            /** @description The result's RAM figures (Q8); null until measured and for not_tried. */
+            ram: components["schemas"]["UnrealRam"] | null;
+        };
+        /**
+         * @description * `fits` - fits
+         *     * `does_not_fit` - does_not_fit
+         *     * `testing` - testing
+         *     * `failed` - failed
+         *     * `retest_due` - retest_due
+         *     * `not_tried` - not_tried
+         * @enum {string}
+         */
+        MachineStateEnum: "fits" | "does_not_fit" | "testing" | "failed" | "retest_due" | "not_tried";
+        /** @description Schema of one ``unreal_measurement.keys`` entry (per-machine memory test FR-MT-U-1). */
+        MeasurementKey: {
+            asset_id: number;
+            target_sha256: string;
+            engine_build: string;
+            map: string;
+            sequence: string;
+            preset: string;
+            machines: components["schemas"]["MachineRow"][];
+        };
+        MeasurementRetryBadRequest: {
+            detail?: string;
+        };
+        MeasurementRetryError: {
+            error: string;
+        };
+        /** @description Body of ``POST /api/projects/{id}/unreal-measurement/retry/`` (all optional). */
+        MeasurementRetryRequest: {
+            job_id?: number;
+            remeasure?: boolean;
+            /** @description Test only this worker's card kinds (per-machine memory test FR-MT-P-4). */
+            worker?: number;
+        };
+        MeasurementRetryResponse: {
+            pilot_job_id: number;
+            measurement_id: number;
+        };
+        /** @description Schema of a project's ``unreal_measurement`` (FR-PM-7, FR-MT-U-1). */
+        MeasurementSummary: {
+            held_pending: number;
+            held_failed: number;
+            held_none: number;
+            /** @description The measurement keys under the current CVars (active jobs' keys first, at most 20), each with its machine list. Null in the project list and for worker tokens. */
+            keys: components["schemas"]["MeasurementKey"][] | null;
+        };
+        /**
+         * @description * `fits` - fits
+         *     * `does_not_fit` - does_not_fit
+         * @enum {string}
+         */
+        MeasurementVerdictEnum: "fits" | "does_not_fit";
+        MemoryReportError: {
+            error: string;
+        };
+        /** @description Body of ``POST /api/jobs/{id}/memory-report/`` (job-independent rules only). */
+        MemoryReportRequest: {
+            /**
+             * Format: int64
+             * @description The memory result the job's gate used.
+             */
+            measurement_id: number;
+            /** @description The card kind vvvv:dddd:rrrr (PCI vendor, device, revision or none). */
+            card_kind: string;
+            /** @description The key of the card the job ran on, pci:dddd:bb:dd.f. */
+            card_key: string;
+            /** @description The chosen adapter's internal driver version from the Unreal log; null when unknown (Unreal's 'Unknown' counts as null). */
+            driver_version: string | null;
+            /** @description The job spilled into shared memory (D9); null when not measurable. */
+            spilled: boolean | null;
+            /**
+             * @description self or contention; null unless spilled is true.
+             *
+             *     * `self` - self
+             *     * `contention` - contention
+             */
+            spill_cause: (components["schemas"]["SpillCauseEnum"] | components["schemas"]["NullEnum"]) | null;
+            /** @description Largest shared GPU memory of the job's processes on its card. */
+            shared_peak_mb: number | null;
+            /** @description The job's own peak GPU memory. */
+            job_peak_mb: number | null;
+        };
+        MemoryReportResponse: {
+            /**
+             * @description The state of the pair (machine, card kind) for the job's key.
+             *
+             *     * `fits` - fits
+             *     * `does_not_fit` - does_not_fit
+             *     * `testing` - testing
+             *     * `failed` - failed
+             *     * `retest_due` - retest_due
+             *     * `not_tried` - not_tried
+             */
+            result: components["schemas"]["MachineStateEnum"];
+        };
+        MemoryReportValidationError: {
+            detail?: string;
+        };
+        /** @enum {unknown} */
+        NullEnum: null;
+        PaginatedSequenceDiscoverySummaryList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["SequenceDiscoverySummary"][];
+        };
+        PaginatedSequenceSubmissionList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["SequenceSubmission"][];
+        };
         /**
          * @description Serializer for the `Animation` model.
          *
@@ -721,7 +2474,7 @@ export interface components {
         PatchedAnimation: {
             readonly id?: number;
             name?: string;
-            readonly status?: components["schemas"]["Status1b9Enum"];
+            readonly status?: components["schemas"]["StatusFfeEnum"];
             /** @description Human-readable progress string (e.g., '3 of 10 frames complete'). */
             readonly progress?: string;
             /** @description The total number of frames in the animation. */
@@ -740,15 +2493,15 @@ export interface components {
             end_frame?: number;
             /**
              * Format: int64
-             * @description Number of frames to advance animation between renders (e.g., a step of 2 renders every other frame).
+             * @description Number of frames to advance between renders.
              */
             frame_step?: number;
-            /** @description e.g., '4.5' or '4.1.1' */
-            blender_version?: string;
+            blender_version?: number | null;
+            readonly effective_blender_version?: components["schemas"]["EffectiveBlenderVersion"];
             render_engine?: components["schemas"]["RenderEngineEnum"];
             render_device?: components["schemas"]["RenderDeviceEnum"];
             cycles_feature_set?: components["schemas"]["CyclesFeatureSetEnum"];
-            /** @description Blender render settings overrides, e.g., {'cycles.samples': 128, 'resolution_x': 1920} */
+            /** @description Blender render settings overrides. */
             render_settings?: unknown;
             /**
              * @description Grid size for tiled rendering of each frame.
@@ -764,7 +2517,7 @@ export interface components {
             readonly submitted_at?: string;
             /** Format: date-time */
             readonly completed_at?: string | null;
-            /** @description The cumulative render time of all completed frames in this animation. */
+            /** @description Cumulative render time of all completed frames. */
             readonly total_render_time_seconds?: number;
             /**
              * Format: uri
@@ -773,6 +2526,26 @@ export interface components {
             readonly thumbnail?: string | null;
             /** @description List of child frames for tiled animations. */
             readonly frames?: components["schemas"]["AnimationFrame"][];
+            /** @description Video assembly config: preset, container, codec, etc. */
+            video_settings?: unknown;
+            /**
+             * @description Current state of video assembly.
+             *
+             *     * `PENDING` - Pending
+             *     * `ASSEMBLING` - Assembling
+             *     * `DONE` - Done
+             *     * `ERROR` - Error
+             */
+            readonly video_status?: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            /**
+             * Format: uri
+             * @description The assembled video file.
+             */
+            readonly video_file?: string | null;
+            /** @description Error message from failed video assembly. */
+            readonly video_error?: string;
+            /** @description Why the animation is in ERROR (failed frames). */
+            readonly error_message?: string;
         };
         /** @description Serializer for the `Asset` model, handling file uploads. */
         PatchedAsset: {
@@ -780,10 +2553,27 @@ export interface components {
             /** @description A unique name for the asset file. */
             name?: string;
             /**
+             * @description How the scene data reaches the workers. Cannot change after creation.
+             *
+             *     * `blend_file` - Uploaded .blend file
+             *     * `shared_project` - Project archive on a share
+             */
+            source_type?: components["schemas"]["SourceTypeEnum"];
+            /**
              * Format: uri
-             * @description The uploaded .blend file.
+             * @description The uploaded .blend file (required for blend_file assets).
              */
             blend_file?: string;
+            /** @description Path of the project .zip relative to the Sethlans share root, '/'-separated. */
+            archive_path?: string;
+            /** @description Relative path of the .uproject inside the archive. */
+            uproject_path?: string;
+            /** @description Lowercase hex SHA-256 of the archive bytes (mandatory for shared_project assets). */
+            archive_sha256?: string;
+            /** @description Optional overlay directory relative to the Sethlans share root. */
+            overlay_path?: string;
+            /** @description Overlay digest (mandatory whenever overlay_path is set). */
+            overlay_sha256?: string;
             /** Format: date-time */
             readonly created_at?: string;
             /** Format: uuid */
@@ -807,13 +2597,43 @@ export interface components {
             asset_id?: number;
             /** @description Output file path pattern (e.g., //render/#.png) */
             output_file_pattern?: string;
+            /**
+             * @description Derived from the asset's project at creation; read-only.
+             *
+             *     * `BLENDER` - Blender
+             *     * `UNREAL` - Unreal Engine
+             */
+            readonly renderer?: components["schemas"]["RendererEnum"];
+            /** @description Unreal jobs: the effective engine build, pinned at submission. Create-only. */
+            engine_build?: string;
+            /** @description Why a queued job is not being picked up by any worker, or null. Always null for worker-authenticated requests. */
+            readonly routing_note?: string | null;
+            /**
+             * @description 'render' for a normal Unreal job; manager-created jobs are 'pilot' (a memory measurement), 'shots' (shot discovery) or 'audio' (a sound render).
+             *
+             *     * `render` - Render
+             *     * `pilot` - Pilot
+             *     * `audio` - Audio
+             *     * `shots` - Shots
+             */
+            readonly unreal_kind?: components["schemas"]["UnrealKindEnum"];
+            /** @description Unreal render and audio jobs, for worker-token requests: the caller's own memory results that fit, one per card kind (per-machine memory test FR-MT-T-3); [] when it has none. Null for other callers and for Blender, pilot and shots jobs. */
+            readonly unreal_machine_results?: components["schemas"]["MachineResult"][] | null;
+            /** @description Unreal render and audio jobs, on GET /api/jobs/{id}/ only: every machine and card kind of the job's key with its memory test state (per-machine memory test FR-MT-U-1). Null in lists, for worker-token requests and for other jobs. */
+            readonly unreal_machines?: components["schemas"]["MachineRow"][] | null;
+            /** @description Unreal sequence pieces and audio jobs: their submission (a piece may span frames). */
+            readonly sequence_submission?: number;
+            /** @description Unreal pieces: frames rendered before start_frame and thrown away (sequence FR-SP-4). */
+            readonly unreal_lead_in_frames?: number;
             /** Format: int64 */
             start_frame?: number;
             /** Format: int64 */
             end_frame?: number;
-            status?: components["schemas"]["Status1b9Enum"];
+            status?: components["schemas"]["StatusFfeEnum"];
             /** @description The human-readable status of the job. */
             readonly status_display?: string;
+            /** @description If true, this job is skipped during worker polling. */
+            readonly is_paused?: boolean;
             readonly assigned_worker?: number | null;
             /** @description The hostname of the worker assigned to this job. */
             readonly assigned_worker_hostname?: string;
@@ -827,8 +2647,8 @@ export interface components {
             started_at?: string | null;
             /** Format: date-time */
             completed_at?: string | null;
-            /** @description e.g., '4.5' or '4.1.1' */
-            blender_version?: string;
+            blender_version?: number | null;
+            readonly effective_blender_version?: components["schemas"]["EffectiveBlenderVersion"] | null;
             render_engine?: components["schemas"]["RenderEngineEnum"];
             render_device?: components["schemas"]["RenderDeviceEnum"];
             cycles_feature_set?: components["schemas"]["CyclesFeatureSetEnum"];
@@ -852,15 +2672,65 @@ export interface components {
              */
             readonly thumbnail?: string | null;
         };
-        /** @description Serializer for the `Project` model. */
-        PatchedProject: {
+        /** @description ``ProjectSerializer`` plus ``unreal_measurement`` (``ProjectViewSet`` only). */
+        PatchedProjectDetail: {
             /** Format: uuid */
             readonly id?: string;
             name?: string;
+            /**
+             * @description The render application for every job in this project. Cannot change after creation.
+             *
+             *     * `BLENDER` - Blender
+             *     * `UNREAL` - Unreal Engine
+             */
+            renderer?: components["schemas"]["RendererEnum"];
+            /** @description PK of a SupportedBlenderVersion. Defaults to the default version. */
+            blender_version?: number;
+            readonly blender_version_details?: components["schemas"]["SupportedBlenderVersion"] | null;
+            /** @description Exact Unreal Engine build, e.g. 5.8.4-58902052 (Unreal projects only). */
+            engine_build?: string;
+            /** @description Unreal projects: console variable overrides (name -> value). Not pinned per job: edits also affect jobs that are still queued. */
+            unreal_cvar_overrides?: {
+                [key: string]: string;
+            };
+            /** @description Unreal sequences: seconds of footage per piece (5-600, default 30). */
+            unreal_piece_seconds?: number;
+            /** @description Unreal sequences: lead-in rendered and thrown away before a piece (0-10000 ms, default 1000). */
+            unreal_lead_in_ms?: number;
+            /** @description Unreal sequences: sound on by default; each submission sets it. */
+            unreal_sound?: boolean;
+            /** @description Unreal sequences: manual sound offsets {"<preset object path>@<num>/<den>": ms} (at most 64, -10000 to 10000), used only when a run's offset cannot be measured; null for none. */
+            unreal_sound_offsets?: {
+                [key: string]: number;
+            } | null;
             /** Format: date-time */
             readonly created_at?: string;
-            /** @description If true, workers will not pick up jobs from this project. */
-            readonly is_paused?: boolean;
+            /** @description Unreal projects: QUEUED normal jobs held by measurement state and each measurement key's machines under the current CVars. Null for Blender projects. */
+            readonly unreal_measurement?: components["schemas"]["MeasurementSummary"] | null;
+        };
+        /**
+         * @description Serializer for ``SupportedBlenderVersion`` CRUD operations.
+         *
+         *     On create, ``series`` is validated as ``major.minor`` format and
+         *     resolved to the latest patch version via the Blender release page of
+         *     the first source that lists one (``shared.blender_sources``).
+         */
+        PatchedSupportedBlenderVersion: {
+            readonly id?: number;
+            /** @description Major version number, derived from series. */
+            readonly major?: number;
+            /** @description Minor version number, derived from series. */
+            readonly minor?: number;
+            /** @description Major.minor series string, e.g. '4.2' or '5.0'. */
+            series?: string;
+            /** @description Latest known patch for this series, e.g. '4.2.19'. */
+            readonly resolved_version?: string;
+            /** @description Exactly one row must be the default version. */
+            is_default?: boolean;
+            /** Format: date-time */
+            readonly added_at?: string;
+            /** Format: date-time */
+            readonly last_patch_check?: string | null;
         };
         /**
          * @description Serializer for the `TiledJob` model.
@@ -891,7 +2761,8 @@ export interface components {
             tile_count_x?: number;
             /** Format: int64 */
             tile_count_y?: number;
-            blender_version?: string;
+            blender_version?: number | null;
+            readonly effective_blender_version?: components["schemas"]["EffectiveBlenderVersion"];
             render_engine?: components["schemas"]["RenderEngineEnum"];
             render_device?: components["schemas"]["RenderDeviceEnum"];
             cycles_feature_set?: components["schemas"]["CyclesFeatureSetEnum"];
@@ -912,16 +2783,205 @@ export interface components {
              * @description A preview thumbnail of the final assembled image.
              */
             readonly thumbnail?: string | null;
+            /** @description Why the tiled job is in ERROR (failed tiles or assembly failure). */
+            readonly error_message?: string;
         };
-        /** @description Serializer for the `Project` model. */
+        /**
+         * @description * `prep` - prep
+         *     * `warmup` - warmup
+         *     * `render` - render
+         * @enum {string}
+         */
+        PeakPhaseEnum: "prep" | "warmup" | "render";
+        /**
+         * @description * `card` - card
+         *     * `csv` - csv
+         * @enum {string}
+         */
+        PeakSourceEnum: "card" | "csv";
+        /** @description The card a piece ran on: the pilot's GPU fields without ``index``. */
+        PieceGpu: {
+            name: string;
+            total_mb: number;
+            /** @description The card's key, pci:dddd:bb:dd.f (gpu-memory-reader FR-GH-10). */
+            card_key: string;
+        };
+        /** @description ``POST /api/jobs/{id}/piece-result/`` body; unknown keys are refused by the view. */
+        PieceResultRequest: {
+            /** Format: double */
+            render_s: number;
+            /** Format: double */
+            startup_s: number | null;
+            /** Format: double */
+            lead_in_s: number | null;
+            vram_peak_mb: number | null;
+            gpu: components["schemas"]["PieceGpu"] | null;
+            shots: components["schemas"]["PieceShot"][];
+            warnings: string[];
+            summary: string;
+        };
+        /** @description ``piece-result/`` success body. */
+        PieceResultResponse: {
+            /** @description Always DONE. */
+            status: string;
+            /** @description How many kept frames the piece has. */
+            frames: number;
+        };
+        /** @description R7 timing of one shot part of the piece (FR-SW-9). */
+        PieceShot: {
+            index: number;
+            frames: number;
+            /** Format: double */
+            seconds: number;
+            /** Format: double */
+            s_per_frame: number;
+        };
+        PilotGpu: {
+            index: number;
+            name: string;
+            total_mb: number;
+            /** @description The card's key, pci:dddd:bb:dd.f (gpu-memory-reader FR-GH-10). */
+            card_key: string;
+        };
+        PilotResultError: {
+            error: string;
+        };
+        /** @description Body of ``POST /api/jobs/{id}/pilot-result/`` (job-independent rules only). */
+        PilotResultRequest: {
+            peak_mb: number;
+            peak_source: components["schemas"]["PeakSourceEnum"];
+            card_delta_peak_mb: number;
+            baseline_used_mb: number;
+            baseline_drift_mb: number;
+            peak_phase: components["schemas"]["PeakPhaseEnum"];
+            /** Format: double */
+            max_sample_gap_s: number;
+            /** Format: double */
+            prep_s: number;
+            /** Format: double */
+            warmup_s: number | null;
+            warmup_ran: boolean;
+            /** Format: double */
+            render_s: number;
+            frames: number;
+            /** Format: double */
+            seconds_per_frame: number;
+            per_shot: components["schemas"]["PilotShot"][];
+            gpu: components["schemas"]["PilotGpu"];
+            engine_build: string;
+            csv_local_used_peak_mb: number | null;
+            overrides_sha256: string;
+            summary: string;
+            game_overrides: components["schemas"]["UnrealGameOverridesEnum"];
+            texture_streaming: components["schemas"]["UnrealTextureStreamingEnum"];
+            ram: components["schemas"]["UnrealRam"] | null;
+            ram_process_commit_peak_mb: number | null;
+            /** @description Another job held the worker at some moment of the pilot (D10). */
+            shared_machine: boolean;
+            /** @description The card kind vvvv:dddd:rrrr (PCI vendor, device, revision or none). */
+            card_kind: string;
+            /** @description The chosen adapter's internal driver version from the Unreal log; null when unknown (Unreal's 'Unknown' counts as null). */
+            driver_version: string | null;
+            verdict: components["schemas"]["MeasurementVerdictEnum"];
+            /** @description Largest shared GPU memory of the pilot's processes on its card (D9). */
+            shared_peak_mb: number | null;
+            /** @description peak_mb for does_not_fit (a lower bound of the need), null for fits (D6). */
+            lower_bound_mb: number | null;
+        };
+        PilotResultResponse: {
+            status: components["schemas"]["PilotResultResponseStatusEnum"];
+            peak_mb: number;
+        };
+        /**
+         * @description * `DONE` - DONE
+         * @enum {string}
+         */
+        PilotResultResponseStatusEnum: "DONE";
+        PilotResultValidationError: {
+            detail?: string;
+        };
+        PilotShot: {
+            frame: number;
+            /** Format: double */
+            render_s: number;
+        };
+        /**
+         * @description Serializer for the `Project` model.
+         *
+         *     ``blender_version`` accepts a SupportedBlenderVersion PK on write
+         *     and returns a nested object on read. When omitted on create, the
+         *     default version is used (Blender projects).  ``renderer`` is chosen
+         *     on create and cannot change afterwards; validation and create-time
+         *     defaults are delegated to the renderer strategy.
+         */
         Project: {
             /** Format: uuid */
             readonly id: string;
             name: string;
+            /**
+             * @description The render application for every job in this project. Cannot change after creation.
+             *
+             *     * `BLENDER` - Blender
+             *     * `UNREAL` - Unreal Engine
+             */
+            renderer?: components["schemas"]["RendererEnum"];
+            /** @description PK of a SupportedBlenderVersion. Defaults to the default version. */
+            blender_version?: number;
+            readonly blender_version_details: components["schemas"]["SupportedBlenderVersion"] | null;
+            /** @description Exact Unreal Engine build, e.g. 5.8.4-58902052 (Unreal projects only). */
+            engine_build?: string;
+            /** @description Unreal projects: console variable overrides (name -> value). Not pinned per job: edits also affect jobs that are still queued. */
+            unreal_cvar_overrides?: {
+                [key: string]: string;
+            };
+            /** @description Unreal sequences: seconds of footage per piece (5-600, default 30). */
+            unreal_piece_seconds?: number;
+            /** @description Unreal sequences: lead-in rendered and thrown away before a piece (0-10000 ms, default 1000). */
+            unreal_lead_in_ms?: number;
+            /** @description Unreal sequences: sound on by default; each submission sets it. */
+            unreal_sound?: boolean;
+            /** @description Unreal sequences: manual sound offsets {"<preset object path>@<num>/<den>": ms} (at most 64, -10000 to 10000), used only when a run's offset cannot be measured; null for none. */
+            unreal_sound_offsets?: {
+                [key: string]: number;
+            } | null;
             /** Format: date-time */
             readonly created_at: string;
-            /** @description If true, workers will not pick up jobs from this project. */
-            readonly is_paused: boolean;
+        };
+        /** @description ``ProjectSerializer`` plus ``unreal_measurement`` (``ProjectViewSet`` only). */
+        ProjectDetail: {
+            /** Format: uuid */
+            readonly id: string;
+            name: string;
+            /**
+             * @description The render application for every job in this project. Cannot change after creation.
+             *
+             *     * `BLENDER` - Blender
+             *     * `UNREAL` - Unreal Engine
+             */
+            renderer?: components["schemas"]["RendererEnum"];
+            /** @description PK of a SupportedBlenderVersion. Defaults to the default version. */
+            blender_version?: number;
+            readonly blender_version_details: components["schemas"]["SupportedBlenderVersion"] | null;
+            /** @description Exact Unreal Engine build, e.g. 5.8.4-58902052 (Unreal projects only). */
+            engine_build?: string;
+            /** @description Unreal projects: console variable overrides (name -> value). Not pinned per job: edits also affect jobs that are still queued. */
+            unreal_cvar_overrides?: {
+                [key: string]: string;
+            };
+            /** @description Unreal sequences: seconds of footage per piece (5-600, default 30). */
+            unreal_piece_seconds?: number;
+            /** @description Unreal sequences: lead-in rendered and thrown away before a piece (0-10000 ms, default 1000). */
+            unreal_lead_in_ms?: number;
+            /** @description Unreal sequences: sound on by default; each submission sets it. */
+            unreal_sound?: boolean;
+            /** @description Unreal sequences: manual sound offsets {"<preset object path>@<num>/<den>": ms} (at most 64, -10000 to 10000), used only when a run's offset cannot be measured; null for none. */
+            unreal_sound_offsets?: {
+                [key: string]: number;
+            } | null;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** @description Unreal projects: QUEUED normal jobs held by measurement state and each measurement key's machines under the current CVars. Null for Blender projects. */
+            readonly unreal_measurement: components["schemas"]["MeasurementSummary"] | null;
         };
         /**
          * @description * `CPU` - CPU Only
@@ -938,6 +2998,442 @@ export interface components {
          */
         RenderEngineEnum: "CYCLES" | "BLENDER_EEVEE_NEXT" | "WORKBENCH";
         /**
+         * @description * `BLENDER` - Blender
+         *     * `UNREAL` - Unreal Engine
+         * @enum {string}
+         */
+        RendererEnum: "BLENDER" | "UNREAL";
+        RequiredBlenderVersion: {
+            /** @description Major Blender series, e.g. '4.2'. */
+            series: string;
+            /** @description Resolved patch version, e.g. '4.2.3'. */
+            version: string;
+        };
+        SequenceCancel: {
+            status: string;
+            canceled: number;
+        };
+        /** @description A discovery record as the API shows it (read-only). */
+        SequenceDiscovery: {
+            readonly id: number;
+            /** Format: uuid */
+            readonly project: string;
+            readonly asset: number;
+            readonly engine_build: string;
+            readonly map: string;
+            readonly sequence: string;
+            readonly preset: string;
+            readonly status: components["schemas"]["SequenceDiscoveryStatusEnum"];
+            /** @description The manager-created 'shots' job that reads the shots. */
+            readonly job: number | null;
+            /** Format: date-time */
+            readonly created_at: string;
+            readonly playback_start: number | null;
+            /** @description Exclusive. */
+            readonly playback_end: number | null;
+            readonly frame_rate_num: number | null;
+            readonly frame_rate_den: number | null;
+            readonly shot_source: components["schemas"]["SequenceShotSourceEnum"];
+            /** @description [{"index", "name", "start", "end"}]: 1-based index, end exclusive. */
+            readonly shots: unknown;
+            /** @description The preset's facts (FR-SD-5): preset_kind, resolution, temporal_samples, spatial_samples, layers_ok, can_png, can_exr, can_sound, game_overrides, texture_streaming, custom_frame_rate, frame_step, handle_frames, frame_number_offset, zero_pad. */
+            readonly preset_facts: unknown;
+            readonly warnings: string[];
+            readonly error_message: string;
+        };
+        /** @description ``POST /api/sequence-discoveries/`` body (FR-SD-2). */
+        SequenceDiscoveryCreate: {
+            asset: number;
+            /** @description Unreal map object path. */
+            map: string;
+            /** @description Level Sequence object path. */
+            sequence: string;
+            /** @description Movie Render Queue preset object path. */
+            preset: string;
+        };
+        SequenceDiscoveryError: {
+            detail?: string;
+        };
+        /**
+         * @description * `QUEUED` - Queued
+         *     * `RUNNING` - Running
+         *     * `DONE` - Done
+         *     * `ERROR` - Error
+         * @enum {string}
+         */
+        SequenceDiscoveryStatusEnum: "QUEUED" | "RUNNING" | "DONE" | "ERROR";
+        /** @description A list row: the record without its shots and warnings (the detail view has them). */
+        SequenceDiscoverySummary: {
+            readonly id: number;
+            /** Format: uuid */
+            readonly project: string;
+            readonly asset: number;
+            readonly engine_build: string;
+            readonly map: string;
+            readonly sequence: string;
+            readonly preset: string;
+            readonly status: components["schemas"]["SequenceDiscoveryStatusEnum"];
+            /** @description The manager-created 'shots' job that reads the shots. */
+            readonly job: number | null;
+            /** Format: date-time */
+            readonly created_at: string;
+            readonly playback_start: number | null;
+            /** @description Exclusive. */
+            readonly playback_end: number | null;
+            readonly frame_rate_num: number | null;
+            readonly frame_rate_den: number | null;
+            readonly shot_source: components["schemas"]["SequenceShotSourceEnum"];
+            /** @description The preset's facts (FR-SD-5), as in the detail view. */
+            readonly preset_facts: unknown;
+            readonly error_message: string;
+        };
+        /**
+         * @description * `PNG` - PNG
+         *     * `EXR` - EXR
+         * @enum {string}
+         */
+        SequenceFrameFormatEnum: "PNG" | "EXR";
+        SequenceMergeSound: {
+            status: string;
+        };
+        SequenceRerender: {
+            status: string;
+            requeued: number;
+        };
+        SequenceResultError: {
+            error: string;
+        };
+        SequenceResultValidationError: {
+            detail?: string;
+        };
+        SequenceRetrySound: {
+            requeued: number;
+        };
+        SequenceRetryVideo: {
+            reset: number;
+        };
+        /** @description One shot of a submission (FR-SS-1); ``end_frame`` is exclusive. */
+        SequenceShot: {
+            /** @description The discovery's 1-based shot index. */
+            readonly index: number;
+            readonly name: string;
+            readonly start_frame: number;
+            /** @description Exclusive. */
+            readonly end_frame: number;
+            readonly status: components["schemas"]["SequenceShotStatusEnum"];
+            readonly error_message: string;
+            readonly render_time_seconds: number;
+            /** @description R7 timings, newest last (at most 50). */
+            readonly timings: unknown;
+            readonly video_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly video_error: string;
+            readonly sound_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly sound_error: string;
+            readonly sound_video_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly sound_video_error: string;
+            readonly downloads: components["schemas"]["Downloads"];
+        };
+        /**
+         * @description * `camera_cuts` - camera_cuts
+         *     * `shot_tracks` - shot_tracks
+         * @enum {string}
+         */
+        SequenceShotSourceEnum: "camera_cuts" | "shot_tracks";
+        /**
+         * @description * `PENDING` - Pending
+         *     * `RENDERING` - Rendering
+         *     * `DONE` - Done
+         *     * `ERROR` - Error
+         *     * `CANCELED` - Canceled
+         * @enum {string}
+         */
+        SequenceShotStatusEnum: "PENDING" | "RENDERING" | "DONE" | "ERROR" | "CANCELED";
+        /** @description A submission (version) as the list shows it; read-only. */
+        SequenceSubmission: {
+            readonly id: number;
+            /** Format: uuid */
+            readonly project: string;
+            readonly asset: number;
+            readonly discovery: number;
+            readonly engine_build: string;
+            readonly map: string;
+            readonly sequence: string;
+            readonly preset: string;
+            readonly version: number;
+            readonly name: string;
+            readonly selected_shots: string[] | null;
+            readonly frame_start: number | null;
+            readonly frame_end: number | null;
+            readonly resolution_x: number | null;
+            readonly resolution_y: number | null;
+            readonly frame_format: components["schemas"]["SequenceFrameFormatEnum"];
+            readonly video_settings: unknown;
+            readonly sound: boolean;
+            readonly merge_sound: boolean;
+            readonly draft: unknown;
+            readonly piece_seconds: number;
+            readonly lead_in_ms: number;
+            readonly sound_offset_ms: number | null;
+            readonly status: components["schemas"]["SequenceSubmissionStatusEnum"];
+            readonly cancel_requested: boolean;
+            readonly error_message: string;
+            readonly warnings: string[];
+            /** Format: date-time */
+            readonly submitted_at: string;
+            /** Format: date-time */
+            readonly completed_at: string | null;
+            readonly total_render_time_seconds: number;
+            readonly video_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly video_error: string;
+            readonly sound_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly sound_error: string;
+            readonly sound_video_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly sound_video_error: string;
+            /** @description Why the version's next job is not picked up (FR-SR-3), or null. */
+            readonly routing_note: string | null;
+            readonly downloads: components["schemas"]["Downloads"];
+            readonly shots_total: number;
+            readonly shots_done: number;
+            readonly shots_error: number;
+            readonly pieces_total: number;
+            readonly pieces_done: number;
+        };
+        SequenceSubmissionActionError: {
+            error: string;
+        };
+        /** @description ``POST /api/sequence-submissions/`` body (FR-SQ-3..9). */
+        SequenceSubmissionCreate: {
+            asset: number;
+            /** @description Unreal map object path. */
+            map: string;
+            /** @description Level Sequence object path. */
+            sequence: string;
+            /** @description Movie Render Queue preset object path. */
+            preset: string;
+            /** @description Names of shots of a DONE discovery; omit for all. */
+            shots?: string[];
+            /** @description First edit frame (inclusive); with frame_end, instead of shots. */
+            frame_start?: number;
+            /** @description Last edit frame (inclusive). */
+            frame_end?: number;
+            /** @description Output width; omit both for the preset's size. */
+            resolution_x?: number;
+            /** @description Output height. */
+            resolution_y?: number;
+            /** @default PNG */
+            frame_format: components["schemas"]["SequenceFrameFormatEnum"];
+            /** @description A video preset or custom settings, without framerate (the sequence's rate is used). */
+            video_settings?: unknown;
+            /** @description Render sound; default: the project's unreal_sound. */
+            sound?: boolean;
+            /**
+             * @description Also make videos with the sound merged in.
+             * @default false
+             */
+            merge_sound: boolean;
+            /** @description Draft quality: temporal_samples, spatial_samples, screen_percentage (10-100), motion_blur, ray_traced_shadows, ray_traced_reflections (false only). */
+            draft?: unknown;
+        };
+        /** @description One submission with its shots, its pilot frames, its sound runs and its piece key's machines. */
+        SequenceSubmissionDetail: {
+            readonly id: number;
+            /** Format: uuid */
+            readonly project: string;
+            readonly asset: number;
+            readonly discovery: number;
+            readonly engine_build: string;
+            readonly map: string;
+            readonly sequence: string;
+            readonly preset: string;
+            readonly version: number;
+            readonly name: string;
+            readonly selected_shots: string[] | null;
+            readonly frame_start: number | null;
+            readonly frame_end: number | null;
+            readonly resolution_x: number | null;
+            readonly resolution_y: number | null;
+            readonly frame_format: components["schemas"]["SequenceFrameFormatEnum"];
+            readonly video_settings: unknown;
+            readonly sound: boolean;
+            readonly merge_sound: boolean;
+            readonly draft: unknown;
+            readonly piece_seconds: number;
+            readonly lead_in_ms: number;
+            readonly sound_offset_ms: number | null;
+            readonly status: components["schemas"]["SequenceSubmissionStatusEnum"];
+            readonly cancel_requested: boolean;
+            readonly error_message: string;
+            readonly warnings: string[];
+            /** Format: date-time */
+            readonly submitted_at: string;
+            /** Format: date-time */
+            readonly completed_at: string | null;
+            readonly total_render_time_seconds: number;
+            readonly video_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly video_error: string;
+            readonly sound_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly sound_error: string;
+            readonly sound_video_status: (components["schemas"]["VideoStatusEnum"] | components["schemas"]["NullEnum"]) | null;
+            readonly sound_video_error: string;
+            /** @description Why the version's next job is not picked up (FR-SR-3), or null. */
+            readonly routing_note: string | null;
+            readonly downloads: components["schemas"]["Downloads"];
+            readonly shots_total: number;
+            readonly shots_done: number;
+            readonly shots_error: number;
+            readonly pieces_total: number;
+            readonly pieces_done: number;
+            readonly pilot_frames: number[];
+            /** @description One entry per audio job (FR-SA-11): job, start, end (exclusive), r0, rate, the measured offset object, applied_samples and applied_source (measured, override or none). */
+            readonly sound_runs: unknown;
+            readonly shots: components["schemas"]["SequenceShot"][];
+            /** @description Every machine and card kind of the version's piece key with its memory test state (per-machine memory test FR-MT-U-1); null before the version has pieces. */
+            readonly machines: components["schemas"]["MachineRow"][] | null;
+        };
+        SequenceSubmissionError: {
+            detail?: string;
+        };
+        /**
+         * @description * `DISCOVERING` - Reading shots
+         *     * `QUEUED` - Queued
+         *     * `RENDERING` - Rendering
+         *     * `ASSEMBLING` - Assembling
+         *     * `DONE` - Done
+         *     * `PARTLY_DONE` - Partly done
+         *     * `ERROR` - Error
+         *     * `CANCELED` - Canceled
+         * @enum {string}
+         */
+        SequenceSubmissionStatusEnum: "DISCOVERING" | "QUEUED" | "RENDERING" | "ASSEMBLING" | "DONE" | "PARTLY_DONE" | "ERROR" | "CANCELED";
+        /**
+         * @description The manager's Sethlans share root, in canonical UNC form or ``''``.
+         *
+         *     The value is not trimmed: the UNC rules reject leading and trailing
+         *     spaces themselves (FR-MU-6), and a silently trimmed value would differ
+         *     from what the admin entered.
+         */
+        SethlansShare: {
+            /** @description The farm's Sethlans share root, e.g. \\nas.example.lan\sethlans. Stored in canonical form (host lowercased). '' clears it. */
+            sethlans_share: string;
+        };
+        /**
+         * @description Response of ``GET``/``PUT /api/sethlans-share/`` (OpenAPI only).
+         *
+         *     ``warnings`` is present only on a ``PUT`` that stored a value with a
+         *     single-label host, so it is optional in the schema.
+         */
+        SethlansShareResponse: {
+            /** @description The stored share root in canonical form, or '' when not configured. */
+            sethlans_share: string;
+            /** @description Non-blocking advice about the stored value (PUT only). */
+            warnings?: string[];
+        };
+        /** @description FR-SD-5 ``preset_facts`` (schema only). */
+        ShotsPresetFacts: {
+            /** @description [width, height] of the preset's output, or null when it could not be read. */
+            resolution: number[] | null;
+            temporal_samples: number;
+            spatial_samples: number;
+            layers_ok: boolean;
+            can_png: boolean;
+            can_exr: boolean;
+            can_sound: boolean;
+            game_overrides: components["schemas"]["UnrealGameOverridesEnum"];
+            texture_streaming: components["schemas"]["UnrealTextureStreamingEnum"];
+            /** @description [num, den], or null when the preset sets none. */
+            custom_frame_rate: number[] | null;
+            frame_step: number | null;
+            handle_frames: number | null;
+            frame_number_offset: number | null;
+            zero_pad: number | null;
+        };
+        /** @description ``POST /api/jobs/{id}/shots-result/`` body; see ``shared.unreal.shots_result``. */
+        ShotsResultRequest: {
+            preset_kind: components["schemas"]["UnrealPresetKindEnum"];
+            /** @description [start, end] edit frames, end exclusive, start >= 0. */
+            playback_range: number[];
+            /** @description The sequence's display rate as [num, den]. */
+            frame_rate: number[];
+            shot_source: components["schemas"]["SequenceShotSourceEnum"];
+            /** @description [[name, start, end], ...] in edit order, end exclusive, non-overlapping. */
+            shots: unknown[][];
+            preset_facts: components["schemas"]["ShotsPresetFacts"];
+            warnings: string[];
+        };
+        /** @description ``shots-result/`` success body. */
+        ShotsResultResponse: {
+            /** @description Always DONE. */
+            status: string;
+            /** @description The discovery record now DONE. */
+            discovery: number;
+            /** @description How many shots were stored. */
+            shots: number;
+        };
+        /**
+         * @description * `measured` - measured
+         *     * `override` - override
+         *     * `none` - none
+         * @enum {string}
+         */
+        SoundAppliedSourceEnum: "measured" | "override" | "none";
+        /**
+         * @description * `true` - true
+         *     * `false` - false
+         * @enum {string}
+         */
+        SoundLatencySkippedEnum: "true" | "false";
+        SoundResultErrorBody: {
+            error: string;
+        };
+        /** @description The multipart fields of ``sound-result/`` (schema only). */
+        SoundResultRequest: {
+            /**
+             * Format: uri
+             * @description The run's one .wav: 16-bit PCM, 1-8 channels, at most 4 GiB.
+             */
+            file: string;
+            /** @description The measured offset object (FR-SA-10) as JSON text, at most 16 KiB; see shared.unreal.sound_result. */
+            offset: string;
+            /**
+             * @description Whether MRG skipped its latency compensation (information only).
+             *
+             *     * `true` - true
+             *     * `false` - false
+             */
+            latency_compensation_skipped: components["schemas"]["SoundLatencySkippedEnum"];
+            /** @description The render's seconds as a plain decimal. */
+            render_s?: string;
+            /** @description The worker's summary, at most 32 KiB. */
+            summary?: string;
+        };
+        /** @description ``sound-result/`` success body. */
+        SoundResultResponse: {
+            /** @description Always DONE. */
+            status: string;
+            /** @description The correction the run's sound cuts use, in samples (positive: the sound leads the picture). */
+            applied_samples: number;
+            /**
+             * @description measured, the preset's override (when the measurement was not usable), or none.
+             *
+             *     * `measured` - measured
+             *     * `override` - override
+             *     * `none` - none
+             */
+            applied_source: components["schemas"]["SoundAppliedSourceEnum"];
+        };
+        /**
+         * @description * `blend_file` - Uploaded .blend file
+         *     * `shared_project` - Project archive on a share
+         * @enum {string}
+         */
+        SourceTypeEnum: "blend_file" | "shared_project";
+        /**
+         * @description * `self` - self
+         *     * `contention` - contention
+         * @enum {string}
+         */
+        SpillCauseEnum: "self" | "contention";
+        /**
          * @description * `QUEUED` - Queued
          *     * `RENDERING` - Rendering
          *     * `DONE` - Done
@@ -945,7 +3441,31 @@ export interface components {
          *     * `CANCELED` - Canceled
          * @enum {string}
          */
-        Status1b9Enum: "QUEUED" | "RENDERING" | "DONE" | "ERROR" | "CANCELED";
+        StatusFfeEnum: "QUEUED" | "RENDERING" | "DONE" | "ERROR" | "CANCELED";
+        /**
+         * @description Serializer for ``SupportedBlenderVersion`` CRUD operations.
+         *
+         *     On create, ``series`` is validated as ``major.minor`` format and
+         *     resolved to the latest patch version via the Blender release page of
+         *     the first source that lists one (``shared.blender_sources``).
+         */
+        SupportedBlenderVersion: {
+            readonly id: number;
+            /** @description Major version number, derived from series. */
+            readonly major: number;
+            /** @description Minor version number, derived from series. */
+            readonly minor: number;
+            /** @description Major.minor series string, e.g. '4.2' or '5.0'. */
+            series: string;
+            /** @description Latest known patch for this series, e.g. '4.2.19'. */
+            readonly resolved_version: string;
+            /** @description Exactly one row must be the default version. */
+            is_default?: boolean;
+            /** Format: date-time */
+            readonly added_at: string;
+            /** Format: date-time */
+            readonly last_patch_check: string | null;
+        };
         /**
          * @description Serializer for the `TiledJob` model.
          *
@@ -975,7 +3495,8 @@ export interface components {
             tile_count_x?: number;
             /** Format: int64 */
             tile_count_y?: number;
-            blender_version?: string;
+            blender_version?: number | null;
+            readonly effective_blender_version: components["schemas"]["EffectiveBlenderVersion"];
             render_engine?: components["schemas"]["RenderEngineEnum"];
             render_device?: components["schemas"]["RenderDeviceEnum"];
             cycles_feature_set?: components["schemas"]["CyclesFeatureSetEnum"];
@@ -996,6 +3517,8 @@ export interface components {
              * @description A preview thumbnail of the final assembled image.
              */
             readonly thumbnail: string | null;
+            /** @description Why the tiled job is in ERROR (failed tiles or assembly failure). */
+            readonly error_message: string;
         };
         /**
          * @description * `QUEUED` - Queued
@@ -1015,6 +3538,308 @@ export interface components {
          * @enum {string}
          */
         TilingConfigEnum: "NONE" | "2x2" | "3x3" | "4x4" | "5x5";
+        /**
+         * @description * `implicit` - implicit
+         *     * `none` - none
+         *     * `preset` - preset
+         *     * `unknown` - unknown
+         * @enum {string}
+         */
+        UnrealGameOverridesEnum: "implicit" | "none" | "preset" | "unknown";
+        /**
+         * @description * `render` - Render
+         *     * `pilot` - Pilot
+         *     * `audio` - Audio
+         *     * `shots` - Shots
+         * @enum {string}
+         */
+        UnrealKindEnum: "render" | "pilot" | "audio" | "shots";
+        /**
+         * @description * `graph` - graph
+         *     * `legacy` - legacy
+         * @enum {string}
+         */
+        UnrealPresetKindEnum: "graph" | "legacy";
+        /** @description A pilot's RAM figures per phase; ``warmup`` is null when no warm-up ran. */
+        UnrealRam: {
+            prep: components["schemas"]["UnrealRamPhase"];
+            warmup: components["schemas"]["UnrealRamWarmup"] | null;
+            render: components["schemas"]["UnrealRamPhase"];
+        };
+        /** @description One phase's peak private working set and commit (D8). */
+        UnrealRamPhase: {
+            /** @description Peak summed private working set of the job's processes (MB). */
+            ws_mb: number;
+            /** @description Peak commit of the launch's Job Object (MB). */
+            commit_mb: number;
+        };
+        /** @description The warm-up phase, and whether it ran cold (no marker in its slot). */
+        UnrealRamWarmup: {
+            /** @description Peak summed private working set of the job's processes (MB). */
+            ws_mb: number;
+            /** @description Peak commit of the launch's Job Object (MB). */
+            commit_mb: number;
+            cold: boolean;
+        };
+        /**
+         * @description * `fully_load` - fully_load
+         *     * `off` - off
+         *     * `unchanged` - unchanged
+         *     * `unknown` - unknown
+         * @enum {string}
+         */
+        UnrealTextureStreamingEnum: "fully_load" | "off" | "unchanged" | "unknown";
+        /**
+         * @description * `PENDING` - Pending
+         *     * `ASSEMBLING` - Assembling
+         *     * `DONE` - Done
+         *     * `ERROR` - Error
+         * @enum {string}
+         */
+        VideoStatusEnum: "PENDING" | "ASSEMBLING" | "DONE" | "ERROR";
+        WorkerCard: {
+            key?: string;
+            name?: string;
+            vendor_id?: number | null;
+            device_id?: number | null;
+            revision_id?: number | null;
+            ticked?: boolean;
+            state?: components["schemas"]["WorkerCardStateEnum"];
+            blender?: boolean;
+            backend?: (components["schemas"]["WorkerCardBackendEnum"] | components["schemas"]["NullEnum"]) | null;
+            note?: string;
+            screen?: boolean | null;
+            primary_screen?: boolean | null;
+            job_id?: number | null;
+            renderer?: (components["schemas"]["RendererEnum"] | components["schemas"]["NullEnum"]) | null;
+        };
+        WorkerCardAlert: {
+            id?: string;
+            kind?: components["schemas"]["WorkerCardAlertKindEnum"];
+            key?: string;
+            name?: string;
+            detail?: string;
+            /** Format: date-time */
+            raised_at?: string | null;
+        };
+        /**
+         * @description * `card_lost` - card_lost
+         *     * `card_changed` - card_changed
+         *     * `card_lost_blender` - card_lost_blender
+         *     * `adapter_mismatch` - adapter_mismatch
+         * @enum {string}
+         */
+        WorkerCardAlertKindEnum: "card_lost" | "card_changed" | "card_lost_blender" | "adapter_mismatch";
+        /**
+         * @description * `CUDA` - CUDA
+         *     * `OPTIX` - OPTIX
+         *     * `HIP` - HIP
+         *     * `ONEAPI` - ONEAPI
+         *     * `METAL` - METAL
+         * @enum {string}
+         */
+        WorkerCardBackendEnum: "CUDA" | "OPTIX" | "HIP" | "ONEAPI" | "METAL";
+        WorkerCardChoiceCard: {
+            /** @description Card key: pci:dddd:bb:dd.f or apple-gpu. */
+            key?: string;
+            vendor_id?: number | null;
+            device_id?: number | null;
+        };
+        WorkerCardChoiceOutcome: {
+            id?: string;
+            result?: components["schemas"]["WorkerCardOutcomeResultEnum"];
+            code?: components["schemas"]["WorkerCardOutcomeCodeEnum"];
+            reason?: string;
+            revision?: number;
+            /** Format: date-time */
+            finished_at?: string;
+            requested_by?: string;
+            /** Format: date-time */
+            requested_at?: string;
+        };
+        WorkerCardChoiceRequest: {
+            method?: components["schemas"]["WorkerCardMethodEnum"];
+            gpu_mode?: components["schemas"]["WorkerCardGpuModeEnum"];
+            cards?: components["schemas"]["WorkerCardChoiceCard"][];
+            shown?: string[];
+            base_revision?: number;
+            id?: string;
+            /** @description "user id=<pk>", never a username. */
+            requested_by?: string;
+            /** Format: date-time */
+            requested_at?: string;
+        };
+        /**
+         * @description * `split` - split
+         *     * `combined` - combined
+         * @enum {string}
+         */
+        WorkerCardGpuModeEnum: "split" | "combined";
+        /**
+         * @description * `cpu` - cpu
+         *     * `gpu` - gpu
+         *     * `cpu_gpu` - cpu_gpu
+         * @enum {string}
+         */
+        WorkerCardMethodEnum: "cpu" | "gpu" | "cpu_gpu";
+        WorkerCardNotice: {
+            kind?: components["schemas"]["WorkerCardNoticeKindEnum"];
+            key?: string;
+            name?: string;
+        };
+        /**
+         * @description * `card_new` - card_new
+         *     * `card_gone` - card_gone
+         * @enum {string}
+         */
+        WorkerCardNoticeKindEnum: "card_new" | "card_gone";
+        /**
+         * @description * `applied` - applied
+         *     * `invalid` - invalid
+         *     * `env_override` - env_override
+         *     * `not_allowed` - not_allowed
+         *     * `probe_failed` - probe_failed
+         *     * `identity_mismatch` - identity_mismatch
+         *     * `mixed_brands` - mixed_brands
+         *     * `stale_revision` - stale_revision
+         *     * `card_held` - card_held
+         *     * `save_failed` - save_failed
+         * @enum {string}
+         */
+        WorkerCardOutcomeCodeEnum: "applied" | "invalid" | "env_override" | "not_allowed" | "probe_failed" | "identity_mismatch" | "mixed_brands" | "stale_revision" | "card_held" | "save_failed";
+        /**
+         * @description * `applied` - applied
+         *     * `refused` - refused
+         * @enum {string}
+         */
+        WorkerCardOutcomeResultEnum: "applied" | "refused";
+        /**
+         * @description * `ok` - ok
+         *     * `lost` - lost
+         *     * `changed` - changed
+         *     * `blender_lost` - blender_lost
+         *     * `held` - held
+         *     * `unticked` - unticked
+         *     * `unknown` - unknown
+         * @enum {string}
+         */
+        WorkerCardStateEnum: "ok" | "lost" | "changed" | "blender_lost" | "held" | "unticked" | "unknown";
+        WorkerCardStatus: {
+            schema?: number;
+            method?: components["schemas"]["WorkerCardMethodEnum"];
+            gpu_mode?: components["schemas"]["WorkerCardGpuModeEnum"];
+            env_override?: boolean;
+            revision?: number;
+            manager_changes_allowed?: boolean;
+            rebuild_waiting?: boolean;
+            problem?: string;
+            cards?: components["schemas"]["WorkerCard"][];
+            alerts?: components["schemas"]["WorkerCardAlert"][];
+            notices?: components["schemas"]["WorkerCardNotice"][];
+            warnings?: components["schemas"]["WorkerCardWarning"][];
+        };
+        WorkerCardWarning: {
+            code?: string;
+            key?: string | null;
+            text?: string;
+        };
+        WorkerGpuMemory: {
+            schema?: number;
+            source?: components["schemas"]["WorkerGpuMemorySourceEnum"];
+            age_s?: number;
+            capabilities?: components["schemas"]["WorkerGpuMemoryCapabilities"] | null;
+            gpus?: components["schemas"]["WorkerGpuMemoryEntry"][];
+        };
+        WorkerGpuMemoryCapabilities: {
+            card: boolean;
+            process: boolean;
+        };
+        WorkerGpuMemoryEntry: {
+            card_key?: string | null;
+            index?: number;
+            name?: string;
+            total_mb?: number;
+            used_mb?: number;
+            sethlans_used_mb?: number | null;
+            other_used_mb?: number | null;
+        };
+        /**
+         * @description * `amdgpu-sysfs` - amdgpu-sysfs
+         *     * `mixed` - mixed
+         *     * `nvidia-smi` - nvidia-smi
+         *     * `override` - override
+         *     * `pdh` - pdh
+         * @enum {string}
+         */
+        WorkerGpuMemorySourceEnum: "amdgpu-sysfs" | "mixed" | "nvidia-smi" | "override" | "pdh";
+        /**
+         * @description Documents the heartbeat response envelope for OpenAPI.
+         *
+         *     Inherits every field on :class:`WorkerSerializer` and adds the
+         *     fields injected by ``_process_heartbeat`` after the base
+         *     ``WorkerSerializer`` payload is produced.
+         *
+         *     .. note::
+         *
+         *        The response never carries an API token, on either branch.  The
+         *        worker obtains its token from ``POST /api/enroll/`` and already
+         *        holds it when it calls this endpoint (issue #215 removed the
+         *        former ``token`` field from the full-registration response).
+         */
+        WorkerHeartbeatResponse: {
+            readonly id: number;
+            hostname: string;
+            ip_address?: string | null;
+            os?: string;
+            /** Format: date-time */
+            readonly last_seen: string;
+            /** Format: date-time */
+            readonly last_heartbeat: string;
+            is_active?: boolean;
+            available_tools?: unknown;
+            ui_url?: (string) | null;
+            readonly has_token: string;
+            cpu_name?: string;
+            gpu_name?: string;
+            readonly status: string;
+            /** @description Informational: worker's local claim_window schedule, reported via heartbeat. */
+            readonly schedule_config: unknown;
+            /** @description Self-reported SHA-256 fingerprint of the worker's UI TLS certificate. NOT verified by the manager -- do not use for security-critical decisions. */
+            readonly ui_cert_fingerprint: string;
+            readonly unreal_capabilities: components["schemas"]["WorkerUnrealCapabilities"];
+            readonly gpu_memory: components["schemas"]["WorkerGpuMemory"];
+            readonly card_status: components["schemas"]["WorkerCardStatus"] | null;
+            /** @description Ids of card alerts dismissed by an admin, until the worker stops reporting them. */
+            readonly card_alert_dismissals: string[];
+            /** @description The pending graphics card change for this worker (worker card selection FR-CM-12), null when none.  Carried in every answer until the worker reports its outcome or an admin withdraws it. */
+            readonly card_choice_request: components["schemas"]["WorkerCardChoiceRequest"] | null;
+            readonly card_choice_outcome: components["schemas"]["WorkerCardChoiceOutcome"] | null;
+            /** @description Blender platform id reported at full registration (e.g. 'linux-x64'), '' when unknown. Self-reported; decides which Blender builds the manager keeps. */
+            readonly blender_platform: string;
+            /** @description Blender series/versions the manager wants every worker to have installed.  Workers compare this list against their local installations and download missing builds. */
+            required_blender_versions: components["schemas"]["RequiredBlenderVersion"][];
+            /** @description Ids of card alerts an admin dismissed (worker card selection FR-CR-4).  The worker removes these alerts; an unknown id is ignored.  Taken only from this authenticated answer. */
+            dismissed_card_alerts: string[];
+        };
+        WorkerUnrealCapabilities: {
+            schema?: number;
+            enabled?: boolean;
+            disabled_reason?: string;
+            installs?: components["schemas"]["WorkerUnrealInstall"][];
+            share?: string;
+            share_reachable?: boolean;
+        };
+        WorkerUnrealInstall: {
+            build?: string;
+            supported?: boolean;
+            source?: components["schemas"]["WorkerUnrealInstallSourceEnum"];
+        };
+        /**
+         * @description * `launcher` - launcher
+         *     * `config` - config
+         * @enum {string}
+         */
+        WorkerUnrealInstallSourceEnum: "launcher" | "config";
     };
     responses: never;
     parameters: never;
@@ -1024,7 +3849,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    api_animations_list: {
+    animations_list: {
         parameters: {
             query?: {
                 project?: string;
@@ -1053,7 +3878,7 @@ export interface operations {
             };
         };
     };
-    api_animations_create: {
+    animations_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1078,7 +3903,7 @@ export interface operations {
             };
         };
     };
-    api_animations_retrieve: {
+    animations_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -1100,7 +3925,7 @@ export interface operations {
             };
         };
     };
-    api_animations_update: {
+    animations_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1128,7 +3953,7 @@ export interface operations {
             };
         };
     };
-    api_animations_destroy: {
+    animations_destroy: {
         parameters: {
             query?: never;
             header?: never;
@@ -1149,7 +3974,7 @@ export interface operations {
             };
         };
     };
-    api_animations_partial_update: {
+    animations_partial_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1177,7 +4002,163 @@ export interface operations {
             };
         };
     };
-    api_assets_list: {
+    animations_download_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this animation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Animation"];
+                };
+            };
+        };
+    };
+    animations_download_video_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this animation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Animation"];
+                };
+            };
+        };
+    };
+    animations_pause_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this animation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Animation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Animation"];
+                "multipart/form-data": components["schemas"]["Animation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Animation"];
+                };
+            };
+        };
+    };
+    animations_requeue_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this animation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Animation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Animation"];
+                "multipart/form-data": components["schemas"]["Animation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Animation"];
+                };
+            };
+        };
+    };
+    animations_retry_video_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this animation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Animation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Animation"];
+                "multipart/form-data": components["schemas"]["Animation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Animation"];
+                };
+            };
+        };
+    };
+    animations_unpause_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this animation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Animation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Animation"];
+                "multipart/form-data": components["schemas"]["Animation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Animation"];
+                };
+            };
+        };
+    };
+    assets_list: {
         parameters: {
             query?: {
                 project?: string;
@@ -1198,7 +4179,7 @@ export interface operations {
             };
         };
     };
-    api_assets_create: {
+    assets_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1222,7 +4203,7 @@ export interface operations {
             };
         };
     };
-    api_assets_retrieve: {
+    assets_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -1244,7 +4225,7 @@ export interface operations {
             };
         };
     };
-    api_assets_update: {
+    assets_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1271,7 +4252,7 @@ export interface operations {
             };
         };
     };
-    api_assets_destroy: {
+    assets_destroy: {
         parameters: {
             query?: never;
             header?: never;
@@ -1292,7 +4273,7 @@ export interface operations {
             };
         };
     };
-    api_assets_partial_update: {
+    assets_partial_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1319,7 +4300,7 @@ export interface operations {
             };
         };
     };
-    api_heartbeat_retrieve: {
+    auth_csrf_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -1337,7 +4318,59 @@ export interface operations {
             };
         };
     };
-    api_heartbeat_create: {
+    auth_enrollment_key_notice_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentKeyNotice"];
+                };
+            };
+            /** @description Not logged in, or not an administrator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_enrollment_key_notice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentKeyNotice"];
+                };
+            };
+            /** @description Not logged in, or not an administrator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_login_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1347,7 +4380,7 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description No response body */
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1355,14 +4388,595 @@ export interface operations {
             };
         };
     };
-    api_jobs_list: {
+    auth_logout_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_regenerate_enrollment_key_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description New enrollment key in hyphenated display form. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in, or not an administrator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_user_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    blender_builds_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Platform id: windows-x64, windows-arm64, linux-x64, linux-arm64, macos-x64 or macos-arm64. */
+                platform: string;
+                /** @description Full Blender version, X.Y.Z (one to three digits each). */
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlenderBuildMetadata"];
+                };
+            };
+            /** @description The manager is fetching the build. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlenderBuildState"];
+                };
+            };
+            /** @description The manager cannot supply the build. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlenderBuildState"];
+                };
+            };
+        };
+    };
+    blender_builds_archive_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Platform id: windows-x64, windows-arm64, linux-x64, linux-arm64, macos-x64 or macos-arm64. */
+                platform: string;
+                /** @description Full Blender version, X.Y.Z (one to three digits each). */
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description No READY build with its file: {"status": "not_ready"}. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlenderBuildState"];
+                };
+            };
+        };
+    };
+    enroll_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["EnrollmentRequest"];
+                "multipart/form-data": components["schemas"]["EnrollmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed envelope {payload, signature}.  The API token is AES-GCM encrypted under the token subkey (api_token_nonce, api_token_ct). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentEnvelope"];
+                };
+            };
+            /** @description Shape error (field errors), a body that still carries enrollment_key, or {"detail": "Replayed nonce."} */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentBadRequest"];
+                };
+            };
+            /** @description Key proof does not match the current key */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentDetail"];
+                };
+            };
+            /** @description Rate-limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentDetail"];
+                };
+            };
+            /** @description {"detail": "Enrollment failed."}: the worker, user or token could not be written */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentDetail"];
+                };
+            };
+            /** @description Enrollment service not ready */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentDetail"];
+                };
+            };
+        };
+    };
+    ffmpeg_status_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FFmpegStatusResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    health_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    heartbeat_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    heartbeat_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerHeartbeatResponse"];
+                };
+            };
+        };
+    };
+    heartbeat_card_choice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardChoiceBody"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardChoiceSendResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            411: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+        };
+    };
+    heartbeat_card_choice_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+        };
+    };
+    heartbeat_dismiss_card_alert_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DismissCardAlertRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["DismissCardAlertRequest"];
+                "multipart/form-data": components["schemas"]["DismissCardAlertRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DismissCardAlertResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActionDetail"];
+                };
+            };
+        };
+    };
+    heartbeat_force_reenroll_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    heartbeat_regenerate_token_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    heartbeat_revoke_token_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    heartbeat_yield_event_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    jobs_list: {
         parameters: {
             query?: {
                 animation?: number;
                 asset__project?: string;
                 assigned_worker?: number;
+                /** @description Comma-separated list of installed Blender versions (e.g. ``4.5.8,4.4.3``, at most 20) for worker-poll version filtering. Matches the exact version (X.Y.Z): a Blender job is returned only when its resolved version is listed. A worker poll without this parameter returns no Blender job. */
+                available_versions?: string;
+                /** @description Comma-separated list of RenderDevice values (CPU, GPU, ANY) to include. Used by workers to filter for jobs matching their currently free slots. Empty or invalid values return HTTP 400. Example: ``device_prefs=GPU,ANY``. */
+                device_prefs?: string;
                 /** @description Which field to use when ordering the results. */
                 ordering?: string;
+                /**
+                 * @description Derived from the asset's project at creation; read-only.
+                 *
+                 *     * `BLENDER` - Blender
+                 *     * `UNREAL` - Unreal Engine
+                 */
+                renderer?: "BLENDER" | "UNREAL";
+                /** @description Worker polls only: comma-separated Renderer values (BLENDER, UNREAL) the worker can render. Absent means BLENDER only. Invalid values return HTTP 400. A worker poll returns jobs oldest first (submitted_at, then id). */
+                renderers?: string;
                 /** @description A search term. */
                 search?: string;
                 /**
@@ -1374,6 +4988,8 @@ export interface operations {
                  */
                 status?: "CANCELED" | "DONE" | "ERROR" | "QUEUED" | "RENDERING";
                 tiled_job?: string;
+                /** @description Worker polls only: comma-separated Unreal Engine builds (e.g. ``5.8.4-58902052``), at most 10. Ignored unless ``renderers`` includes UNREAL. */
+                unreal_builds?: string;
             };
             header?: never;
             path?: never;
@@ -1391,7 +5007,7 @@ export interface operations {
             };
         };
     };
-    api_jobs_create: {
+    jobs_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1416,7 +5032,7 @@ export interface operations {
             };
         };
     };
-    api_jobs_retrieve: {
+    jobs_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -1438,7 +5054,7 @@ export interface operations {
             };
         };
     };
-    api_jobs_update: {
+    jobs_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1466,7 +5082,7 @@ export interface operations {
             };
         };
     };
-    api_jobs_destroy: {
+    jobs_destroy: {
         parameters: {
             query?: never;
             header?: never;
@@ -1487,7 +5103,7 @@ export interface operations {
             };
         };
     };
-    api_jobs_partial_update: {
+    jobs_partial_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1515,7 +5131,7 @@ export interface operations {
             };
         };
     };
-    api_jobs_cancel_create: {
+    jobs_cancel_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1543,7 +5159,7 @@ export interface operations {
             };
         };
     };
-    api_jobs_claim_create: {
+    jobs_claim_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1571,7 +5187,463 @@ export interface operations {
             };
         };
     };
-    api_jobs_upload_output_create: {
+    jobs_frames_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["FrameUploadRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameUploadResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultError"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultError"];
+                };
+            };
+        };
+    };
+    jobs_memory_report_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryReportRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["MemoryReportRequest"];
+                "multipart/form-data": components["schemas"]["MemoryReportRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReportResponse"];
+                };
+            };
+            /** @description {"detail": "Unknown keys: ..."}, or {"<field>": ["<message>"]} (types, bounds, card kind, record). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReportValidationError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReportError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReportError"];
+                };
+            };
+        };
+    };
+    jobs_pause_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Job"];
+                "application/x-www-form-urlencoded": components["schemas"]["Job"];
+                "multipart/form-data": components["schemas"]["Job"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+        };
+    };
+    jobs_piece_result_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PieceResultRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["PieceResultRequest"];
+                "multipart/form-data": components["schemas"]["PieceResultRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PieceResultResponse"];
+                };
+            };
+            /** @description {"detail": "Unknown keys: ..."}, or {"<field>": ["<message>"]}. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultValidationError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultError"];
+                };
+            };
+        };
+    };
+    jobs_pilot_result_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PilotResultRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["PilotResultRequest"];
+                "multipart/form-data": components["schemas"]["PilotResultRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PilotResultResponse"];
+                };
+            };
+            /** @description {"detail": "Unknown keys: ..."}, or a per-field error object {"<field>": ["<message>", ...]} (types, bounds, engine build, GPU cross-check, plausibility, card kind, verdict). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PilotResultValidationError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PilotResultError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PilotResultError"];
+                };
+            };
+        };
+    };
+    jobs_release_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobReleaseRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobReleaseRequest"];
+                "multipart/form-data": components["schemas"]["JobReleaseRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobReleaseResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobReleaseError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobReleaseError"];
+                };
+            };
+        };
+    };
+    jobs_requeue_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Job"];
+                "application/x-www-form-urlencoded": components["schemas"]["Job"];
+                "multipart/form-data": components["schemas"]["Job"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+        };
+    };
+    jobs_shots_result_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShotsResultRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["ShotsResultRequest"];
+                "multipart/form-data": components["schemas"]["ShotsResultRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShotsResultResponse"];
+                };
+            };
+            /** @description {"detail": "Unknown keys: ..."}, or {"<field>": ["<message>"]}. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultValidationError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceResultError"];
+                };
+            };
+        };
+    };
+    jobs_sound_result_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["SoundResultRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoundResultResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoundResultErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoundResultErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoundResultErrorBody"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoundResultErrorBody"];
+                };
+            };
+        };
+    };
+    jobs_unpause_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Job"];
+                "application/x-www-form-urlencoded": components["schemas"]["Job"];
+                "multipart/form-data": components["schemas"]["Job"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+        };
+    };
+    jobs_upload_output_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1597,7 +5669,71 @@ export interface operations {
             };
         };
     };
-    api_projects_list: {
+    jobs_yield_requeue_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Render Job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Job"];
+                "application/x-www-form-urlencoded": components["schemas"]["Job"];
+                "multipart/form-data": components["schemas"]["Job"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+        };
+    };
+    manager_defaults_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manager_summary_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_list: {
         parameters: {
             query?: never;
             header?: never;
@@ -1611,12 +5747,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"][];
+                    "application/json": components["schemas"]["ProjectDetail"][];
                 };
             };
         };
     };
-    api_projects_create: {
+    projects_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1625,9 +5761,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Project"];
-                "application/x-www-form-urlencoded": components["schemas"]["Project"];
-                "multipart/form-data": components["schemas"]["Project"];
+                "application/json": components["schemas"]["ProjectDetail"];
+                "application/x-www-form-urlencoded": components["schemas"]["ProjectDetail"];
+                "multipart/form-data": components["schemas"]["ProjectDetail"];
             };
         };
         responses: {
@@ -1636,12 +5772,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"];
+                    "application/json": components["schemas"]["ProjectDetail"];
                 };
             };
         };
     };
-    api_projects_retrieve: {
+    projects_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -1658,12 +5794,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"];
+                    "application/json": components["schemas"]["ProjectDetail"];
                 };
             };
         };
     };
-    api_projects_update: {
+    projects_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1675,9 +5811,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Project"];
-                "application/x-www-form-urlencoded": components["schemas"]["Project"];
-                "multipart/form-data": components["schemas"]["Project"];
+                "application/json": components["schemas"]["ProjectDetail"];
+                "application/x-www-form-urlencoded": components["schemas"]["ProjectDetail"];
+                "multipart/form-data": components["schemas"]["ProjectDetail"];
             };
         };
         responses: {
@@ -1686,12 +5822,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"];
+                    "application/json": components["schemas"]["ProjectDetail"];
                 };
             };
         };
     };
-    api_projects_destroy: {
+    projects_destroy: {
         parameters: {
             query?: never;
             header?: never;
@@ -1712,7 +5848,7 @@ export interface operations {
             };
         };
     };
-    api_projects_partial_update: {
+    projects_partial_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1724,9 +5860,9 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["PatchedProject"];
-                "application/x-www-form-urlencoded": components["schemas"]["PatchedProject"];
-                "multipart/form-data": components["schemas"]["PatchedProject"];
+                "application/json": components["schemas"]["PatchedProjectDetail"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedProjectDetail"];
+                "multipart/form-data": components["schemas"]["PatchedProjectDetail"];
             };
         };
         responses: {
@@ -1735,12 +5871,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"];
+                    "application/json": components["schemas"]["ProjectDetail"];
                 };
             };
         };
     };
-    api_projects_pause_create: {
+    projects_cancel_all_jobs_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1752,9 +5888,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Project"];
-                "application/x-www-form-urlencoded": components["schemas"]["Project"];
-                "multipart/form-data": components["schemas"]["Project"];
+                "application/json": components["schemas"]["ProjectDetail"];
+                "application/x-www-form-urlencoded": components["schemas"]["ProjectDetail"];
+                "multipart/form-data": components["schemas"]["ProjectDetail"];
             };
         };
         responses: {
@@ -1763,12 +5899,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"];
+                    "application/json": components["schemas"]["ProjectDetail"];
                 };
             };
         };
     };
-    api_projects_unpause_create: {
+    projects_unreal_measurement_retry_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1778,11 +5914,769 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MeasurementRetryRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["MeasurementRetryRequest"];
+                "multipart/form-data": components["schemas"]["MeasurementRetryRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementRetryResponse"];
+                };
+            };
+            /** @description {"detail": "Unknown keys: ..."} or {"detail": "Not an Unreal project."}, or a per-field error object such as {"job_id": ["Not an Unreal job of this project."]} or {"worker": ["This machine cannot run this memory test now."]}. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementRetryBadRequest"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementRetryError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementRetryError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeasurementRetryError"];
+                };
+            };
+        };
+    };
+    queue_settings_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    queue_settings_pause_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    queue_settings_resume_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sequence_discoveries_list: {
+        parameters: {
+            query?: {
+                asset?: number;
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+                project?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedSequenceDiscoverySummaryList"];
+                };
+            };
+        };
+    };
+    sequence_discoveries_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Project"];
-                "application/x-www-form-urlencoded": components["schemas"]["Project"];
-                "multipart/form-data": components["schemas"]["Project"];
+                "application/json": components["schemas"]["SequenceDiscoveryCreate"];
+                "application/x-www-form-urlencoded": components["schemas"]["SequenceDiscoveryCreate"];
+                "multipart/form-data": components["schemas"]["SequenceDiscoveryCreate"];
+            };
+        };
+        responses: {
+            /** @description The key's latest record, reused. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceDiscovery"];
+                };
+            };
+            /** @description A new record and its shots job. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceDiscovery"];
+                };
+            };
+            /** @description {"detail": "Unknown keys: ..."} or a per-field error object. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceDiscoveryError"];
+                };
+            };
+        };
+    };
+    sequence_discoveries_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Sequence discovery. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceDiscovery"];
+                };
+            };
+        };
+    };
+    sequence_submissions_list: {
+        parameters: {
+            query?: {
+                asset?: number;
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+                project?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedSequenceSubmissionList"];
+                };
+            };
+        };
+    };
+    sequence_submissions_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SequenceSubmissionCreate"];
+                "application/x-www-form-urlencoded": components["schemas"]["SequenceSubmissionCreate"];
+                "multipart/form-data": components["schemas"]["SequenceSubmissionCreate"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionDetail"];
+                };
+            };
+            /** @description {"detail": "Unknown keys: ..."} or a per-field error object. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionError"];
+                };
+            };
+        };
+    };
+    sequence_submissions_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionDetail"];
+                };
+            };
+        };
+    };
+    sequence_submissions_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+        };
+    };
+    sequence_submissions_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceCancel"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+        };
+    };
+    sequence_submissions_download_frames_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The frames of the version's DONE shots as a streamed zip. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+            /** @description {"error": "Not available."} */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description {"error": "A frame file of this version is missing ..."} */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description {"error": "Too many zip downloads at once; ..."} */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sequence_submissions_download_sound_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version's sound (.wav). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+            /** @description {"error": "Not available."} */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sequence_submissions_download_video_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 1: the video with the sound merged in. */
+                sound?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version's video (mp4, webm or mov). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+            /** @description {"error": "Not available."} */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sequence_submissions_merge_sound_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceMergeSound"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+        };
+    };
+    sequence_submissions_retry_sound_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceRetrySound"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+        };
+    };
+    sequence_submissions_retry_video_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceRetryVideo"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+        };
+    };
+    sequence_submissions_shots_download_frames_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+                index: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One DONE shot's frames as a streamed zip. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+            /** @description {"error": "Not available."} */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description {"error": "A frame file of this version is missing ..."} */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description {"error": "Too many zip downloads at once; ..."} */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sequence_submissions_shots_download_sound_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+                index: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One shot's sound (.wav). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+            /** @description {"error": "Not available."} */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sequence_submissions_shots_download_video_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 1: the video with the sound merged in. */
+                sound?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+                index: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One shot's video. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+            /** @description {"error": "Not available."} */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sequence_submissions_shots_rerender_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sequence submission. */
+                id: number;
+                index: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceRerender"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SequenceSubmissionActionError"];
+                };
+            };
+        };
+    };
+    sethlans_share_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SethlansShareResponse"];
+                };
+            };
+        };
+    };
+    sethlans_share_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SethlansShare"];
+                "application/x-www-form-urlencoded": components["schemas"]["SethlansShare"];
+                "multipart/form-data": components["schemas"]["SethlansShare"];
             };
         };
         responses: {
@@ -1791,12 +6685,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"];
+                    "application/json": components["schemas"]["SethlansShareResponse"];
                 };
             };
         };
     };
-    api_stats_retrieve: {
+    stats_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -1815,7 +6709,187 @@ export interface operations {
             };
         };
     };
-    api_tiled_jobs_list: {
+    supported_versions_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportedBlenderVersion"][];
+                };
+            };
+        };
+    };
+    supported_versions_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportedBlenderVersion"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupportedBlenderVersion"];
+                "multipart/form-data": components["schemas"]["SupportedBlenderVersion"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportedBlenderVersion"];
+                };
+            };
+        };
+    };
+    supported_versions_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Supported Blender Version. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportedBlenderVersion"];
+                };
+            };
+        };
+    };
+    supported_versions_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Supported Blender Version. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportedBlenderVersion"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupportedBlenderVersion"];
+                "multipart/form-data": components["schemas"]["SupportedBlenderVersion"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportedBlenderVersion"];
+                };
+            };
+        };
+    };
+    supported_versions_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Supported Blender Version. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    supported_versions_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this Supported Blender Version. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedSupportedBlenderVersion"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedSupportedBlenderVersion"];
+                "multipart/form-data": components["schemas"]["PatchedSupportedBlenderVersion"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportedBlenderVersion"];
+                };
+            };
+        };
+    };
+    supported_versions_available_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportedBlenderVersion"];
+                };
+            };
+        };
+    };
+    system_shutdown_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tiled_jobs_list: {
         parameters: {
             query?: {
                 project?: string;
@@ -1844,7 +6918,7 @@ export interface operations {
             };
         };
     };
-    api_tiled_jobs_create: {
+    tiled_jobs_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -1869,7 +6943,7 @@ export interface operations {
             };
         };
     };
-    api_tiled_jobs_retrieve: {
+    tiled_jobs_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -1891,7 +6965,7 @@ export interface operations {
             };
         };
     };
-    api_tiled_jobs_update: {
+    tiled_jobs_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1919,7 +6993,7 @@ export interface operations {
             };
         };
     };
-    api_tiled_jobs_destroy: {
+    tiled_jobs_destroy: {
         parameters: {
             query?: never;
             header?: never;
@@ -1940,7 +7014,7 @@ export interface operations {
             };
         };
     };
-    api_tiled_jobs_partial_update: {
+    tiled_jobs_partial_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -1955,6 +7029,90 @@ export interface operations {
                 "application/json": components["schemas"]["PatchedTiledJob"];
                 "application/x-www-form-urlencoded": components["schemas"]["PatchedTiledJob"];
                 "multipart/form-data": components["schemas"]["PatchedTiledJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TiledJob"];
+                };
+            };
+        };
+    };
+    tiled_jobs_pause_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this tiled job. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TiledJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["TiledJob"];
+                "multipart/form-data": components["schemas"]["TiledJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TiledJob"];
+                };
+            };
+        };
+    };
+    tiled_jobs_requeue_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this tiled job. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TiledJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["TiledJob"];
+                "multipart/form-data": components["schemas"]["TiledJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TiledJob"];
+                };
+            };
+        };
+    };
+    tiled_jobs_unpause_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this tiled job. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TiledJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["TiledJob"];
+                "multipart/form-data": components["schemas"]["TiledJob"];
             };
         };
         responses: {

@@ -7,8 +7,9 @@ Worker-side multicast discovery listener (FR-8, FR-9, FR-34).
 
 Wizard-only UDP multicast receiver. Joins ``239.150.74.50:8082`` for a
 bounded window, accumulates unique announcements keyed by
-``manager_id`` (most recent wins), and drops malformed or
-wrong-version datagrams with a debug / warning log.
+``manager_id`` (most recent wins; at most ``MAX_MANAGERS`` ids, the
+first heard; an id is printable text of at most 64 characters), and
+drops malformed or wrong-version datagrams with a debug / warning log.
 
 The listener is NOT started during normal operation — only from the
 first-run wizard. The socket is closed in a ``finally`` block.
@@ -28,6 +29,12 @@ MULTICAST_GROUP = "239.150.74.50"
 MULTICAST_PORT = 8082
 LISTEN_TIMEOUT_SECONDS = 15.0
 SUPPORTED_VERSION = 1
+# At most this many managers are kept, the first ones heard (a flood of
+# made-up ids cannot push real managers out); the setup form shows 32.
+MAX_MANAGERS = 32
+MAX_MANAGER_ID = 64
+MAX_LOGGED = 80
+MAX_WARNED = 64
 
 REQUIRED_FIELDS = (
     "v", "manager_id", "name", "host", "ip", "port", "version",
@@ -138,17 +145,22 @@ class MulticastListener:
                 return
         v = obj.get("v")
         if not isinstance(v, int) or v != SUPPORTED_VERSION:
-            pair = (obj.get("manager_id"), v)
-            if pair not in _warned_versions:
+            # Text, not the raw values: a JSON list or object is not hashable.
+            pair = (repr(obj.get("manager_id"))[:MAX_LOGGED], repr(v)[:MAX_LOGGED])
+            if pair not in _warned_versions and len(_warned_versions) < MAX_WARNED:
                 _warned_versions.add(pair)
                 logger.warning(
-                    "Manager %s broadcasts protocol version %s; "
+                    "Manager %.*r broadcasts protocol version %.*r; "
                     "worker understands version %d only — ignoring",
-                    obj.get("manager_id"), v, SUPPORTED_VERSION,
+                    MAX_LOGGED, obj.get("manager_id"), MAX_LOGGED, v, SUPPORTED_VERSION,
                 )
             return
         manager_id = obj.get("manager_id")
-        if not isinstance(manager_id, str) or not manager_id:
+        if (not isinstance(manager_id, str) or not manager_id
+                or len(manager_id) > MAX_MANAGER_ID or not manager_id.isprintable()):
             logger.debug("Dropped multicast: invalid manager_id")
+            return
+        if manager_id not in seen and len(seen) >= MAX_MANAGERS:
+            logger.debug("Dropped multicast: already %d managers", MAX_MANAGERS)
             return
         seen[manager_id] = obj

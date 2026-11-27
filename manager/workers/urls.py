@@ -17,6 +17,7 @@ from .views import (
     health_view, shutdown_view,
     FFmpegStatusView,
 )
+from .views.enrollment_key_notice import enrollment_key_notice_view
 from .views.manager_defaults import manager_defaults_view
 from .views.manager_summary import manager_summary_view
 from .views.sequence_discoveries import SequenceDiscoveryViewSet
@@ -61,6 +62,11 @@ urlpatterns = [
         'auth/regenerate_enrollment_key/',
         regenerate_enrollment_key_view,
         name='auth-regenerate-enrollment-key',
+    ),
+    path(
+        'auth/enrollment_key_notice/',
+        enrollment_key_notice_view,
+        name='auth-enrollment-key-notice',
     ),
     # Worker enrollment endpoint (HMAC-bootstrapped)
     path('enroll/', enroll_view, name='enroll'),

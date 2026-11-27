@@ -11,8 +11,13 @@ the setup-mode URLconf and middleware inside the test process (the
 process itself runs the run-time settings; ``test_entry_subprocess``
 checks the real setup-mode process). On macOS ``tmp_path`` is a folder
 under the home folder, since the data-folder checks refuse
-``/private/var`` (``tests.unit._off_system_tmp``).
+``/private/var`` (``tests.unit._off_system_tmp``). The worker program's
+setup commands are answered in the process (``fake_worker_cli``): no
+cards, no managers, and ``--setup-apply`` saves without enrolling.
 """
+import copy
+from types import SimpleNamespace
+
 import pytest
 
 from shared.settings_parse import new_parser
@@ -56,6 +61,32 @@ def _fresh_setup_state(monkeypatch, tmp_path):
     monkeypatch.setattr(auth, "_auth", None)
     monkeypatch.setattr(views, "_server", {"setup_port": SETUP_PORT, "reserved_ports": set(RESERVED_PORTS)})
     monkeypatch.setattr(leftovers, "get_worker_dir", lambda: tmp_path / "install-worker")
+
+
+@pytest.fixture(autouse=True)
+def fake_worker_cli(monkeypatch):
+    """``worker_cli.run`` answered from ``answers`` by command; ``calls`` records each run."""
+    from sethlans_manager.setup_mode import worker_cli
+
+    canned = {
+        worker_cli.CARDS: {
+            "os_probe_failed": False, "cards": [], "unreal_enabled": False, "unreal_enabled_env": False,
+            "enrollment": None, "ui_password_set": False,
+            "saved": {"compute": "cpu", "cards": [], "combine": False, "env_override": False,
+                      "config_read_failed": False},
+        },
+        worker_cli.DISCOVER: {"managers": []},
+        worker_cli.APPLY: {"enrolled": False, "manager_id": None, "manager_name": None,
+                           "cert_fingerprint": None, "status": None},
+    }
+    calls = []
+
+    def run(command, payload, timeout, data_root=None):
+        calls.append((command, payload, timeout))
+        return worker_cli.CliResult(command, answer=copy.deepcopy(canned[command]))
+
+    monkeypatch.setattr(worker_cli, "run", run)
+    return SimpleNamespace(answers=canned, calls=calls)
 
 
 @pytest.fixture

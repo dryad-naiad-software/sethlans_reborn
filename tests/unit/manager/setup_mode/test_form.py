@@ -154,7 +154,7 @@ class TestFormRoundTrip:
         errors, _plan = check(body)
         assert _shape_errors(errors) == {}
         # Only what the person must still choose or type is reported.
-        assert set(errors) <= {"mode", "admin.username", "admin.password"}
+        assert set(errors) <= {"mode", "admin.username", "admin.password", "worker.ui_password"}
 
     def test_form_filled_in_and_sent_back_validates(self, setup_client, session, accounts, free, check, tmp_path):
         body = _get(setup_client, session).json()
@@ -186,21 +186,23 @@ class TestFormErrors:
     def test_probe_failure_goes_into_errors(self, setup_client, session, earlier, accounts, free):
         accounts.side_effect = db_probe.ProbeError("host_unreachable")
         body = _get(setup_client, session).json()
-        assert body["errors"] == ["Could not read the configured database: Could not reach the database server."]
+        assert body["errors"] == [{"part": "database", "message": "Could not read the configured database: "
+                                   "Could not reach the database server."}]
         assert body["admin"]["accounts_exist"] is False
 
     def test_unusable_stored_settings_go_into_errors(self, setup_client, session, ini_path, accounts, free):
         ini_path.parent.mkdir(parents=True)
         ini_path.write_text("[database]\nengine = mysql\ntls = true\n")
         body = _get(setup_client, session).json()
-        assert body["errors"] == ["The stored database settings are not usable: "
-                                  "[database] tls = true needs tls_ca_file for MySQL and MariaDB"]
+        assert body["errors"] == [{"part": "database", "message": "The stored database settings are not usable: "
+                                   "[database] tls = true needs tls_ca_file for MySQL and MariaDB"}]
 
     def test_unreadable_file_still_returns_the_form(self, setup_client, session, ini_path, accounts, free):
         ini_path.parent.mkdir(parents=True)
         ini_path.write_text("garbage without a section")
         body = _get(setup_client, session).json()
-        assert body["errors"][0].startswith("The settings file could not be read")
+        assert body["errors"][0]["part"] == "settings"
+        assert body["errors"][0]["message"].startswith("The settings file could not be read")
         assert body["mode"] == "manager_worker"
 
     def test_last_failure_and_leftovers_are_shown(self, setup_client, session, settings_dir, accounts, free):

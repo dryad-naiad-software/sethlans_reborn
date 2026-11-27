@@ -81,6 +81,18 @@ class TestWriteSettings:
         plan_module.write_settings(_plan(tmp_path / "data", None))
         assert not read_settings(old_file).has_section("first_admin")
 
+    def test_worker_mode_sets_only_setup_and_paths(self, old_file, tmp_path):
+        """FR-WZ-3 / FR-RS-4: the worker mode keeps [server] and [database] and removes [first_admin]."""
+        plan_module.write_settings(_plan(tmp_path / "data", None, mode="worker", server_host=None, server_port=None,
+                                         database=None))
+        parser = read_settings(old_file)
+        assert parser["setup"]["mode"] == "worker"
+        assert dict(parser["paths"]) == {"data_dir": str(tmp_path / "data")}
+        assert dict(parser["server"]) == {"host": "10.0.0.1", "port": "8080", "waitress_loopback_port_public": "18090"}
+        assert dict(parser["database"]) == {"engine": "postgresql", "name": "old", "password": "old-db-pw",
+                                            "conn_max_age": "120"}
+        assert not parser.has_section("first_admin")
+
     def test_new_file_is_owner_only(self, ini_path, tmp_path):
         result = plan_module.write_settings(_plan(tmp_path / "data", ADMIN))
         assert result == plan_module.WriteResult(ini_path, True, None)
@@ -177,7 +189,7 @@ class TestApplyAnswers:
         assert isinstance(outcome.body, bytes)
         assert json.loads(outcome.body) == {
             "ok": True, "mode": "manager", "restarting": True, "url": "https://setuphost:18444/",
-            "port_changed": True, "first_admin": "boss", "warnings": [], "leftovers": []}
+            "port_changed": True, "first_admin": "boss", "worker": None, "warnings": [], "leftovers": []}
 
     def test_body_is_encoded_before_the_write(self, saving, ctx, tmp_path, hasher, mocker):
         def write(plan):
@@ -194,10 +206,23 @@ class TestApplyAnswers:
         assert list(outcome.body["fields"]) == ["mode"]
         assert not ini_path.exists() and not (tmp_path / "sethlans-data").exists()
 
+    @pytest.mark.parametrize("admin, accounts, codes", [
+        ({"username": "boss", "password": GOOD_PASSWORD}, (True, True), {"admin.username": ["account_exists"]}),
+        ({"keep_existing": True}, (False, False), {"admin.keep_existing": ["no_account_to_keep"]}),
+    ])
+    def test_invalid_body_has_a_message_and_codes(self, saving, ctx, tmp_path, mocker, admin, accounts, codes):
+        """FR-WZ-2 (review: frontend S2): the 400 carries a message and the machine codes the page acts on."""
+        from sethlans_manager.setup_mode import db_probe, validate
+
+        mocker.patch.object(validate.db_probe, "check_database", return_value=db_probe.AdminAccounts(*accounts))
+        outcome = submit.apply_answers(answers(tmp_path, admin=admin), ctx, "h")
+        assert (outcome.status, outcome.body["message"], outcome.body["codes"]) == (400, submit.INVALID_MESSAGE, codes)
+
     def test_data_folder_failure_is_400(self, saving, ctx, ini_path, tmp_path, hasher, mocker):
         mocker.patch.object(data_folder, "prepare_data_root", side_effect=data_folder.DataFolderError("nope"))
         outcome = submit.apply_answers(answers(tmp_path), ctx, "h")
-        assert outcome == submit.Outcome(400, {"error": "invalid", "fields": {"data_folder.path": ["nope"]}})
+        assert outcome == submit.Outcome(400, {"error": "invalid", "message": submit.INVALID_MESSAGE,
+                                               "fields": {"data_folder.path": ["nope"]}, "codes": {}})
         assert not ini_path.exists()
 
     def test_write_failure_is_500_and_unsaved(self, saving, ctx, tmp_path, hasher, mocker, caplog):

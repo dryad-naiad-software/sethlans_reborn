@@ -11,7 +11,10 @@ most 15: how long to listen to the manager broadcasts
     {"managers": [{"name", "host", "ip", "port", "manager_id", "version"}]}
 
 sorted by name, then manager id; one entry per manager id (the latest
-announcement wins). The listening socket could not be opened: exit 1,
+announcement wins), at most 32 managers (the first heard; see
+``multicast_listener.MAX_MANAGERS``). Text fields are printable and cut
+(name, manager id 64, host 253, ip 45, version 32); ``port`` is ``null``
+unless it is a number 1-65535. The listening socket could not be opened: exit 1,
 ``discovery_failed``.
 """
 import logging
@@ -32,11 +35,23 @@ def _seconds(request: dict) -> float:
     return float(value)
 
 
+def _clip(value, limit: int) -> str:
+    """``value`` as printable text cut to ``limit`` characters; ``''`` when it is not text."""
+    if not isinstance(value, str):
+        return ''
+    return ''.join(ch for ch in value if ch.isprintable())[:limit]
+
+
+def _port(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 < value < 65536 else None
+
+
 def _entry(announcement: dict) -> dict:
+    get = announcement.get
     return {
-        'name': announcement.get('name', ''), 'host': announcement.get('host', ''),
-        'ip': announcement.get('ip', ''), 'port': announcement.get('port', 8080),
-        'manager_id': announcement.get('manager_id', ''), 'version': announcement.get('version', ''),
+        'name': _clip(get('name'), 64), 'host': _clip(get('host'), 253), 'ip': _clip(get('ip'), 45),
+        'port': _port(get('port', 8080)), 'manager_id': _clip(get('manager_id'), 64),
+        'version': _clip(get('version'), 32),
     }
 
 

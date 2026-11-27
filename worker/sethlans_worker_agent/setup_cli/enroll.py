@@ -18,13 +18,14 @@ or the token.
 """
 import ipaddress
 import urllib.parse
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import requests
 
 from sethlans_worker_agent import enrollment_client
 
 DEFAULT_PORT = 8080
+NAME_KEY = 'manager.name'  # the manager's name from the setup form; shown by --setup-cards only
 _PATHS = ('', '/', '/api', '/api/')
 
 
@@ -56,12 +57,15 @@ def parse_manager_url(text) -> Tuple[str, int]:
     return parts.hostname, port or DEFAULT_PORT
 
 
-def enroll_pairs(host: str, port: int, enrollment_key: str, hostname: str) -> Tuple[dict, List[tuple]]:
+def enroll_pairs(host: str, port: int, enrollment_key: str, hostname: str,
+                 manager_name: Optional[str] = None) -> Tuple[dict, List[tuple]]:
     """Enroll with the manager at ``host:port``; ``(answer, config pairs)``. Raises ``EnrollmentError``.
 
     The answer is ``enrollment_client.enroll``'s (``api_token``,
     ``cert_fingerprint``, ``manager_id`` and, when the manager sent one,
-    ``status``).
+    ``status``). ``manager_name`` (already checked, or ``None`` when not
+    known) is saved as ``manager.name``, so a new enrollment never keeps the
+    name of an earlier manager.
     """
     answer = enrollment_client.enroll(api_url(host, port), enrollment_key, hostname)
     pairs = [
@@ -70,6 +74,7 @@ def enroll_pairs(host: str, port: int, enrollment_key: str, hostname: str) -> Tu
         ('manager.manager_id', answer['manager_id']),
         ('manager.host', host),
         ('manager.port', int(port)),
+        (NAME_KEY, manager_name),
     ]
     return answer, pairs
 

@@ -27,7 +27,7 @@ class TestWholeForm:
         assert check(value) == ({"non_field_errors": ["The form must be a JSON object."]}, None)
 
     def test_every_error_is_reported_at_once(self, check, tmp_path, probe):
-        errors, plan = check(answers(tmp_path, mode="worker", server={"host": "10.255.255.1", "port": 80},
+        errors, plan = check(answers(tmp_path, mode="bogus", server={"host": "10.255.255.1", "port": 80},
                                      data_folder={"path": "relative"},
                                      admin={"username": "bad name!", "password": ""}))
         assert plan is None
@@ -47,8 +47,6 @@ class TestMode:
         (None, "The mode is required."),
         ("", "The mode is required."),
         ("bogus", "Choose one of manager, manager_worker, worker."),
-        ("manager_worker", "This build can set up the manager mode only."),
-        ("worker", "This build can set up the manager mode only."),
         (3, "The mode must be text."),
     ])
     def test_mode_errors(self, check, tmp_path, mode, message):

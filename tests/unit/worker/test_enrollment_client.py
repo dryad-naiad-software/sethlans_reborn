@@ -148,17 +148,26 @@ class TestHttpErrorMapping:
         (400, False, "Manager rejected the request: "),
         (500, False, "Manager internal error (HTTP 500): "),
         (418, False, "Unexpected HTTP 418: "),
-    ], ids=["400-detail", "400-text", "5xx", "other"])
-    def test_server_text_in_the_message_is_printable_and_cut_to_200(self, status, detail, prefix):
+        (None, False, "Network error: "),
+    ], ids=["400-detail", "400-text", "5xx", "other", "network-error"])
+    def test_server_text_in_the_message_is_printable_and_cut_to_200(self, mocker, status, detail, prefix):
         """FR-WK-1: manager text reaches CLI answers and logs, so control characters (CR/LF too) are removed and
-        it is cut to 200 characters."""
+        it is cut to 200 characters; a network error's text too (chunk 5 security review)."""
         text = "bad\r\nline\x1b[2J\x00" + "x" * 300
-        response = MagicMock()
-        response.status_code = status
-        response.text = text
-        response.json.return_value = {"detail": text}
-        response.json.side_effect = None if detail else ValueError("not json")
-        error = enrollment_client._map_http_error(response)
+        if status is None:
+            session = MagicMock()
+            session.post.side_effect = requests.exceptions.ConnectionError(text)
+            _patch_session(mocker, session)
+            with pytest.raises(enrollment_client.EnrollmentError) as caught:
+                enrollment_client._post_enroll(MANAGER_URL, {})
+            error = caught.value
+        else:
+            response = MagicMock()
+            response.status_code = status
+            response.text = text
+            response.json.return_value = {"detail": text}
+            response.json.side_effect = None if detail else ValueError("not json")
+            error = enrollment_client._map_http_error(response)
         assert str(error) == prefix + ("badline[2J" + "x" * 300)[:enrollment_client.MAX_SERVER_TEXT]
         assert enrollment_client.MAX_SERVER_TEXT == 200
 

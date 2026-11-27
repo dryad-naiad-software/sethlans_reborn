@@ -15,10 +15,17 @@ can be sent back as received after editing. Keys the form only reports
 (``hostname``, ``addresses``, ``bind_addresses``, ``modes``, ``cards``,
 ``managers``, ``leftovers``, ``last_failure``, ``errors``,
 ``data_folder.free_bytes`` and ``low_space``, ``database.password_set``,
-``admin.accounts_exist``) are never read, so they are ignored.
+``admin.accounts_exist``, ``cards_os_probe_failed``, ``enrollment``,
+``worker.ui_password_set``, ``worker.compute_env_override``,
+``worker.unreal_enabled_env``) are never read, so they are ignored.
 
-This build sets up the ``manager`` mode only; ``manager_worker`` and
-``worker`` need the worker program's setup commands.
+Sections by mode (FR-WZ-3): Server, Database and Admin for ``manager`` and
+``manager_worker`` (and for a missing or unknown mode, so every error
+shows at once); Worker for ``manager_worker`` and ``worker``; Manager and
+Enrollment key for ``worker`` (``validate_worker``); the data folder for
+all. The Worker section needs a fresh ``--setup-cards`` answer; when that
+command fails, ``validate_worker.WorkerCliFailure`` is raised (nothing
+has been written).
 """
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,12 +38,11 @@ from shared.settings_file import SETUP_MODES
 
 from sethlans_manager.admin_fields import clean_username
 from sethlans_manager.db_tls import DatabaseTLSError
-from sethlans_manager.setup_mode import db_probe, fields, net
+from sethlans_manager.setup_mode import db_probe, fields, net, validate_worker
 from sethlans_manager.setup_mode.plan import Plan, database_entry
 from sethlans_manager.setup_mode.validate_admin import first_admin
 from sethlans_manager.setup_mode.validate_db import database_values
 
-SUPPORTED_MODES = ("manager",)
 DATA_FOLDER_FIELD = "data_folder.path"
 DATA_FOLDER_SHAPE = 'The data folder must be sent as {"path": "<absolute folder>"}, as the form gives it.'
 LOW_SPACE_WARNING = "Only {free} GB are free on the drive of {path}; renders and tools need more (20 GB or more)."
@@ -57,9 +63,6 @@ def _mode(answers: dict, errors: fields.Errors) -> Optional[str]:
         return None
     if mode not in SETUP_MODES:
         errors.add("mode", f"Choose one of {', '.join(sorted(SETUP_MODES))}.")
-        return None
-    if mode not in SUPPORTED_MODES:
-        errors.add("mode", "This build can set up the manager mode only.")
         return None
     return mode
 
@@ -119,16 +122,9 @@ def _check_database(database, root: Path, username: str, errors: fields.Errors):
 
 
 @sensitive_variables("answers")
-def validate(answers: object, ctx: Context) -> Tuple[fields.Errors, Optional[Plan]]:
-    """Check everything; return the errors and, when there are none, the plan."""
-    errors = fields.Errors()
-    if not isinstance(answers, dict):
-        errors.add(fields.NON_FIELD, "The form must be a JSON object.")
-        return errors, None
-    warnings = []
-    mode = _mode(answers, errors)
+def _manager_sections(answers: dict, ctx: Context, root: Optional[Path], errors: fields.Errors, warnings):
+    """``(host, port, database, first admin)`` of the manager modes."""
     host, port = _server(answers, ctx, errors)
-    root = _data_root(answers, errors, warnings)
     database = database_values(answers, ctx.stored, errors, warnings)
     accounts = None
     if database is not None and root is not None:
@@ -142,6 +138,41 @@ def validate(answers: object, ctx: Context) -> Tuple[fields.Errors, Optional[Pla
     admin_values = first_admin(answers, accounts, errors)
     if accounts is None and not errors:  # pragma: no cover - every path to None records an error
         errors.add(fields.NON_FIELD, "The database could not be checked.")
+    return host, port, database, admin_values
+
+
+@sensitive_variables("answers", "payload", "enrollment")
+def _worker_sections(answers: dict, mode: str, errors: fields.Errors):
+    """``(--setup-apply payload, kept enrollment)``; raises ``WorkerCliFailure``."""
+    cards_answer = validate_worker.fresh_cards()
+    payload = validate_worker.worker_section(answers, cards_answer, errors)
+    if mode != "worker":
+        return payload, None
+    enrollment = validate_worker.manager_section(answers, cards_answer, errors)
+    if payload is None or enrollment is None:
+        return None, None
+    payload.update(enrollment)
+    kept = validate_worker.enrollment_of(cards_answer) if not enrollment else None
+    return payload, kept
+
+
+@sensitive_variables("answers", "payload")
+def validate(answers: object, ctx: Context) -> Tuple[fields.Errors, Optional[Plan]]:
+    """Check everything; return the errors and, when there are none, the plan."""
+    errors = fields.Errors()
+    if not isinstance(answers, dict):
+        errors.add(fields.NON_FIELD, "The form must be a JSON object.")
+        return errors, None
+    warnings = []
+    mode = _mode(answers, errors)
+    root = _data_root(answers, errors, warnings)
+    payload = kept = None
+    if mode in validate_worker.WORKER_MODES:
+        payload, kept = _worker_sections(answers, mode, errors)
+    host = port = database = admin_values = None
+    if mode != "worker":  # last: the admin password is hashed only when all else is well
+        host, port, database, admin_values = _manager_sections(answers, ctx, root, errors, warnings)
     if errors:
         return errors, None
-    return errors, Plan(mode, root, host, port, database, admin_values, warnings)
+    return errors, Plan(mode, root, host, port, database, admin_values, warnings,
+                        worker_apply=payload, enrollment=kept)

@@ -10,10 +10,13 @@ Input::
      "combine": bool, "unreal_enabled": bool,
      "ui_password": <text> | null,
      "manager_url": "https://host[:port]", "enrollment_key": <text>,   (both or neither)
-     "manager_name": <text>}                                           (optional, echoed back)
+     "manager_name": <text>}                                           (optional)
 
 ``ui_password`` null (or left out) keeps the stored password; with none
-stored that is refused. Order: every field is checked (``apply_fields``),
+stored that is refused. ``manager_name`` is echoed back and, when the
+worker enrolls, saved as ``manager.name`` (``null`` when left out), for
+``--setup-cards``'s ``enrollment``; without enrollment the stored name is
+left alone. Order: every field is checked (``apply_fields``),
 then, when a key is given, the worker enrolls (``enroll.enroll_pairs``),
 then everything goes into ``config.json`` with one ``config_store.set_many``:
 the card choice, ``unreal.enabled``, ``worker.ui_password_hash`` and the
@@ -96,10 +99,10 @@ def _choice_pairs(request: dict):
     return pairs, expect
 
 
-def _enroll(manager, hostname: str):
+def _enroll(manager, hostname: str, name):
     host, port, key = manager
     try:
-        return enroll.enroll_pairs(host, port, key, hostname)
+        return enroll.enroll_pairs(host, port, key, hostname, name)
     except enrollment_client.EnrollmentError as error:
         code = enroll.error_code(error)
         logger.warning("Setup: enrollment with the manager at %s:%d failed (%s).", host, port, code)
@@ -127,7 +130,7 @@ def run(request: dict) -> dict:
     pairs += _password_pairs(request, hostname)
     answer = {'enrolled': False, 'manager_id': None, 'manager_name': None, 'cert_fingerprint': None, 'status': None}
     if manager is not None:
-        result, enrollment = _enroll(manager, hostname)
+        result, enrollment = _enroll(manager, hostname, name)
         pairs += enrollment
         answer.update(enrolled=True, manager_id=result['manager_id'], manager_name=name,
                       cert_fingerprint=result['cert_fingerprint'], status=result.get('status'))

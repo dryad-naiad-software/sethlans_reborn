@@ -59,12 +59,16 @@ def data_root(tmp_path):
 
 @pytest.fixture
 def setup_process(tmp_path):
-    """Factory: start a real ``run_manager --setup``; all are ended at teardown."""
+    """Factory: start a real ``run_manager --setup``; all are ended at teardown.
+
+    Starting again with the ``name`` of an ended process reuses its folder
+    (its settings, a fresh token), as the launcher does after a Reset.
+    """
     started = []
 
     def start(setup_port=None, extra_env=None, name="proc"):
         folder = tmp_path / name
-        folder.mkdir()
+        folder.mkdir(exist_ok=True)
         proc = SetupProcess(folder)
         started.append(proc)
         return proc.start(setup_port=setup_port, extra_env=extra_env)
