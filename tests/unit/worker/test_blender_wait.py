@@ -111,3 +111,14 @@ class TestManagerWait:
         blender_wait.keep_waits(['4.2.19'])
 
         assert (blender_wait.is_waiting(VERSION), blender_wait.is_waiting('4.2.19')) == (False, True)
+
+    def test_waiting_versions_lists_only_versions_whose_next_ask_has_not_come(self, clock):
+        """#329: the registration log says "waiting" only for versions waiting now; one whose next ask has
+        passed (e.g. it went online after 30 min and failed) is not listed."""
+        blender_wait.record_wait(VERSION)
+        clock.t += 30
+        blender_wait.record_wait('4.2.19')
+
+        clock.t += 31  # VERSION's next ask (60 s) has come; 4.2.19's has not
+
+        assert blender_wait.waiting_versions() == ['4.2.19']

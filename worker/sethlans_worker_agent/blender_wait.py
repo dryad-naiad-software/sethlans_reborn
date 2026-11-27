@@ -30,7 +30,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, List, Optional
 
 from sethlans_worker_agent import blender_install
 
@@ -86,6 +86,13 @@ def is_waiting(version: str) -> bool:
     with _wait_lock:
         entry = _waits.get(version)
         return bool(entry and _clock() < entry.next_ask)
+
+
+def waiting_versions() -> List[str]:
+    """The versions that wait for the manager now (``is_waiting``), sorted; for the registration log (#329)."""
+    now = _clock()
+    with _wait_lock:
+        return sorted(v for v, entry in _waits.items() if now < entry.next_ask)
 
 
 def wait_expired(version: str) -> bool:
