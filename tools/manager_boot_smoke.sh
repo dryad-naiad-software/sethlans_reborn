@@ -25,6 +25,17 @@
 #      HTTPS answers on the mapped 9443.
 #   D. Root-owned bind mount (#297): /data on a host folder owned by
 #      root -> the container exits 3 with the chown fix, no traceback.
+#   E. No admin (FR-DK-4): a new data volume and no SETHLANS_ADMIN_*
+#      -> the container exits 12 and logs why, no traceback. Then the
+#      README fallback (`python manage.py createsuperuser` with the
+#      entrypoint cleared) creates an admin on that volume.
+#
+# Admin (FR-DK-3): containers A-C get the first admin the way the
+# compose file gives it: SETHLANS_ADMIN_USERNAME plus
+# SETHLANS_ADMIN_PASSWORD_FILE naming a read-only file mounted under
+# /run/secrets/ (as a Compose secret is). A creates the account from it
+# (logged by username, the password never logged); B and C reuse the
+# database, where the account exists already.
 #
 # FFmpeg: before the first start a stand-in `ffmpeg` (a shell script
 # that answers `-version`) is put where the image says the bundled copy
@@ -64,6 +75,10 @@ HOME_STATE=/home/sethlans/.local/share/sethlans
 CUR=""        # container the helpers below act on
 CPORT=8080    # container port Caddy serves on for CUR
 HOST_DIR=""   # root-owned host folder for step D
+NOADMIN_VOLUME="${PREFIX}-noadmin"
+ADMIN_USER="smoke-admin"
+ADMIN_SECRET_IN=/run/secrets/sethlans_admin_password
+SECRET_DIR=$(mktemp -d)
 
 remove_host_dir() {
     [ -n "${HOST_DIR}" ] && [ -d "${HOST_DIR}" ] || return 0
@@ -77,12 +92,13 @@ remove_host_dir() {
 
 cleanup() {
     local n
-    for n in a b c d; do
+    for n in a b c d e; do
         # -v: also drop the anonymous volumes of image VOLUMEs left unmounted.
         docker rm -fv "${PREFIX}-${n}" >/dev/null 2>&1 || true
     done
-    docker volume rm "${VOLUMES[@]}" >/dev/null 2>&1 || true
+    docker volume rm "${VOLUMES[@]}" "${NOADMIN_VOLUME}" >/dev/null 2>&1 || true
     remove_host_dir
+    rm -rf "${SECRET_DIR}" || true
 }
 trap cleanup EXIT
 # A cancelled or timed-out CI step sends SIGTERM/SIGINT: exit so the
@@ -131,7 +147,7 @@ start_container() {  # <suffix> <container port> [extra docker run args...]
     CPORT="$2"
     shift 2
     docker run -d --name "${CUR}" -e SETHLANS_SECURITY_SECRET_KEY \
-        "${VOLUME_ARGS[@]}" -p "127.0.0.1::${CPORT}" "$@" "${IMAGE}" >/dev/null \
+        "${ADMIN_ARGS[@]}" "${VOLUME_ARGS[@]}" -p "127.0.0.1::${CPORT}" "$@" "${IMAGE}" >/dev/null \
         || fail "docker run failed"
 }
 
@@ -246,6 +262,25 @@ done
 SETHLANS_SECURITY_SECRET_KEY="$(openssl rand -hex 32)"
 export SETHLANS_SECURITY_SECRET_KEY
 
+# The first admin's password as a file, mounted read-only like a Compose
+# secret. Made the way docker-compose.yml tells users to: mode 600 and
+# owned by the runtime user (uid 1000), never readable by others. The
+# folder (from mktemp -d) stays 700; umask 077 keeps the file 600 from
+# the moment it is written. The runner is not uid 1000, so a root
+# container hands the file over; cleanup can still delete it because
+# the runner owns the folder.
+ADMIN_PASSWORD="$(openssl rand -base64 24)"
+chmod 700 "${SECRET_DIR}"
+(umask 077 && printf '%s\n' "${ADMIN_PASSWORD}" > "${SECRET_DIR}/admin_password")
+docker run --rm --user 0:0 --entrypoint sh -v "${SECRET_DIR}:/x" "${IMAGE}" \
+    -c 'chown 1000:1000 /x/admin_password && chmod 0600 /x/admin_password' \
+    || fail "could not hand the admin password file to uid 1000"
+SETHLANS_ADMIN_USERNAME="${ADMIN_USER}"
+SETHLANS_ADMIN_PASSWORD_FILE="${ADMIN_SECRET_IN}"
+export SETHLANS_ADMIN_USERNAME SETHLANS_ADMIN_PASSWORD_FILE
+ADMIN_ARGS=(-e SETHLANS_ADMIN_USERNAME -e SETHLANS_ADMIN_PASSWORD_FILE
+            -v "${SECRET_DIR}/admin_password:${ADMIN_SECRET_IN}:ro")
+
 # Put the FFmpeg stand-in where the image itself says the bundled copy
 # lives (so the path must resolve under /data).
 FFMPEG_PATH=$(docker run --rm --entrypoint python -v "${VOLUMES[0]}:/data" "${IMAGE}" -c '
@@ -274,6 +309,13 @@ fingerprint=$(served_fingerprint)
 [ -n "${fingerprint}" ] || fail "could not read the certificate served on port 8080"
 [ "${fingerprint}" = "$(stored_fingerprint)" ] || fail "served cert (${fingerprint}) is not /data/tls/cert.pem"
 echo "OK: Caddy serves /data/tls/cert.pem (${fingerprint})"
+logs=$(docker logs "${CUR}" 2>&1 || true)
+grep -q "Created the admin account '${ADMIN_USER}' from SETHLANS_ADMIN_USERNAME" <<< "${logs}" \
+    || fail "no admin account created from SETHLANS_ADMIN_USERNAME + SETHLANS_ADMIN_PASSWORD_FILE"
+if grep -qF -- "${ADMIN_PASSWORD}" <<< "${logs}"; then
+    fail "the admin password appears in the logs"
+fi
+echo "OK: admin '${ADMIN_USER}' created from the password file; password not logged"
 check_ffmpeg_from_data
 inode=$(ffmpeg_inode)
 mode=$(docker exec "${CUR}" stat -c %a /data 2>/dev/null || echo "?")
@@ -345,6 +387,35 @@ fi
 echo "OK: root-owned /data -> exit 3 with: $(grep -m 1 'chown' <<< "${logs}")"
 docker rm -fv "${CUR}" >/dev/null || fail "docker rm failed"
 remove_host_dir
+
+# --- E. no admin --------------------------------------------------------
+echo "== E: new data volume, no SETHLANS_ADMIN_* (FR-DK-4)"
+docker volume create "${NOADMIN_VOLUME}" >/dev/null
+CUR="${PREFIX}-e"
+set +e
+timeout 120 docker run --name "${CUR}" -e SETHLANS_SECURITY_SECRET_KEY \
+    -v "${NOADMIN_VOLUME}:/data" "${IMAGE}" >/dev/null 2>&1
+rc=$?
+set -e
+logs=$(docker logs "${CUR}" 2>&1 || true)
+[ "${rc}" = "12" ] || fail "exit code ${rc} with no admin account, expected 12"
+grep -q "First start failed: there is no admin account" <<< "${logs}" \
+    || fail "no 'no admin account' reason in the logs"
+if grep -q "Traceback" <<< "${logs}"; then
+    fail "traceback printed for a missing admin account"
+fi
+echo "OK: no admin -> exit 12 with: $(grep -m 1 'First start failed' <<< "${logs}")"
+docker rm -fv "${CUR}" >/dev/null || fail "docker rm failed"
+CUR=""
+# The README fallback on the same volume (migrated by the start above),
+# with the entrypoint cleared as `docker compose run --entrypoint ""` does.
+DJANGO_SUPERUSER_PASSWORD="${ADMIN_PASSWORD}"
+export DJANGO_SUPERUSER_PASSWORD
+out=$(docker run --rm --entrypoint "" -e SETHLANS_SECURITY_SECRET_KEY -e DJANGO_SUPERUSER_PASSWORD \
+    -v "${NOADMIN_VOLUME}:/data" "${IMAGE}" \
+    python manage.py createsuperuser --noinput --username smoke-cli --email "" 2>&1) \
+    || fail "python manage.py createsuperuser failed: ${out}"
+echo "OK: python manage.py createsuperuser works with the entrypoint cleared"
 
 echo
 echo "PASS: manager boot smoke"

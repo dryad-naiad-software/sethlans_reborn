@@ -13,13 +13,13 @@ one clear line on stderr and exit 13. The later call in ``logging_config``
 then finds the folder ready (the check is idempotent).
 
 Exit 13 is "data folder unusable", next to 10 (setup saved), 11 (first
-start failed) and 12 (no admin account).
+start failed) and 12 (no admin account); all in
+``shared.manager_exit_codes``.
 """
 import sys
 
 from shared.data_folder import DataFolderError, ensure_configured_data_root
-
-EXIT_DATA_FOLDER = 13
+from shared.manager_exit_codes import EXIT_DATA_FOLDER
 
 
 def require_usable_data_folder() -> None:

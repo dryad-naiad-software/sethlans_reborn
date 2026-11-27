@@ -50,6 +50,16 @@ services:
       # Optional: BYO TLS cert paths (inside container)
       - SETHLANS_TLS_CERT_FILE=${SETHLANS_TLS_CERT_FILE:-}
       - SETHLANS_TLS_KEY_FILE=${SETHLANS_TLS_KEY_FILE:-}
+      # The first admin account, made on the first start from
+      # SETHLANS_ADMIN_USERNAME in .env and the sethlans_admin_password
+      # secret below (the password is never a variable). With no admin
+      # account and no username, the manager exits with code 12. Once an
+      # admin exists these are ignored.
+      - SETHLANS_ADMIN_USERNAME=${SETHLANS_ADMIN_USERNAME:-}
+      - SETHLANS_ADMIN_PASSWORD_FILE=${SETHLANS_ADMIN_USERNAME:+/run/secrets/sethlans_admin_password}
+      - SETHLANS_ADMIN_EMAIL=${SETHLANS_ADMIN_EMAIL:-}
+    secrets:
+      - sethlans_admin_password
     restart: unless-stopped
 
   worker:
@@ -76,3 +86,12 @@ services:
       manager:
         condition: service_healthy
     restart: unless-stopped
+
+secrets:
+  # The first admin's password, on one line in ./secrets/admin_password.
+  # The manager runs as uid 1000 and must be able to read the file:
+  #   chmod 600 ./secrets/admin_password &&
+  #     sudo chown 1000:1000 ./secrets/admin_password
+  # Once the admin exists the file may be emptied, but it must exist.
+  sethlans_admin_password:
+    file: ./secrets/admin_password

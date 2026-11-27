@@ -30,6 +30,29 @@ COMPOSE_DEV="$PROJECT_ROOT/deploy/docker/docker-compose.dev.yml"
 # merged. Export a dev-only value so compose parsing succeeds.
 export SETHLANS_SECURITY_SECRET_KEY="dev-insecure-key-for-local-development-only"
 
+# The manager exits 12 without an admin account. The dev compose file
+# takes the first admin's password from this file (a Compose secret);
+# make it once with a random password. The folder is owner-only (700),
+# which keeps other host users out. The file itself must be readable by
+# the container's uid 1000, which is often not the host user (another
+# Linux uid, rootless Docker, Docker Desktop), so it ends up 644; the
+# Compose secret is a bind mount of the file, so the container never
+# passes through the 700 folder.
+DEV_ADMIN_DIR="$PROJECT_ROOT/.tmp/docker-dev"
+export SETHLANS_DEV_ADMIN_PASSWORD_FILE="$DEV_ADMIN_DIR/admin_password"
+export SETHLANS_ADMIN_USERNAME="${SETHLANS_ADMIN_USERNAME:-admin}"
+
+ensure_dev_admin_password() {
+    mkdir -p "$(dirname "$DEV_ADMIN_DIR")"
+    (umask 077 && mkdir -p "$DEV_ADMIN_DIR")
+    chmod 700 "$DEV_ADMIN_DIR"
+    if [ -s "$SETHLANS_DEV_ADMIN_PASSWORD_FILE" ]; then
+        return
+    fi
+    (umask 077 && head -c 18 /dev/urandom | base64 | tr -d '\n' > "$SETHLANS_DEV_ADMIN_PASSWORD_FILE")
+    chmod 644 "$SETHLANS_DEV_ADMIN_PASSWORD_FILE"
+}
+
 # The manager and worker images COPY a pre-fetched Caddy binary from
 # .tmp/caddy/linux-<arch>/ in the build context (same as CI).
 CADDY_DIR="$PROJECT_ROOT/.tmp/caddy"
@@ -70,6 +93,8 @@ shift
 case "$CMD" in
     up)
         ensure_caddy_binaries
+        ensure_dev_admin_password
+        echo "--- Dev admin: $SETHLANS_ADMIN_USERNAME, password in $SETHLANS_DEV_ADMIN_PASSWORD_FILE ---"
         docker compose \
             -f "$COMPOSE_BASE" \
             -f "$COMPOSE_DEV" \

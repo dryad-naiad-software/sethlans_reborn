@@ -102,6 +102,7 @@ class TestDispatchDevChildDefensive:
             "sethlans_manager.migration_runner.run_collectstatic_subprocess",
         )
         mocker.patch.object(run_manager, "_prepare_runtime")
+        mocker.patch.object(run_manager, "_run_first_start")
         mocker.patch.object(run_manager, "get_manager_bind", return_value=("0.0.0.0", "8080"))
         mocker.patch.object(run_manager, "get_waitress_public_port", return_value=8090)
         mocker.patch.object(run_manager, "get_waitress_internal_port", return_value=8088)

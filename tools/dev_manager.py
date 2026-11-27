@@ -37,10 +37,11 @@ CLI:
 Existing ``SETHLANS_MANAGER_*`` env vars (``SETHLANS_MANAGER_HOST``,
 ``SETHLANS_MANAGER_PORT``, ``SETHLANS_TLS_CERT_FILE`` etc.) pass through.
 
-To get an admin user without the wizard, run
-``python manager/manage.py setup_auth`` (existing CLI bootstrap)
-or seed a ``pending_setup.json`` via ``--seed-pending`` once Phase 3
-ships.
+The manager needs an admin account to start (it exits 12 without one).
+Without setup, set ``SETHLANS_ADMIN_USERNAME`` with
+``SETHLANS_ADMIN_PASSWORD_FILE`` (or ``SETHLANS_ADMIN_PASSWORD``) for the
+first start, or run ``python manager/manage.py createsuperuser`` against
+the dev database first.
 """
 
 from __future__ import annotations

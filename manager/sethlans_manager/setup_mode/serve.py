@@ -35,12 +35,13 @@ from sethlans_manager.setup_mode import state
 from sethlans_manager.setup_mode.middleware import add_static_headers
 from sethlans_manager.setup_mode.views import SAVED_ENVIRON_KEY
 from sethlans_manager.waitress_body_limits import limit_request_bodies
+from shared.manager_exit_codes import EXIT_SETUP_SAVED
 
 logger = logging.getLogger(__name__)
 
 EXIT_STOPPED = 0
 EXIT_FAILED = 2
-EXIT_SAVED = 10
+EXIT_SAVED = EXIT_SETUP_SAVED
 DRAIN_SECONDS = 5.0
 # Exit anyway if the saving response's close never comes (a broken
 # client or server path); the settings file is already written.

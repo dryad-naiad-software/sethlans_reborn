@@ -125,6 +125,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path $env:SETHLANS_TLS_DATA_DIR | Out-Null
           New-Item -ItemType Directory -Force -Path $env:SETHLANS_MANAGER_DATA_DIR | Out-Null
 
+          # The first admin, from a password file as Docker gives it. With
+          # no admin account the manager exits 12 before Waitress starts.
+          $adminSecret = "$env:TEMP\sethlans-smoke-admin-password"
+          [IO.File]::WriteAllText($adminSecret,
+            [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)))
+          $env:SETHLANS_ADMIN_USERNAME = "smoke-admin"
+          $env:SETHLANS_ADMIN_PASSWORD_FILE = $adminSecret
+
           # Capture stdout/stderr so failures are diagnosable. Start-Process
           # -WindowStyle Hidden detaches from the workflow log; without
           # -RedirectStandard* the manager's startup output is invisible.
@@ -136,9 +144,8 @@ jobs:
             -RedirectStandardError $logErr
           try {
             # Poll the Waitress loopback port until it binds (max 90s).
-            # /api/status/public/ is allowlisted in setup mode (see
-            # manager/sethlans_manager/middleware/setup_gate.py) and returns
-            # 200 with no admin/sentinel. Port 8088 is the internal loopback
+            # /api/status/public/ answers 200 once Waitress is up. Port
+            # 8088 is the internal loopback
             # listener (waitress_config.DEFAULT_WAITRESS_INTERNAL_PORT);
             # Caddy's TLS port 8080 is supervised by the launcher, not the
             # manager, so this smoke test does not start TLS.
@@ -450,15 +457,20 @@ jobs:
         run: |
           export SETHLANS_TLS_DATA_DIR="$(mktemp -d)"
           export SETHLANS_MANAGER_DATA_DIR="$(mktemp -d)"
+          # The first admin, from a password file as Docker gives it. With
+          # no admin account the manager exits 12 before Waitress starts.
+          ADMIN_SECRET_DIR="$(mktemp -d)"
+          openssl rand -base64 24 > "${ADMIN_SECRET_DIR}/admin_password"
+          export SETHLANS_ADMIN_USERNAME=smoke-admin
+          export SETHLANS_ADMIN_PASSWORD_FILE="${ADMIN_SECRET_DIR}/admin_password"
 
           "${SMOKE_BIN}/manager/run_manager" &
           MGR_PID=$!
           trap 'kill $MGR_PID 2>/dev/null || true' EXIT
 
           # Poll the Waitress loopback port until it binds (max 90s).
-          # /api/status/public/ is allowlisted in setup mode (see
-          # manager/sethlans_manager/middleware/setup_gate.py) and returns
-          # 200 with no admin/sentinel. Port 8088 is the internal loopback
+          # /api/status/public/ answers 200 once Waitress is up. Port
+          # 8088 is the internal loopback
           # listener (waitress_config.DEFAULT_WAITRESS_INTERNAL_PORT);
           # Caddy's TLS port 8080 is supervised by the launcher, not the
           # manager, so this smoke test does not start TLS.
@@ -468,6 +480,12 @@ jobs:
               http://127.0.0.1:8088/api/status/public/ 2>/dev/null || echo "000")
             if [ "$CODE" = "200" ]; then
               STATUS="200"
+              break
+            fi
+            if ! kill -0 "$MGR_PID" 2>/dev/null; then
+              RC=0
+              wait "$MGR_PID" || RC=$?
+              echo "Manager process exited early (code ${RC})"
               break
             fi
             sleep 1
@@ -626,15 +644,20 @@ jobs:
         run: |
           export SETHLANS_TLS_DATA_DIR="$(mktemp -d)"
           export SETHLANS_MANAGER_DATA_DIR="$(mktemp -d)"
+          # The first admin, from a password file as Docker gives it. With
+          # no admin account the manager exits 12 before Waitress starts.
+          ADMIN_SECRET_DIR="$(mktemp -d)"
+          openssl rand -base64 24 > "${ADMIN_SECRET_DIR}/admin_password"
+          export SETHLANS_ADMIN_USERNAME=smoke-admin
+          export SETHLANS_ADMIN_PASSWORD_FILE="${ADMIN_SECRET_DIR}/admin_password"
 
           dist/manager/run_manager &
           MGR_PID=$!
           trap 'kill $MGR_PID 2>/dev/null || true' EXIT
 
           # Poll the Waitress loopback port until it binds (max 90s).
-          # /api/status/public/ is allowlisted in setup mode (see
-          # manager/sethlans_manager/middleware/setup_gate.py) and returns
-          # 200 with no admin/sentinel. Port 8088 is the internal loopback
+          # /api/status/public/ answers 200 once Waitress is up. Port
+          # 8088 is the internal loopback
           # listener (waitress_config.DEFAULT_WAITRESS_INTERNAL_PORT);
           # Caddy's TLS port 8080 is supervised by the launcher, not the
           # manager, so this smoke test does not start TLS.
@@ -644,6 +667,12 @@ jobs:
               http://127.0.0.1:8088/api/status/public/ 2>/dev/null || echo "000")
             if [ "$CODE" = "200" ]; then
               STATUS="200"
+              break
+            fi
+            if ! kill -0 "$MGR_PID" 2>/dev/null; then
+              RC=0
+              wait "$MGR_PID" || RC=$?
+              echo "Manager process exited early (code ${RC})"
               break
             fi
             sleep 1

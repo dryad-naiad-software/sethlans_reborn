@@ -68,6 +68,15 @@ class ManagerSettings(models.Model):
             "not configured. The manager's own value: never sent to workers."
         ),
     )
+    first_admin_applied = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text=(
+            "SHA-256 hex digest of the [first_admin] password hash the first "
+            "start last applied, '' when none. Never the hash itself."
+        ),
+    )
 
     class Meta:
         verbose_name = "Manager settings"
