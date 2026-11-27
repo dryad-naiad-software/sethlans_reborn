@@ -24,7 +24,6 @@ from sethlans_worker_agent.web_ui import wsgi_app as wsgi_app_module
 from tests.unit.worker._card_choice import inv, xt_03, xt_23
 from tests.unit.worker._wsgi_helpers import StartResponseRecorder, drain, make_environ
 
-SETUP_PATH = '/api/setup/worker/cards/'
 RUNTIME_GET = '/api/cards/'
 RUNTIME_POST = '/api/control/cards'
 HIP_LIST = [{'id': 'x', 'type': 'HIP'}]
@@ -35,7 +34,7 @@ def fake_saved(monkeypatch, compute=None):
     state = {'compute': compute if compute is not None else {'revision': 0}}
     writes = []
 
-    def set_many(pairs):
+    def set_many(pairs, expect=None):
         pairs = list(pairs)
         writes.append(pairs)
         for dotted, value in pairs:

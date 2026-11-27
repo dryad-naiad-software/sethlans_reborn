@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Shared WSGI test helpers for the worker setup wizard unit tests.
+Shared WSGI test helpers for the worker page unit tests.
 
 Provides minimal ``start_response`` captures and environ builders
 used across the sync WSGI worker unit tests.  Extracted so test

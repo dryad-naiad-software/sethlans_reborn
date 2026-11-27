@@ -27,8 +27,7 @@ import time
 import pytest
 
 from sethlans_worker_agent import config
-from sethlans_worker_agent.web_ui import auth, server
-from sethlans_worker_agent.web_ui.setup.gate import mark_setup_complete
+from sethlans_worker_agent.web_ui import server
 
 
 def _find_free_port():
@@ -41,18 +40,15 @@ def _find_free_port():
 
 
 @pytest.fixture()
-def configured_env(mocker, tmp_path):
+def configured_env(mocker):
     """Configure Waitress dependencies without starting the server.
 
     Yields nothing; tests call ``server.start_server`` directly so
-    they can drive start/stop cycles explicitly.
+    they can drive start/stop cycles explicitly. No page password is
+    needed: these tests make no control request.
     """
     mocker.patch.object(config, 'UI_ENABLED', True)
     mocker.patch.object(config, 'UI_BIND_ADDRESS', '127.0.0.1')
-
-    auth.reset_cache()
-    mocker.patch.object(config, 'config_file_path', tmp_path / 'config.ini')
-    auth.set_password('shutdown-test-pw123')
 
     mocker.patch(
         'sethlans_worker_agent.web_ui.status.get_gpu_device_details',
@@ -72,14 +68,11 @@ def configured_env(mocker, tmp_path):
         7,
     )
 
-    mark_setup_complete()
-
     yield
 
     # Belt-and-suspenders: ensure no server is left running across
     # tests even if an assertion failed mid-cycle.
     server.stop_server()
-    auth.reset_cache()
 
 
 def _start_and_wait(port):

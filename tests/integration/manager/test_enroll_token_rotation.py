@@ -21,7 +21,7 @@ from rest_framework.test import APIClient
 from workers.models import Worker
 from workers.services.auto_enroll import auto_enroll_local_worker
 
-from .conftest import TEST_ENROLLMENT_KEY_CANONICAL, fresh_nonce
+from .conftest import enroll_body, reply_token
 
 ENROLL_URL = '/api/enroll/'
 HEARTBEAT_URL = '/api/heartbeat/'
@@ -30,16 +30,10 @@ HEARTBEAT_URL = '/api/heartbeat/'
 def _enroll(hostname):
     """Enroll *hostname* over HTTP and return the issued token key."""
     resp = APIClient().post(
-        ENROLL_URL,
-        {
-            'enrollment_key': TEST_ENROLLMENT_KEY_CANONICAL,
-            'hostname': hostname,
-            'nonce': fresh_nonce(),
-        },
-        format='json',
+        ENROLL_URL, enroll_body(hostname=hostname), format='json',
     )
     assert resp.status_code == 200, resp.content
-    return resp.json()['payload']['api_token']
+    return reply_token(resp.json())
 
 
 def _register(token_key, hostname):
@@ -117,13 +111,7 @@ class TestEnrollEndpointRotation:
             Token.objects, 'create', side_effect=RuntimeError('boom'),
         ):
             resp = APIClient().post(
-                ENROLL_URL,
-                {
-                    'enrollment_key': TEST_ENROLLMENT_KEY_CANONICAL,
-                    'hostname': 'atomic-host',
-                    'nonce': fresh_nonce(),
-                },
-                format='json',
+                ENROLL_URL, enroll_body(hostname='atomic-host'), format='json',
             )
 
         assert resp.status_code == 500

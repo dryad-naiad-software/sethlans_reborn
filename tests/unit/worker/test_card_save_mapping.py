@@ -16,9 +16,8 @@ from sethlans_worker_agent import config_store
 from sethlans_worker_agent.cards import choice, store
 from sethlans_worker_agent.config_store.io import ConfigLockTimeoutError
 from sethlans_worker_agent.web_ui import cards_view
-from sethlans_worker_agent.web_ui.setup import handlers_status
 from tests.unit.worker._card_choice import AMD, KEY_RTX_A, KEY_RTX_B, NVIDIA, card, inv, rtx_a, xt_03, xt_23
-from tests.unit.worker._card_pages import RUNTIME_POST, SETUP_PATH, body, call, fake_probes, fake_saved
+from tests.unit.worker._card_pages import RUNTIME_POST, body, call, fake_probes, fake_saved
 
 ENV_TEXT = "The graphics card choice is set by environment variables on this worker."
 STALE_TEXT = "The card choice was changed meanwhile (on this page or from the manager). Reload the page."
@@ -64,9 +63,9 @@ class TestSaveMapping:
     def test_write_failure_is_503_and_logged(self, raising, caplog, error):
         raising(error)
         with caplog.at_level(logging.ERROR, logger=cards_view.__name__):
-            assert cards_view.save(FIELDS, _probe(), 'setup wizard') == (503, {'error': NOT_SAVED})
+            assert cards_view.save(FIELDS, _probe(), 'settings page') == (503, {'error': NOT_SAVED})
         [record] = [r for r in caplog.records if r.name == cards_view.__name__]
-        assert record.getMessage() == "The graphics card choice from the setup wizard could not be saved."
+        assert record.getMessage() == "The graphics card choice from the settings page could not be saved."
         assert record.exc_info is not None and record.exc_info[1] is error
 
     def test_success_passes_fields_and_logs(self, monkeypatch, caplog):
@@ -89,7 +88,7 @@ class TestRealStore:
     """``store.save`` refusals reach the page as 400 / 503 and write nothing."""
 
     @pytest.fixture(autouse=True)
-    def _fakes(self, setup_complete, fresh_shutdown_event, bearer_header, monkeypatch):
+    def _fakes(self, fresh_shutdown_event, bearer_header, monkeypatch):
         self.auth = bearer_header
         self.saved = fake_saved(monkeypatch)
         fake_probes(monkeypatch)
@@ -105,24 +104,11 @@ class TestRealStore:
         assert self.saved[1] == []
 
     def test_lock_timeout_is_503(self, monkeypatch):
-        def set_many(_pairs):
+        def set_many(_pairs, expect=None):
             raise ConfigLockTimeoutError('lock busy')
         monkeypatch.setattr(config_store, 'set_many', set_many)
         assert call(RUNTIME_POST, 'POST', body(), self.auth) == (503, {'error': NOT_SAVED})
         assert self.saved[0]['compute'] == {'revision': 0}
-
-
-class TestSetupWriteFailure:
-
-    def test_503_records_no_checkpoint(self, monkeypatch):
-        fake_saved(monkeypatch)
-        fake_probes(monkeypatch)
-
-        def set_many(_pairs):
-            raise OSError('disk full')
-        monkeypatch.setattr(config_store, 'set_many', set_many)
-        assert call(SETUP_PATH, 'POST', body()) == (503, {'error': NOT_SAVED})
-        assert 'cards_chosen' not in handlers_status.get_current_checkpoints()
 
 
 def _nvidia(key, name, blender_id, backend, device_id):
@@ -137,7 +123,7 @@ TWO = ['0000:01:00.0', '0000:02:00.0']
 class TestCombine:
 
     @pytest.fixture(autouse=True)
-    def _open(self, setup_complete, fresh_shutdown_event, bearer_header, monkeypatch):
+    def _open(self, fresh_shutdown_event, bearer_header, monkeypatch):
         self.auth = bearer_header
         self.saved = fake_saved(monkeypatch)
         self.monkeypatch = monkeypatch

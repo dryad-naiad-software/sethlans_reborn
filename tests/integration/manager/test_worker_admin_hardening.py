@@ -20,7 +20,7 @@ from rest_framework.test import APIClient
 from workers.models import Worker
 from workers.services.auto_enroll import auto_enroll_local_worker
 
-from .conftest import fresh_nonce
+from .conftest import enroll_body, reply_token
 from .token_admin_helpers import (
     CSRF_URL,
     ENROLL_URL,
@@ -179,13 +179,10 @@ class TestEnrollmentSkipsPrivilegedUsername:
 
     def _enroll(self, key):
         resp = APIClient().post(
-            ENROLL_URL,
-            {'enrollment_key': key, 'hostname': 'victim-host',
-             'nonce': fresh_nonce()},
-            format='json',
+            ENROLL_URL, enroll_body(key, 'victim-host'), format='json',
         )
         assert resp.status_code == 200
-        return Token.objects.get(key=resp.json()['payload']['api_token'])
+        return Token.objects.get(key=reply_token(resp.json(), key))
 
     @pytest.mark.parametrize('kind', ['staff', 'superuser', 'password'])
     def test_enroll_uses_suffixed_user(self, seeded_enrollment_key, kind):

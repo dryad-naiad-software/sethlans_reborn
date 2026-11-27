@@ -128,21 +128,31 @@ def _isolated_compute_section(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_setup_blender_device_check(monkeypatch):
-    """The wizard's Blender step starts no real Blender device check in tests.
-
-    ``blender_devices.start_device_check`` would run the first installed
-    Blender on a background thread. Tests of the check call
-    ``blender_devices._start()`` with the detection patched. Also forgets the
-    settings page's cached card probe.
-    """
+def _reset_cards_cache():
+    """Forget the settings page's cached card probe."""
     from sethlans_worker_agent.web_ui import cards_cache
-    from sethlans_worker_agent.web_ui.setup import blender_devices
-    monkeypatch.setattr(blender_devices, 'start_device_check', lambda: None)
-    monkeypatch.setattr(blender_devices, '_failed', False)
     cards_cache.reset_for_tests()
     yield
     cards_cache.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _no_page_password_env(monkeypatch):
+    """No ``SETHLANS_WORKER_UI_PASSWORD[_FILE]`` from the developer's shell (FR-DK-6).
+
+    ``agent.main`` applies them to the real ``config.json``; tests that need them set them.
+    """
+    for name in ('SETHLANS_WORKER_UI_PASSWORD_FILE', 'SETHLANS_WORKER_UI_PASSWORD'):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_page_auth():
+    """Forget the page password's counted failures, result cache and warnings (FR-SEC-8)."""
+    from sethlans_worker_agent.web_ui import auth
+    auth.reset_for_tests()
+    yield
+    auth.reset_for_tests()
 
 
 @pytest.fixture(autouse=True)
@@ -163,61 +173,38 @@ def _no_card_probe_in_heartbeats(monkeypatch):
     remote.reset_for_tests()
 
 
-@pytest.fixture(autouse=True)
-def _reset_setup_gate_state():
-    """Reset the setup gate module-level state between tests."""
-    from sethlans_worker_agent.web_ui.setup import gate
-    gate._setup_complete = False
-    yield
-    gate._setup_complete = False
+@pytest.fixture()
+def worker_home(tmp_path, monkeypatch):
+    """A scratch worker folder: ``SETHLANS_WORKER_DATA_DIR`` and the per-user folders point under ``tmp_path``.
 
-
-@pytest.fixture(autouse=True)
-def _reset_setup_status_state():
-    """Reset handlers_status module-level state between tests."""
-    from sethlans_worker_agent.web_ui.setup import handlers_status
-    handlers_status._current_topology = None
-    handlers_status._current_checkpoints = []
-    yield
-    handlers_status._current_topology = None
-    handlers_status._current_checkpoints = []
-
-
-@pytest.fixture(autouse=True)
-def _reset_setup_discovery_state():
-    """Reset handlers_discovery module-level state between tests."""
-    from sethlans_worker_agent.web_ui.setup import handlers_discovery
-    handlers_discovery._selected_manager_url = None
-    handlers_discovery._selected_manager_id = None
-    handlers_discovery._selected_manager_meta = None
-    yield
-    handlers_discovery._selected_manager_url = None
-    handlers_discovery._selected_manager_id = None
-    handlers_discovery._selected_manager_meta = None
-
-
-@pytest.fixture(autouse=True)
-def _reset_download_progress_state():
-    """Reset download_progress module-level task registry."""
-    from sethlans_worker_agent.web_ui.setup import download_progress
-    with download_progress._tasks_lock:
-        download_progress._download_tasks.clear()
-    yield
-    with download_progress._tasks_lock:
-        download_progress._download_tasks.clear()
+    ``config_store`` then reads and writes ``<worker_home>/config.json``
+    only. The folder exists up front, so no write applies a folder ACL.
+    """
+    home = tmp_path / 'home'
+    for name in ('LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'HOME', 'XDG_DATA_HOME', 'XDG_CONFIG_HOME'):
+        folder = home / name.lower()
+        folder.mkdir(parents=True)
+        monkeypatch.setenv(name, str(folder))
+    worker = tmp_path / 'worker'
+    worker.mkdir()
+    for name in ('SETHLANS_SETTINGS_DIR', 'SETHLANS_SETTINGS_FILE', 'SETHLANS_DATA_ROOT'):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv('SETHLANS_WORKER_DATA_DIR', str(worker))
+    return worker
 
 
 @pytest.fixture()
-def setup_complete():
-    """Flip the worker setup gate open so dashboard routes are reachable.
+def no_page_password(worker_home):
+    """An isolated worker folder with no page password stored (FR-WK-4)."""
+    return worker_home
 
-    Used by the sync WSGI ``wsgi_app`` test suite (``test_wsgi_app*``).
-    Not autouse -- tests opt in by listing it as a parameter.
-    """
-    from sethlans_worker_agent.web_ui.setup import gate
-    gate.mark_setup_complete()
-    yield
-    gate._setup_complete = False
+
+@pytest.fixture()
+def page_password(worker_home):
+    """``test-token`` stored as the page password hash (real format, few rounds); returns the password."""
+    from tests.unit.worker._page_password import fast_hash, write_hash
+    write_hash(worker_home, fast_hash('test-token'))
+    return 'test-token'
 
 
 @pytest.fixture()
@@ -238,17 +225,13 @@ def fresh_shutdown_event():
 
 
 @pytest.fixture()
-def bearer_header(mocker):
-    """Patch password validation to accept the literal ``test-token``.
+def bearer_header(page_password):
+    """``Authorization: Bearer test-token`` for the WSGI control-plane tests.
 
-    Returns a ready-to-use ``Authorization: Bearer test-token`` header
-    dict for the sync WSGI control-plane tests.
+    The hash of ``test-token`` is stored in an isolated ``config.json``, so
+    ``auth.check_bearer`` runs its real path (FR-SEC-8).
     """
-    mocker.patch(
-        'sethlans_worker_agent.web_ui.wsgi_app.validate_password',
-        side_effect=lambda pw: pw == 'test-token',
-    )
-    return {'Authorization': 'Bearer test-token'}
+    return {'Authorization': f'Bearer {page_password}'}
 
 
 @pytest.fixture()

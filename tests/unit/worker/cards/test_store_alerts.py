@@ -32,7 +32,7 @@ def saved(monkeypatch):
             raise config_store.ConfigReadError('could not read config.json: busy')
         return copy.deepcopy(state['compute'])
 
-    def set_many(pairs):
+    def set_many(pairs, expect=None):
         pairs = list(pairs)
         writes.append(SimpleNamespace(pairs=pairs, locked=store._section_lock.locked()))
         if state['fail'] is not None:

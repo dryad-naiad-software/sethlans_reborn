@@ -13,8 +13,9 @@ JSON config store, and subsequently authenticate with the token.
 These tests exercise the real flow end-to-end:
 - a live manager subprocess seeded with a Crockford key via
   ``SETHLANS_SECURITY_ENROLLMENT_KEY``;
-- a live worker subprocess pointed at a per-test tmp data dir whose
-  unattended wizard path reads ``SETHLANS_WORKER_ENROLLMENT_KEY``.
+- a live worker subprocess pointed at a per-test tmp data dir that
+  enrolls at start from ``SETHLANS_WORKER_ENROLLMENT_KEY``
+  (setup-rebuild FR-WK-6; the worker's setup wizard is gone, FR-WK-7).
 
 Data-dir isolation is critical — see ``env_config.py`` for the
 platform-branched ``LOCALAPPDATA`` / ``XDG_DATA_HOME`` / ``HOME``
@@ -33,7 +34,7 @@ import requests
 from tests.e2e.enrollment_helpers import (
     EnrollmentHarness,
     fetch_live_cert_fingerprint,
-    fresh_nonce,
+    proof_body,
     resolve_worker_config_path,
     wait_for_worker_config,
 )
@@ -45,9 +46,10 @@ from tests.e2e.process_manager import (
 
 logger = logging.getLogger(__name__)
 
-# The wizard's unattended backoff schedule is (0, 1, 3, 9, 27); the
-# four retry sleeps total ~40 seconds before exit code 4 is returned.
-# Leave headroom for process cleanup.
+# Enrollment at start retries on the schedule (0, 1, 3, 9, 27)
+# (``enrollment_start.BACKOFF_SECONDS``); the four retry sleeps total
+# ~40 seconds before exit code 4 is returned. Leave headroom for
+# process cleanup.
 _WORKER_BAD_KEY_WAIT = 75
 
 # Default budget for waiting on the worker's happy-path enrollment.
@@ -72,10 +74,10 @@ def enrollment_harness():
 class TestEnrollment:
     """Happy-path and regression tests for the new enrollment flow."""
 
-    def test_unattended_wizard_enrolls_and_heartbeats(
+    def test_enrollment_key_at_start_enrolls_and_heartbeats(
         self, enrollment_harness,
     ):
-        """Baseline: boot everything, wizard runs, worker appears active."""
+        """FR-WK-6: boot everything, the worker enrolls with the key from its environment and appears active."""
         enrollment_harness.start_manager()
         enrollment_harness.start_worker()
         worker_data = wait_for_worker(
@@ -92,8 +94,8 @@ class TestEnrollment:
     def test_enrollment_config_contains_pinned_fingerprint(
         self, enrollment_harness,
     ):
-        """FR-21/FR-22: wizard persists the cert fingerprint that matches
-        the live manager's actual TLS certificate."""
+        """FR-21/FR-22, FR-WK-6: enrollment at start persists the cert
+        fingerprint that matches the live manager's actual TLS certificate."""
         enrollment_harness.start_manager()
         live_fp = fetch_live_cert_fingerprint(
             "127.0.0.1", enrollment_harness.port,
@@ -118,9 +120,8 @@ class TestEnrollment:
         assert manager_section.get("api_token"), (
             "Worker config missing manager.api_token"
         )
-        enrollment_section = cfg.get("enrollment") or {}
-        assert enrollment_section.get("wizard_complete") is True, (
-            "wizard_complete flag not set after enrollment"
+        assert manager_section.get("manager_id"), (
+            "Worker config missing manager.manager_id"
         )
 
     def test_legacy_heartbeat_enrollment_header_rejected(
@@ -170,18 +171,13 @@ class TestEnrollment:
         assert result.returncode == 0, (
             f"rotate_enrollment_key failed: {result.stderr}"
         )
-        # A fresh enrollment attempt with the OLD key must be rejected.
-        # The serializer requires a 22-char urlsafe-b64 nonce that
-        # decodes to exactly 16 bytes (see serializers_enrollment.py).
+        # A fresh enrollment attempt with the OLD key must be rejected:
+        # a well-formed key proof made with the old key gets 403
+        # (setup-rebuild FR-WK-8; the key itself never travels).
         old_key = enrollment_harness.test_secrets["enrollment_key"]
-        probe_nonce = fresh_nonce()
         resp = requests.post(
             f"{enrollment_harness.base_url}/api/enroll/",
-            json={
-                "enrollment_key": old_key,
-                "hostname": "rotation-probe-host",
-                "nonce": probe_nonce,
-            },
+            json=proof_body(old_key, "rotation-probe-host"),
             timeout=15, verify=enrollment_harness.ca_bundle,
         )
         assert resp.status_code == 403, (
@@ -215,19 +211,17 @@ class TestEnrollment:
     def test_invalid_enrollment_key_exits_worker_cleanly(
         self, enrollment_harness,
     ):
-        """AC-31a: unattended wizard with a bad key exponentially backs off
+        """AC-31a, FR-WK-6: enrollment at start with a bad key backs off
         through the schedule (0s/1s/3s/9s/27s) and exits with code 4.
 
         The backoff totals ~40s; we wait up to 75s to give the cleanup
         path headroom. This is the slow test in the enrollment suite —
-        the deterministic coverage of the schedule itself is already
-        provided by the unit tests in
-        ``tests/unit/worker/test_wizard_unattended.py``.
+        the schedule itself is a unit case of ``enrollment_start``.
         """
         enrollment_harness.start_manager()
-        # Generate a DIFFERENT valid-format key so the wizard's input
+        # Generate a DIFFERENT valid-format key so the worker's input
         # validation lets it through to the network call; the manager
-        # will reject it at the DB comparison step with a 403.
+        # refuses its key proof with a 403.
         bad_key_secrets = generate_secrets()
         bad_key = bad_key_secrets["enrollment_key"]
         assert bad_key != enrollment_harness.test_secrets["enrollment_key"]
@@ -244,9 +238,8 @@ class TestEnrollment:
             f"Worker did not exit within {_WORKER_BAD_KEY_WAIT}s "
             "after a bad enrollment key"
         )
-        # The wizard returns code 4 for unattended failure (see
-        # ``worker/sethlans_worker_agent/wizard.py``).
+        # ``enrollment_start.ENROLL_FAILED`` is exit code 4.
         assert exit_code == 4, (
-            f"Expected exit code 4 (WIZARD_UNATTENDED_FAILED) for bad "
+            f"Expected exit code 4 (ENROLL_FAILED) for bad "
             f"key, got {exit_code}"
         )

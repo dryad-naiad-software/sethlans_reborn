@@ -34,8 +34,12 @@ def saved(monkeypatch):
     state = {'compute': {'revision': 0}}
     writes = []
 
-    def set_many(pairs):
+    def set_many(pairs, expect=None):
         pairs = list(pairs)
+        for dotted, check in (expect or {}).items():  # as the real one: a failing check writes nothing
+            section, name = dotted.split('.')
+            if not check(state.get(section, {}).get(name)):
+                raise config_store.ConfigChangedError(dotted, state.get(section, {}).get(name))
         writes.append(SimpleNamespace(pairs=pairs, locked=store._section_lock.locked()))
         for dotted, value in pairs:
             section, name = dotted.split('.')
@@ -176,6 +180,16 @@ class TestRefused:
         with pytest.raises(store.StaleRevision) as caught:
             store.save('gpu', 'split', [KEY_XT_03], [KEY_XT_03], full, 4)
         assert (caught.value.current, caught.value.base) == (5, 4)
+        assert saved.writes == []
+
+    def test_revision_saved_by_another_process_before_the_write_is_stale(self, saved, full, monkeypatch):
+        """Chunk 4 review (concurrency): ``--setup-apply`` saved revision 3 after this save read revision 0; the
+        check inside the file lock refuses the write as ``StaleRevision`` (current 3, base 0)."""
+        monkeypatch.setattr(config_compute, '_read_raw', lambda: {'revision': 0})  # what this save read
+        saved.compute['revision'] = 3                                                # what the file now holds
+        with pytest.raises(store.StaleRevision) as caught:
+            store.save('gpu', 'split', [KEY_XT_03], [KEY_XT_03], full, 0)
+        assert (caught.value.current, caught.value.base) == (3, 0)
         assert saved.writes == []
 
     @pytest.mark.parametrize('kind', ['card_lost', 'card_changed', 'card_lost_blender'])

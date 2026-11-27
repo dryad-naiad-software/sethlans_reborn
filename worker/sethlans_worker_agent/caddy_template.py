@@ -17,9 +17,10 @@ the manager spec's TLS hardening invariants:
 - ``reverse_proxy`` transport pinned to HTTP/1.1
 - The loopback vhost carries ``bind 127.0.0.1``: the host in a site
   address is only a Host matcher, not a listen address (issue #309)
-- ``/setup/*`` routes reachable **only** on the loopback vhost during
-  setup; the public vhost returns 404 for setup paths until the
-  setup-complete sentinel is written
+- No setup routes: the worker has none (setup-rebuild FR-WK-7), so the
+  former ``/setup*`` 404 rule is gone
+- Caddy's ``reverse_proxy`` sets ``X-Forwarded-For``; the worker's
+  Waitress trusts it from 127.0.0.1 only (FR-SEC-3)
 
 This module is Phase 1 groundwork: it is imported/invoked nowhere in
 the worker runtime path. The launcher ENTRYPOINT change and the
@@ -158,9 +159,7 @@ def render_worker_caddyfile(
     and to prevent accidental argument-order mistakes.
 
     :param public_tls_port: public-facing HTTPS port Caddy binds.
-    :param loopback_plaintext_port: loopback HTTP port Caddy binds
-        (setup wizard routes are reachable only on this vhost during
-        the setup window).
+    :param loopback_plaintext_port: loopback HTTP port Caddy binds.
     :param waitress_upstream_port: plaintext loopback port where
         Waitress serves the WSGI app. Caddy reverse-proxies both
         vhosts to this upstream.
@@ -217,10 +216,6 @@ def render_worker_caddyfile(
         "}\n"
         "\n"
         f"# Public TLS vhost (LAN-reachable). Listens on :{pub_port}.\n"
-        "# Setup wizard paths return 404 here during the setup\n"
-        "# window; only the loopback vhost serves /setup/* and\n"
-        "# /api/setup/* until the setup-complete sentinel is\n"
-        "# written.\n"
         f":{pub_port} {{\n"
         # Paths are double-quoted so directories that contain spaces
         # (e.g. macOS's ~/Library/Application Support/Sethlans/...)
@@ -232,11 +227,6 @@ def render_worker_caddyfile(
         "        protocols tls1.2 tls1.3\n"
         "    }\n"
         "\n"
-        "    @setup_paths {\n"
-        "        path /setup /setup/* /api/setup /api/setup/*\n"
-        "    }\n"
-        "    respond @setup_paths 404\n"
-        "\n"
         "    reverse_proxy 127.0.0.1:" + str(up_port) + " {\n"
         "        transport http {\n"
         "            versions 1.1\n"
@@ -246,9 +236,6 @@ def render_worker_caddyfile(
         "\n"
         f"# Loopback plaintext vhost. Listens on "
         f"127.0.0.1:{loop_port}.\n"
-        "# This vhost serves the worker setup wizard and is the\n"
-        "# only origin from which /setup/* is reachable during the\n"
-        "# setup window.\n"
         f"http://127.0.0.1:{loop_port} {{\n"
         # The host in a site address is only a Host matcher; without
         # ``bind`` Caddy listens on every interface (issue #309).

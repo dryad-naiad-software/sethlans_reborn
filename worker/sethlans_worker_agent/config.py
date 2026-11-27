@@ -160,8 +160,7 @@ UI_ENABLED = get_config_value('worker', 'ui_enabled', 'true')
 UI_ENABLED = UI_ENABLED.lower() in ('true', '1', 'yes') if isinstance(UI_ENABLED, str) else bool(UI_ENABLED)
 UI_PORT = _validate_int('worker.ui_port', get_config_value('worker', 'ui_port', 8081, is_int=True), 8081, 1, 65535)
 UI_BIND_ADDRESS = get_config_value('worker', 'ui_bind_address', '0.0.0.0')
-UI_PASSWORD_HASH = get_config_value('worker', 'ui_password_hash', '')
-UI_PASSWORD_SALT = get_config_value('worker', 'ui_password_salt', '')
+# The page password hash is read from config.json by web_ui.auth (setup-rebuild FR-WK-3).
 # --- Caddy / Waitress Port Layout (Phase 5b) ---
 from sethlans_worker_agent.config_caddy_ports import load_caddy_port_config  # noqa: E402
 globals().update(load_caddy_port_config(UI_PORT, get_config_value, _validate_int))

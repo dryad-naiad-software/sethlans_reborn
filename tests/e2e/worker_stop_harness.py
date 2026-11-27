@@ -51,8 +51,12 @@ from tests.e2e.process_manager import (
 logger = logging.getLogger(__name__)
 
 TEST_SCENE = REPO_ROOT / "tests" / "assets" / "test_scene.blend"
-# Default worker UI password (no custom password is set in the test).
-UI_PASSWORD = "sethlans"
+# Worker page password. There is no default: a worker with none answers
+# 403 to every control action, so the harness gives it one at start
+# through SETHLANS_WORKER_UI_PASSWORD (setup-rebuild FR-DK-6). It must
+# pass the page password rules (8+ characters, not all digits, not like
+# the hostname, not a common password).
+UI_PASSWORD = "stop-Harness-4821"
 
 # One CPU frame of test_scene.blend that takes long enough to be
 # interrupted reliably (tens of seconds on a desktop CPU). Adaptive
@@ -150,6 +154,7 @@ class WorkerStopHarness:
             "SETHLANS_WORKER_CADDY_PUBLIC_TLS_PORT": str(ui_port),
             "SETHLANS_WORKER_CADDY_LOOPBACK_PORT": str(find_free_port()),
             "SETHLANS_WORKER_WAITRESS_UPSTREAM_PORT": str(cls.ui_upstream_port),
+            "SETHLANS_WORKER_UI_PASSWORD": UI_PASSWORD,
             "SETHLANS_COMPUTE_METHOD": "cpu",
         })
         cls.output_dir = resolve_worker_config_path(worker_data_dir).parent / "output"

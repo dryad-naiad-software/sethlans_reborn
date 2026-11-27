@@ -24,6 +24,7 @@ import pytest
 
 from sethlans_worker_agent import config_store
 from sethlans_worker_agent.config_store import io as io_mod
+from shared import settings_file_io
 
 
 @pytest.fixture(autouse=True)
@@ -144,6 +145,90 @@ class TestConcurrentSet:
             assert worker_section.get(f"slot_{i}") == f"value-{i}", (
                 f"missing slot_{i}; final config = {merged!r}"
             )
+
+
+class TestSharedFileIo:
+    def test_writes_and_reads_go_through_the_windows_retry(self, _tmp_data_dir, mocker):
+        """Chunk 4 review (concurrency): config.json is replaced and read with the shared settings-file helpers,
+        whose Windows sharing-violation retry is tested in tests/unit/shared/test_settings_file.py."""
+        assert io_mod.replace_with_retry is settings_file_io.replace_with_retry
+        assert io_mod.read_limited is settings_file_io.read_limited
+        _tmp_data_dir.mkdir()
+        replace = mocker.spy(io_mod, "replace_with_retry")
+        read = mocker.spy(io_mod, "read_limited")
+
+        config_store.set("manager.host", "h")
+        assert config_store.get("manager.host") == "h"
+
+        assert replace.call_args.args[1] == _tmp_data_dir / "config.json"
+        assert read.call_args.args == (_tmp_data_dir / "config.json", io_mod.MAX_CONFIG_BYTES)
+
+    @pytest.mark.parametrize("extra, fails", [(0, False), (1, True)], ids=["at-cap", "one-byte-over"])
+    def test_file_over_the_cap_is_a_read_error(self, _tmp_data_dir, monkeypatch, extra, fails):
+        """Chunk 4 review: a config.json larger than MAX_CONFIG_BYTES is not parsed; a strict read raises."""
+        cap = 64
+        monkeypatch.setattr(io_mod, "MAX_CONFIG_BYTES", cap)
+        _tmp_data_dir.mkdir()
+        body = '{"manager": {"host": "h"}}'
+        (_tmp_data_dir / "config.json").write_bytes((body + " " * (cap + extra - len(body))).encode("ascii"))
+        if fails:
+            with pytest.raises(config_store.ConfigReadError, match="larger than 64 bytes"):
+                config_store.load_strict()
+        else:
+            assert config_store.load_strict()["manager"]["host"] == "h"
+
+
+def _cross_process_lock_held() -> bool:
+    """True when another handle cannot take the config file lock now (timeout 0, no wait)."""
+    probe = io_mod.CrossProcessLock(config_store.lockfile_path(), timeout=0)
+    try:
+        probe.__enter__()
+    except config_store.ConfigLockTimeoutError:
+        probe._fh.close()
+        return True
+    probe.__exit__(None, None, None)
+    return False
+
+
+class TestCompareAndSet:
+    """``set_many(pairs, expect=...)``: the card choice write of the worker page vs ``--setup-apply``."""
+
+    @pytest.fixture
+    def config_file(self, _tmp_data_dir):
+        _tmp_data_dir.mkdir()
+        path = _tmp_data_dir / "config.json"
+        path.write_text(json.dumps({"compute": {"revision": 3}}), encoding="utf-8")
+        return path
+
+    def test_matching_check_writes(self, config_file):
+        """Chunk 4 review (concurrency): a passing check writes every pair in one write."""
+        config_store.set_many([("compute.revision", 4), ("unreal.enabled", True)],
+                              expect={"compute.revision": lambda value: value == 3})
+        assert json.loads(config_file.read_text(encoding="utf-8")) == {
+            "compute": {"revision": 4}, "unreal": {"enabled": True}}
+
+    @pytest.mark.parametrize("dotted, found", [("compute.revision", 3), ("compute.missing", None)],
+                             ids=["other-value", "missing"])
+    def test_failing_check_raises_and_writes_nothing(self, config_file, dotted, found):
+        """Chunk 4 review (concurrency): a failing check raises ConfigChangedError (key, stored value or None)
+        and the file is left byte for byte."""
+        before = config_file.read_bytes()
+        with pytest.raises(config_store.ConfigChangedError) as caught:
+            config_store.set_many([("compute.revision", 9)], expect={dotted: lambda value: value == 2})
+        assert (caught.value.key, caught.value.value) == (dotted, found)
+        assert config_file.read_bytes() == before
+
+    def test_check_sees_the_file_as_it_is_inside_both_locks(self, config_file):
+        """Chunk 4 review (concurrency): the check runs on config.json read again inside the in-process and the
+        cross-process lock, so a write by another process just before is seen."""
+        seen = []
+        config_file.write_text(json.dumps({"compute": {"revision": 7}}), encoding="utf-8")  # the other process
+
+        def check(value):
+            seen.append((value, config_store._config_lock.locked(), _cross_process_lock_held()))
+            return True
+        config_store.set_many([("compute.revision", 8)], expect={"compute.revision": check})
+        assert seen == [(7, True, True)]
 
 
 class TestPermissions:

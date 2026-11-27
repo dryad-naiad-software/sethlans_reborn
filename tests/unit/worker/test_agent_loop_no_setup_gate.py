@@ -25,7 +25,7 @@ try:
 finally:
     sys.argv = _saved_argv
 
-from sethlans_worker_agent import agent_setup, system_monitor  # noqa: E402
+from sethlans_worker_agent import system_monitor  # noqa: E402
 
 
 @pytest.fixture
@@ -147,8 +147,6 @@ class TestGateHelpersRemoved:
         (system_monitor, '_manager_setup_complete'),
         (system_monitor, 'is_manager_setup_complete'),
         (system_monitor, '_update_manager_setup_complete'),
-        (agent_setup, 'check_manager_setup_complete'),
-        (agent_setup, '_last_known_setup_complete'),
     ])
     def test_no_setup_complete_state_left(self, module, name):
         assert not hasattr(module, name)

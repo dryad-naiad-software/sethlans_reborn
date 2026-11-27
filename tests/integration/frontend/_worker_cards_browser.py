@@ -6,16 +6,15 @@ Plumbing for the worker graphics card page browser tests (card selection, chunks
 
 The worker's real WSGI app is served by the real Waitress bring-up of the
 worker ``/api/health/`` integration tests (``_health_fixtures._bring_up_wsgi``),
-so Chromium talks to the real setup gate, routes, card handlers,
+so Chromium talks to the real routes, Bearer check, card handlers,
 ``cards.choice`` and ``cards.store``; saves land in a real ``config.json`` in a
-temp data dir (``_card_pages_harness.install``). Only the OS card probe and the
-cached Blender device list are faked, with the card set below; no Blender and
-no OS probe ever run.
+temp data dir (``_card_pages_harness.install``), next to the page password
+hash. Only the OS card probe and the cached Blender device list are faked,
+with the card set below; no Blender and no OS probe ever run.
 
 The worker integration suite's autouse fixtures do not reach this directory,
 so ``served_worker_ui`` repeats the isolation they give (no ``SETHLANS_COMPUTE_*``
-variables, no Blender device check, no cached card probe, a closed setup
-gate, empty wizard state).
+variables, no cached card probe, fresh password check state).
 
 Module name starts with an underscore so pytest does not collect it.
 """
@@ -28,8 +27,6 @@ from sethlans_worker_agent.cards import in_use, os_probe, screens, startup_log
 from sethlans_worker_agent.cards.os_probe import OsCard
 from sethlans_worker_agent.tool_manager import tool_manager_instance
 from sethlans_worker_agent.web_ui import auth, cards_cache, server
-from sethlans_worker_agent.web_ui.setup import blender_devices, gate
-from sethlans_worker_agent.web_ui.setup.handlers_status import append_wizard_checkpoint
 
 from tests.integration.worker import _card_pages_harness as pages
 from tests.integration.worker._health_fixtures import _bring_up_wsgi, _wait_for_bind
@@ -39,10 +36,6 @@ BLENDER_VERSION = '4.5.1'
 XSS_NAME = '<img src=x onerror="window.__xss=1">'
 SETTINGS_HELP_TEXT = ("Unreal renders on a ticked card when it is switched on below. Blender uses the ticked "
                       "cards only when the method includes GPU.")
-WIZARD_HELP_TEXT = ("Unreal renders on a ticked card when it is switched on in the worker settings. Blender uses "
-                    "the ticked cards only when the method includes GPU.")
-NO_CARD_TEXT = "No graphics card was found on this machine."
-BEFORE_CARDS = ('topology_chosen', 'manager_selected', 'enrolled', 'password_set', 'blender_installed')
 
 # (key, name, vendor id, device id, Blender backend or None). Shown in this order.
 CARDS = (
@@ -113,27 +106,20 @@ def _isolate(monkeypatch):
     monkeypatch.delenv(unreal_switch.ENV_VAR, raising=False)
     monkeypatch.setattr(config_unreal, 'ENABLED', False)
     monkeypatch.setattr(startup_log, '_done', True)
-    monkeypatch.setattr(blender_devices, 'start_device_check', lambda: None)
-    monkeypatch.setattr(blender_devices, '_failed', False)
     in_use.reset_env_records_for_tests()
     cards_cache.reset_for_tests()
-    auth.reset_cache()
-    gate._setup_complete = False
-    pages.reset_wizard_state()
+    auth.reset_for_tests()
 
 
 def _reset():
     in_use.reset_env_records_for_tests()
     cards_cache.reset_for_tests()
-    auth.reset_cache()
-    gate._setup_complete = False
-    pages.reset_wizard_state()
+    auth.reset_for_tests()
     pages.unbind_shutdown_event()
 
 
 @contextlib.contextmanager
-def served_worker_ui(monkeypatch, mocker, tmp_path, cards=CARDS, *, setup_complete=False,
-                     checkpoints=BEFORE_CARDS):
+def served_worker_ui(monkeypatch, mocker, tmp_path, cards=CARDS):
     """Serve the real worker web UI on a loopback port; yields ``(base_url, data_dir)``."""
     _isolate(monkeypatch)
     data_dir = pages.install(monkeypatch, tmp_path)
@@ -147,10 +133,6 @@ def served_worker_ui(monkeypatch, mocker, tmp_path, cards=CARDS, *, setup_comple
         port, _password = _bring_up_wsgi(mocker, tmp_path, password=PASSWORD)
         try:
             _wait_for_bind(port, '/api/health/', expect_status_in={200})
-            if setup_complete:
-                gate.mark_setup_complete()
-            for name in checkpoints:
-                append_wizard_checkpoint(name)
             yield f'http://127.0.0.1:{port}', data_dir
         finally:
             server.stop_server()
@@ -161,7 +143,7 @@ def served_worker_ui(monkeypatch, mocker, tmp_path, cards=CARDS, *, setup_comple
 def compute_section(data_dir):
     """The saved ``compute`` section of ``config.json``, or ``None`` when nothing was saved."""
     saved = pages.config_json(data_dir)
-    return None if saved is None else saved['compute']
+    return None if saved is None else saved.get('compute')
 
 
 def ticked_keys(compute):

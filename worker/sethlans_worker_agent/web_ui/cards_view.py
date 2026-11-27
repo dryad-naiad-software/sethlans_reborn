@@ -77,8 +77,8 @@ def short_address(key: str) -> Optional[str]:
 def blender_check_state(blender_cards, checking: bool = False, check_failed: bool = False) -> str:
     """``done``, ``failed``, ``running`` or ``not_checked`` for the cached Blender device list.
 
-    ``checking`` and ``check_failed`` describe the wizard's own device check
-    (``setup.blender_devices``); they count only while nothing is cached.
+    ``checking`` and ``check_failed`` describe a caller's own device check (the
+    removed worker setup page had one); they count only while nothing is cached.
     """
     if blender_cards is None:
         if checking:

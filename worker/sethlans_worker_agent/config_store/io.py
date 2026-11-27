@@ -5,7 +5,10 @@
 """
 I/O primitives for the worker config store:
 
-  * Atomic write via tempfile + ``os.replace``.
+  * Atomic write via tempfile + ``os.replace``. On Windows the replace
+    and the reads are retried briefly while another handle holds the file
+    (``shared.settings_file_io.replace_with_retry`` and ``read_limited``,
+    the same retry as the shared settings file).
   * Restrictive file and directory permissions (``chmod 0o600`` /
     ``icacls /inheritance:r``) — best-effort with errors logged
     (FR-26).
@@ -26,11 +29,14 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from shared.settings_file_io import read_limited, replace_with_retry
+
 from .paths import SYSTEM_CONFIG_PATH
 
 logger = logging.getLogger(__name__)
 
 LOCK_TIMEOUT_SECONDS = 5.0
+MAX_CONFIG_BYTES = 16 * 1024 * 1024
 _LOCK_POLL_INTERVAL = 0.05
 
 
@@ -108,7 +114,7 @@ def atomic_write(path: Path, data: dict) -> None:
                 os.fsync(fh.fileno())
             except OSError:
                 pass
-        os.replace(str(tmp_path), str(path))
+        replace_with_retry(tmp_path, path)
     except Exception:
         try:
             if tmp_path.exists():
@@ -119,13 +125,24 @@ def atomic_write(path: Path, data: dict) -> None:
     restrict_file_permissions(path)
 
 
+def parse_json_file(path: Path):
+    """The JSON value in ``path``; Windows sharing errors retried (``read_limited``).
+
+    Raises ``FileNotFoundError``, ``OSError`` (also for a file over
+    ``MAX_CONFIG_BYTES``) and ``ValueError`` (not UTF-8 or not JSON).
+    """
+    raw = read_limited(path, MAX_CONFIG_BYTES)
+    if len(raw) > MAX_CONFIG_BYTES:
+        raise OSError(f"{path.name} is larger than {MAX_CONFIG_BYTES} bytes")
+    return json.loads(raw.decode("utf-8"))
+
+
 def read_json_file(path: Path) -> dict:
     try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
+        data = parse_json_file(path)
     except FileNotFoundError:
         return {}
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, ValueError, RecursionError) as e:  # ValueError: JSONDecodeError, UnicodeDecodeError
         logger.warning("Failed to read config file %s: %s", path, e)
         return {}
     if not isinstance(data, dict):

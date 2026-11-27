@@ -32,7 +32,7 @@ from workers.views.heartbeat import WorkerHeartbeatViewSet
 
 from .conftest import (
     TEST_ENROLLMENT_KEY_CANONICAL,
-    fresh_nonce,
+    enroll_body,
 )
 
 REGEN_URL = '/api/auth/regenerate_enrollment_key/'
@@ -40,11 +40,8 @@ ENROLL_URL = '/api/enroll/'
 
 
 def _enroll_body(hostname, key):
-    return {
-        'enrollment_key': key,
-        'hostname': hostname,
-        'nonce': fresh_nonce(),
-    }
+    """A key-proof body for *key* (FR-WK-8)."""
+    return enroll_body(key, hostname)
 
 
 @pytest.mark.django_db

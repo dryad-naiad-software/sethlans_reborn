@@ -23,6 +23,7 @@ import requests
 import requests.adapters
 
 from sethlans_worker_agent import config_store
+from sethlans_worker_agent.peer_cert import PeerCertAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +82,15 @@ def unpinned_session() -> requests.Session:
     to another manager. The HMAC-signed enrollment response proves the
     manager's identity instead, and urllib3's ``InsecureRequestWarning`` for
     that one request is accurate, so it is not suppressed.
+
+    A :class:`~sethlans_worker_agent.peer_cert.PeerCertAdapter` is mounted
+    on ``https://``: each response carries the certificate the server
+    presented on the connection that carried it, which enrollment compares
+    with the signed fingerprint (setup-rebuild FR-WK-8).
     """
-    return _new_session('')
+    s = _new_session('')
+    s.mount('https://', PeerCertAdapter())
+    return s
 
 
 def _stored_pin() -> Tuple[str, bool, bool]:

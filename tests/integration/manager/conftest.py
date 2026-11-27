@@ -11,11 +11,13 @@ import base64
 import secrets
 
 import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
+from workers import enrollment_key
 from workers.models import (
     SupportedBlenderVersion, Project, Asset, Worker,
 )
@@ -26,14 +28,40 @@ User = get_user_model()
 # value pinned in ``tests/unit/manager/test_enroll_view.py`` so tests that
 # cross the unit/integration boundary stay in lock-step.
 TEST_ENROLLMENT_KEY_CANONICAL = "4F9XK2PBQ7M3N8RT"
-TEST_ENROLLMENT_KEY_HYPHENATED = "4F9X-K2PB-Q7M3-N8RT"
 
 
 def fresh_nonce() -> str:
-    """Return a fresh urlsafe-base64 nonce (22 chars, 16 bytes decoded)."""
-    return base64.urlsafe_b64encode(
-        secrets.token_bytes(16),
-    ).rstrip(b"=").decode("ascii")
+    """Return a fresh enroll nonce: 32 lowercase hex (16 random bytes, FR-WK-8)."""
+    return secrets.token_hex(16)
+
+
+def enroll_body(key=TEST_ENROLLMENT_KEY_CANONICAL, hostname='integration-host', nonce=None):
+    """A ``POST /api/enroll/`` body for *key*: ``{hostname, nonce, proof}`` (FR-WK-8).
+
+    The key itself is not in the body; ``proof`` is the manager's own
+    ``compute_proof`` over the normalized key, so a wrong *key* gives a
+    well-formed but wrong proof (403).
+    """
+    nonce = nonce or fresh_nonce()
+    proof = enrollment_key.compute_proof(enrollment_key.normalize(key), nonce, hostname)
+    return {'hostname': hostname, 'nonce': nonce, 'proof': proof}
+
+
+def reply_token(envelope, key=TEST_ENROLLMENT_KEY_CANONICAL) -> str:
+    """The API token of an enroll answer, decrypted with *key* (FR-WK-8).
+
+    AES-GCM under ``derive_token_subkey``; associated data is the payload's
+    ``nonce + "\\n" + manager_id``.  Raises ``InvalidTag`` on any mismatch.
+    """
+    payload = envelope['payload']
+    aad = (payload['nonce'] + '\n' + payload['manager_id']).encode('utf-8')
+    subkey = enrollment_key.derive_token_subkey(enrollment_key.normalize(key))
+    plain = AESGCM(subkey).decrypt(
+        bytes.fromhex(payload['api_token_nonce']),
+        base64.b64decode(payload['api_token_ct'], validate=True),
+        aad,
+    )
+    return plain.decode('ascii')
 
 
 @pytest.fixture
@@ -239,3 +267,18 @@ def reset_enroll_module_state():
         enroll_module._rate_limiter._attempts.clear()
     with enroll_module._nonce_store._lock:
         enroll_module._nonce_store._seen.clear()
+
+
+@pytest.fixture
+def tls_manager(request, transactional_db, reset_enroll_module_state, monkeypatch, tmp_path):
+    """A live manager over TLS (``_tls_manager.TlsManager``); ``request.param`` is keep-alive (default on).
+
+    Its enrollment key is ``TEST_ENROLLMENT_KEY_CANONICAL``. The user folders
+    of this process point at a scratch home.
+    """
+    from ._tls_manager import serve
+    for name in ('LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'HOME'):
+        monkeypatch.setenv(name, str(tmp_path / 'home'))
+    monkeypatch.setenv('NO_PROXY', '127.0.0.1')
+    with serve(tmp_path, monkeypatch, TEST_ENROLLMENT_KEY_CANONICAL, keep_alive=getattr(request, 'param', True)) as served:
+        yield served

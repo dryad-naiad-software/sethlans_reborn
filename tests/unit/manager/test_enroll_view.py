@@ -4,33 +4,31 @@
 """
 Unit tests for ``POST /api/enroll/`` (``manager/workers/views/enroll.py``).
 
-Happy path, replayed nonce, invalid key, malformed body, rate-limit
-exhaustion, and both 503 readiness-not-ready branches.  Each test
-resets the module-level rate limiter and nonce store via a fixture so
-state does not leak between tests.
-
-Cross-boundary HMAC verification is exercised by recomputing the
-signature against ``derive_signing_subkey`` using the same canonical
-JSON form the view uses — this is the reverse-verify parity asserted
-in the spec (FR-12a / AC-7).
+The body is the setup-rebuild FR-WK-8 key proof ``{hostname, nonce, proof}``.
+Happy path, replayed nonce, wrong proof, refused bodies and rate-limit
+exhaustion.  Each test resets the module-level rate limiter and nonce store
+via a fixture so state does not leak between tests.  The request order
+(including readiness) is pinned in ``test_enroll_order.py``; the field
+shapes in ``test_enrollment_serializer.py``.
 """
 
 import base64
 import hashlib
 import hmac
 import json
-import secrets
 
 import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 
 from sethlans_manager import runtime_state
+from tests.unit.manager._enroll_body import KEY, OTHER_KEY, enroll_body
 from workers import enrollment_key
 from workers.models import ManagerSettings
+from workers.serializers_enrollment import LEGACY_KEY_DETAIL
 from workers.views import enroll as enroll_module
 
-
-TEST_KEY_CANONICAL = "4F9XK2PBQ7M3N8RT"
 TEST_HOSTNAME = "enroll-test-host"
 
 
@@ -74,11 +72,11 @@ def _ready_runtime_state():
 def seeded_enrollment_key(db):
     """Overwrite the ``ManagerSettings`` row's enrollment key to a known value."""
     row = ManagerSettings.objects.get(pk=1)
-    row.enrollment_key = TEST_KEY_CANONICAL
+    row.enrollment_key = KEY
     row.save(
         update_fields=["enrollment_key", "enrollment_key_updated_at"],
     )
-    return TEST_KEY_CANONICAL
+    return KEY
 
 
 # ---------------------------------------------------------------------------
@@ -86,24 +84,17 @@ def seeded_enrollment_key(db):
 # ---------------------------------------------------------------------------
 
 
-def _fresh_nonce() -> str:
-    return base64.urlsafe_b64encode(
-        secrets.token_bytes(16),
-    ).rstrip(b"=").decode("ascii")
+def _post(api_client, body):
+    return api_client.post("/api/enroll/", body, format="json")
 
 
-def _post(api_client, **body_overrides):
-    body = {
-        "enrollment_key": TEST_KEY_CANONICAL,
-        "hostname": TEST_HOSTNAME,
-        "nonce": _fresh_nonce(),
-    }
-    body.update(body_overrides)
-    return api_client.post("/api/enroll/", body, format="json"), body
+def _limiter_attempts():
+    with enroll_module._rate_limiter._lock:
+        return len(enroll_module._rate_limiter._attempts)
 
 
-def _verify_signature(payload: dict, signature: str, normalized_key: str) -> bool:
-    subkey = enrollment_key.derive_signing_subkey(normalized_key)
+def _verify_signature(payload: dict, signature: str) -> bool:
+    subkey = enrollment_key.derive_signing_subkey(KEY)
     canonical = json.dumps(
         payload, sort_keys=True, separators=(",", ":"),
         ensure_ascii=True,
@@ -112,41 +103,44 @@ def _verify_signature(payload: dict, signature: str, normalized_key: str) -> boo
     return hmac.compare_digest(expected, signature)
 
 
+def _decrypt_token(payload: dict) -> str:
+    aad = (payload["nonce"] + "\n" + payload["manager_id"]).encode("utf-8")
+    plain = AESGCM(enrollment_key.derive_token_subkey(KEY)).decrypt(
+        bytes.fromhex(payload["api_token_nonce"]),
+        base64.b64decode(payload["api_token_ct"]),
+        aad,
+    )
+    return plain.decode("ascii")
+
+
 # ---------------------------------------------------------------------------
-# Happy path (AC-7)
+# Happy path (AC-7, FR-WK-8)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
 class TestHappyPath:
-    def test_valid_request_returns_200_envelope(
+    def test_valid_proof_returns_signed_envelope_with_encrypted_token(
         self, api_client, seeded_enrollment_key,
     ):
-        resp, body = _post(api_client)
+        """AC-7 / FR-WK-8: signed envelope; the issued token travels only encrypted."""
+        body = enroll_body(TEST_HOSTNAME)
+        resp = _post(api_client, body)
         assert resp.status_code == 200
         data = resp.json()
         assert set(data.keys()) == {"payload", "signature"}
         payload = data["payload"]
         assert set(payload.keys()) == {
-            "api_token", "cert_fingerprint", "manager_id", "nonce",
+            "api_token_ct", "api_token_nonce", "cert_fingerprint",
+            "manager_id", "nonce",
         }
         assert payload["nonce"] == body["nonce"]
         assert payload["manager_id"] == runtime_state.manager_id
         assert payload["cert_fingerprint"] == runtime_state.cert_fingerprint
-        assert len(payload["api_token"]) == 40  # DRF Token length
-        # HMAC reverse-verify using the same derive_signing_subkey the
-        # worker uses — this is the cross-boundary parity assertion.
-        assert _verify_signature(
-            payload, data["signature"], TEST_KEY_CANONICAL,
-        )
-
-    def test_hyphenated_key_accepted_and_normalized(
-        self, api_client, seeded_enrollment_key,
-    ):
-        resp, _ = _post(
-            api_client, enrollment_key="4F9X-K2PB-Q7M3-N8RT",
-        )
-        assert resp.status_code == 200
+        assert _verify_signature(payload, data["signature"])
+        token = _decrypt_token(payload)
+        assert Token.objects.filter(key=token).exists()
+        assert token not in resp.content.decode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -159,69 +153,71 @@ class TestReplayedNonce:
     def test_second_request_same_nonce_returns_400(
         self, api_client, seeded_enrollment_key,
     ):
-        nonce = _fresh_nonce()
-        first, _ = _post(api_client, nonce=nonce)
-        assert first.status_code == 200
-        second, _ = _post(api_client, nonce=nonce)
+        """AC-9: a nonce is accepted once."""
+        body = enroll_body(TEST_HOSTNAME)
+        assert _post(api_client, body).status_code == 200
+        second = _post(api_client, body)
         assert second.status_code == 400
         assert second.json() == {"detail": "Replayed nonce."}
 
 
 # ---------------------------------------------------------------------------
-# Invalid key (AC-8)
+# Wrong proof (AC-8, FR-WK-8)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-class TestInvalidKey:
-    def test_wrong_key_returns_403_and_increments_limiter(
-        self, api_client, seeded_enrollment_key,
+class TestWrongProof:
+    @pytest.mark.parametrize("body_kwargs", [
+        {"key": OTHER_KEY},
+        {"proof_hostname": "someone-else"},
+    ], ids=["other-key", "proof-for-other-hostname"])
+    def test_wrong_proof_returns_403_and_counts_against_the_limit(
+        self, api_client, seeded_enrollment_key, body_kwargs,
     ):
-        resp, _ = _post(
-            api_client, enrollment_key="00000000000000PP",  # valid shape
-        )
+        """AC-8 / FR-WK-8: a proof from another key, or over another hostname, is refused."""
+        resp = _post(api_client, enroll_body(TEST_HOSTNAME, **body_kwargs))
         assert resp.status_code == 403
         assert resp.json() == {"detail": "Invalid enrollment key."}
-        # Rate limiter should have at least one recorded attempt.
-        with enroll_module._rate_limiter._lock:
-            assert len(enroll_module._rate_limiter._attempts) == 1
+        assert _limiter_attempts() == 1
 
 
 # ---------------------------------------------------------------------------
-# Malformed body (AC-11, AC-12, AC-13)
+# Refused bodies (AC-11..13, FR-WK-8)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-class TestMalformedBody:
-    def test_missing_enrollment_key_returns_400(
+class TestRefusedBody:
+    def test_body_with_enrollment_key_gets_the_update_message(
         self, api_client, seeded_enrollment_key,
     ):
-        resp = api_client.post(
-            "/api/enroll/",
-            {"hostname": TEST_HOSTNAME, "nonce": _fresh_nonce()},
-            format="json",
-        )
+        """FR-WK-8: an old worker's body (key in clear) gets 400 telling it to update."""
+        old_body = {
+            "enrollment_key": KEY,
+            "hostname": TEST_HOSTNAME,
+            "nonce": "A" * 22,
+        }
+        resp = _post(api_client, old_body)
         assert resp.status_code == 400
-        assert "enrollment_key" in resp.json()
+        assert resp.json() == {"detail": LEGACY_KEY_DETAIL}
+        assert _limiter_attempts() == 0
 
-    def test_bad_hostname_returns_400(
+    def test_non_ascii_proof_is_400_not_500(
         self, api_client, seeded_enrollment_key,
     ):
-        resp, _ = _post(api_client, hostname="host with space")
+        """FR-WK-8: a non-ASCII proof is a shape error, never reaching compare_digest."""
+        body = enroll_body(TEST_HOSTNAME)
+        body["proof"] = "é" * 64
+        resp = _post(api_client, body)
         assert resp.status_code == 400
-        assert "hostname" in resp.json()
-
-    def test_bad_nonce_returns_400(
-        self, api_client, seeded_enrollment_key,
-    ):
-        resp, _ = _post(api_client, nonce="too-short")
-        assert resp.status_code == 400
-        assert "nonce" in resp.json()
+        assert set(resp.json()) == {"proof"}
+        assert _limiter_attempts() == 0
 
     def test_not_json_returns_400(
         self, api_client, seeded_enrollment_key,
     ):
+        """AC-11: a body that is not a JSON object is refused."""
         resp = api_client.post(
             "/api/enroll/", "not-a-json-object",
             content_type="application/json",
@@ -236,46 +232,13 @@ class TestMalformedBody:
 
 @pytest.mark.django_db
 class TestRateLimit:
-    def test_five_invalid_attempts_then_429(
+    def test_five_wrong_proofs_then_429(
         self, api_client, seeded_enrollment_key,
     ):
+        """AC-10: five failed proofs from one IP, then 429 before anything else."""
         for _ in range(5):
-            resp, _ = _post(
-                api_client, enrollment_key="00000000000000PP",
-            )
+            resp = _post(api_client, enroll_body(TEST_HOSTNAME, key=OTHER_KEY))
             assert resp.status_code == 403
-        # The 6th attempt should be rate-limited regardless of key
-        # validity (limit check comes first in the view).
-        resp, _ = _post(
-            api_client, enrollment_key="00000000000000PP",
-        )
+        resp = _post(api_client, enroll_body(TEST_HOSTNAME))
         assert resp.status_code == 429
         assert "Too many" in resp.json()["detail"]
-
-
-# ---------------------------------------------------------------------------
-# 503 readiness (AC-14b / AC-43)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.django_db
-class TestReadinessNotReady:
-    def test_manager_id_none_returns_503(
-        self, api_client, seeded_enrollment_key,
-    ):
-        runtime_state.manager_id = None
-        resp, _ = _post(api_client)
-        assert resp.status_code == 503
-        assert resp.json() == {"detail": "Enrollment service not ready."}
-        # 503 must NOT consume rate-limiter budget.
-        with enroll_module._rate_limiter._lock:
-            assert len(enroll_module._rate_limiter._attempts) == 0
-
-    def test_cert_fingerprint_none_returns_503(
-        self, api_client, seeded_enrollment_key,
-    ):
-        runtime_state.cert_fingerprint = None
-        resp, _ = _post(api_client)
-        assert resp.status_code == 503
-        with enroll_module._rate_limiter._lock:
-            assert len(enroll_module._rate_limiter._attempts) == 0

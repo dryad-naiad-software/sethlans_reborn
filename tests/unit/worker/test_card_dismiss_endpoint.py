@@ -31,7 +31,7 @@ def saved(monkeypatch):
 
 
 @pytest.fixture
-def auth(setup_complete, fresh_shutdown_event, bearer_header):
+def auth(fresh_shutdown_event, bearer_header):
     return bearer_header
 
 
@@ -74,8 +74,9 @@ class TestDismiss:
         status, answer = call(DISMISS, 'POST', raw=b'{"alert_id": ', headers=auth)
         assert (status, answer['error']) == (400, "The request body must be a JSON object.")
 
-    def test_needs_the_password(self, saved, setup_complete, fresh_shutdown_event):
-        assert call(DISMISS, 'POST', {'alert_id': ALERT_ID})[0] == 401
+    def test_needs_the_password(self, saved, fresh_shutdown_event, no_page_password):
+        """FR-WK-4: with no page password stored the dismissal is refused (403)."""
+        assert call(DISMISS, 'POST', {'alert_id': ALERT_ID})[0] == 403
         assert rebuild.pending() is False
 
     def test_refused_during_shutdown(self, saved, auth, fresh_shutdown_event):
@@ -98,7 +99,7 @@ class TestDismiss:
 
 class TestRebuildWaitingField:
 
-    def test_get_reports_rebuild_waiting(self, saved, monkeypatch, setup_complete):
+    def test_get_reports_rebuild_waiting(self, saved, monkeypatch):
         fake_probes(monkeypatch)
         assert call(RUNTIME_GET)[1]['rebuild_waiting'] is False
 

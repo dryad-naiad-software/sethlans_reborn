@@ -46,7 +46,7 @@ class TestSaveChoice:
         events = []
         mocker.patch.object(config_compute, '_read_raw', return_value={'revision': 0})
         mocker.patch.object(config_store, 'set_many',
-                            side_effect=lambda pairs: events.append(('write', store._section_lock.locked())))
+                            side_effect=lambda pairs, **_kwargs: events.append(('write', store._section_lock.locked())))
         mocker.patch.object(choice, '_request_rebuild',
                             side_effect=lambda: events.append(('rebuild', store._section_lock.locked())))
 
@@ -101,7 +101,7 @@ class TestDismissAlerts:
         alert = dict(self.ALERT, detail='d', raised_at='2026-11-19T00:00:00+00:00')
         mocker.patch.object(config_compute, '_read_raw', return_value={'revision': 0, 'alerts': [alert]})
         mocker.patch.object(config_store, 'set_many',
-                            side_effect=lambda pairs: events.append(('write', store._section_lock.locked())))
+                            side_effect=lambda pairs, **_kwargs: events.append(('write', store._section_lock.locked())))
         mocker.patch.object(choice, '_request_rebuild',
                             side_effect=lambda: events.append(('rebuild', store._section_lock.locked())))
 

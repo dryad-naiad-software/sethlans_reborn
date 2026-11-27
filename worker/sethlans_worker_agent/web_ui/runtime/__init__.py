@@ -3,8 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Always-on runtime handlers for the worker web UI.
 
-Mirrors the ``web_ui/setup/`` split: handlers in this package are
-reachable in both setup mode and runtime mode (no setup-gate dependency)
-and serve probe/monitoring traffic.  The first occupant is the
+Handlers in this package are always reachable (the worker has no setup
+gate, setup-rebuild FR-WK-7) and serve probe/monitoring traffic.  The first occupant is the
 ``/api/health/`` endpoint (``handlers_health.py``).
 """

@@ -87,12 +87,14 @@
 <body>
 <div class="top-bar">
   <h1>Sethlans Worker Dashboard</h1>
-  <button class="btn btn-danger" id="btn-shutdown" onclick="shutdownWorker()">Shutdown</button>
+  <span>
+    <button class="btn btn-secondary" onclick="openPasswordModal()">Change Password</button>
+    <button class="btn btn-danger" id="btn-shutdown" onclick="shutdownWorker()">Shutdown</button>
+  </span>
 </div>
 <div id="status-line"></div>
 <div id="pw-banner">
-  <span>The default password is <strong>sethlans</strong>. Please change it to secure this dashboard.</span>
-  <button class="btn btn-ok" onclick="openPasswordModal()">Change Password</button>
+  <span>No worker page password is set, so this page's controls are refused. Run Reset setup to set one.</span>
 </div>
 <div id="error-banner"></div>
 <div class="modal-overlay" id="pw-modal">
@@ -386,7 +388,7 @@
     var confirm = document.getElementById('pw-confirm').value;
     var errEl = document.getElementById('pw-error');
     if (!current) { errEl.textContent = 'Enter current password'; return; }
-    if (pw.length < 4) { errEl.textContent = 'At least 4 characters'; return; }
+    if (pw.length < 8) { errEl.textContent = 'At least 8 characters'; return; }
     if (pw !== confirm) { errEl.textContent = 'Passwords do not match'; return; }
     errEl.textContent = '';
     fetch('/api/control/set_password', {
@@ -399,7 +401,8 @@
         closePasswordModal();
         document.getElementById('pw-banner').style.display = 'none';
       } else if (r.status === 401) { errEl.textContent = 'Wrong current password'; }
-      else { errEl.textContent = 'Failed to set password'; }
+      else { r.json().then(function(d) { errEl.textContent = d.error || 'Failed to set password'; })
+        .catch(function() { errEl.textContent = 'Failed to set password'; }); }
     }).catch(function(err) { errEl.textContent = err.message; });
   }
   window.setNewPassword = setNewPassword;

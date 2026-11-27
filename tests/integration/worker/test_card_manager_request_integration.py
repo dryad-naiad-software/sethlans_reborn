@@ -24,7 +24,6 @@ import pytest
 from sethlans_worker_agent import config_compute, config_store
 from sethlans_worker_agent.cards import remote, store
 from sethlans_worker_agent.web_ui import cards_view
-from sethlans_worker_agent.web_ui.setup import gate
 
 from . import _card_pages_harness as pages
 from ._card_pages_harness import ADDRESS_A, ADDRESS_C, KEY_A, KEY_C, saved_record
@@ -46,13 +45,10 @@ def _request(key=KEY_C, base_revision=0, **changes):
 
 @pytest.fixture
 def data_dir(monkeypatch, tmp_path):
-    pages.reset_wizard_state()
     directory = pages.install(monkeypatch, tmp_path)
     pages.bind_shutdown_event()
-    gate.mark_setup_complete()
     yield directory
     pages.unbind_shutdown_event()
-    pages.reset_wizard_state()
 
 
 @pytest.fixture
@@ -65,9 +61,9 @@ def overlapping_saves(monkeypatch):
         barrier.wait()
         return real_save(*args, **kwargs)
 
-    def set_many(pairs):
+    def set_many(pairs, expect=None):
         time.sleep(0.1)
-        return real_set_many(pairs)
+        return real_set_many(pairs, expect=expect)
 
     monkeypatch.setattr(store, 'save', save)
     monkeypatch.setattr(config_store, 'set_many', set_many)

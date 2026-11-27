@@ -55,11 +55,6 @@ def clock(monkeypatch):
     return fake
 
 
-@pytest.fixture(autouse=True)
-def _open(setup_complete):
-    yield
-
-
 class TestReadOnly:
 
     @pytest.fixture

@@ -108,13 +108,13 @@ def _discard(temp: Path) -> None:
         pass
 
 
-def _replace(temp: Path, path: Path) -> None:
+def replace_with_retry(temp, path) -> None:
     """``os.replace``, retried briefly on Windows while a reader has *path* open.
 
     Python opens files without ``FILE_SHARE_DELETE``, so on Windows a
     replace fails with ``PermissionError`` while any process is reading
     the target. Reads are one short ``read`` call, so a few retries clear
-    it; anything longer is raised.
+    it; anything longer is raised. Also used by the worker's ``config_store``.
     """
     for attempt in range(_REPLACE_ATTEMPTS):
         try:
@@ -130,7 +130,7 @@ def read_limited(path, limit: int) -> bytes:
     """Read at most ``limit + 1`` bytes of ``path``.
 
     On Windows a ``PermissionError`` while a writer replaces the file is
-    retried like :func:`_replace`; a folder at ``path`` fails at once
+    retried like :func:`replace_with_retry`; a folder at ``path`` fails at once
     (``IsADirectoryError``). ``FileNotFoundError`` is raised to the caller.
     """
     path = Path(path)
@@ -163,7 +163,7 @@ def atomic_replace(path, data: bytes) -> None:
         finally:
             os.close(fd)
         make_owner_only(temp)
-        _replace(temp, path)
+        replace_with_retry(temp, path)
     except BaseException:
         _discard(temp)
         raise

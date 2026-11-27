@@ -8,16 +8,20 @@ HMAC-bootstrapped worker enrollment endpoint.
 bootstrap onto the manager.  The legacy ``X-Enrollment-Key`` header path
 on ``/api/heartbeat/`` has been removed.
 
+The worker never sends the enrollment key: it sends a key proof (an
+HMAC over ``nonce + "\\n" + hostname`` under ``derive_proof_subkey``),
+and the answer carries the API token encrypted under
+``derive_token_subkey`` (setup-rebuild FR-WK-8).
+
 The request-processing order in ``enroll_view`` is non-negotiable — see
 ``development/specs/worker-enrollment.md`` FR-18 for the rationale behind
 each step.  Reviewers committed to the ordering specifically to close
 the "nonce burned before key validation" and "nonce consumed on
-downstream failure" hazards.
+downstream failure" hazards: the proof is checked before the nonce is
+recorded, so a bad proof never burns a nonce.
 """
 
-import hashlib
 import hmac
-import json
 import logging
 
 from django.contrib.auth import get_user_model
@@ -35,43 +39,31 @@ from rest_framework.response import Response
 
 from sethlans_manager import runtime_state
 
-from ..enrollment_key import (
-    derive_signing_subkey,
-    load_current,
-    normalize as normalize_key,
-)
+from ..enrollment_key import compute_proof, load_current
 from ..models import Worker
 from ..nonce_store import NonceStore
 from ..rate_limiter import InMemoryRateLimiter
-from ..serializers_enrollment import EnrollmentRequestSerializer
+from ..serializers_enrollment import (
+    LEGACY_KEY_DETAIL,
+    EnrollmentBadRequestSerializer,
+    EnrollmentDetailSerializer,
+    EnrollmentEnvelopeSerializer,
+    EnrollmentRequestSerializer,
+    carries_legacy_key,
+)
+from ..services.enrollment_envelope import build_envelope
 from ..services.worker_tokens import issue_fresh_token
 from ._helpers import client_ip, get_or_create_worker_user
 
 logger = logging.getLogger(__name__)
 
-# Rate limiter dedicated to the enrollment endpoint.  Only key-validation
-# failures count against the limit — serializer errors and replayed
-# nonces do NOT increment it (FR-10, FR-13).
+# Rate limiter dedicated to the enrollment endpoint.  Only key-proof
+# failures count against the limit — shape errors and replayed nonces
+# do NOT increment it (FR-10, FR-13).
 _rate_limiter = InMemoryRateLimiter(max_attempts=5, window_seconds=300)
 
 # In-memory nonce store with 5-minute TTL; see ``nonce_store.py``.
 _nonce_store = NonceStore(ttl_seconds=300, max_entries=10_000)
-
-
-def _sign_payload(payload: dict, signing_key: bytes) -> str:
-    """Return the hex HMAC-SHA256 over the canonical payload JSON.
-
-    ``ensure_ascii=True`` is explicit so the canonical form is byte-
-    identical across Python minor versions (the default is ``True``,
-    but pinning it in code makes the invariant testable).
-    """
-    canonical = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    ).encode("utf-8")
-    return hmac.new(signing_key, canonical, hashlib.sha256).hexdigest()
 
 
 def _readiness_ok() -> bool:
@@ -82,25 +74,17 @@ def _readiness_ok() -> bool:
     )
 
 
-def _validate_key(raw_key, ip):
-    """Return (normalized_key, None) on success or (None, Response) on fail.
+def _check_proof(hostname, nonce, proof, ip):
+    """Return (current_key, None) on success or (None, Response) on fail.
 
-    Increments the rate-limiter on invalid key (either malformed or
-    mismatched) per FR-14.  Returns a 503 Response if the DB-backed
-    key load fails — that's a server-misconfiguration signal, not a
-    credential issue.
+    The expected proof is computed from the manager's CURRENT key and
+    compared in constant time.  A mismatch counts against the rate
+    limiter and answers 403 ``Invalid enrollment key.`` (FR-14).  A
+    failed key load answers 503 — that is a server-misconfiguration
+    signal, not a credential issue.  The proof is never logged.
     """
     try:
-        normalized_key = normalize_key(raw_key)
-    except ValueError:
-        _rate_limiter.record_attempt(ip)
-        logger.warning("Enrollment rejected: invalid_key from %s", ip)
-        return None, Response(
-            {"detail": "Invalid enrollment key."},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-    try:
-        expected_key = load_current()
+        current_key = load_current()
     except Exception:
         logger.exception(
             "Enrollment rejected: ManagerSettings row missing or "
@@ -110,14 +94,17 @@ def _validate_key(raw_key, ip):
             {"detail": "Enrollment service not ready."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
-    if not hmac.compare_digest(normalized_key, expected_key):
+    expected = compute_proof(current_key, nonce, hostname)
+    # Both strings are lowercase hex (the serializer checked ``proof``),
+    # so ``compare_digest`` never sees non-ASCII text.
+    if not hmac.compare_digest(expected, proof):
         _rate_limiter.record_attempt(ip)
         logger.warning("Enrollment rejected: invalid_key from %s", ip)
         return None, Response(
             {"detail": "Invalid enrollment key."},
             status=status.HTTP_403_FORBIDDEN,
         )
-    return normalized_key, None
+    return current_key, None
 
 
 def _do_atomic_db_work(user_model, hostname):
@@ -160,23 +147,54 @@ def _do_atomic_db_work(user_model, hostname):
         return issue_fresh_token(user)
 
 
+def _bad_request(body):
+    return Response(body, status=status.HTTP_400_BAD_REQUEST)
+
+
 @extend_schema(
     tags=["Worker Enrollment"],
     request=EnrollmentRequestSerializer,
     responses={
         200: OpenApiResponse(
-            description="Enrollment envelope {payload, signature}",
+            response=EnrollmentEnvelopeSerializer,
+            description=(
+                "Signed envelope {payload, signature}.  The API token is "
+                "AES-GCM encrypted under the token subkey "
+                "(api_token_nonce, api_token_ct)."
+            ),
         ),
         400: OpenApiResponse(
-            description="Validation error or replayed nonce",
+            response=EnrollmentBadRequestSerializer,
+            description=(
+                "Shape error (field errors), a body that still carries "
+                "enrollment_key, or {\"detail\": \"Replayed nonce.\"}"
+            ),
         ),
-        403: OpenApiResponse(description="Invalid enrollment key"),
-        429: OpenApiResponse(description="Rate-limited"),
-        503: OpenApiResponse(description="Enrollment service not ready"),
+        403: OpenApiResponse(
+            response=EnrollmentDetailSerializer,
+            description="Key proof does not match the current key",
+        ),
+        429: OpenApiResponse(
+            response=EnrollmentDetailSerializer,
+            description="Rate-limited",
+        ),
+        500: OpenApiResponse(
+            response=EnrollmentDetailSerializer,
+            description=(
+                "{\"detail\": \"Enrollment failed.\"}: the worker, user "
+                "or token could not be written"
+            ),
+        ),
+        503: OpenApiResponse(
+            response=EnrollmentDetailSerializer,
+            description="Enrollment service not ready",
+        ),
     },
     description=(
-        "HMAC-bootstrapped worker enrollment.  "
-        "See development/specs/worker-enrollment.md."
+        "HMAC-bootstrapped worker enrollment with a key proof: the "
+        "worker sends {hostname, nonce, proof}, never the key.  "
+        "See development/specs/worker-enrollment.md and "
+        "development/specs/setup-rebuild.md FR-WK-8."
     ),
 )
 @api_view(["POST"])
@@ -192,16 +210,15 @@ def enroll_view(request):
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
-    # --- Step 2: serializer validation ---------------------------
+    # --- Step 2: shape checks ------------------------------------
+    if carries_legacy_key(request.data):
+        return _bad_request({"detail": LEGACY_KEY_DETAIL})
     serializer = EnrollmentRequestSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    raw_key = serializer.validated_data["enrollment_key"]
+        return _bad_request(serializer.errors)
     hostname = serializer.validated_data["hostname"]
     nonce = serializer.validated_data["nonce"]
+    proof = serializer.validated_data["proof"]
 
     # --- Step 3: runtime_state readiness check -------------------
     if not _readiness_ok():
@@ -213,17 +230,14 @@ def enroll_view(request):
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
-    # --- Step 4: enrollment key validation -----------------------
-    normalized_key, err = _validate_key(raw_key, ip)
+    # --- Step 4: key proof against the CURRENT key ---------------
+    current_key, err = _check_proof(hostname, nonce, proof, ip)
     if err is not None:
         return err
 
     # --- Step 5: nonce check-and-record --------------------------
     if not _nonce_store.check_and_record(nonce):
-        return Response(
-            {"detail": "Replayed nonce."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return _bad_request({"detail": "Replayed nonce."})
 
     # --- Step 6: atomic DB work ----------------------------------
     user_model = get_user_model()
@@ -238,23 +252,21 @@ def enroll_view(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    # --- Step 7: compute signing subkey --------------------------
-    signing_key = derive_signing_subkey(normalized_key)
-
-    # --- Step 8: build and sign the response payload -------------
-    payload = {
-        "api_token": token.key,
-        "cert_fingerprint": runtime_state.cert_fingerprint,
-        "manager_id": runtime_state.manager_id,
-        "nonce": nonce,
-    }
-    signature = _sign_payload(payload, signing_key)
-
-    # --- Step 9: log success (NEVER log full fingerprint/token/nonce)
-    logger.info(
-        "Enrollment success hostname=%s ip=%s fingerprint_prefix=%s",
-        hostname, ip, payload["cert_fingerprint"][:12],
+    # --- Step 7: encrypt the token, build and sign the payload ---
+    envelope = build_envelope(
+        current_key,
+        token.key,
+        nonce,
+        runtime_state.manager_id,
+        runtime_state.cert_fingerprint,
     )
 
-    # --- Step 10: return envelope --------------------------------
-    return Response({"payload": payload, "signature": signature})
+    # --- Step 8: log success (NEVER log the token, its ciphertext,
+    # the proof, the nonce or the full fingerprint) ---------------
+    logger.info(
+        "Enrollment success hostname=%s ip=%s fingerprint_prefix=%s",
+        hostname, ip, runtime_state.cert_fingerprint[:12],
+    )
+
+    # --- Step 9: return envelope ---------------------------------
+    return Response(envelope)

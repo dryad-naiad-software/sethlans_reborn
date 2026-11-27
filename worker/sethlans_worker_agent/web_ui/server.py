@@ -51,6 +51,12 @@ def start_server(cert_path, key_path):
       - connection_limit=1000
       - max_request_body_size=4096 bytes (matches MAX_REQUEST_BODY
         invariant — defense-in-depth against oversized bodies)
+      - trusted_proxy='127.0.0.1', trusted_proxy_count=1,
+        trusted_proxy_headers={'x-forwarded-for'} (setup-rebuild FR-SEC-3):
+        Caddy on loopback sets ``X-Forwarded-For``, so Waitress puts the
+        real client address in ``REMOTE_ADDR`` and the password failure
+        limit (FR-SEC-8) counts per LAN client. Without them Waitress
+        strips the header and every request looks like 127.0.0.1.
 
     Waitress runs in a daemon thread so the worker agent's main
     thread retains signal ownership. Waitress's
@@ -69,9 +75,9 @@ def start_server(cert_path, key_path):
         return
 
     if not is_password_configured():
-        logger.info(
-            "No custom UI password set. Using default. "
-            "Change it via the dashboard."
+        logger.warning(
+            "No worker page password is set; the page's control actions "
+            "are refused until Reset setup sets one."
         )
 
     from sethlans_worker_agent.web_ui.wsgi_app import app as wsgi_app
@@ -90,6 +96,9 @@ def start_server(cert_path, key_path):
         channel_timeout=300,
         connection_limit=1000,
         max_request_body_size=4096,
+        trusted_proxy='127.0.0.1',
+        trusted_proxy_count=1,
+        trusted_proxy_headers={'x-forwarded-for'},
     )
 
     _server_thread = threading.Thread(

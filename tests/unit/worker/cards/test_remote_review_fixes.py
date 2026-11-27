@@ -23,7 +23,7 @@ OTHER_ID = 'cd' * 16
 
 
 def _fail_writes(monkeypatch):
-    def fail(_pairs):
+    def fail(_pairs, expect=None):
         raise OSError('read-only')
     monkeypatch.setattr(config_store, 'set_many', fail)
 

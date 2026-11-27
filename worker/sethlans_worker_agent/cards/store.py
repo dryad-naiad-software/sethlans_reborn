@@ -78,14 +78,15 @@ def snapshot() -> config_compute.ComputeSection:
     return _load(strict=False)
 
 
-def _write(pairs: list, section) -> None:
+def _write(pairs: list, section, expect=None) -> None:
     """One ``set_many``; caller holds ``_section_lock``. Alerts in memory go into the same write.
 
     A write holding ``compute.last_request`` (built by ``request_pairs``) also empties the request memory.
+    ``expect`` is passed on (``config_store.ConfigChangedError`` when it fails; nothing written).
     """
     if _memory_copy() and not any(dotted == 'compute.alerts' for dotted, _value in pairs):
         pairs = pairs + [('compute.alerts', [dict(alert) for alert in section.alerts])]
-    config_store.set_many(pairs)
+    config_store.set_many(pairs, expect=expect)
     global _memory_request
     with _memory_lock:
         _memory_alerts.clear()  # every alert in memory was merged into ``section`` and is now in the file
@@ -198,7 +199,8 @@ def save(method: str, gpu_mode: str, ticked_keys, shown_keys, inventory, base_re
 
     Refuses, writing nothing: ``ConfigReadError``, ``EnvOverride``,
     ``ManagerChangesOff`` (``manager_request`` and the switch is not on, FR-CM-1),
-    ``StaleRevision``, ``CardHeld`` (alerts in memory count, C-21), then
+    ``StaleRevision`` (also when another process saved a new revision before the write, checked inside the
+    file lock), ``CardHeld`` (alerts in memory count, C-21), then
     ``ValueError`` (ticked key not in ``inventory`` or not shown, GPU with no
     tick, ticked cards of more than one brand with ``cards.brand.MIXED_BRANDS_TEXT``
     (FR-PC-BR-2), Combine GPUs against the one-family rule). ``combined`` with fewer
@@ -229,7 +231,10 @@ def save(method: str, gpu_mode: str, ticked_keys, shown_keys, inventory, base_re
         ]
         if last_request is not None:
             pairs += request_pairs(section, last_request)
-        _write(pairs, section)
+        try:  # the revision is checked again inside the file lock: another process may have saved (--setup-apply)
+            _write(pairs, section, expect={'compute.revision': config_compute.revision_is(section.revision)})
+        except config_store.ConfigChangedError as changed:
+            raise StaleRevision(config_compute.saved_revision(changed.value), base_revision) from None
     return revision
 
 

@@ -17,7 +17,7 @@ Enrollment changes (worker-enrollment spec, FR-15/FR-24/FR-28/FR-32):
   ``normalize()`` format validation.
 
 - ``build_worker_env()`` uses ``SETHLANS_WORKER_ENROLLMENT_KEY``
-  (FR-32's unattended-wizard env var name), NOT the old
+  (the worker enrolls with it at start, setup-rebuild FR-WK-6), NOT the old
   ``SETHLANS_MANAGER_ENROLLMENT_KEY``. The "empty string to wipe stale
   state" pattern for ``api_token`` / ``cert_fingerprint`` has been
   removed because FR-28 now ignores those env vars entirely (they are
@@ -177,7 +177,7 @@ def build_worker_env(
     Build the environment dict for the worker subprocess.
 
     Uses the SETHLANS_{SECTION}_{KEY} naming convention from
-    worker config.py. The wizard's unattended path (FR-32) reads
+    worker config.py. Enrollment at start (setup-rebuild FR-WK-6) reads
     ``SETHLANS_WORKER_ENROLLMENT_KEY``, NOT the old
     ``SETHLANS_MANAGER_ENROLLMENT_KEY`` — the manager-namespaced name
     no longer exists in the codebase.
@@ -192,7 +192,7 @@ def build_worker_env(
     env.update({
         "SETHLANS_MANAGER_HOST": manager_host,
         "SETHLANS_MANAGER_PORT": str(manager_port),
-        # FR-32: unattended-wizard env var. The manager-prefixed
+        # FR-WK-6: enrollment at start. The manager-prefixed
         # variant from the legacy heartbeat-enrollment flow is gone.
         "SETHLANS_WORKER_ENROLLMENT_KEY": enrollment_key,
         "SETHLANS_WORKER_HEARTBEAT_INTERVAL": "5",
@@ -207,8 +207,8 @@ def build_worker_env(
     # FR-28 exception list: SETHLANS_MANAGER_API_TOKEN,
     # SETHLANS_MANAGER_CERT_FINGERPRINT, and SETHLANS_MANAGER_MANAGER_ID
     # are IGNORED by config.py (logged + dropped). Setting them to ""
-    # as the old code did accomplishes nothing — the wizard-populated
-    # JSON config store is authoritative. Instead of setting them, we
+    # as the old code did accomplishes nothing — the JSON config store
+    # that enrollment fills is authoritative. Instead of setting them, we
     # isolate the JSON config store via the per-test data dir below.
     if worker_data_dir is not None:
         _apply_worker_data_dir(env, worker_data_dir)

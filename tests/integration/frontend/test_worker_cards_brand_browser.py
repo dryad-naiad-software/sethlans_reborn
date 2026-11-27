@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-The one-brand rule on the worker's two card pages in a real browser (unreal-render-per-card FR-PC-BR-4).
+The one-brand rule on the worker's card page in a real browser (unreal-render-per-card FR-PC-BR-4).
 
-Chromium drives the wizard's "Graphics Cards" step (``/setup``) and the settings
-page (``/``) of the real worker WSGI app (``_worker_cards_browser``). Once a card
+Chromium drives the settings page (``/``) of the real worker WSGI app
+(``_worker_cards_browser``); the worker's own setup page is gone (setup-rebuild
+FR-WK-7), setup sends its card choice through ``--setup-apply``. Once a card
 is ticked, the boxes of cards of another brand are disabled with
 "Not supported together with <brand> cards."; a card of unknown brand (D7) may be
 ticked only on its own ("Not supported together with other cards."). A save of
@@ -32,35 +33,15 @@ def _note(brand):
 
 
 @pytest.fixture
-def wizard_ui(monkeypatch, mocker, tmp_path):
+def settings_ui(monkeypatch, mocker, tmp_path):
     with ui.served_worker_ui(monkeypatch, mocker, tmp_path) as served:
         yield served
 
 
 @pytest.fixture
-def wizard_ui_unknown(monkeypatch, mocker, tmp_path):
+def settings_ui_unknown(monkeypatch, mocker, tmp_path):
     with ui.served_worker_ui(monkeypatch, mocker, tmp_path, cards=CARDS_WITH_UNKNOWN) as served:
         yield served
-
-
-@pytest.fixture
-def settings_ui(monkeypatch, mocker, tmp_path):
-    with ui.served_worker_ui(monkeypatch, mocker, tmp_path, setup_complete=True, checkpoints=()) as served:
-        yield served
-
-
-@pytest.fixture
-def settings_ui_unknown(monkeypatch, mocker, tmp_path):
-    with ui.served_worker_ui(monkeypatch, mocker, tmp_path, cards=CARDS_WITH_UNKNOWN, setup_complete=True,
-                             checkpoints=()) as served:
-        yield served
-
-
-def _open_wizard(page, base_url):
-    errors = ui.watch_page(page)
-    page.goto(f'{base_url}/setup')
-    page.wait_for_selector('#step-cards.active #cards-form', state='visible')
-    return errors
 
 
 def _open_settings(page, base_url):
@@ -100,12 +81,6 @@ def _check_one_brand(page, items, note_class):
     assert page.locator(f'#{items} img').count() == 0 and page.evaluate('window.__xss') is None
 
 
-def test_wizard_ticking_one_brand_disables_the_other_brands(page, wizard_ui):
-    errors = _open_wizard(page, wizard_ui[0])
-    _check_one_brand(page, 'cards-items', 'card-brand')
-    assert errors == []
-
-
 def test_settings_ticking_one_brand_disables_the_other_brands(page, settings_ui):
     errors = _open_settings(page, settings_ui[0])
     _check_one_brand(page, 'gc-items', 'gc-brand')
@@ -121,12 +96,6 @@ def _check_unknown_brand(page, items, note_class):
     nvidia = _note('NVIDIA')
     assert _rows(page, items, note_class) == _expect(
         count, {HIP_1: nvidia, HIP_2: nvidia, NO_FAMILY: nvidia, XSS_CARD: nvidia, UNKNOWN: OTHER_CARDS_NOTE})
-
-
-def test_a_card_of_unknown_brand_is_ticked_only_on_its_own(page, wizard_ui_unknown):
-    errors = _open_wizard(page, wizard_ui_unknown[0])
-    _check_unknown_brand(page, 'cards-items', 'card-brand')
-    assert errors == []
 
 
 def test_settings_a_card_of_unknown_brand_is_ticked_only_on_its_own(page, settings_ui_unknown):
@@ -154,17 +123,4 @@ def test_settings_shows_the_refusal_of_a_mixed_choice(page, settings_ui):
     ui.card_box(page, 'gc-items', CUDA_1).uncheck()
     assert ui.card_box(page, 'gc-items', HIP_2).is_enabled()
     assert not ui.card_box(page, 'gc-items', CUDA_1).is_enabled()
-    assert errors == []
-
-
-def test_wizard_shows_the_refusal_of_a_mixed_choice(page, wizard_ui):
-    base_url, data_dir = wizard_ui
-    ui.seed_choice(data_dir, [ui.record_of(HIP_1), ui.record_of(CUDA_1)], method='cpu')
-    errors = _open_wizard(page, base_url)
-    assert ui.card_box(page, 'cards-items', HIP_1).is_checked()
-    assert ui.card_box(page, 'cards-items', CUDA_1).is_checked()
-    page.click('#btn-cards-next')
-    page.wait_for_function("document.getElementById('err-cards').textContent.indexOf('Graphics cards') === 0")
-    _assert_mixed_text(page.inner_text('#err-cards'))
-    assert page.locator('#step-cards.active').count() == 1
     assert errors == []

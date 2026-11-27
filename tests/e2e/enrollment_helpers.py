@@ -11,7 +11,6 @@ files, and so the enrollment test module itself stays under the 300
 line cap.
 """
 
-import base64
 import hashlib
 import json
 import logging
@@ -24,6 +23,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from sethlans_worker_agent.enrollment_key import compute_proof, normalize
 from tests.e2e.helpers import admin_login
 from tests.e2e.process_manager import (
     ADMIN_PASSWORD,
@@ -45,16 +45,24 @@ logger = logging.getLogger(__name__)
 
 
 def fresh_nonce() -> str:
-    """Return a 22-char urlsafe-b64 nonce of 16 random bytes.
+    """Return a nonce of 16 random bytes as 32 lowercase hex characters.
 
     Matches the server-side validator in
-    ``workers.serializers_enrollment.EnrollmentRequestSerializer``.
+    ``workers.serializers_enrollment.EnrollmentRequestSerializer``
+    (setup-rebuild FR-WK-8).
     """
-    return (
-        base64.urlsafe_b64encode(secrets.token_bytes(16))
-        .rstrip(b"=")
-        .decode("ascii")
-    )
+    return secrets.token_hex(16)
+
+
+def proof_body(enrollment_key: str, hostname: str) -> dict:
+    """A ``POST /api/enroll/`` body for ``enrollment_key``: hostname, nonce, proof.
+
+    The key never travels (setup-rebuild FR-WK-8); the proof is made with the
+    worker's own ``compute_proof``, as the real worker does.
+    """
+    nonce = fresh_nonce()
+    proof = compute_proof(normalize(enrollment_key), nonce, hostname)
+    return {"hostname": hostname, "nonce": nonce, "proof": proof}
 
 
 def resolve_worker_config_path(worker_data_dir: Path) -> Path:
@@ -63,7 +71,7 @@ def resolve_worker_config_path(worker_data_dir: Path) -> Path:
     Mirrors ``worker.sethlans_worker_agent.config_store.paths.get_data_dir()``
     with the test-specific env-var overrides applied — knowing the path
     lets the tests read the persisted ``cert_fingerprint`` after the
-    wizard runs.
+    worker enrolls.
     """
     system = platform.system()
     if system == "Windows":
@@ -93,9 +101,9 @@ def fetch_live_cert_fingerprint(host: str, port: int) -> str:
 
 
 def wait_for_worker_config(config_path: Path, timeout: float = 60) -> dict:
-    """Poll ``config_path`` until the wizard writes a complete triple.
+    """Poll ``config_path`` until the worker's enrollment is saved.
 
-    The wizard writes several keys in sequence; we keep polling until
+    We keep polling until
     ``manager.api_token`` AND ``manager.cert_fingerprint`` are both
     present so we don't race a half-written file.
     """

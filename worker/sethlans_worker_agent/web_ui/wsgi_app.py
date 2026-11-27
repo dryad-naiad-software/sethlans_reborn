@@ -8,43 +8,32 @@ Routes:
   GET  /               -- serve static HTML dashboard
   GET  /index.html     -- serve static HTML dashboard
   GET  /api/health/    -- anonymous health probe (boot_id, worker_id, version)
-                         always-on in setup mode AND runtime mode
   GET  /api/status     -- legacy dashboard snapshot (DEPRECATED -- new
                          probe consumers MUST use /api/health/; full
                          removal deferred to Spec 4 of the wizard work)
   GET  /api/cards/     -- anonymous graphics card list (runtime/handlers_cards)
   POST /api/control/*  -- authenticated control endpoints (cards/* in
                          runtime/handlers_cards)
-  *    /api/setup/*    -- setup wizard routes (gated by setup sentinel)
-  *    /setup{,/}      -- setup wizard HTML
 
-The sync WSGI dispatcher calls setup routes via
-``setup_gate_wrapper_wsgi`` which gates non-setup traffic with
-``503 Service Unavailable`` until the setup sentinel is written.
-``/api/health/`` is allowlisted by the gate (see
-``web_ui/setup/gate.py``) so it remains reachable in setup mode for
-Docker HEALTHCHECK and the standalone wizard's worker-only redirect
-probe.
+The worker has no setup routes (setup-rebuild FR-WK-7): setup runs through
+the worker program's one-shot commands (``setup_cli``). Control actions need
+the worker page password (``web_ui.auth``, FR-SEC-8); with none set they
+answer 403 (FR-WK-4).
 """
 
 import json
 import logging
 import os
+import socket
 import threading
 from typing import Callable, Iterable
 
 from sethlans_worker_agent import job_processor
-from sethlans_worker_agent.web_ui.auth import (
-    validate_password, set_password,
-)
+from sethlans_worker_agent.web_ui import auth, password_rules
 from sethlans_worker_agent.web_ui.config_mutations import apply_config_change
 from sethlans_worker_agent.web_ui.http_helpers_wsgi import (
     MAX_REQUEST_BODY,
     send_json_wsgi, send_html_file_wsgi, read_body_wsgi,
-)
-from sethlans_worker_agent.web_ui.setup.gate import setup_gate_wrapper_wsgi
-from sethlans_worker_agent.web_ui.setup.routes import (
-    handle_setup_request_wsgi,
 )
 from sethlans_worker_agent.web_ui.status import get_status_snapshot
 
@@ -89,13 +78,14 @@ def _get_shutdown_event():
         return _shutdown_event_ref
 
 
-def _check_auth(environ: dict) -> bool:
-    """Validate the ``Authorization: Bearer <password>`` header."""
-    auth = environ.get('HTTP_AUTHORIZATION', '') or ''
-    if not auth.startswith('Bearer '):
-        return False
-    password = auth[7:]
-    return validate_password(password)
+# The answer for each refused outcome of ``auth.check_bearer``.
+_AUTH_REFUSALS = {
+    auth.BAD: (401, 'Unauthorized'),
+    auth.NO_PASSWORD: (403, auth.NO_PASSWORD_TEXT),
+    auth.LIMITED: (429, 'Too many wrong passwords from this address; try again in a minute.'),
+    auth.BUSY: (429, 'The worker is busy checking other passwords; try again in a moment.'),
+    auth.UNREADABLE: (503, "The worker's settings file could not be read just now; try again."),
+}
 
 
 # ---- GET handlers ------------------------------------------------
@@ -103,7 +93,7 @@ def _check_auth(environ: dict) -> bool:
 def _handle_get(
     environ: dict, start_response: Callable,
 ) -> Iterable[bytes]:
-    """Dispatch GET requests (setup routes handled via gate)."""
+    """Dispatch GET requests."""
     path = environ.get('PATH_INFO', '') or ''
     if path in ('/', '/index.html'):
         return send_html_file_wsgi(start_response, _INDEX_PATH)
@@ -136,10 +126,10 @@ def _handle_control(
             start_response, {'error': 'Server is shutting down'}, 503,
         )
 
-    if not _check_auth(environ):
-        return send_json_wsgi(
-            start_response, {'error': 'Unauthorized'}, 401,
-        )
+    outcome = auth.check_bearer(environ)
+    if outcome != auth.OK:
+        status, text = _AUTH_REFUSALS[outcome]
+        return send_json_wsgi(start_response, {'error': text}, status)
 
     body_bytes = read_body_wsgi(environ)
     if len(body_bytes) > MAX_REQUEST_BODY:
@@ -188,14 +178,11 @@ def _handle_set_password(
         return send_json_wsgi(
             start_response, {'error': 'Invalid JSON'}, 400,
         )
-    new_password = data.get('password', '') if isinstance(data, dict) else ''
-    if not new_password or len(new_password) < 4:
-        return send_json_wsgi(
-            start_response,
-            {'error': 'Password must be at least 4 characters'},
-            400,
-        )
-    set_password(new_password)
+    new_password = data.get('password') if isinstance(data, dict) else None
+    problems = password_rules.problems(new_password, socket.gethostname())
+    if problems:
+        return send_json_wsgi(start_response, {'error': ' '.join(problems)}, 400)
+    auth.set_password(new_password)
     return send_json_wsgi(start_response, {'status': 'password_set'})
 
 
@@ -249,19 +236,10 @@ def _handle_post(
 
 # ---- Top-level WSGI app -----------------------------------------
 
-def _inner_app(
+def app(
     environ: dict, start_response: Callable,
 ) -> Iterable[bytes]:
-    """Core WSGI application (routes only, no setup gate).
-
-    The setup gate wraps this callable at the outer ``app`` entry
-    point. Setup routes short-circuit here so they flow through the
-    gate's allowed-prefix pass-through.
-    """
-    path = environ.get('PATH_INFO', '') or ''
-    if path.startswith('/api/setup/') or path.startswith('/setup'):
-        return handle_setup_request_wsgi(environ, start_response)
-
+    """Root WSGI application."""
     method = environ.get('REQUEST_METHOD', 'GET')
     if method == 'GET':
         return _handle_get(environ, start_response)
@@ -270,13 +248,6 @@ def _inner_app(
     return send_json_wsgi(
         start_response, {'error': 'Method Not Allowed'}, 405,
     )
-
-
-def app(
-    environ: dict, start_response: Callable,
-) -> Iterable[bytes]:
-    """Root WSGI application with setup gate."""
-    return setup_gate_wrapper_wsgi(environ, start_response, _inner_app)
 
 
 __all__ = ['app']

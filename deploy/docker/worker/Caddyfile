@@ -16,9 +16,7 @@
 #   - auto_https off (no port 80 bind, no ACME)
 #   - HTTP/1.1 only upstream-side (h1 servers global)
 #   - TLS floor pinned to tls1.2 on the public vhost
-#   - /setup/* and /api/setup/* return 404 on the public vhost;
-#     loopback vhost passes them through so the wizard is
-#     loopback-only during the setup window
+#   - no setup routes (the worker has none, setup-rebuild FR-WK-7)
 #   - reverse_proxy transport pinned to HTTP/1.1
 #   - loopback vhost binds 127.0.0.1 only (issue #309)
 
@@ -36,11 +34,6 @@
         protocols tls1.2 tls1.3
     }
 
-    @setup_paths {
-        path /setup /setup/* /api/setup /api/setup/*
-    }
-    respond @setup_paths 404
-
     reverse_proxy 127.0.0.1:{$SETHLANS_WORKER_WAITRESS_UPSTREAM_PORT} {
         transport http {
             versions 1.1
@@ -48,7 +41,7 @@
     }
 }
 
-# Loopback plaintext vhost. Setup wizard origin during setup window.
+# Loopback plaintext vhost.
 # The host in the site address is only a Host matcher; `bind` keeps
 # the listener on the container's loopback (issue #309). Nothing
 # outside the container uses this port.

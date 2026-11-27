@@ -181,11 +181,11 @@ class TestRefusedAfterTheProbe:
         real_set_many = config_store.set_many
         calls = []
 
-        def fail_first(pairs):
+        def fail_first(pairs, expect=None):
             calls.append(pairs)
             if len(calls) == 1:
                 raise OSError('disk full')
-            return real_set_many(pairs)
+            return real_set_many(pairs, expect=expect)
 
         monkeypatch.setattr(config_store, 'set_many', fail_first)
         remote.handle_response(answer(request()))
@@ -194,7 +194,7 @@ class TestRefusedAfterTheProbe:
     def test_outcome_kept_in_memory_when_it_cannot_be_written(self, monkeypatch):
         machine = Machine(monkeypatch, {'revision': 0, 'allow_manager_changes': False})
 
-        def fail(_pairs):
+        def fail(_pairs, expect=None):
             raise OSError('read-only')
 
         monkeypatch.setattr(config_store, 'set_many', fail)
