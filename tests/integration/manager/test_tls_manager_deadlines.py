@@ -4,8 +4,10 @@
 """
 The TLS live server of the enrollment tests (``_tls_manager``) never waits without a deadline (#343).
 
-Real parts: ``serve`` with Django's live server thread on the test database
-and a raw TCP peer on 127.0.0.1 that connects and never starts TLS.
+Real parts: ``serve`` with Django's live server thread on the test database,
+and a raw TCP peer on 127.0.0.1 that connects and never starts TLS. The name
+lookup the stdlib server would do is replaced by a stub, so no test depends
+on real DNS.
 """
 import http.client
 import socket
@@ -49,3 +51,18 @@ def test_a_silent_peer_blocks_neither_other_clients_nor_the_stop(transactional_d
             assert _get(port, '/api/health/') == 200
             started = time.monotonic()
         assert time.monotonic() - started < CONNECTION_TIMEOUT
+
+
+def test_the_start_does_no_reverse_name_lookup(transactional_db, monkeypatch, tmp_path):
+    """#343: ``HTTPServer.server_bind`` looked up ``socket.getfqdn('127.0.0.1')``, which held the first
+    start on a macOS runner past ``READY_TIMEOUT``; the server now starts and answers without it."""
+    looked_up = []
+
+    def no_lookup(name=''):
+        looked_up.append(name)
+        raise AssertionError('socket.getfqdn must not be called')
+
+    monkeypatch.setattr(socket, 'getfqdn', no_lookup)
+    with serve(tmp_path, monkeypatch, TEST_ENROLLMENT_KEY_CANONICAL) as manager:
+        assert _get(urllib.parse.urlsplit(manager.base_url).port, '/api/health/') == 200
+    assert looked_up == []

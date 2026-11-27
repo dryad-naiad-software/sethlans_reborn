@@ -16,8 +16,12 @@ over the wire even when the client is another process.
 Nothing here waits without a deadline (#343): the TLS handshake runs per
 connection with ``CONNECTION_TIMEOUT``, never inside ``accept()`` in the
 serve loop (where one silent peer blocked the loop, and so ``shutdown()``,
-for ever); stopping shuts every open connection down, waits at most
-``STOP_TIMEOUT`` for the serve loop and for the thread, then fails the test.
+for ever); binding does no reverse DNS lookup (``HTTPServer.server_bind``
+calls ``socket.getfqdn``, which took longer than ``READY_TIMEOUT`` on a
+macOS runner); a start slower than ``READY_TIMEOUT`` fails the test and
+the thread then closes its server itself instead of serving; stopping
+shuts every open connection down, waits at most ``STOP_TIMEOUT`` for the
+serve loop and for the thread, then fails the test.
 
 The ``tls_manager`` fixture in ``conftest.py`` wraps it. Module name starts
 with an underscore so pytest does not collect it.
@@ -27,6 +31,7 @@ import gc
 import io
 import os
 import socket
+import socketserver
 import ssl
 import threading
 from typing import NamedTuple
@@ -128,11 +133,26 @@ class _HandshakeOnConnection:
                 request.close()
 
 
-class _TlsWSGIServer(_HandshakeOnConnection, WSGIServer):
+class _BindWithoutLookup:
+    """Server mixin: ``server_bind`` without ``socket.getfqdn`` (#343).
+
+    ``http.server.HTTPServer.server_bind`` sets ``server_name`` from
+    ``socket.getfqdn(host)``, a reverse DNS lookup of 127.0.0.1 that took
+    more than 10 s on a macOS runner and held the live server's start.
+    This is wsgiref's ``WSGIServer.server_bind`` with the host as the name.
+    """
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+        self.setup_environ()
+
+
+class _TlsWSGIServer(_BindWithoutLookup, _HandshakeOnConnection, WSGIServer):
     """The single-threaded server (``keep_alive`` off)."""
 
 
-class _TrackingThreadedWSGIServer(_HandshakeOnConnection, ThreadedWSGIServer):
+class _TrackingThreadedWSGIServer(_BindWithoutLookup, _HandshakeOnConnection, ThreadedWSGIServer):
     """Django's threaded server, remembering its request threads so ``serve`` can wait for them.
 
     Django's own daemon request threads are waited for by nobody: one still
@@ -160,6 +180,10 @@ class _TlsLiveServerThread(LiveServerThread):
     ssl_context = None
     keep_alive = True
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stopping = threading.Event()  # set by terminate(); a start finishing after it serves nothing
+
     def _create_server(self, connections_override=None):
         if self.keep_alive:
             server = _TrackingThreadedWSGIServer((self.host, self.port), _Handler, allow_reuse_address=False,
@@ -167,6 +191,9 @@ class _TlsLiveServerThread(LiveServerThread):
         else:
             server = _TlsWSGIServer((self.host, self.port), _Handler, allow_reuse_address=False)
         server.socket = self.ssl_context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+        if self.stopping.is_set():  # the test gave up on this start: close instead of serving with nobody to stop it
+            server.server_close()
+            raise RuntimeError('the TLS manager was stopped before it started')
         return server
 
     def terminate(self):
@@ -174,9 +201,13 @@ class _TlsLiveServerThread(LiveServerThread):
 
         ``shutdown()`` has no timeout of its own, so it runs on a helper thread;
         the open connections are shut down meanwhile (the single-threaded
-        server's loop may be in one) and again once the loop has stopped.
+        server's loop may be in one) and again once the loop has stopped. A
+        thread still starting is told to close its server when it gets there.
         """
-        self.is_ready.wait(STOP_TIMEOUT)
+        self.stopping.set()
+        if not self.is_ready.wait(STOP_TIMEOUT):
+            raise AssertionError(f'the TLS manager did not start within {READY_TIMEOUT + STOP_TIMEOUT} s; '
+                                 'its thread closes the server itself if it ever gets there')
         httpd = getattr(self, 'httpd', None)
         if httpd is not None:
             stopper = threading.Thread(target=httpd.shutdown, name='tls-manager-shutdown', daemon=True)
@@ -203,8 +234,9 @@ def _stop(thread, shared) -> None:
         request_threads = getattr(getattr(thread, 'httpd', None), 'request_threads', [])
         for request_thread in request_threads:
             request_thread.join(READY_TIMEOUT)
-        for conn in shared.values():
-            conn.dec_thread_sharing()
+        if not thread.is_alive():  # a thread still starting keeps the shared connections it was given
+            for conn in shared.values():
+                conn.dec_thread_sharing()
         alive = [request_thread.name for request_thread in request_threads if request_thread.is_alive()]
         assert not alive, f'request threads still running after {READY_TIMEOUT} s: {alive}'
 
@@ -231,7 +263,9 @@ def serve(folder, monkeypatch, enrollment_key, keep_alive=True):
     thread.daemon = True
     thread.start()
     try:
-        assert thread.is_ready.wait(READY_TIMEOUT) and thread.error is None, thread.error
+        if not thread.is_ready.wait(READY_TIMEOUT):
+            raise AssertionError(f'the TLS manager did not start within {READY_TIMEOUT} s')
+        assert thread.error is None, thread.error
         yield TlsManager(f'https://127.0.0.1:{thread.port}/api/', fingerprint, bodies)
     finally:
         _stop(thread, shared)
