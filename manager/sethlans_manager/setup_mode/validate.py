@@ -29,6 +29,7 @@ from django.views.decorators.debug import sensitive_variables
 from shared import data_folder
 from shared.settings_file import SETUP_MODES
 
+from sethlans_manager.admin_fields import clean_username
 from sethlans_manager.db_tls import DatabaseTLSError
 from sethlans_manager.setup_mode import db_probe, fields, net
 from sethlans_manager.setup_mode.plan import Plan, database_entry
@@ -133,7 +134,8 @@ def validate(answers: object, ctx: Context) -> Tuple[fields.Errors, Optional[Pla
     if database is not None and root is not None:
         admin = answers.get("admin") if isinstance(answers.get("admin"), dict) else {}
         username = admin.get("username") if isinstance(admin.get("username"), str) else ""
-        accounts = _check_database(database, root, username.strip(), errors)
+        # The probe looks up the name the first start will use: normalized the same way.
+        accounts = _check_database(database, root, clean_username(username)[0], errors)
     # Checked even when the database failed, so every error shows at once;
     # without ``accounts`` the account checks are skipped (an error is
     # already recorded), and the password is hashed only when all is well.

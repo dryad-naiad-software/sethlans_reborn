@@ -45,6 +45,40 @@ $ComposeDev = Join-Path $ProjectRoot "deploy" "docker" "docker-compose.dev.yml"
 # merged. Export a dev-only value so compose parsing succeeds.
 $env:SETHLANS_SECURITY_SECRET_KEY = "dev-insecure-key-for-local-development-only"
 
+# The manager exits 12 without an admin account. The dev compose file
+# takes the first admin's password from this file (a Compose secret);
+# make it once with a random password. The folder is limited to the
+# current user before the file is written, so the file inherits that.
+# On Windows: inherited entries removed, full control for the current
+# user and SYSTEM only (Docker Desktop reads bind-mount files as the
+# signed-in user). Elsewhere: mode 700, as tools/docker-dev.sh does.
+$DevAdminDir = Join-Path $ProjectRoot ".tmp" "docker-dev"
+$env:SETHLANS_DEV_ADMIN_PASSWORD_FILE = Join-Path $DevAdminDir "admin_password"
+if (-not $env:SETHLANS_ADMIN_USERNAME) { $env:SETHLANS_ADMIN_USERNAME = "admin" }
+
+function Protect-DevAdminDir {
+    if ($IsWindows) {
+        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        # No /T: Windows passes the folder's new entries on to files that
+        # inherit; /T would strip an existing file to an empty ACL.
+        icacls $DevAdminDir /inheritance:r /grant:r "*${sid}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" /Q | Out-Null
+    } else {
+        chmod 700 $DevAdminDir
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Could not limit $DevAdminDir to the current user (exit $LASTEXITCODE)"; exit 1
+    }
+}
+
+function Ensure-DevAdminPassword {
+    $file = $env:SETHLANS_DEV_ADMIN_PASSWORD_FILE
+    New-Item -ItemType Directory -Force -Path $DevAdminDir | Out-Null
+    Protect-DevAdminDir
+    if ((Test-Path $file) -and (Get-Item $file).Length -gt 0) { return }
+    $bytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(18)
+    [IO.File]::WriteAllText($file, [Convert]::ToBase64String($bytes))
+}
+
 # The manager and worker images COPY a pre-fetched Caddy binary from
 # .tmp/caddy/linux-<arch>/ in the build context (same as CI).
 $CaddyDir = Join-Path $ProjectRoot ".tmp" "caddy"
@@ -81,6 +115,8 @@ $composeFlags = @("-f", $ComposeBase, "-f", $ComposeDev, "--project-directory", 
 switch ($Command) {
     "up" {
         Ensure-CaddyBinaries
+        Ensure-DevAdminPassword
+        Write-Host "--- Dev admin: $env:SETHLANS_ADMIN_USERNAME, password in $env:SETHLANS_DEV_ADMIN_PASSWORD_FILE ---"
         docker compose @composeFlags up --build @ExtraArgs
     }
     "down" {

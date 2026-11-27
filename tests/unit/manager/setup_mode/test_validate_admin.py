@@ -4,6 +4,7 @@
 """The validation table: the Admin section (keep, new admin, replace password, password rules)."""
 import pytest
 
+from sethlans_manager.admin_fields import clean_username
 from sethlans_manager.setup_mode import db_probe
 from tests.unit.manager.setup_mode._helpers import FAKE_HASH, GOOD_PASSWORD, answers
 
@@ -137,6 +138,10 @@ class TestExistingUsername:
         errors, _plan = _admin(check, tmp_path, **_new(replace_password="true"))
         assert errors == {"admin.replace_password": ["Must be true or false."]}
 
-    def test_probe_gets_the_stripped_username(self, check, tmp_path, probe):
-        _admin(check, tmp_path, **_new(username="  boss  "))
-        assert probe.call_args.args[1] == "boss"
+    def test_username_is_probed_and_written_as_the_first_start_reads_it(self, check, tmp_path, probe):
+        """FR-WZ-5, FR-FS-1 (review M7): the database probe and [first_admin] get the name clean_username makes
+        (stripped, NFKC), so a name setup accepts is never changed or refused at the first start."""
+        raw = "  ｂoss  "
+        errors, plan = _admin(check, tmp_path, **_new(username=raw))
+        assert errors == {}
+        assert probe.call_args.args[1] == plan.first_admin["username"] == clean_username(raw)[0] == "boss"

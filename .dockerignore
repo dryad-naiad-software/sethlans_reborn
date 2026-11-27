@@ -41,3 +41,7 @@ manager/staticfiles/
 **/.setup_complete
 worker/config.ini
 worker/.dev-data/
+
+# Admin password files for the compose stacks (Compose secrets)
+deploy/docker/secrets/
+.tmp/docker-dev/

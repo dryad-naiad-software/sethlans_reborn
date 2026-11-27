@@ -102,6 +102,7 @@ class TestRuntimePathUnchangedWhenManageAbsent:
             "sethlans_manager.migration_runner.run_collectstatic_subprocess",
         )
         mocker.patch.object(run_manager, "_prepare_runtime")
+        mocker.patch.object(run_manager, "_run_first_start")
         mocker.patch.object(
             run_manager, "get_manager_bind", return_value=("0.0.0.0", "8080"),
         )
@@ -144,6 +145,7 @@ class TestRuntimePathUnchangedWhenManageAbsent:
             "sethlans_manager.migration_runner.run_collectstatic_subprocess",
         )
         mocker.patch.object(run_manager, "_prepare_runtime")
+        mocker.patch.object(run_manager, "_run_first_start")
         mocker.patch.object(
             run_manager, "get_manager_bind", return_value=("0.0.0.0", "8080"),
         )

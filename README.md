@@ -254,7 +254,8 @@ Docker images are available for containerized deployments (alpha builds).
 ```bash
 cd deploy/docker
 cp .env.example .env
-# Edit .env — set SETHLANS_SECURITY_SECRET_KEY (required)
+# Edit .env — set SETHLANS_SECURITY_SECRET_KEY (required) and SETHLANS_ADMIN_USERNAME
+# Put the first admin's password on one line in ./secrets/admin_password (see below)
 
 # Manager + CPU worker
 docker compose up -d
@@ -287,12 +288,27 @@ Whichever host user has uid 1000 then has full access to the manager's state, in
 
 The manager keeps its state (database, media, `manager.ini`, TLS certificate, downloaded FFmpeg, logs) in its `/data` volume, so recreating the container (for example on an image upgrade) keeps it, including the certificate fingerprint workers have pinned. If you set `SETHLANS_MANAGER_PORT`, the manager serves and health-checks on that port inside the container; publish the same port.
 
-The container has no setup wizard; it is configured by its environment. To enroll workers, set `SETHLANS_SECURITY_ENROLLMENT_KEY` on the manager and the same value as `SETHLANS_WORKER_ENROLLMENT_KEY` on the workers (both are in `.env.example`). The key is 16 Crockford base32 characters (`0-9` and `A-Z` without `I`, `L`, `O`, `U`; hyphens are ignored). If the manager variable is unset, the manager makes a random key on first start. Generate a key, read the manager's current key, and create the admin login with:
+The container has no setup wizard; it is configured by its environment.
+
+The manager needs an admin account. With none, it exits with code 12 and logs `there is no admin account`. On the first start it makes one from `SETHLANS_ADMIN_USERNAME` (optional `SETHLANS_ADMIN_EMAIL`) and the password in the file named by `SETHLANS_ADMIN_PASSWORD_FILE`. The compose file passes that file as the Docker secret `sethlans_admin_password`, from `deploy/docker/secrets/admin_password`. The password must pass the manager's password rules (at least 8 characters, not common, not all digits, not like the username); if it does not, the manager exits with code 11 and says why. The manager runs as uid 1000 and must be able to read the file:
+
+```bash
+mkdir -p ./secrets && chmod 700 ./secrets
+# write the password on one line into ./secrets/admin_password, then:
+chmod 600 ./secrets/admin_password && sudo chown -R 1000:1000 ./secrets
+```
+
+Once an admin exists, these values are ignored. You can then empty the file, but it must still exist. Instead of the variables, you can create the admin after the manager has exited with code 12:
+
+```bash
+docker compose run --rm --entrypoint "" manager python manage.py createsuperuser
+```
+
+To enroll workers, set `SETHLANS_SECURITY_ENROLLMENT_KEY` on the manager and the same value as `SETHLANS_WORKER_ENROLLMENT_KEY` on the workers (both are in `.env.example`). The key is 16 Crockford base32 characters (`0-9` and `A-Z` without `I`, `L`, `O`, `U`; hyphens are ignored). If the manager variable is unset, the manager makes a random key on first start. Generate a key and read the manager's current key with:
 
 ```bash
 python -c "import secrets; print(''.join(secrets.choice('0123456789ABCDEFGHJKMNPQRSTVWXYZ') for _ in range(16)))"
 docker exec <manager container> python manage.py show_enrollment_key
-docker exec -it <manager container> python manage.py createsuperuser
 ```
 
 A GPU worker (NVIDIA or ROCm) starts with no graphics card ticked and renders on the CPU until its card choice is made. Choose GPU (or CPU and GPU) and tick the cards from the manager or the worker page, or set `SETHLANS_COMPUTE_METHOD=gpu` and `SETHLANS_COMPUTE_CARDS` (comma-separated PCI addresses, such as `pci:0000:01:00.0`, as the worker logs them at start under `Graphics cards (operating system list ...)`) in `.env`. Setting any of `SETHLANS_COMPUTE_METHOD`, `SETHLANS_COMPUTE_GPU_MODE` or `SETHLANS_COMPUTE_CARDS` fixes the whole card choice; the manager and the worker pages cannot change it. Leave all three unset to choose from the manager. `.env.example` lists these and `SETHLANS_COMPUTE_ALLOW_MANAGER_CHANGES`.

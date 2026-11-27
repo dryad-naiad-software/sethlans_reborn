@@ -127,20 +127,12 @@ def get_manager_bind():
 
 
 def get_loopback_port():
-    """Return the internal-origin Waitress listener port.
+    """Return the internal-origin Waitress listener port, as a string.
 
     Thin wrapper around
     :func:`sethlans_manager.waitress_config.get_waitress_internal_port`
-    that preserves the pre-Phase-5 string return type for callers that
-    expect it (e.g. the Phase 2 loopback-port unit tests).
-
-    Override hierarchy (tray-helper-unified FR-22 / FR-22b +
-    waitress-migration Phase 5):
-      1. ``SETHLANS_MANAGER_LOOPBACK_PORT`` env var (legacy).
-      2. ``SETHLANS_MANAGER_WAITRESS_PORT_INTERNAL`` env var.
-      3. ``[server] waitress_loopback_port_internal`` (settings file).
-      4. ``[server] loopback_port`` (legacy).
-      5. Default ``8088``.
+    (its docstring has the override order) that keeps the pre-Phase-5
+    string return type for callers that expect it.
     """
     ini_path = get_config_file_path()
     return str(get_waitress_internal_port(ini_path))
@@ -166,6 +158,12 @@ def _prepare_runtime(cert, host, port):
     enrollment_cfg = get_enrollment_config(get_config_file_path())
     cleanup_stale_setup_section(get_config_file_path())
     initialize_runtime_state(cert, enrollment_cfg, host, port)
+
+
+def _run_first_start():
+    """FR-FS: first admin, admin check, local worker trust; exit 11 or 12 on failure."""
+    from sethlans_manager.first_start import require_first_start
+    require_first_start(get_config_file_path())
 
 
 def _frozen_boot_sequence(dev_mode):
@@ -272,6 +270,7 @@ def main():
 
     host, port = get_manager_bind()
     _prepare_runtime(cert, host, port)
+    _run_first_start()  # after the runtime state, before Waitress (FR-FS-0)
 
     ini_path = get_config_file_path()
     public_port = get_waitress_public_port(ini_path)

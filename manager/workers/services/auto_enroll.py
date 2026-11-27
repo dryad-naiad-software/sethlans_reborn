@@ -35,10 +35,13 @@ def auto_enroll_local_worker(hostname: str | None = None) -> dict:
     same transaction, issue #221), then returns the envelope the worker
     agent needs to configure itself.
 
-    Its only caller is the one-shot first-run ``apply_pending_setup``
-    step, which runs before the launcher starts the local worker and
-    writes this envelope's token into the worker's ``config.json``, so
-    rotating on every call cannot strand a running worker.
+    Its callers write this envelope's token into the local worker's
+    ``config.json``: the one-shot first-run ``apply_pending_setup`` step,
+    before the launcher starts the local worker, and the manager's
+    first-start step (``sethlans_manager.first_start.local_worker``),
+    which calls it only when that worker has no token, one for another
+    manager, or one no longer in the ``Token`` table. Neither can strand
+    a worker running with a working token.
 
     Parameters
     ----------

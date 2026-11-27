@@ -23,6 +23,7 @@ import pytest
 from tests._home_scratch import scratch_folder, sweep_stale
 
 from .caddy_front import CaddyFront, caddy_binary_or_skip, make_cert
+from .manager_process import ManagerProcess
 from .setup_process import SetupProcess
 
 
@@ -67,6 +68,23 @@ def setup_process(tmp_path):
         proc = SetupProcess(folder)
         started.append(proc)
         return proc.start(setup_port=setup_port, extra_env=extra_env)
+
+    yield start
+    for proc in started:
+        proc.stop()
+
+
+@pytest.fixture
+def manager_process(tmp_path):
+    """Factory: start a real normal ``run_manager`` with ``env``; all are ended at teardown."""
+    started = []
+
+    def start(env, name="manager"):
+        folder = tmp_path / name
+        folder.mkdir()
+        proc = ManagerProcess(folder, env)
+        started.append(proc)
+        return proc.start()
 
     yield start
     for proc in started:

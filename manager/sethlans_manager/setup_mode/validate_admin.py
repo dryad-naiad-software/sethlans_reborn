@@ -7,7 +7,8 @@ The Admin section (FR-WZ-5, FR-WZ-6, FR-WZ-11; D6).
 * ``keep_existing: true`` keeps the database's admin accounts and makes
   none; the database must hold at least one superuser.
 * Otherwise a new first admin: username (1-150 characters of Django's
-  username set), optional email, a password that passes Django's
+  username set, normalized and checked by ``admin_fields.clean_username``
+  exactly as the first start does, and written normalized), optional email, a password that passes Django's
   configured validators for an unsaved ``User`` with that username and
   email. A username already in the database needs
   ``replace_password: true``, else the submit is refused on the username.
@@ -18,11 +19,11 @@ from typing import Dict, Optional
 
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.views.decorators.debug import sensitive_variables
 
+from sethlans_manager.admin_fields import MAX_USERNAME_LENGTH, clean_username
 from sethlans_manager.setup_mode import fields
 from sethlans_manager.setup_mode.db_probe import AdminAccounts
 
@@ -36,14 +37,14 @@ def _messages(exc: ValidationError):
 
 
 def _username(admin: dict, errors: fields.Errors) -> Optional[str]:
-    username = fields.text(admin, "username", "admin.username", errors, required=True, max_length=150,
+    """The username normalized as the first start will (``clean_username``), or ``None``."""
+    username = fields.text(admin, "username", "admin.username", errors, required=True, max_length=MAX_USERNAME_LENGTH,
                            label="The username")
     if username:
-        try:
-            UnicodeUsernameValidator()(username)
-        except ValidationError as exc:
-            for message in _messages(exc):
-                errors.add("admin.username", message)
+        username, problems = clean_username(username)
+        for message in problems:
+            errors.add("admin.username", message)
+        if problems:
             return None
     return username
 
