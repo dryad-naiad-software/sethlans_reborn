@@ -19,7 +19,7 @@ import logging
 
 from sethlans_worker_agent import config
 from sethlans_worker_agent import api_handler
-from sethlans_worker_agent import boot_id, unreal_bridge
+from sethlans_worker_agent import blender_wait, boot_id, unreal_bridge
 from sethlans_worker_agent import version_sync
 from sethlans_worker_agent.cards import choice as card_choice
 from sethlans_worker_agent.cards import payload as card_payload
@@ -120,6 +120,25 @@ def _process_heartbeat_versions(response_data, is_busy=False, active_jobs=None):
     return ready
 
 
+def _log_versions_not_ready():
+    """Say why registration found no required Blender version installed (#329).
+
+    While the manager is still fetching a build, that is the normal first
+    start (BS-WK-10): INFO. Otherwise an install really failed: ERROR.
+    """
+    waiting = blender_wait.waiting_versions()
+    if waiting:
+        logger.info(
+            f"Waiting for the manager to fetch Blender {', '.join(waiting)}. "
+            "Will ask again on a later heartbeat."
+        )
+    else:
+        logger.error(
+            "Failed to install any required Blender versions. "
+            "Will retry on next heartbeat cycle."
+        )
+
+
 def register_with_manager():
     """
     Register with the manager via an authenticated heartbeat.
@@ -172,10 +191,7 @@ def register_with_manager():
     if response_data:
         ready = _process_heartbeat_versions(response_data)
         if not ready:
-            logger.critical(
-                "Failed to install any required Blender versions. "
-                "Will retry on next heartbeat cycle."
-            )
+            _log_versions_not_ready()
             # Return the worker ID but mark versions as not ready.
             # The main loop will skip polling until versions are available.
             _versions_ready = False
