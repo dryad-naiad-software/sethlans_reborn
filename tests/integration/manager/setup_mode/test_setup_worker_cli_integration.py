@@ -11,11 +11,15 @@ TLS in this process (``tls_manager``: the real enroll view on the test
 database). Every process uses the scratch user folders of the test.
 
 Each ``GET /api/setup/form/`` waits about 5 s for the network discovery.
+A test that runs past ``TIMEOUT_S`` (normal: about 10 s; the worker
+commands' own limits are 20-30 s) dumps every thread's stack and ends the
+run, instead of stalling CI (#343).
 """
 import configparser
 import json
 from pathlib import Path
 
+import pytest
 from django.contrib.auth.hashers import check_password
 from rest_framework.authtoken.models import Token
 
@@ -30,6 +34,9 @@ WORKER_PASSWORD = 'Plain-Worker-Page-5d1a9c3e'
 WRONG_KEY = '00000000000000PP'   # a valid key shape the manager does not hold: a wrong proof
 MANAGER_NAME = 'Farm Manager'
 SAVE_TIMEOUT = 15
+TIMEOUT_S = 180
+
+pytestmark = pytest.mark.timeout(TIMEOUT_S, method="thread")
 
 
 def _session(proc) -> Client:
