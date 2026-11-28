@@ -5,7 +5,7 @@
 """Process-tree tear-down for ``tools/install_smoke.py`` (issue #198).
 
 Lives in its own module so neither ``install_smoke.py`` nor
-``_wizard_smoke_helpers.py`` blow past the 300-line ceiling.
+``_smoke_common.py`` blow past the 300-line ceiling.
 """
 
 from __future__ import annotations

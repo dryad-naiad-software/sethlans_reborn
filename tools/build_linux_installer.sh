@@ -9,8 +9,7 @@
 # DESCRIPTION
 #     Dev-focused script. Orchestrates the full Linux build pipeline:
 #       1. Angular frontend build (npm run build).
-#       2. PyInstaller bundles: manager, worker, tray_helper, launcher,
-#          wizard.
+#       2. PyInstaller bundles: manager, worker, tray_helper, launcher.
 #       3. Installer assembly (see PACKAGING below).
 #
 #     Reads the authoritative version from VERSION at the repo root.
@@ -26,13 +25,13 @@
 #     wiped after the installer is produced, matching the macOS builder:
 #     the final deliverable at dist/sethlans-<V>-linux-x64.<ext> is
 #     preserved; build/ and
-#     dist/{launcher,manager,worker,tray_helper,wizard} are removed.
+#     dist/{launcher,manager,worker,tray_helper} are removed.
 #     `dist/sethlans-*` artifacts from sibling-platform builds are left
 #     untouched.
 #
 #     Output: dist/sethlans-<VERSION>-linux-x64.run
 #             (makeself self-extracting archive; the .run wraps
-#             packaging/linux/install.sh + the five PyInstaller bundles
+#             packaging/linux/install.sh + the four PyInstaller bundles
 #             and runs install.sh on extract.)
 #
 # PLATFORM
@@ -41,8 +40,8 @@
 #     token in the output filename.
 #
 # PACKAGING
-#     Step 7/7 delegates to packaging/linux/build_run.sh, which builds
-#     a `makeself` .run self-extractor from the five PyInstaller dist
+#     Step 6/6 delegates to packaging/linux/build_run.sh, which builds
+#     a `makeself` .run self-extractor from the four PyInstaller dist
 #     dirs plus packaging/linux/{install.sh,uninstall.sh,sethlans.desktop,
 #     sethlans.png} and the repo-root LICENSE. Mirrors the macOS
 #     builder's delegation to packaging/macos/build_dmg.sh.
@@ -52,7 +51,6 @@
 #     - Python 3.14 virtualenv at .venv-build/ with these packages installed:
 #         * All of manager/requirements.txt
 #         * All of worker/requirements.txt
-#         * All of wizard/requirements.txt
 #         * requirements-build.txt  (pyinstaller, pyinstaller-hooks-contrib,
 #                                    PySide6-Essentials)
 #     - Node.js 20+ with npm on PATH (for Angular build)
@@ -68,8 +66,7 @@
 #         libxkbcommon0 libegl1 libopengl0 libfontconfig1 makeself
 #     python3.14 -m venv .venv-build
 #     .venv-build/bin/pip install -r manager/requirements.txt \
-#         -r worker/requirements.txt -r wizard/requirements.txt \
-#         -r requirements-build.txt
+#         -r worker/requirements.txt -r requirements-build.txt
 #
 # USAGE
 #     bash tools/build_linux_installer.sh
@@ -154,44 +151,36 @@ if ! command -v makeself >/dev/null 2>&1; then
 fi
 
 # --- Build steps ---
-echo "=== 1/7 Angular build ==="
+echo "=== 1/6 Angular build ==="
 ( cd manager/frontend && npm run build 2>&1 | tail -3 )
 
-echo "=== 2/7 PyInstaller: manager ==="
+echo "=== 2/6 PyInstaller: manager ==="
 "$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 3/7 PyInstaller: worker ==="
+echo "=== 3/6 PyInstaller: worker ==="
 "$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 4/7 PyInstaller: tray_helper ==="
+echo "=== 4/6 PyInstaller: tray_helper ==="
 "$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 5/7 PyInstaller: launcher ==="
+echo "=== 5/6 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/7 PyInstaller: wizard ==="
-"$VENV_PYI" packaging/pyinstaller/wizard.spec --noconfirm --clean 2>&1 | tail -3
+# Setup-mode smoke: tools/setup_smoke.py, the same script CI runs. It
+# starts the frozen run_manager --setup against a scratch folder (never
+# the real per-user Sethlans folders), submits a manager-mode setup over
+# HTTP and checks sethlans.ini, runs run_worker --setup-cards, runs the
+# #191 --manage check and prints the launcher bundle size. The build
+# venv's interpreter has psutil, which the smoke uses to end the
+# processes it started.
+echo "=== Setup-mode smoke ==="
+.venv-build/bin/python tools/setup_smoke.py --bin-root "${DIST_ROOT}"
 
-# NF-4 + AC-B2 + AC-B4 wizard smoke: delegated to tools/wizard_smoke.py
-# so CI and local builds share the exact same checks (DEVOPS-MED-5,
-# Phase F3). The script asserts NF-4 95 MB bundle ceiling, AC-B2
-# pathlib.rglob bundle introspection, AND spawns the wizard to poll
-# its port file + GET / over HTTPS within a 60 s wall-clock budget.
-# Use the build venv's interpreter so PyInstaller's deps (including
-# psutil) are on the import path for the spawned wizard process.
-echo "=== Wizard smoke (NF-4 + AC-B2 + AC-B4) ==="
-.venv-build/bin/python tools/wizard_smoke.py --bundle "${DIST_ROOT}/wizard"
+# The end-to-end install smoke (tools/install_smoke.py) still drives
+# the old wizard; it is left out of the build until it is rewritten for
+# setup mode.
 
-# Issue #197: end-to-end frozen install smoke. Drives the real launcher
-# binary through the full wizard walk-through, waits for the apply
-# pipeline's .setup_complete sentinel, and probes the manager's
-# /api/health/. Catches the frozen-mode-only bug cluster (#190 / #191
-# / #192 / #195 / #196) that integration tests miss because they
-# source-mode the launcher and monkey-patch the apply pipeline.
-echo "=== Install smoke (end-to-end frozen) ==="
-.venv-build/bin/python tools/install_smoke.py --dist-root "${DIST_ROOT}"
-
-echo "=== 7/7 .run installer (v$BUILD_VERSION) ==="
+echo "=== 6/6 .run installer (v$BUILD_VERSION) ==="
 bash "$RUN_SCRIPT" "$BUILD_VERSION"
 
 OUTPUT="${DIST_ROOT}/sethlans-${BUILD_VERSION}-linux-x64.run"
@@ -203,19 +192,19 @@ fi
 # --- Cleanup ---
 # Installer is produced; the PyInstaller intermediate trees are no
 # longer needed. Selective removal (matches tools/build_macos_installer.sh
-# and tools/build_windows_installer.sh): wipe build/ and only the five
+# and tools/build_windows_installer.sh): wipe build/ and only the four
 # PyInstaller bundle dirs under dist/, preserving any dist/sethlans-*
 # deliverables so sibling-platform builds (macOS DMG, Windows exe if
 # someone moves it here) survive a Linux build in a shared workspace.
 echo "=== Cleanup ==="
 rm -rf "${BUILD_ROOT:?}"
-for component in launcher manager worker tray_helper wizard; do
+for component in launcher manager worker tray_helper; do
   rm -rf "${DIST_ROOT:?}/$component"
 done
 # build_run.sh wipes its staging dir on success; defensive removal here
 # covers a partial/failed run.
 rm -rf "${DIST_ROOT:?}/run-staging"
-echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper,wizard}"
+echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper}"
 
 ls -lh "$OUTPUT"
 echo ""

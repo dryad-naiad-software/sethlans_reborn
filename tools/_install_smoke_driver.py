@@ -18,7 +18,7 @@ import time
 import urllib.error
 import urllib.request
 
-from _wizard_smoke_helpers import (
+from _smoke_common import (
     check_health_endpoint, err, http_get_ok, wait_for_port_file,
 )
 
@@ -57,7 +57,7 @@ def _read_setup_token(data_dir: pathlib.Path) -> str | None:
 
 
 def _ssl_context() -> ssl.SSLContext:
-    """Self-signed-cert-tolerant context (matches wizard_smoke helpers)."""
+    """Self-signed-cert-tolerant context (matches the _smoke_common helpers)."""
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
