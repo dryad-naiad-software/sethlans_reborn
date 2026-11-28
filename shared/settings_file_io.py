@@ -15,14 +15,17 @@ removes the temp file and leaves the old target untouched.
 
 Reads (:func:`read_limited`) retry briefly on Windows while a writer's
 ``os.replace`` holds the file, as writes retry while a reader holds it.
+:func:`read_owned_file` also refuses links, FIFOs and files of other users.
 
 The temp file is the only copy of the new content written anywhere other
 than the target itself. Callers hold the settings lock
 (``shared.file_lock``) around the read-modify-write.
 """
+import errno
 import logging
 import os
 import secrets
+import stat
 import threading
 import time
 from pathlib import Path
@@ -145,6 +148,57 @@ def read_limited(path, limit: int) -> bytes:
                 raise
             time.sleep(_REPLACE_RETRY_SECONDS)
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+# A link is never followed (POSIX O_NOFOLLOW; Windows has no such flag, so
+# the lstat check below covers it) and a FIFO never blocks the open.
+_OWNED_READ_FLAGS = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                     | getattr(os, "O_BINARY", 0))
+
+
+def _open_no_follow(path: Path) -> int:
+    if stat.S_ISLNK(os.lstat(path).st_mode):
+        raise OSError(errno.ELOOP, "Is a symbolic link", str(path))
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            return os.open(path, _OWNED_READ_FLAGS)
+        except PermissionError:
+            if path.is_dir():
+                raise IsADirectoryError(f"Is a directory: {path}") from None
+            if not _IS_WINDOWS or attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_RETRY_SECONDS)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def read_owned_file(path, limit: int) -> bytes:
+    """Read at most ``limit + 1`` bytes of a regular file this user owns.
+
+    For small files other programs must not be able to plant (the tray's
+    ``setup/launcher_state.json`` and ``setup/setup_token``): a symbolic
+    link is refused, not followed; the open does not block on a FIFO; the
+    opened file must be a regular file (``fstat``) owned by this user
+    (``owner_only_acl.is_owned_by_current_user``). Any of these failing
+    raises ``OSError``; ``FileNotFoundError`` is raised as it is. Windows
+    retries a writer's replace like :func:`read_limited`.
+    """
+    path = Path(path)
+    fd = _open_no_follow(path)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"{path.name} is not a regular file")
+        if not owner_only_acl.is_owned_by_current_user(path):
+            raise OSError(f"{path.name} is not owned by the current user")
+        chunks, size = [], 0
+        while size <= limit:
+            chunk = os.read(fd, limit + 1 - size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def atomic_replace(path, data: bytes) -> None:

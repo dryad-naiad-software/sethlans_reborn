@@ -4,6 +4,7 @@
 
 """Sethlans tray helper package.
 
-Topology-aware system-tray icon spawned by the launcher. See
-``development/specs/tray-helper-unified.md`` for the full design.
+System-tray icon spawned by the launcher. Its menu follows the
+launcher's state (``<settings>/setup/launcher_state.json``) and the
+finished setup mode (FR-LN-4).
 """

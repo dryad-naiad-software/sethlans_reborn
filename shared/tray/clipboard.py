@@ -28,6 +28,11 @@ Security invariants (mirrored from the legacy helper's tests):
   ``QT_DEBUG_PLUGINS=1`` cannot echo the clipboard payload to stderr.
   Non-clipboard Qt warnings are forwarded to stderr unchanged so general
   Qt diagnostics remain visible.
+* The copied token does not stay on the clipboard (6c security review
+  L2): :func:`clear_token_later` clears it after
+  :data:`CLEAR_AFTER_MS`, and :func:`clear_copied_token` when the tray
+  leaves ``SETUP``; either clears only while the clipboard still holds
+  that token, so something the person copied since is left alone.
 """
 
 from __future__ import annotations
@@ -35,8 +40,9 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+from typing import Optional
 
-from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+from PySide6.QtCore import QTimer, QtMsgType, qInstallMessageHandler
 from PySide6.QtGui import QClipboard, QGuiApplication
 
 logger = logging.getLogger(__name__)
@@ -168,4 +174,43 @@ def copy_token_to_clipboard(token: str) -> bool:
         logger.warning(
             "clipboard copy failed: Qt error; token_len=%d", token_len,
         )
+        return False
+
+
+CLEAR_AFTER_MS = 60_000
+# GUI thread only: the token last copied, and the one timer that clears it.
+_copied_token: Optional[str] = None
+_clear_timer: Optional[QTimer] = None
+
+
+def clear_token_later(token: str, after_ms: int = CLEAR_AFTER_MS) -> None:
+    """Clear ``token`` from the clipboard after ``after_ms`` (a new copy restarts it)."""
+    global _copied_token, _clear_timer
+    _copied_token = token
+    if _clear_timer is None:
+        _clear_timer = QTimer()
+        _clear_timer.setSingleShot(True)
+        _clear_timer.timeout.connect(clear_copied_token)
+    _clear_timer.start(after_ms)
+
+
+def clear_copied_token() -> bool:
+    """Clear the clipboard if it still holds the copied token; True when cleared.
+
+    Never raises; never logs the token.
+    """
+    global _copied_token
+    token, _copied_token = _copied_token, None
+    if _clear_timer is not None:
+        _clear_timer.stop()
+    if not token:
+        return False
+    try:
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is None or clipboard.text(QClipboard.Mode.Clipboard) != token:
+            return False
+        clipboard.clear(QClipboard.Mode.Clipboard)
+        return True
+    except Exception:  # noqa: BLE001
+        logger.warning("clipboard clear failed: Qt error; token_len=%d", len(token))
         return False

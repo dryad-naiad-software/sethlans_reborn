@@ -5,15 +5,16 @@
 """Shared fixtures + helpers for the tray test suite.
 
 Scoped to ``tests/unit/shared/tray/`` so fixtures defined here are
-available to every test module in this directory.  Currently provides
-``QtStatePoller`` factories consumed by ``test_poller.py`` and
-``test_poller_lifecycle.py``.  Helper functions (``snapshots``,
-``state_changes``, ``notification_msgs``, ``setup_msgs``) are exposed
-here too, imported by the test modules directly (not as fixtures).
+available to every test module in this directory: ``QtStatePoller``
+factories for the poller tests, and a settings folder with the
+launcher-state and settings-file writers for the menu tests. Helper
+functions (``snapshots``, the writers, ``texts`` / ``action``) are
+imported by the test modules directly.
 """
 
 from __future__ import annotations
 
+import json
 import threading
 
 import pytest
@@ -21,12 +22,8 @@ import pytest
 try:  # PySide6 optional — other tray tests don't need it.
     from PySide6.QtCore import QObject  # noqa: F401
     from PySide6.QtTest import QSignalSpy  # noqa: F401
-    from shared.tray import menu_worker as menu_worker_mod
     from shared.tray import poller as poller_mod
-    from shared.tray.menu_manager import ManagerSection
-    from shared.tray.menu_worker import WorkerSection
-    from shared.tray.notifications import NotificationEvent
-    from shared.tray.poller import ManagerSnapshot, QtStatePoller
+    from shared.tray.poller import QtStatePoller
     _QT_AVAILABLE = True
 except Exception:  # pragma: no cover
     _QT_AVAILABLE = False
@@ -56,26 +53,6 @@ def _records(spy):
 def snapshots(spy):
     """Extract the ``ManagerSnapshot`` payload from each spy record."""
     return [rec[0] for rec in _records(spy)]
-
-
-def state_changes(spy):
-    """Return ``[(prev, nxt), ...]`` from a ``state_changed`` spy."""
-    return [(rec[0], rec[1]) for rec in _records(spy)]
-
-
-def notification_msgs(spy):
-    """Return notification messages from a ``notification`` spy."""
-    out = []
-    for rec in _records(spy):
-        evt = rec[0]
-        assert isinstance(evt, NotificationEvent)
-        out.append(evt.message)
-    return out
-
-
-def setup_msgs(spy):
-    return [m for m in notification_msgs(spy)
-            if "setup complete" in m.lower()]
 
 
 # ------------------------------------------------------------------
@@ -138,136 +115,30 @@ def poller_factory(qapp, mocker):
 
 
 # ------------------------------------------------------------------
-# ManagerSection fixtures (used by test_menu_manager_*.py splits)
+# Settings folder + launcher state (menu, phase and app tests)
 # ------------------------------------------------------------------
 
-def _make_snapshot(**overrides):
-    """Build a ``ManagerSnapshot`` with sensible defaults for tests."""
-    defaults = dict(
-        state="running",
-        workers_online=3,
-        jobs_queued=7,
-        jobs_rendering=2,
-        version="1.2.3",
-        boot_id="boot",
-        last_error="",
-    )
-    defaults.update(overrides)
-    return ManagerSnapshot(**defaults)
+def write_launcher_state(settings_dir, state, port=None, reason=None):
+    """Write ``<settings>/setup/launcher_state.json`` as the launcher does."""
+    folder = settings_dir / "setup"
+    folder.mkdir(parents=True, exist_ok=True)
+    payload = {"state": state, "port": port, "reason": reason}
+    (folder / "launcher_state.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-@pytest.fixture
-def make_snapshot():
-    """Expose ``_make_snapshot`` as a fixture so tests can call it."""
-    return _make_snapshot
-
-
-@pytest.fixture
-def snapshot_holder():
-    """Mutable holder so tests can swap the snapshot returned by the
-    ``get_snapshot`` callable after ``build_qmenu`` is called."""
-    holder = {"snap": _make_snapshot()}
-
-    def _get():
-        return holder["snap"]
-
-    holder["get"] = _get
-    return holder
-
-
-@pytest.fixture
-def section(qapp, tmp_path, snapshot_holder):
-    """Build a ``ManagerSection`` wired to ``snapshot_holder``."""
-    quit_flag = threading.Event()
-    sec = ManagerSection(
-        data_dir=tmp_path / "data",
-        manager_data_dir=tmp_path / "manager",
-        manager_host="localhost",
-        manager_port=8443,
-        quit_requested_flag=quit_flag,
-        get_snapshot=snapshot_holder["get"],
-    )
-    (tmp_path / "data").mkdir()
-    (tmp_path / "manager").mkdir()
-    return sec
-
-
-@pytest.fixture
-def section_factory(qapp, tmp_path):
-    """Build ``ManagerSection`` instances with a custom ``notify`` cb.
-
-    Each call returns a freshly constructed ``ManagerSection`` rooted
-    at ``tmp_path``; directories are created once per test.
-    """
-    (tmp_path / "data").mkdir()
-    (tmp_path / "manager").mkdir()
-
-    def _make(notify=None, token=None):
-        if token is not None:
-            (tmp_path / "sethlans.ini").write_text(
-                f"[setup]\ntoken = {token}\n", encoding="utf-8",
-            )
-        flag = threading.Event()
-        return ManagerSection(
-            data_dir=tmp_path / "data",
-            manager_data_dir=tmp_path / "manager",
-            manager_host="localhost",
-            manager_port=8443,
-            quit_requested_flag=flag,
-            get_snapshot=lambda: _make_snapshot(),
-            notify=notify,
-        )
-
-    return _make
-
-
-# ------------------------------------------------------------------
-# WorkerSection fixtures (used by test_menu_worker_*.py splits)
-# ------------------------------------------------------------------
-
-@pytest.fixture
-def worker_state_holder():
-    """Mutable holder so worker-menu tests can swap the state string
-    returned by the ``get_worker_state`` callable at any time."""
-    holder = {"state": "idle"}
-    holder["get"] = lambda: holder["state"]
-    return holder
-
-
-@pytest.fixture
-def worker_section(qapp, tmp_path, worker_state_holder, mocker):
-    """Build a ``WorkerSection`` wired to ``worker_state_holder``.
-
-    ``ipc.marker_exists`` is patched to False so the quit action
-    starts enabled; tests that want the quit-disabled path flip the
-    mock's return value.
-    """
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    mocker.patch.object(
-        menu_worker_mod.ipc, "marker_exists", return_value=False,
-    )
-    return WorkerSection(
-        data_dir=data_dir,
-        quit_requested_flag=threading.Event(),
-        get_worker_state=worker_state_holder["get"],
+def write_finished_setup(settings_dir, mode):
+    """A finished ``[setup]`` in ``<settings>/sethlans.ini`` (FR-SF-4)."""
+    (settings_dir / "sethlans.ini").write_text(
+        f"[setup]\nversion = 1\nmode = {mode}\ncompleted_at = 2026-11-28T10:00:00+00:00\n",
+        encoding="utf-8",
     )
 
 
 @pytest.fixture
-def worker_section_with_about(qapp, tmp_path, worker_state_holder, mocker):
-    """Like ``worker_section`` but with ``include_about=True``."""
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    mocker.patch.object(
-        menu_worker_mod.ipc, "marker_exists", return_value=False,
-    )
-    return WorkerSection(
-        data_dir=data_dir,
-        quit_requested_flag=threading.Event(),
-        include_about=True,
-        get_worker_state=worker_state_holder["get"],
-    )
+def settings_dir(tmp_path, monkeypatch):
+    """``tmp_path`` as the settings folder (``SETHLANS_SETTINGS_DIR``)."""
+    monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(tmp_path))
+    return tmp_path
 
 
 @pytest.fixture
@@ -295,3 +166,13 @@ def poller_factory_configurable(qapp, mocker):
 
     for p in created:
         _teardown_poller(p)
+
+
+def texts(menu):
+    """A QMenu's item texts, ``---`` for a separator."""
+    return ["---" if a.isSeparator() else a.text() for a in menu.actions()]
+
+
+def action(menu, label):
+    """The QMenu's item with ``label``."""
+    return next(a for a in menu.actions() if a.text() == label)

@@ -2,18 +2,23 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""PySide6 tray bootstrap.
+"""PySide6 tray bootstrap (FR-LN-4).
 
-Configures logging and the launcher watchdog, constructs a
-:class:`QApplication`, a :class:`QSystemTrayIcon`, and a
-``_TrayContext`` holding the topology-derived sections and the
-:class:`QtStatePoller`.  Wires the poller's Qt signals to GUI-thread
-slots with explicit :attr:`Qt.QueuedConnection` (spec FR-6), starts
-the poller via ``QTimer.singleShot(0, ...)`` so ``start`` runs inside
-the event loop's first iteration (FR-6), runs the event loop, then
-performs the documented shutdown sequence: ``stop_event.set()`` →
-``poller.join(timeout=3.0)`` → ``QObject.disconnect(poller)`` (static
-form only — the zero-arg instance form raises ``TypeError`` in
+The tray follows the launcher: a state QTimer (GUI thread) runs
+``app_phase.tick`` each second, which reads ``launcher_state.json`` and
+``setup_finished()`` and rebuilds the menu when the phase changed. The
+launcher's state is the source of truth; the tray never decides it.
+
+The :class:`QtStatePoller` thread polls the manager's loopback status
+for the manager section's counts, and watches the launcher process
+(``launcher_gone`` quits the tray). It runs in every mode, so a
+worker-only tray also exits with its launcher. Its own notifications
+are not shown: the launcher's state and reason give them
+(``phase.edge_notice``).
+
+Shutdown after ``app.exec()``: the timer stops, then ``stop_event.set()``
+-> ``poller.join(timeout=3.0)`` -> ``QObject.disconnect(poller)`` (the
+static form; the zero-arg instance form raises ``TypeError`` in
 PySide6).
 """
 
@@ -26,226 +31,101 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, QObject
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PySide6.QtCore import QObject, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
-from shared.frozen_paths import get_identity_dir
 from shared.settings_file import get_settings_dir, read_settings, settings_path
-from shared.tray import app_phase, icons, launcher_watch, notifications
-from shared.tray import phase as phase_mod
-from shared.tray import topology as topo_mod
-from shared.tray.menu_worker import WorkerSection
+from shared.tray import app_phase, launcher_watch, notifications
+from shared.tray import launcher_state as ls
 from shared.tray.notifications import NotificationEvent
+from shared.tray.phase import Phase, read_phase
 from shared.tray.poller import ManagerSnapshot, QtStatePoller
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAIN_PORT = 8080
 _DEFAULT_LOOPBACK_PORT = 8088
-_DEFAULT_HOST = "localhost"
+_LOOPBACK_KEYS = ("waitress_loopback_port_internal", "loopback_port")
+STATE_POLL_MS = 1000
 _TOOLTIP = "Sethlans"
 
 
-def _read_manager_ports(ini: Path) -> tuple[str, int, int]:
-    """Return ``(host, main_port, loopback_port)`` from the settings file *ini*.
+def read_loopback_port(ini: Path) -> int:
+    """The manager's loopback status port from the settings file, else 8088.
 
-    Defaults ``localhost:8080`` main port and ``8088`` loopback port;
-    falls back to defaults on any parse error.
+    A value that is not a port number (1..65535) is logged and 8088 is used.
     """
-    host = _DEFAULT_HOST
-    main_port = _DEFAULT_MAIN_PORT
-    loopback_port = _DEFAULT_LOOPBACK_PORT
-    if not ini.exists():
-        return host, main_port, loopback_port
     try:
         cfg = read_settings(ini)
-    except OSError as exc:
-        logger.warning("Could not parse %s: %s", ini.name, exc)
-        return host, main_port, loopback_port
-    if cfg.has_section("server"):
-        main_port = cfg.getint("server", "port", fallback=main_port)
-        loopback_port = cfg.getint(
-            "server", "loopback_port", fallback=loopback_port,
-        )
-    return host, main_port, loopback_port
+        for key in _LOOPBACK_KEYS:
+            if cfg.has_option("server", key):
+                port = cfg.getint("server", key)
+                if not 1 <= port <= 65535:
+                    raise ValueError(f"[server] {key} = {port} is not a port number")
+                return port
+    except (OSError, ValueError) as exc:
+        logger.warning("Could not read the loopback port from %s: %s", ini.name, exc)
+    return _DEFAULT_LOOPBACK_PORT
 
 
 def _configure_logging() -> None:
     try:
         from launcher.logging_setup import configure as _cfg_log
         _cfg_log("tray", data_dir=get_settings_dir())
-    except Exception:
+    except Exception:  # noqa: BLE001
         logging.basicConfig(level=logging.DEBUG)
 
 
 class _TrayContext:
-    """Bundle of tray state, separated from ``main`` to cap complexity.
-
-    Holds the topology-derived sections, the poller, the stop event,
-    and any other objects ``main`` needs to wire signals and run the
-    documented shutdown sequence.
-    """
+    """The tray's state: the phase, its sections and menu, the poller."""
 
     def __init__(self) -> None:
-        self.data_dir = get_settings_dir()
-        self.manager_data_dir = get_identity_dir("manager")
-        self.worker_data_dir = get_identity_dir("worker")
-        self.topology = topo_mod.read_topology(self.data_dir)
-        host, main_port, lb_port = _read_manager_ports(settings_path())
-        self.host = host
-        self.main_port = main_port
-        self.loopback_port = lb_port
-        self.loopback_url = (
-            f"http://127.0.0.1:{lb_port}/api/status/public/"
-        )
+        self.settings_dir = get_settings_dir()
         self.stop_event = threading.Event()
         self.quit_flag = threading.Event()
-        self.wants_manager = self.topology in (
-            topo_mod.TOPOLOGY_MANAGER, topo_mod.TOPOLOGY_BOTH,
-        )
-        self.wants_worker = self.topology in (
-            topo_mod.TOPOLOGY_WORKER, topo_mod.TOPOLOGY_BOTH,
-        )
-        # Placeholders populated by ``wire(tray)`` once the tray icon
-        # exists (the ManagerSection's notify closure captures it).
-        self.manager_section = None
-        self.worker_section: Optional[WorkerSection] = None
+        self.tray: Optional[QSystemTrayIcon] = None
         self.poller: Optional[QtStatePoller] = None
-        # Initial phase resolved here so the very first menu (built in
-        # ``main()`` before ``app.exec()``) reflects the right shape
-        # without waiting for the first poller tick (FR-11).
-        self.current_phase: str = phase_mod.detect_phase(
-            self.data_dir, self.manager_data_dir,
-        )
+        self.phase = Phase(ls.DEFAULT_STATE.state)
+        self.sections: list = []
+        self.menu = None
+        self.previous_menu = None
 
     def current_snapshot(self) -> ManagerSnapshot:
         if self.poller is None:
             return ManagerSnapshot()
         return self.poller.snapshot
 
-    def icon_states(self) -> tuple[Optional[str], Optional[str]]:
-        mgr = self.current_snapshot().state if self.wants_manager else None
-        wk = "idle" if self.wants_worker else None
-        return mgr, wk
+    def notify(self, event: NotificationEvent) -> None:
+        notifications.dispatch(self.tray, event)
 
 
-def _build_sections(ctx: _TrayContext, tray: QSystemTrayIcon) -> None:
-    """Populate ``ctx.manager_section`` / ``worker_section`` / ``poller``.
-
-    Must be called AFTER the tray icon exists so the notify closure
-    can capture it.  The poller is constructed here on the GUI thread;
-    its thread affinity is the creating thread (spec FR-6).
-
-    The manager slot is filled with either a ``WizardSection`` or
-    ``ManagerSection`` based on ``ctx.current_phase`` (FR-11). The
-    worker section is unchanged across phases (FR-13).
-    """
-    ctx.manager_section = app_phase.build_section_for_phase(
-        ctx, tray, ctx.current_phase,
-    )
-    ctx.worker_section = app_phase.build_worker_section(ctx)
-    ctx.poller = QtStatePoller(
-        loopback_url=ctx.loopback_url,
-        stop_event=ctx.stop_event,
-        quit_requested_flag=ctx.quit_flag,
-    )
-
-
-def _build_menu(ctx: _TrayContext) -> QMenu:
-    """Build the combined QMenu from the topology-appropriate sections.
-
-    Delegates to :func:`shared.tray.app_phase.build_root_menu`. The
-    indirection lets phase-swap helpers reuse the same layout logic
-    without importing this module.
-    """
-    return app_phase.build_root_menu(ctx)
-
-
-def _refresh_icon(ctx: _TrayContext, tray: QSystemTrayIcon) -> None:
-    try:
-        mgr, wk = ctx.icon_states()
-        pixmap = icons.get_icon(mgr, wk)
-        tray.setIcon(QIcon(pixmap))
-    except Exception:
-        logger.exception("Failed to refresh tray icon")
-
-
-def _refresh_sections(ctx: _TrayContext) -> None:
-    # Sections mutate held QAction text / visible / enabled in place
-    # — no QMenu rebuild needed (spec "Technical Approach").
-    if ctx.manager_section is not None:
-        try:
-            ctx.manager_section.refresh()
-        except Exception:
-            logger.exception("ManagerSection.refresh failed")
-    if ctx.worker_section is not None:
-        try:
-            ctx.worker_section.refresh()
-        except Exception:
-            logger.exception("WorkerSection.refresh failed")
-
-
-def _connect_signals(
-    ctx: _TrayContext, tray: QSystemTrayIcon, app: QApplication,
-) -> None:
-    """Wire poller signals to GUI-thread slots via QueuedConnection.
-
-    Each tick re-evaluates the lifecycle phase (FR-11). On a phase
-    transition the menu is rebuilt wholesale via
-    :func:`app_phase.swap_menu_for_phase`; otherwise the active
-    sections refresh in place as before.
-    """
+def _connect_poller(ctx: _TrayContext, tray: QSystemTrayIcon, app: QApplication) -> None:
+    """Snapshots refresh the icon and sections; ``launcher_gone`` quits."""
 
     def on_snapshot(snapshot: ManagerSnapshot) -> None:
-        del snapshot  # predicates read from ctx.current_snapshot()
-        next_phase = app_phase.compute_phase(ctx)
-        if next_phase != ctx.current_phase:
-            logger.info(
-                "Tray phase swap: %s -> %s",
-                ctx.current_phase, next_phase,
-            )
-            app_phase.swap_menu_for_phase(ctx, tray, next_phase)
-        _refresh_icon(ctx, tray)
-        _refresh_sections(ctx)
+        del snapshot  # the sections read ctx.current_snapshot()
+        app_phase.refresh_icon(ctx, tray)
+        app_phase.refresh_sections(ctx)
 
-    def on_notification(event: NotificationEvent) -> None:
-        notifications.dispatch(tray, event)
-
-    poller = ctx.poller
-    assert poller is not None  # _build_sections populates this
-    poller.snapshot_changed.connect(on_snapshot, type=Qt.QueuedConnection)
-    poller.notification.connect(on_notification, type=Qt.QueuedConnection)
-    poller.launcher_gone.connect(app.quit, type=Qt.QueuedConnection)
+    ctx.poller.snapshot_changed.connect(on_snapshot, type=Qt.QueuedConnection)
+    ctx.poller.launcher_gone.connect(app.quit, type=Qt.QueuedConnection)
 
 
-def _shutdown(ctx: _TrayContext) -> None:
-    """Run the documented shutdown sequence; never raises.
-
-    Spec "Shutdown sequence": ``stop_event.set()`` →
-    ``poller.join(timeout=3.0)`` → ``QObject.disconnect(poller)``
-    (static form only).  Each step is guarded so a failure in one
-    does not skip the next.
-    """
+def _guarded(what: str, step, *args, **kwargs) -> None:
     try:
-        ctx.stop_event.set()
-    except Exception:
-        logger.exception("stop_event.set() failed during shutdown")
+        step(*args, **kwargs)
+    except Exception:  # noqa: BLE001
+        logger.exception("%s failed during shutdown", what)
 
+
+def _shutdown(ctx: _TrayContext, timer: Optional[QTimer] = None) -> None:
+    """Stop the timer and the poller; each step guarded; never raises."""
+    if timer is not None:
+        _guarded("timer.stop()", timer.stop)
+    _guarded("stop_event.set()", ctx.stop_event.set)
     poller = ctx.poller
     if poller is not None:
-        try:
-            poller.join(timeout=3.0)
-        except Exception:
-            logger.exception("poller.join() failed during shutdown")
-        try:
-            # STATIC FORM ONLY — zero-arg instance form raises
-            # TypeError in PySide6.
-            QObject.disconnect(poller)
-        except Exception:
-            logger.exception(
-                "QObject.disconnect(poller) failed during shutdown",
-            )
+        _guarded("poller.join()", poller.join, timeout=3.0)
+        _guarded("QObject.disconnect(poller)", QObject.disconnect, poller)  # static form only
 
 
 def main() -> None:
@@ -261,27 +141,30 @@ def main() -> None:
     app.setQuitOnLastWindowClosed(False)
 
     ctx = _TrayContext()
-    logger.info("Tray topology: %s", ctx.topology)
-
     tray = QSystemTrayIcon()
-    mgr, wk = ctx.icon_states()
-    tray.setIcon(QIcon(icons.get_icon(mgr, wk)))
     tray.setToolTip(_TOOLTIP)
+    ctx.tray = tray
+    lb_port = read_loopback_port(settings_path())
+    ctx.poller = QtStatePoller(
+        loopback_url=f"http://127.0.0.1:{lb_port}/api/status/public/",
+        stop_event=ctx.stop_event,
+        quit_requested_flag=ctx.quit_flag,
+    )
+    # The first menu already matches the launcher's state.
+    app_phase.install(ctx, tray, read_phase(ctx.settings_dir))
+    logger.info("Tray phase: %s", ctx.phase.state)
+    _connect_poller(ctx, tray, app)
 
-    _build_sections(ctx, tray)
-    tray.setContextMenu(_build_menu(ctx))
-    _connect_signals(ctx, tray, app)
-
-    # Start the poller inside the event loop's first iteration so we
-    # don't rely on undocumented ordering of cross-thread signal
-    # queuing before exec() (spec FR-6).  Only start when the manager
-    # section is present — worker-only topologies have no manager
-    # state to poll.
-    if ctx.wants_manager and ctx.poller is not None:
-        QTimer.singleShot(0, ctx.poller.start)
+    timer = QTimer()
+    timer.setInterval(STATE_POLL_MS)
+    timer.timeout.connect(lambda: app_phase.tick(ctx, tray))
+    # Start inside the event loop's first iteration (the poller's
+    # cross-thread signals need the loop running).
+    QTimer.singleShot(0, ctx.poller.start)
+    QTimer.singleShot(0, timer.start)
 
     tray.show()
     try:
         app.exec()
     finally:
-        _shutdown(ctx)
+        _shutdown(ctx, timer)

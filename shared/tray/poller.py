@@ -46,13 +46,25 @@ from typing import Optional
 from PySide6.QtCore import QObject, Signal
 
 from shared.tray import launcher_watch
-from shared.tray.notifications import NotificationEvent
 
 logger = logging.getLogger(__name__)
 
 _FAILURE_THRESHOLD = 3
 _POLL_INTERVAL_SECONDS = 2.0
 _HTTP_TIMEOUT_SECONDS = 1.5
+# The status answer is a few hundred bytes; more is refused, never read.
+MAX_STATUS_BYTES = 64 * 1024
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect: the status is a 200 from the URL asked."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# No proxy (loopback only) and no redirects, like ``launcher.health_probe``.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
 @dataclass(frozen=True)
@@ -68,44 +80,20 @@ class ManagerSnapshot:
     last_error: str = ""
 
 
-def _notification_for(prev: str, nxt: str) -> Optional[NotificationEvent]:
-    """Return a notification event for the given edge, or None."""
-    if prev == "starting" and nxt == "running":
-        return NotificationEvent(
-            "Sethlans Manager", "Manager is running.",
-        )
-    if prev == "running" and nxt == "error":
-        return NotificationEvent(
-            "Sethlans Manager",
-            "Manager entered error state. Click the tray icon for "
-            "details.",
-        )
-    if prev == "error" and nxt == "running":
-        return NotificationEvent(
-            "Sethlans Manager", "Manager recovered.",
-        )
-    return None
-
-
 class QtStatePoller(QObject):
     """State poller emitting Qt signals; worker stays threading.Thread.
 
     Signals:
       - ``snapshot_changed(ManagerSnapshot)`` — every tick where the
         snapshot changes (includes the first successful tick).
-      - ``state_changed(str, str)`` — each state edge transition as
-        ``(prev_state, next_state)``.  Mirrors the legacy
-        ``('state_change', prev, nxt)`` queue event.
-      - ``notification(NotificationEvent)`` — events derived from
-        state transitions.
+        The tray's notifications come from the launcher's state
+        (``shared.tray.phase.edge_notice``), not from here.
       - ``launcher_gone()`` — emitted once when the launcher process
         is detected dead (FR-19c); the connected slot should typically
         call ``QApplication.instance().quit()``.
     """
 
     snapshot_changed = Signal(ManagerSnapshot)
-    state_changed = Signal(str, str)
-    notification = Signal(NotificationEvent)
     launcher_gone = Signal()
 
     def __init__(
@@ -191,17 +179,20 @@ class QtStatePoller(QObject):
     # HTTP
     # ------------------------------------------------------------------
     def _fetch(self) -> dict:
+        """One GET of the status (no proxy, no redirects, at most 64 KiB)."""
         req = urllib.request.Request(self._url, method="GET")
         try:
-            with urllib.request.urlopen(
-                req, timeout=_HTTP_TIMEOUT_SECONDS,
-            ) as resp:
+            with _OPENER.open(req, timeout=_HTTP_TIMEOUT_SECONDS) as resp:
                 code = resp.getcode()
                 if code != 200:
                     raise RuntimeError(f"HTTP {code}")
-                raw = resp.read()
+                raw = resp.read(MAX_STATUS_BYTES + 1)
+        except urllib.error.HTTPError as exc:  # a refused redirect, a 4xx / 5xx
+            raise RuntimeError(f"HTTP {exc.code}") from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(f"urlerror: {exc.reason}") from exc
+        if len(raw) > MAX_STATUS_BYTES:
+            raise RuntimeError(f"status answer larger than {MAX_STATUS_BYTES} bytes")
         try:
             return json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -212,13 +203,13 @@ class QtStatePoller(QObject):
     # ------------------------------------------------------------------
     def _apply_success(self, data: dict) -> None:
         prev = self._snapshot
-        # boot_id change always forces the transition through 'starting'
-        # first so the "Starting -> Running" notification fires.
+        # A new boot_id (the manager restarted) passes through 'starting'
+        # first, so the menu shows the restart.
         new_boot_id = str(data.get("boot_id", ""))
         if new_boot_id and new_boot_id != prev.boot_id and prev.boot_id:
             transitional = replace(prev, state="starting",
                                    boot_id=new_boot_id)
-            self._emit(prev, transitional)
+            self._emit(transitional)
             prev = transitional
 
         nxt = replace(
@@ -236,7 +227,7 @@ class QtStatePoller(QObject):
             # Manager returned after a deliberate Quit Manager - clear
             # the flag so future probe failures flag as Error again.
             self._quit_flag.clear()
-        self._emit(prev, nxt)
+        self._emit(nxt)
 
     def _apply_failure(self, reason: str) -> None:
         self._consecutive_failures += 1
@@ -245,23 +236,16 @@ class QtStatePoller(QObject):
         prev = self._snapshot
         new_state = "stopped" if self._quit_flag.is_set() else "error"
         if prev.state == new_state:
-            # Already in the target state - just refresh last_error,
-            # but do NOT re-emit the notification (edge-triggered).
+            # Already in the target state: no new snapshot (edge-triggered).
             return
-        nxt = replace(prev, state=new_state, last_error=reason)
-        self._emit(prev, nxt)
+        self._emit(replace(prev, state=new_state, last_error=reason))
 
     # ------------------------------------------------------------------
     # Emit
     # ------------------------------------------------------------------
-    def _emit(self, prev: ManagerSnapshot, nxt: ManagerSnapshot) -> None:
+    def _emit(self, nxt: ManagerSnapshot) -> None:
         self._snapshot = nxt
         self.snapshot_changed.emit(nxt)
-        if prev.state != nxt.state:
-            self.state_changed.emit(prev.state, nxt.state)
-            event = _notification_for(prev.state, nxt.state)
-            if event is not None:
-                self.notification.emit(event)
 
     # ------------------------------------------------------------------
     # Accessors (GUI thread)

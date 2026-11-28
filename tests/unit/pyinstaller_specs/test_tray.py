@@ -60,9 +60,9 @@ class TestBuildRequirementsTrayDeps:
 
 
 class TestTraySpecBundlesSharedTopology:
-    """Issue #210: ``shared.tray.topology`` imports the canonical alias
-    map from ``shared.topology``; the tray spec lists its package
-    surface explicitly, so the new module must be listed too."""
+    """Issue #210: the tray imports ``shared.topology`` (``shared.tray.phase``
+    uses ``has_manager`` / ``has_worker``); the tray spec lists its package
+    surface explicitly, so that module must be listed too."""
 
     def test_shared_topology_in_hiddenimports(
         self, tray_spec_text: str,

@@ -2,142 +2,120 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Phase computation + menu rebuild helpers for the PySide6 tray.
+"""Build the tray menu for the phase, and follow the launcher (FR-LN-4).
 
-Extracted from ``shared/tray/app.py`` to keep that module under the
-300-line ceiling (NFR-1). Implements:
+:func:`tick` runs on the tray's state QTimer (GUI thread): it reads the
+phase (``phase.read_phase``: ``launcher_state.json`` and
+``setup_finished()``), and when it changed shows the change's
+notification and installs a freshly built menu (leaving ``SETUP`` also
+clears a copied setup token from the clipboard); then it refreshes the
+sections in place (in-flight greying, the manager counts).
 
-* :func:`compute_phase` — thin wrapper that calls
-  :func:`shared.tray.phase.detect_phase` against the current
-  ``_TrayContext``'s data dirs.
-* :func:`build_section_for_phase` — return a fresh ``WizardSection``
-  / ``ManagerSection`` instance for the manager slot of the menu,
-  appropriate to the supplied phase. ``None`` for worker-only
-  topologies.
-* :func:`swap_menu_for_phase` — install a freshly-built top-level
-  ``QMenu`` on the tray for the supplied phase. Worker section is
-  rebuilt for QAction hygiene (FR-13) even though its observable
-  behaviour is identical across phases.
-* :func:`build_root_menu` — combine a manager-slot section + worker
-  section into a single ``QMenu``, mirroring the legacy ``_build_menu``
-  layout.
+Sections per phase:
 
-The helpers take a duck-typed ``ctx`` so unit tests can stub
-``_TrayContext`` with a ``MagicMock`` whose attributes parallel
-``app._TrayContext``.
+* ``SETUP``: :class:`~shared.tray.menu_setup.SetupSection`;
+* ``RUNNING`` in a mode: the manager section, the worker section, or
+  both (a separator between), with the launcher's reason on top;
+* anything else (``STARTING``, ``STOPPING``, ``FAILED``, ``RUNNING``
+  with no readable mode):
+  :class:`~shared.tray.menu_setup.StatusSection`.
+
+No QAction is reused across a rebuild. ``ctx`` is duck-typed (see
+``app._TrayContext``) so tests can pass a simple stand-in.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
-from shared.tray import notifications
+from shared.tray import clipboard, icons
+from shared.tray import launcher_state as ls
 from shared.tray import phase as phase_mod
 from shared.tray.menu_manager import ManagerSection
-from shared.tray.menu_wizard import WizardSection
+from shared.tray.menu_setup import SetupSection, StatusSection
+from shared.tray.menu_universal import add_label, reason_line
 from shared.tray.menu_worker import WorkerSection
-from shared.tray.notifications import NotificationEvent
+from shared.tray.phase import Phase
 
 logger = logging.getLogger(__name__)
 
 
-def compute_phase(ctx) -> str:
-    """Return the phase string ("wizard" / "runtime") for *ctx*."""
-    return phase_mod.detect_phase(ctx.data_dir, ctx.manager_data_dir)
+def build_sections(ctx, phase: Phase) -> list:
+    """The menu sections for ``phase`` (module doc), top to bottom."""
+    common = dict(quit_requested_flag=ctx.quit_flag, notify=ctx.notify)
+    if phase.state == ls.SETUP:
+        return [SetupSection(ctx.settings_dir, phase, **common)]
+    if not (phase.manager or phase.worker):
+        return [StatusSection(ctx.settings_dir, phase, **common)]
+    sections = []
+    if phase.manager:
+        sections.append(ManagerSection(ctx.settings_dir, phase.port, get_snapshot=ctx.current_snapshot, **common))
+    if phase.worker:
+        sections.append(WorkerSection(ctx.settings_dir, worker_only=not phase.manager, **common))
+    return sections
 
 
-def build_section_for_phase(
-    ctx, tray: QSystemTrayIcon, current_phase: str,
-):
-    """Return a section for the manager slot of the tray menu.
-
-    During ``"wizard"`` phase a :class:`WizardSection` is returned;
-    during ``"runtime"`` phase the existing :class:`ManagerSection` is
-    returned. Returns ``None`` when the topology has no manager slot
-    (``ctx.wants_manager`` is False — i.e. worker-only deployments).
-    """
-    if not ctx.wants_manager:
-        return None
-
-    def _notify(event: NotificationEvent) -> None:
-        notifications.dispatch(tray, event)
-
-    if current_phase == "wizard":
-        return WizardSection(
-            data_dir=ctx.data_dir,
-            quit_requested_flag=ctx.quit_flag,
-            get_version=lambda: ctx.current_snapshot().version or "?",
-            notify=_notify,
-        )
-    return ManagerSection(
-        data_dir=ctx.data_dir,
-        manager_data_dir=ctx.manager_data_dir,
-        manager_host=ctx.host,
-        manager_port=ctx.main_port,
-        quit_requested_flag=ctx.quit_flag,
-        get_snapshot=ctx.current_snapshot,
-        notify=_notify,
-    )
-
-
-def build_worker_section(ctx) -> Optional[WorkerSection]:
-    """Construct a fresh WorkerSection or return None.
-
-    A new section is created on phase swap for QAction hygiene
-    (FR-12 / FR-13) even though the worker section's behaviour is
-    identical across phases.
-    """
-    if not ctx.wants_worker:
-        return None
-    worker_only = ctx.wants_worker and not ctx.wants_manager
-    return WorkerSection(
-        data_dir=ctx.worker_data_dir.parent,
-        quit_requested_flag=ctx.quit_flag,
-        include_about=worker_only,
-    )
-
-
-def build_root_menu(ctx) -> QMenu:
-    """Combine the manager-slot section + worker section into one QMenu.
-
-    Mirrors the legacy ``app._build_menu`` layout: manager section's
-    actions, optional separator, worker section's actions. Returns a
-    fresh ``QMenu`` each call.
-    """
+def build_root_menu(sections: list, phase: Phase) -> QMenu:
+    """One QMenu from the sections' actions; the ``RUNNING`` reason on top."""
     root = QMenu()
-    if ctx.manager_section is not None:
-        mgr_menu = ctx.manager_section.build_qmenu(parent=root)
-        for action in mgr_menu.actions():
-            root.addAction(action)
-    if (
-        ctx.manager_section is not None
-        and ctx.worker_section is not None
-    ):
+    if phase.state == ls.RUNNING and phase.reason and (phase.manager or phase.worker):
+        add_label(root, reason_line(phase.reason))
         root.addSeparator()
-    if ctx.worker_section is not None:
-        worker_menu = ctx.worker_section.build_qmenu(parent=root)
-        for action in worker_menu.actions():
+    for index, section in enumerate(sections):
+        if index:
+            root.addSeparator()
+        for action in section.build_qmenu(parent=root).actions():
             root.addAction(action)
     return root
 
 
-def swap_menu_for_phase(
-    ctx, tray: QSystemTrayIcon, next_phase: str,
-) -> None:
-    """Build a fresh top-level menu and install via ``setContextMenu``.
+def install(ctx, tray: QSystemTrayIcon, phase: Phase) -> None:
+    """Build the sections and menu for ``phase`` and give the menu to the tray."""
+    sections = build_sections(ctx, phase)
+    menu = build_root_menu(sections, phase)
+    tray.setContextMenu(menu)
+    # The old menu is closed, and kept until the next rebuild, so it is
+    # never deleted while it is open or still the tray's.
+    old = getattr(ctx, "menu", None)
+    if old is not None:
+        old.hide()
+    ctx.previous_menu = old
+    ctx.phase, ctx.sections, ctx.menu = phase, sections, menu
+    refresh_icon(ctx, tray)
 
-    Mutates ``ctx.current_phase`` / ``ctx.manager_section`` /
-    ``ctx.worker_section`` in place, then issues exactly one
-    ``tray.setContextMenu`` call. The previous menu and its QActions
-    are dropped on the floor — Qt parents QActions to the QMenu, so
-    destruction collects them. No QAction is reused across phase
-    swaps; this is what makes the swap safe (no leftover triggered
-    slots pointing at stale state).
-    """
-    ctx.current_phase = next_phase
-    ctx.manager_section = build_section_for_phase(ctx, tray, next_phase)
-    ctx.worker_section = build_worker_section(ctx)
-    tray.setContextMenu(build_root_menu(ctx))
+
+def refresh_icon(ctx, tray: QSystemTrayIcon) -> None:
+    try:
+        manager = ctx.current_snapshot().state if ctx.phase.manager else None
+        worker = "idle" if ctx.phase.worker else None
+        tray.setIcon(QIcon(icons.get_icon(manager, worker)))
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to refresh tray icon")
+
+
+def refresh_sections(ctx) -> None:
+    for section in ctx.sections:
+        try:
+            section.refresh()
+        except Exception:  # noqa: BLE001
+            logger.exception("%s.refresh failed", type(section).__name__)
+
+
+def tick(ctx, tray: QSystemTrayIcon) -> None:
+    """Follow the launcher: rebuild on a phase change, then refresh. Never raises."""
+    try:
+        nxt = phase_mod.read_phase(ctx.settings_dir)
+        if nxt != ctx.phase:
+            logger.info("Tray phase: %s -> %s", ctx.phase.state, nxt.state)
+            notice = phase_mod.edge_notice(ctx.phase, nxt)
+            if ctx.phase.state == ls.SETUP and nxt.state != ls.SETUP:
+                clipboard.clear_copied_token()  # the token is no longer good
+            install(ctx, tray, nxt)
+            if notice is not None:
+                ctx.notify(notice)
+        refresh_sections(ctx)
+    except Exception:  # noqa: BLE001 - keep the timer alive
+        logger.exception("Tray state tick failed")

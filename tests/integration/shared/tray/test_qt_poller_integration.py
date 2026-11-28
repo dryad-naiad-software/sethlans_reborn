@@ -180,15 +180,8 @@ class TestPollerAgainstLiveManager:
             _loopback_url(live_server),
         )
 
-        data_dir = tmp_path / "data"
-        manager_dir = tmp_path / "manager"
-        data_dir.mkdir()
-        manager_dir.mkdir()
-
         section = ManagerSection(
-            data_dir=data_dir,
-            manager_data_dir=manager_dir,
-            manager_host="localhost",
+            data_dir=tmp_path,
             manager_port=8080,
             quit_requested_flag=quit_flag,
             get_snapshot=lambda: poller.snapshot,
