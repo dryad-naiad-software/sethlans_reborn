@@ -10,23 +10,18 @@ self-signed dev TLS cert under ``temp/dev-data/manager/tls/`` so Caddy
 has something to serve, and forwards a ``--port N`` flag through as
 ``SETHLANS_MANAGER_PORT``.
 
-When called with ``--seed-pending <path>``, copies the named JSON file
-to ``<dev-data>/pending_setup.json`` so the Phase 3 apply command can
-pick it up. (Phase 3 doesn't exist yet at the time of writing — the
-flag is here so this script doesn't need rewriting once it lands.)
-
 Because ``SETHLANS_MANAGER_DATA_DIR`` is set, the source-mode manager
 keeps its state in ``temp/dev-data/manager/`` instead of the source
 tree (see ``sethlans_manager.state_dir``): the default SQLite database,
 logs, broadcaster params, the secret-key file and FFmpeg. The TLS cert
 is passed explicitly via ``SETHLANS_TLS_CERT_FILE`` /
 ``SETHLANS_TLS_KEY_FILE``. ``SETHLANS_SETTINGS_DIR`` points the settings
-folder (``sethlans.ini``, topology, IPC markers, the launcher's
-``.setup_complete`` marker) at the dev data root. For a clean DB,
+folder (``sethlans.ini`` and the files beside it) at the dev data root.
+For a clean DB,
 delete ``temp/dev-data/manager/db.sqlite3`` between runs.
 
 CLI:
-    python tools/dev_manager.py [--port N] [--seed-pending PATH]
+    python tools/dev_manager.py [--port N]
 
 ``.env`` overrides:
     SETHLANS_DEV_DATA_ROOT     — relocate dev data root.
@@ -48,7 +43,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -61,7 +55,6 @@ from tools import _dev_common as common  # noqa: E402
 
 DEFAULT_MANAGER_PORT = 8080
 MANAGER_PORT_RANGE_END = 8099
-PENDING_SETUP_FILENAME = "pending_setup.json"
 
 
 def _provision_data_dir(data_root: Path) -> Path:
@@ -88,25 +81,6 @@ def _resolve_port(cli_port: int | None) -> int:
             f"no free port in {DEFAULT_MANAGER_PORT}..{MANAGER_PORT_RANGE_END}",
         )
     return chosen
-
-
-def _seed_pending_setup(seed_path: Path, data_root: Path) -> Path:
-    """Copy *seed_path* to ``<data_root>/pending_setup.json``."""
-    src = Path(seed_path).resolve()
-    if not src.is_file():
-        raise SystemExit(f"--seed-pending: file not found: {src}")
-    dst = (data_root / PENDING_SETUP_FILENAME).resolve()
-    try:
-        dst.relative_to(data_root.resolve())
-    except ValueError as exc:
-        raise SystemExit(f"refusing to write outside data root: {dst}") from exc
-    shutil.copyfile(str(src), str(dst))
-    if os.name != "nt":
-        try:
-            os.chmod(str(dst), 0o600)
-        except OSError:
-            pass
-    return dst
 
 
 def _build_env(
@@ -137,10 +111,6 @@ def main(argv: list[str] | None = None) -> int:
         "--port", type=int, default=None,
         help=f"Manager port (default: scan {DEFAULT_MANAGER_PORT}..).",
     )
-    parser.add_argument(
-        "--seed-pending", type=str, default=None,
-        help="Path to a pending_setup.json to seed before manager starts.",
-    )
     args = parser.parse_args(argv)
 
     common.load_dotenv()
@@ -149,10 +119,6 @@ def main(argv: list[str] | None = None) -> int:
     manager_data = _provision_data_dir(data_root)
     cert_path, key_path = common.ensure_dev_cert(manager_data / "tls")
     port = _resolve_port(args.port)
-
-    seeded: Path | None = None
-    if args.seed_pending:
-        seeded = _seed_pending_setup(Path(args.seed_pending), data_root)
 
     log_level = os.environ.get(common.ENV_LOG_LEVEL)
 
@@ -163,12 +129,8 @@ def main(argv: list[str] | None = None) -> int:
         ("Shared:", str(shared_data_dir.resolve())),
         ("Cert:", str(cert_path.resolve())),
         ("Key:", str(key_path.resolve())),
-    ]
-    if seeded is not None:
-        fields.append(("Pending:", str(seeded)))
-    fields.append(
         ("Note:", "self-signed cert; first browser visit will warn"),
-    )
+    ]
     common.print_banner("Sethlans dev manager", fields)
 
     env = _build_env(

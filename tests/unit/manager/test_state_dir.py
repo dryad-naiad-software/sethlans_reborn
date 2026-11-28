@@ -145,7 +145,7 @@ def test_broadcaster_params_follow_env(data_env, monkeypatch):
     assert (data_env / "broadcaster_params.json").is_file()
 
 
-# -- run_manager: enrollment config and the stale-[setup] sweep ------------
+# -- run_manager: enrollment config ---------------------------------------
 
 @pytest.mark.parametrize("use_env", [True, False])
 def test_prepare_runtime_reads_the_settings_file(no_env, monkeypatch, tmp_path, use_env):
@@ -158,13 +158,12 @@ def test_prepare_runtime_reads_the_settings_file(no_env, monkeypatch, tmp_path, 
     monkeypatch.setattr("django.setup", lambda: None)
     monkeypatch.setattr("sethlans_manager.logging_config.configure", lambda: None)
     monkeypatch.setattr(rm, "get_enrollment_config", lambda p: seen.append(p) or {})
-    monkeypatch.setattr(rm, "cleanup_stale_setup_section", seen.append)
     monkeypatch.setattr(rm, "initialize_runtime_state", lambda *_a: None)
 
     rm._prepare_runtime(None, "0.0.0.0", "8080")
 
     expected = (tmp_path if use_env else MANAGER_DIR) / "sethlans.ini"
-    assert seen == [expected, expected]
+    assert seen == [expected]
 
 
 # -- module-level paths, in a fresh interpreter ----------------------------

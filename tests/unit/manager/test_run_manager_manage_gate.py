@@ -56,8 +56,7 @@ class TestManageGateInterceptsBeforeBoot:
         when --manage intercepts in main()."""
         monkeypatch.setattr(
             run_manager.sys, "argv",
-            ["run_manager", "--manage", "apply_pending_setup",
-             "--data-dir", "/tmp/test"],
+            ["run_manager", "--manage", "migrate", "--noinput"],
         )
         mocker.patch(
             "sethlans_manager.manage_dispatch.dispatch_manage_mode",

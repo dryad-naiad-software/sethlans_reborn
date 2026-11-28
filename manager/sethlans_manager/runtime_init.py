@@ -19,11 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from shared.settings_file import (
-    get_settings_dir,
-    read_settings,
-    remove_setup_wizard_keys,
-)
+from shared.settings_file import read_settings
 
 logger = logging.getLogger(__name__)
 
@@ -116,47 +112,6 @@ def apply_enrollment_key_env_override() -> None:
         "Enrollment key overridden from "
         "SETHLANS_SECURITY_ENROLLMENT_KEY environment variable.",
     )
-
-
-def cleanup_stale_setup_section(
-    ini_path: Optional[Path] = None,
-    settings_dir: Optional[Path] = None,
-) -> None:
-    """Drop the wizard's ``[setup]`` keys from the settings file once set up.
-
-    Belt-and-suspenders for the launcher-owned cleanup: if the manager
-    is started outside the restart orchestrator (crash recovery,
-    installer upgrade, manual restart) after the setup sentinel was
-    written, the stale ``[setup] token`` / ``session_id`` would persist
-    forever. This boot-time sweep keeps "first normal run
-    indistinguishable from any later run" honest. The setup-finished
-    keys of the same section (``version``, ``mode``, ``completed_at``)
-    are kept.
-
-    *ini_path* defaults to :func:`shared.settings_file.settings_path`.
-    *settings_dir* is the folder holding ``.setup_complete`` (issue
-    #195: ``apply_pending_setup --data-dir <settings folder>``); it
-    defaults to :func:`shared.settings_file.get_settings_dir`. Both
-    keyword arguments exist for testability.
-
-    Any ``OSError`` from the write, including a settings-lock timeout
-    (``shared.file_lock.FileLockTimeoutError`` is a ``TimeoutError``),
-    is logged as a warning and the start goes on: the keys are removed
-    on a later start.
-    """
-    from workers.services.sentinel import read_sentinel
-
-    lookup_dir = settings_dir if settings_dir is not None else get_settings_dir()
-    sentinel = read_sentinel(lookup_dir)
-    if sentinel is None or not sentinel.get("completed_at"):
-        return
-    try:
-        remove_setup_wizard_keys(ini_path)
-    except OSError as exc:
-        logger.warning(
-            "Could not remove stale [setup] keys from the settings file: %s",
-            exc,
-        )
 
 
 def initialize_runtime_state(cert, enrollment_cfg, bind_host, bind_port):

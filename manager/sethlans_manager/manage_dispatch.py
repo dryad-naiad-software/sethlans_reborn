@@ -8,7 +8,7 @@ Issue #191: in frozen PyInstaller mode the launcher cannot invoke
 ``[sys.executable, manage.py, ...]`` because ``sys.executable`` resolves
 to ``run_launcher.exe`` (which has its own argparse and rejects unknown
 args). The fix teaches ``run_manager.exe`` a ``--manage <subcommand>``
-mode and routes the launcher's apply pipeline through it.
+mode for the few Django commands a frozen build may run.
 
 The dispatcher lives in this module rather than ``run_manager.py``
 itself to keep both files under the project-wide 300-line cap.
@@ -20,7 +20,7 @@ Key contract (see ``development/specs/frozen_apply_pipeline.md``):
   ``django.setup`` side-effects.
 * ``setup_django_for_management()`` performs ONLY ``django.setup()`` +
   logging configuration; it never runs migrations (those travel via
-  ``--manage migrate`` from the launcher).
+  ``--manage migrate``).
 * ``dispatch_manage_mode()`` calls ``execute_from_command_line`` WITHOUT
   a ``try/except SystemExit`` wrapper: the Django command terminates
   the process itself on non-zero exit, and we fall through to
@@ -32,12 +32,10 @@ from __future__ import annotations
 import sys
 from typing import Iterable
 
-# Subcommands the launcher is permitted to invoke against the frozen
-# manager binary. Adding entries here that accept password / token /
-# API-key args on argv MUST also add the corresponding redaction in
-# launcher/apply_pending_setup.py before the argv reaches the logger
-# (see spec FR-LAUNCHER3 + FR-MGMT3 trailing paragraph).
-_ALLOWED_MANAGE_SUBCOMMANDS = {"migrate", "apply_pending_setup"}
+# Subcommands ``--manage`` may run against the frozen manager binary.
+# Never add one that takes a password, token or API key on argv: argv
+# shows in process lists and in the caller's logs.
+_ALLOWED_MANAGE_SUBCOMMANDS = {"migrate"}
 
 
 def setup_django_for_management() -> None:
@@ -113,8 +111,7 @@ def dispatch_manage_mode(argv: list[str] | None = None) -> None:
 
     # Only treat --dev as a top-level flag if it appears BEFORE --manage.
     # Anything after --manage is the subcommand + its args; a literal
-    # "--dev" arg value there (e.g. a perverse --data-dir value) must not
-    # false-positive the mutex.
+    # "--dev" there (an argument value) must not false-positive the mutex.
     if "--manage" in argv_list:
         manage_idx = argv_list.index("--manage")
         top_level = argv_list[:manage_idx]

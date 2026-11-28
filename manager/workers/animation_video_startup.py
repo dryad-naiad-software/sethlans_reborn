@@ -24,7 +24,7 @@ start a build of its own:
 
 ``AppConfig.ready()`` also runs for every management command
 (``migrate``, ``check``, ``spectacular``, ``collectstatic``,
-``apply_pending_setup``, the frozen ``--manage`` path), for the
+the frozen ``--manage`` path), for the
 autoreloader's parent and for ``run_manager.py``'s own migrate /
 collectstatic subprocesses.  Those run beside a live server, so they
 must never reset: they would mark its running builds failed.  This is

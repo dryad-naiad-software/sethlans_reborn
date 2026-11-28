@@ -24,7 +24,7 @@ from workers import release_cache_startup as startup
 
 MANAGEMENT_COMMANDS = (
     'spectacular', 'migrate', 'makemigrations', 'check', 'collectstatic',
-    'apply_pending_setup', 'shell',
+    'shell',
 )
 
 
