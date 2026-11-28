@@ -63,7 +63,6 @@ jobs:
           pip install -r requirements-build.txt
           pip install -r manager/requirements.txt
           pip install -r worker/requirements.txt
-          pip install -r wizard/requirements.txt
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -98,9 +97,6 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
-
-      - name: Run PyInstaller — Wizard
-        run: pyinstaller packaging/pyinstaller/wizard.spec --noconfirm
 
       - name: Assert Caddy binary bundled (Windows)
         shell: pwsh
@@ -174,30 +170,20 @@ jobs:
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           }
 
-      # Wizard smoke test (AC-B4 + AC-B2 + NF-4 / DEVOPS-MED-11):
-      # delegated to ``tools/wizard_smoke.py`` so CI and local builds
-      # share the exact same checks (DEVOPS-MED-5, Phase F3). The
-      # script:
-      #   - asserts AC-B2 via pathlib.rglob (exact-name match per spec
-      #     line 884-888) — fixes the prior PowerShell -like "$name*"
-      #     prefix-glob false-positive risk (DEVOPS-HIGH-3);
-      #   - asserts NF-4 / DEVOPS-MED-11 95 MB bundle ceiling;
-      #   - provisions a fresh tmpdir + .setup_token + .ipc_secret;
-      #   - spawns run_wizard.exe and READS THE PORT FILE at
-      #     <tmpdir>/wizard/port (DEVOPS-HIGH-4) to exercise the real
-      #     bootstrap.write_port_file() code path before polling
-      #     GET / over HTTPS until 200 within 30 s;
-      #   - SIGTERMs and dumps captured stdout/stderr on failure
-      #     (DEVOPS-LOW-6);
-      #   - self-enforces a 60 s wall-clock ceiling (DEVOPS-MED-6).
-      # MUST run AFTER manager smoke step (DEVOPS-v22-MED-3 ordering).
-      # The step-level timeout-minutes: 1 is belt-and-braces in case
-      # the in-script SIGALRM/threading watchdog ever fails to fire.
-      - name: Smoke test — Wizard starts
-        timeout-minutes: 1
+      # Setup-mode smoke: tools/setup_smoke.py runs the frozen
+      # run_manager --setup against a fresh scratch folder under
+      # $RUNNER_TEMP (free ports, its own SETHLANS_SETTINGS_DIR,
+      # LOCALAPPDATA and HOME), checks health and GET /setup/, submits a
+      # manager-mode setup over HTTP and checks sethlans.ini, runs
+      # run_worker --setup-cards, keeps the #191 --manage check and
+      # prints the launcher bundle size. Local builds run the same
+      # script. Its own watchdog is 120 s; the step timeout is the
+      # backstop if that watchdog ever fails to fire.
+      - name: Smoke test — Setup mode
+        timeout-minutes: 3
         shell: pwsh
         run: |
-          python tools/wizard_smoke.py --bundle dist/wizard --port 8100
+          python tools/setup_smoke.py --bin-root dist
 
       - name: Smoke test — Worker starts
         shell: pwsh
@@ -301,7 +287,6 @@ jobs:
           pip install -r requirements-build.txt
           pip install -r manager/requirements.txt
           pip install -r worker/requirements.txt
-          pip install -r wizard/requirements.txt
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -336,9 +321,6 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
-
-      - name: Run PyInstaller — Wizard
-        run: pyinstaller packaging/pyinstaller/wizard.spec --noconfirm
 
       - name: Assert Caddy binary bundled (macOS)
         run: |
@@ -440,7 +422,7 @@ jobs:
           SMOKE_BIN="${SMOKE_APP}/Contents/Resources/bin"
           for exe in "${SMOKE_APP}/Contents/MacOS/sethlans" \
                      "${SMOKE_BIN}/manager/run_manager" \
-                     "${SMOKE_BIN}/wizard/run_wizard"; do
+                     "${SMOKE_BIN}/worker/run_worker"; do
             if [ ! -x "${exe}" ]; then
               echo "Installed bundle is missing ${exe}"
               exit 1
@@ -498,23 +480,17 @@ jobs:
             exit 1
           fi
 
-      # Wizard smoke test (AC-B4 + AC-B2 + NF-4 / DEVOPS-MED-11):
-      # delegated to ``tools/wizard_smoke.py`` so CI and local builds
-      # share the exact same checks (DEVOPS-MED-5, Phase F3). See the
-      # Windows job for the full breakdown of what the script verifies
-      # (AC-B2 via pathlib.rglob, NF-4 95 MB ceiling, AC-B4 port-file
-      # poll + GET / probe, DEVOPS-LOW-6 log dump on failure, in-script
-      # 60 s wall-clock guard). MUST run AFTER the manager smoke step
-      # (DEVOPS-v22-MED-3). step-level timeout-minutes: 1 is belt-and-
-      # braces in case the in-script watchdog ever fails to fire.
-      # --bundle points into the installed .app so the sibling-manager
-      # checks (#191 --manage, #192 resolver) run against the shipped
-      # layout; the #192 harness finds the launcher at
-      # Contents/MacOS/sethlans.
-      - name: Smoke test — Wizard starts
-        timeout-minutes: 1
+      # Setup-mode smoke (see the Windows job for what it checks).
+      # --bin-root is the installed .app's Contents/Resources/bin, so
+      # run_manager and run_worker start from the shipped layout (#236);
+      # it stays under $RUNNER_TEMP, never $TMPDIR (/private/var is
+      # refused as a data folder). The launcher size is read from the
+      # PyInstaller output, dist/launcher: in the installed .app the
+      # launcher shares Contents/ with the other components.
+      - name: Smoke test — Setup mode
+        timeout-minutes: 3
         run: |
-          python tools/wizard_smoke.py --bundle "${SMOKE_BIN}/wizard" --port 8100
+          python tools/setup_smoke.py --bin-root "${SMOKE_BIN}" --launcher-dir dist/launcher
 
       - name: Notarize DMG
         if: >-
@@ -587,7 +563,6 @@ jobs:
           pip install -r requirements-build.txt
           pip install -r manager/requirements.txt
           pip install -r worker/requirements.txt
-          pip install -r wizard/requirements.txt
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -622,9 +597,6 @@ jobs:
 
       - name: Run PyInstaller — Launcher
         run: pyinstaller packaging/pyinstaller/launcher.spec --noconfirm
-
-      - name: Run PyInstaller — Wizard
-        run: pyinstaller packaging/pyinstaller/wizard.spec --noconfirm
 
       - name: Assert Caddy binary bundled (Linux)
         run: |
@@ -685,19 +657,11 @@ jobs:
             exit 1
           fi
 
-      # Wizard smoke test (AC-B4 + AC-B2 + NF-4 / DEVOPS-MED-11):
-      # delegated to ``tools/wizard_smoke.py`` so CI and local builds
-      # share the exact same checks (DEVOPS-MED-5, Phase F3). See the
-      # Windows job for the full breakdown of what the script verifies
-      # (AC-B2 via pathlib.rglob, NF-4 95 MB ceiling, AC-B4 port-file
-      # poll + GET / probe, DEVOPS-LOW-6 log dump on failure, in-script
-      # 60 s wall-clock guard). MUST run AFTER the manager smoke step
-      # (DEVOPS-v22-MED-3). step-level timeout-minutes: 1 is belt-and-
-      # braces in case the in-script watchdog ever fails to fire.
-      - name: Smoke test — Wizard starts
-        timeout-minutes: 1
+      # Setup-mode smoke (see the Windows job for what it checks).
+      - name: Smoke test — Setup mode
+        timeout-minutes: 3
         run: |
-          python tools/wizard_smoke.py --bundle dist/wizard --port 8100
+          python tools/setup_smoke.py --bin-root dist
 
       # --- GPG signing (conditional) ---
       - name: Import GPG key

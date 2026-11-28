@@ -7,13 +7,9 @@
 These tests verify that key data resources are declared in the manager
 spec's ``datas`` list and that setup mode and PyMySQL are in its
 ``hiddenimports``. They do NOT invoke PyInstaller itself; the live
-build-time guard lives in the install smoke (issue #197 — the apply
-pipeline exercises ``validate_password`` end-to-end, which fails fast if
-the password resource is missing).
-
-The wizard counterpart lives at ``tests/unit/wizard/test_pyinstaller_spec``
-— this file follows the same text-grep pattern but targets manager-side
-resources only.
+build-time guard is the setup-mode smoke (``tools/setup_smoke.py``: its
+manager-mode submit runs ``validate_password`` in the frozen manager,
+which fails fast if the password resource is missing).
 """
 
 from __future__ import annotations
@@ -69,9 +65,6 @@ def test_manager_spec_bundles_django_common_passwords_resource(
     raises ``FileNotFoundError`` inside the apply pipeline's
     ``transaction.atomic()`` block and the launcher surfaces it as
     ``apply operational failure: atomic apply failed: FileNotFoundError``.
-
-    Mirrors the wizard-side regression for issue #190 at
-    ``tests/unit/wizard/test_pyinstaller_spec``.
     """
     # The resource filename must appear somewhere in the spec text
     # (defensive check — gives a clearer assertion than the window walk

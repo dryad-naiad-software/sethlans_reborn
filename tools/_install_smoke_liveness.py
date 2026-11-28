@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 
-from _wizard_smoke_helpers import err, http_get_ok
+from _smoke_common import err, http_get_ok
 
 # Issue #204: per-call hang guard. The deadlocked endpoint never returns
 # a response, so a *timeout* (not a status) is the signal. Keep this

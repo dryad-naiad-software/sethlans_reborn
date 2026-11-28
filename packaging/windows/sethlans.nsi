@@ -25,8 +25,8 @@
   !define PRODUCT_VERSION "0.1.0"
 !endif
 
-; Root directory containing the five PyInstaller bundle dirs
-; (manager/, worker/, tray_helper/, launcher/, wizard/). Defaults to the
+; Root directory containing the four PyInstaller bundle dirs
+; (manager/, worker/, tray_helper/, launcher/). Defaults to the
 ; legacy location at repo root; the build script overrides this to
 ; ../../.tmp/dist so generated files stay in the gitignored .tmp/.
 !ifndef DIST_ROOT
@@ -117,6 +117,8 @@ Function .onInit
     nsExec::ExecToLog 'taskkill /F /IM run_worker.exe'
     nsExec::ExecToLog 'taskkill /F /IM run_tray_helper.exe'
     nsExec::ExecToLog 'taskkill /F /IM run_launcher.exe'
+    ; Older installs shipped a separate setup wizard; stop it too so the
+    ; upgrade can remove its files. Kept for good, like its firewall rule.
     nsExec::ExecToLog 'taskkill /F /IM run_wizard.exe'
 
     ; Remove the Unreal editor rules named in the prior install's record
@@ -138,6 +140,7 @@ Function .onInit
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Manager (TCP 8080)"'
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Worker (TCP 8081)"'
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Broadcast (UDP 8082)"'
+    ; Added only by older installs (the old setup wizard); never re-added.
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Wizard (Setup)"'
 
     ; NOTE: %LOCALAPPDATA%\Sethlans is intentionally preserved to keep user data.
@@ -162,9 +165,6 @@ Section "Sethlans Core" SEC_CORE
 
   SetOutPath "$INSTDIR\bin\launcher"
   File /r "${DIST_ROOT}\launcher\*.*"
-
-  SetOutPath "$INSTDIR\bin\wizard"
-  File /r "${DIST_ROOT}\wizard\*.*"
 
   ; Copy license and version metadata
   SetOutPath "$INSTDIR"
@@ -222,8 +222,6 @@ Section "Sethlans Core" SEC_CORE
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Manager (TCP 8080)" dir=in action=allow protocol=TCP localport=8080 profile=private,public,domain program="$INSTDIR\bin\manager\run_manager.exe"'
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Worker (TCP 8081)" dir=in action=allow protocol=TCP localport=8081 profile=private,public,domain program="$INSTDIR\bin\worker\run_worker.exe"'
   nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Broadcast (UDP 8082)" dir=in action=allow protocol=UDP localport=8082 profile=private,public,domain program="$INSTDIR\bin\manager\run_manager.exe"'
-  ; Wizard binds to a port in the 8100-8104 range during first-run setup (see FR-W15, DEVOPS-HIGH-5).
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="Sethlans Wizard (Setup)" dir=in action=allow protocol=TCP localport=8100-8104 profile=private,public,domain program="$INSTDIR\bin\wizard\run_wizard.exe"'
 
   ; One rule per supported Unreal Engine editor on this machine (issue #233).
   ; Engines installed later get theirs when the installer is re-run.
@@ -302,7 +300,7 @@ FunctionEnd
 ; --- Uninstaller ---
 Section "Uninstall"
   ; Stop services if running. run_launcher.exe is included alongside
-  ; the four worker/manager/tray/wizard execs because it holds the
+  ; the worker/manager/tray execs because it holds the
   ; single-instance lock and supervises the others; without killing
   ; it first, RMDir /r on $INSTDIR\bin can fail with file-locked
   ; errors and leave a zombie launcher process running. The .onInit
@@ -312,12 +310,14 @@ Section "Uninstall"
   nsExec::ExecToLog 'taskkill /F /IM run_worker.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_tray_helper.exe'
   nsExec::ExecToLog 'taskkill /F /IM run_launcher.exe'
+  ; The old setup wizard (older installs only). Kept for good.
   nsExec::ExecToLog 'taskkill /F /IM run_wizard.exe'
 
   ; Remove Windows Firewall rules
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Manager (TCP 8080)"'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Worker (TCP 8081)"'
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Broadcast (UDP 8082)"'
+  ; Added only by older installs (the old setup wizard). Kept for good.
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="Sethlans Wizard (Setup)"'
   ; Unreal editor rules listed in $INSTDIR's record file (issue #233);
   ; also deletes the record file so RMDir "$INSTDIR" below can succeed.

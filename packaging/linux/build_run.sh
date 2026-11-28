@@ -8,7 +8,7 @@
 # Usage: packaging/linux/build_run.sh <version>
 # Example: packaging/linux/build_run.sh 0.1.0
 #
-# Expects PyInstaller output at dist/{manager,worker,tray_helper,launcher,wizard}/
+# Expects PyInstaller output at dist/{manager,worker,tray_helper,launcher}/
 # Produces: dist/sethlans-<version>-linux-x64.run
 
 set -euo pipefail
@@ -33,7 +33,7 @@ fi
 # Validate component bundles exist. Must match the copy loop below — every
 # component the copy loop iterates is required at build time so the .run
 # archive is never silently shipped with a missing bundle.
-for component in manager worker tray_helper launcher wizard; do
+for component in manager worker tray_helper launcher; do
     if [ ! -d "${DIST_DIR}/${component}" ]; then
         echo "[ERROR] ${component} bundle not found at ${DIST_DIR}/${component}" >&2
         exit 1
@@ -47,7 +47,7 @@ mkdir -p "${STAGING_DIR}/bin"
 # Copy component bundles. Validation above guarantees every directory
 # exists, so this is unconditional — a missing bundle here is a build-system
 # bug, not a runtime warning.
-for component in manager worker tray_helper launcher wizard; do
+for component in manager worker tray_helper launcher; do
     cp -R "${DIST_DIR}/${component}" "${STAGING_DIR}/bin/${component}"
 done
 

@@ -9,8 +9,7 @@
 # DESCRIPTION
 #     Dev-focused script. Orchestrates the full macOS build pipeline:
 #       1. Angular frontend build (npm run build).
-#       2. PyInstaller bundles: manager, worker, tray_helper, launcher,
-#          wizard.
+#       2. PyInstaller bundles: manager, worker, tray_helper, launcher.
 #       3. DMG assembly via packaging/macos/build_dmg.sh (hdiutil UDZO).
 #
 #     Reads the authoritative version from VERSION at the repo root.
@@ -32,7 +31,6 @@
 #     - Python 3.14 virtualenv at .venv-build/ with these packages installed:
 #         * All of manager/requirements.txt
 #         * All of worker/requirements.txt
-#         * All of wizard/requirements.txt
 #         * requirements-build.txt  (pyinstaller, pyinstaller-hooks-contrib,
 #                                    PySide6-Essentials)
 #     - Node.js 20+ with npm on PATH (for Angular build)
@@ -42,8 +40,7 @@
 # BOOTSTRAP (one-time)
 #     /opt/homebrew/bin/python3.14 -m venv .venv-build
 #     .venv-build/bin/pip install -r manager/requirements.txt \
-#       -r worker/requirements.txt -r wizard/requirements.txt \
-#       -r requirements-build.txt
+#       -r worker/requirements.txt -r requirements-build.txt
 #     xcode-select --install   # if CLT not already present
 #
 # USAGE
@@ -127,44 +124,26 @@ if ! command -v hdiutil >/dev/null 2>&1; then
 fi
 
 # --- Build steps ---
-echo "=== 1/7 Angular build ==="
+echo "=== 1/6 Angular build ==="
 ( cd manager/frontend && npm run build 2>&1 | tail -3 )
 
-echo "=== 2/7 PyInstaller: manager ==="
+echo "=== 2/6 PyInstaller: manager ==="
 "$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 3/7 PyInstaller: worker ==="
+echo "=== 3/6 PyInstaller: worker ==="
 "$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 4/7 PyInstaller: tray_helper ==="
+echo "=== 4/6 PyInstaller: tray_helper ==="
 "$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 5/7 PyInstaller: launcher ==="
+echo "=== 5/6 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/7 PyInstaller: wizard ==="
-"$VENV_PYI" packaging/pyinstaller/wizard.spec --noconfirm --clean 2>&1 | tail -3
+# The end-to-end install smoke (tools/install_smoke.py) still drives
+# the old wizard; it is left out of the build until it is rewritten for
+# setup mode.
 
-# NF-4 + AC-B2 + AC-B4 wizard smoke: delegated to tools/wizard_smoke.py
-# so CI and local builds share the exact same checks (DEVOPS-MED-5,
-# Phase F3). The script asserts NF-4 95 MB bundle ceiling, AC-B2
-# pathlib.rglob bundle introspection, AND spawns the wizard to poll
-# its port file + GET / over HTTPS within a 60 s wall-clock budget.
-# Use the build venv's interpreter so PyInstaller's deps (including
-# psutil) are on the import path for the spawned wizard process.
-echo "=== Wizard smoke (NF-4 + AC-B2 + AC-B4) ==="
-.venv-build/bin/python tools/wizard_smoke.py --bundle dist/wizard
-
-# Issue #197: end-to-end frozen install smoke. Drives the real launcher
-# binary through the full wizard walk-through, waits for the apply
-# pipeline's .setup_complete sentinel, and probes the manager's
-# /api/health/. Catches the frozen-mode-only bug cluster (#190 / #191
-# / #192 / #195 / #196) that integration tests miss because they
-# source-mode the launcher and monkey-patch the apply pipeline.
-echo "=== Install smoke (end-to-end frozen) ==="
-.venv-build/bin/python tools/install_smoke.py --dist-root dist
-
-echo "=== 7/7 DMG (v$BUILD_VERSION) ==="
+echo "=== 6/6 DMG (v$BUILD_VERSION) ==="
 bash "$DMG_SCRIPT" "$BUILD_VERSION"
 
 OUTPUT="dist/sethlans-$BUILD_VERSION-macos-arm64.dmg"
@@ -173,12 +152,36 @@ if [ ! -f "$OUTPUT" ]; then
   exit 1
 fi
 
+# Setup-mode smoke: tools/setup_smoke.py, the same script CI runs. It
+# starts the frozen run_manager --setup against a scratch folder (never
+# the real per-user Sethlans folders), submits a manager-mode setup over
+# HTTP and checks sethlans.ini, runs run_worker --setup-cards, runs the
+# #191 --manage check and prints the launcher bundle size. The build
+# venv's interpreter has psutil, which the smoke uses to end the
+# processes it started.
+#
+# On macOS the frozen components start only from the .app layout
+# (Contents/Resources/bin/<component>/run_<component>), so the smoke runs
+# the app copied out of the new DMG, as CI does. The launcher size is
+# read from the PyInstaller output in dist/launcher.
+echo "=== Setup-mode smoke (from the DMG) ==="
+SMOKE_DIR="$(mktemp -d /tmp/sethlans-dmg-smoke.XXXXXX)"
+mkdir "$SMOKE_DIR/mnt"
+trap 'hdiutil detach "$SMOKE_DIR/mnt" -force >/dev/null 2>&1 || true; rm -rf "$SMOKE_DIR"' EXIT
+hdiutil attach -nobrowse -noautoopen -readonly -mountpoint "$SMOKE_DIR/mnt" "$OUTPUT" >/dev/null
+ditto "$SMOKE_DIR/mnt/Sethlans.app" "$SMOKE_DIR/Sethlans.app"
+hdiutil detach "$SMOKE_DIR/mnt" -force >/dev/null
+.venv-build/bin/python tools/setup_smoke.py \
+  --bin-root "$SMOKE_DIR/Sethlans.app/Contents/Resources/bin" --launcher-dir dist/launcher
+rm -rf "$SMOKE_DIR"
+trap - EXIT
+
 echo "=== cleanup ==="
 # DMG is self-contained; intermediate PyInstaller artifacts are no longer
 # needed. Leave only the deliverable .dmg files in dist/. Only runs on
 # success so failed builds retain artifacts for debugging.
 rm -rf build
-for component in launcher manager worker tray_helper wizard; do
+for component in launcher manager worker tray_helper; do
   rm -rf "dist/$component"
 done
 rm -rf dist/dmg-staging

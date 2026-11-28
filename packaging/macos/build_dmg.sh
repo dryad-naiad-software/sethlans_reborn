@@ -39,9 +39,9 @@ fi
 
 # Strictly validate required component bundles. tray_helper is intentionally
 # omitted here — it's optional on macOS (the SethlansHelper.app handles the
-# tray UI) and the copy loop below already warns if it's missing. wizard is
-# required: a DMG without the setup wizard ships an unconfigurable app.
-for component in manager worker wizard; do
+# tray UI) and the copy loop below already warns if it's missing. There is
+# no separate setup bundle: the manager serves the setup page.
+for component in manager worker; do
     if [ ! -d "${DIST_DIR}/${component}" ]; then
         echo "[ERROR] ${component} bundle not found at ${DIST_DIR}/${component}" >&2
         exit 1
@@ -70,7 +70,7 @@ fi
 RESOURCES="${STAGING_DIR}/${APP_NAME}/Contents/Resources"
 mkdir -p "${RESOURCES}/bin"
 
-for component in manager worker tray_helper wizard; do
+for component in manager worker tray_helper; do
     if [ -d "${DIST_DIR}/${component}" ]; then
         cp -R "${DIST_DIR}/${component}" "${RESOURCES}/bin/${component}"
     else
@@ -157,7 +157,7 @@ find "${STAGING_DIR}/${APP_NAME}" -type f \( -name "*.dylib" -o -name "*.so" \) 
     -exec codesign --force --sign - {} +
 
 # 2. Sign component executables explicitly (PyInstaller-frozen launchers).
-for component in wizard manager worker launcher; do
+for component in manager worker launcher; do
     bin="${RESOURCES}/bin/${component}/run_${component}"
     if [ -f "$bin" ]; then
         codesign --force --sign - "$bin"

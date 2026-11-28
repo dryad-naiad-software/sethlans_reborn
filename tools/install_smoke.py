@@ -35,7 +35,7 @@ sys.path.insert(0, str(_HERE))
 
 from _install_smoke_driver import drive_install  # noqa: E402
 from _install_smoke_teardown import terminate_process_tree  # noqa: E402
-from _wizard_smoke_helpers import (  # noqa: E402
+from _smoke_common import (  # noqa: E402
     dump_logs, err, install_wall_clock_watchdog,
 )
 

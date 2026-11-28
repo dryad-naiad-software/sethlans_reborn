@@ -9,8 +9,7 @@
 # DESCRIPTION
 #     Dev-focused script. Orchestrates the full Windows build pipeline:
 #       1. Angular frontend build (npm run build).
-#       2. PyInstaller bundles: manager, worker, tray_helper, launcher,
-#          wizard.
+#       2. PyInstaller bundles: manager, worker, tray_helper, launcher.
 #       3. NSIS compile into a single installer exe.
 #
 #     Reads the authoritative version from VERSION at the repo root.
@@ -39,7 +38,6 @@
 #     - Python 3.14 virtualenv at .venv-build/ with these packages installed:
 #         * All of manager/requirements.txt
 #         * All of worker/requirements.txt
-#         * All of wizard/requirements.txt
 #         * requirements-build.txt  (pyinstaller, pyinstaller-hooks-contrib)
 #     - Node.js 20+ with npm on PATH (for Angular build)
 #     - NSIS 3.11+ at "C:/Program Files (x86)/NSIS/Bin/makensis.exe"
@@ -50,8 +48,7 @@
 # BOOTSTRAP (one-time)
 #     py -3.12 -m venv .venv-build
 #     .venv-build/Scripts/pip install -r manager/requirements.txt \
-#       -r worker/requirements.txt -r wizard/requirements.txt \
-#       -r requirements-build.txt
+#       -r worker/requirements.txt -r requirements-build.txt
 #     choco install nsis -y   # or install NSIS manually
 #
 # USAGE
@@ -135,46 +132,36 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 # --- Build steps ---
-echo "=== 1/7 Angular build ==="
+echo "=== 1/6 Angular build ==="
 ( cd manager/frontend && npm run build 2>&1 | tail -3 )
 
-echo "=== 2/7 PyInstaller: manager ==="
+echo "=== 2/6 PyInstaller: manager ==="
 "$VENV_PYI" packaging/pyinstaller/manager.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 3/7 PyInstaller: worker ==="
+echo "=== 3/6 PyInstaller: worker ==="
 "$VENV_PYI" packaging/pyinstaller/worker.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 4/7 PyInstaller: tray_helper ==="
+echo "=== 4/6 PyInstaller: tray_helper ==="
 "$VENV_PYI" packaging/pyinstaller/tray_helper.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 5/7 PyInstaller: launcher ==="
+echo "=== 5/6 PyInstaller: launcher ==="
 "$VENV_PYI" packaging/pyinstaller/launcher.spec --noconfirm --clean 2>&1 | tail -3
 
-echo "=== 6/7 PyInstaller: wizard ==="
-"$VENV_PYI" packaging/pyinstaller/wizard.spec --noconfirm --clean 2>&1 | tail -3
+# Setup-mode smoke: tools/setup_smoke.py, the same script CI runs. It
+# starts the frozen run_manager --setup against a scratch folder (never
+# the real per-user Sethlans folders), submits a manager-mode setup over
+# HTTP and checks sethlans.ini, runs run_worker --setup-cards, runs the
+# #191 --manage check and prints the launcher bundle size. The build
+# venv's interpreter has psutil, which the smoke uses to end the
+# processes it started.
+echo "=== Setup-mode smoke ==="
+.venv-build/Scripts/python tools/setup_smoke.py --bin-root "${DIST_ROOT}"
 
-# NF-4 + AC-B2 + AC-B4 wizard smoke: delegated to tools/wizard_smoke.py
-# so CI and local builds share the exact same checks (DEVOPS-MED-5,
-# Phase F3). The script asserts NF-4 85 MB bundle ceiling, AC-B2
-# pathlib.rglob bundle introspection, AND spawns the wizard to poll
-# its port file + GET / over HTTPS within a 60 s wall-clock budget.
-# C2 (sethlans.nsi) reads the wizard bundle directly from
-# ${DIST_ROOT}/wizard, so no separate staging copy is needed here.
-# Use the build venv's interpreter so PyInstaller's deps (including
-# psutil) are on the import path for the spawned wizard process.
-echo "=== Wizard smoke (NF-4 + AC-B2 + AC-B4) ==="
-.venv-build/Scripts/python tools/wizard_smoke.py --bundle "${DIST_ROOT}/wizard"
+# The end-to-end install smoke (tools/install_smoke.py) still drives
+# the old wizard; it is left out of the build until it is rewritten for
+# setup mode.
 
-# Issue #197: end-to-end frozen install smoke. Drives the real launcher
-# binary through the full wizard walk-through, waits for the apply
-# pipeline's .setup_complete sentinel, and probes the manager's
-# /api/health/. Catches the frozen-mode-only bug cluster (#190 / #191
-# / #192 / #195 / #196) that integration tests miss because they
-# source-mode the launcher and monkey-patch the apply pipeline.
-echo "=== Install smoke (end-to-end frozen) ==="
-.venv-build/Scripts/python tools/install_smoke.py --dist-root "${DIST_ROOT}"
-
-echo "=== 7/7 NSIS (v$BUILD_VERSION) ==="
+echo "=== 6/6 NSIS (v$BUILD_VERSION) ==="
 "$NSIS" -DPRODUCT_VERSION="$BUILD_VERSION" packaging/windows/sethlans.nsi 2>&1 | tail -3
 
 OUTPUT="packaging/windows/sethlans-$BUILD_VERSION-windows-x64.exe"
@@ -187,7 +174,7 @@ ls -lh "$OUTPUT"
 # --- Cleanup ---
 # Installer is produced; the PyInstaller intermediate trees are no
 # longer needed. Selective removal (matches tools/build_macos_installer.sh):
-# wipe build/ and only the five PyInstaller bundle dirs under dist/.
+# wipe build/ and only the four PyInstaller bundle dirs under dist/.
 # Do NOT `rm -rf dist/` wholesale — the macOS builder emits its final
 # dist/sethlans-<V>-macos-arm64.dmg into the same dist/ dir, and a
 # heavy-handed cleanup here would nuke a sibling platform's deliverable
@@ -197,10 +184,10 @@ ls -lh "$OUTPUT"
 # the auto-bump keeps working across runs.
 echo "=== Cleanup ==="
 rm -rf "${BUILD_ROOT:?}"
-for component in launcher manager worker tray_helper wizard; do
+for component in launcher manager worker tray_helper; do
   rm -rf "${DIST_ROOT:?}/$component"
 done
-echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper,wizard}"
+echo "Removed $BUILD_ROOT and $DIST_ROOT/{launcher,manager,worker,tray_helper}"
 
 echo ""
 echo "Installer ready: $OUTPUT"
