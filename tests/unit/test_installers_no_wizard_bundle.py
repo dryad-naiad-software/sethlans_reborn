@@ -44,6 +44,7 @@ def _code_lines(text: str, comment: str) -> list[str]:
 
 
 def test_nsi_installs_no_wizard_bundle(nsi_contents: str) -> None:
+    """Chunk 7a: wizard.spec is gone, so an NSIS line that installs dist\\wizard breaks every Windows build."""
     for line in _code_lines(nsi_contents, ";"):
         assert "\\wizard" not in line.lower(), (
             f"sethlans.nsi still installs or targets the wizard bundle:\n  {line.strip()}"
@@ -72,6 +73,7 @@ def test_nsi_keeps_old_wizard_cleanup(nsi_contents: str, block_pattern: str) -> 
 
 @pytest.mark.parametrize("script", BUILD_SCRIPTS, ids=lambda p: p.name)
 def test_build_script_needs_no_wizard_bundle(script: Path) -> None:
+    """Chunk 7a: dist/wizard is never built, so a DMG or .run line that needs it breaks the build."""
     assert script.is_file(), f"Expected build script at {script}"
     for line in _code_lines(script.read_text(encoding="utf-8"), "#"):
         assert "wizard" not in line.lower(), (

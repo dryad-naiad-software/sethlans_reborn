@@ -12,6 +12,7 @@ These tests pin that each check passes a good answer and names a bad one.
 """
 import datetime
 import json
+import pathlib
 
 import pytest
 
@@ -57,6 +58,7 @@ def test_smoke_parent_avoids_macos_tmpdir(environ, platform, expected):
 
 
 def test_smoke_parent_uses_system_temp_elsewhere(mocker):
+    """7a smoke steps: outside CI and macOS the scratch folder goes in the system temp folder."""
     mocker.patch.object(checks.tempfile, "gettempdir", return_value="/sys/temp")
     assert str(checks.smoke_parent({}, "linux")).replace("\\", "/") == "/sys/temp"
 
@@ -96,17 +98,70 @@ def test_ini_problems_accepts_a_saved_manager_setup():
     ("pbkdf2_sha256$1000000$salt$hash", "Plain-Password", "password_hash"),
 ])
 def test_ini_problems_names_each_bad_field(old, new, problem):
+    """FR-SM-4: each wrong or missing saved field is named, so a build failure says what broke."""
     found = checks.ini_problems(GOOD_INI.replace(old, new), NOW)
     assert len(found) == 1 and problem in found[0], found
 
 
-def test_files_holding_finds_the_secret_in_nested_files(tmp_path):
-    """Smoke step 4: the plain admin password must be in no file (logs included)."""
-    (tmp_path / "settings" / "logs").mkdir(parents=True)
-    leak = tmp_path / "settings" / "logs" / "setup-mode.log"
-    leak.write_bytes(b"... Plain-Secret ...")
-    (tmp_path / "settings" / "sethlans.ini").write_bytes(b"password_hash = pbkdf2_sha256$x")
-    assert checks.files_holding(tmp_path, b"Plain-Secret") == [leak]
+def _scratch(tmp_path, token_file_text="TOKEN-1"):
+    """A scratch root with the token file and a log, like the smoke leaves."""
+    token_file = tmp_path / "settings" / "setup" / "setup_token"
+    token_file.parent.mkdir(parents=True)
+    token_file.write_text(token_file_text)
+    (tmp_path / "setup.stderr.log").write_text("started")
+    return token_file
+
+
+def _leaks(tmp_path, token_file):
+    return checks.leak_problems(tmp_path, token_file, password="PASS-1", session="SESS-1", token="TOKEN-1")
+
+
+def test_leak_problems_accept_the_token_in_its_own_file_only(tmp_path):
+    """Security L3: the setup token may be in settings/setup/setup_token, nothing else anywhere."""
+    assert _leaks(tmp_path, _scratch(tmp_path)) == []
+
+
+@pytest.mark.parametrize("text, name", [
+    ("... PASS-1 ...", "admin password"),
+    ("cookie SESS-1", "session token"),
+    ("token TOKEN-1", "setup token"),
+])
+def test_leak_problems_name_each_secret_found_in_a_log(tmp_path, text, name):
+    """Security L3: the admin password, the session token and a stray setup token are each a failure."""
+    token_file = _scratch(tmp_path)
+    log = tmp_path / "tmp" / "worker.log"
+    log.parent.mkdir()
+    log.write_text(text)
+    found = _leaks(tmp_path, token_file)
+    assert found == [f"the plain {name} is in {log}"]
+
+
+def test_leak_problems_count_an_unreadable_file_as_a_failure(tmp_path, mocker):
+    """Security L3: a file the scan cannot read is never counted as clean."""
+    token_file = _scratch(tmp_path)
+    real = pathlib.Path.read_bytes
+    blocked = tmp_path / "setup.stderr.log"
+
+    def read_bytes(path):
+        if path == blocked:
+            raise PermissionError(13, "denied", str(path))
+        return real(path)
+
+    mocker.patch.object(pathlib.Path, "read_bytes", read_bytes)
+    assert _leaks(tmp_path, token_file) == [f"could not scan {blocked}"]
+
+
+def test_leak_problems_count_an_unreadable_folder_as_a_failure(tmp_path, mocker):
+    """Security L3: a folder the scan cannot list is never counted as clean."""
+    token_file = _scratch(tmp_path)
+    real_walk = checks.os.walk
+
+    def walk(top, onerror=None):
+        onerror(PermissionError(13, "denied", str(tmp_path / "locked")))
+        yield from real_walk(top, onerror=onerror)
+
+    mocker.patch.object(checks.os, "walk", walk)
+    assert _leaks(tmp_path, token_file) == [f"could not scan {tmp_path / 'locked'}"]
 
 
 @pytest.mark.parametrize("answer", [GOOD_CARDS, {**GOOD_CARDS, "cards": []}, {
@@ -127,6 +182,7 @@ def test_cards_problems_accepts_the_documented_shape(answer):
     (_line({**GOOD_CARDS, "enrollment": {"enrolled": True}}), "enrollment keys"),
 ])
 def test_cards_problems_names_a_broken_answer(stdout, problem):
+    """FR-WK-1: a second line, non-JSON, a missing key or a wrong type each breaks the contract."""
     found = checks.cards_problems(stdout)
     assert problem in " ".join(found), found
 

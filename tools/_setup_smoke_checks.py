@@ -13,6 +13,7 @@ from __future__ import annotations
 import configparser
 import datetime
 import json
+import os
 import pathlib
 import tempfile
 from typing import Mapping, Optional
@@ -144,16 +145,40 @@ def ini_problems(text: str, now: Optional[datetime.datetime] = None) -> list[str
     return problems
 
 
-def files_holding(root: pathlib.Path, secret: bytes) -> list[pathlib.Path]:
-    """Every file under ``root`` whose bytes contain ``secret``."""
-    hits = []
-    for path in sorted(root.rglob("*")):
-        try:
-            if path.is_file() and secret in path.read_bytes():
-                hits.append(path)
-        except OSError:
-            continue
-    return hits
+def scan_files(root: pathlib.Path, needles: Mapping[str, bytes]):
+    """``({name: [files holding that needle]}, [unreadable paths])`` for every file under ``root``.
+
+    A folder or file that cannot be read is reported, never skipped as clean.
+    """
+    hits: dict[str, list[pathlib.Path]] = {name: [] for name in needles}
+    unreadable: list[str] = []
+    for folder, _dirs, files in os.walk(root, onerror=lambda exc: unreadable.append(str(exc.filename))):
+        for name in sorted(files):
+            path = pathlib.Path(folder) / name
+            try:
+                data = path.read_bytes()
+            except OSError:
+                unreadable.append(str(path))
+                continue
+            for key, needle in needles.items():
+                if needle and needle in data:
+                    hits[key].append(path)
+    return hits, unreadable
+
+
+def leak_problems(root: pathlib.Path, token_file: pathlib.Path, *, password: str,
+                  session: str, token: str) -> list[str]:
+    """Smoke step 4: the admin password and the session token are in no file
+    under ``root``, and the setup token only in its own ``token_file``."""
+    needles = {"admin password": password.encode("utf-8"), "session token": session.encode("utf-8"),
+               "setup token": token.encode("utf-8")}
+    hits, unreadable = scan_files(root, needles)
+    hits["setup token"] = [path for path in hits["setup token"] if path != token_file]
+    problems = [f"the plain {name} is in " + ", ".join(map(str, paths))
+                for name, paths in hits.items() if paths]
+    if unreadable:
+        problems.append("could not scan " + ", ".join(unreadable))
+    return problems
 
 
 def _typed_problems(where: str, value: object, spec: Mapping[str, tuple]) -> list[str]:

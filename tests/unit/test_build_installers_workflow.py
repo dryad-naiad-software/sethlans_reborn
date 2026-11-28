@@ -122,6 +122,7 @@ class TestMacosSmokeLayout:
         assert '"${SMOKE_BIN}/manager/run_manager" &' in run
 
     def test_setup_smoke_runs_from_app_resources_bin(self, macos_steps):
+        """#236: the setup smoke runs the components installed from the DMG."""
         run = _step(macos_steps, SETUP_SMOKE_STEP)["run"]
         assert 'tools/setup_smoke.py --bin-root "${SMOKE_BIN}"' in run
 
@@ -131,11 +132,13 @@ class TestSetupSmokeSteps:
 
     @pytest.mark.parametrize("job", BUILD_JOBS)
     def test_each_job_runs_the_setup_smoke_with_a_step_timeout(self, workflow, job):
+        """Chunk 7a smoke steps: every OS runs setup_smoke.py, bounded by a 3-minute step timeout."""
         step = _step(workflow["jobs"][job]["steps"], SETUP_SMOKE_STEP)
         assert "python tools/setup_smoke.py --bin-root " in step["run"]
         assert step["timeout-minutes"] == 3
 
     def test_no_wizard_left_in_the_workflow(self, workflow):
+        """Chunk 7a: wizard.spec and its requirements are gone, so a wizard build or smoke step fails CI."""
         text = WORKFLOW.read_text(encoding="utf-8").lower()
         assert "wizard" not in text, (
             "build-installers.yml still builds, installs or smokes the old wizard"
