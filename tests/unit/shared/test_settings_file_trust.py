@@ -200,21 +200,3 @@ class TestReadRetry:
 
     def test_missing_file_is_still_empty(self, ini):
         assert settings_file.read_settings(ini).sections() == []
-
-
-class TestWizardSetupKeys:
-
-    def test_removes_only_wizard_keys(self, ini):
-        write_settings(ini, "[setup]\ntoken = t\nsession_id = s\nversion = 1\nmode = worker\n")
-        assert settings_file.remove_setup_wizard_keys(ini) is True
-        assert dict(settings_file.read_settings(ini)["setup"]) == {"version": "1", "mode": "worker"}
-        assert settings_file.remove_setup_wizard_keys(ini) is False
-
-    def test_drops_section_left_empty(self, ini):
-        write_settings(ini, "[setup]\ntoken = t\n[server]\nport = 1\n")
-        assert settings_file.remove_setup_wizard_keys(ini) is True
-        assert settings_file.read_settings(ini).sections() == ["server"]
-
-    def test_missing_file_stays_missing(self, ini):
-        assert settings_file.remove_setup_wizard_keys(ini) is False
-        assert not ini.parent.exists()

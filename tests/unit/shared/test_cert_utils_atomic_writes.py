@@ -4,11 +4,10 @@
 
 """Atomic-write tests for ``shared/cert_utils.py``.
 
-Spec 2 introduced a short-lived ``apply_pending_setup`` subprocess
-that calls ``setup_certificates`` via
-``prime_runtime_state_for_auto_enroll``. A SIGKILL between the key
-write and the cert write previously left a partial pair on disk that
-the next apply attempt could not recover from. The atomic helper
+A process killed between the key write and the cert write used to
+leave a partial pair on disk that the next start could not recover
+from (first seen with the old setup wizard's short-lived apply
+subprocess). The atomic helper
 writes via tempfile + fsync + ``os.replace`` so a crash mid-write
 leaves the target either fully present or fully absent. These tests
 cover the helper itself and the wiring that makes

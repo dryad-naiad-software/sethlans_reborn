@@ -35,11 +35,10 @@ MANAGEMENT_ARGVS = [
     ['manage.py', 'migrate', '--noinput'],
     ['manage.py', 'check'],
     ['manage.py', 'collectstatic', '--noinput'],
-    ['manage', 'apply_pending_setup', '--data-dir', 'x'],
     ['run_manager.py', '--manage', 'migrate'],
     ['run_manager.py'],
 ]
-MANAGEMENT_IDS = ['spectacular', 'migrate', 'check', 'collectstatic', 'apply_pending_setup', 'frozen-manage',
+MANAGEMENT_IDS = ['spectacular', 'migrate', 'check', 'collectstatic', 'frozen-manage',
                   'run-manager-before-launch']
 
 

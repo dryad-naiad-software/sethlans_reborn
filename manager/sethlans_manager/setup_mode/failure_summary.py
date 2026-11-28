@@ -13,6 +13,10 @@ shows it. It shows a fixed phrase chosen by the reason's known prefix
 nothing but fixed text and a number. Anything else gets
 :data:`OTHER_PHRASE`. Every phrase ends with :data:`SEE_WHY`.
 
+Every worker reason the launcher writes starts with ``The worker``, so
+only the manager's own reasons can reach :data:`OTHER_PHRASE`; that is
+why it names the manager.
+
 The full reason stays on the session-gated ``/api/setup/form/``.
 """
 import re
@@ -29,9 +33,13 @@ PREFIX_PHRASES = (
     ("The data folder cannot be used", "The data folder cannot be used."),
     ("Django setup failed", COULD_NOT_START),
     ("TLS certificate error", COULD_NOT_START),
+    # Worker mode: "did not answer within N s", "could not start: <error>", and
+    # "stopped with exit code N" with more text after it.
+    ("The worker", "The worker did not start."),
 )
-# The programs whose start the launcher records in last_failure (the manager only).
-KNOWN_PROGRAMS = ("The manager",)
+# The programs whose start the launcher records in last_failure: the manager,
+# and the worker in worker mode (``failure_reason(None, code, "The worker")``).
+KNOWN_PROGRAMS = ("The manager", "The worker")
 _EXIT_CODE = re.compile(
     r"(?:%s) stopped with exit code -?[0-9]+" % "|".join(re.escape(name) for name in KNOWN_PROGRAMS),
     re.ASCII,

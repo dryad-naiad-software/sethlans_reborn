@@ -45,9 +45,10 @@ class TestDispatchManageModeExplicitArgv:
         assert excinfo.value.code == 0
         exec_mock.assert_called_once_with(["manage", "migrate", "--noinput"])
 
-    def test_apply_pending_setup_data_dir_preserved_verbatim(self, mocker):
-        """The --data-dir path must arrive at execute_from_command_line
-        exactly as supplied — no normalization, no stripping.
+    def test_subcommand_args_preserved_verbatim(self, mocker):
+        """An argument with spaces and backslashes must arrive at
+        execute_from_command_line exactly as supplied — no normalization,
+        no stripping.
 
         FR-MGMT1 item 1: everything after --manage is passed through verbatim.
         """
@@ -59,8 +60,8 @@ class TestDispatchManageModeExplicitArgv:
 
         data_path = r"C:\Users\test user\AppData\Local\Sethlans\manager"
         argv = [
-            "run_manager", "--manage", "apply_pending_setup",
-            "--data-dir", data_path,
+            "run_manager", "--manage", "migrate",
+            "--database", data_path,
         ]
 
         with pytest.raises(SystemExit) as excinfo:
@@ -68,7 +69,7 @@ class TestDispatchManageModeExplicitArgv:
 
         assert excinfo.value.code == 0
         exec_mock.assert_called_once_with(
-            ["manage", "apply_pending_setup", "--data-dir", data_path],
+            ["manage", "migrate", "--database", data_path],
         )
 
 
@@ -117,7 +118,7 @@ class TestManageAndDevMutuallyExclusive:
         self, mocker,
     ):
         """A literal "--dev" arg appearing AFTER --manage (e.g. as a
-        --data-dir value) must NOT false-positive the top-level mutex.
+        --database value) must NOT false-positive the top-level mutex.
         Only top-level --dev (before --manage) should be rejected.
         """
         mocker.patch.object(manage_dispatch, "setup_django_for_management")
@@ -127,8 +128,8 @@ class TestManageAndDevMutuallyExclusive:
         )
 
         argv = [
-            "run_manager", "--manage", "apply_pending_setup",
-            "--data-dir", "--dev",
+            "run_manager", "--manage", "migrate",
+            "--database", "--dev",
         ]
 
         with pytest.raises(SystemExit) as excinfo:
@@ -137,7 +138,7 @@ class TestManageAndDevMutuallyExclusive:
         # Success path — Django got the args verbatim, no mutex error.
         assert excinfo.value.code == 0
         exec_mock.assert_called_once_with(
-            ["manage", "apply_pending_setup", "--data-dir", "--dev"],
+            ["manage", "migrate", "--database", "--dev"],
         )
 
 

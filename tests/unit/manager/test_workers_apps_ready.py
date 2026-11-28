@@ -64,8 +64,7 @@ class TestReadyReleaseFetch:
         ['manage.py', 'makemigrations', '--check'],
         ['manage.py', 'check'],
         ['manage.py', 'collectstatic', '--noinput'],
-        ['manage', 'apply_pending_setup', '--data-dir', 'x'],
-    ], ids=['spectacular', 'migrate', 'makemigrations', 'check', 'collectstatic', 'apply_pending_setup'])
+    ], ids=['spectacular', 'migrate', 'makemigrations', 'check', 'collectstatic'])
     def test_management_command_does_not_fetch(self, monkeypatch, argv):
         """#292 reproduction: these commands used to start the fetch."""
         monkeypatch.setattr(sys, 'argv', argv)

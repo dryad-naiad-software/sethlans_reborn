@@ -110,8 +110,8 @@ def _atomic_write_bytes(path, data, posix_mode=None):
     and the exception re-raised, leaving the previous *path* (if any)
     untouched.
 
-    Mirrors the pattern used in ``manager/workers/services/sentinel.py``
-    and ``manager/workers/services/filesystem_trust.py``.
+    Mirrors the pattern used in
+    ``manager/workers/services/filesystem_trust.py``.
     """
     path = Path(path)
     parent = path.parent

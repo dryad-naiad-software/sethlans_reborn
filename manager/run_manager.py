@@ -85,7 +85,6 @@ from sethlans_manager.cert_utils import (  # noqa: E402
 )
 from sethlans_manager.runtime_init import (  # noqa: E402
     get_enrollment_config,
-    cleanup_stale_setup_section,
     initialize_runtime_state,
 )
 from sethlans_manager.tls_setup import (  # noqa: E402
@@ -156,7 +155,6 @@ def _prepare_runtime(cert, host, port):
         from sethlans_manager.logging_config import configure as _cfg
         _cfg()
     enrollment_cfg = get_enrollment_config(get_config_file_path())
-    cleanup_stale_setup_section(get_config_file_path())
     initialize_runtime_state(cert, enrollment_cfg, host, port)
 
 

@@ -18,8 +18,8 @@ the same processes that start the Blender series fetch (issue #292,
   process that serves (the autoreloader's child, or ``--noreload``).
 
 Management commands (``migrate``, ``spectacular``, ``check``,
-``collectstatic``, ``apply_pending_setup``, the frozen ``--manage``
-path), the autoreloader's parent and the test runner never start it.
+``collectstatic``, the frozen ``--manage`` path), the autoreloader's
+parent and the test runner never start it.
 Nothing in those processes reads the FFmpeg status: its readers are the
 FFmpeg status endpoint, the video settings validation and the video
 builds, which all run in the serving process.

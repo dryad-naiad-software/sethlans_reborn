@@ -80,8 +80,8 @@ SECTION_TLS = "tls"
 SECTION_FIRST_ADMIN = "first_admin"
 SECTION_LAUNCHER = "launcher"
 
-# The wizard-era keys of ``[setup]``. The same section also carries the
-# setup-finished keys, which a normal start must never drop.
+# The old wizard's keys of ``[setup]``; setup mode drops them when it
+# writes the setup-finished keys of the same section (setup_mode/plan.py).
 SETUP_WIZARD_KEYS = ("token", "session_id")
 
 
@@ -236,27 +236,6 @@ def remove_key(section: str, key: str, path=None) -> bool:
 def remove_section(section: str, path=None) -> bool:
     """Remove ``[section]``; True when it was there. A missing file is left missing."""
     return _remove(lambda parser: parser.remove_section(section), path)
-
-
-def remove_setup_wizard_keys(path=None) -> bool:
-    """Drop :data:`SETUP_WIZARD_KEYS` from ``[setup]``; keep the rest.
-
-    The section itself goes only when nothing else is left in it, so the
-    setup-finished keys survive. A missing file is left missing. Returns
-    True when the file changed.
-    """
-    def mutate(parser: configparser.RawConfigParser) -> bool:
-        if not parser.has_section(SECTION_SETUP):
-            return False
-        changed = False
-        for key in SETUP_WIZARD_KEYS:
-            changed = parser.remove_option(SECTION_SETUP, key) or changed
-        if not parser.options(SECTION_SETUP):
-            parser.remove_section(SECTION_SETUP)
-            changed = True
-        return changed
-
-    return _remove(mutate, path)
 
 
 def setup_finished(path=None) -> Optional[str]:

@@ -18,8 +18,7 @@ overrides.
   and spawns `wizard/run_wizard.py`. Output prefixed `[wizard]`.
 - `dev_manager.py` — runs the Django manager. Provisions a clean
   `<dev-data>/manager/` data dir, generates a self-signed cert, and
-  forwards `--port` / `--seed-pending` to the manager. Output prefixed
-  `[manager]`.
+  forwards `--port` to the manager. Output prefixed `[manager]`.
 - `dev_launcher.py` — runs the full launcher (wizard + manager + worker
   + tray). Generates a tray IPC secret and exports it as
   `SETHLANS_TRAY_IPC_SECRET`. Output prefixed `[launcher]`.
@@ -70,7 +69,6 @@ temp/dev-data/
   worker/
     config.json    # written by worker on first start
   launcher/        # reserved (launcher writes log files here)
-  pending_setup.json   # seeded by `dev_manager.py --seed-pending`
 ```
 
 The worker's `config.ini` lives in the source tree
