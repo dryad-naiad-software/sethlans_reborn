@@ -11,12 +11,9 @@ the canonical ``worker`` / ``manager+worker`` forms) the same way.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from shared import topology as topo
-from shared.tray.topology import read_topology
 from wizard.sethlans_wizard.handlers.topology import VALID_TOPOLOGIES
 
 
@@ -73,14 +70,3 @@ class TestNoFailOpenHelper:
         """The fail-open ``resolve_topology`` helper was removed; each caller
         decides how to fail on an unknown topology."""
         assert not hasattr(topo, "resolve_topology")
-
-
-class TestTrayReadsWizardSpelling:
-    """The tray shares the alias map, so ``worker_only`` is a worker
-    install (it used to fall through to the manager+worker default)."""
-
-    def test_worker_only_is_worker_for_tray(self, tmp_path):
-        (tmp_path / "topology.json").write_text(
-            json.dumps({"topology": "worker_only"}), encoding="utf-8",
-        )
-        assert read_topology(tmp_path) == topo.TOPOLOGY_WORKER

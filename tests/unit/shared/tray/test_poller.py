@@ -23,9 +23,7 @@ from PySide6.QtTest import QSignalSpy  # noqa: E402
 
 from shared.tray.poller import ManagerSnapshot  # noqa: E402
 
-from tests.unit.shared.tray.conftest import (  # noqa: E402
-    notification_msgs, setup_msgs, snapshots, state_changes,
-)
+from tests.unit.shared.tray.conftest import snapshots  # noqa: E402
 
 
 # Snapshot dataclass semantics (mirror test_poller_snapshot.py).
@@ -64,7 +62,6 @@ class TestHappyPath:
         }
         p, _stop, _flag = poller_factory(script=[payload])
         snap_spy = QSignalSpy(p.snapshot_changed)
-        state_spy = QSignalSpy(p.state_changed)
         p._tick()
         assert snap_spy.count() == 1
         emitted = snapshots(snap_spy)[0]
@@ -73,16 +70,6 @@ class TestHappyPath:
         assert emitted.workers_online == 3
         assert emitted.jobs_queued == 12
         assert emitted.version == "0.1.0"
-        assert state_changes(state_spy) == [("starting", "running")]
-
-    def test_first_tick_fires_running_notification(self, poller_factory):
-        payload = {"boot_id": "b1", "version": "x"}
-        p, _stop, _flag = poller_factory(script=[payload])
-        notif_spy = QSignalSpy(p.notification)
-        p._tick()
-        msgs = notification_msgs(notif_spy)
-        assert len(msgs) == 1
-        assert "running" in msgs[0].lower()
 
     def test_snapshot_property_updates(self, poller_factory):
         payload = {
@@ -114,59 +101,26 @@ class TestFailureThreshold:
         )
         p._tick()  # running
         snap_spy = QSignalSpy(p.snapshot_changed)
-        state_spy = QSignalSpy(p.state_changed)
         p._tick()  # fail 1
         p._tick()  # fail 2
         assert p.snapshot.state == "running"
         assert snap_spy.count() == 0
-        assert state_spy.count() == 0
         p._tick()  # fail 3 -> error
         assert p.snapshot.state == "error"
         assert snap_spy.count() == 1
-        assert state_changes(state_spy) == [("running", "error")]
 
-    def test_error_notification_fires_on_edge_only(self, poller_factory):
+    def test_further_failures_emit_nothing_new(self, poller_factory):
+        """Edge-triggered: staying in error sends no new snapshot."""
         p, _stop, _flag = poller_factory(
-            script=[
-                {"boot_id": "b1"},
-                *([RuntimeError("e")] * 5),
-            ],
+            script=[{"boot_id": "b1"}, *([RuntimeError("e")] * 5)],
         )
-        notif_spy = QSignalSpy(p.notification)
-        state_spy = QSignalSpy(p.state_changed)
         p._tick()  # running
         for _ in range(3):
             p._tick()
-        assert state_spy.count() == 2
-        msgs = notification_msgs(notif_spy)
-        assert any("running" in m.lower() for m in msgs)
-        assert any("error state" in m.lower() for m in msgs)
-        pre_state = state_spy.count()
-        pre_notif = notif_spy.count()
+        snap_spy = QSignalSpy(p.snapshot_changed)
         p._tick()
         p._tick()
-        assert state_spy.count() == pre_state
-        assert notif_spy.count() == pre_notif
-
-    def test_error_to_running_recovery_notification(
-        self, poller_factory,
-    ):
-        p, _stop, _flag = poller_factory(
-            script=[
-                {"boot_id": "b1"},
-                RuntimeError("e"), RuntimeError("e"), RuntimeError("e"),
-                {"boot_id": "b1"},
-            ],
-        )
-        p._tick()
-        for _ in range(3):
-            p._tick()
-        assert p.snapshot.state == "error"
-        notif_spy = QSignalSpy(p.notification)
-        p._tick()
-        assert p.snapshot.state == "running"
-        msgs = notification_msgs(notif_spy)
-        assert any("recovered" in m.lower() for m in msgs)
+        assert snap_spy.count() == 0
 
 
 # Boot id change (FR-17).
@@ -177,11 +131,9 @@ class TestBootIdTransitions:
             script=[{"boot_id": "b1"}, {"boot_id": "b2"}],
         )
         p._tick()
-        state_spy = QSignalSpy(p.state_changed)
+        snap_spy = QSignalSpy(p.snapshot_changed)
         p._tick()
-        seq = state_changes(state_spy)
-        assert ("running", "starting") in seq
-        assert ("starting", "running") in seq
+        assert [snap.state for snap in snapshots(snap_spy)] == ["starting", "running"]
 
 
 # No setup state in the poller (issue #304).
@@ -192,43 +144,20 @@ class TestNoSetupState:
         assert "setup_mode" not in names
 
     def test_stale_setup_mode_key_is_ignored(self, poller_factory):
-        """A reply still carrying ``setup_mode`` (an older manager) sends
-        no setup-complete notification on a True -> False change."""
+        """A reply still carrying ``setup_mode`` (an older manager) is
+        read as a plain status; no setup state is kept."""
         p, _stop, _flag = poller_factory(
             script=[
                 {"boot_id": "old", "setup_mode": True},
                 {"boot_id": "old", "setup_mode": False},
             ],
         )
-        notif_spy = QSignalSpy(p.notification)
         p._tick()
         p._tick()
-        assert setup_msgs(notif_spy) == []
+        assert p.snapshot.state == "running"
         assert not hasattr(p.snapshot, "setup_mode")
         assert not hasattr(p, "_setup_notified")
         assert not hasattr(p, "_maybe_notify_setup_complete")
-
-
-# Notification edges — all three mapped edges in one sequence.
-class TestNotificationEdges:
-
-    def test_running_to_error_to_running_sequence(self, poller_factory):
-        p, _stop, _flag = poller_factory(
-            script=[
-                {"boot_id": "b1"},
-                RuntimeError("e"), RuntimeError("e"), RuntimeError("e"),
-                {"boot_id": "b1"},
-            ],
-        )
-        notif_spy = QSignalSpy(p.notification)
-        p._tick()
-        for _ in range(3):
-            p._tick()
-        p._tick()
-        lowered = [m.lower() for m in notification_msgs(notif_spy)]
-        assert any("manager is running" in m for m in lowered)
-        assert any("error state" in m for m in lowered)
-        assert any("recovered" in m for m in lowered)
 
 
 # Quit flag (FR-17a).

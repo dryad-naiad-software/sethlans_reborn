@@ -143,13 +143,6 @@ class TestNoSecretInErrors:
         assert SECRET not in str(info.value)
         assert "UnicodeDecodeError at byte" in str(info.value)
 
-    def test_tray_token_reader_logs_no_secret(self, ini, caplog):
-        from shared.tray import menu_manager_helpers
-        write_settings(ini, f"token = {SECRET}\n")
-        with caplog.at_level(logging.DEBUG):
-            assert menu_manager_helpers.read_token(ini) == ""
-        assert all(SECRET not in rec.getMessage() for rec in caplog.records)
-
 
 class TestLockTimeout:
 

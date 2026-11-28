@@ -4,11 +4,15 @@
 
 """File-based IPC from the tray to the launcher.
 
-The tray writes one of two marker files to ``<data_dir>``:
+The tray writes one of three marker files to ``<data_dir>`` (the
+settings folder):
 
 * ``.restart_requested`` — launcher restarts the manager.
 * ``.quit_requested`` — launcher terminates the manager only, or the
   entire application (target = ``"manager"`` or ``"all"``).
+* ``.reset_requested`` — Reset setup (FR-RS-1), target ``"all"`` only.
+  The launcher acts on it in ``RUNNING`` and ``FAILED`` only, and drops
+  one made before it entered that state or more than 30 s old.
 
 Each marker is written atomically via a tempfile in the same directory
 followed by ``os.replace`` (cross-platform atomic rename).  The payload
@@ -35,10 +39,16 @@ ENV_SECRET = "SETHLANS_TRAY_IPC_SECRET"
 
 MARKER_RESTART = ".restart_requested"
 MARKER_QUIT = ".quit_requested"
+MARKER_RESET = ".reset_requested"
 
-_VALID_TARGETS = frozenset({"manager", "all"})
-# Marker file name -> the ``action`` the launcher expects in its payload.
-_ACTIONS = {MARKER_RESTART: "restart", MARKER_QUIT: "quit"}
+# Marker file name -> the ``action`` the launcher expects in its payload,
+# and the targets ``launcher.tray_ipc`` accepts for it.
+_ACTIONS = {MARKER_RESTART: "restart", MARKER_QUIT: "quit", MARKER_RESET: "reset"}
+_TARGETS = {
+    MARKER_RESTART: frozenset({"manager", "all"}),
+    MARKER_QUIT: frozenset({"manager", "all"}),
+    MARKER_RESET: frozenset({"all"}),
+}
 
 
 def marker_exists(data_dir: Path, name: str) -> bool:
@@ -58,10 +68,10 @@ def _get_secret() -> str:
 
 def _write_marker(data_dir: Path, name: str, target: str) -> Path:
     """Atomically write a marker file with the canonical envelope."""
-    if target not in _VALID_TARGETS:
+    if target not in _TARGETS[name]:
         raise ValueError(
             f"Invalid IPC target {target!r}; must be one of "
-            f"{sorted(_VALID_TARGETS)}",
+            f"{sorted(_TARGETS[name])}",
         )
     data_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -109,3 +119,9 @@ def request_quit(data_dir: Path, target: str = "all") -> Path:
     ``"all"`` (Quit Sethlans menu item).
     """
     return _write_marker(data_dir, MARKER_QUIT, target)
+
+
+def request_reset(data_dir: Path) -> Path:
+    """Write ``.reset_requested`` (action ``reset``, target ``all``, a fresh
+    ``requested_at``): Reset setup, after the person confirmed it."""
+    return _write_marker(data_dir, MARKER_RESET, "all")

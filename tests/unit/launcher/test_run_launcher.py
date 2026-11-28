@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 
@@ -47,6 +48,8 @@ def boot(mocker, monkeypatch, settings_dir):
     def popen(cmd, **kwargs):
         m.seen_env.update(os.environ)
         m.tray_env = kwargs["env"]
+        state_file = settings_dir / "setup" / "launcher_state.json"
+        m.state_at_tray_start = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else None
         return _LiveTray()
 
     m.popen = mocker.patch("launcher.components.subprocess.Popen", side_effect=popen)
@@ -98,3 +101,13 @@ def test_already_running_starts_nothing(boot, capsys):
     assert run_launcher.main(["--no-browser"]) == 0
     assert "already running" in capsys.readouterr().err
     boot.popen.assert_not_called()
+
+
+def test_tray_starts_with_a_fresh_starting_state(boot, settings_dir):
+    """6c review F1: a STOPPING (or, after a crash, RUNNING) state left by the last run
+    is replaced by STARTING before the tray starts, so the tray never shows it."""
+    (settings_dir / "setup").mkdir(parents=True)
+    (settings_dir / "setup" / "launcher_state.json").write_text(
+        json.dumps({"state": "RUNNING", "port": 8080, "reason": None}), encoding="utf-8")
+    assert run_launcher.main(["--no-browser"]) == 0
+    assert boot.state_at_tray_start == {"state": "STARTING", "port": None, "reason": None}

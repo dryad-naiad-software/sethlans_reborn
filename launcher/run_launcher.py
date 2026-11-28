@@ -36,8 +36,9 @@ if not getattr(sys, "frozen", False):
         sys.path.insert(0, project_root)
 
 from launcher import (  # noqa: E402
-    cascade, child_env, components, diagnostics, machine_loop, reset_setup, supervision, tray_ipc,
+    cascade, child_env, components, diagnostics, machine_loop, reset_setup, setup_state, supervision, tray_ipc,
 )
+from launcher import loop_decisions as ld  # noqa: E402
 from launcher.loop_context import LoopContext  # noqa: E402
 from launcher.paths import get_data_dir  # noqa: E402
 from launcher.single_instance import acquire_single_instance_lock, release_lock  # noqa: E402
@@ -109,9 +110,14 @@ def _prepare_data_dir() -> Path:
 
 
 def _pre_orchestration_setup(data_dir: Path):
-    """Signals, stale markers, the tray and the IPC poll thread; return ``(tray, secret)``."""
+    """Signals, stale markers, the tray and the IPC poll thread; return ``(tray, secret)``.
+
+    The tray's state file is set to ``STARTING`` before the tray starts, so it never
+    shows the last run's state (``STOPPING``, or ``RUNNING`` after a crash).
+    """
     supervision.install_signal_handlers()
     tray_ipc.sweep_stale_markers(data_dir)
+    setup_state.write_launcher_state(ld.STARTING)
     secret = tray_ipc.generate_secret()
     tray = _spawn_tray(secret)
     supervision.start_ipc_poll_thread(

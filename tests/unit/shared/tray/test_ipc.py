@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 
@@ -15,9 +16,11 @@ from shared.tray import ipc as ipc_mod
 from shared.tray.ipc import (
     ENV_SECRET,
     MARKER_QUIT,
+    MARKER_RESET,
     MARKER_RESTART,
     marker_exists,
     request_quit,
+    request_reset,
     request_restart,
 )
 
@@ -68,6 +71,22 @@ class TestRequestQuit:
     def test_rejects_empty_target(self, tmp_path):
         with pytest.raises(ValueError):
             request_quit(tmp_path, target="")
+
+
+class TestRequestReset:
+
+    def test_reset_marker_has_the_envelope_the_launcher_validates(self, tmp_path):
+        """FR-RS-1 / 6c: ``.reset_requested`` carries action ``reset``,
+        target ``all`` and a fresh ``requested_at`` (launcher.tray_ipc
+        refuses a reset more than 30 s off)."""
+        before = _dt.datetime.now(_dt.timezone.utc)
+        path = request_reset(tmp_path)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert path == tmp_path / MARKER_RESET
+        assert (payload["action"], payload["target"], payload["secret"], payload["pid"]) == (
+            "reset", "all", _SECRET, os.getpid())
+        requested = _dt.datetime.fromisoformat(payload["requested_at"])
+        assert before <= requested <= _dt.datetime.now(_dt.timezone.utc)
 
 
 class TestAtomicWrite:
