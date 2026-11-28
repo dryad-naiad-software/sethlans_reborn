@@ -38,8 +38,9 @@ export function restartState(health: SetupHealth | null, oldBootId: string): Res
   if (health.mode === 'normal') {
     return { kind: 'done' };
   }
+  // A fixed summary that already says what failed (#348); the page shows it as it is.
   const reason = health.last_failure
-    || 'Setup mode started again without a reason; check the launcher\'s log.';
+    || 'The manager did not start, and setup mode gave no reason; check the launcher\'s log.';
   return { kind: 'setup_again', reason };
 }
 

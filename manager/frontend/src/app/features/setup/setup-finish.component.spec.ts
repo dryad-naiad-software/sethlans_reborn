@@ -76,16 +76,17 @@ describe('SetupFinishComponent', () => {
     expect(assign).toHaveBeenCalledOnceWith('/login/');
   }));
 
-  /** FR-WZ-8: setup mode back after a failed first start hands its reason to the page. */
-  it('reports setup mode coming back with its reason', fakeAsync(() => {
-    api.health.and.returnValue(of({ mode: 'setup', boot_id: 'new-boot', last_failure: 'Port in use.' }));
+  /** FR-WZ-8, #348: setup mode back after a failed first start hands its summary on exactly. */
+  it('#348 reports setup mode coming back with its health summary, unchanged', fakeAsync(() => {
+    const summary = "The manager's first start failed. Enter the setup token to see why.";
+    api.health.and.returnValue(of({ mode: 'setup', boot_id: 'new-boot', last_failure: summary }));
     const again = jasmine.createSpy('setupAgain');
     fixture.componentInstance.setupAgain.subscribe(again);
     start(finishInfo());
 
     tick(1000);
 
-    expect(again).toHaveBeenCalledOnceWith('Port in use.');
+    expect(again).toHaveBeenCalledOnceWith(summary);
     expect(assign).not.toHaveBeenCalled();
   }));
 

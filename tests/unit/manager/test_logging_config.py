@@ -90,6 +90,37 @@ def test_logs_dir_created(tmp_path, monkeypatch):
         importlib.reload(logging_config)
 
 
+@pytest.mark.parametrize("value, expected", [
+    (None, 'DEBUG'), ('WARNING', 'WARNING'), (' warning ', 'WARNING'), ('ERROR', 'ERROR'),
+    ('LOUD', 'DEBUG'), ('', 'DEBUG'), ('30', 'DEBUG'),
+], ids=['unset', 'warning', 'warning-any-case', 'error', 'invalid', 'empty', 'number'])
+def test_console_log_level(value, expected):
+    """The launcher caps the manager's console log (its start-up log file) with
+    SETHLANS_CONSOLE_LOG_LEVEL; unset or invalid keeps DEBUG and never raises."""
+    assert logging_config.console_log_level(value) == expected
+
+
+@pytest.mark.parametrize("value, console", [(None, 'DEBUG'), ('WARNING', 'WARNING'), ('nonsense', 'DEBUG')],
+                         ids=['default', 'warning', 'invalid'])
+def test_console_level_env_changes_only_the_console_handler(monkeypatch, value, console):
+    """SETHLANS_CONSOLE_LOG_LEVEL sets the console handler; the file handler and
+    the DJANGO_LOG_LEVEL loggers stay as they were."""
+    try:
+        with monkeypatch.context() as env:  # undone before the restoring reload
+            env.setenv('DJANGO_LOG_LEVEL', 'INFO')
+            if value is None:
+                env.delenv(logging_config.CONSOLE_LOG_LEVEL_ENV, raising=False)
+            else:
+                env.setenv(logging_config.CONSOLE_LOG_LEVEL_ENV, value)
+            cfg = importlib.reload(logging_config).LOGGING
+        assert cfg['handlers']['console']['level'] == console
+        assert cfg['handlers']['file']['level'] == 'DEBUG'
+        for name in ('', 'workers', 'django', 'django.request'):
+            assert cfg['loggers'][name]['level'] == 'INFO'
+    finally:
+        importlib.reload(logging_config)
+
+
 @pytest.fixture(autouse=True)
 def _restore_root_handlers():
     """Snapshot and restore root-logger handlers around each test.

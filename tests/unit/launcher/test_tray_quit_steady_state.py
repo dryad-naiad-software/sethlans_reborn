@@ -212,10 +212,10 @@ class TestSecondQuitClickTriggersSigkillViaEventPath:
         # consumed by the daemon on a prior tick).
         supervision.get_quit_requested_event().set()
 
-        # Spy on consume_pending_ipc to confirm the daemon helper
+        # Spy on the quit-marker read to confirm the daemon helper
         # bails out before reaching it.
         from launcher import tray_ipc
-        spy = mocker.spy(tray_ipc, "consume_pending_ipc")
+        spy = mocker.spy(tray_ipc, "consume_quit_marker")
 
         supervision._maybe_observe_tray_quit(
             manager_data, secret=secret,

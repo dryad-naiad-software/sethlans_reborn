@@ -9,11 +9,11 @@ ceiling. This module owns:
 
 * The module-level :class:`BroadcasterSupervisor` + Caddy supervisor
   globals that back the signal-handler shutdown path.
-* The IPC poll loop that waits for
-  ``broadcaster_params.json`` and ``setup_restart_request.json``.
+* The IPC poll loop that waits for ``broadcaster_params.json``.
 * The tray-quit poll body that consumes ``.quit_requested`` markers and
   flips the process-wide quit event observed by every wizard-mode wait
-  loop (issue #163).
+  loop (issue #163). It reads the quit marker only: restart and reset
+  markers stay on disk for the main loop (issue #345).
 * Signal wiring for SIGTERM/SIGINT that unwinds both supervisors
   before the existing cascade tears down children.
 
@@ -45,9 +45,21 @@ _quit_requested = threading.Event()
 
 
 def set_caddy_supervisor(supervisor) -> None:
-    """Register the Caddy supervisor for shutdown + IPC-driven restart."""
+    """Register the Caddy supervisor so shutdown stops it."""
     global _caddy_supervisor
     _caddy_supervisor = supervisor
+
+
+def get_caddy_supervisor():
+    """Return the registered Caddy supervisor, or ``None``."""
+    return _caddy_supervisor
+
+
+def take_caddy_supervisor():
+    """Unregister and return the Caddy supervisor (``None`` when none)."""
+    global _caddy_supervisor
+    supervisor, _caddy_supervisor = _caddy_supervisor, None
+    return supervisor
 
 
 def get_shutdown_event() -> threading.Event:
@@ -129,26 +141,22 @@ def start_ipc_poll_thread(
     secret: Optional[str] = None,
     tray_pid_provider: Optional[Callable[[], int]] = None,
 ) -> threading.Thread:
-    """Spawn the broadcaster/restart/tray-quit IPC poll thread.
+    """Spawn the broadcaster/tray-quit IPC poll thread.
 
     The thread polls every :data:`IPC_POLL_INTERVAL_SECONDS` for:
 
     1. ``broadcaster_params.json`` — published by the manager once
        ``runtime_init`` has populated ``runtime_state``. On first
        sighting the launcher starts the broadcaster.
-    2. ``setup_restart_request.json`` — written by the Django setup
-       wizard (under the setup mutation lock) when the wizard's
-       network step changes ports. On sighting, the launcher
-       re-templates the Caddyfile and restarts Caddy, then deletes
-       the request file.
-    3. ``.quit_requested`` (issue #163) — written by the tray helper.
+    2. ``.quit_requested`` (issue #163) — written by the tray helper.
        On a valid marker, sets :func:`get_quit_requested_event` so
        wizard-mode wait loops can abort cleanly. The data dir for the
        tray IPC marker is the launcher's per-user data dir, which is
        ``manager_data.parent``. ``secret`` and ``tray_pid_provider``
        are required for tray-quit consumption; if either is None the
        tray-quit branch is skipped (used by tests that only exercise
-       the broadcaster/restart paths).
+       the broadcaster path). Only the quit marker is read; the
+       restart and reset markers are left for the main loop (#345).
 
     Exits when :func:`get_shutdown_event` is set.
     """
@@ -192,32 +200,10 @@ def _ipc_poll_loop(
                         "will retry"
                     )
 
-        _maybe_apply_caddy_restart_request(manager_data)
         _maybe_observe_tray_quit(manager_data, secret, tray_pid_provider)
 
         if _shutdown_event.wait(IPC_POLL_INTERVAL_SECONDS):
             return
-
-
-def _maybe_apply_caddy_restart_request(manager_data: Path) -> None:
-    """Check the IPC request file and, if present, restart Caddy."""
-    from launcher.caddy_launcher import apply_restart_request
-    from launcher.setup_helpers import (
-        clear_setup_restart_request,
-        read_setup_restart_request,
-    )
-
-    if _caddy_supervisor is None:
-        return
-    req = read_setup_restart_request(manager_data)
-    if req is None:
-        return
-    try:
-        apply_restart_request(_caddy_supervisor, req)
-    except Exception:
-        logger.exception("Failed to apply wizard Caddy restart request")
-    finally:
-        clear_setup_restart_request(manager_data)
 
 
 def _maybe_observe_tray_quit(
@@ -228,9 +214,9 @@ def _maybe_observe_tray_quit(
     """Consume any pending ``.quit_requested`` marker (issue #163).
 
     On a valid quit marker, sets the process-wide quit event so the
-    wizard-mode wait loops can abort cleanly. Restart markers stay
-    routed through the existing main-loop path; we only act on the
-    quit target here.
+    wizard-mode wait loops can abort cleanly. Only the quit marker is
+    read: restart and reset markers stay on disk for the main loop
+    (issue #345: reading them here deleted them unseen).
     """
     if secret is None or tray_pid_provider is None:
         return
@@ -246,7 +232,7 @@ def _maybe_observe_tray_quit(
     data_dir = manager_data.parent
     try:
         from launcher import tray_ipc
-        quit_target, _ = tray_ipc.consume_pending_ipc(
+        quit_target = tray_ipc.consume_quit_marker(
             data_dir, secret, tray_pid,
         )
     except Exception:

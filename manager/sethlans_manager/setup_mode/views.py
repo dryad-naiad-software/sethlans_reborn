@@ -6,7 +6,8 @@ The setup-mode routes (FR-SM-3). Every API answer is JSON, and every
 error body has an ``error`` key (most also a ``message``).
 
 * ``GET`` or ``HEAD /api/health/``: ``{"mode": "setup", "boot_id",
-  "version", "last_failure"}``.
+  "version", "last_failure"}``; no session needed, so ``last_failure`` is
+  a fixed summary, never the reason's text (``failure_summary``, #348).
 * ``POST /api/setup/auth/``: ``{"token"}`` -> 200 ``{"session_token"}`` and
   the session cookie; 403 wrong token; 429 after 10 wrong ones in 60 s.
 * ``GET /api/setup/form/``: the pre-filled form (session needed); it
@@ -37,7 +38,7 @@ from django.views.decorators.debug import sensitive_variables
 
 from shared.settings_file import SettingsFileError, new_parser, read_settings
 
-from sethlans_manager.setup_mode import auth, leftovers, state
+from sethlans_manager.setup_mode import auth, failure_summary, state
 from sethlans_manager.setup_mode.form import build_form
 from sethlans_manager.setup_mode.submit import apply_answers
 from sethlans_manager.setup_mode.validate import Context
@@ -103,7 +104,7 @@ def health(request):
         "mode": "setup",
         "boot_id": BOOT_ID,
         "version": __version__,
-        "last_failure": leftovers.last_failure(),
+        "last_failure": failure_summary.last_failure_summary(),
     })
 
 

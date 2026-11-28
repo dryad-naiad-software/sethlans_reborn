@@ -45,3 +45,15 @@ def _reset_supervision_state():
     yield
     supervision._reset_quit_requested_for_tests()
     supervision.get_shutdown_event().clear()
+
+
+@pytest.fixture
+def settings_dir(monkeypatch, tmp_path):
+    """A per-test settings folder (``SETHLANS_SETTINGS_DIR``) holding ``sethlans.ini``.
+
+    The folder is not created: the code under test creates it owner-only.
+    """
+    folder = tmp_path / "settings"
+    monkeypatch.setenv("SETHLANS_SETTINGS_DIR", str(folder))
+    monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(folder / "sethlans.ini"))
+    return folder

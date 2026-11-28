@@ -128,11 +128,14 @@ export class SetupPageComponent implements OnInit, OnDestroy {
     this.step = 'token';
   }
 
-  /** The first start failed and setup mode is back, with a new process and token. */
+  /**
+   * The first start failed and setup mode is back, with a new process and
+   * token. `reason` is health's fixed summary, shown as it is (#348).
+   */
   setupAgain(reason: string): void {
     this.api.clearSession();
     this.finish = null;
-    this.backToToken(`The manager did not start: ${reason}`);
+    this.backToToken(reason);
   }
 
   reload(): void {
@@ -145,6 +148,7 @@ export class SetupPageComponent implements OnInit, OnDestroy {
       this.step = 'normal';
       return;
     }
-    this.backToToken(health.last_failure ? `The last start failed: ${health.last_failure}` : '');
+    // Health's last_failure is a fixed summary that already says what failed (#348).
+    this.backToToken(health.last_failure ?? '');
   }
 }

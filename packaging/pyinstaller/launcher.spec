@@ -47,6 +47,9 @@ hiddenimports = [
     # Dynamic import in launcher.caddy_launcher._load_manager_renderer;
     # PyInstaller's static analyzer can't see it (issue #100).
     'sethlans_manager.caddy_template',
+    # launcher.caddy_wiring.manager_tls_paths imports it inside a function
+    # so Caddy serves the manager's own TLS folder.
+    'sethlans_manager.tls_setup',
     # Same pattern for the wizard's Caddy renderer (issue #170).
     # launcher.wizard_caddy_wiring._load_wizard_renderer imports it
     # via sys.path manipulation that PyInstaller can't see.

@@ -9,6 +9,11 @@ import { SetupPageComponent } from './setup-page.component';
 import { finishInfo, setupForm } from './setup.fixtures';
 import { SetupFailure, SetupHealth } from './setup.types';
 
+// Health's fixed last_failure summaries (#348), shown exactly as they are.
+const FIRST_START = "The manager's first start failed. Enter the setup token to see why.";
+const DID_NOT_START = 'The manager did not start. Enter the setup token to see why.';
+const EXIT_CODE = 'The manager stopped with exit code 3';
+
 function failure(status: number, message: string): SetupFailure {
   return { status, code: status === 403 ? 'not_authenticated' : 'x', message, fields: {}, codes: {} };
 }
@@ -31,9 +36,12 @@ describe('SetupPageComponent', () => {
   const starts: { why: string; health: SetupHealth | null; step: string; notice: string }[] = [
     { why: 'the manager is running', health: { mode: 'normal', boot_id: 'b' }, step: 'normal', notice: '' },
     { why: 'setup mode', health: { mode: 'setup', boot_id: 'b' }, step: 'token', notice: '' },
-    { why: 'setup mode after a failed start',
-      health: { mode: 'setup', boot_id: 'b', last_failure: 'Port in use.' },
-      step: 'token', notice: 'The last start failed: Port in use.' },
+    { why: '#348 setup mode after a failed start: the summary as it is, no prefix',
+      health: { mode: 'setup', boot_id: 'b', last_failure: FIRST_START }, step: 'token', notice: FIRST_START },
+    { why: '#348 setup mode after an exit code: the summary as it is, no prefix',
+      health: { mode: 'setup', boot_id: 'b', last_failure: EXIT_CODE }, step: 'token', notice: EXIT_CODE },
+    { why: 'setup mode with last_failure null', health: { mode: 'setup', boot_id: 'b', last_failure: null },
+      step: 'token', notice: '' },
     { why: 'no health answer', health: null, step: 'token', notice: '' },
   ];
   for (const c of starts) {
@@ -74,16 +82,16 @@ describe('SetupPageComponent', () => {
     });
   }
 
-  /** FR-WZ-8: setup mode back with a new process: token step with the reason. */
-  it('goes back to the token with the reason when setup mode is back', () => {
+  /** FR-WZ-8, #348: setup mode back with a new process: token step with the summary as it is. */
+  it('#348 goes back to the token with the health summary, not prefixed, when setup mode is back', () => {
     page.finished(finishInfo());
     expect(page.step).toBe('finish');
 
-    page.setupAgain('Port in use.');
+    page.setupAgain(DID_NOT_START);
 
     expect(api.clearSession).toHaveBeenCalled();
     expect(page.step).toBe('token');
     expect(page.finish).toBeNull();
-    expect(page.notice).toBe('The manager did not start: Port in use.');
+    expect(page.notice).toBe(DID_NOT_START);
   });
 });

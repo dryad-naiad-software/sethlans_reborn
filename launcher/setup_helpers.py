@@ -2,27 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Setup-mode helpers for the bootstrap launcher.
+Port constants and port finders for the bootstrap launcher.
 
-Extracted from ``run_launcher.py`` to keep it under the 300-line limit.
-These functions handle port detection, setup token management, atomic
-config writes, and Caddy setup-restart IPC (manager spec Phase 3).
-No Django dependency — stdlib only.
+The setup token lives in ``launcher.setup_state`` and the setup port in
+``launcher.setup_port``. :func:`remove_setup_section` stays only for the
+current loop (``orchestration``, ``restart_orchestrator``) until chunk
+6b removes both. No Django dependency — stdlib only.
 """
 
-import configparser
-import json
-import logging
-import os
-import secrets
 import socket
-import tempfile
 from pathlib import Path
 from typing import Optional
 
 from shared import settings_file
-
-logger = logging.getLogger(__name__)
 
 # Port range for auto-detection.
 MANAGER_PORT = 8080
@@ -43,11 +35,6 @@ CADDY_LOOPBACK_RANGE_END = 8099
 # ``CADDY_LOOPBACK_PORT`` or ``WAITRESS_LOOPBACK_PORT_INTERNAL``.
 WAITRESS_PUBLIC_PORT = 8090
 WAITRESS_PUBLIC_RANGE_END = 8099
-
-# Filename for the Django → launcher IPC used to trigger Caddy
-# restarts after a wizard network-step port change (manager spec
-# Phase 3 setup serialization / IPC protocol).
-SETUP_RESTART_REQUEST_FILENAME = "setup_restart_request.json"
 
 
 def find_available_port(start: int = MANAGER_PORT) -> int:
@@ -114,33 +101,6 @@ def find_available_waitress_public_port(
     return start
 
 
-def generate_setup_token(ini_path: Optional[Path] = None) -> str:
-    """Return the existing setup token, or generate a new one.
-
-    Reuses any existing non-empty ``[setup] token`` value in the
-    settings file (*ini_path*, default
-    :func:`shared.settings_file.settings_path`) so an in-progress wizard
-    session survives launcher restarts. Only generates and writes a new
-    token when the section is missing or the value is empty, under the
-    settings lock. Returns the token.
-    """
-    found: dict = {}
-
-    def _mutate(parser: configparser.RawConfigParser) -> bool:
-        existing = parser.get("setup", "token", fallback="")
-        if existing:
-            found["token"] = existing
-            return False
-        if not parser.has_section("setup"):
-            parser.add_section("setup")
-        found["token"] = secrets.token_urlsafe(32)
-        parser.set("setup", "token", found["token"])
-        return True
-
-    settings_file.update_settings(_mutate, ini_path)
-    return found["token"]
-
-
 def remove_setup_section(ini_path: Optional[Path] = None) -> None:
     """Remove the wizard's ``[setup]`` keys from the settings file.
 
@@ -151,104 +111,3 @@ def remove_setup_section(ini_path: Optional[Path] = None) -> None:
     missing.
     """
     settings_file.remove_setup_wizard_keys(ini_path)
-
-
-def atomic_write_text(path: Path, content: str) -> None:
-    """Atomically write ``content`` to ``path``.
-
-    For non-ini payloads (Caddyfile, setup_restart_request.json; the
-    settings file goes through :mod:`shared.settings_file`). Creates the
-    parent directory if missing. On write failure, best-effort
-    unlinks the tempfile so no ``.tmp`` crumbs leak.
-
-    Note: manager-side Caddyfile writes should prefer the shared
-    helper at :func:`shared.caddy_supervisor.io.atomic_write_text`
-    which has the same semantics; this helper exists so launcher
-    code needn't import from the shared package just for an atomic
-    write (and for the setup_restart_request.json use case which is
-    not Caddyfile-specific).
-    """
-    if content == "":
-        raise ValueError("content must not be empty")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    parent = str(path.parent)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=parent, prefix=".setup_", suffix=".tmp",
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(content)
-            fh.flush()
-            try:
-                os.fsync(fh.fileno())
-            except OSError:
-                pass
-        os.replace(str(tmp_path), str(path))
-    except Exception:
-        try:
-            if tmp_path.exists():
-                tmp_path.unlink()
-        except OSError:
-            pass
-        raise
-
-
-def setup_restart_request_path(manager_data: Path) -> Path:
-    """Return the IPC file path for wizard-triggered Caddy restarts."""
-    return manager_data / SETUP_RESTART_REQUEST_FILENAME
-
-
-def write_setup_restart_request(
-    manager_data: Path, payload: dict,
-) -> None:
-    """Atomically write the Caddy-restart IPC request file.
-
-    Called from the Django side (mutating setup endpoint) while
-    holding ``setup_mutation_lock``. The launcher polls the target
-    path every 250 ms and, on detecting it, triggers a Caddy
-    restart with the new config values. Payload shape is caller-
-    defined; the launcher treats it as opaque state to hand back
-    to the Caddyfile renderer.
-    """
-    target = setup_restart_request_path(manager_data)
-    atomic_write_text(target, json.dumps(payload))
-
-
-def read_setup_restart_request(
-    manager_data: Path,
-) -> Optional[dict]:
-    """Return the pending Caddy-restart request, or ``None``.
-
-    Returns ``None`` if the file is missing or unparseable. Parse
-    failures are logged but do not raise — the launcher's poll loop
-    must tolerate transient write-in-progress states.
-    """
-    target = setup_restart_request_path(manager_data)
-    if not target.exists():
-        return None
-    try:
-        with open(target, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        logger.exception(
-            "Failed to read setup-restart request at %s", target,
-        )
-        return None
-
-
-def clear_setup_restart_request(manager_data: Path) -> None:
-    """Delete the Caddy-restart request file (post-restart cleanup).
-
-    Best-effort: silently tolerates a missing file (another process
-    may have reaped it) but logs other OS errors for diagnosis.
-    """
-    target = setup_restart_request_path(manager_data)
-    try:
-        target.unlink()
-    except FileNotFoundError:
-        return
-    except OSError:
-        logger.exception(
-            "Failed to clear setup-restart request at %s", target,
-        )

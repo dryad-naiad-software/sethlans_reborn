@@ -3,15 +3,20 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
 This machine's names and addresses, and the port-free check (Django-free).
+
+``port_is_free`` is ``shared.port_probe.port_is_free`` (issue #350), the one
+exclusive probe the launcher uses too; it is re-exported here so callers
+(``validate``) and tests keep one name to use and patch.
 """
 import ipaddress
 import logging
-import os
 import socket
 import threading
 from typing import List
 
 import psutil
+
+from shared.port_probe import port_is_free  # noqa: F401 - re-exported for validate and tests
 
 logger = logging.getLogger(__name__)
 
@@ -109,15 +114,3 @@ def is_loopback_host(host: str) -> bool:
         return ipaddress.ip_address(host.strip().strip("[]")).is_loopback
     except ValueError:
         return False
-
-
-def port_is_free(host: str, port: int) -> bool:
-    """True when a TCP listener could bind ``host:port`` now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        if os.name == "nt":
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        try:
-            sock.bind((host, port))
-        except OSError:
-            return False
-    return True

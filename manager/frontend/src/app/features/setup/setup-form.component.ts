@@ -38,7 +38,10 @@ const MODE_LABELS: Record<SetupMode, string> = {
     SetupDataFolderSectionComponent, SetupManagerSectionComponent, SetupWorkerSectionComponent],
   template: `
     @if (form.last_failure) {
-      <p class="setup-error" role="alert">The last start failed: {{ form.last_failure }}</p>
+      <!-- The full reason names what failed itself ("First start failed: ..."), #348. -->
+      <p class="setup-error" role="alert">
+        The last start ended with this error: {{ form.last_failure }}
+      </p>
     }
     @for (line of notices(); track $index) {
       <p class="setup-warning">{{ line }}</p>

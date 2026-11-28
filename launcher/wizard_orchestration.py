@@ -114,7 +114,7 @@ def surface_wizard_url(
     no_browser: bool, print_url: bool,
 ) -> None:
     """Print banner / open browser per FR-L3 + FR-L11 semantics."""
-    print_setup_banner(port, WIZARD_PATH, setup_token, data_dir)
+    print_setup_banner(port, WIZARD_PATH, setup_token, data_dir / "wizard" / "tls" / "cert.pem")
     open_browser(port, no_browser, print_url, WIZARD_PATH, None)
 
 
