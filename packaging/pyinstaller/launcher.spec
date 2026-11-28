@@ -20,7 +20,6 @@ SPEC_DIR = Path(SPECPATH)
 PROJECT_ROOT = SPEC_DIR.parent.parent
 LAUNCHER_DIR = PROJECT_ROOT / 'launcher'
 MANAGER_DIR = PROJECT_ROOT / 'manager'
-WIZARD_DIR = PROJECT_ROOT / 'wizard'
 ICON_WIN = SPEC_DIR.parent / 'windows' / 'sethlans.ico'
 
 # Import the Windows VERSIONINFO helper (issue #109). The spec file
@@ -41,19 +40,12 @@ from version_info import make_version_info  # noqa: E402
 hiddenimports = [
     'launcher.logging_setup',
     'workers.multicast_broadcaster',
-    # Pure-stdlib sentinel writer; launcher.setup_sentinel imports it
-    # lazily to record .setup_complete for worker_only (issue #210).
-    'workers.services.sentinel',
     # Dynamic import in launcher.caddy_launcher._load_manager_renderer;
     # PyInstaller's static analyzer can't see it (issue #100).
     'sethlans_manager.caddy_template',
     # launcher.caddy_wiring.manager_tls_paths imports it inside a function
     # so Caddy serves the manager's own TLS folder.
     'sethlans_manager.tls_setup',
-    # Same pattern for the wizard's Caddy renderer (issue #170).
-    # launcher.wizard_caddy_wiring._load_wizard_renderer imports it
-    # via sys.path manipulation that PyInstaller can't see.
-    'sethlans_wizard.caddy_template',
     # Startup splash (PySide6). The launcher imports PySide6 lazily
     # from launcher.splash_runner when the splash path is enabled;
     # PySide6 ships a PyInstaller hook that usually resolves these
@@ -127,7 +119,7 @@ _BUNDLE_VERSION = _VERSION_SRC.read_text(encoding='utf-8').strip()
 
 a = Analysis(
     [str(LAUNCHER_DIR / 'run_launcher.py')],
-    pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT), str(MANAGER_DIR), str(WIZARD_DIR)],
+    pathex=[str(LAUNCHER_DIR), str(PROJECT_ROOT), str(MANAGER_DIR)],
     binaries=caddy_binaries,
     datas=branding_datas + version_datas,
     hiddenimports=hiddenimports,

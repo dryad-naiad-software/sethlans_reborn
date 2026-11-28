@@ -18,7 +18,6 @@ from launcher.tray_ipc import (
     MARKER_RESET,
     MARKER_RESTART,
     consume_all_markers,
-    consume_pending_ipc,
     generate_secret,
     read_and_validate_marker,
     sweep_stale_markers,
@@ -118,52 +117,6 @@ class TestReadAndValidateMarker:
             tmp_path / "nope", _SECRET, _TRAY_PID,
         )
         assert result is None
-
-
-# ------------------------------------------------------------------
-# consume_pending_ipc (FR-20f collision: quit beats restart)
-# ------------------------------------------------------------------
-
-class TestConsumePendingIpc:
-
-    def test_neither_marker_returns_none_none(self, tmp_path):
-        assert consume_pending_ipc(
-            tmp_path, _SECRET, _TRAY_PID,
-        ) == (None, None)
-
-    def test_restart_only(self, tmp_path):
-        _write_marker_raw(tmp_path / MARKER_RESTART, target="manager")
-        quit_t, restart_t = consume_pending_ipc(
-            tmp_path, _SECRET, _TRAY_PID,
-        )
-        assert quit_t is None
-        assert restart_t == "manager"
-
-    def test_quit_only(self, tmp_path):
-        _write_marker_raw(tmp_path / MARKER_QUIT, target="all")
-        quit_t, restart_t = consume_pending_ipc(
-            tmp_path, _SECRET, _TRAY_PID,
-        )
-        assert quit_t == "all"
-        assert restart_t is None
-
-    def test_both_present_quit_wins_and_restart_deleted(
-        self, tmp_path, caplog,
-    ):
-        import logging
-        _write_marker_raw(tmp_path / MARKER_QUIT, target="manager")
-        _write_marker_raw(tmp_path / MARKER_RESTART, target="manager")
-        with caplog.at_level(logging.WARNING, logger=tray_ipc.logger.name):
-            quit_t, restart_t = consume_pending_ipc(
-                tmp_path, _SECRET, _TRAY_PID,
-            )
-        assert quit_t == "manager"
-        assert restart_t is None
-        # Restart marker should be gone.
-        assert not (tmp_path / MARKER_RESTART).exists()
-        assert any(
-            "quit wins" in rec.message for rec in caplog.records
-        )
 
 
 def _iso(seconds_from_now: float) -> str:
@@ -270,3 +223,25 @@ class TestEmptySecretGuard:
         assert read_and_validate_marker(
             path, proper, _TRAY_PID,
         ) == "all"
+
+
+def test_a_marker_is_claimed_by_one_reader_only(tmp_path):
+    """Concurrency review #3: the poll thread and the loop never both act on one click;
+    the claim leaves nothing behind."""
+    _write_marker_raw(tmp_path / MARKER_QUIT, target="all")
+    assert tray_ipc._claim(tmp_path / MARKER_QUIT) is not None
+    assert read_and_validate_marker(tmp_path / MARKER_QUIT, _SECRET, _TRAY_PID) is None
+    sweep_stale_markers(tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_requests_made_before_the_state_began_are_dropped(tmp_path):
+    """Security review L5: a Reset or Restart clicked before RUNNING (or FAILED) began does
+    not fire later; a Quit always counts."""
+    cutoff = _dt.datetime.now(_dt.timezone.utc)
+    earlier = _iso(-5)
+    for name, target in ((MARKER_QUIT, "all"), (MARKER_RESET, "all"), (MARKER_RESTART, "manager")):
+        _write_marker_raw(tmp_path / name, target=target, requested_at=earlier)
+    assert consume_all_markers(tmp_path, _SECRET, _TRAY_PID, not_before=cutoff) == ("all", None, None)
+    _write_marker_raw(tmp_path / MARKER_RESET, target="all", requested_at=_iso(1))
+    assert consume_all_markers(tmp_path, _SECRET, _TRAY_PID, not_before=cutoff) == (None, "all", None)

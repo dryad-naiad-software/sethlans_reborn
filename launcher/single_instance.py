@@ -3,126 +3,91 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Single-instance lock for the launcher.
+Single-instance lock for the launcher (FR-14b; owner decision Q4).
 
-Prevents multiple concurrent launcher processes from stomping on the
-same data directory.  Cross-platform: Windows uses a named mutex
-(``CreateMutexW``); POSIX uses ``fcntl.flock`` on a lockfile in the
-data directory.
+One launcher per settings folder. The lock is an OS lock on
+``<settings folder>/.launcher.lock``, held for the launcher's life and
+let go by the OS when the process ends, however it ends:
 
-See setup-auth-unification.md FR-14b (C5).
+* Windows: ``msvcrt.locking`` (a byte-range lock) on that file;
+* POSIX: ``fcntl.flock`` on it.
+
+The file lives in the owner-only settings folder, so another account
+cannot create or hold it, and every spelling of the folder (an 8.3
+short name, a junction, a symlink, a ``subst`` drive) reaches the same
+file and so the same lock. The folder is named by ``os.path.realpath``.
+``--reset-setup`` uses the lock to tell whether Sethlans runs.
 
 No Django / third-party deps — stdlib only.
 """
 
 from __future__ import annotations
 
-import platform
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
-MUTEX_NAME = "Global\\Sethlans.Launcher"
 LOCKFILE_NAME = ".launcher.lock"
-ERROR_ALREADY_EXISTS = 183
 
 
 @dataclass
 class LockHandle:
-    """Opaque handle keeping the single-instance lock alive.
+    """Keeps the lock: the open lock file. Keep it for the launcher's life."""
 
-    Must be kept alive (not garbage-collected) for the full launcher
-    lifetime.  ``backend`` is "windows" (mutex HANDLE in ``handle``)
-    or "posix" (file descriptor via ``fh``).
-    """
-
-    backend: str
-    handle: Any = None  # Windows mutex HANDLE
-    fh: Any = None      # POSIX file handle
-    path: Optional[Path] = None
+    fd: int
+    path: Path
 
 
-def _acquire_windows() -> Optional[LockHandle]:
-    """Acquire a Windows named-mutex lock. Returns None if held."""
-    import ctypes
-    from ctypes import wintypes
-
-    kernel32 = ctypes.windll.kernel32
-    kernel32.CreateMutexW.argtypes = [
-        wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR,
-    ]
-    kernel32.CreateMutexW.restype = wintypes.HANDLE
-
-    handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
-    last_error = kernel32.GetLastError()
-    if not handle:
-        return None
-    if last_error == ERROR_ALREADY_EXISTS:
-        # Another launcher owns the mutex; release our handle.
-        kernel32.CloseHandle(handle)
-        return None
-    return LockHandle(backend="windows", handle=handle)
+def lock_path(settings_dir: Path) -> Path:
+    """``<realpath of settings_dir>/.launcher.lock``."""
+    return Path(os.path.realpath(settings_dir)) / LOCKFILE_NAME
 
 
-def _acquire_posix(data_dir: Path) -> Optional[LockHandle]:
-    """Acquire a POSIX flock on ``<data_dir>/.launcher.lock``."""
-    import fcntl
-
-    data_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = data_dir / LOCKFILE_NAME
-
-    fh = open(lock_path, "a+")
-    try:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except (BlockingIOError, OSError):
-        fh.close()
-        return None
-    return LockHandle(backend="posix", fh=fh, path=lock_path)
-
-
-def acquire_single_instance_lock(data_dir: Path) -> Optional[LockHandle]:
-    """Acquire a single-instance lock.
-
-    Returns a ``LockHandle`` on success or ``None`` if another launcher
-    already holds the lock.  The handle must be retained for the
-    process lifetime.
-    """
-    if platform.system() == "Windows":
-        return _acquire_windows()
-    return _acquire_posix(data_dir)
-
-
-def _release_windows(lock: LockHandle) -> None:
-    try:
-        import ctypes
-        if lock.handle:
-            ctypes.windll.kernel32.CloseHandle(lock.handle)
-    except Exception:
-        pass
-
-
-def _release_posix(lock: LockHandle) -> None:
-    if lock.fh is None:
-        return
-    try:
-        import fcntl
+def _try_lock(fd: int) -> bool:
+    if os.name == "nt":
+        import msvcrt
+        os.lseek(fd, 0, os.SEEK_SET)
         try:
-            fcntl.flock(lock.fh.fileno(), fcntl.LOCK_UN)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
         except OSError:
-            pass
-    except Exception:
-        pass
+            return False
+        return True
+    import fcntl
     try:
-        lock.fh.close()
-    except Exception:
-        pass
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def acquire_single_instance_lock(settings_dir: Path) -> Optional[LockHandle]:
+    """Take the lock of ``settings_dir``; ``None`` when another launcher holds it.
+
+    The folder is created when missing (the launcher makes it owner-only
+    before it gets here).
+    """
+    path = lock_path(settings_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
+    if _try_lock(fd):
+        return LockHandle(fd=fd, path=path)
+    os.close(fd)
+    return None
 
 
 def release_lock(lock: Optional[LockHandle]) -> None:
-    """Best-effort release of a lock handle."""
+    """Let the lock go (closing the file is enough on both systems); best effort."""
     if lock is None:
         return
-    if lock.backend == "windows":
-        _release_windows(lock)
-    else:
-        _release_posix(lock)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            os.lseek(lock.fd, 0, os.SEEK_SET)
+            msvcrt.locking(lock.fd, msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    try:
+        os.close(lock.fd)
+    except OSError:
+        pass

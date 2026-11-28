@@ -5,16 +5,10 @@
 Port constants and port finders for the bootstrap launcher.
 
 The setup token lives in ``launcher.setup_state`` and the setup port in
-``launcher.setup_port``. :func:`remove_setup_section` stays only for the
-current loop (``orchestration``, ``restart_orchestrator``) until chunk
-6b removes both. No Django dependency — stdlib only.
+``launcher.setup_port``. No Django dependency — stdlib only.
 """
 
 import socket
-from pathlib import Path
-from typing import Optional
-
-from shared import settings_file
 
 # Port range for auto-detection.
 MANAGER_PORT = 8080
@@ -99,15 +93,3 @@ def find_available_waitress_public_port(
         except OSError:
             continue
     return start
-
-
-def remove_setup_section(ini_path: Optional[Path] = None) -> None:
-    """Remove the wizard's ``[setup]`` keys from the settings file.
-
-    Delegates to :func:`shared.settings_file.remove_setup_wizard_keys`:
-    ``token`` and ``session_id`` go, then the section if that leaves it
-    empty; the setup-finished keys stay. *ini_path* defaults to
-    :func:`shared.settings_file.settings_path`. A missing file is left
-    missing.
-    """
-    settings_file.remove_setup_wizard_keys(ini_path)

@@ -3,23 +3,22 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Restart-request orchestration for the launcher.
+The tray's Restart for the manager, as the running loop does it.
 
-Watches ``<data_dir>/.restart_requested`` while the manager subprocess
-is alive.  When the sentinel appears, the launcher:
+:func:`handle_restart_request`:
 
-1. Deletes ``.restart_requested`` FIRST (prevents restart loop on
-   spurious respawn — C4 / C10).
-2. Sends ``SIGTERM`` to the manager subprocess.
-3. Waits up to 15 seconds for graceful shutdown.
-4. If still alive, escalates to ``SIGKILL``.
-5. Removes the ``[setup]`` section from the settings file (atomic).
-6. Purges ``setup_phase=True`` Django sessions (FR-18a / S6).
-7. Respawns the manager via the caller-supplied ``respawn`` callable.
+1. deletes ``.restart_requested`` first (no restart loop on a spurious
+   respawn);
+2. sends ``SIGTERM`` to the manager;
+3. waits up to 15 seconds for it to exit;
+4. escalates to ``SIGKILL`` and waits again;
+5. starts the new manager through the caller's ``respawn``, but only
+   once the old one has exited: on Windows the new manager's
+   ``manager-start.log`` cannot be replaced while the old one still
+   holds it (``launcher.components.open_owner_only_log``).
 
-Contract with manager (documented, not enforced here): the post-restart
-manager MUST also delete ``.restart_requested`` on boot
-(belt-and-suspenders, FR-14a / C10).  That is backend's responsibility.
+It returns the new manager, or ``None`` with the reason logged when the
+old one would not exit or the new one could not start.
 
 Stdlib only.
 """
@@ -28,31 +27,14 @@ from __future__ import annotations
 
 import logging
 import subprocess
-import time
 from pathlib import Path
 from typing import Callable, Optional
-
-from launcher.session_purge import purge_setup_phase_sessions
-from launcher.setup_helpers import remove_setup_section
 
 logger = logging.getLogger(__name__)
 
 RESTART_MARKER = ".restart_requested"
 TERMINATE_TIMEOUT_SECONDS = 15.0
-DEFAULT_POLL_INTERVAL = 2.0
-
-
-def poll_for_restart_request(
-    data_dir: Path, interval: float = DEFAULT_POLL_INTERVAL,
-) -> bool:
-    """Single-shot check for the restart sentinel.
-
-    Returns ``True`` if ``<data_dir>/.restart_requested`` exists.  The
-    ``interval`` argument is retained for API compatibility with the
-    caller (who controls sleep cadence) — it is not used here.
-    """
-    del interval  # caller controls loop cadence
-    return (data_dir / RESTART_MARKER).exists()
+KILL_WAIT_SECONDS = 5.0
 
 
 def _delete_marker(data_dir: Path) -> None:
@@ -89,7 +71,7 @@ def _terminate_and_wait(
         except OSError as exc:
             logger.warning("kill() failed: %s", exc)
         try:
-            proc.wait(timeout=5.0)
+            proc.wait(timeout=KILL_WAIT_SECONDS)
         except subprocess.TimeoutExpired:
             logger.error("Manager failed to die after SIGKILL")
 
@@ -99,66 +81,20 @@ def handle_restart_request(
     data_dir: Path,
     respawn: Callable[[], subprocess.Popen],
 ) -> Optional[subprocess.Popen]:
-    """Run the full restart sequence; return the new manager proc.
-
-    Steps are ordered per spec §6 technical approach.  ``respawn``
-    must be idempotent and return a running ``Popen`` for the new
-    manager instance.
-    """
-    # Step 1: delete the marker FIRST (prevents restart loop).
+    """Run the restart sequence (module doc); return the new manager or ``None``."""
     _delete_marker(data_dir)
-
-    # Step 2-4: terminate / wait / kill.
     _terminate_and_wait(proc)
-
-    # Step 5: atomically drop the [setup] section.
-    try:
-        remove_setup_section()
-    except OSError as exc:
-        logger.warning(
-            "Could not remove [setup] from the settings file: %s", exc,
+    if proc.poll() is None:
+        logger.error(
+            "The manager (pid %s) did not exit; not starting a new one beside it", proc.pid,
         )
-
-    # Step 6: purge setup-phase sessions.
+        return None
     try:
-        purged = purge_setup_phase_sessions(data_dir)
-        if purged:
-            logger.info(
-                "Purged %d setup-phase session(s)", purged,
-            )
-    except Exception as exc:
-        logger.warning("Session purge raised: %s", exc)
-
-    # Step 7: respawn.
-    try:
-        new_proc = respawn()
+        return respawn()
+    except PermissionError as exc:
+        logger.error(
+            "Could not start the manager: its start log is still held by another process (%s)", exc,
+        )
     except Exception as exc:
         logger.error("Failed to respawn manager: %s", exc)
-        return None
-    return new_proc
-
-
-def watch_and_restart(
-    proc: subprocess.Popen,
-    data_dir: Path,
-    respawn: Callable[[], subprocess.Popen],
-    interval: float = DEFAULT_POLL_INTERVAL,
-) -> int:
-    """Watch loop: poll marker, restart on sentinel, exit on proc death.
-
-    Returns the final exit code of the last manager process (or 0).
-    """
-    current = proc
-    while True:
-        if current.poll() is not None:
-            return current.returncode or 0
-        if poll_for_restart_request(data_dir):
-            logger.info("Restart requested; orchestrating handoff")
-            new_proc = handle_restart_request(
-                current, data_dir, respawn,
-            )
-            if new_proc is None:
-                return 1
-            current = new_proc
-            continue
-        time.sleep(interval)
+    return None

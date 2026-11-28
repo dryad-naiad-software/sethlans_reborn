@@ -37,12 +37,15 @@ from launcher.splash import SethlansSplash
 
 logger = logging.getLogger(__name__)
 
+THREAD_WAIT_SLICE_MS = 250
+
 
 def _start_quit_poll_timer(splash) -> QTimer:
     """Create and start the 250 ms cross-thread quit-event poller.
 
-    Issue #163 (reopened): the IPC daemon thread sets
-    ``supervision.get_quit_requested_event()`` on a tray Quit marker.
+    Issue #163 (reopened): the IPC daemon thread sets the process-wide
+    quit request (``supervision.quit_requested``) on a tray Quit marker,
+    and the signal handler sets its flag.
     Wait loops in orchestration consume the event during the cold-boot
     phase; this timer covers the post-orchestration window where the
     splash error card is visible and no wait loop is running. Routes
@@ -51,7 +54,7 @@ def _start_quit_poll_timer(splash) -> QTimer:
     teardown wiring.
     """
     def _check_quit_requested():
-        if supervision.get_quit_requested_event().is_set():
+        if supervision.quit_requested():
             splash.close()
 
     timer = QTimer()
@@ -98,7 +101,7 @@ def run_with_splash(
         the IPC poll thread.  Returns ``(tray, secret)``.
     run_orchestration:
         Callable ``(data_dir, args, tray, secret, *, on_cold_boot_ready,
-        on_startup_failed)`` that dispatches to wizard or normal mode.
+        on_startup_failed)`` that runs the launcher loop.
     teardown_tray:
         Callable invoked with the tray Popen at shutdown.
     """
@@ -170,9 +173,12 @@ def run_with_splash(
     # FR-4: explicit stop after both exec() passes have returned.
     quit_poll_timer.stop()
 
-    # Orchestration may still be running its IPC-poll loop.  Wait for
-    # it to return before shutting down supervisors and the tray.
-    thread.wait()
+    # The loop runs on (RUNNING) until a quit. Wait for it in short
+    # slices: a Python signal handler only runs when the main thread
+    # gets back to Python, so one long wait would hold SIGTERM/SIGINT
+    # off for the launcher's whole life.
+    while not thread.wait(THREAD_WAIT_SLICE_MS):
+        pass
 
     supervision.shutdown_supervisors()
     teardown_tray(tray)

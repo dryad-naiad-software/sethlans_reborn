@@ -21,15 +21,18 @@ manager's certificate:
 * :func:`stop_caddy`: stop it (worker-only mode, Reset, quit).
 
 Ports other than the public one come from the settings file
-(``sethlans_manager.waitress_config``). The Caddyfile is
+(``sethlans_manager.waitress_config``); Caddy's own loopback port is
+8089 unless ``SETHLANS_MANAGER_CADDY_LOOPBACK_PORT`` names another (the
+name the Docker Caddyfile uses for it). The Caddyfile is
 ``<manager identity folder>/caddy/Caddyfile``. The supervisor is
-registered with :mod:`launcher.supervision` so the signal handler stops
-it too. Called from the launcher's loop thread only.
+registered with :mod:`launcher.supervision` so the launcher's ``finally``
+stops it too. Called from the launcher's loop thread only.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -39,6 +42,8 @@ from launcher.setup_helpers import CADDY_LOOPBACK_PORT, CADDY_PUBLIC_TLS_PORT
 from shared import frozen_paths, settings_file
 
 logger = logging.getLogger(__name__)
+
+CADDY_LOOPBACK_PORT_ENV = "SETHLANS_MANAGER_CADDY_LOOPBACK_PORT"
 
 # The template kwargs Caddy runs with now (None: not started by us).
 _current_kwargs: Optional[dict] = None
@@ -82,13 +87,34 @@ def configured_public_port(ini_path=None) -> int:
     return earlier_port(ini_path) or CADDY_PUBLIC_TLS_PORT
 
 
+def caddy_loopback_port() -> int:
+    """Caddy's loopback port: ``SETHLANS_MANAGER_CADDY_LOOPBACK_PORT``, else 8089.
+
+    A value that is not a port number is an error, never a silent default.
+    """
+    raw = os.environ.get(CADDY_LOOPBACK_PORT_ENV, "").strip()
+    if not raw:
+        return CADDY_LOOPBACK_PORT
+    if not (raw.isascii() and raw.isdigit() and 1 <= int(raw) <= 65535):
+        raise ValueError(f"{CADDY_LOOPBACK_PORT_ENV}={raw!r} is not a port number")
+    return int(raw)
+
+
 def loopback_ports(ini_path=None) -> tuple[int, int, int]:
     """Our own loopback ports: Caddy's, Waitress public, Waitress internal."""
     _ensure_manager_on_syspath()
     from sethlans_manager.waitress_config import get_waitress_internal_port, get_waitress_public_port
 
     ini_path = settings_file.settings_path() if ini_path is None else Path(ini_path)
-    return CADDY_LOOPBACK_PORT, get_waitress_public_port(ini_path), get_waitress_internal_port(ini_path)
+    return caddy_loopback_port(), get_waitress_public_port(ini_path), get_waitress_internal_port(ini_path)
+
+
+def running_public_port() -> Optional[int]:
+    """The public port of the Caddy we run now, or ``None`` when none runs."""
+    supervisor = supervision.get_caddy_supervisor()
+    if _current_kwargs is None or supervisor is None or not supervisor.is_running():
+        return None
+    return _current_kwargs["public_tls_port"]
 
 
 def _template_kwargs(public_port: int) -> dict:
@@ -157,12 +183,6 @@ def stop_caddy(timeout: float = 5.0) -> None:
         supervisor.stop(timeout=timeout)
     except Exception:
         logger.exception("Error stopping Caddy")
-
-
-def start_caddy_supervisor(manager_data=None) -> None:
-    """The current loop's entry (``orchestration``), until chunk 6b replaces it."""
-    del manager_data  # the TLS folder comes from manager_tls_paths()
-    start_or_retarget(configured_public_port())
 
 
 def _reset_for_tests() -> None:

@@ -31,21 +31,20 @@ class TestDevLauncherEnv:
 
     The launcher's :func:`launcher.paths.get_data_dir` honors
     ``SETHLANS_SETTINGS_DIR`` — the harness must set the same key. Other
-    keys (per-component, IPC secret) are pinned to catch silent
-    renames.
+    keys (per-component) are pinned to catch silent renames.
     """
 
     def test_build_env_sets_shared_data_dir(self, tmp_path):
         dev_launcher = _import_dev_launcher()
         env = dev_launcher._build_env(
-            tmp_path, ipc_secret="abc", log_level=None,
+            tmp_path, log_level=None,
         )
         assert env["SETHLANS_SETTINGS_DIR"] == str(tmp_path.resolve())
 
     def test_build_env_sets_per_component_data_dirs(self, tmp_path):
         dev_launcher = _import_dev_launcher()
         env = dev_launcher._build_env(
-            tmp_path, ipc_secret="abc", log_level=None,
+            tmp_path, log_level=None,
         )
         assert (
             env["SETHLANS_MANAGER_DATA_DIR"]
@@ -56,21 +55,20 @@ class TestDevLauncherEnv:
             == str((tmp_path / "worker").resolve())
         )
 
-    def test_build_env_propagates_ipc_secret(self, tmp_path):
+    def test_build_env_sets_no_tray_secret(self, tmp_path):
+        """FR-LN-7: the launcher makes the tray secret itself; the harness passes none."""
         dev_launcher = _import_dev_launcher()
-        env = dev_launcher._build_env(
-            tmp_path, ipc_secret="the-secret", log_level=None,
-        )
-        assert env["SETHLANS_TRAY_IPC_SECRET"] == "the-secret"
+        env = dev_launcher._build_env(tmp_path, log_level=None)
+        assert "SETHLANS_TRAY_IPC_SECRET" not in env
 
     def test_build_env_log_level_optional(self, tmp_path):
         dev_launcher = _import_dev_launcher()
         env = dev_launcher._build_env(
-            tmp_path, ipc_secret="x", log_level=None,
+            tmp_path, log_level=None,
         )
         assert "SETHLANS_LOG_LEVEL" not in env
         env2 = dev_launcher._build_env(
-            tmp_path, ipc_secret="x", log_level="DEBUG",
+            tmp_path, log_level="DEBUG",
         )
         assert env2["SETHLANS_LOG_LEVEL"] == "DEBUG"
 
@@ -86,7 +84,7 @@ class TestDevLauncherLauncherIntegration:
         dev_launcher = _import_dev_launcher()
         # Pretend the harness selected ``tmp_path`` as the dev root.
         env = dev_launcher._build_env(
-            tmp_path, ipc_secret="x", log_level=None,
+            tmp_path, log_level=None,
         )
         # Apply the harness's env vars to this process; production
         # would apply them to the launcher subprocess via

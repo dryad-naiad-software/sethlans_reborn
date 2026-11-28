@@ -3,10 +3,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 """
-Unit tests for path resolution functions in ``launcher/run_launcher.py``.
-
-Covers ``_get_data_dir``, ``_get_install_dir``, ``_get_bin_dir``,
-and ``_find_component_exe``.
+Unit tests for the launcher's path resolution (``launcher.paths``,
+``launcher.component_paths``).
 """
 
 import os
@@ -14,12 +12,10 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from launcher.run_launcher import (
-    _get_bin_dir,
-    _get_data_dir,
-    _get_install_dir,
-    _find_component_exe,
-)
+from launcher.component_paths import find_component_exe as _find_component_exe
+from launcher.paths import get_bin_dir as _get_bin_dir
+from launcher.paths import get_data_dir as _get_data_dir
+from launcher.paths import get_install_dir as _get_install_dir
 
 
 # ---- _get_data_dir() -------------------------------------------------------

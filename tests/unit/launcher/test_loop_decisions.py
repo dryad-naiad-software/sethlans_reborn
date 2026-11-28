@@ -49,6 +49,16 @@ def test_decide_after_manager_exit(exit_code, right_after_setup, expected):
     assert ld.decide_after_manager_exit(exit_code, right_after_setup=right_after_setup, reason=REASON) == expected
 
 
+@pytest.mark.parametrize("right_after_setup, expected", [
+    pytest.param(True, SAME, id="after-setup-same-token"),
+    pytest.param(False, FAILED, id="normal-start-failed"),
+])
+def test_decide_after_worker_exit(right_after_setup, expected):
+    """FR-LN-6 and owner Q3 for worker-only mode: the worker is what the mode stands on;
+    it has no "no admin" ending, so a normal start never re-opens setup."""
+    assert ld.decide_after_worker_exit(right_after_setup=right_after_setup, reason=REASON) == expected
+
+
 @pytest.mark.parametrize("entering, setup_kind, headless, no_browser, expected", [
     pytest.param(ld.SETUP, None, False, False, True, id="setup-opens"),
     pytest.param(ld.SETUP, None, True, False, False, id="headless-never"),

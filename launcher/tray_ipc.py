@@ -15,12 +15,17 @@ FR-20f / FR-20g:
   has its own targets. A reset must carry ``requested_at`` no more than
   30 s from now either way. At most 4 KiB is read.
 * Stale-marker sweep on startup.
-* Quit-beats-restart collision resolution (:func:`consume_pending_ipc`,
-  the current loop) and the three-marker read for the new loop
-  (:func:`consume_all_markers`; ``launcher.loop_decisions.ipc_precedence``
-  picks quit, then reset, then restart).
+* The three-marker read of the running loop (:func:`consume_all_markers`;
+  ``launcher.loop_decisions.ipc_precedence`` picks quit, then reset,
+  then restart).
 * A quit-only read for the IPC poll thread (:func:`consume_quit_marker`):
   it leaves the restart and reset markers for the main loop (#345).
+* Each marker is claimed by one reader only: it is renamed to a unique
+  ``<name>.<random>.claimed`` before it is read, so the poll thread and
+  the loop never both act on one click.
+* ``not_before``: the loop drops reset and restart requests made before
+  it entered the state that reads them (a Reset clicked during SETUP or
+  STARTING does not fire later).
 * Optional Windows ACL tightening when ``pywin32`` is available
   (re-exported from ``shared.file_acls`` for backward compat).
 
@@ -33,6 +38,7 @@ import datetime as _dt
 import hmac
 import json
 import logging
+import os
 import secrets
 from pathlib import Path
 from typing import Optional
@@ -58,6 +64,7 @@ _TARGETS = {
     ACTION_RESTART: frozenset({"manager", "all"}),
     ACTION_RESET: frozenset({"all"}),
 }
+CLAIMED_SUFFIX = ".claimed"
 _MARKER_MAX_BYTES = 4096
 _STALE_SECONDS = 30.0
 
@@ -70,14 +77,14 @@ def generate_secret() -> str:
 def sweep_stale_markers(data_dir: Path) -> None:
     """Delete residue markers from a prior crash (FR-20e)."""
     for name in (MARKER_RESTART, MARKER_QUIT, MARKER_RESET):
-        p = data_dir / name
-        try:
-            p.unlink()
-            logger.info("Swept stale marker %s", p)
-        except FileNotFoundError:
-            pass
-        except OSError as exc:
-            logger.warning("Could not sweep %s: %s", p, exc)
+        for p in [data_dir / name, *Path(data_dir).glob(f"{name}.*{CLAIMED_SUFFIX}")]:
+            try:
+                p.unlink()
+                logger.info("Swept stale marker %s", p)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                logger.warning("Could not sweep %s: %s", p, exc)
 
 
 def _delete_quiet(path: Path) -> None:
@@ -158,23 +165,50 @@ def _validate_payload(
     return target
 
 
-def read_and_validate_marker(
-    path: Path, expected_secret: str, expected_tray_pid: int,
-) -> Optional[str]:
-    """Return the validated target or None.
-
-    Always deletes the marker file before returning.  Any validation
-    failure logs a WARNING and returns None.
-    """
+def _claim(path: Path) -> Optional[Path]:
+    """Rename ``path`` to a name only this reader knows; ``None`` when another got it."""
+    claimed = path.with_name(f"{path.name}.{secrets.token_hex(8)}{CLAIMED_SUFFIX}")
     try:
-        data = read_limited(path, _MARKER_MAX_BYTES)
+        os.replace(path, claimed)
     except FileNotFoundError:
         return None
     except OSError as exc:
-        logger.warning("Could not read %s: %s", path, exc)
-        _delete_quiet(path)
+        logger.warning("Could not claim %s: %s", path, exc)
         return None
-    _delete_quiet(path)
+    return claimed
+
+
+def _requested_before(payload: dict, not_before: _dt.datetime) -> bool:
+    """True when the payload's time is before ``not_before`` (or unreadable)."""
+    try:
+        requested = _dt.datetime.fromisoformat(str(payload.get("requested_at")))
+    except ValueError:
+        return True
+    if requested.tzinfo is None:
+        requested = requested.replace(tzinfo=_dt.timezone.utc)
+    return requested < not_before
+
+
+def read_and_validate_marker(
+    path: Path, expected_secret: str, expected_tray_pid: int,
+    not_before: Optional[_dt.datetime] = None,
+) -> Optional[str]:
+    """Return the validated target or None.
+
+    The marker is claimed (renamed) first and always deleted before
+    returning. Any validation failure logs a WARNING and returns None; a
+    request made before ``not_before`` is dropped.
+    """
+    claimed = _claim(path)
+    if claimed is None:
+        return None
+    try:
+        data = read_limited(claimed, _MARKER_MAX_BYTES)
+    except OSError as exc:
+        logger.warning("Could not read %s: %s", path, exc)
+        return None
+    finally:
+        _delete_quiet(claimed)
     if len(data) > _MARKER_MAX_BYTES:
         logger.warning("Marker %s exceeds size cap", path)
         return None
@@ -187,42 +221,11 @@ def read_and_validate_marker(
     if payload is None:
         logger.warning("Marker %s has malformed JSON", path)
         return None
-    return _validate_payload(
-        path, payload, expected_secret, expected_tray_pid,
-    )
-
-
-def consume_pending_ipc(
-    data_dir: Path, expected_secret: str, expected_tray_pid: int,
-) -> tuple[Optional[str], Optional[str]]:
-    """Read + validate + delete any pending markers.
-
-    Returns ``(quit_target, restart_target)``.  If both markers exist,
-    quit wins (FR-20f) and the restart marker is deleted unread.
-    """
-    quit_path = data_dir / MARKER_QUIT
-    restart_path = data_dir / MARKER_RESTART
-
-    if quit_path.exists() and restart_path.exists():
-        logger.warning(
-            "Both .quit_requested and .restart_requested present; "
-            "quit wins, discarding restart",
-        )
-        _delete_quiet(restart_path)
-
-    quit_target = None
-    if quit_path.exists():
-        quit_target = read_and_validate_marker(
-            quit_path, expected_secret, expected_tray_pid,
-        )
-
-    restart_target = None
-    if restart_path.exists() and quit_target is None:
-        restart_target = read_and_validate_marker(
-            restart_path, expected_secret, expected_tray_pid,
-        )
-
-    return quit_target, restart_target
+    target = _validate_payload(path, payload, expected_secret, expected_tray_pid)
+    if target is not None and not_before is not None and _requested_before(payload, not_before):
+        logger.info("Marker %s was made before this state began; ignored", path)
+        return None
+    return target
 
 
 def consume_quit_marker(
@@ -241,14 +244,17 @@ def consume_quit_marker(
 
 def consume_all_markers(
     data_dir: Path, expected_secret: str, expected_tray_pid: int,
+    not_before: Optional[_dt.datetime] = None,
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Read, validate and delete all three markers.
 
     Returns ``(quit_target, reset_target, restart_target)``; each is
-    ``None`` when its marker is missing or invalid. The caller decides
-    which wins (``launcher.loop_decisions.ipc_precedence``).
+    ``None`` when its marker is missing or invalid. A reset or restart
+    made before ``not_before`` is dropped; a quit never is. The caller
+    decides which wins (``launcher.loop_decisions.ipc_precedence``).
     """
-    return tuple(
-        read_and_validate_marker(data_dir / name, expected_secret, expected_tray_pid)
-        for name in (MARKER_QUIT, MARKER_RESET, MARKER_RESTART)
+    return (
+        read_and_validate_marker(data_dir / MARKER_QUIT, expected_secret, expected_tray_pid),
+        read_and_validate_marker(data_dir / MARKER_RESET, expected_secret, expected_tray_pid, not_before),
+        read_and_validate_marker(data_dir / MARKER_RESTART, expected_secret, expected_tray_pid, not_before),
     )
