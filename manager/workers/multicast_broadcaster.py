@@ -49,20 +49,45 @@ class MulticastBroadcaster(threading.Thread):
         super().__init__(daemon=True, name="MulticastBroadcaster")
         self._stop_event = threading.Event()
         self._interface_ip = ip or "0.0.0.0"
-        # Resolve the broadcast hostname ONCE (NF-4) — ``socket.getfqdn``
-        # can make a DNS call and we don't want that on every tick.
-        try:
-            resolved_host = host or socket.getfqdn()
-        except (socket.gaierror, OSError):
-            resolved_host = host or socket.gethostname()
-        self._payload = self._build_payload(
+        self._fields = dict(
             manager_id=manager_id,
             name=name,
-            host=resolved_host,
             ip=self._interface_ip,
-            port=port,
+            port=int(port),
             version=version,
         )
+        # Construction never makes a name lookup (#344): the launcher
+        # builds and starts the broadcaster while holding its
+        # supervisor lock. A known host gives the payload now; an empty
+        # host is resolved once (NF-4) on the thread, in ``run()``.
+        self._payload = (
+            self._build_payload(host=host, **self._fields) if host else None
+        )
+
+    @staticmethod
+    def _resolve_host() -> str:
+        """Return this machine's name for an announcement with no host.
+
+        ``socket.getfqdn`` is a reverse DNS lookup with no timeout (tens
+        of seconds on some macOS machines), so only the broadcaster
+        thread calls this. On a lookup error, the plain host name, or
+        ``""`` when that fails too.
+        """
+        # Any exception, not just OSError: getfqdn swallows OSError
+        # itself but raises UnicodeError (a ValueError) for a name label
+        # over 63 characters, which Linux allows. Left uncaught it would
+        # end the thread silently and stop discovery (#344).
+        try:
+            return socket.getfqdn()
+        except Exception:
+            logger.warning(
+                "Host name lookup failed; announcing the plain host name",
+                exc_info=True,
+            )
+        try:
+            return socket.gethostname()
+        except OSError:
+            return ""
 
     @staticmethod
     def _build_payload(
@@ -90,6 +115,15 @@ class MulticastBroadcaster(threading.Thread):
         return json.dumps(obj, separators=(",", ":")).encode("utf-8")
 
     def run(self) -> None:
+        if self._payload is None:
+            # The one lookup (NF-4, #344). ``stop()`` cannot interrupt
+            # it; a stop during the lookup is seen just below, before
+            # any socket or announcement.
+            self._payload = self._build_payload(
+                host=self._resolve_host(), **self._fields,
+            )
+        if self._stop_event.is_set():
+            return
         sock = socket.socket(
             socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP,
         )

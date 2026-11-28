@@ -15,7 +15,9 @@ Covers:
   ``IP_MULTICAST_LOOP=1`` are set before the loop starts.
 * ``setsockopt`` failure handling: the broadcaster logs ERROR, exits
   the thread cleanly, and does not crash the rest of the process.
-* ``getfqdn`` is resolved exactly once in ``__init__`` (NF-4).
+
+The host name lookup (NF-4, #344) is covered in
+``test_multicast_broadcaster_lookup.py``.
 
 The interval test binds a UDP listener on ``127.0.0.1`` and sends the
 broadcaster's traffic to a local port, so no traffic leaks onto the
@@ -97,31 +99,6 @@ class TestPayloadShape:
         raw = b._payload.decode("utf-8")
         assert ", " not in raw  # no space after commas
         assert ": " not in raw  # no space after colons
-
-
-# ---------------------------------------------------------------------------
-# Hostname resolution runs exactly once (NF-4)
-# ---------------------------------------------------------------------------
-
-
-class TestHostnameResolvedOnce:
-    def test_getfqdn_called_once_at_init_only(self, mocker):
-        fqdn_mock = mocker.patch(
-            "workers.multicast_broadcaster.socket.getfqdn",
-            return_value="resolved.example",
-        )
-        # Host left empty so the broadcaster resolves it itself.
-        b = _fresh_broadcaster(host="")
-        obj = json.loads(b._payload.decode("utf-8"))
-        assert obj["host"] == "resolved.example"
-        assert fqdn_mock.call_count == 1
-
-    def test_explicit_host_skips_getfqdn(self, mocker):
-        fqdn_mock = mocker.patch(
-            "workers.multicast_broadcaster.socket.getfqdn",
-        )
-        _fresh_broadcaster(host="explicit.example")
-        fqdn_mock.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
