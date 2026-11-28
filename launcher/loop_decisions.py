@@ -4,8 +4,9 @@
 """
 The launcher loop's decisions, as pure functions (D8, FR-LN-1, -2, -6).
 
-No files, processes or clocks: the loop (chunk 6b) gathers the facts
-(exit code, ``setup_finished()``, the reason) and acts on the answer.
+No files, processes or clocks: the loop (``launcher.machine_loop``)
+gathers the facts (exit code, ``setup_finished()``, the reason) and acts
+on the answer.
 
 * :func:`decide_after_setup`: setup mode ended. The settings file
   decides (D8): finished means ``STARTING`` in that mode, whatever the
@@ -21,6 +22,11 @@ No files, processes or clocks: the loop (chunk 6b) gathers the facts
   - A normal start: 12 (no admin) re-opens ``SETUP`` with a fresh token
     and the reason. 11, 13 and anything else go to ``FAILED`` with the
     reason: setup stays closed to the LAN, and nothing is retried.
+* :func:`decide_after_worker_exit`: in ``worker`` mode the worker is
+  what the mode stands on. Right after a setup, back to ``SETUP`` with
+  the same token, as for the manager; on a normal start ``FAILED``
+  (the worker has no "no admin" ending). In ``manager_worker`` the
+  manager runs on and the loop reports the worker's end instead.
 * :func:`should_open_browser`: on entering ``SETUP``, and on the first
   ``RUNNING`` after an unattended setup only (the setup page already
   goes to ``/login/`` after a browser setup). Never when headless or
@@ -85,6 +91,13 @@ def decide_after_manager_exit(exit_code: int, *, right_after_setup: bool, reason
         return Decision(SETUP, token=TOKEN_SAME, reason=reason, last_failure=reason)
     if exit_code == EXIT_NO_ADMIN:
         return Decision(SETUP, token=TOKEN_FRESH, reason=reason, last_failure=reason)
+    return Decision(FAILED, reason=reason)
+
+
+def decide_after_worker_exit(*, right_after_setup: bool, reason: str) -> Decision:
+    """The worker ended in ``STARTING`` in ``worker`` mode (see the module doc)."""
+    if right_after_setup:
+        return Decision(SETUP, token=TOKEN_SAME, reason=reason, last_failure=reason)
     return Decision(FAILED, reason=reason)
 
 

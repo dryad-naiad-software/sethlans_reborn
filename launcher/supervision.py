@@ -2,23 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 """
-Launcher-side supervisor coordination (manager spec Phase 3).
+Launcher-side supervisor coordination.
 
-Extracted from :mod:`launcher.run_launcher` to respect the 300-line
-ceiling. This module owns:
+This module owns:
 
-* The module-level :class:`BroadcasterSupervisor` + Caddy supervisor
-  globals that back the signal-handler shutdown path.
-* The IPC poll loop that waits for ``broadcaster_params.json``.
-* The tray-quit poll body that consumes ``.quit_requested`` markers and
-  flips the process-wide quit event observed by every wizard-mode wait
-  loop (issue #163). It reads the quit marker only: restart and reset
-  markers stay on disk for the main loop (issue #345).
-* Signal wiring for SIGTERM/SIGINT that unwinds both supervisors
-  before the existing cascade tears down children.
-
-The launcher holds only references into this module; tests and the
-shutdown path never touch supervisor objects directly.
+* The module-level :class:`BroadcasterSupervisor` and Caddy supervisor
+  references, so the launcher's ``finally`` can stop both.
+* The IPC poll thread: it starts the broadcaster whenever the manager
+  has published ``broadcaster_params.json``, none runs and shutdown has
+  not begun, and it reads the tray's ``.quit_requested`` marker into the
+  process-wide quit request (``launcher.quit_state``, re-exported here;
+  issue #163). It reads the quit marker only: restart and reset markers
+  stay on disk for the loop (issue #345). An error in one pass is
+  logged and the thread goes on.
+* :func:`stop_broadcaster`: stops the broadcaster and deletes
+  ``broadcaster_params.json`` under the lock the poll thread starts it
+  under, so a stale file cannot start it again. The loop calls it
+  wherever the manager stops or is about to start; the next manager
+  writes the file again.
+* SIGTERM/SIGINT: the handler only sets the quit flag
+  (``quit_state.signal_quit``: no lock, no logging); the loop then stops
+  the children the way a tray Quit does, and ``main()``'s ``finally``
+  stops the supervisors.
 """
 
 from __future__ import annotations
@@ -29,19 +34,22 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
+from launcher.quit_state import (  # noqa: F401 - re-exported
+    QUIT_ALL, QUIT_MANAGER, clear_manager_quit, quit_requested, quit_target, request_quit, wait_or_quit,
+    was_signalled,
+)
+from launcher import quit_state
+
 logger = logging.getLogger(__name__)
 
 IPC_POLL_INTERVAL_SECONDS = 0.25
 
-# Module-level so the signal handler + test introspection can reach
-# them without plumbing a context through every call site.
 _broadcaster_supervisor = None  # type: ignore[var-annotated]
 _caddy_supervisor = None  # type: ignore[var-annotated]
+# Guards starting the broadcaster (poll thread) against stopping it
+# (loop thread, shutdown). Never taken in a signal handler.
+_broadcaster_lock = threading.Lock()
 _shutdown_event = threading.Event()
-# Process-wide tray-quit event (issue #163). Set by the IPC poll
-# thread when a valid ``.quit_requested`` marker is observed; polled
-# by every wizard-mode wait loop via :func:`wait_or_quit`.
-_quit_requested = threading.Event()
 
 
 def set_caddy_supervisor(supervisor) -> None:
@@ -63,65 +71,67 @@ def take_caddy_supervisor():
 
 
 def get_shutdown_event() -> threading.Event:
-    """Return the shared shutdown event (signal handler + poll loop)."""
+    """Return the shared shutdown event (poll loop, ``main()``'s ``finally``)."""
     return _shutdown_event
 
 
 def get_quit_requested_event() -> threading.Event:
-    """Return the process-wide tray-quit event (issue #163).
-
-    The IPC poll thread sets this event the moment a valid tray quit
-    marker is observed. Every wizard-mode wait loop polls it via
-    :func:`wait_or_quit` so the user's "Quit Sethlans" click is honored
-    even while the launcher is parked in the wizard wait phase.
-    """
-    return _quit_requested
+    """The event a tray quit sets; a signal sets only the flag (``quit_requested``)."""
+    return quit_state.get_event()
 
 
-def wait_or_quit(timeout: float) -> bool:
-    """Sleep up to ``timeout`` seconds or return early on tray quit.
+def _take_broadcaster(params_dir: Optional[Path]):
+    """Under the lock: unregister the broadcaster and delete its params file."""
+    global _broadcaster_supervisor
+    from launcher.broadcaster_supervisor import BROADCASTER_PARAMS_FILENAME
 
-    Replaces ``time.sleep(poll_interval)`` inside wait loops so a tray
-    quit marker fires within at most one ``poll_interval`` instead of
-    burning the wait loop's wall-clock budget.
+    with _broadcaster_lock:
+        supervisor, _broadcaster_supervisor = _broadcaster_supervisor, None
+        if params_dir is not None:
+            try:
+                (Path(params_dir) / BROADCASTER_PARAMS_FILENAME).unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                logger.warning("Could not delete the broadcaster params in %s: %s", params_dir, exc)
+    return supervisor
 
-    Returns ``True`` if the quit event has been set (caller should
-    abort with its quit-requested sentinel), ``False`` on plain
-    timeout (caller should iterate normally).
-    """
-    return _quit_requested.wait(timeout=timeout)
+
+def _stop(supervisor, join_timeout: float) -> None:
+    if supervisor is None:
+        return
+    try:
+        supervisor.stop(join_timeout=join_timeout)
+    except Exception:
+        logger.exception("Error stopping BroadcasterSupervisor")
+
+
+def stop_broadcaster(params_dir: Path, join_timeout: float = 5.0) -> None:
+    """Stop the broadcaster and delete ``broadcaster_params.json`` (module doc)."""
+    _stop(_take_broadcaster(params_dir), join_timeout)
 
 
 def shutdown_supervisors() -> None:
-    """Stop the broadcaster + Caddy supervisors if running.
+    """Stop the broadcaster and Caddy supervisors; idempotent.
 
-    Idempotent; safe to call from both the signal handler and the
-    ``finally:`` block in :func:`launcher.run_launcher.main`.
+    The shutdown event is set first, so the poll thread starts no
+    broadcaster afterwards.
     """
-    global _broadcaster_supervisor, _caddy_supervisor
-    if _broadcaster_supervisor is not None:
+    global _caddy_supervisor
+    _shutdown_event.set()
+    _stop(_take_broadcaster(None), 5.0)
+    caddy, _caddy_supervisor = _caddy_supervisor, None
+    if caddy is not None:
         try:
-            _broadcaster_supervisor.stop(join_timeout=5.0)
-        except Exception:
-            logger.exception("Error stopping BroadcasterSupervisor")
-        _broadcaster_supervisor = None
-    if _caddy_supervisor is not None:
-        try:
-            _caddy_supervisor.stop(timeout=5.0)
+            caddy.stop(timeout=5.0)
         except Exception:
             logger.exception("Error stopping Caddy supervisor")
-        _caddy_supervisor = None
 
 
 def _graceful_shutdown(signum, frame):
-    """POSIX/Windows signal handler for SIGTERM/SIGINT."""
-    del frame
-    logger.info(
-        "Launcher received signal %s; initiating graceful shutdown",
-        signum,
-    )
-    _shutdown_event.set()
-    shutdown_supervisors()
+    """SIGTERM/SIGINT: one flag, no lock, no logging (``quit_state.signal_quit``)."""
+    del signum, frame
+    quit_state.signal_quit()
 
 
 def install_signal_handlers() -> None:
@@ -130,39 +140,29 @@ def install_signal_handlers() -> None:
         try:
             signal.signal(sig, _graceful_shutdown)
         except (ValueError, OSError) as exc:
-            logger.debug(
-                "Could not install handler for %s: %s", sig, exc,
-            )
+            logger.debug("Could not install handler for %s: %s", sig, exc)
 
 
 def start_ipc_poll_thread(
-    manager_data: Path,
+    settings_dir: Path,
     *,
+    params_dir: Optional[Path] = None,
     secret: Optional[str] = None,
     tray_pid_provider: Optional[Callable[[], int]] = None,
 ) -> threading.Thread:
-    """Spawn the broadcaster/tray-quit IPC poll thread.
+    """Start the daemon poll thread (see the module doc); it ends on the shutdown event.
 
-    The thread polls every :data:`IPC_POLL_INTERVAL_SECONDS` for:
-
-    1. ``broadcaster_params.json`` — published by the manager once
-       ``runtime_init`` has populated ``runtime_state``. On first
-       sighting the launcher starts the broadcaster.
-    2. ``.quit_requested`` (issue #163) — written by the tray helper.
-       On a valid marker, sets :func:`get_quit_requested_event` so
-       wizard-mode wait loops can abort cleanly. The data dir for the
-       tray IPC marker is the launcher's per-user data dir, which is
-       ``manager_data.parent``. ``secret`` and ``tray_pid_provider``
-       are required for tray-quit consumption; if either is None the
-       tray-quit branch is skipped (used by tests that only exercise
-       the broadcaster path). Only the quit marker is read; the
-       restart and reset markers are left for the main loop (#345).
-
-    Exits when :func:`get_shutdown_event` is set.
+    ``settings_dir`` holds the tray markers. ``params_dir`` holds
+    ``broadcaster_params.json`` (default
+    ``launcher.broadcaster_supervisor.broadcaster_params_dir()``). With
+    no ``secret`` or ``tray_pid_provider`` the quit marker is not read.
     """
+    if params_dir is None:
+        from launcher.broadcaster_supervisor import broadcaster_params_dir
+        params_dir = broadcaster_params_dir()
     thread = threading.Thread(
         target=_ipc_poll_loop,
-        args=(manager_data, secret, tray_pid_provider),
+        args=(Path(settings_dir), Path(params_dir), secret, tray_pid_provider),
         name="launcher-ipc-poll",
         daemon=True,
     )
@@ -170,80 +170,57 @@ def start_ipc_poll_thread(
     return thread
 
 
-def _ipc_poll_loop(
-    manager_data: Path,
-    secret: Optional[str] = None,
-    tray_pid_provider: Optional[Callable[[], int]] = None,
-) -> None:
+def _poll_once(settings_dir, params_dir, secret, tray_pid_provider) -> None:
+    try:
+        _maybe_start_broadcaster(params_dir)
+        _maybe_observe_tray_quit(settings_dir, secret, tray_pid_provider)
+    except Exception:
+        logger.exception("Launcher IPC poll failed; polling goes on")
+
+
+def _ipc_poll_loop(settings_dir, params_dir, secret=None, tray_pid_provider=None) -> None:
     """Poll body for :func:`start_ipc_poll_thread`."""
-    # Imported inside the loop so a frozen launcher missing manager
-    # modules during early boot doesn't crash the main thread.
-    from launcher.broadcaster_supervisor import (
-        BroadcasterSupervisor,
-        read_broadcaster_params,
-    )
-    global _broadcaster_supervisor
-
-    broadcaster_started = False
     while not _shutdown_event.is_set():
-        if not broadcaster_started and _broadcaster_supervisor is None:
-            _broadcaster_supervisor = BroadcasterSupervisor()
-        if not broadcaster_started:
-            params = read_broadcaster_params(manager_data)
-            if params is not None:
-                try:
-                    _broadcaster_supervisor.start_from_params(params)
-                    broadcaster_started = True
-                except Exception:
-                    logger.exception(
-                        "Failed to start BroadcasterSupervisor; "
-                        "will retry"
-                    )
-
-        _maybe_observe_tray_quit(manager_data, secret, tray_pid_provider)
-
+        _poll_once(settings_dir, params_dir, secret, tray_pid_provider)
         if _shutdown_event.wait(IPC_POLL_INTERVAL_SECONDS):
             return
 
 
-def _maybe_observe_tray_quit(
-    manager_data: Path,
-    secret: Optional[str],
-    tray_pid_provider: Optional[Callable[[], int]],
-) -> None:
-    """Consume any pending ``.quit_requested`` marker (issue #163).
+def _maybe_start_broadcaster(params_dir: Path) -> None:
+    """Start the broadcaster from ``broadcaster_params.json`` when none runs."""
+    global _broadcaster_supervisor
+    from launcher.broadcaster_supervisor import BroadcasterSupervisor, read_broadcaster_params
 
-    On a valid quit marker, sets the process-wide quit event so the
-    wizard-mode wait loops can abort cleanly. Only the quit marker is
-    read: restart and reset markers stay on disk for the main loop
-    (issue #345: reading them here deleted them unseen).
+    with _broadcaster_lock:
+        if _shutdown_event.is_set():
+            return
+        if _broadcaster_supervisor is not None and _broadcaster_supervisor.is_running():
+            return
+        params = read_broadcaster_params(params_dir)
+        if params is None:
+            return
+        if _broadcaster_supervisor is None:
+            _broadcaster_supervisor = BroadcasterSupervisor()
+        try:
+            _broadcaster_supervisor.start_from_params(params)
+        except Exception:
+            logger.exception("Failed to start BroadcasterSupervisor; will retry")
+
+
+def _maybe_observe_tray_quit(settings_dir, secret, tray_pid_provider) -> None:
+    """Read a pending ``.quit_requested`` marker and request the quit (issue #163).
+
+    Skipped while a quit is already requested, so a second click's
+    marker stays on disk for the cascade's second-quit check.
     """
-    if secret is None or tray_pid_provider is None:
+    if secret is None or tray_pid_provider is None or quit_requested():
         return
-    if _quit_requested.is_set():
-        return
-    try:
-        tray_pid = tray_pid_provider()
-    except Exception:
-        logger.exception("tray_pid_provider raised; skipping tray-quit poll")
-        return
-    # ``manager_data`` is ``<data_dir>/manager``; tray markers live in
-    # the parent data dir alongside ``.setup_complete`` etc.
-    data_dir = manager_data.parent
-    try:
-        from launcher import tray_ipc
-        quit_target = tray_ipc.consume_quit_marker(
-            data_dir, secret, tray_pid,
-        )
-    except Exception:
-        logger.exception("Failed to poll tray IPC markers")
-        return
-    if quit_target is not None:
-        logger.info(
-            "Tray quit observed (target=%s); signalling shutdown",
-            quit_target,
-        )
-        _quit_requested.set()
+    tray_pid = tray_pid_provider()
+    from launcher import tray_ipc
+    target = tray_ipc.consume_quit_marker(settings_dir, secret, tray_pid)
+    if target is not None:
+        logger.info("Tray quit observed (target=%s)", target)
+        request_quit(target)
 
 
 # ------------------------------------------------------------------
@@ -256,16 +233,12 @@ def _reset_for_tests() -> None:
     _broadcaster_supervisor = None
     _caddy_supervisor = None
     _shutdown_event.clear()
-    _quit_requested.clear()
+    quit_state.reset_for_tests()
 
 
 def _reset_quit_requested_for_tests() -> None:
-    """Clear the tray-quit event between tests (private).
-
-    Exposed so a per-test autouse fixture can isolate test runs even
-    when other module state should persist.
-    """
-    _quit_requested.clear()
+    """Clear the quit request between tests (private)."""
+    quit_state.reset_for_tests()
 
 
 def _get_broadcaster_supervisor_for_tests() -> Optional[object]:

@@ -28,8 +28,6 @@ _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 sys.path.insert(0, str(_HERE.parent))
 
-from _data_dir_smoke import check_data_dir_alignment  # noqa: E402
-from _resolver_smoke import check_manager_exe_resolver  # noqa: E402
 from _wizard_smoke_helpers import (  # noqa: E402
     bundle_size_bytes, check_common_passwords_resource,
     check_health_endpoint, check_manager_manage_mode,
@@ -228,26 +226,10 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--skip-spawn", action="store_true",
         help="Run only AC-B2 + NF-4 (skip the spawn-and-poll smoke).",
     )
-    parser.add_argument(
-        "--skip-resolver-smoke", action="store_true",
-        help=(
-            "Skip the issue #192 resolver harness "
-            "(check_manager_exe_resolver). Useful for iterative dev "
-            "runs that haven't rebuilt launcher/manager bundles."
-        ),
-    )
-    parser.add_argument(
-        "--skip-data-dir-smoke", action="store_true",
-        help=(
-            "Skip the issue #195 data-dir alignment harness "
-            "(check_data_dir_alignment). Pure-Python guard against "
-            "the launcher reintroducing the legacy /manager append."
-        ),
-    )
     return parser
 
 
-def _run_static_checks(bundle: pathlib.Path, args: argparse.Namespace) -> bool:
+def _run_static_checks(bundle: pathlib.Path) -> bool:
     """Run every non-spawn check; return False on first failure.
 
     Factored out of ``main`` to stay under max-complexity 10.
@@ -260,17 +242,7 @@ def _run_static_checks(bundle: pathlib.Path, args: argparse.Namespace) -> bool:
         return False
     if not check_bundle_size(bundle):
         return False
-    if not check_manager_manage_mode(bundle):
-        return False
-    if args.skip_resolver_smoke:
-        print("--skip-resolver-smoke: #192 resolver harness skipped")
-    elif not check_manager_exe_resolver(bundle):
-        return False
-    if args.skip_data_dir_smoke:
-        print("--skip-data-dir-smoke: #195 data-dir harness skipped")
-    elif not check_data_dir_alignment():
-        return False
-    return True
+    return check_manager_manage_mode(bundle)
 
 
 def main() -> int:
@@ -283,7 +255,7 @@ def main() -> int:
 
     install_wall_clock_watchdog(WALL_CLOCK_BUDGET_SECONDS)
 
-    if not _run_static_checks(bundle, args):
+    if not _run_static_checks(bundle):
         return 1
     if args.skip_spawn:
         print("--skip-spawn: AC-B4 spawn smoke skipped")

@@ -36,8 +36,8 @@ class _StubThread:
         for slot in self.cold_boot_ready.slots:
             slot()
 
-    def wait(self):
-        pass
+    def wait(self, ms=None):
+        return True
 
 
 class _StubSignal:

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from launcher import browser_launch
 from launcher.browser_launch import open_browser, print_setup_banner
 
@@ -90,3 +92,21 @@ def test_banner_prints_url_token_and_fingerprint_of_the_manager_cert(mocker, cap
     assert "clipboard" not in out.lower()
     shown = err.split("sha256:", 1)[1].split()[0]
     assert shown.replace(":", "") == expected
+
+
+@pytest.mark.parametrize("system, env, expected", [
+    pytest.param("Windows", {"SESSIONNAME": "Console"}, False, id="windows-session"),
+    pytest.param("Windows", {}, True, id="windows-no-session"),
+    pytest.param("Darwin", {}, False, id="macos"),
+    pytest.param("Linux", {}, True, id="linux-no-display"),
+    pytest.param("Linux", {"DISPLAY": ":0"}, False, id="linux-x11"),
+    pytest.param("Linux", {"WAYLAND_DISPLAY": "wayland-0"}, False, id="linux-wayland"),
+])
+def test_is_headless(mocker, monkeypatch, system, env, expected):
+    """FR-LN-2: no browser is opened in a headless or service session."""
+    mocker.patch("platform.system", return_value=system)
+    for name in ("SESSIONNAME", "DISPLAY", "WAYLAND_DISPLAY"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert browser_launch.is_headless() is expected

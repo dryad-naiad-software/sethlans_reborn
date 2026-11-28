@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import threading
 from pathlib import Path
@@ -54,6 +55,20 @@ def _load_multicast_broadcaster_cls():
         sys.path.insert(0, str(manager_dir))
     from workers.multicast_broadcaster import MulticastBroadcaster
     return MulticastBroadcaster
+
+
+def broadcaster_params_dir() -> Path:
+    """The folder the manager writes ``broadcaster_params.json`` to.
+
+    The same folder as ``sethlans_manager.runtime_init``: the manager's
+    identity folder when installed or when ``SETHLANS_MANAGER_DATA_DIR``
+    is set, else (from source) the manager's source folder.
+    """
+    from shared import frozen_paths
+
+    if frozen_paths.is_frozen() or os.environ.get("SETHLANS_MANAGER_DATA_DIR"):
+        return frozen_paths.get_identity_dir("manager")
+    return frozen_paths.get_manager_dir()
 
 
 def read_broadcaster_params(manager_data_dir: Path) -> Optional[dict]:

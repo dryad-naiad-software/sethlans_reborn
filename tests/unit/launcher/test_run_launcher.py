@@ -1,175 +1,100 @@
 # SPDX-FileCopyrightText: 2025 Dryad and Naiad Software LLC
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
+"""Unit tests for :mod:`launcher.run_launcher` (FR-LN-5, FR-LN-7, owner Q4)."""
 
-"""
-Unit tests for launcher logic in ``launcher/run_launcher.py``.
+from __future__ import annotations
 
-Covers ``_is_setup_complete``, ``_read_topology``, ``_is_headless``,
-and ``_bootstrap_first_run``.
-"""
-
-import json
+import os
+import subprocess
 
 import pytest
 
-from launcher.run_launcher import (
-    _is_headless,
-    _is_setup_complete,
-    _read_topology,
-    _bootstrap_first_run,
-    MANAGER_PORT,
-)
+from launcher import reset_setup, run_launcher
+
+SECRETS = {"SETHLANS_ADMIN_PASSWORD": "admin-secret", "SETHLANS_SETUP_ADMIN_PASSWORD": "setup-secret",
+           "SETHLANS_TRAY_IPC_SECRET": "stray"}
 
 
-# ---- _is_setup_complete() --------------------------------------------------
+class _LiveTray:
+    pid = 4242
 
-class TestIsSetupComplete:
+    def poll(self):
+        return None
 
-    def test_returns_false_when_sentinel_missing(self, tmp_path):
-        assert _is_setup_complete(tmp_path) is False
+    def wait(self, timeout=None):
+        raise subprocess.TimeoutExpired("tray", timeout)
 
-    def test_returns_true_when_sentinel_exists(self, tmp_path):
-        (tmp_path / ".setup_complete").touch()
-        assert _is_setup_complete(tmp_path) is True
+    def terminate(self):
+        pass
 
-
-# ---- _read_topology() -----------------------------------------------------
-
-class TestReadTopology:
-
-    def test_returns_empty_dict_when_file_missing(self, tmp_path):
-        assert _read_topology(tmp_path) == {}
-
-    def test_reads_valid_topology(self, tmp_path):
-        topo = {"topology": "manager_worker", "version": 1}
-        (tmp_path / "topology.json").write_text(
-            json.dumps(topo), encoding="utf-8",
-        )
-        result = _read_topology(tmp_path)
-        assert result == topo
-
-    def test_reads_manager_only_topology(self, tmp_path):
-        topo = {"topology": "manager"}
-        (tmp_path / "topology.json").write_text(
-            json.dumps(topo), encoding="utf-8",
-        )
-        result = _read_topology(tmp_path)
-        assert result["topology"] == "manager"
-
-    def test_reads_worker_only_topology(self, tmp_path):
-        topo = {"topology": "worker"}
-        (tmp_path / "topology.json").write_text(
-            json.dumps(topo), encoding="utf-8",
-        )
-        result = _read_topology(tmp_path)
-        assert result["topology"] == "worker"
+    kill = terminate
 
 
-# ---- _is_headless() -------------------------------------------------------
+@pytest.fixture
+def boot(mocker, monkeypatch, settings_dir):
+    """main() with the lock, logging and the loop mocked; the real scrub and tray start."""
+    for name, value in SECRETS.items():
+        monkeypatch.setenv(name, value)
+    m = mocker.MagicMock()
+    m.lock = mocker.patch.object(run_launcher, "acquire_single_instance_lock", return_value=object())
+    mocker.patch.object(run_launcher, "release_lock")
+    mocker.patch("launcher.logging_setup.configure")
+    mocker.patch.object(run_launcher.supervision, "install_signal_handlers")
+    mocker.patch.object(run_launcher.supervision, "start_ipc_poll_thread")
+    m.seen_env = {}
 
-class TestIsHeadless:
+    def popen(cmd, **kwargs):
+        m.seen_env.update(os.environ)
+        m.tray_env = kwargs["env"]
+        return _LiveTray()
 
-    def test_not_headless_on_windows_with_session(
-        self, mocker, monkeypatch,
-    ):
-        """Windows branch: SESSIONNAME set → interactive (not headless).
-
-        is_headless() reads the real process environment on the Windows
-        branch, so the test MUST set SESSIONNAME itself — Windows CI
-        runners set it but Linux/macOS runners do not, and mocking
-        platform.system alone is not enough.
-        """
-        mocker.patch("platform.system", return_value="Windows")
-        monkeypatch.setenv("SESSIONNAME", "Console")
-        assert _is_headless() is False
-
-    def test_headless_on_windows_without_session(
-        self, mocker, monkeypatch,
-    ):
-        """Windows branch: no SESSIONNAME → treated as headless/daemon."""
-        mocker.patch("platform.system", return_value="Windows")
-        monkeypatch.delenv("SESSIONNAME", raising=False)
-        assert _is_headless() is True
-
-    def test_not_headless_on_darwin(self, mocker):
-        mocker.patch("platform.system", return_value="Darwin")
-        assert _is_headless() is False
-
-    def test_headless_on_linux_no_display(self, mocker, monkeypatch):
-        mocker.patch("platform.system", return_value="Linux")
-        monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
-        assert _is_headless() is True
-
-    def test_not_headless_on_linux_with_display(self, mocker, monkeypatch):
-        mocker.patch("platform.system", return_value="Linux")
-        monkeypatch.setenv("DISPLAY", ":0")
-        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
-        assert _is_headless() is False
-
-    def test_not_headless_on_linux_with_wayland(self, mocker, monkeypatch):
-        mocker.patch("platform.system", return_value="Linux")
-        monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
-        assert _is_headless() is False
+    m.popen = mocker.patch("launcher.components.subprocess.Popen", side_effect=popen)
+    m.loop = mocker.patch.object(run_launcher.machine_loop, "run_loop", return_value=0)
+    m.reset = mocker.patch.object(run_launcher.reset_setup, "reset_stopped")
+    return m
 
 
-# ---- _bootstrap_first_run() -----------------------------------------------
+def test_main_scrubs_before_the_first_spawn(boot, settings_dir):
+    """FR-LN-7 (6a gate): the setup secrets are out of the launcher's own environment
+    before the first child starts, the settings location is exported, and only the tray
+    gets the tray secret."""
+    assert run_launcher.main(["--no-browser"]) == 0
 
-class TestBootstrapFirstRun:
+    boot.popen.assert_called_once()
+    assert not set(SECRETS) & set(boot.seen_env)
+    assert boot.seen_env["SETHLANS_SETTINGS_DIR"] == os.path.abspath(settings_dir)
+    assert boot.tray_env["SETHLANS_TRAY_IPC_SECRET"] != "stray"
+    assert "SETHLANS_ADMIN_PASSWORD" not in boot.tray_env
+    boot.loop.assert_called_once()
 
-    @pytest.fixture
-    def ini_path(self, tmp_path, monkeypatch):
-        path = tmp_path / "settings" / "sethlans.ini"
-        monkeypatch.setenv("SETHLANS_SETTINGS_FILE", str(path))
-        return path
 
-    def test_creates_manager_data_dir(self, tmp_path, ini_path):
-        result = _bootstrap_first_run(tmp_path)
-        assert result == tmp_path / "manager"
-        assert result.is_dir()
+def test_reset_setup_while_running_is_refused_and_changes_nothing(boot, capsys):
+    """Owner Q4 (a): while Sethlans runs (the lock is held) --reset-setup refuses with
+    the tray hint and changes nothing."""
+    boot.lock.return_value = None
 
-    def test_creates_settings_file(self, tmp_path, ini_path):
-        _bootstrap_first_run(tmp_path)
-        assert ini_path.exists()
-        assert not (tmp_path / "manager" / "manager.ini").exists()
-        content = ini_path.read_text(encoding="utf-8")
-        assert "[security]" in content
-        assert "secret_key" in content
-        assert "debug = False" in content
-        assert f"port = {MANAGER_PORT}" in content
+    assert run_launcher.main(["--reset-setup", "--no-browser"]) == 1
 
-    def test_does_not_overwrite_existing_file(self, tmp_path, ini_path):
-        ini_path.parent.mkdir(parents=True)
-        ini_path.write_text("existing content", encoding="utf-8")
+    assert reset_setup.REFUSED in capsys.readouterr().err
+    boot.reset.assert_not_called()
+    boot.popen.assert_not_called()
 
-        _bootstrap_first_run(tmp_path)
-        assert ini_path.read_text(encoding="utf-8") == "existing content"
 
-    def test_secret_key_is_long_enough(self, tmp_path, ini_path):
-        _bootstrap_first_run(tmp_path)
-        content = ini_path.read_text(encoding="utf-8")
-        for line in content.splitlines():
-            if line.startswith("secret_key"):
-                key = line.split("=", 1)[1].strip()
-                assert len(key) >= 67
-                break
-        else:
-            pytest.fail("secret_key not found in the settings file")
+def test_reset_setup_when_not_running_resets_then_starts(boot):
+    """Owner Q4 (a), FR-RS-1: not running, the flag is the confirmation: reset at once,
+    then the launcher starts (into SETUP)."""
+    order = []
+    boot.reset.side_effect = lambda: order.append("reset")
+    boot.loop.side_effect = lambda ctx: order.append("loop") or 0
 
-    def test_file_is_owner_only(self, tmp_path, ini_path):
-        from shared.owner_only_acl import verify_owner_only
-        _bootstrap_first_run(tmp_path)
-        assert verify_owner_only(ini_path)
+    assert run_launcher.main(["--reset-setup", "--no-browser"]) == 0
+    assert order == ["reset", "loop"]
 
-    def test_writes_waitress_port_keys(self, tmp_path, ini_path):
-        # Issue #100 / TR-3: ``_bootstrap_first_run`` must declare both
-        # the public-origin and internal-origin Waitress loopback ports
-        # so the launcher-side Caddy supervisor can read them from
-        # the settings file via ``waitress_config`` helpers without
-        # falling through to defaults silently.
-        _bootstrap_first_run(tmp_path)
-        content = ini_path.read_text(encoding="utf-8")
-        assert "waitress_loopback_port_public = 8090" in content
-        assert "waitress_loopback_port_internal = 8088" in content
+
+def test_already_running_starts_nothing(boot, capsys):
+    """FR-14b: a second launcher on the same settings folder only says so."""
+    boot.lock.return_value = None
+    assert run_launcher.main(["--no-browser"]) == 0
+    assert "already running" in capsys.readouterr().err
+    boot.popen.assert_not_called()

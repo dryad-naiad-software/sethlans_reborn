@@ -17,8 +17,9 @@ out of scope: they validate and write the wizard's own spellings
 (``VALID_TOPOLOGIES``).
 
 No fallback policy lives here: ``normalize_topology`` returns ``None``
-for anything unknown and each caller decides how to fail (the launcher
-fails closed, see :mod:`launcher.runtime_topology`).
+for anything unknown and each caller decides how to fail. The launcher
+takes its mode from ``shared.settings_file.setup_finished`` (the D14
+names), which these predicates accept.
 
 Pure stdlib, no I/O: safe to import from the frozen launcher, the tray
 helper and tests alike.

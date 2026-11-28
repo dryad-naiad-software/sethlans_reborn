@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from launcher.health_probe import wait_for_health
+from launcher.health_probe import probe_health_once, wait_for_health
 
 # cryptography ships with the project; build a fresh self-signed cert
 # for each test server so we don't smuggle a real cert path through.
@@ -79,7 +79,14 @@ class _Handler(BaseHTTPRequestHandler):
     behavior = "ok"
 
     def do_GET(self):
-        if self.path != "/api/health/":
+        if self.behavior == "redirect" and self.path == "/api/health/":
+            self.send_response(302)
+            self.send_header("Location", "/elsewhere/")
+            self.end_headers()
+            return
+        if self.behavior == "redirect" and self.path == "/elsewhere/":
+            self.behavior = "ok"
+        elif self.path != "/api/health/":
             self.send_response(404)
             self.end_headers()
             return
@@ -96,6 +103,12 @@ class _Handler(BaseHTTPRequestHandler):
             body = b"{}"
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.behavior == "huge":
+            body = json.dumps({"boot_id": "abc", "version": "1.0", "pad": "x" * 70_000}).encode("utf-8")
+            self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -150,6 +163,13 @@ class TestSingleURL:
         with _https_server("missing_envelope") as port:
             url = f"https://127.0.0.1:{port}/api/health/"
             assert wait_for_health(url, timeout=2.0) is False
+
+    @pytest.mark.parametrize("behavior", ["redirect", "huge"])
+    def test_a_redirect_or_an_oversized_body_is_not_healthy(self, behavior):
+        """Security review of 6b (L4): health is a 200 from the URL asked, read at most
+        64 KiB; a redirect is not followed and a larger body is not parsed."""
+        with _https_server(behavior) as port:
+            assert probe_health_once(f"https://127.0.0.1:{port}/api/health/") is False
 
     def test_returns_false_on_500(self):
         with _https_server("five_hundred") as port:

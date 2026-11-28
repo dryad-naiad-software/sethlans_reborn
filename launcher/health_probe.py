@@ -5,9 +5,8 @@
 """Cold-boot health-poll helper for the launcher splash dismissal path.
 
 This module owns the unified ``wait_for_health`` helper used by every
-cold-boot orchestration path (wizard, manager, manager+worker, worker).
-It generalizes the older ``orchestration.wait_for_manager_ready`` so a
-single helper drives the splash-dismissal contract for all paths.
+state of the launcher loop that waits for a child (setup mode, the
+manager, the worker), so one helper drives the splash-dismissal contract.
 
 Contract (FR-3 / FR-5 / NFR-6):
 
@@ -22,9 +21,6 @@ Contract (FR-3 / FR-5 / NFR-6):
 
 The per-poll HTTPS GET is implemented via :func:`probe_health_once`,
 which is the single-source-of-truth for the FR-W14 envelope check.
-Both the cold-boot wait loop and the wizard's pre-handoff health
-check route through it so they cannot drift on what "healthy" means
-(OQ-2 consolidation).
 """
 
 from __future__ import annotations
@@ -51,6 +47,8 @@ HEALTH_POLL_INTERVAL = 0.25
 # Per-call HTTPS GET timeout. Small so a hung handshake on one poll
 # iteration does not dominate the overall wall-clock budget.
 HEALTH_PROBE_TIMEOUT = 2.0
+# The most of a health body read; an envelope is a few hundred bytes.
+HEALTH_MAX_BYTES = 64 * 1024
 
 # FR-5 / FR-W14 envelope intersection. Worker also returns
 # ``worker_id``; manager doesn't. Both always return these two.
@@ -79,9 +77,8 @@ class QuitRequested(Exception):
     Issue #163: the launcher's IPC poll thread sets the process-wide
     quit event when a tray ``.quit_requested`` marker is observed.
     ``wait_for_health`` polls that event between probes; when set it
-    raises this exception so the caller (``run_wizard_mode`` /
-    ``_await_cold_boot``) can run the user-quit cleanup path instead
-    of the health-timeout failure path.
+    raises this exception so the loop (``launcher.machine_loop``) runs
+    its quit path instead of the health-timeout failure path.
     """
 
 
@@ -124,24 +121,38 @@ def _make_ssl_context() -> ssl.SSLContext:
     return ctx
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect: a health answer is a 200 from the URL asked."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _make_opener(ctx: ssl.SSLContext) -> urllib.request.OpenerDirector:
+    """No proxy (loopback only), no redirects, the given TLS context."""
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=ctx), _NoRedirect(),
+    )
+
+
+def _open(url: str, timeout: float):
+    """One GET through :func:`_make_opener` with a fresh unverified context."""
+    return _make_opener(_make_ssl_context()).open(url, timeout=timeout)  # noqa: S310 — self-signed by design
+
+
 def probe_health_once(
     url: str, timeout: float = HEALTH_PROBE_TIMEOUT,
 ) -> bool:
     """Single HTTPS GET against ``url``; True iff 200 + FR-W14 envelope.
 
-    Used by :func:`wait_for_health` (per-poll cold-boot wait) and the
-    wizard's pre-handoff health gate; single-sourcing the envelope
-    check keeps the two paths from drifting (OQ-2).
+    Used by :func:`wait_for_health` for each poll.
     """
-    ctx = _make_ssl_context()
     try:
-        with urllib.request.urlopen(  # noqa: S310 — self-signed by design
-            url, context=ctx, timeout=timeout,
-        ) as resp:
+        with _open(url, timeout) as resp:
             status = getattr(resp, "status", None) or resp.getcode()
             if status != 200:
                 return False
-            raw = resp.read()
+            raw = resp.read(HEALTH_MAX_BYTES)
     except (
         urllib.error.URLError,
         socket.timeout,
@@ -200,8 +211,7 @@ def wait_for_health(
         return False
     # Issue #163: lazy import to avoid a circular dependency.
     from launcher import supervision
-    quit_event = supervision.get_quit_requested_event()
-    if quit_event.is_set():
+    if supervision.quit_requested():
         raise QuitRequested()
     deadline = time.monotonic() + timeout
     try:

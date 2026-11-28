@@ -139,8 +139,34 @@ def test_stop_caddy_stops_and_unregisters(caddy):
     assert supervision.get_caddy_supervisor() is None
 
 
-def test_current_loop_entry_uses_the_configured_port(caddy):
-    """Current normal mode (until 6b): Caddy listens on ``[server] port``."""
-    _fake, build = caddy
-    caddy_wiring.start_caddy_supervisor(Path("ignored"))
-    assert build.call_args.kwargs["public_tls_port"] == 9443
+def test_running_public_port_follows_the_running_caddy(caddy):
+    """FR-LN-3: re-entering SETUP counts the port our Caddy already serves as free,
+    so the launcher must know it; ``None`` once Caddy stops or is not running."""
+    fake, _build = caddy
+    assert caddy_wiring.running_public_port() is None
+    caddy_wiring.start_or_retarget(8081)
+    assert caddy_wiring.running_public_port() == 8081
+    fake.is_running.return_value = False
+    assert caddy_wiring.running_public_port() is None
+    fake.is_running.return_value = True
+    caddy_wiring.stop_caddy()
+    assert caddy_wiring.running_public_port() is None
+
+
+@pytest.mark.parametrize("value, expected", [
+    pytest.param(None, 8089, id="default"),
+    pytest.param("9189", 9189, id="override"),
+    pytest.param("not-a-port", ValueError, id="refused"),
+])
+def test_caddy_loopback_port(monkeypatch, value, expected):
+    """FR-LN-3 (our own ports are never offered for setup): Caddy's loopback port is
+    8089 unless ``SETHLANS_MANAGER_CADDY_LOOPBACK_PORT`` names another; a bad value fails loudly."""
+    if value is None:
+        monkeypatch.delenv(caddy_wiring.CADDY_LOOPBACK_PORT_ENV, raising=False)
+    else:
+        monkeypatch.setenv(caddy_wiring.CADDY_LOOPBACK_PORT_ENV, value)
+    if expected is ValueError:
+        with pytest.raises(ValueError):
+            caddy_wiring.caddy_loopback_port()
+    else:
+        assert caddy_wiring.caddy_loopback_port() == expected

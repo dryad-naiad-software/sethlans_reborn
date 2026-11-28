@@ -4,8 +4,8 @@
 
 """Tests for ``launcher.component_paths.find_component_exe`` (FR-L12).
 
-Covers the new ``wizard`` branch alongside the existing
-``manager``/``worker``/``tray`` branches in both source and frozen mode.
+Covers the ``manager``/``worker``/``tray`` branches in both source and
+frozen mode; the old ``wizard`` component is gone (setup rebuild 6b).
 """
 
 import sys
@@ -33,15 +33,11 @@ class TestFindComponentExeSourceMode:
         assert result.name == "run_tray.py"
         assert result.parent.name == "shared"
 
-    def test_wizard_branch_returns_run_wizard_py(self):
-        """FR-L12: source mode wizard → wizard/run_wizard.py."""
-        result = find_component_exe("wizard")
-        assert result.name == "run_wizard.py"
-        assert result.parent.name == "wizard"
-
-    def test_unknown_component_raises_value_error(self):
+    @pytest.mark.parametrize("component", ["nonexistent", "wizard"])
+    def test_unknown_component_raises_value_error(self, component):
+        """FR-L12; setup rebuild: the wizard component no longer exists."""
         with pytest.raises(ValueError, match="unknown component"):
-            find_component_exe("nonexistent")
+            find_component_exe(component)
 
 
 class TestFindComponentExeFrozenWindows:
@@ -75,13 +71,6 @@ class TestFindComponentExeFrozenWindows:
         result = find_component_exe("tray")
         assert result.name == "run_tray_helper.exe"
         assert result.parent.name == "tray_helper"
-
-    def test_wizard_branch_returns_run_wizard_exe(self, mocker, tmp_path):
-        """FR-L12: frozen Windows wizard → bin/wizard/run_wizard.exe."""
-        self._stub_frozen_windows(mocker, tmp_path)
-        result = find_component_exe("wizard")
-        assert result.name == "run_wizard.exe"
-        assert result.parent.name == "wizard"
 
     def test_unknown_component_raises_value_error_frozen(
         self, mocker, tmp_path,
@@ -118,22 +107,3 @@ class TestFindComponentExeFrozenPosix:
         result = find_component_exe("tray")
         assert result.name == "run_tray_helper"
         assert result.parent.name == "tray_helper"
-
-    def test_wizard_branch_returns_run_wizard_no_extension(
-        self, mocker, tmp_path,
-    ):
-        """FR-L12: frozen POSIX wizard → bin/wizard/run_wizard."""
-        self._stub_frozen_linux(mocker, tmp_path)
-        result = find_component_exe("wizard")
-        assert result.name == "run_wizard"
-        assert result.parent.name == "wizard"
-
-
-class TestRunLauncherReExport:
-    """Verify ``launcher.run_launcher._find_component_exe`` re-export works."""
-
-    def test_re_export_finds_wizard(self):
-        from launcher.run_launcher import _find_component_exe
-
-        result = _find_component_exe("wizard")
-        assert result.name == "run_wizard.py"

@@ -22,7 +22,7 @@ import json
 
 import pytest
 
-from launcher import health_probe
+from launcher import health_probe, supervision
 from launcher.health_probe import (
     NonLoopbackHealthURL,
     probe_health_once,
@@ -45,7 +45,7 @@ class _FakeResp:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
+    def read(self, size=-1):
         return self._body
 
     def getcode(self):
@@ -58,7 +58,7 @@ def _stub_urlopen(mocker, *, status=200, body=None):
             {"boot_id": "abc", "version": "1.0"},
         ).encode("utf-8")
     return mocker.patch.object(
-        health_probe.urllib.request, "urlopen",
+        health_probe, "_open",
         return_value=_FakeResp(status, body),
     )
 
@@ -99,7 +99,7 @@ class TestProbeHealthOnce:
 
     def test_returns_false_on_connection_refused(self, mocker):
         mocker.patch.object(
-            health_probe.urllib.request, "urlopen",
+            health_probe, "_open",
             side_effect=ConnectionRefusedError(),
         )
         assert probe_health_once(self.URL) is False
@@ -131,7 +131,7 @@ class TestLoopbackGate:
 
     def test_rejects_remote_hostname_before_any_request(self, mocker):
         urlopen = mocker.patch.object(
-            health_probe.urllib.request, "urlopen",
+            health_probe, "_open",
         )
         with pytest.raises(NonLoopbackHealthURL):
             wait_for_health("https://example.com/api/health/")
@@ -139,7 +139,7 @@ class TestLoopbackGate:
 
     def test_rejects_lan_ip(self, mocker):
         urlopen = mocker.patch.object(
-            health_probe.urllib.request, "urlopen",
+            health_probe, "_open",
         )
         with pytest.raises(NonLoopbackHealthURL):
             wait_for_health("https://192.168.1.10/api/health/")
@@ -169,7 +169,7 @@ class TestWaitForHealthTimeout:
     def test_returns_false_on_wall_clock_timeout(self, mocker):
         # urlopen always raises ConnectionRefused so probe stays False.
         mocker.patch.object(
-            health_probe.urllib.request, "urlopen",
+            health_probe, "_open",
             side_effect=ConnectionRefusedError(),
         )
         # Drive monotonic so the deadline trips on the second check.
@@ -198,7 +198,7 @@ class TestWaitForHealthProcExit:
         proc.poll.return_value = 1
         proc.returncode = 1
         urlopen = mocker.patch.object(
-            health_probe.urllib.request, "urlopen",
+            health_probe, "_open",
         )
         assert wait_for_health(URL, proc=proc) is False
         urlopen.assert_not_called()
@@ -241,7 +241,7 @@ class TestWaitForHealthKeyboardInterrupt:
         """FR-3 / AC-KIEnvelope: KI inside probe MUST return False, not
         propagate to the caller."""
         mocker.patch.object(
-            health_probe.urllib.request, "urlopen",
+            health_probe, "_open",
             side_effect=KeyboardInterrupt(),
         )
         # Guard: if the KI envelope leaks, this assertion never runs.
@@ -250,11 +250,11 @@ class TestWaitForHealthKeyboardInterrupt:
 
     def test_returns_false_on_ki_during_sleep(self, mocker):
         mocker.patch.object(
-            health_probe.urllib.request, "urlopen",
+            health_probe, "_open",
             side_effect=ConnectionRefusedError(),
         )
         mocker.patch.object(
-            health_probe.time, "sleep",
+            supervision, "wait_or_quit",
             side_effect=KeyboardInterrupt(),
         )
         result = wait_for_health(URL)

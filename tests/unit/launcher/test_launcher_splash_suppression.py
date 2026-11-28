@@ -27,6 +27,7 @@ from launcher import run_launcher
 @pytest.fixture
 def fake_data_dir(tmp_path, mocker):
     """Isolate main() from the real user data dir + single-instance lock."""
+    mocker.patch.object(run_launcher.child_env, "prepare_launcher_environment")
     mocker.patch.object(run_launcher, "get_data_dir", return_value=tmp_path)
     mocker.patch.object(
         run_launcher, "acquire_single_instance_lock",

@@ -70,8 +70,8 @@ class TestPredicates:
 class TestNoFailOpenHelper:
 
     def test_no_default_resolver_exported(self):
-        """The fail-open ``resolve_topology`` helper was removed; the
-        launcher's fail-closed policy lives in launcher.runtime_topology."""
+        """The fail-open ``resolve_topology`` helper was removed; each caller
+        decides how to fail on an unknown topology."""
         assert not hasattr(topo, "resolve_topology")
 
 

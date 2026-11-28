@@ -2,13 +2,23 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Bootstrap launcher entry point."""
+"""Bootstrap launcher entry point (FR-LN-1, -5, -7; FR-RS).
+
+:func:`main` first scrubs the setup secrets out of the environment and
+exports the settings location (``child_env.prepare_launcher_environment``,
+FR-LN-7), before the tray, Caddy, the browser or any thread. It then
+takes the single-instance lock of the settings folder, handles
+``--reset-setup`` (``launcher.reset_setup``, owner Q4), starts the tray
+and the IPC poll thread, and runs ``launcher.machine_loop`` with the
+splash, or headless with ``--no-browser`` / ``--print-url``.
+
+``--setup-file`` (unattended setup) is chunk 8: it plugs into
+``machine_loop.run_loop`` as its setup step.
+"""
 
 import argparse
-import json
 import logging
 import os
-import secrets
 import subprocess
 import sys
 import time
@@ -17,7 +27,6 @@ from typing import Optional
 
 # In frozen mode PyInstaller handles sys.path; only add the launcher
 # directory and project root when running from source (issue #177).
-# Mirrors ``wizard/run_wizard.py`` / ``worker/run_worker.py``.
 if not getattr(sys, "frozen", False):
     launcher_dir = str(Path(__file__).resolve().parent)
     if launcher_dir not in sys.path:
@@ -27,157 +36,39 @@ if not getattr(sys, "frozen", False):
         sys.path.insert(0, project_root)
 
 from launcher import (  # noqa: E402
-    cascade, diagnostics, supervision,
+    cascade, child_env, components, diagnostics, machine_loop, reset_setup, supervision, tray_ipc,
 )
-from launcher.browser_launch import (  # noqa: F401, E402
-    compute_cert_fingerprint as _compute_cert_fingerprint,
-    is_headless as _is_headless, open_browser, print_setup_banner,
-)
-from launcher.component_paths import find_component_exe, popen_kwargs_for_component  # noqa: E402
-from launcher.main_dispatch import (  # noqa: F401, E402
-    _is_setup_complete,
-    _pre_orchestration_setup as _pre_orchestration_setup_impl,
-    _run_orchestration as _run_orchestration_impl,
-)
-from launcher.paths import get_bin_dir, get_data_dir, get_install_dir, set_file_permissions  # noqa: E402
+from launcher.loop_context import LoopContext  # noqa: E402
+from launcher.paths import get_data_dir  # noqa: E402
 from launcher.single_instance import acquire_single_instance_lock, release_lock  # noqa: E402
-from shared import settings_file  # noqa: E402
+from shared.settings_file_io import ensure_owner_only_dir  # noqa: E402
 from shared.version import get_version  # noqa: E402
 
 __version__ = get_version()
 
-MANAGER_PORT = 8080
-DASHBOARD_PATH = "/"
 _INSTANCE_LOCK = None  # type: ignore[var-annotated]
+TRAY_START_CHECK_SECONDS = 3.0
+LAUNCHER_PID_ENV = "SETHLANS_LAUNCHER_PID"
 logger = logging.getLogger(__name__)
 
-# Re-exports for tests/back-compat — bindings ``mocker.patch`` targets.
-_get_data_dir = get_data_dir
-_get_bin_dir = get_bin_dir
-_get_install_dir = get_install_dir
-_set_file_permissions = set_file_permissions
 
-
-def _read_topology(data_dir: Path) -> dict:
-    topology_file = data_dir / "topology.json"
-    if topology_file.exists():
-        with open(topology_file, "r") as f:
-            return json.load(f)
-    return {}
-
-
-def _bootstrap_first_run(data_dir: Path) -> Path:
-    """Create ``<data_dir>/manager`` and, when missing, the settings file.
-
-    The settings file (:func:`shared.settings_file.settings_path`) gets
-    the first-run ``[security]`` and ``[server]`` defaults, written
-    atomically and owner-only. An existing file is left untouched.
-    """
-    manager_data = data_dir / "manager"
-    manager_data.mkdir(parents=True, exist_ok=True)
-    ini_path = settings_file.settings_path()
-    defaults = {
-        "security": {"secret_key": secrets.token_urlsafe(50), "debug": "False"},
-        "server": {
-            "host": "0.0.0.0",
-            "port": str(MANAGER_PORT),
-            "loopback_port": "8088",
-            "waitress_loopback_port_public": "8090",
-            "waitress_loopback_port_internal": "8088",
-        },
-    }
-
-    def _fill_when_new(parser) -> bool:
-        if parser.sections():
-            return False
-        parser.read_dict(defaults)
-        return True
-
-    if not ini_path.exists() and settings_file.update_settings(_fill_when_new, ini_path):
-        print(f"Generated settings file at {ini_path}")
-    return manager_data
-
-
-_find_component_exe = find_component_exe  # tests / back-compat (FR-L12)
-
-
-def _start_component(
-    component: str, extra_args=None, env: Optional[dict] = None,
-) -> subprocess.Popen:
-    exe = _find_component_exe(component)
-    if getattr(sys, 'frozen', False):
-        cmd = [str(exe)]
-    else:
-        cmd = [sys.executable, str(exe)]
-    if extra_args:
-        cmd.extend(extra_args)
-    proc_env = os.environ.copy()
-    if env:
-        proc_env.update(env)
-    # FR-10 (D4): launcher-spawned workers force the embedded web UI on.
-    if component == "worker":
-        proc_env["SETHLANS_WORKER_UI_ENABLED"] = "true"
-    # Issue #204: long-running subprocesses (``manager``, ``worker``) MUST
-    # NOT use ``subprocess.PIPE`` here. The launcher does not drain those
-    # pipes in normal mode; the ~64 KB OS pipe buffer fills within minutes
-    # and the next ``write()`` to stderr blocks INSIDE Python's logging
-    # ``Handler.emit()`` — holding the handler's RLock forever. Every
-    # subsequent log call (including Waitress's WARN-level 4xx logs) then
-    # deadlocks, which is exactly why ``/api/auth/user/`` hangs after a
-    # few minutes uptime. Both processes write their own log files; the
-    # launcher does not need to capture their stderr in normal mode.
-    if component == "tray":
-        stdout = None
-        stderr = None
-    elif component in ("manager", "worker"):
-        stdout = subprocess.DEVNULL
-        stderr = subprocess.DEVNULL
-    else:
-        stdout = subprocess.PIPE
-        stderr = subprocess.PIPE
-    # DEVOPS-MED-4 (Phase F3): see popen_kwargs_for_component docstring.
-    popen_kwargs = popen_kwargs_for_component()
-    return subprocess.Popen(
-        cmd, stdout=stdout, stderr=stderr, env=proc_env, **popen_kwargs,
-    )
-
-
-def _open_browser(port: int, no_browser: bool, print_url: bool,
-                  path: str = DASHBOARD_PATH,
-                  setup_token: str | None = None):
-    del setup_token  # FR-13: URL never carries ?token=.
-    open_browser(port, no_browser, print_url, path, None)
-
-
-def _spawn_tray(data_dir: Path, secret: str) -> subprocess.Popen:
-    """Spawn the tray subprocess; fail hard if it does not come up."""
-    del data_dir
-    env = {
-        "SETHLANS_TRAY_IPC_SECRET": secret,
-        "SETHLANS_LAUNCHER_PID": str(os.getpid()),
-    }
+def _spawn_tray(secret: str) -> subprocess.Popen:
+    """Spawn the tray (the only child given the IPC secret); fail hard if it does not come up."""
     try:
-        proc = _start_component("tray", env=env)
+        proc = components.start_tray(secret, {LAUNCHER_PID_ENV: str(os.getpid())})
     except Exception as exc:
         print(f"\n[ERROR] Failed to spawn tray helper: {exc}\n"
               "The Sethlans tray is required for the launcher UX.\n"
               "Aborting startup.", file=sys.stderr)
         sys.exit(1)
     try:
-        rc = proc.wait(timeout=3.0)
+        rc = proc.wait(timeout=TRAY_START_CHECK_SECONDS)
     except subprocess.TimeoutExpired:
-        return proc  # still alive after 3s = healthy
+        return proc  # still alive: healthy
     print(f"\n[ERROR] Tray helper exited immediately with code {rc}.\n"
           "Likely the tray bundle is missing PySide6 or its backend.\n"
           "Aborting startup.", file=sys.stderr)
     sys.exit(1)
-
-
-def _already_running_notice() -> None:
-    print(
-        "Sethlans is already running. "
-        "Check the system tray / running windows.", file=sys.stderr,
-    )
 
 
 def _teardown_tray(tray: Optional[subprocess.Popen]) -> None:
@@ -193,40 +84,52 @@ def _teardown_tray(tray: Optional[subprocess.Popen]) -> None:
             pass
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Sethlans — Distributed Blender Rendering")
     p.add_argument("--version", action="version", version=f"Sethlans {__version__}")
     p.add_argument("--no-browser", action="store_true",
                    help="Do not open a browser window on startup.")
     p.add_argument("--print-url", action="store_true",
                    help="Print the application URL and skip browser auto-open.")
-    return p.parse_args()
+    p.add_argument("--reset-setup", action="store_true",
+                   help="Reset setup (keeps all data), then start setup. "
+                        "Refused while Sethlans runs: use Reset in the tray.")
+    return p.parse_args(argv)
 
 
 def _prepare_data_dir() -> Path:
+    """The settings folder and its ``logs`` folder, owner-only; logging configured."""
     data_dir = get_data_dir()
-    data_dir.mkdir(parents=True, exist_ok=True)
+    ensure_owner_only_dir(data_dir)
+    ensure_owner_only_dir(data_dir / "logs")
     from launcher.logging_setup import configure as _configure_logging
     _configure_logging("launcher", data_dir=data_dir)
-    logger.debug(
-        "Launcher starting; version=%s pid=%d data_dir=%s",
-        __version__, os.getpid(), data_dir,
-    )
+    logger.debug("Launcher starting; version=%s pid=%d data_dir=%s", __version__, os.getpid(), data_dir)
     return data_dir
 
 
-def _run_orchestration(data_dir: Path, args, tray, secret, **kw) -> int:
-    """Thin shim — delegates to :mod:`launcher.main_dispatch` (issue #203)."""
-    return _run_orchestration_impl(
-        data_dir, args, tray, secret,
-        bootstrap_first_run=_bootstrap_first_run,
-        start_component=_start_component, **kw,
-    )
-
-
 def _pre_orchestration_setup(data_dir: Path):
-    """Thin shim — delegates to :mod:`launcher.main_dispatch`."""
-    return _pre_orchestration_setup_impl(data_dir, _spawn_tray)
+    """Signals, stale markers, the tray and the IPC poll thread; return ``(tray, secret)``."""
+    supervision.install_signal_handlers()
+    tray_ipc.sweep_stale_markers(data_dir)
+    secret = tray_ipc.generate_secret()
+    tray = _spawn_tray(secret)
+    supervision.start_ipc_poll_thread(
+        data_dir, secret=secret,
+        tray_pid_provider=lambda: tray.pid if tray is not None else -1,
+    )
+    return tray, secret
+
+
+def _run_orchestration(data_dir: Path, args, tray, secret, *,
+                       on_cold_boot_ready=None, on_startup_failed=None) -> int:
+    """Run the launcher loop (``machine_loop.run_loop``)."""
+    ctx = LoopContext(
+        settings_dir=data_dir, secret=secret, tray=tray,
+        no_browser=args.no_browser, print_url=args.print_url,
+        on_ready=on_cold_boot_ready, on_failed=on_startup_failed,
+    )
+    return machine_loop.run_loop(ctx)
 
 
 def _main_headless(args, data_dir: Path) -> int:
@@ -240,7 +143,6 @@ def _main_headless(args, data_dir: Path) -> int:
     finally:
         # FR-6: tray teardown reaches every exit path (incl. uncaught).
         _teardown_tray(tray)
-    supervision.shutdown_supervisors()
     return rc
 
 
@@ -260,18 +162,29 @@ def _shutdown_supervisors_for_finally() -> None:
     supervision.shutdown_supervisors()
 
 
-def main():
+def _already_running(args) -> int:
+    if args.reset_setup:
+        print(reset_setup.REFUSED, file=sys.stderr)
+        return 1
+    print("Sethlans is already running. Check the system tray / running windows.", file=sys.stderr)
+    return 0
+
+
+def _main(argv) -> int:
     global _INSTANCE_LOCK
     diagnostics.install_diagnostics()
     started_at = time.monotonic()
     rc = 1
     try:
-        args = _parse_args()
+        args = _parse_args(argv)
         data_dir = _prepare_data_dir()
         _INSTANCE_LOCK = acquire_single_instance_lock(data_dir)
         if _INSTANCE_LOCK is None:
-            _already_running_notice()
-            return 0
+            rc = _already_running(args)
+            return rc
+        if args.reset_setup:
+            reset_setup.reset_stopped()
+            print(reset_setup.DONE)
         use_splash = not (args.no_browser or args.print_url)
         boot = _main_with_splash if use_splash else _main_headless
         rc = boot(args, data_dir)
@@ -283,6 +196,12 @@ def main():
             release_lock=release_lock, instance_lock=_INSTANCE_LOCK,
         )
         _INSTANCE_LOCK = None
+
+
+def main(argv=None) -> int:
+    """Launcher entry (module doc)."""
+    child_env.prepare_launcher_environment()  # FR-LN-7: before the tray, Caddy, the browser or any thread
+    return _main(argv)
 
 
 if __name__ == "__main__":
