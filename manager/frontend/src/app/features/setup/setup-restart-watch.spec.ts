@@ -8,6 +8,8 @@ import { LIMIT_MS, POLL_MS, RestartState, restartState, watchRestart } from './s
 import { SetupHealth } from './setup.types';
 
 const OLD = 'old-boot';
+// One of health's fixed last_failure summaries (#348).
+const DID_NOT_START = 'The manager did not start. Enter the setup token to see why.';
 
 describe('setup restart watch', () => {
   /** FR-WZ-8: what one health answer means while the manager restarts. */
@@ -17,12 +19,12 @@ describe('setup restart watch', () => {
       expected: { kind: 'waiting' } },
     { why: 'the manager with a new boot_id', health: { mode: 'normal', boot_id: 'new' },
       expected: { kind: 'done' } },
-    { why: 'setup mode back with its reason',
-      health: { mode: 'setup', boot_id: 'new', last_failure: 'Port 8080 is in use.' },
-      expected: { kind: 'setup_again', reason: 'Port 8080 is in use.' } },
+    { why: '#348 setup mode back with its summary, passed on exactly',
+      health: { mode: 'setup', boot_id: 'new', last_failure: DID_NOT_START },
+      expected: { kind: 'setup_again', reason: DID_NOT_START } },
     { why: 'setup mode back without a reason', health: { mode: 'setup', boot_id: 'new', last_failure: null },
       expected: { kind: 'setup_again',
-        reason: 'Setup mode started again without a reason; check the launcher\'s log.' } },
+        reason: 'The manager did not start, and setup mode gave no reason; check the launcher\'s log.' } },
     // Review S3: with no old boot_id a setup answer may be the old process; only the manager ends it.
     { why: 'no old boot_id, a setup answer', old: '',
       health: { mode: 'setup', boot_id: 'any', last_failure: 'Port 8080 is in use.' },

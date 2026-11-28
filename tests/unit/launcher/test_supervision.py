@@ -13,8 +13,6 @@ Covers:
 - ``start_ipc_poll_thread`` picks up the manager-published
   ``broadcaster_params.json`` and starts the broadcaster exactly
   once (spec: "broadcaster thread count == 1").
-- Setup-restart request file triggers
-  ``apply_restart_request`` and gets cleared afterward.
 """
 
 from __future__ import annotations
@@ -158,42 +156,27 @@ def test_poll_thread_starts_broadcaster_exactly_once(tmp_path):
     )
 
 
-def test_poll_thread_applies_caddy_restart_request(tmp_path):
-    """Restart request file triggers apply_restart_request + clear."""
-    manager_data = tmp_path / 'manager'
+def test_poll_thread_reads_quit_only_and_leaves_restart_for_the_main_loop(tmp_path):
+    """Issue #345: the poll thread's tray read deleted ``.restart_requested``
+    unseen, so tray Restart did nothing. A restart marker must survive it, and
+    a quit marker must still be observed."""
+    from tests.unit.launcher._marker_helpers import SECRET as _SECRET
+    from tests.unit.launcher._marker_helpers import TRAY_PID as _TRAY_PID
+    from tests.unit.launcher._marker_helpers import write_marker as _write_marker_raw
+    from launcher.tray_ipc import MARKER_QUIT, MARKER_RESTART
+
+    manager_data = tmp_path / "manager"
     manager_data.mkdir()
-    fake_caddy = MagicMock()
-    supervision.set_caddy_supervisor(fake_caddy)
+    _write_marker_raw(tmp_path / MARKER_RESTART, target="manager")
 
-    # Write the request up front.
-    from launcher.setup_helpers import (
-        setup_restart_request_path,
-        write_setup_restart_request,
-    )
-    write_setup_restart_request(manager_data, {"public_tls_port": 9999})
+    supervision._maybe_observe_tray_quit(manager_data, _SECRET, lambda: _TRAY_PID)
+    assert (tmp_path / MARKER_RESTART).exists()
+    assert not supervision.get_quit_requested_event().is_set()
 
-    with patch(
-        'launcher.broadcaster_supervisor.BroadcasterSupervisor',
-        _FakeBroadcasterSupervisor,
-    ), patch.object(
-        supervision, 'IPC_POLL_INTERVAL_SECONDS', 0.02,
-    ), patch(
-        'launcher.caddy_launcher.apply_restart_request',
-    ) as apply_mock:
-        thread = supervision.start_ipc_poll_thread(manager_data)
-
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            if apply_mock.called:
-                break
-            time.sleep(0.05)
-
-        supervision.get_shutdown_event().set()
-        thread.join(timeout=2.0)
-
-    apply_mock.assert_called()
-    # Request file must have been cleared.
-    assert not setup_restart_request_path(manager_data).exists()
+    _write_marker_raw(tmp_path / MARKER_QUIT, target="all")
+    supervision._maybe_observe_tray_quit(manager_data, _SECRET, lambda: _TRAY_PID)
+    assert supervision.get_quit_requested_event().is_set()
+    assert (tmp_path / MARKER_RESTART).exists()
 
 
 def test_shutdown_event_stops_poll_loop(tmp_path):

@@ -43,6 +43,14 @@ describe('SetupFormComponent', () => {
     return SECTION_TAGS.filter(tag => fixture.nativeElement.querySelector(tag) !== null);
   }
 
+  /** FR-LN-6, #348: the full reason after the token, under a label that does not repeat it. */
+  it('#348 shows the full last_failure reason once, with no doubled prefix', () => {
+    form.last_failure = 'First start failed: the admin password is too short';
+    fixture.detectChanges();
+    expect(text('.setup-error').trim())
+      .toBe('The last start ended with this error: First start failed: the admin password is too short');
+  });
+
   /** FR-WZ-3: the rendered sections follow the chosen mode. */
   it('renders the sections of the chosen mode', () => {
     fixture.detectChanges();

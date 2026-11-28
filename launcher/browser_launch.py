@@ -6,14 +6,13 @@
 Browser-opening and startup-banner helpers for the launcher.
 
 Kept separate from ``run_launcher.py`` to stay under the 300-line
-ceiling. Stdlib-only.
+ceiling.
 
-Clipboard: the launcher does NOT initialize a ``QGuiApplication``
-(Qt lives in the tray helper, a separate subprocess), so the
-Qt-based ``shared.tray.clipboard`` helper cannot be used here. The
-native helper in ``launcher/clipboard.py`` shells out to
-``pbcopy`` / ``clip`` / ``wl-copy`` / ``xclip`` / ``xsel``
-instead. See GitHub issue #88.
+The setup token is printed in the banner and never copied to the
+clipboard automatically: the tray's Copy Setup Token does that when the
+person clicks it (FR-SEC-1, SR nit 10). The certificate fingerprint is
+the manager's own certificate, the one Caddy serves
+(:func:`launcher.caddy_wiring.manager_tls_paths`).
 """
 
 from __future__ import annotations
@@ -21,13 +20,11 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import ssl
 import sys
 import webbrowser
 from pathlib import Path
-
-# Import kept module-level so tests can monkey-patch a single
-# attribute; never called with the token on argv.
-from launcher.clipboard import copy_to_clipboard_native
+from typing import Optional
 
 
 def is_headless() -> bool:
@@ -50,16 +47,22 @@ def is_headless() -> bool:
     return False
 
 
-def compute_cert_fingerprint(data_dir: Path) -> str | None:
-    """Colon-separated SHA-256 of manager's TLS cert, or None."""
-    cert_path = data_dir / "manager" / "tls" / "cert.pem"
-    if not cert_path.exists():
-        return None
+def compute_cert_fingerprint(cert_path: Optional[Path] = None) -> str | None:
+    """Colon-separated SHA-256 of the manager's TLS cert (DER), or None.
+
+    The hash is over the DER certificate, as browsers and the workers'
+    pin (``shared.cert_utils.get_cert_fingerprint``) compute it, not over
+    the PEM file (issue #349). ``cert_path`` defaults to the manager's
+    own certificate. A missing or unparsable file gives None.
+    """
+    if cert_path is None:
+        from launcher.caddy_wiring import manager_tls_paths
+        cert_path, _key = manager_tls_paths()
     try:
-        raw = cert_path.read_bytes()
-    except OSError:
+        der = ssl.PEM_cert_to_DER_cert(cert_path.read_text(encoding="ascii"))
+    except (OSError, ValueError):
         return None
-    digest = hashlib.sha256(raw).hexdigest()
+    digest = hashlib.sha256(der).hexdigest()
     return ":".join(
         digest[i:i + 2] for i in range(0, len(digest), 2)
     )
@@ -69,35 +72,21 @@ def print_setup_banner(
     port: int,
     wizard_path: str,
     setup_token: str | None,
-    data_dir: Path,
+    cert_path: Optional[Path] = None,
     host: str = "localhost",
-) -> bool:
-    """Print the setup URL + token banner per setup-token-entry FR-14.
-
-    Returns ``True`` iff the token was successfully copied to the
-    clipboard (used by the caller to pick the last banner line).
-    """
+) -> None:
+    """Print the setup URL, the token and the certificate's SHA-256 (SR nit 4)."""
     url = f"https://{host}:{port}{wizard_path}"
-    copy_ok = False
-    if setup_token:
-        try:
-            copy_ok = copy_to_clipboard_native(setup_token)
-        except Exception:  # defensive; helper never raises
-            copy_ok = False
-
     bar = "=" * 63
     print(bar)
     print("  Sethlans Setup")
     print(f"  URL:    {url}")
     if setup_token:
         print(f"  Token:  {setup_token}")
-        if copy_ok:
-            print("  (Token copied to clipboard)")
-        else:
-            print("  (Copy the token above manually.)")
+        print("  (Copy it from here, or use Copy Setup Token in the tray.)")
     print(bar)
 
-    fp = compute_cert_fingerprint(data_dir)
+    fp = compute_cert_fingerprint(cert_path)
     if fp:
         print(f"Cert fingerprint: sha256:{fp}", file=sys.stderr)
     else:
@@ -106,7 +95,6 @@ def print_setup_banner(
             "manager starts)",
             file=sys.stderr,
         )
-    return copy_ok
 
 
 def open_browser(
@@ -122,7 +110,7 @@ def open_browser(
     ``setup_token`` is ignored in v2 (setup-token-entry FR-13): the
     URL never contains ``?token=`` because Chrome strips the query
     string behind the self-signed-cert interstitial.  The token is
-    delivered via banner + clipboard instead.
+    delivered via the banner and the tray instead.
     """
     del setup_token  # intentionally unused; see docstring.
     url = f"https://{host}:{port}{path}"

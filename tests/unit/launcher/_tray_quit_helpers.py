@@ -89,6 +89,7 @@ def write_quit_marker(data_dir: Path, secret: str, pid: int) -> None:
     payload = {
         "secret": secret,
         "pid": pid,
+        "action": "quit",
         "target": "all",
         "requested_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
     }

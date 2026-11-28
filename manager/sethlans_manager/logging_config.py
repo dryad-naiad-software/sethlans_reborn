@@ -18,6 +18,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # wins for scenarios where verbose logging is a nuisance.
 LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'DEBUG').upper()
 
+# The console handler's own level. The launcher sets WARNING for its
+# manager child, whose stderr goes to the start-up log file, so that file
+# stays small; manager.log keeps the full log. The start-failure
+# ``[ERROR]`` lines are print(), not logging, and are not affected.
+CONSOLE_LOG_LEVEL_ENV = 'SETHLANS_CONSOLE_LOG_LEVEL'
+CONSOLE_LOG_LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
+
+
+def console_log_level(value):
+    """``value`` (the env var) as a level name; unset or not a level name is ``DEBUG``."""
+    name = (value or '').strip().upper()
+    return name if name in CONSOLE_LOG_LEVELS else 'DEBUG'
+
+
 # Create logs directory if it doesn't exist. Logs live in the manager's
 # data folder in every mode (shared.frozen_paths.get_data_dir): the
 # per-user folder when installed, manager/ from source, /data in the
@@ -56,7 +70,7 @@ LOGGING = {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'standard',
-            'level': 'DEBUG',
+            'level': console_log_level(os.getenv(CONSOLE_LOG_LEVEL_ENV)),
         },
         'file': {
             'class': 'logging.handlers.RotatingFileHandler',

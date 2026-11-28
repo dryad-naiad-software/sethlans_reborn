@@ -10,23 +10,21 @@ Mirrors ``worker/sethlans_worker_agent/agent_caddy.py`` in shape.
 
 Runtime flow:
 
-1. Launcher resolves ports + cert paths (from the settings file +
-   defaults in :mod:`launcher.setup_helpers`) before starting any
-   children.
+1. :mod:`launcher.caddy_wiring` resolves ports + cert paths (from the
+   settings file, the manager's TLS folder and the defaults in
+   :mod:`launcher.setup_helpers`).
 2. :func:`build_manager_caddy_supervisor` constructs the supervisor;
    :meth:`CaddySupervisor.start` templates the Caddyfile (native) or
    uses ``$SETHLANS_MANAGER_CADDYFILE_PATH`` verbatim (Docker).
-3. Launcher polls the setup-restart-request IPC file (see
-   :mod:`launcher.setup_helpers`). When a wizard network-step change
-   lands, :func:`apply_restart_request` updates the supervisor's
-   template kwargs and triggers :meth:`CaddySupervisor.restart`.
+3. A port change restarts it through
+   :func:`launcher.caddy_wiring.start_or_retarget`.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Optional
 
 from shared.caddy_supervisor import CaddySupervisor
 
@@ -117,24 +115,3 @@ def build_manager_caddy_supervisor(
         caddyfile_path_env=CADDYFILE_PATH_ENV,
         env_overlay_mapping=_MANAGER_ENV_OVERLAY,
     )
-
-
-def apply_restart_request(
-    supervisor: CaddySupervisor,
-    request: Mapping[str, object],
-) -> None:
-    """Update template kwargs from an IPC request and restart Caddy.
-
-    ``request`` is the decoded JSON written by the Django side into
-    ``setup_restart_request.json`` while holding the setup mutation
-    lock. Only keys present in the request override the current
-    template kwargs — missing keys keep their last-known-good value.
-    The launcher-side caller is responsible for clearing the request
-    file after this function returns.
-    """
-    supervisor.update_template_kwargs(**dict(request))
-    logger.info(
-        "Applying wizard-triggered Caddy restart (keys: %s)",
-        list(request.keys()),
-    )
-    supervisor.restart()

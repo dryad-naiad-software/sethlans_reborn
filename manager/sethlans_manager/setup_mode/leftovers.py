@@ -14,13 +14,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from shared.frozen_paths import get_worker_dir
-from shared.settings_file import SETUP_SUBDIR, get_settings_dir
+from shared.settings_file import LAST_FAILURE_NAME, SETUP_SUBDIR, get_settings_dir
 from shared.settings_file_io import read_limited
 
 logger = logging.getLogger(__name__)
 
 PENDING_SETUP_NAME = "pending_setup.json"
-LAST_FAILURE_NAME = "last_failure"
 MAX_FAILURE_BYTES = 4096
 
 

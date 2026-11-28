@@ -26,9 +26,9 @@ from typing import Callable, Optional
 
 from shared import owner_only_acl
 from shared.settings_file import SETUP_SUBDIR, get_settings_dir
+from shared.settings_file import SETUP_TOKEN_NAME as TOKEN_FILE_NAME
 from shared.settings_file_io import read_limited
 
-TOKEN_FILE_NAME = "setup_token"
 MAX_TOKEN_BYTES = 512
 SESSION_COOKIE = "sethlans_setup_session"
 SESSION_HEADER_META = "HTTP_X_SETUP_SESSION"

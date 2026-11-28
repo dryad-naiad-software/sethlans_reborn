@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
+
+import pytest
 
 from launcher import tray_ipc
 from launcher.tray_ipc import (
     MARKER_QUIT,
+    MARKER_RESET,
     MARKER_RESTART,
+    consume_all_markers,
     consume_pending_ipc,
     generate_secret,
     read_and_validate_marker,
@@ -20,27 +25,10 @@ from launcher.tray_ipc import (
 )
 
 
-# Must be >= 32 chars per _validate_payload's empty-secret guard;
-# production uses secrets.token_urlsafe(32) which yields ~43 chars.
-_SECRET = "test-launcher-secret-xxxxxxxxxxxxxxxxxxxxxxxxxxx"
-_TRAY_PID = 42424
-
-
-def _now_iso() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).isoformat()
-
-
-def _write_marker_raw(
-    path, secret=_SECRET, pid=_TRAY_PID,
-    target="manager", requested_at=None,
-):
-    payload = {
-        "secret": secret,
-        "pid": pid,
-        "target": target,
-        "requested_at": requested_at or _now_iso(),
-    }
-    path.write_text(json.dumps(payload), encoding="utf-8")
+from shared.tray import ipc as tray_writer
+from tests.unit.launcher._marker_helpers import SECRET as _SECRET
+from tests.unit.launcher._marker_helpers import TRAY_PID as _TRAY_PID
+from tests.unit.launcher._marker_helpers import write_marker as _write_marker_raw
 
 
 # ------------------------------------------------------------------
@@ -65,11 +53,12 @@ class TestGenerateSecret:
 class TestSweepStaleMarkers:
 
     def test_deletes_existing_markers(self, tmp_path):
-        (tmp_path / MARKER_QUIT).write_text("x", encoding="utf-8")
-        (tmp_path / MARKER_RESTART).write_text("x", encoding="utf-8")
+        """FR-20e; FR-RS-1: the reset marker is swept too."""
+        for name in (MARKER_QUIT, MARKER_RESTART, MARKER_RESET):
+            (tmp_path / name).write_text("x", encoding="utf-8")
         sweep_stale_markers(tmp_path)
-        assert not (tmp_path / MARKER_QUIT).exists()
-        assert not (tmp_path / MARKER_RESTART).exists()
+        for name in (MARKER_QUIT, MARKER_RESTART, MARKER_RESET):
+            assert not (tmp_path / name).exists()
 
     def test_no_files_is_noop(self, tmp_path):
         # Must not raise.
@@ -175,6 +164,62 @@ class TestConsumePendingIpc:
         assert any(
             "quit wins" in rec.message for rec in caplog.records
         )
+
+
+def _iso(seconds_from_now: float) -> str:
+    return (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(seconds=seconds_from_now)).isoformat()
+
+
+@pytest.mark.parametrize("name, fields, accepted", [
+    pytest.param(MARKER_RESET, {"target": "all"}, True, id="reset-ok"),
+    pytest.param(MARKER_RESET, {"target": "all", "action": "quit"}, False, id="quit-payload-renamed-to-reset"),
+    pytest.param(MARKER_RESTART, {"target": "manager", "action": "reset"}, False, id="reset-payload-as-restart"),
+    pytest.param(MARKER_QUIT, {"target": "all", "action": None}, False, id="no-action"),
+    pytest.param(MARKER_RESET, {"target": "manager"}, False, id="reset-target-is-all-only"),
+    pytest.param(MARKER_RESET, {"target": "all", "requested_at": 60}, False, id="reset-from-the-future"),
+    pytest.param(MARKER_RESET, {"target": "all", "requested_at": -60}, False, id="reset-stale"),
+])
+def test_marker_action_target_and_reset_freshness(tmp_path, name, fields, accepted):
+    """FR-RS-1 (chunk 6 review M2): a marker's ``action`` must match its file
+    name, each action has its own targets, and a reset must be within 30 s of now."""
+    path = tmp_path / name
+    if "requested_at" in fields:  # seconds from now, taken when the test runs
+        fields = {**fields, "requested_at": _iso(fields["requested_at"])}
+    _write_marker_raw(path, **fields)
+    result = read_and_validate_marker(path, _SECRET, _TRAY_PID)
+    assert (result == fields["target"]) if accepted else result is None
+
+
+def test_reset_without_a_time_is_refused(tmp_path):
+    """FR-RS-1 (review M2): ``requested_at`` is required on a reset."""
+    path = tmp_path / MARKER_RESET
+    path.write_text(json.dumps({"secret": _SECRET, "pid": _TRAY_PID, "action": "reset", "target": "all"}),
+                    encoding="utf-8")
+    assert read_and_validate_marker(path, _SECRET, _TRAY_PID) is None
+
+
+@pytest.mark.parametrize("write, name, target", [
+    pytest.param(lambda d: tray_writer.request_quit(d, "all"), MARKER_QUIT, "all", id="quit"),
+    pytest.param(lambda d: tray_writer.request_restart(d), MARKER_RESTART, "manager", id="restart"),
+])
+def test_the_trays_markers_still_validate(monkeypatch, tmp_path, write, name, target):
+    """Tray spec FR-20 with review M2: the tray's writer names the action the
+    launcher now checks, so Quit and Restart keep working."""
+    monkeypatch.setenv(tray_writer.ENV_SECRET, _SECRET)
+    write(tmp_path)
+    assert read_and_validate_marker(tmp_path / name, _SECRET, os.getpid()) == target
+
+
+def test_consume_all_markers_reads_and_deletes_all_three(tmp_path):
+    """FR-RS-1, chunk 6 plan: quit, reset and restart are each validated and
+    deleted; an invalid one reads as None (the loop applies the precedence)."""
+    _write_marker_raw(tmp_path / MARKER_QUIT, secret="wrong-secret-xxxxxxxxxxxxxxxxxxxxxxxxx", target="all")
+    _write_marker_raw(tmp_path / MARKER_RESET, target="all")
+    _write_marker_raw(tmp_path / MARKER_RESTART, target="manager")
+
+    assert consume_all_markers(tmp_path, _SECRET, _TRAY_PID) == (None, "all", "manager")
+    for name in (MARKER_QUIT, MARKER_RESET, MARKER_RESTART):
+        assert not (tmp_path / name).exists()
 
 
 # ------------------------------------------------------------------

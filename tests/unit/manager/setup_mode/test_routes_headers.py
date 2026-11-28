@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from sethlans_manager.setup_mode import middleware, urls, views
+from sethlans_manager.setup_mode import leftovers, middleware, urls, views
 from tests.unit.manager.setup_mode._helpers import LAN_ADDRESS
 
 ALLOWED_ROUTES = {"api/health/", "api/setup/auth/", "api/setup/form/", "api/setup/submit/", "setup/"}
@@ -94,7 +94,7 @@ class TestAllowedHosts:
         assert "a" * 101 not in records[0].getMessage()
 
     def test_bad_host_never_reaches_a_view(self, setup_client, mocker):
-        health = mocker.patch.object(views.leftovers, "last_failure")
+        health = mocker.patch.object(leftovers, "last_failure")
         setup_client.get("/api/health/", HTTP_HOST="evil.example")
         health.assert_not_called()
 
@@ -112,7 +112,7 @@ class TestErrorHandlers:
     def test_suspicious_operation_is_a_json_400(self, setup_client, mocker):
         from django.core.exceptions import SuspiciousOperation
 
-        mocker.patch.object(views.leftovers, "last_failure", side_effect=SuspiciousOperation("odd"))
+        mocker.patch.object(leftovers, "last_failure", side_effect=SuspiciousOperation("odd"))
         response = setup_client.get("/api/health/")
         assert response.status_code == 400
         assert response.json() == {"error": "bad_request", "message": "The request was refused."}
@@ -121,7 +121,7 @@ class TestErrorHandlers:
     def test_permission_denied_is_a_json_403(self, setup_client, mocker):
         from django.core.exceptions import PermissionDenied
 
-        mocker.patch.object(views.leftovers, "last_failure", side_effect=PermissionDenied("no"))
+        mocker.patch.object(leftovers, "last_failure", side_effect=PermissionDenied("no"))
         response = setup_client.get("/api/health/")
         assert response.status_code == 403
         assert response.json() == {"error": "forbidden", "message": "Not allowed."}
@@ -144,10 +144,12 @@ class TestHealth:
         assert response.content == b""
         assert response["Cache-Control"] == "no-store"
 
-    def test_last_failure_text(self, setup_client, settings_dir):
+    def test_last_failure_is_a_fixed_summary(self, setup_client, settings_dir):
+        """#348: health needs no session, so it shows a fixed phrase, not the reason's text."""
         (settings_dir / "setup").mkdir(parents=True)
         (settings_dir / "setup" / "last_failure").write_text("  The manager could not open the database.\n")
-        assert setup_client.get("/api/health/").json()["last_failure"] == "The manager could not open the database."
+        assert setup_client.get("/api/health/").json()["last_failure"] == (
+            "The manager did not start. Enter the setup token to see why.")
 
     def test_no_session_needed(self, setup_client):
         assert setup_client.get("/api/health/").status_code == 200
@@ -182,7 +184,7 @@ class TestSetupPage:
 class TestServerError:
 
     def test_unhandled_error_is_a_json_500(self, setup_client, mocker):
-        mocker.patch.object(views.leftovers, "last_failure", side_effect=RuntimeError("boom"))
+        mocker.patch.object(leftovers, "last_failure", side_effect=RuntimeError("boom"))
         response = setup_client.get("/api/health/")
         assert response.status_code == 500
         assert response.json()["error"] == "server_error"

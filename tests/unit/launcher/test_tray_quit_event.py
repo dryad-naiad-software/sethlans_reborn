@@ -11,7 +11,7 @@ Covers the lower-level pieces of the spec:
   timeout, True when the event is set.
 * AC-IPCConsumed — the existing IPC poll thread, when given a tray
   secret + pid provider, consumes ``.quit_requested`` markers via
-  :func:`launcher.tray_ipc.consume_pending_ipc` and sets the event
+  :func:`launcher.tray_ipc.consume_quit_marker` and sets the event
   within one ``IPC_POLL_INTERVAL_SECONDS``.
 * AC-TestsIsolated — paired set/clear tests verify the autouse
   conftest fixture clears the event between tests.

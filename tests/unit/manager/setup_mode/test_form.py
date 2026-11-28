@@ -212,3 +212,11 @@ class TestFormErrors:
         body = _get(setup_client, session).json()
         assert body["last_failure"] == "Port 9443 was taken."
         assert body["leftovers"] == [str(settings_dir / "topology.json")]
+
+    def test_full_last_failure_after_the_token(self, setup_client, session, settings_dir, accounts, free):
+        """#348: health shows only a summary; the session-gated form keeps the full reason."""
+        reason = r"First start failed: the account 'boss' already exists in C:\Users\osaccount\Sethlans"
+        (settings_dir / "setup").mkdir(parents=True)
+        (settings_dir / "setup" / "last_failure").write_text(reason, encoding="utf-8")
+        assert _get(setup_client, session).json()["last_failure"] == reason
+        assert "boss" not in setup_client.get("/api/health/").json()["last_failure"]

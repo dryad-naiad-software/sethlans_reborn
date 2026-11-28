@@ -8,16 +8,12 @@ Covers:
 
 - ``build_manager_caddy_supervisor`` constructs a CaddySupervisor
   with the manager-flavoured template kwargs and env overlay.
-- ``apply_restart_request`` forwards the request payload onto
-  ``update_template_kwargs`` and calls ``restart``.
 
 The underlying Caddy subprocess is never spawned — we validate
-constructor wiring and the restart-request forwarding path only.
+constructor wiring only.
 """
 
 from __future__ import annotations
-
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -73,17 +69,6 @@ def test_build_manager_caddy_supervisor_wires_renderer_and_overlay(
     # Renderer is the manager-flavoured pure function.
     from sethlans_manager.caddy_template import render_manager_caddyfile
     assert sv._caddyfile_renderer is render_manager_caddyfile
-
-
-def test_apply_restart_request_updates_kwargs_and_restarts():
-    fake_sv = MagicMock()
-    request = {
-        "public_tls_port": 9999,
-        "waitress_public_port": 19999,
-    }
-    cl_mod.apply_restart_request(fake_sv, request)
-    fake_sv.update_template_kwargs.assert_called_once_with(**request)
-    fake_sv.restart.assert_called_once()
 
 
 def test_load_manager_renderer_returns_callable():

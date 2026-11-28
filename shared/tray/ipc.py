@@ -12,8 +12,9 @@ The tray writes one of two marker files to ``<data_dir>``:
 
 Each marker is written atomically via a tempfile in the same directory
 followed by ``os.replace`` (cross-platform atomic rename).  The payload
-carries an HMAC-validated secret, the tray PID, the target, and an
-ISO-8601 timestamp; the launcher verifies all four on read.
+carries an HMAC-validated secret, the tray PID, the action (which must
+match the marker's file name), the target, and an ISO-8601 timestamp;
+the launcher verifies all five on read (``launcher.tray_ipc``).
 
 See tray spec FR-20 / FR-20a / FR-20b / FR-20c.
 """
@@ -36,6 +37,8 @@ MARKER_RESTART = ".restart_requested"
 MARKER_QUIT = ".quit_requested"
 
 _VALID_TARGETS = frozenset({"manager", "all"})
+# Marker file name -> the ``action`` the launcher expects in its payload.
+_ACTIONS = {MARKER_RESTART: "restart", MARKER_QUIT: "quit"}
 
 
 def marker_exists(data_dir: Path, name: str) -> bool:
@@ -64,6 +67,7 @@ def _write_marker(data_dir: Path, name: str, target: str) -> Path:
     payload = {
         "secret": _get_secret(),
         "pid": os.getpid(),
+        "action": _ACTIONS[name],
         "target": target,
         "requested_at": _dt.datetime.now(
             _dt.timezone.utc,
